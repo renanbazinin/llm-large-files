@@ -1,0 +1,91 @@
+{
+  "name": "llm-large-files",
+  "version": "0.1.0",
+  "description": "Let an LLM answer questions about books, logs, and other files larger than its request limit or context window: upload, plan, search and read tools, and map-reduce. Gemini and Vertex AI helpers included.",
+  "keywords": [
+    "llm",
+    "gemini",
+    "vertex-ai",
+    "large-files",
+    "long-context",
+    "context-window",
+    "function-calling",
+    "tool-calling",
+    "map-reduce",
+    "logs",
+    "pdf",
+    "rag",
+    "chatbot"
+  ],
+  "license": "MIT",
+  "author": "renanbazinin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/renanbazinin/llm-large-files.git"
+  },
+  "homepage": "https://github.com/renanbazinin/llm-large-files#readme",
+  "bugs": {
+    "url": "https://github.com/renanbazinin/llm-large-files/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20.19"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./gemini": {
+      "types": "./dist/gemini/index.d.ts",
+      "default": "./dist/gemini/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "gemini": ["./dist/gemini/index.d.ts"],
+      "node": ["./dist/node/index.d.ts"]
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "docs",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm test && npm run build",
+    "prepublishOnly": "npm run check"
+  },
+  "peerDependencies": {
+    "jszip": "^3.10.0",
+    "unpdf": "^1.4.0"
+  },
+  "peerDependenciesMeta": {
+    "jszip": {
+      "optional": true
+    },
+    "unpdf": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "jszip": "3.10.1",
+    "typescript": "5.9.3",
+    "unpdf": "1.4.0",
+    "vitest": "3.2.7"
+  }
+}
