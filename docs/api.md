@@ -20,6 +20,8 @@ Three entry points:
 | `maxUploadBytes` | `number` | 100 MB |
 | `extractors` | `Partial<Record<DocumentFormat, Extractor>>` | built-ins |
 | `cacheSize` | `number` | 6 parsed documents in memory |
+| `keepOriginals` | `DocumentFormat[]` | `[]`: only text is kept. `["pdf"]` keeps uploaded PDFs, which `view_pages` needs ([details](configuration.md#keeping-the-uploaded-file)) |
+| `scannedPdfPages` | `number` | 30: the longest PDF without any text that is accepted when its original is kept. 0 refuses them all |
 
 ### `LargeFiles`
 
@@ -27,10 +29,11 @@ Three entry points:
 |---|---|
 | `ingest({ name, mimeType?, bytes, owner? })` | Extracts, normalizes, profiles, and stores a file. Returns `DocumentMeta`. Throws an `Error` with a user-readable message for empty, oversized, binary, or text-less files. |
 | `getMeta(id, { owner }?)` | `DocumentMeta`, or `undefined` if unknown, expired, or owned by someone else. |
+| `getOriginal(id, { owner }?)` | The uploaded file as a `Uint8Array`, when it was kept. `undefined` otherwise, and for another owner. |
 | `delete(id, { owner }?)` | `true` if deleted. |
 | `sweep()` | Removes expired documents; returns the count. |
-| `prepare(ids, base, { owner }?)` | Plans one request. `base` is `{ tokens, bytes }` for everything else in the request. Returns `PreparedContext`. |
-| `tools(documents, { generate?, onProgress?, signal? })` | A `ToolSet` scoped to these documents. `generate` enables `analyze_whole_document`. |
+| `prepare(ids, base, { owner?, viewPages? }?)` | Plans one request. `base` is `{ tokens, bytes }` for everything else in the request. Returns `PreparedContext`. `viewPages: true` says that your loop can pass files to the model. |
+| `tools(documents, { generate?, onProgress?, signal?, viewPages? })` | A `ToolSet` scoped to these documents. `generate` enables `analyze_whole_document`. `viewPages` (`true`, or a list of documents such as `prepared.viewable`) enables `view_pages`. |
 | `budget`, `maxUploadBytes` | The effective settings. |
 
 ### `PreparedContext`
@@ -39,8 +42,9 @@ Three entry points:
 {
   plan: { inline: DocumentMeta[]; searchable: DocumentMeta[]; inlineTokens: number; inlineBytes: number };
   blocks: Map<string, string>;  // per document ID: full text (inline) or a summary card (searchable)
-  instruction: string;          // add to the system prompt; empty when nothing is searchable
+  instruction: string;          // add to the system prompt; empty when there is nothing to search or to look at
   missing: string[];            // IDs not found (never uploaded, expired, or another owner's)
+  viewable: DocumentMeta[];     // PDFs whose pages view_pages can show; empty without viewPages: true
 }
 ```
 
@@ -51,9 +55,13 @@ Three entry points:
   declarations: ToolDeclaration[];        // { name, description, parameters: JSON Schema }
   has(name): boolean;
   execute(name, args): Promise<ToolResult>; // errors come back as { error } for the model to read
+  executeWithFiles(name, args, { maxFileBytes?, maxPages? }?): Promise<{ result: ToolResult; files: ToolFile[] }>;
   describe(name, args): string;           // "Search app.log (exact) for “timeout”"
 }
 ```
+
+`executeWithFiles` runs any tool. Its `files` (`{ name, mimeType, bytes }`) are empty for all but
+`view_pages`. `execute("view_pages", …)` returns an error, because it has no place for the file.
 
 | Tool | Arguments | Returns |
 |---|---|---|
@@ -61,12 +69,18 @@ Three entry points:
 | `read_document` | `document_id`, `start_line`, `end_line?` | Up to 600 numbered lines, and `next_start_line` if there's more |
 | `get_document_overview` | `document_id` | Format, size, outline, log profile, first and last lines |
 | `analyze_whole_document` | `document_id`, `task` | `answer` from a map-reduce read, plus part counts |
+| `view_pages` | `document_id`, `from_page`, `to_page?` | Up to 5 pages of a PDF as one PDF file, with `pages` ("12-14"), `total_pages`, `file` (its name), and `next_page` when fewer pages were given than asked. Declared only with `viewPages`, for PDFs whose original is kept. |
+
+For a PDF that `view_pages` can show, the results of `search_document` and `read_document` also
+carry page numbers: `page` on each matching line, `pages` on a passage and on a range that was read.
 
 ### Stores
 
 - `new MemoryDocumentStore({ now? })`: in-process, for tests and single-instance demos.
-- `new FileDocumentStore(directory, { now? })`: `<id>.txt` and `<id>.json` per document.
-- Implement `DocumentStore` (`put`, `get`, `getMeta`, `delete`, `sweep?`) for anything else.
+- `new FileDocumentStore(directory, { now? })`: `<id>.txt` and `<id>.json` per document, and
+  `<id>.bin` for a kept original.
+- Implement `DocumentStore` (`put`, `get`, `getMeta`, `delete`, `sweep?`, and `putOriginal?` with
+  `getOriginal?` to keep originals) for anything else.
 
 ### Helpers
 
@@ -74,10 +88,12 @@ Three entry points:
 - `toolResultSummary(label, result)`: `" — 12 matching lines"`, for step lists.
 - `isDocumentId(value)`, `DOCUMENT_ID_PATTERN`.
 - `estimateTokens(text)`, `utf8Bytes(text)`, `jsonBytes(text)`.
-- `detectFormat(name, mimeType)`, `defaultExtractors`, `TOOL_NAMES`, `DEFAULT_BUDGET`.
-- `createPdfExtractor({ tables?: boolean })`: the built-in PDF extractor with an option changed.
-  `tables: false` gives the text in pdf.js order, without rebuilt tables
-  (see [PDF tables](configuration.md#pdf-tables)).
+- `detectFormat(name, mimeType)`, `defaultExtractors`, `TOOL_NAMES`, `DEFAULT_BUDGET`,
+  `MAX_VIEW_PAGES` (5).
+- `createPdfExtractor({ tables?: boolean, pictures?: boolean })`: the built-in PDF extractor with
+  an option changed. `tables: false` gives the text in pdf.js order, without rebuilt tables
+  (see [PDF tables](configuration.md#pdf-tables)). `pictures: false` leaves out the line that marks
+  a page with a picture (see [Pictures in PDFs](configuration.md#pictures-in-pdfs)).
 
 ### Key types
 
@@ -88,6 +104,7 @@ type DocumentMeta = {
   id: string; owner?: string; name: string; mimeType: string; format: DocumentFormat;
   bytes: number; textBytes: number; characters: number; lines: number; estimatedTokens: number;
   wrappedLines: number; pages?: number;
+  originalKept?: boolean;   // the uploaded file is in the store next to the text
   outline: { line: number; level: number; title: string }[];
   logProfile?: { levels: Record<string, number>; firstTimestamp?: string; lastTimestamp?: string;
                  topIssues: { template: string; level: string; count: number; firstLine: number }[] };
@@ -98,7 +115,10 @@ type GenerateText = (request: {
   system: string; prompt: string; maxOutputTokens: number; signal?: AbortSignal;
   onTruncated?: () => void; // call it when the model stopped at maxOutputTokens
 }) => Promise<string>;
-type Extractor = (bytes: Uint8Array, input: { name: string; mimeType: string; format: DocumentFormat }) => Promise<{ text: string; pages?: number }>;
+type Extractor = (bytes: Uint8Array, input: { name: string; mimeType: string; format: DocumentFormat; scannedPages?: number }) => Promise<{ text: string; pages?: number }>;
+// scannedPages: set when a PDF without any text is welcome, with the most pages it may have.
+
+type ToolFile = { name: string; mimeType: string; bytes: Uint8Array };
 ```
 
 ## `llm-large-files/gemini`
@@ -116,6 +136,8 @@ type Extractor = (bytes: Uint8Array, input: { name: string; mimeType: string; fo
 | `documentPlacement` | `"first"` (default): document text and cards go at the start of the first user turn and stay there, so follow-up questions reuse Gemini's prompt cache. `"last"`: appended to the latest user turn, as in 0.1.0. |
 | `maxToolTurns` | Default 12. The most requests for one question, counting the answer. If the model is still calling tools on the last one, it is sent with no tools so the model must answer. |
 | `wholeDocumentAnalysis` | Default `true`. Set `false` to withhold the costly whole-file tool. |
+| `viewPages` | Default `true`. Offers `view_pages` for PDFs whose original is kept. It changes nothing for a library that keeps no originals. |
+| `toolFilePlacement` | `"inside"` (default): the pages go in the function response itself. `"beside"`: as a part next to the function responses, for an endpoint that refuses the first. |
 | `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. |
 | `onText`, `onActivity`, `onStep` | Streaming answer text, transient status, completed steps. |
 | `fetch`, `signal` | Custom fetch (proxies, tests) and cancellation. |
@@ -146,7 +168,10 @@ for HTTP errors, and `Error` when the last message isn't the user's.
 
 - `createGeminiGenerateText({ url, headers, fetchImpl?, generationConfig?, timeoutMs? })`: a `GenerateText` for your own loop.
 - `toGeminiTools(declarations)`: `{ functionDeclarations }`.
-- `geminiFunctionResponses([{ call, result }])`: the `user` turn answering function calls.
+- `geminiFunctionResponses([{ call, result, files? }], { files?: "inside" | "beside" })`: the
+  `user` turn answering function calls. Files from `executeWithFiles` are sent as base64.
+- `FINAL_ANSWER_REQUEST`, `FINAL_ANSWER_AFTER_PAGES`: the messages `askGemini` adds when the model
+  must stop using tools. The second is used when `view_pages` was the only tool.
 - `parseSseJson(stream)`: async iterator over a Generate Content SSE stream.
 
 ## `llm-large-files/node`

@@ -7,7 +7,8 @@ Express and Gemini, with notes for other setups.
 
 ```bash
 npm install llm-large-files
-npm install jszip unpdf   # optional: DOCX/PPTX and PDF support
+npm install jszip unpdf        # optional: DOCX/PPTX and PDF support
+npm install @cantoo/pdf-lib    # optional: let the model look at pages of a PDF (pictures, charts)
 ```
 
 ## 2. Create the library once
@@ -22,6 +23,8 @@ export const files = createLargeFiles({
   budget: { contextTokens: 1_000_000, maxRequestBytes: 10_000_000 },
   ttlMs: 72 * 60 * 60 * 1000,      // keep uploads for 3 days
   maxUploadBytes: 100 * 1024 * 1024,
+  // Optional: keep uploaded PDFs, so the model can look at their pages (see "Pictures" below).
+  // keepOriginals: ["pdf"],
 });
 
 // Reclaim disk space from expired uploads (expired files are already ignored on read).
@@ -58,7 +61,7 @@ The response is a `DocumentSummary`:
 ```
 
 Errors are JSON `{ "error": "…" }`: 400 when there's no file name, 413 when the file is too large,
-and 422 for an unreadable file (binary, empty, or a scanned PDF).
+and 422 for an unreadable file (binary, empty, or a scanned PDF that cannot be shown page by page).
 
 **Other servers.** The handlers take Node's `IncomingMessage` / `ServerResponse`, so they work with
 `node:http`, Express, Koa (`ctx.req`, `ctx.res`), Fastify (`request.raw`, `reply.raw`), and Next.js
@@ -87,7 +90,8 @@ async function uploadLargeFile(file: File) {
 **Which files should go to the server?** Anything your current inline path can't handle. A
 practical rule is text over about 512 KB and PDFs over about 7 MB (base64 makes them about a
 third bigger). Smaller files can keep your existing path. PDFs under your payload limit are better
-sent inline, because Gemini reads their layout and images.
+sent inline, because Gemini then reads every page with its layout and images. For larger PDFs,
+turn on `keepOriginals` (below) so the model can ask for the pages it needs.
 
 ## 4. Answer questions
 
@@ -166,6 +170,30 @@ Without `streamUrl`, answers arrive in one piece (and `onText` fires once).
 **Existing Gemini history.** If your chat already stores Gemini `contents` (with images or inline
 PDFs), pass `contents` instead of `messages`; document text is added at the start of the first user turn.
 
+### Pictures, charts and scans in PDFs
+
+The text of a PDF does not hold its pictures. To let the model look at a page when the text is not
+enough, install `@cantoo/pdf-lib` and keep the uploaded PDFs:
+
+```ts
+export const files = createLargeFiles({
+  store: new FileDocumentStore("./data/large-files"),
+  keepOriginals: ["pdf"],
+});
+```
+
+`askGemini` needs no change. It offers the model a tool, `view_pages`, and sends the pages it asks
+for (up to five a call) as a small PDF. A look shows up among the steps:
+
+```
+✓ Look at report.pdf pages 12-14
+```
+
+With originals kept, a scanned PDF of up to 30 pages is accepted too, and read page by page.
+Kept files take disk space until they expire, which is why this is off by default. The limits, the
+costs and the measurements are in [Pictures in PDFs](configuration.md#pictures-in-pdfs), and what
+to think about before turning it on in [Security](security.md#original-files).
+
 ### With another model: build your own loop
 
 `files.prepare()` and `files.tools()` are provider-neutral. Tool declarations are plain JSON Schema,
@@ -185,6 +213,9 @@ const tools = files.tools(prepared.plan.searchable, { generate: myTextCompletion
 
 `generate` is any `({ system, prompt, maxOutputTokens, signal }) => Promise<string>`. It's used
 only to read whole files in parts.
+
+To offer `view_pages` in your own loop, it has to send a file to the model with a tool result. See
+[Your own loop](configuration.md#your-own-loop).
 
 ## Keeping the conversation working
 

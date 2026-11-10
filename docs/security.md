@@ -24,7 +24,8 @@ can leak through logs, browser storage, or shared links.
 ## Tool scoping
 
 `files.tools(documents)` accepts only the IDs it was created with. A model (or a prompt injected
-into a file) can't reach another conversation's documents by naming their IDs.
+into a file) can't reach another conversation's documents by naming their IDs. `view_pages` has
+its own list, the PDFs passed as `viewPages`, and checks it the same way.
 
 ## Prompt injection
 
@@ -42,15 +43,49 @@ treat the model's output as untrusted.
 - Only IDs matching `doc_` plus 32 hex characters ever reach the file system, so there's no path
   traversal.
 
+## Original files
+
+With `keepOriginals`, the uploaded file itself is stored next to its text (`<id>.bin` in
+`FileDocumentStore`). That is off by default. When you turn it on:
+
+- **More is kept than before.** The text of a PDF leaves out its pictures, signatures, stamps and
+  hidden layers; the file has them all, and its metadata (author, software, dates). Treat the
+  store as you treat the uploads themselves.
+- **It follows the document.** The file has the document's owner and its expiry: it is returned
+  only to the owner (`files.getOriginal(id, { owner })`), it is gone for every reader once the
+  document has expired, and `delete` and `sweep` remove it from disk. A store of your own must do
+  the same in its `delete` and `sweep`.
+- **It takes space.** Up to `maxUploadBytes` (100 MB) per document, for `ttlMs` (72 h). Lower
+  either, or sweep more often, if disk is short.
+- **Pages go to the model.** `view_pages` sends the pages the model asks for to your model
+  provider, as the text of the file already goes. A PDF that is encrypted only to restrict printing
+  or copying is opened, and the cut is not encrypted: the restriction does not travel with it.
+
+## Reading PDFs for pages and pictures
+
+Showing pages and marking pictures read the whole PDF into objects with `@cantoo/pdf-lib`, in your
+process, on a file a user uploaded.
+
+- **Memory.** About twice the size of the file, plus 1 to 1.6 KB for each object in it. A file of
+  54 MB with 330,000 objects needed 700 MB. A file that declares more objects than the free heap
+  can hold, or more than a million, is refused before it is read (150,000 for the picture marks).
+  That check trusts what the file declares: a file that lies about it is still read.
+- **Time, and no hard limit.** Reading cannot be interrupted once it has started. It pauses every
+  4,000 objects so other requests get a turn, but a crafted file can hold the process: 1 MB of
+  junk between two objects took 3.6 seconds to skip. Errors are caught and the model is told that
+  the pages cannot be shown; a file that only takes long is not stopped.
+- For uploads you do not trust, run ingest and the document tools in a worker thread or a separate
+  process with a memory limit and a timeout, as recommended for PDF text extraction below.
+
 ## Uploads
 
 - `maxUploadBytes` (default 100 MB) is enforced while reading, before the body is buffered fully.
 - The handlers buffer the upload in memory before extraction. Under heavy concurrent uploads, put a
   limit in front (a reverse proxy or a rate limiter).
 - Binary files are rejected, including compressed ones (`.gz`, `.zip`), which get a message
-  telling the user to decompress first. PDF parsing runs `unpdf` (pdf.js) on untrusted input in
-  your process. Keep it updated, or move extraction to a worker or sandbox for high-risk
-  deployments.
+  telling the user to decompress first. PDF parsing runs `unpdf` (pdf.js), and with it installed
+  `@cantoo/pdf-lib`, on untrusted input in your process. Keep them updated, or move extraction to a
+  worker or sandbox for high-risk deployments.
 - File names are reduced to one printable line at ingest (no path, control characters, line
   breaks, or text-direction overrides) and quoted in the system instruction, so a name can't add
   lines to the prompt. The name is still text the model reads, like the file's content.

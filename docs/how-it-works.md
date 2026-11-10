@@ -2,26 +2,33 @@
 
 ```
 upload ─► ingest ─► store        extract text · normalize · index lines · outline · log profile
-                      │
+                      │          (and the uploaded file itself, for formats in keepOriginals)
 chat turn ─► prepare(ids, size of the rest of the request)
                       ├─ fits ────► full text in the prompt
                       └─ too big ─► summary card in the prompt
                                     + tool guide in the system prompt
                                     + tools: search · read · overview · analyze-all
+                      a PDF whose file is kept, in either branch
+                                  ─► + tool: view_pages (the real pages, as a small PDF)
 ```
 
 ## Ingest
 
 1. **Extract** text by format (built-in extractors or your own). In a PDF, tables are rebuilt from
    the position of their text and written as `| cell | cell |  |` rows, so an empty cell stays an
-   empty cell ([details and limits](configuration.md#pdf-tables)).
+   empty cell ([details and limits](configuration.md#pdf-tables)). A page that shows a picture or a
+   drawing gets a line that says so. Those pages are found from the structure of the file: a small
+   interpreter follows each page's drawing instructions and notes where images are painted and
+   which shapes are filled, without decoding any image
+   ([what counts](configuration.md#the-line-that-marks-a-page)).
 2. **Normalize**: strip the BOM, unify line endings, remove terminal colour codes and control
    characters, split lines over 2,000 characters.
 3. **Profile**: count lines, estimate tokens and UTF-8 bytes, and build an outline (headings with
    line numbers). For logs, also count levels, find the time range, and group ERROR/FATAL/WARN lines
    by *shape*. Numbers, IDs, IPs, hex, and quoted values are replaced with placeholders, so 800
    timeouts to different hosts become one entry: `[ERROR ×812, L1203] timeout after <n>ms to <ip>`.
-4. **Store** the text and metadata. Nothing else is indexed up front.
+4. **Store** the text and metadata, and the uploaded file when its format is in `keepOriginals`.
+   Nothing else is indexed up front.
 
 ## The card
 
@@ -44,9 +51,39 @@ FATAL line listed on the card.
 - **`get_document_overview`**: the full outline and profile, the first and last lines, and how many
   parts a whole-file read would take.
 - **`analyze_whole_document`**: map-reduce (below).
+- **`view_pages`**: pages of a PDF, cut out of the kept original into a PDF of their own
+  (below). It is the only tool that returns a file.
 
 Every result is capped (`toolResultCharacters`) and states what was cut, so one tool call can never
-overflow the request.
+overflow the request. `view_pages` is capped in pages and in bytes instead.
+
+## Looking at pages
+
+Text cannot show a chart. `view_pages(document_id, from_page, to_page)` gives the model the pages
+themselves: up to five a call, as one PDF, which Gemini reads like any PDF.
+
+Cutting pages out of a PDF sounds like copying them. Copied the way PDF libraries offer it, a page
+brings along everything it refers to:
+
+- **Links.** A contents page links to every section. Each link holds a reference to its target
+  page, so the copy took those pages too, with their pictures: the contents page of a 7.5 MB report
+  came out at 6.7 MB. Before copying, every page that is not wanted is replaced by an empty one, so
+  a reference to it costs a few bytes. The same contents page is then 55 KB.
+- **Shared resources.** FPDF, TCPDF, jsPDF and others write one list of all images of the file and
+  give it to every page. A copy of one page carried all of them. The content of each wanted page is
+  read to see which images it paints, and the page gets a list of only those. Nothing is dropped
+  unless all content that could name an image was read.
+- **Layers.** A file can hide a layer. The settings that say so are copied with the pages, or the
+  hidden layer would show.
+
+The pages are counted against the request twice. As bytes: base64 makes them a third larger, and
+they stay in the request until the question is answered, so the room for the next look shrinks.
+As tokens: about 530 a page, against half of `reservedTokens`. When either runs out, the tool says
+so and the model answers from what it has
+([limits and measurements](configuration.md#view_pages)).
+
+A PDF whose text fits in the prompt gets `view_pages` too, and only that. Such a file is often a
+slide deck: little text, a picture on every page.
 
 ## Map-reduce
 
@@ -84,6 +121,12 @@ Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow t
   calls would be thrown away.
 - If even that request has no text, or Gemini blocks the prompt, the result has `answered: false`
   (and `blockReason`), so the caller can show its own message instead of an empty answer.
+- Pages from `view_pages` go **inside the function response** (`functionResponse.parts`, with the
+  result naming the file as `{ "$ref": "pages-12-14.pdf" }`). `toolFilePlacement: "beside"` sends
+  them as a part next to the function responses instead. Both work on the Gemini API; Vertex AI has
+  not been checked.
+- Tool results, pages included, live inside one call of `askGemini`. They are not sent again with
+  the next question.
 
 ## Live results
 
@@ -94,3 +137,6 @@ Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow t
 | 5 MB, 60,000-line log (1.27M tokens by the 0.1.0 estimate, which undercounted logs) | Correct root cause, failover time, and affected services, citing the right lines (checked with grep). About 60 s, 11 tool calls, about 15K prompt tokens per turn. |
 | 467 KB novel | Sent whole. Token estimate 116,840; Gemini billed 116,842. |
 | Map-reduce on the novel, 40K-token parts | 4 parts, 1 relevant. Correct answer citing L2036. 32 s. |
+
+The checks of `view_pages`, on `gemini-3.5-flash-lite`, are in
+[Pictures in PDFs](configuration.md#live-results).
