@@ -47,6 +47,12 @@ export type LargeFilesOptions = {
    * expires. A store without `putOriginal` keeps none.
    */
   keepOriginals?: DocumentFormat[];
+  /**
+   * A PDF without any text (a scan) has nothing to search, and was always refused. When its
+   * original is kept, its pages can be shown to the model instead, so one of up to this many pages
+   * is accepted. Defaults to 30. 0 refuses every PDF without text, as before.
+   */
+  scannedPdfPages?: number;
   /** How many parsed documents to keep in memory for repeated tool calls. Defaults to 6. */
   cacheSize?: number;
   /** Clock override, for tests. */
@@ -156,6 +162,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const cacheSize = Math.max(1, options.cacheSize ?? 6);
   const cache = new Map<string, SearchableDocument>();
   const keepOriginals = new Set<DocumentFormat>(options.keepOriginals ?? []);
+  const scannedPdfPages = Math.max(0, Math.trunc(options.scannedPdfPages ?? 30));
+  /** Whether the uploaded file of a document of this format is kept. */
+  const keeps = (format: DocumentFormat) => keepOriginals.has(format) && typeof options.store.putOriginal === "function";
 
   async function load(id: string): Promise<SearchableDocument | undefined> {
     const cached = cache.get(id);
@@ -194,14 +203,20 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
       }
       let format = detectFormat(name, mimeType);
-      const extracted = await extractText(input.bytes, { name, mimeType, format }, options.extractors);
+      const extracted = await extractText(input.bytes, {
+        name,
+        mimeType,
+        format,
+        // A scan is worth storing only if its pages can be shown later: that needs the file itself.
+        ...(format === "pdf" && keeps(format) && scannedPdfPages > 0 ? { scannedPages: scannedPdfPages } : {}),
+      }, options.extractors);
       const { text, wrapped } = wrapLongLines(normalizeText(extracted.text));
       if (!text.trim()) throw new Error(`${name} did not contain any text.`);
       const lines = text.split("\n");
       if (text.endsWith("\n")) lines.pop();
       if (format === "text" && looksLikeLog(lines)) format = "log";
       const created = now();
-      const keepOriginal = keepOriginals.has(format) && typeof options.store.putOriginal === "function";
+      const keepOriginal = keeps(format);
       const meta: DocumentMeta = {
         id: `doc_${randomUUID().replaceAll("-", "")}`,
         ...(input.owner !== undefined ? { owner: input.owner } : {}),

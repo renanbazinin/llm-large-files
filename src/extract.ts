@@ -1,6 +1,6 @@
 import { layoutPage, plainPageText, type LayoutBox, type PdfTextItem } from "./pdf-layout.js";
 import { findPicturePages, type PageGeometry } from "./pdf-pictures.js";
-import type { DocumentFormat, ExtractedText, Extractor } from "./types.js";
+import type { DocumentFormat, ExtractedText, ExtractInput, Extractor } from "./types.js";
 
 const EXTENSION_FORMATS: Record<string, DocumentFormat> = {
   log: "log", out: "log", err: "log",
@@ -170,7 +170,7 @@ export const PICTURE_ON_PAGE = "[Picture on this page. This text cannot show it.
 export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor {
   const tables = options.tables ?? true;
   const pictures = options.pictures ?? true;
-  return async (bytes) => {
+  return async (bytes, input) => {
     let unpdf: typeof import("unpdf");
     try {
       unpdf = await import("unpdf");
@@ -206,7 +206,13 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
       page.cleanup();
     }
     if (!hasText) {
-      throw new Error("This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.");
+      // A scan has nothing to search, but a short one can be read by looking at its pages, when the
+      // caller says that they can be shown. Every page then says that it has no text.
+      const most = input?.scannedPages ?? 0;
+      if (most <= 0) throw new Error("This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.");
+      if (document.numPages > most) {
+        throw new Error(`This PDF has no text layer (it may be scanned) and ${document.numPages} pages. Without text it can only be read by looking at its pages, which works for up to ${most} pages. It needs OCR first.`);
+      }
     }
     // Which pages show a picture. Undefined when that could not be found out: then none is marked.
     const pictured = pictures ? await findPicturePages(bytes, geometry) : undefined;
@@ -228,7 +234,7 @@ export const defaultExtractors: Record<DocumentFormat, Extractor> = {
 
 export async function extractText(
   bytes: Uint8Array,
-  input: { name: string; mimeType: string; format: DocumentFormat },
+  input: ExtractInput,
   extractors: Partial<Record<DocumentFormat, Extractor>> = {},
 ): Promise<ExtractedText> {
   const extractor = extractors[input.format] ?? defaultExtractors[input.format];

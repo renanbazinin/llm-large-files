@@ -95,6 +95,12 @@ export type ExtractInput = {
   name: string;
   mimeType: string;
   format: DocumentFormat;
+  /**
+   * Set when a PDF without any text (a scan) is worth storing, because its pages can be shown to
+   * the model: the most pages such a PDF may have. Unset, a PDF without text is refused, as it
+   * always was. An extractor of your own may ignore it.
+   */
+  scannedPages?: number;
 };
 
 export type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>;
