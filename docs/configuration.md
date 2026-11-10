@@ -315,12 +315,32 @@ A PDF with text on any page was always accepted and still is, however many of it
 | A scan of three pages (pictures of text) | One look at the three pages. Four of four facts right. |
 | The request without tools that ends a question, after a look | Accepted, answered correctly, with the pages still in it. |
 
-Not checked yet: Vertex AI. The pages can go inside the function response (the default) or next
-to it; both work on the Gemini API:
+**Vertex AI**, with the same model (locations `global` and `eu`, November 2026): one look, two
+looks in one model turn, one look that decides the next, the request without tools that ends a
+question, and a PDF that is searched. All were accepted and answered correctly, with `vertexAi()`
+and through an application's own URLs, streaming and not. Real files went through too: a number
+on a photo in a 7.5 MB report written by Word, and five numbers from one look at five pages of a
+25 MB file (a 2.2 MB PDF in the request). A page costs 532 tokens there as well.
+
+### Where the pages go: `toolFilePlacement`
+
+| `toolFilePlacement` | What is sent | Gemini 3.5 Flash-Lite, on the Gemini API and on Vertex AI | Gemini 2.5 Flash-Lite, on Vertex AI |
+|---|---|---|---|
+| `"inside"` (default) | The PDF in the `parts` of its function response, which names it as `{ "$ref": "pages-12-14.pdf" }` | Works | Accepted and counted, but the model does not see the pages |
+| `"beside"` | The function responses in one `user` turn, then the PDFs in a `user` turn of their own, each after a line that names it | Works | Works |
 
 ```ts
-await askGemini({ ..., toolFilePlacement: "beside" }); // if your endpoint refuses a file inside a function response
+await askGemini({ ..., toolFilePlacement: "beside" }); // for Gemini 2.5
 ```
+
+Keep the default for Gemini 3 models. Use `"beside"` for Gemini 2.5: it takes a file inside a
+function response without an error, counts its tokens, and then answers that it cannot see the
+page. Gemini 2.5 on the Gemini API was not checked (that model is closed to new users there), and
+neither was Gemini 4.
+
+With `"beside"` the files have a turn of their own because Vertex AI refuses a turn in which
+anything follows a function response (HTTP 400, "Requests ending with a model turn are not
+supported", seen with Gemini 3.5).
 
 ### Your own loop
 
@@ -336,7 +356,9 @@ const { result, files: attached } = await tools.executeWithFiles(call.name, call
   maxPages: pagesYouStillAllowForThisQuestion,
 });
 // attached: [{ name: "pages-12-14.pdf", mimeType: "application/pdf", bytes }]
-// Send `result` as the tool result and each file as a PDF next to it, in your provider's form.
+// Send `result` as the tool result and each file as a PDF with it, in your provider's form.
+// For Gemini, once every call of the model's turn is answered:
+contents.push(...geminiFunctionResponseTurns(answers)); // answers: [{ call, result, files: attached }]
 ```
 
 `tools.execute("view_pages", ...)` returns only JSON, so it answers with an error instead of

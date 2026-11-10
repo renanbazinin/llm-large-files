@@ -123,8 +123,10 @@ Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow t
   (and `blockReason`), so the caller can show its own message instead of an empty answer.
 - Pages from `view_pages` go **inside the function response** (`functionResponse.parts`, with the
   result naming the file as `{ "$ref": "pages-12-14.pdf" }`). `toolFilePlacement: "beside"` sends
-  them as a part next to the function responses instead. Both work on the Gemini API; Vertex AI has
-  not been checked.
+  them in a `user` turn of their own, right after the turn of function responses: Gemini 2.5 does
+  not see a file inside a function response. The files do not share a turn with the function
+  responses, because Vertex AI refuses a turn in which anything follows one. Both forms work with
+  Gemini 3.5 on the Gemini API and on Vertex AI.
 - Tool results, pages included, live inside one call of `askGemini`. They are not sent again with
   the next question.
 

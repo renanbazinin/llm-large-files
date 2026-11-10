@@ -22,8 +22,9 @@ requests as with 0.2.0 (checked byte for byte against the published 0.2.0 over e
   - It needs the new optional dependency `@cantoo/pdf-lib`, and the uploaded file (next item).
   - `askGemini` offers it for every PDF whose original is kept, also for one whose text fits in
     the prompt (a slide deck of photos has little text). `viewPages: false` turns it off.
-    `toolFilePlacement: "beside"` sends the pages next to the function response instead of inside
-    it, for an endpoint that refuses the first; Vertex AI has not been checked.
+    It works on the Gemini API and on Vertex AI. `toolFilePlacement: "beside"` sends the pages in
+    a user turn of their own instead of inside the function response: Gemini 2.5 needs that, as it
+    does not see a file inside a function response.
   - In a loop of your own: `prepare(ids, base, { viewPages: true })` lists the PDFs in
     `PreparedContext.viewable`, `tools(documents, { viewPages })` declares the tool, and
     `ToolSet.executeWithFiles(name, args, { maxFileBytes, maxPages })` returns `{ result, files }`.
@@ -40,9 +41,12 @@ requests as with 0.2.0 (checked byte for byte against the published 0.2.0 over e
 - **Scanned PDFs of up to 30 pages are accepted** when their original is kept: the model reads them
   by looking at the pages. `scannedPdfPages` sets the limit, and 0 refuses them as before. A longer
   scan, and any scan without a kept original, is still refused.
+- `geminiFunctionResponseTurns(answers, { files })`: the turns that answer a model turn's function
+  calls, for a loop of your own. `geminiFunctionResponses` takes the files of each call and puts
+  them inside its function response.
 - `createPdfExtractor({ pictures })`, `ExtractInput.scannedPages`, `MAX_VIEW_PAGES`,
   `FINAL_ANSWER_AFTER_PAGES`, and the types `ToolFile`, `ToolOutput`, `ToolFileLimits`,
-  `PrepareOptions` and `GeminiToolFilePlacement`.
+  `PrepareOptions`, `GeminiToolAnswer` and `GeminiToolFilePlacement`.
 
 ### Changed
 

@@ -4,7 +4,7 @@ import { estimateTokens, jsonBytes } from "../text.js";
 import { TOOL_NAMES, toolResultSummary } from "../tools.js";
 import type { DocumentPlan, ToolFile, ToolFileLimits, ToolResult } from "../types.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
-import { createGeminiGenerateText, geminiFunctionResponses, type GeminiFunctionCall, type GeminiToolFilePlacement } from "./generate.js";
+import { createGeminiGenerateText, geminiFunctionResponseTurns, type GeminiFunctionCall, type GeminiToolFilePlacement } from "./generate.js";
 import { parseSseJson } from "./sse.js";
 
 export type GeminiPart = Record<string, unknown>;
@@ -73,8 +73,9 @@ export type AskGeminiOptions = {
   viewPages?: boolean;
   /**
    * Where the pages go in the request. "inside" (the default) puts the PDF in the function
-   * response itself; "beside" sends it as a separate part of the same turn, for an endpoint that
-   * refuses the first form.
+   * response itself, which Gemini 3 models read. "beside" sends it in a user turn of its own,
+   * after the function responses: use it for Gemini 2.5, which does not see a file inside a
+   * function response.
    */
   toolFilePlacement?: GeminiToolFilePlacement;
   /** generationConfig for whole-document part reads. Defaults to `{ temperature: 0.2, maxOutputTokens }`. */
@@ -313,7 +314,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
       options.onStep?.(step);
       responses.push({ call, result: { ...output.result, tool_turns_left: maxTurns - round - 1 }, files: output.files });
     }
-    body.contents.push(geminiFunctionResponses(responses, { files: options.toolFilePlacement ?? "inside" }) as GeminiContent);
+    body.contents.push(...geminiFunctionResponseTurns(responses, { files: options.toolFilePlacement ?? "inside" }) as GeminiContent[]);
   }
 
   // Out of tool turns, or the last turn had no text (cut off, or a malformed tool call): ask once

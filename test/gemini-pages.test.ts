@@ -1,7 +1,7 @@
 import { getDocumentProxy } from "unpdf";
 import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
-import { askGemini, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, geminiApi, geminiFunctionResponses } from "llm-large-files/gemini";
+import { askGemini, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, geminiApi, geminiFunctionResponses, geminiFunctionResponseTurns } from "llm-large-files/gemini";
 import { numberedPdf, pdfWithPictures, utf8 } from "./pdf-fixtures.js";
 
 const endpoint = geminiApi({ apiKey: "test-key", model: "gemini-test" });
@@ -29,8 +29,16 @@ function fakeGemini(replies: Array<object | ((body: Body) => object)>) {
 
 const toolNames = (body: Body): string[] => (body.tools?.[0]?.functionDeclarations ?? []).map((tool: { name: string }) => tool.name);
 const systemOf = (body: Body): string => body.systemInstruction?.parts?.[0]?.text ?? "";
-/** The function responses of the last user turn of a request. */
-const responsesOf = (body: Body): Array<Record<string, any>> => body.contents.at(-1).parts.filter((part: Body) => part.functionResponse).map((part: Body) => part.functionResponse);
+/** The function responses of the latest turn of a request that holds any. Files sent beside them make a later turn. */
+const responsesOf = (body: Body): Array<Record<string, any>> => {
+  const turns = (body.contents as Body[]).filter((content) => content.parts.some((part: Body) => part.functionResponse));
+  return (turns.at(-1)?.parts ?? []).filter((part: Body) => part.functionResponse).map((part: Body) => part.functionResponse);
+};
+/** The PDFs in a request, wherever they are: inside function responses, or in a turn of their own. */
+const pdfsOf = (body: Body): string[] => (body.contents as Body[]).flatMap((content) => content.parts as Body[])
+  .flatMap((part) => [part, ...((part.functionResponse?.parts ?? []) as Body[])])
+  .filter((part) => part.inlineData?.mimeType === "application/pdf").map((part) => part.inlineData.data as string);
+const PLACEMENTS = ["inside", "beside"] as const;
 
 async function pageTexts(bytes: Uint8Array): Promise<string[]> {
   const document = await getDocumentProxy(new Uint8Array(bytes));
@@ -124,24 +132,25 @@ describe("askGemini with PDFs whose pages can be shown", () => {
     expect(result.steps).toEqual(["Search report.pdf (exact) for “Page 4 of” — 1 matching lines", "Look at report.pdf page 4"]);
   });
 
-  it("keeps every request under the byte limit, however many pages the model asks for", async () => {
+  it.each(PLACEMENTS)("keeps every request under the byte limit, however many pages the model asks for (pages %s)", async (toolFilePlacement) => {
     // Twelve pages with a picture of 60,000 bytes each, and a connector that takes 900,000 bytes.
     const limit = 900_000;
     const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { maxRequestBytes: limit } });
     const meta = await files.ingest({ name: "album.pdf", bytes: pdfWithPictures(12) });
     // A model that goes on from where the last look stopped, for as long as it is told a next page.
     const gemini = fakeGemini([(body) => {
-      const last = body.contents.at(-1).parts[0]?.functionResponse?.response;
+      const last = responsesOf(body)[0]?.response;
       if (last?.error) return say("That is all I could look at.");
       return call("view_pages", { document_id: meta.id, from_page: last?.next_page ?? 1, to_page: 12 });
     }]);
-    const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], messages: question("Describe every picture.") });
+    const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], toolFilePlacement, messages: question("Describe every picture.") });
 
     expect(gemini.sizes.length).toBe(4);
     for (const size of gemini.sizes) expect(size).toBeLessThanOrEqual(limit);
     // The pages are in the requests: the later ones are large, and still fit.
     expect(gemini.sizes[1]).toBeGreaterThan(400_000);
     expect(gemini.sizes[2]).toBeGreaterThan(gemini.sizes[1]! + 100_000);
+    expect(gemini.bodies.map((body) => pdfsOf(body).length)).toEqual([0, 1, 2, 2]);
     const responses = gemini.bodies.slice(1).map((body) => responsesOf(body)[0]!);
     expect(responses[0]!.response).toMatchObject({ pages: "1-5", next_page: 6 });
     // Less room the second time: two pages, then none.
@@ -157,14 +166,15 @@ describe("askGemini with PDFs whose pages can be shown", () => {
     expect(result).toMatchObject({ text: "That is all I could look at.", answered: true, turns: 4 });
   });
 
-  it("counts several looks in one turn against the same room", async () => {
+  it.each(PLACEMENTS)("counts several looks in one turn against the same room (pages %s)", async (toolFilePlacement) => {
     const limit = 700_000;
     const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { maxRequestBytes: limit } });
     const meta = await files.ingest({ name: "album.pdf", bytes: pdfWithPictures(12) });
     const look = (from: number) => ({ functionCall: { name: "view_pages", args: { document_id: meta.id, from_page: from, to_page: from + 3 } } });
     const gemini = fakeGemini([{ candidates: [{ content: { parts: [look(1), look(5), look(9)] } }] }, say("Seen.")]);
-    await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], messages: question("Describe every picture.") });
+    await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], toolFilePlacement, messages: question("Describe every picture.") });
     expect(gemini.sizes[1]).toBeLessThanOrEqual(limit);
+    expect(pdfsOf(gemini.bodies[1]!)).toHaveLength(2);
     const responses = responsesOf(gemini.bodies[1]!);
     // (700,000 - 262,144 kept free) leaves room for four pictures, then for one, then for none.
     expect(responses.map((response) => response.response.pages ?? "none")).toEqual(["1-4", "5", "none"]);
@@ -205,17 +215,44 @@ describe("askGemini with PDFs whose pages can be shown", () => {
     expect(gemini.bodies.at(-1)!.contents.at(-1)).toEqual({ role: "user", parts: [{ text: FINAL_ANSWER_REQUEST }] });
   });
 
-  it("can send the pages as a part next to the function responses instead", async () => {
+  it("can send the pages in a user turn of their own, after the function responses", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const gemini = fakeGemini([call("view_pages", { document_id: meta.id, from_page: 2, to_page: 3 }), say("ok")]);
     await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], toolFilePlacement: "beside", messages: question("?") });
-    const parts = gemini.bodies[1]!.contents.at(-1).parts as Body[];
-    expect(parts).toHaveLength(3);
-    expect(parts[0]!.functionResponse).toEqual({ name: "view_pages", response: { document: "report.pdf", pages: "2-3", total_pages: 6, file: "pages-2-3.pdf", tool_turns_left: 10 } });
-    expect(parts[1]).toEqual({ text: "pages-2-3.pdf (returned by view_pages):" });
-    expect(Object.keys(parts[2]!.inlineData)).toEqual(["mimeType", "data"]);
-    expect(await pageTexts(Buffer.from(parts[2]!.inlineData.data, "base64"))).toEqual([pageLine(2), pageLine(3)]);
+    // The question, the call, the function response, the pages.
+    const contents = gemini.bodies[1]!.contents as Body[];
+    expect(contents.map((content) => content.role)).toEqual(["user", "model", "user", "user"]);
+    // Nothing but the function response in its turn: Vertex AI refuses anything after one.
+    expect(contents[2]!.parts).toEqual([{ functionResponse: { name: "view_pages", response: { document: "report.pdf", pages: "2-3", total_pages: 6, file: "pages-2-3.pdf", tool_turns_left: 10 } } }]);
+    const parts = contents[3]!.parts as Body[];
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toEqual({ text: "pages-2-3.pdf (returned by view_pages):" });
+    expect(Object.keys(parts[1]!.inlineData)).toEqual(["mimeType", "data"]);
+    expect(parts[1]!.inlineData.mimeType).toBe("application/pdf");
+    expect(await pageTexts(Buffer.from(parts[1]!.inlineData.data, "base64"))).toEqual([pageLine(2), pageLine(3)]);
+  });
+
+  it("keeps each turn of pages after its function responses over several looks, and before the closing request", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { inlineTokens: 20 } });
+    const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
+    // A look, then a search (which returns no file), then a look the model would go on from.
+    const gemini = fakeGemini([
+      call("view_pages", { document_id: meta.id, from_page: 1 }),
+      call("search_document", { document_id: meta.id, query: "Page 4 of", mode: "exact" }),
+      (body) => (body.tools ? call("view_pages", { document_id: meta.id, from_page: 4 }) : say("Best effort.")),
+    ]);
+    await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], toolFilePlacement: "beside", maxToolTurns: 4, wholeDocumentAnalysis: false, messages: question("?") });
+    const shape = (content: Body) => `${content.role}:${(content.parts as Body[]).map((part) => Object.keys(part)[0]).join("+")}`;
+    expect(gemini.bodies.at(-1)!.contents.slice(1).map(shape)).toEqual([
+      "model:functionCall", "user:functionResponse", "user:text+inlineData",
+      // A turn of function responses with no file is followed by nothing.
+      "model:functionCall", "user:functionResponse",
+      "model:functionCall", "user:functionResponse", "user:text+inlineData",
+      "user:text",
+    ]);
+    expect(gemini.bodies.at(-1)!.contents.at(-1)).toEqual({ role: "user", parts: [{ text: FINAL_ANSWER_REQUEST }] });
+    expect(gemini.bodies.at(-1)!.tools).toBeUndefined();
   });
 });
 
@@ -319,7 +356,9 @@ describe("geminiFunctionResponses", () => {
       { functionResponse: { name: "read_document", id: "a", response: { text: "1| x" } } },
       { functionResponse: { name: "search_document", response: { matches: [] } } },
     ] });
-    expect(geminiFunctionResponses(calls, { files: "beside" })).toEqual(geminiFunctionResponses(calls));
+    // One turn, wherever files would go, when there is none.
+    expect(geminiFunctionResponseTurns(calls)).toEqual([geminiFunctionResponses(calls)]);
+    expect(geminiFunctionResponseTurns(calls, { files: "beside" })).toEqual([geminiFunctionResponses(calls)]);
   });
 
   it("refers to each file by name from the result, and does not change the result it was given", () => {
@@ -336,12 +375,34 @@ describe("geminiFunctionResponses", () => {
     expect(result).toEqual({ pages: "1", file: "pages-1.pdf" });
   });
 
-  it("keeps the function responses together when files go beside them", () => {
-    const turn = geminiFunctionResponses([
-      { call: { name: "view_pages", args: {} }, result: { file: "pages-1.pdf" }, files: [file] },
+  it("puts files inside the function responses unless asked otherwise", () => {
+    const calls = [{ call: { name: "view_pages", args: {} }, result: { file: "pages-1.pdf" }, files: [file] }];
+    expect(geminiFunctionResponseTurns(calls)).toEqual([geminiFunctionResponses(calls)]);
+    expect(geminiFunctionResponseTurns(calls, { files: "inside" })).toEqual([geminiFunctionResponses(calls)]);
+    expect(JSON.stringify(geminiFunctionResponses(calls))).toContain('"displayName":"pages-1.pdf"');
+  });
+
+  it("gives files that go beside a turn of their own, in call order, after all the function responses", () => {
+    const data = Buffer.from(bytes).toString("base64");
+    const result = { pages: "1", file: "pages-1.pdf" };
+    const turns = geminiFunctionResponseTurns([
+      { call: { name: "view_pages", args: {}, id: "a" }, result, files: [file] },
       { call: { name: "read_document", args: {} }, result: { text: "x" } },
+      { call: { name: "make_chart", args: {} }, result: { ok: true }, files: [{ name: "chart.png", mimeType: "image/png", bytes }, { ...file, name: "notes.pdf" }] },
     ], { files: "beside" });
-    expect(turn.parts.map((part) => Object.keys(part as object)[0])).toEqual(["functionResponse", "functionResponse", "text", "inlineData"]);
-    expect(turn.parts[2]).toEqual({ text: "pages-1.pdf (returned by view_pages):" });
+    expect(turns).toEqual([
+      // The results as the tools gave them: a file is named, not referred to.
+      { role: "user", parts: [
+        { functionResponse: { name: "view_pages", id: "a", response: { pages: "1", file: "pages-1.pdf" } } },
+        { functionResponse: { name: "read_document", response: { text: "x" } } },
+        { functionResponse: { name: "make_chart", response: { ok: true } } },
+      ] },
+      { role: "user", parts: [
+        { text: "pages-1.pdf (returned by view_pages):" }, { inlineData: { mimeType: "application/pdf", data } },
+        { text: "chart.png (returned by make_chart):" }, { inlineData: { mimeType: "image/png", data } },
+        { text: "notes.pdf (returned by make_chart):" }, { inlineData: { mimeType: "application/pdf", data } },
+      ] },
+    ]);
+    expect(result).toEqual({ pages: "1", file: "pages-1.pdf" });
   });
 });

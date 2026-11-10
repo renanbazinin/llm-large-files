@@ -137,7 +137,7 @@ type ToolFile = { name: string; mimeType: string; bytes: Uint8Array };
 | `maxToolTurns` | Default 12. The most requests for one question, counting the answer. If the model is still calling tools on the last one, it is sent with no tools so the model must answer. |
 | `wholeDocumentAnalysis` | Default `true`. Set `false` to withhold the costly whole-file tool. |
 | `viewPages` | Default `true`. Offers `view_pages` for PDFs whose original is kept. It changes nothing for a library that keeps no originals. |
-| `toolFilePlacement` | `"inside"` (default): the pages go in the function response itself. `"beside"`: as a part next to the function responses, for an endpoint that refuses the first. |
+| `toolFilePlacement` | `"inside"` (default): the pages go in the function response itself, which Gemini 3 models read. `"beside"`: in a user turn of their own after the function responses, for Gemini 2.5, which does not see a file inside a function response. See [Where the pages go](configuration.md#where-the-pages-go-toolfileplacement). |
 | `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. |
 | `onText`, `onActivity`, `onStep` | Streaming answer text, transient status, completed steps. |
 | `fetch`, `signal` | Custom fetch (proxies, tests) and cancellation. |
@@ -168,8 +168,11 @@ for HTTP errors, and `Error` when the last message isn't the user's.
 
 - `createGeminiGenerateText({ url, headers, fetchImpl?, generationConfig?, timeoutMs? })`: a `GenerateText` for your own loop.
 - `toGeminiTools(declarations)`: `{ functionDeclarations }`.
-- `geminiFunctionResponses([{ call, result, files? }], { files?: "inside" | "beside" })`: the
-  `user` turn answering function calls. Files from `executeWithFiles` are sent as base64.
+- `geminiFunctionResponses([{ call, result, files? }])`: the `user` turn answering function
+  calls. Files from `executeWithFiles` go inside their function response, as base64.
+- `geminiFunctionResponseTurns([{ call, result, files? }], { files?: "inside" | "beside" })`: the
+  turns to add to `contents`. That is the one turn above, or with `"beside"` the function
+  responses followed by a `user` turn that holds the files.
 - `FINAL_ANSWER_REQUEST`, `FINAL_ANSWER_AFTER_PAGES`: the messages `askGemini` adds when the model
   must stop using tools. The second is used when `view_pages` was the only tool.
 - `parseSseJson(stream)`: async iterator over a Generate Content SSE stream.
