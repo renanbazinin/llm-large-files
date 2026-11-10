@@ -11,6 +11,7 @@ function expired(meta: DocumentMeta, now = new Date()): boolean {
 /** Keeps documents in process memory. Good for tests and single-process demos. */
 export class MemoryDocumentStore implements DocumentStore {
   private readonly documents = new Map<string, StoredDocument>();
+  private readonly originals = new Map<string, Uint8Array>();
   private readonly now: () => Date;
 
   constructor(options: { now?: () => Date } = {}) {
@@ -24,7 +25,7 @@ export class MemoryDocumentStore implements DocumentStore {
   async get(id: string): Promise<StoredDocument | undefined> {
     const document = this.documents.get(id);
     if (document && expired(document.meta, this.now())) {
-      this.documents.delete(id);
+      await this.delete(id);
       return undefined;
     }
     return document;
@@ -35,6 +36,7 @@ export class MemoryDocumentStore implements DocumentStore {
   }
 
   async delete(id: string): Promise<boolean> {
+    this.originals.delete(id);
     return this.documents.delete(id);
   }
 
@@ -42,17 +44,27 @@ export class MemoryDocumentStore implements DocumentStore {
     let removed = 0;
     for (const [id, document] of this.documents) {
       if (expired(document.meta, now)) {
-        this.documents.delete(id);
+        await this.delete(id);
         removed++;
       }
     }
     return removed;
   }
+
+  async putOriginal(id: string, bytes: Uint8Array): Promise<void> {
+    // A copy: the caller may reuse its buffer after the upload.
+    this.originals.set(id, bytes.slice());
+  }
+
+  async getOriginal(id: string): Promise<Uint8Array | undefined> {
+    return await this.get(id) ? this.originals.get(id) : undefined;
+  }
 }
 
 /**
  * Keeps each document as `<id>.txt` plus `<id>.json` in one directory, so files survive a
- * server restart. Only IDs matching DOCUMENT_ID_PATTERN ever reach the file system.
+ * server restart, and its original file as `<id>.bin` when one is kept. Only IDs matching
+ * DOCUMENT_ID_PATTERN ever reach the file system.
  */
 export class FileDocumentStore implements DocumentStore {
   private readonly now: () => Date;
@@ -61,9 +73,10 @@ export class FileDocumentStore implements DocumentStore {
     this.now = options.now ?? (() => new Date());
   }
 
-  private paths(id: string): { text: string; meta: string } | undefined {
+  private paths(id: string): { text: string; meta: string; original: string } | undefined {
     if (!DOCUMENT_ID_PATTERN.test(id)) return undefined;
-    return { text: path.join(this.directory, `${id}.txt`), meta: path.join(this.directory, `${id}.json`) };
+    const file = (extension: string) => path.join(this.directory, `${id}.${extension}`);
+    return { text: file("txt"), meta: file("json"), original: file("bin") };
   }
 
   async put(document: StoredDocument): Promise<void> {
@@ -106,8 +119,28 @@ export class FileDocumentStore implements DocumentStore {
     const paths = this.paths(id);
     if (!paths) return false;
     const existed = Boolean(await readFile(paths.meta, "utf8").catch(() => null));
-    await Promise.all([rm(paths.meta, { force: true }), rm(paths.text, { force: true })]);
+    await Promise.all([rm(paths.meta, { force: true }), rm(paths.text, { force: true }), rm(paths.original, { force: true })]);
     return existed;
+  }
+
+  async putOriginal(id: string, bytes: Uint8Array): Promise<void> {
+    const paths = this.paths(id);
+    if (!paths) throw new Error("Invalid document ID.");
+    await mkdir(this.directory, { recursive: true });
+    // Written before the metadata (see put): until that exists, the document is treated as absent.
+    await writeFile(paths.original, bytes);
+  }
+
+  async getOriginal(id: string): Promise<Uint8Array | undefined> {
+    const paths = this.paths(id);
+    // The metadata decides whether the document is still there. getMeta also removes an expired one.
+    if (!paths || !await this.getMeta(id)) return undefined;
+    try {
+      const file = await readFile(paths.original);
+      return new Uint8Array(file.buffer, file.byteOffset, file.byteLength);
+    } catch {
+      return undefined;
+    }
   }
 
   async sweep(now = this.now()): Promise<number> {

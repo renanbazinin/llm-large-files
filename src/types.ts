@@ -44,6 +44,11 @@ export type DocumentMeta = {
   /** Lines longer than the wrap limit are split so every line stays readable by line number. */
   wrappedLines: number;
   pages?: number;
+  /**
+   * True when the uploaded file itself is kept in the store next to its text (see `keepOriginals`).
+   * Recorded here so that planning a request does not have to load the file to know.
+   */
+  originalKept?: boolean;
   outline: OutlineEntry[];
   logProfile?: LogProfile;
   createdAt: string;
@@ -71,9 +76,17 @@ export interface DocumentStore {
   /** Returns undefined for unknown or expired documents. */
   get(id: string): Promise<StoredDocument | undefined>;
   getMeta(id: string): Promise<DocumentMeta | undefined>;
+  /** Removes the document, and its original file if one is kept. */
   delete(id: string): Promise<boolean>;
-  /** Removes expired documents and returns how many were removed. */
+  /** Removes expired documents (and their original files) and returns how many were removed. */
   sweep?(now?: Date): Promise<number>;
+  /**
+   * Keeps the uploaded file of a document. It is called before `put` for the same ID. Optional: a
+   * store without it works as before, and original files are then not kept.
+   */
+  putOriginal?(id: string, bytes: Uint8Array): Promise<void>;
+  /** The uploaded file, or undefined when none was kept or the document is unknown or expired. */
+  getOriginal?(id: string): Promise<Uint8Array | undefined>;
 }
 
 export type ExtractedText = { text: string; pages?: number };

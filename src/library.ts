@@ -41,6 +41,12 @@ export type LargeFilesOptions = {
   maxUploadBytes?: number;
   /** Override or add text extractors per format. */
   extractors?: Partial<Record<DocumentFormat, Extractor>>;
+  /**
+   * Formats whose uploaded file is kept in the store next to its text, for example `["pdf"]`.
+   * Empty by default: a kept file takes disk space, up to the upload limit, until the document
+   * expires. A store without `putOriginal` keeps none.
+   */
+  keepOriginals?: DocumentFormat[];
   /** How many parsed documents to keep in memory for repeated tool calls. Defaults to 6. */
   cacheSize?: number;
   /** Clock override, for tests. */
@@ -73,6 +79,8 @@ export interface LargeFiles {
   /** Extracts, normalizes, profiles, and stores a file. Throws a user-readable Error on bad input. */
   ingest(input: IngestInput): Promise<DocumentMeta>;
   getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
+  /** The uploaded file itself, when it was kept (see `keepOriginals`). Treat the bytes as read-only. */
+  getOriginal(id: string, access?: AccessOptions): Promise<Uint8Array | undefined>;
   delete(id: string, access?: AccessOptions): Promise<boolean>;
   /** Removes expired documents from the store. Returns how many were removed. */
   sweep(): Promise<number>;
@@ -130,6 +138,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const now = options.now ?? (() => new Date());
   const cacheSize = Math.max(1, options.cacheSize ?? 6);
   const cache = new Map<string, SearchableDocument>();
+  const keepOriginals = new Set<DocumentFormat>(options.keepOriginals ?? []);
 
   async function load(id: string): Promise<SearchableDocument | undefined> {
     const cached = cache.get(id);
@@ -175,6 +184,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       if (text.endsWith("\n")) lines.pop();
       if (format === "text" && looksLikeLog(lines)) format = "log";
       const created = now();
+      const keepOriginal = keepOriginals.has(format) && typeof options.store.putOriginal === "function";
       const meta: DocumentMeta = {
         id: `doc_${randomUUID().replaceAll("-", "")}`,
         ...(input.owner !== undefined ? { owner: input.owner } : {}),
@@ -188,16 +198,30 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         estimatedTokens: estimateTokens(text),
         wrappedLines: wrapped,
         ...(extracted.pages ? { pages: extracted.pages } : {}),
+        ...(keepOriginal ? { originalKept: true } : {}),
         outline: buildOutline(lines, format),
         ...(format === "log" ? { logProfile: buildLogProfile(lines) } : {}),
         createdAt: created.toISOString(),
         expiresAt: new Date(created.getTime() + ttlMs).toISOString(),
       };
-      await options.store.put({ meta, text });
+      try {
+        // The file first, the document last: a document is there once its metadata is.
+        if (keepOriginal) await options.store.putOriginal!(meta.id, input.bytes);
+        await options.store.put({ meta, text });
+      } catch (error) {
+        // Do not leave a file of up to the upload limit behind for a document that does not exist.
+        if (keepOriginal) await options.store.delete(meta.id).catch(() => undefined);
+        throw error;
+      }
       return meta;
     },
 
     getMeta: metaFor,
+
+    async getOriginal(id, access) {
+      const meta = await metaFor(id, access);
+      return meta?.originalKept ? options.store.getOriginal?.(id) : undefined;
+    },
 
     async delete(id, access) {
       if (!await metaFor(id, access)) return false;
