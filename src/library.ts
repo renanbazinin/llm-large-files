@@ -104,6 +104,21 @@ export function toDocumentSummary(meta: DocumentMeta): DocumentSummary {
   };
 }
 
+/**
+ * A file name as one printable line: the last path segment, without control characters, line
+ * breaks, or text-direction overrides. Names are shown to the model and in UIs, so a name must
+ * not be able to start a new line of the prompt or disguise its extension.
+ */
+export function cleanFileName(raw: string): string {
+  const base = raw.split(/[\\/]/).at(-1) ?? "";
+  return base
+    // Control characters, line and paragraph separators, and text-direction controls.
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 255) || "file";
+}
+
 function allowed(meta: DocumentMeta, access: AccessOptions | undefined): boolean {
   return meta.owner === undefined || meta.owner === access?.owner;
 }
@@ -146,7 +161,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     maxUploadBytes,
 
     async ingest(input) {
-      const name = input.name.trim().split(/[\\/]/).at(-1)?.slice(0, 255) || "file";
+      const name = cleanFileName(input.name);
       const mimeType = input.mimeType?.trim() || "application/octet-stream";
       if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
       if (input.bytes.byteLength > maxUploadBytes) {

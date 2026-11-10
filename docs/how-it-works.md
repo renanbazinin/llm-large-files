@@ -12,9 +12,11 @@ chat turn ─► prepare(ids, size of the rest of the request)
 
 ## Ingest
 
-1. **Extract** text by format (built-in extractors or your own).
-2. **Normalize**: strip the BOM, unify line endings, remove control characters, split lines over
-   2,000 characters.
+1. **Extract** text by format (built-in extractors or your own). In a PDF, tables are rebuilt from
+   the position of their text and written as `| cell | cell |  |` rows, so an empty cell stays an
+   empty cell ([details and limits](configuration.md#pdf-tables)).
+2. **Normalize**: strip the BOM, unify line endings, remove terminal colour codes and control
+   characters, split lines over 2,000 characters.
 3. **Profile**: count lines, estimate tokens and UTF-8 bytes, and build an outline (headings with
    line numbers). For logs, also count levels, find the time range, and group ERROR/FATAL/WARN lines
    by *shape*. Numbers, IDs, IPs, hex, and quoted values are replaced with placeholders, so 800
@@ -35,7 +37,8 @@ FATAL line listed on the card.
     substring hits. No index to build, it works in any language, and "timeout" also matches
     "timeouts". A passage containing the exact phrase gets a boost.
   - `exact` and `regex`: matching lines with optional context. Regexes with nested quantifiers are
-    refused, and scans stop after 3 seconds.
+    refused up front, and every regex scan runs under a 3-second limit that can interrupt a match
+    in progress, so a slow pattern returns partial results instead of hanging the process.
 - **`read_document`**: numbered line ranges, trimmed to the result-size cap, with `next_start_line`
   for paging.
 - **`get_document_overview`**: the full outline and profile, the first and last lines, and how many
@@ -55,17 +58,32 @@ overflow the request.
 3. If the notes are still too large, merge them in batches (or pairs) for up to 8 rounds.
 4. Write one answer from the notes, flagging contradictions and parts that couldn't be read.
 
+Part notes are capped at 4,096 output tokens and the answer at 8,192. When either cap is reached,
+the tool result says the answer is incomplete and points the model to exact search. That matters
+for "list every…" tasks: in a live test with 1,200 matching lines, 492 came back, flagged as
+incomplete. Even without reaching a cap the model can skip items (91 of 120 in the same test), so
+for a complete list or an exact count, `search_document` in exact or regex mode is the reliable
+tool: it reports `total_matching_lines`.
+
 Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow the question first.
 
 ## The Gemini loop (`askGemini`)
 
+- Document text and cards go at the **start of the first user turn** and stay there as the
+  conversation grows. Gemini's prompt cache works on a matching prefix, so a follow-up question
+  reuses the document instead of paying for it again (96% of input cached in a live test, against
+  0% when the document was appended to the latest turn). `documentPlacement: "last"` restores the
+  old layout.
 - The model's turns are sent back **unchanged**, so Gemini 3 thought signatures stay intact.
 - Each tool result includes `tool_turns_left`, and the tool guide asks the model to batch
   independent searches and stop when it has enough. This keeps it from searching one thing per turn.
 - **Gemini can ignore `functionCallingConfig: { mode: "NONE" }`.** Live testing showed it kept
-  calling tools on the turn meant to force an answer. So when the turns run out (or the model goes
-  quiet), the final request **declares no tools at all** and adds a short "answer now" message.
-  There is always a written answer.
+  calling tools on the turn meant to force an answer. So when the turns run out, or the model's
+  last turn has no text, the final request **declares no tools at all** and adds a short "answer
+  now" message. That request is the last of the `maxToolTurns`; no request is made whose tool
+  calls would be thrown away.
+- If even that request has no text, or Gemini blocks the prompt, the result has `answered: false`
+  (and `blockReason`), so the caller can show its own message instead of an empty answer.
 
 ## Live results
 
@@ -73,6 +91,6 @@ Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow t
 
 | Case | Outcome |
 |---|---|
-| 5 MB, 60,000-line log (about 1.27M tokens, over the 1M limit) | Correct root cause, failover time, and affected services, citing the right lines (checked with grep). About 60 s, 11 tool calls, about 15K prompt tokens per turn. |
+| 5 MB, 60,000-line log (1.27M tokens by the 0.1.0 estimate, which undercounted logs) | Correct root cause, failover time, and affected services, citing the right lines (checked with grep). About 60 s, 11 tool calls, about 15K prompt tokens per turn. |
 | 467 KB novel | Sent whole. Token estimate 116,840; Gemini billed 116,842. |
 | Map-reduce on the novel, 40K-token parts | 4 parts, 1 relevant. Correct answer citing L2036. 32 s. |

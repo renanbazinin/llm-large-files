@@ -47,11 +47,24 @@ treat the model's output as untrusted.
 - `maxUploadBytes` (default 100 MB) is enforced while reading, before the body is buffered fully.
 - The handlers buffer the upload in memory before extraction. Under heavy concurrent uploads, put a
   limit in front (a reverse proxy or a rate limiter).
-- Binary files are rejected. PDF parsing runs `unpdf` (pdf.js) on untrusted input in your process.
-  Keep it updated, or move extraction to a worker or sandbox for high-risk deployments.
+- Binary files are rejected, including compressed ones (`.gz`, `.zip`), which get a message
+  telling the user to decompress first. PDF parsing runs `unpdf` (pdf.js) on untrusted input in
+  your process. Keep it updated, or move extraction to a worker or sandbox for high-risk
+  deployments.
+- File names are reduced to one printable line at ingest (no path, control characters, line
+  breaks, or text-direction overrides) and quoted in the system instruction, so a name can't add
+  lines to the prompt. The name is still text the model reads, like the file's content.
 
 ## Regex search
 
-Model-supplied regexes with nested quantifiers (`(a+)+`) are refused, and scans stop after 3
-seconds. A single very long line can still slow down a pathological pattern; lines are capped at
-2,000 characters at ingest, which bounds the worst case.
+The model writes the regex, and the model reads untrusted file text, so a file can ask for a
+slow pattern. Two things bound the cost:
+
+- Regexes with nested quantifiers (`(a+)+`) are refused up front. This is a quick filter, not a
+  guarantee: `(a|a)+$` and `((a+))+$` pass it.
+- Every regex scan runs under a 3-second limit enforced by Node's `vm` timeout, which interrupts a
+  match that is still backtracking. The search returns what it found with a note that it stopped
+  early.
+
+The scan is synchronous, so a slow pattern still holds the event loop for up to 3 seconds per
+search. If that matters for your latency, run the document tools in a worker thread.

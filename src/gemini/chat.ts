@@ -33,8 +33,15 @@ export class GeminiRequestError extends Error {
 export type AskGeminiOptions = {
   files: LargeFiles;
   endpoint: GeminiEndpoint;
-  /** Documents this conversation may use. Their text or cards are added to the last user turn. */
+  /** Documents this conversation may use. Where their text or cards go: see `documentPlacement`. */
   documentIds: string[];
+  /**
+   * Where document text and cards are added. "first" (the default) puts them at the start of the
+   * first user turn, where they stay as the conversation grows, so Gemini's prompt cache can
+   * reuse them on every follow-up question. "last" appends them to the latest user turn, as 0.1.0
+   * did; the document then moves on every turn and is billed in full each time.
+   */
+  documentPlacement?: "first" | "last";
   /** Plain chat history; the last turn must be the user's question. Use this or `contents`. */
   messages?: ChatTurn[];
   /** Your own Gemini `contents` (with images, inline PDFs, etc.). The last turn must be the user's. */
@@ -44,7 +51,11 @@ export type AskGeminiOptions = {
   generationConfig?: Record<string, unknown>;
   /** The user asking. Documents ingested with a different owner are treated as missing. */
   owner?: string;
-  /** Model turns that may call tools before a final, tool-free turn. Defaults to 12. */
+  /**
+   * The most model requests for one question, counting the answer. Tools can run in all but the
+   * last: if the model is still calling tools then, the last request is sent with no tools so it
+   * must answer. Defaults to 12.
+   */
   maxToolTurns?: number;
   /** Offer `analyze_whole_document`, which reads a whole file in many model calls. Defaults to true. */
   wholeDocumentAnalysis?: boolean;
@@ -61,7 +72,16 @@ export type AskGeminiOptions = {
 };
 
 export type AskGeminiResult = {
+  /** Everything the model wrote, including any remark it made before calling a tool. */
   text: string;
+  /**
+   * False when the model's last turn had no text: the prompt was blocked, the reply was cut off
+   * before any text, or the model produced a malformed tool call. `text` may then be empty or
+   * hold only an earlier remark, so show your own message instead of treating it as the answer.
+   */
+  answered: boolean;
+  /** Why Gemini refused the prompt (`promptFeedback.blockReason`), when it did. */
+  blockReason?: string;
   /** Every tool step taken, in order (also delivered through `onStep`). */
   steps: string[];
   /** Which documents went in whole and which were searched. */
@@ -84,6 +104,7 @@ type Body = {
 type Chunk = {
   candidates?: Array<{ finishReason?: string; content?: { parts?: GeminiPart[] } }>;
   usageMetadata?: Record<string, unknown>;
+  promptFeedback?: { blockReason?: string };
   error?: { message?: string };
 };
 
@@ -127,7 +148,12 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   if (prepared.missing.length) throw new DocumentsNotFoundError(prepared.missing);
 
   const blocks = [...new Set(options.documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
-  if (blocks.length) contents.at(-1)!.parts.push({ text: blocks.join("\n\n") });
+  if (blocks.length) {
+    const block = { text: blocks.join("\n\n") };
+    if (options.documentPlacement === "last") contents.at(-1)!.parts.push(block);
+    // The last turn is the user's, so there is always a first user turn.
+    else contents.find((content) => content.role === "user")!.parts.unshift(block);
+  }
   const system = [options.system?.trim(), prepared.instruction].filter(Boolean).join("\n\n");
   const body: Body = {
     contents,
@@ -140,6 +166,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   let text = "";
   let turns = 0;
   let finishReason: string | undefined;
+  let blockReason: string | undefined;
   let usage: Record<string, unknown> | undefined;
   const steps: string[] = [];
   const emit = (delta: string) => {
@@ -147,8 +174,11 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     options.onText?.(delta);
   };
 
-  /** One model request. Text is emitted as it arrives; parts are kept as received. */
-  const turn = async (): Promise<{ parts: GeminiPart[]; calls: GeminiFunctionCall[] }> => {
+  /**
+   * One model request. Text is emitted as it arrives; parts are kept as received.
+   * `wroteText` says whether this request produced any text of its own.
+   */
+  const turn = async (): Promise<{ parts: GeminiPart[]; calls: GeminiFunctionCall[]; wroteText: boolean }> => {
     turns++;
     const response = await fetchImpl(streaming ? endpoint.streamUrl! : endpoint.url, {
       method: "POST",
@@ -163,8 +193,10 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     const parts: GeminiPart[] = [];
     const calls: GeminiFunctionCall[] = [];
     let separated = text.length === 0;
+    let wroteText = false;
     const take = (chunk: Chunk) => {
       if (chunk.error?.message) throw new GeminiRequestError(chunk.error.message, response.status);
+      if (chunk.promptFeedback?.blockReason) blockReason = chunk.promptFeedback.blockReason;
       const candidate = chunk.candidates?.[0];
       for (const part of candidate?.content?.parts ?? []) {
         // Keep every part unchanged: Gemini 3 requires its thought signatures back.
@@ -175,6 +207,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
             separated = true;
           }
           emit(part.text);
+          if (part.text.trim()) wroteText = true;
         }
         const call = part.functionCall as { name?: unknown; args?: unknown; id?: unknown } | undefined;
         if (call && typeof call.name === "string") {
@@ -191,11 +224,13 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     } else {
       take(await response.json() as Chunk);
     }
-    return { parts, calls };
+    return { parts, calls, wroteText };
   };
 
-  const result = (): AskGeminiResult => ({
+  const result = (answered: boolean): AskGeminiResult => ({
     text,
+    answered,
+    ...(blockReason ? { blockReason } : {}),
     steps,
     plan: prepared.plan,
     turns,
@@ -203,10 +238,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     ...(usage ? { usage } : {}),
   });
 
-  if (prepared.plan.searchable.length === 0) {
-    await turn();
-    return result();
-  }
+  if (prepared.plan.searchable.length === 0) return result((await turn()).wroteText);
 
   const tools = files.tools(prepared.plan.searchable, {
     ...(options.wholeDocumentAnalysis === false ? {} : {
@@ -220,16 +252,18 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   options.onActivity?.(`Too large to read at once: ${prepared.plan.searchable.map((meta) => meta.name).join(", ")}. Searching instead…`);
 
   const maxTurns = Math.max(1, options.maxToolTurns ?? 12);
-  let unanswered = false;
-  for (let round = 1; round <= maxTurns; round++) {
-    const { parts, calls } = await turn();
-    if (calls.length === 0) break;
-    if (round === maxTurns) {
-      unanswered = true;
+  let answered = false;
+  // Tools run in at most maxTurns - 1 requests. The last request is the tool-free one below, so a
+  // model that never stops calling tools does not cost a request whose calls are thrown away.
+  for (let round = 1; round < maxTurns; round++) {
+    const { parts, calls, wroteText } = await turn();
+    if (calls.length === 0) {
+      // Text from this turn is the answer. A remark made earlier, before a tool call, is not.
+      answered = wroteText;
       break;
     }
     body.contents.push({ role: "model", parts });
-    const answered: Array<{ call: GeminiFunctionCall; result: ToolResult }> = [];
+    const responses: Array<{ call: GeminiFunctionCall; result: ToolResult }> = [];
     for (const call of calls) {
       const label = tools.has(call.name) ? tools.describe(call.name, call.args) : call.name;
       options.onActivity?.(`${label}…`);
@@ -237,19 +271,20 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
       const step = `${label}${toolResultSummary(label, output)}`;
       steps.push(step);
       options.onStep?.(step);
-      answered.push({ call, result: { ...output, tool_turns_left: maxTurns - round - 1 } });
+      responses.push({ call, result: { ...output, tool_turns_left: maxTurns - round - 1 } });
     }
-    body.contents.push(geminiFunctionResponses(answered) as GeminiContent);
+    body.contents.push(geminiFunctionResponses(responses) as GeminiContent);
   }
 
-  // Out of turns, or no answer yet: ask once more with no tools declared at all.
-  // (Gemini can ignore functionCallingConfig mode NONE and keep calling tools.)
-  if (unanswered || !text) {
+  // Out of tool turns, or the last turn had no text (cut off, or a malformed tool call): ask once
+  // more with no tools declared at all. (Gemini can ignore functionCallingConfig mode NONE and
+  // keep calling tools.) A blocked prompt would only be blocked again.
+  if (!answered && !blockReason) {
     options.onActivity?.("Writing the answer…");
     delete body.tools;
     delete body.toolConfig;
     body.contents.push({ role: "user", parts: [{ text: FINAL_ANSWER_REQUEST }] });
-    await turn();
+    answered = (await turn()).wroteText;
   }
-  return result();
+  return result(answered);
 }

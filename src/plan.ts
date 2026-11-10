@@ -45,7 +45,8 @@ export function formatBytes(bytes: number): string {
 
 /** "L12 Title" lines, indented relative to the shallowest heading. */
 export function outlineLines(outline: OutlineEntry[]): string[] {
-  const top = Math.min(...outline.map((entry) => entry.level));
+  let top = Number.POSITIVE_INFINITY;
+  for (const entry of outline) if (entry.level < top) top = entry.level;
   return outline.map((entry) => `L${entry.line} ${"  ".repeat(entry.level - top)}${entry.title}`);
 }
 
@@ -84,7 +85,8 @@ export function renderCard(document: SearchableDocument): string {
 
 export function documentToolsInstruction(searchable: DocumentMeta[]): string {
   if (searchable.length === 0) return "";
-  const names = searchable.map((meta) => `${meta.name} (document_id ${meta.id})`).join("; ");
+  // File names come from uploads. Quoting keeps a name that reads like an instruction a name.
+  const names = searchable.map((meta) => `${JSON.stringify(meta.name)} (document_id ${meta.id})`).join("; ");
   return [
     `Some attached files are too large for your context: ${names}.`,
     "You see only a summary card for each. Read them through the tools:",

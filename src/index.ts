@@ -3,7 +3,8 @@
 export { createLargeFiles, DEFAULT_BUDGET, isDocumentId, toDocumentSummary } from "./library.js";
 export type { AccessOptions, IngestInput, LargeFiles, LargeFilesOptions, ToolOptions } from "./library.js";
 export { FileDocumentStore, MemoryDocumentStore, DOCUMENT_ID_PATTERN } from "./stores.js";
-export { defaultExtractors, detectFormat } from "./extract.js";
+export { createPdfExtractor, defaultExtractors, detectFormat } from "./extract.js";
+export type { PdfExtractorOptions } from "./extract.js";
 export { estimateTokens, utf8Bytes, jsonBytes } from "./text.js";
 export { TOOL_NAMES, toolResultSummary } from "./tools.js";
 export type * from "./types.js";

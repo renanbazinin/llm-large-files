@@ -129,9 +129,12 @@ What `askGemini` does each turn:
 
 1. Measures the rest of the request (history, system prompt, other files).
 2. Plans the documents against your budget. Each one goes in whole, or becomes a card plus tools.
-3. Adds each document's text or card to the last user message, and a short tool guide to the system prompt.
-4. Runs the tool loop if needed (up to `maxToolTurns`, default 12). It always ends with a written
-   answer, using a final tool-free turn if the model keeps searching.
+3. Adds each document's text or card at the start of the first user message, where it stays for
+   the whole conversation (so follow-up questions reuse Gemini's prompt cache), and a short tool
+   guide to the system prompt.
+4. Runs the tool loop if needed (up to `maxToolTurns` requests, default 12). If the model keeps
+   searching, the last request is sent without tools so it has to answer. `result.answered` is
+   `false` in the rare case that there is still no answer (a blocked prompt, or an empty reply).
 
 **Vertex AI:**
 
@@ -161,7 +164,7 @@ const endpoint = {
 Without `streamUrl`, answers arrive in one piece (and `onText` fires once).
 
 **Existing Gemini history.** If your chat already stores Gemini `contents` (with images or inline
-PDFs), pass `contents` instead of `messages`; document text is appended to the last user turn.
+PDFs), pass `contents` instead of `messages`; document text is added at the start of the first user turn.
 
 ### With another model: build your own loop
 

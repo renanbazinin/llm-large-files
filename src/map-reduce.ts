@@ -9,8 +9,15 @@ const FINAL_OUTPUT_TOKENS = 8_192;
 export type WholeDocumentResult = {
   answer: string;
   parts: number;
+  /** Parts that were read and had something relevant. Parts that could not be read are not counted. */
   relevantParts: number;
   failedParts: number;
+  /** Parts whose notes stopped at the output limit, so some of what they contain is missing. */
+  truncatedParts: number;
+  /** Note-merging steps that stopped at the output limit. */
+  truncatedMerges: number;
+  /** The final answer stopped at the output limit. */
+  answerTruncated: boolean;
 };
 
 /** Splits a document into line ranges that each fit one model request. */
@@ -62,6 +69,20 @@ async function withRetry(call: () => Promise<string>, signal?: AbortSignal): Pro
   }
 }
 
+/** One model call, retried once. `truncated` is true when the reply that was kept hit the output limit. */
+async function ask(
+  generate: GenerateText,
+  request: { system: string; prompt: string; maxOutputTokens: number },
+  signal: AbortSignal | undefined,
+): Promise<{ text: string; truncated: boolean }> {
+  let truncated = false;
+  const text = await withRetry(() => {
+    truncated = false;
+    return generate({ ...request, signal, onTruncated: () => { truncated = true; } });
+  }, signal);
+  return { text: text.trim(), truncated };
+}
+
 /**
  * Answers a task that needs the whole document: each part is read separately ("map"),
  * then the notes are combined ("reduce"), in several rounds if the notes are still too large.
@@ -84,11 +105,14 @@ export async function analyzeWholeDocument(options: {
 
   let done = 0;
   let failed = 0;
+  let firstFailure = "";
+  let truncatedParts = 0;
   const notes = await pool(parts.length, options.concurrency ?? 4, async (index) => {
     const { from, to } = parts[index]!;
     let text: string;
+    let read = true;
     try {
-      text = (await withRetry(() => generate({
+      const reply = await ask(generate, {
         system: "You read one part of a larger document and take notes for a later step that combines the notes from every part.",
         prompt: [
           `Task: ${task}`,
@@ -101,25 +125,45 @@ export async function analyzeWholeDocument(options: {
           "</part>",
         ].join("\n"),
         maxOutputTokens: PART_OUTPUT_TOKENS,
-        signal,
-      }), signal)).trim();
+      }, signal);
+      text = reply.text;
+      if (reply.truncated) {
+        truncatedParts++;
+        text += "\n[These notes were cut off at the output limit. This part has more relevant content than is listed here.]";
+      }
     } catch (error) {
       if (signal?.aborted) throw error;
       failed++;
-      text = `[This part could not be read: ${error instanceof Error ? error.message : String(error)}]`;
+      read = false;
+      const reason = error instanceof Error ? error.message : String(error);
+      firstFailure ||= reason;
+      text = `[This part could not be read: ${reason}]`;
     }
     done++;
     onProgress?.({ kind: "map", message: `Reading ${name}: part ${done} of ${parts.length}`, done, total: parts.length });
-    return { from, to, text };
+    return { from, to, text, read };
   }, signal);
 
+  // Nothing was read at all: an answer written from here would be invented.
+  if (failed === parts.length) throw new Error(`Could not read any part of ${name}: ${firstFailure}`);
+
   const relevant = notes.filter((note) => !note.text.toUpperCase().startsWith(NOTHING));
-  if (relevant.length === 0) {
-    return { answer: `No part of ${name} contained anything relevant to: ${task}`, parts: parts.length, relevantParts: 0, failedParts: failed };
+  const relevantParts = relevant.filter((note) => note.read).length;
+  if (relevantParts === 0) {
+    return {
+      answer: `No part of ${name} contained anything relevant to: ${task}${failed ? ` (${failed} of ${parts.length} parts could not be read.)` : ""}`,
+      parts: parts.length,
+      relevantParts: 0,
+      failedParts: failed,
+      truncatedParts,
+      truncatedMerges: 0,
+      answerTruncated: false,
+    };
   }
 
   let layer = relevant.map((note) => `### Lines ${note.from}-${note.to}\n${note.text}`);
   let round = 0;
+  let truncatedMerges = 0;
   // Combine notes in batches until one batch holds them all. Each merge is capped at
   // PART_OUTPUT_TOKENS, so the layer shrinks every round; the round cap is a safety net.
   while (layer.length > 1 && estimateTokens(layer.join("\n\n")) > budget.mapChunkTokens && round < 8) {
@@ -145,31 +189,40 @@ export async function analyzeWholeDocument(options: {
     }
     let combined = 0;
     layer = await pool(batches.length, options.concurrency ?? 4, async (index) => {
-      const text = await withRetry(() => generate({
+      const reply = await ask(generate, {
         system: "You merge partial notes about a document into shorter notes, keeping every relevant fact and line citation.",
         prompt: `Task: ${task}\n\nMerge these notes from ${name} into one set of notes. Keep line citations.\n\n${batches[index]!.join("\n\n")}`,
         maxOutputTokens: PART_OUTPUT_TOKENS,
-        signal,
-      }), signal);
+      }, signal);
+      if (reply.truncated) truncatedMerges++;
       combined++;
       onProgress?.({ kind: "reduce", message: `Combining notes on ${name} (round ${round}): ${combined} of ${batches.length}`, done: combined, total: batches.length });
-      return text.trim();
+      return reply.truncated ? `${reply.text}\n[These merged notes were cut off at the output limit.]` : reply.text;
     }, signal);
   }
 
-  onProgress?.({ kind: "reduce", message: `Writing the answer from ${relevant.length} relevant parts of ${name}`, done: 0, total: 1 });
-  const answer = await withRetry(() => generate({
+  onProgress?.({ kind: "reduce", message: `Writing the answer from ${relevantParts} relevant parts of ${name}`, done: 0, total: 1 });
+  const cutShort = truncatedParts + truncatedMerges;
+  const final = await ask(generate, {
     system: "You write a complete answer from notes taken across every part of a document.",
     prompt: [
       `Task: ${task}`,
       "",
       `These notes cover all ${parts.length} parts of ${name}${failed ? ` (${failed} part(s) could not be read)` : ""}. Parts with nothing relevant are omitted.`,
+      ...(cutShort ? [`Some notes were cut off at the output limit (they say so), so the notes are incomplete. Say in the answer that it is incomplete.`] : []),
       "Write one complete answer to the task from them. Keep line citations. Point out contradictions or gaps.",
       "",
       layer.join("\n\n"),
     ].join("\n"),
     maxOutputTokens: FINAL_OUTPUT_TOKENS,
-    signal,
-  }), signal);
-  return { answer: answer.trim(), parts: parts.length, relevantParts: relevant.length, failedParts: failed };
+  }, signal);
+  return {
+    answer: final.text,
+    parts: parts.length,
+    relevantParts,
+    failedParts: failed,
+    truncatedParts,
+    truncatedMerges,
+    answerTruncated: final.truncated,
+  };
 }
