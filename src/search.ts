@@ -21,6 +21,7 @@ export class SearchableDocument {
   readonly lines: LineIndex;
   private lowerText?: string;
   private passageStarts?: number[];
+  private pageStarts?: number[];
 
   constructor(document: StoredDocument) {
     this.meta = document.meta;
@@ -69,6 +70,42 @@ export class SearchableDocument {
       else high = middle - 1;
     }
     return low;
+  }
+
+  /**
+   * The page a line is on, from the "--- Page N ---" lines the PDF extractor writes. Undefined for
+   * a text without them, and for lines above the first one. Only markers that count up from 1 are
+   * used, so a line of the document that happens to read "--- Page 7 ---" is not taken for one.
+   */
+  pageOfLine(line: number): number | undefined {
+    if (!this.pageStarts) {
+      const starts: number[] = [];
+      const marker = "--- Page ";
+      for (let at = this.text.indexOf(marker); at !== -1; at = this.text.indexOf(marker, at + marker.length)) {
+        if (at > 0 && this.text[at - 1] !== "\n") continue;
+        const found = this.lines.lineAt(at);
+        if (this.lines.line(found) === `--- Page ${starts.length + 1} ---`) starts.push(found);
+      }
+      this.pageStarts = starts;
+    }
+    const starts = this.pageStarts;
+    if (starts.length === 0 || line < starts[0]!) return undefined;
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (starts[middle]! <= line) low = middle;
+      else high = middle - 1;
+    }
+    return low + 1;
+  }
+
+  /** The pages a range of lines is on, as "12" or "12-14". Undefined for a text without page lines. */
+  pagesOfLines(from: number, to: number): string | undefined {
+    const last = this.pageOfLine(to);
+    if (last === undefined) return undefined;
+    const first = this.pageOfLine(from) ?? 1;
+    return first === last ? String(last) : `${first}-${last}`;
   }
 }
 

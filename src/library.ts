@@ -70,6 +70,14 @@ export type ToolOptions = {
   /** Progress of whole-document reads, for status messages. */
   onProgress?: ProgressListener;
   signal?: AbortSignal;
+  /**
+   * Offers `view_pages`, which hands the model real pages of a PDF whose original file is kept
+   * (see `keepOriginals`). The pages come back as a file, so turn this on only when your loop
+   * runs tools with `executeWithFiles` and sends the files to the model. `true` offers it for the
+   * documents passed to `tools`; a list offers it for exactly those documents, which may include
+   * PDFs that are not searched because their text is already in the prompt.
+   */
+  viewPages?: boolean | DocumentMeta[];
 };
 
 export interface LargeFiles {
@@ -253,12 +261,17 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
 
     tools(documents, toolOptions = {}) {
+      const { viewPages, ...rest } = toolOptions;
+      const loadOriginal = options.store.getOriginal?.bind(options.store);
+      const viewable = (loadOriginal ? (viewPages === true ? documents : viewPages || []) : [])
+        .filter((meta) => meta.format === "pdf" && meta.originalKept);
       return createDocumentTools({
         load,
         documentIds: documents.map((meta) => meta.id),
-        names: Object.fromEntries(documents.map((meta) => [meta.id, meta.name])),
+        names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, meta.name])),
         budget,
-        ...toolOptions,
+        ...(loadOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal } : {}),
+        ...rest,
       });
     },
   };

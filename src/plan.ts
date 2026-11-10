@@ -2,7 +2,7 @@ import type { Budget, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.j
 import type { SearchableDocument } from "./search.js";
 
 /** Bytes kept free for document cards, the tool declarations, and JSON framing. */
-const REQUEST_BYTES_MARGIN = 256 * 1024;
+export const REQUEST_BYTES_MARGIN = 256 * 1024;
 const CARD_HEAD_LINES = 25;
 const CARD_OUTLINE_ENTRIES = 40;
 

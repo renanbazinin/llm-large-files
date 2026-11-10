@@ -135,11 +135,41 @@ export type ToolDeclaration = {
 
 export type ToolResult = Record<string, unknown>;
 
+/** A file a tool hands back next to its JSON result, for example pages cut out of a PDF. */
+export type ToolFile = {
+  /** A short ASCII name, unique among the files of one result: "pages-12-14.pdf". */
+  name: string;
+  mimeType: string;
+  bytes: Uint8Array;
+};
+
+/** A tool's JSON result, and the files that belong to it. Most tools return no files. */
+export type ToolOutput = { result: ToolResult; files: ToolFile[] };
+
+/** What a call that can return files is allowed to use of the request it will be sent in. */
+export type ToolFileLimits = {
+  /**
+   * The most bytes the files of this call may have together. Give the room left in your request,
+   * times 3/4 when files are sent as base64. Defaults to about a third of `maxRequestBytes`.
+   */
+  maxFileBytes?: number;
+  /** The most pages this call may show. Lower it as the pages already shown use up your token budget. */
+  maxPages?: number;
+};
+
 export type ToolSet = {
   declarations: ToolDeclaration[];
   has(name: string): boolean;
-  /** Runs a tool call. Bad arguments come back as `{ error }` so the model can correct itself. */
+  /**
+   * Runs a tool call. Bad arguments come back as `{ error }` so the model can correct itself. A
+   * tool that returns files (`view_pages`) answers with an error here: use `executeWithFiles`.
+   */
   execute(name: string, args: Record<string, unknown>): Promise<ToolResult>;
+  /**
+   * Runs a tool call and also returns the files it produced, to be sent to the model with the
+   * result. Use it in place of `execute` in a loop that can send files.
+   */
+  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolFileLimits): Promise<ToolOutput>;
   /** A short, human-readable line describing a call, for progress UIs. */
   describe(name: string, args: Record<string, unknown>): string;
 };
