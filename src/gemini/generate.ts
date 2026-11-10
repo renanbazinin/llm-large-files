@@ -1,6 +1,6 @@
 // Gemini (Generate Content REST) helpers. No SDK dependency: the caller supplies the URL and
 // auth headers, so this works with the Gemini API, Vertex AI, or an enterprise gateway.
-import type { GenerateText, ToolDeclaration, ToolResult } from "../types.js";
+import type { GenerateText, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
 
 /** Gemini accepts this package's JSON Schema subset as-is. */
 export function toGeminiTools(declarations: ToolDeclaration[]): { functionDeclarations: ToolDeclaration[] } {
@@ -9,14 +9,51 @@ export function toGeminiTools(declarations: ToolDeclaration[]): { functionDeclar
 
 export type GeminiFunctionCall = { name: string; args: Record<string, unknown>; id?: string };
 
-/** The `user` turn that answers a model turn's function calls, in call order. */
-export function geminiFunctionResponses(calls: Array<{ call: GeminiFunctionCall; result: ToolResult }>): { role: "user"; parts: unknown[] } {
-  return {
-    role: "user",
-    parts: calls.map(({ call, result }) => ({
-      functionResponse: { name: call.name, ...(call.id ? { id: call.id } : {}), response: result },
-    })),
-  };
+/**
+ * Where a file that a tool returned goes in the request:
+ * - "inside": in the `parts` of its function response, which names it with `{ "$ref": name }`
+ *   (Gemini 3 multimodal function responses);
+ * - "beside": as a part of the same user turn, after all function responses, for an endpoint that
+ *   refuses the first form.
+ */
+export type GeminiToolFilePlacement = "inside" | "beside";
+
+/**
+ * The `user` turn that answers a model turn's function calls, in call order. Files that a tool
+ * returned (`executeWithFiles`) are sent as base64 `inlineData`.
+ */
+export function geminiFunctionResponses(
+  calls: Array<{ call: GeminiFunctionCall; result: ToolResult; files?: ToolFile[] }>,
+  options: { files?: GeminiToolFilePlacement } = {},
+): { role: "user"; parts: unknown[] } {
+  const inside = options.files !== "beside";
+  const base64 = (bytes: Uint8Array) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
+  const responses: unknown[] = [];
+  const beside: unknown[] = [];
+  for (const { call, result, files = [] } of calls) {
+    let response = result;
+    const parts: unknown[] = [];
+    if (inside && files.length > 0) {
+      // The result names its file ("file": "pages-2-3.pdf"); that becomes the reference Gemini resolves.
+      response = { ...result };
+      const unnamed: Array<{ $ref: string }> = [];
+      for (const file of files) {
+        const named = Object.keys(response).find((key) => response[key] === file.name);
+        if (named) response[named] = { $ref: file.name };
+        else unnamed.push({ $ref: file.name });
+        parts.push({ inlineData: { mimeType: file.mimeType, displayName: file.name, data: base64(file.bytes) } });
+      }
+      if (unnamed.length > 0) response.files = unnamed;
+    } else {
+      for (const file of files) {
+        beside.push({ text: `${file.name} (returned by ${call.name}):` }, { inlineData: { mimeType: file.mimeType, data: base64(file.bytes) } });
+      }
+    }
+    responses.push({
+      functionResponse: { name: call.name, ...(call.id ? { id: call.id } : {}), response, ...(parts.length > 0 ? { parts } : {}) },
+    });
+  }
+  return { role: "user", parts: [...responses, ...beside] };
 }
 
 /**

@@ -64,6 +64,15 @@ export type IngestInput = {
 /** Access options. When a document has an owner, only that owner can use it. */
 export type AccessOptions = { owner?: string };
 
+export type PrepareOptions = AccessOptions & {
+  /**
+   * Say that your tool loop can pass files to the model (see `ToolOptions.viewPages`). The result
+   * then lists the PDFs whose pages can be shown in `viewable`, and the instruction and the cards
+   * tell the model about `view_pages`. Without it, the result is that of 0.2.0.
+   */
+  viewPages?: boolean;
+};
+
 export type ToolOptions = {
   /** Enables `analyze_whole_document`, which reads the entire file in parts. */
   generate?: GenerateText;
@@ -96,7 +105,7 @@ export interface LargeFiles {
    * Plans one model request: which documents go in whole and which become searchable cards.
    * `base` is the size of everything else in the request (messages, system prompt, other files).
    */
-  prepare(ids: string[], base: { tokens: number; bytes: number }, access?: AccessOptions): Promise<PreparedContext>;
+  prepare(ids: string[], base: { tokens: number; bytes: number }, options?: PrepareOptions): Promise<PreparedContext>;
   /** Tools scoped to these documents. Pass `generate` to enable whole-document analysis. */
   tools(documents: DocumentMeta[], options?: ToolOptions): ToolSet;
 }
@@ -253,11 +262,17 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       }
       const plan = planDocuments(documents.map((document) => document.meta), budget, base);
       const inline = new Set(plan.inline.map((meta) => meta.id));
+      // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
+      const viewable = access?.viewPages && options.store.getOriginal
+        ? documents.map((document) => document.meta).filter((meta) => meta.format === "pdf" && meta.originalKept)
+        : [];
+      const shown = new Set(viewable.map((meta) => meta.id));
       const blocks = new Map<string, string>();
       for (const document of documents) {
-        blocks.set(document.meta.id, inline.has(document.meta.id) ? renderInline(document) : renderCard(document));
+        const { id } = document.meta;
+        blocks.set(id, inline.has(id) ? renderInline(document) : renderCard(document, shown.has(id)));
       }
-      return { plan, blocks, instruction: documentToolsInstruction(plan.searchable), missing };
+      return { plan, blocks, instruction: documentToolsInstruction(plan.searchable, viewable), missing, viewable };
     },
 
     tools(documents, toolOptions = {}) {

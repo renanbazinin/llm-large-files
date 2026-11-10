@@ -1,7 +1,7 @@
-export { askGemini, DocumentsNotFoundError, FINAL_ANSWER_REQUEST, GeminiRequestError } from "./chat.js";
+export { askGemini, DocumentsNotFoundError, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, GeminiRequestError } from "./chat.js";
 export type { AskGeminiOptions, AskGeminiResult, ChatTurn, GeminiContent, GeminiPart } from "./chat.js";
 export { geminiApi, vertexAi, vertexHost } from "./endpoints.js";
 export type { GeminiEndpoint } from "./endpoints.js";
 export { createGeminiGenerateText, geminiFunctionResponses, toGeminiTools } from "./generate.js";
-export type { GeminiFunctionCall } from "./generate.js";
+export type { GeminiFunctionCall, GeminiToolFilePlacement } from "./generate.js";
 export { parseSseJson } from "./sse.js";

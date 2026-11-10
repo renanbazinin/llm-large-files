@@ -210,8 +210,13 @@ export type PreparedContext = {
   plan: DocumentPlan;
   /** Prompt text per document ID: the full text for inline documents, a summary card otherwise. */
   blocks: Map<string, string>;
-  /** System instruction to add when any document is searchable, else an empty string. */
+  /** System instruction to add when any document is searchable or viewable, else an empty string. */
   instruction: string;
   /** IDs that were not found (never uploaded, deleted, or expired). */
   missing: string[];
+  /**
+   * PDFs whose pages `view_pages` can show: their original file is kept. Empty unless `prepare`
+   * was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`.
+   */
+  viewable: DocumentMeta[];
 };
