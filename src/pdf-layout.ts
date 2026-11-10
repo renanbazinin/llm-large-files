@@ -719,6 +719,37 @@ function tablesInLines(lines: Line[], depth: number): Table[] {
 
 // ---------- The page ----------
 
+/** `[left, top, right, bottom]` in the coordinates the viewport transform gives. */
+export type LayoutBox = [number, number, number, number];
+
+/** Where a table lies on the page: the box around its text, widened by about one line for the padding of its cells. */
+function tableBox(table: Table, items: readonly PdfTextItem[], viewport: readonly number[]): LayoutBox {
+  const box: LayoutBox = [Infinity, Infinity, -Infinity, -Infinity];
+  let padding = 0;
+  for (const index of table.indexes) {
+    const item = items[index]!;
+    const matrix = item.transform;
+    const a = viewport[0]! * matrix[0]! + viewport[2]! * matrix[1]!;
+    const b = viewport[1]! * matrix[0]! + viewport[3]! * matrix[1]!;
+    const x = viewport[0]! * matrix[4]! + viewport[2]! * matrix[5]! + viewport[4]!;
+    const y = viewport[1]! * matrix[4]! + viewport[3]! * matrix[5]! + viewport[5]!;
+    const scale = Math.hypot(a, b) || 1;
+    const size = item.height > 0 ? item.height : scale;
+    const width = item.width > 0 ? item.width : item.str.length * size * 0.5;
+    // Along the text, and from the baseline up to the top of the letters.
+    const along = [a / scale * width, b / scale * width];
+    const up = [b / scale * size, -a / scale * size];
+    for (const [px, py] of [[x, y], [x + along[0]!, y + along[1]!], [x + up[0]!, y + up[1]!], [x + along[0]! + up[0]!, y + along[1]! + up[1]!]]) {
+      box[0] = Math.min(box[0], px!);
+      box[1] = Math.min(box[1], py!);
+      box[2] = Math.max(box[2], px!);
+      box[3] = Math.max(box[3], py!);
+    }
+    padding = Math.max(padding, size);
+  }
+  return [box[0] - padding, box[1] - padding, box[2] + padding, box[3] + padding];
+}
+
 /**
  * The text of one PDF page, with tables written as `| cell | cell |` rows.
  *
@@ -727,6 +758,11 @@ function tablesInLines(lines: Line[], depth: number): Table[] {
  *   rotation. Without it, the page is assumed to be upright.
  */
 export function layoutPageText(items: readonly PdfTextItem[], viewportTransform: readonly number[] = FLIP_Y): string {
+  return layoutPage(items, viewportTransform).text;
+}
+
+/** As `layoutPageText`, and also where the tables it found lie on the page. */
+export function layoutPage(items: readonly PdfTextItem[], viewportTransform: readonly number[] = FLIP_Y): { text: string; tables: LayoutBox[] } {
   const tableOf = new Map<number, Table>();
   const pieceOf = new Map<number, Piece>();
   for (const group of toPieces(items, viewportTransform)) {
@@ -767,5 +803,5 @@ export function layoutPageText(items: readonly PdfTextItem[], viewportTransform:
     text += item.str + (item.hasEOL ? "\n" : "");
     last = piece && !item.hasEOL && item.str.trim() ? piece : undefined;
   });
-  return text;
+  return { text, tables: [...new Set(tableOf.values())].map((table) => tableBox(table, items, viewportTransform)) };
 }

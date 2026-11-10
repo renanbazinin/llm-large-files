@@ -14,7 +14,9 @@ const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) throw new Error("Set GEMINI_API_KEY.");
 const endpoint = geminiApi({ apiKey, model: process.env.GEMINI_MODEL ?? "gemini-3.8-flash" });
 
-const files = createLargeFiles({ store: new FileDocumentStore(".data/large-files") });
+// keepOriginals lets the model look at the pages of an uploaded PDF (charts, photos, scans). It
+// needs the optional dependency @cantoo/pdf-lib, and keeps each PDF on disk until it expires.
+const files = createLargeFiles({ store: new FileDocumentStore(".data/large-files"), keepOriginals: ["pdf"] });
 // In a real app, return the signed-in user's ID so uploads stay private to them.
 const getOwner = (_request: IncomingMessage) => undefined;
 const documents = createDocumentHandlers(files, { getOwner });

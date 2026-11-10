@@ -1,7 +1,7 @@
 {
   "name": "llm-large-files",
-  "version": "0.2.0",
-  "description": "Let an LLM answer questions about books, logs, and other files larger than its request limit or context window: upload, plan, search and read tools, and map-reduce. Gemini and Vertex AI helpers included.",
+  "version": "0.3.0",
+  "description": "Let an LLM answer questions about books, logs, and other files larger than its request limit or context window: upload, plan, search and read tools, map-reduce, and a look at the pages of a PDF. Gemini and Vertex AI helpers included.",
   "keywords": [
     "llm",
     "gemini",
@@ -70,10 +70,14 @@
     "prepublishOnly": "npm run check"
   },
   "peerDependencies": {
+    "@cantoo/pdf-lib": "^2.11.1",
     "jszip": "^3.10.0",
     "unpdf": "^1.4.0"
   },
   "peerDependenciesMeta": {
+    "@cantoo/pdf-lib": {
+      "optional": true
+    },
     "jszip": {
       "optional": true
     },
@@ -82,6 +86,7 @@
     }
   },
   "devDependencies": {
+    "@cantoo/pdf-lib": "2.11.1",
     "@types/node": "^22.10.2",
     "jszip": "3.10.1",
     "typescript": "5.9.3",

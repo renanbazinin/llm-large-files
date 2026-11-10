@@ -1,9 +1,10 @@
 import type { LargeFiles } from "../library.js";
+import { REQUEST_BYTES_MARGIN } from "../plan.js";
 import { estimateTokens, jsonBytes } from "../text.js";
-import { toolResultSummary } from "../tools.js";
-import type { DocumentPlan, ToolResult } from "../types.js";
+import { TOOL_NAMES, toolResultSummary } from "../tools.js";
+import type { DocumentPlan, ToolFile, ToolFileLimits, ToolResult } from "../types.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
-import { createGeminiGenerateText, geminiFunctionResponses, type GeminiFunctionCall } from "./generate.js";
+import { createGeminiGenerateText, geminiFunctionResponseTurns, type GeminiFunctionCall, type GeminiToolFilePlacement } from "./generate.js";
 import { parseSseJson } from "./sse.js";
 
 export type GeminiPart = Record<string, unknown>;
@@ -13,6 +14,11 @@ export type ChatTurn = { role: "user" | "model" | "assistant"; text: string };
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find.";
+/** The same, when the only tool was `view_pages`: the text of the files is in the prompt, not in tool results. */
+export const FINAL_ANSWER_AFTER_PAGES = "Stop using tools now. Answer my question from the text of the files and the pages you looked at. Say plainly what you could not see or find.";
+
+/** What Gemini bills for one PDF page it is shown (measured: 520 to 532). */
+const PAGE_TOKENS = 530;
 
 /** Some document IDs were never uploaded, have expired, or belong to another owner. */
 export class DocumentsNotFoundError extends Error {
@@ -59,6 +65,19 @@ export type AskGeminiOptions = {
   maxToolTurns?: number;
   /** Offer `analyze_whole_document`, which reads a whole file in many model calls. Defaults to true. */
   wholeDocumentAnalysis?: boolean;
+  /**
+   * Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`), so the model can
+   * look at pictures, charts and layout. Defaults to true. It changes nothing for a library that
+   * keeps no originals.
+   */
+  viewPages?: boolean;
+  /**
+   * Where the pages go in the request. "inside" (the default) puts the PDF in the function
+   * response itself, which Gemini 3 models read. "beside" sends it in a user turn of its own,
+   * after the function responses: use it for Gemini 2.5, which does not see a file inside a
+   * function response.
+   */
+  toolFilePlacement?: GeminiToolFilePlacement;
   /** generationConfig for whole-document part reads. Defaults to `{ temperature: 0.2, maxOutputTokens }`. */
   analysisConfig?: (maxOutputTokens: number) => Record<string, unknown>;
   /** Answer text as it streams. Streaming is used when this is set and the endpoint has `streamUrl`. */
@@ -144,7 +163,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   const fetchImpl = options.fetch ?? fetch;
   const { files, endpoint, signal } = options;
   const contents = toContents(options);
-  const prepared = await files.prepare(options.documentIds, baseSize(contents, options.system), { owner: options.owner });
+  const prepared = await files.prepare(options.documentIds, baseSize(contents, options.system), { owner: options.owner, viewPages: options.viewPages !== false });
   if (prepared.missing.length) throw new DocumentsNotFoundError(prepared.missing);
 
   const blocks = [...new Set(options.documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
@@ -238,18 +257,30 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     ...(usage ? { usage } : {}),
   });
 
-  if (prepared.plan.searchable.length === 0) return result((await turn()).wroteText);
+  // Tools are needed for a file that is too large to send whole, and for a PDF whose pages can be
+  // looked at: that one may have its whole text in the prompt and still hide a chart from the model.
+  const { searchable } = prepared.plan;
+  const { viewable } = prepared;
+  if (searchable.length === 0 && viewable.length === 0) return result((await turn()).wroteText);
 
-  const tools = files.tools(prepared.plan.searchable, {
+  const tools = files.tools(searchable, {
     ...(options.wholeDocumentAnalysis === false ? {} : {
       generate: createGeminiGenerateText({ url: endpoint.url, headers, fetchImpl, ...(options.analysisConfig ? { generationConfig: options.analysisConfig } : {}) }),
     }),
     onProgress: (event) => options.onActivity?.(`${event.message}…`),
     ...(signal ? { signal } : {}),
+    ...(viewable.length > 0 ? { viewPages: viewable } : {}),
   });
   body.tools = [{ functionDeclarations: tools.declarations }];
   body.toolConfig = { functionCallingConfig: { mode: "AUTO" } };
-  options.onActivity?.(`Too large to read at once: ${prepared.plan.searchable.map((meta) => meta.name).join(", ")}. Searching instead…`);
+  if (searchable.length > 0) options.onActivity?.(`Too large to read at once: ${searchable.map((meta) => meta.name).join(", ")}. Searching instead…`);
+
+  // Pages the model looks at stay in the request until the question is answered, so they are
+  // counted twice: as bytes against the request limit, and as tokens against half of what the
+  // budget keeps free for tool results and the answer.
+  const { maxRequestBytes, reservedTokens } = files.budget;
+  const bytesKeptFree = Math.max(REQUEST_BYTES_MARGIN, Math.floor(maxRequestBytes / 10));
+  let pagesLeft = Math.floor(reservedTokens / 2 / PAGE_TOKENS);
 
   const maxTurns = Math.max(1, options.maxToolTurns ?? 12);
   let answered = false;
@@ -263,17 +294,27 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
       break;
     }
     body.contents.push({ role: "model", parts });
-    const responses: Array<{ call: GeminiFunctionCall; result: ToolResult }> = [];
+    const responses: Array<{ call: GeminiFunctionCall; result: ToolResult; files: ToolFile[] }> = [];
+    // The size of the request as it stands, worked out when the first look at pages in this turn needs it.
+    let requestBytes: number | undefined;
     for (const call of calls) {
       const label = tools.has(call.name) ? tools.describe(call.name, call.args) : call.name;
       options.onActivity?.(`${label}…`);
-      const output = await tools.execute(call.name, call.args);
-      const step = `${label}${toolResultSummary(label, output)}`;
+      let limits: ToolFileLimits | undefined;
+      if (call.name === TOOL_NAMES.view) {
+        requestBytes ??= Buffer.byteLength(JSON.stringify(body));
+        // Base64 turns three bytes into four characters.
+        limits = { maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4), maxPages: pagesLeft };
+      }
+      const output = await tools.executeWithFiles(call.name, call.args, limits);
+      for (const file of output.files) requestBytes = (requestBytes ?? 0) + Math.ceil(file.bytes.length / 3) * 4 + 512;
+      if (output.files.length > 0) pagesLeft -= pagesShown(output.result);
+      const step = `${label}${toolResultSummary(label, output.result)}`;
       steps.push(step);
       options.onStep?.(step);
-      responses.push({ call, result: { ...output, tool_turns_left: maxTurns - round - 1 } });
+      responses.push({ call, result: { ...output.result, tool_turns_left: maxTurns - round - 1 }, files: output.files });
     }
-    body.contents.push(geminiFunctionResponses(responses) as GeminiContent);
+    body.contents.push(...geminiFunctionResponseTurns(responses, { files: options.toolFilePlacement ?? "inside" }) as GeminiContent[]);
   }
 
   // Out of tool turns, or the last turn had no text (cut off, or a malformed tool call): ask once
@@ -283,8 +324,14 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     options.onActivity?.("Writing the answer…");
     delete body.tools;
     delete body.toolConfig;
-    body.contents.push({ role: "user", parts: [{ text: FINAL_ANSWER_REQUEST }] });
+    body.contents.push({ role: "user", parts: [{ text: searchable.length > 0 ? FINAL_ANSWER_REQUEST : FINAL_ANSWER_AFTER_PAGES }] });
     answered = (await turn()).wroteText;
   }
   return result(answered);
+}
+
+/** How many pages a `view_pages` result showed: its `pages` is "12" or "12-14". */
+function pagesShown(result: ToolResult): number {
+  const [first, last] = String(result.pages ?? "").split("-").map(Number);
+  return Number.isFinite(first) ? (Number.isFinite(last) ? last! - first! + 1 : 1) : 0;
 }

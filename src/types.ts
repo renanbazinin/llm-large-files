@@ -44,6 +44,11 @@ export type DocumentMeta = {
   /** Lines longer than the wrap limit are split so every line stays readable by line number. */
   wrappedLines: number;
   pages?: number;
+  /**
+   * True when the uploaded file itself is kept in the store next to its text (see `keepOriginals`).
+   * Recorded here so that planning a request does not have to load the file to know.
+   */
+  originalKept?: boolean;
   outline: OutlineEntry[];
   logProfile?: LogProfile;
   createdAt: string;
@@ -71,9 +76,17 @@ export interface DocumentStore {
   /** Returns undefined for unknown or expired documents. */
   get(id: string): Promise<StoredDocument | undefined>;
   getMeta(id: string): Promise<DocumentMeta | undefined>;
+  /** Removes the document, and its original file if one is kept. */
   delete(id: string): Promise<boolean>;
-  /** Removes expired documents and returns how many were removed. */
+  /** Removes expired documents (and their original files) and returns how many were removed. */
   sweep?(now?: Date): Promise<number>;
+  /**
+   * Keeps the uploaded file of a document. It is called before `put` for the same ID. Optional: a
+   * store without it works as before, and original files are then not kept.
+   */
+  putOriginal?(id: string, bytes: Uint8Array): Promise<void>;
+  /** The uploaded file, or undefined when none was kept or the document is unknown or expired. */
+  getOriginal?(id: string): Promise<Uint8Array | undefined>;
 }
 
 export type ExtractedText = { text: string; pages?: number };
@@ -82,6 +95,12 @@ export type ExtractInput = {
   name: string;
   mimeType: string;
   format: DocumentFormat;
+  /**
+   * Set when a PDF without any text (a scan) is worth storing, because its pages can be shown to
+   * the model: the most pages such a PDF may have. Unset, a PDF without text is refused, as it
+   * always was. An extractor of your own may ignore it.
+   */
+  scannedPages?: number;
 };
 
 export type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>;
@@ -122,11 +141,41 @@ export type ToolDeclaration = {
 
 export type ToolResult = Record<string, unknown>;
 
+/** A file a tool hands back next to its JSON result, for example pages cut out of a PDF. */
+export type ToolFile = {
+  /** A short ASCII name, unique among the files of one result: "pages-12-14.pdf". */
+  name: string;
+  mimeType: string;
+  bytes: Uint8Array;
+};
+
+/** A tool's JSON result, and the files that belong to it. Most tools return no files. */
+export type ToolOutput = { result: ToolResult; files: ToolFile[] };
+
+/** What a call that can return files is allowed to use of the request it will be sent in. */
+export type ToolFileLimits = {
+  /**
+   * The most bytes the files of this call may have together. Give the room left in your request,
+   * times 3/4 when files are sent as base64. Defaults to about a third of `maxRequestBytes`.
+   */
+  maxFileBytes?: number;
+  /** The most pages this call may show. Lower it as the pages already shown use up your token budget. */
+  maxPages?: number;
+};
+
 export type ToolSet = {
   declarations: ToolDeclaration[];
   has(name: string): boolean;
-  /** Runs a tool call. Bad arguments come back as `{ error }` so the model can correct itself. */
+  /**
+   * Runs a tool call. Bad arguments come back as `{ error }` so the model can correct itself. A
+   * tool that returns files (`view_pages`) answers with an error here: use `executeWithFiles`.
+   */
   execute(name: string, args: Record<string, unknown>): Promise<ToolResult>;
+  /**
+   * Runs a tool call and also returns the files it produced, to be sent to the model with the
+   * result. Use it in place of `execute` in a loop that can send files.
+   */
+  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolFileLimits): Promise<ToolOutput>;
   /** A short, human-readable line describing a call, for progress UIs. */
   describe(name: string, args: Record<string, unknown>): string;
 };
@@ -167,8 +216,13 @@ export type PreparedContext = {
   plan: DocumentPlan;
   /** Prompt text per document ID: the full text for inline documents, a summary card otherwise. */
   blocks: Map<string, string>;
-  /** System instruction to add when any document is searchable, else an empty string. */
+  /** System instruction to add when any document is searchable or viewable, else an empty string. */
   instruction: string;
   /** IDs that were not found (never uploaded, deleted, or expired). */
   missing: string[];
+  /**
+   * PDFs whose pages `view_pages` can show: their original file is kept. Empty unless `prepare`
+   * was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`.
+   */
+  viewable: DocumentMeta[];
 };

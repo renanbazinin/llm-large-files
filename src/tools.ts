@@ -1,16 +1,22 @@
 import { analyzeWholeDocument, splitIntoParts } from "./map-reduce.js";
+import { cutPdfPages } from "./pdf-pages.js";
 import { grep, rankPassages, type SearchableDocument } from "./search.js";
-import { formatBytes, outlineLines } from "./plan.js";
-import type { Budget, GenerateText, ProgressListener, ToolDeclaration, ToolResult, ToolSet } from "./types.js";
+import { formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
+import type { Budget, GenerateText, ProgressListener, ToolDeclaration, ToolFileLimits, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
 const MAX_READ_LINES = 600;
+/** The most pages one `view_pages` call shows. A page costs a model about 530 tokens. */
+export const MAX_VIEW_PAGES = 5;
+/** Below this, no page fits: a cut of one page of plain text is larger. */
+const MIN_FILE_BYTES = 1_024;
 
 export const TOOL_NAMES = {
   search: "search_document",
   read: "read_document",
   overview: "get_document_overview",
   analyze: "analyze_whole_document",
+  view: "view_pages",
 } as const;
 
 const documentId = { type: "string" as const, description: "The document_id from the file's card." };
@@ -62,7 +68,23 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
       required: ["document_id", "task"],
     },
   },
+  view: {
+    name: TOOL_NAMES.view,
+    description: `Look at pages of an attached PDF as they are printed. Use it when the answer depends on something the text of the file cannot show: a picture, photo, chart, diagram, map, handwriting, a stamp or signature, or how a page is laid out. It is not for reading text. Up to ${MAX_VIEW_PAGES} pages per call.`,
+    parameters: {
+      type: "object",
+      properties: {
+        document_id: { type: "string", description: "The document_id of the PDF." },
+        from_page: { type: "integer", description: "First page to look at (1-based, the N of the \"--- Page N ---\" lines in the text)." },
+        to_page: { type: "integer", description: "Last page to look at. Defaults to from_page." },
+      },
+      required: ["document_id", "from_page"],
+    },
+  },
 };
+
+/** Says so when a tool that returns files is run through `execute`, which has nowhere to put them. */
+const FILES_NOT_DELIVERED = "The pages could not be shown: this application does not pass files from tools to the model. Answer from the text.";
 
 function integer(value: unknown, fallback: number, min: number, max: number): number {
   const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
@@ -76,6 +98,15 @@ function text(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required.`);
   return value;
 }
+
+/** A page number given by the model. Unlike a line number it is not clamped: a wrong page is a wrong picture. */
+function pageNumber(value: unknown, name: string): number {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+  if (!Number.isFinite(number) || Math.trunc(number) < 1) throw new Error(`${name} must be a page number: 1 or higher.`);
+  return Math.trunc(number);
+}
+
+const pageRange = (from: number, to: number): string => (to > from ? `${from}-${to}` : String(from));
 
 /** Trims a result to the character budget by dropping trailing list entries, then cutting text. */
 function fit(result: ToolResult, listKey: string | null, limit: number): ToolResult {
@@ -113,6 +144,10 @@ export function toolResultSummary(label: string, result: ToolResult): string {
   }
   // A read reports its range only when it was cut short of what was asked.
   if (typeof result.lines === "string" && typeof result.total_lines === "number") return label.endsWith(result.lines) ? "" : ` — got ${result.lines}`;
+  // So does a look at pages.
+  if (typeof result.pages === "string" && typeof result.total_pages === "number") {
+    return label.endsWith(` ${result.pages}`) ? "" : ` — got ${result.pages.includes("-") ? "pages" : "page"} ${result.pages}`;
+  }
   return "";
 }
 
@@ -126,12 +161,28 @@ export function createDocumentTools(options: {
   generate?: GenerateText;
   onProgress?: ProgressListener;
   signal?: AbortSignal;
+  /**
+   * PDFs whose pages `view_pages` may show. The tool is declared only when there is at least one
+   * and `loadOriginal` is given. They need not be among `documentIds`: a PDF whose text is in the
+   * prompt has nothing to search, but its pages can still be looked at.
+   */
+  viewableIds?: string[];
+  /** Loads the uploaded file of a document, for `view_pages`. */
+  loadOriginal?(documentId: string): Promise<Uint8Array | undefined>;
 }): ToolSet {
   const allowed = new Set(options.documentIds);
+  const viewable = new Set(options.loadOriginal ? options.viewableIds ?? [] : []);
   const names = new Map<string, string>(Object.entries(options.names ?? {}));
-  const declarations = [DECLARATIONS.search, DECLARATIONS.read, DECLARATIONS.overview, ...(options.generate ? [DECLARATIONS.analyze] : [])];
+  // The text tools are left out only when there are pages to look at and no document to search.
+  const textTools = allowed.size > 0 || viewable.size === 0;
+  const declarations = [
+    ...(textTools ? [DECLARATIONS.search, DECLARATIONS.read, DECLARATIONS.overview, ...(options.generate ? [DECLARATIONS.analyze] : [])] : []),
+    ...(viewable.size > 0 ? [DECLARATIONS.view] : []),
+  ];
   const known = new Set(declarations.map((declaration) => declaration.name));
   const limit = options.budget.toolResultCharacters;
+  // When no limit is given with a call: three eighths of a request, so that two looks still fit.
+  const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
   async function documentFor(args: Record<string, unknown>): Promise<SearchableDocument> {
     const id = text(args.document_id, "document_id");
@@ -148,17 +199,24 @@ export function createDocumentTools(options: {
       const document = await documentFor(args);
       const query = text(args.query, "query");
       const mode = args.mode === "exact" || args.mode === "regex" ? args.mode : "keywords";
+      // Page numbers are added only for a PDF whose pages can be looked at: they are what
+      // view_pages takes. Everything else gets the results of 0.2.0 unchanged.
+      const paged = viewable.has(document.meta.id);
       if (mode === "keywords") {
         const topK = integer(args.max_results, 5, 1, 10);
         const ranked = rankPassages(document, query, topK);
         return fit({
           document: document.meta.name,
           mode,
-          passages: ranked.map((passage) => ({
-            lines: `${passage.from}-${passage.to}`,
-            score: passage.score,
-            text: document.lines.numbered(passage.from, passage.to),
-          })),
+          passages: ranked.map((passage) => {
+            const pages = paged ? document.pagesOfLines(passage.from, passage.to) : undefined;
+            return {
+              lines: `${passage.from}-${passage.to}`,
+              ...(pages ? { pages } : {}),
+              score: passage.score,
+              text: document.lines.numbered(passage.from, passage.to),
+            };
+          }),
           ...(ranked.length === 0 ? { note: "No passage contains these keywords. Try other words, synonyms, or exact mode." } : {}),
         }, "passages", limit);
       }
@@ -173,7 +231,10 @@ export function createDocumentTools(options: {
         mode,
         total_matching_lines: result.totalMatchingLines,
         ...(result.stoppedEarly ? { note: "The scan stopped early; the total is a lower bound." } : {}),
-        matches: result.matches,
+        matches: paged ? result.matches.map(({ line, ...rest }) => {
+          const page = document.pageOfLine(line);
+          return { line, ...(page ? { page } : {}), ...rest };
+        }) : result.matches,
       }, "matches", limit);
     },
 
@@ -188,9 +249,11 @@ export function createDocumentTools(options: {
         to = start + Math.max(0, Math.floor((to - start) * 0.7));
         body = document.lines.numbered(start, to);
       }
+      const pages = viewable.has(document.meta.id) ? document.pagesOfLines(start, to) : undefined;
       return {
         document: document.meta.name,
         lines: `${start}-${to}`,
+        ...(pages ? { pages } : {}),
         total_lines: total,
         text: body.slice(0, limit - 500),
         ...(to < total ? { next_start_line: to + 1 } : { note: "End of file." }),
@@ -242,21 +305,92 @@ export function createDocumentTools(options: {
     },
   };
 
+  /** `view_pages`: the pages as one small PDF, next to a short JSON result. */
+  async function viewPages(args: Record<string, unknown>, limits: ToolFileLimits): Promise<ToolOutput> {
+    const id = text(args.document_id, "document_id");
+    // The same scope check as the text tools, on its own list: a PDF can be looked at without
+    // being searchable, and the other way round.
+    if (!viewable.has(id)) {
+      throw new Error(allowed.has(id)
+        ? `The pages of ${names.get(id) ?? id} cannot be shown: only its text was kept. Answer from the text.`
+        : `Unknown document_id ${id}. Use the document_id of an attached PDF.`);
+    }
+    const document = await options.load(id);
+    if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+    const file = document.meta.name;
+    names.set(id, file);
+    const from = pageNumber(args.from_page, "from_page");
+    const asked = args.to_page === undefined || args.to_page === null ? from : pageNumber(args.to_page, "to_page");
+    if (asked < from) throw new Error(`to_page (${asked}) is before from_page (${from}).`);
+    const total = document.meta.pages;
+    if (total && from > total) throw new Error(`${file} has ${total} ${total === 1 ? "page" : "pages"}. There is no page ${from}.`);
+    const whole = (value: number | undefined, fallback: number) => (typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : fallback);
+    const mostPages = Math.min(MAX_VIEW_PAGES, whole(limits.maxPages, MAX_VIEW_PAGES));
+    if (mostPages < 1) throw new Error("No more pages can be looked at for this question. Answer from the pages and the text you already have.");
+    const maxBytes = whole(limits.maxFileBytes, defaultFileBytes);
+    if (maxBytes < MIN_FILE_BYTES) throw new Error("There is no room left in this request to show more pages. Answer from the pages and the text you already have.");
+    const original = await options.loadOriginal!(id);
+    if (!original) throw new Error(`The original file of ${file} is no longer on the server, so its pages cannot be shown. Answer from the text.`);
+    let cut;
+    try {
+      cut = await cutPdfPages(original, from, Math.min(asked, from + mostPages - 1), maxBytes, total);
+    } catch (error) {
+      throw new Error(`${file}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const pages = pageRange(cut.from, cut.to);
+    const shown = cut.to - cut.from + 1;
+    // What was asked for, as far as the file goes.
+    const wanted = Math.min(asked, cut.pageCount);
+    const showing = `Showing ${shown} of the ${wanted - cut.from + 1} pages asked for`;
+    const again = `Call view_pages from page ${cut.to + 1} if you need them.`;
+    const rest: ToolResult = cut.to >= wanted ? {}
+      : shown < mostPages ? { next_page: cut.to + 1, note: `${showing}: the others did not fit in this request. ${again}` }
+        : mostPages < MAX_VIEW_PAGES ? { note: `${showing}: no more pages can be looked at for this question.` }
+          : { next_page: cut.to + 1, note: `${showing}: one call shows at most ${MAX_VIEW_PAGES}. ${again}` };
+    const name = `pages-${pages}.pdf`;
+    return {
+      result: { document: file, pages, total_pages: cut.pageCount, file: name, ...rest },
+      files: [{ name, mimeType: "application/pdf", bytes: cut.bytes }],
+    };
+  }
+
+  const failure = (error: unknown): ToolResult => ({ error: error instanceof Error ? error.message : String(error) });
+
+  async function execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+    if (!known.has(name)) return { error: `Unknown tool ${name}.` };
+    // The pages are a file, and this method returns only JSON. Saying that pages are attached
+    // with nothing attached would be worse than saying that they could not be shown.
+    if (name === TOOL_NAMES.view) return { error: FILES_NOT_DELIVERED };
+    try {
+      return await handlers[name]!(args);
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      return failure(error);
+    }
+  }
+
   return {
     declarations,
     has: (name) => known.has(name),
-    async execute(name, args) {
-      if (!known.has(name)) return { error: `Unknown tool ${name}.` };
+    execute,
+    async executeWithFiles(name, args, limits = {}) {
+      if (name !== TOOL_NAMES.view || !known.has(name)) return { result: await execute(name, args), files: [] };
       try {
-        return await handlers[name]!(args);
+        return await viewPages(args, limits);
       } catch (error) {
         if (options.signal?.aborted) throw error;
-        return { error: error instanceof Error ? error.message : String(error) };
+        return { result: failure(error), files: [] };
       }
     },
     describe(name, args) {
       const id = typeof args.document_id === "string" ? args.document_id : "";
       const file = names.get(id) ?? "the file";
+      if (name === TOOL_NAMES.view) {
+        // Read the numbers the way the tool will: a model sometimes sends them as text.
+        const from = integer(args.from_page, 1, 1, Number.MAX_SAFE_INTEGER);
+        const to = integer(args.to_page, from, from, Number.MAX_SAFE_INTEGER);
+        return `Look at ${file} ${to > from ? "pages" : "page"} ${pageRange(from, to)}`;
+      }
       if (name === TOOL_NAMES.search) {
         const mode = args.mode === "exact" || args.mode === "regex" ? args.mode : "keywords";
         return `Search ${file} (${mode}) for “${String(args.query ?? "").slice(0, 80)}”`;

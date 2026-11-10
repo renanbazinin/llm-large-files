@@ -4,6 +4,77 @@ All notable changes to this package are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org).
 
+## [0.3.0] - 2026-11-10
+
+The model can look at the pages of a large PDF. Until now such a PDF reached it as text only, and
+pictures, charts and diagrams were lost. Everything here is off until you turn it on: an
+application that changes nothing, and does not install the new optional dependency, sends the same
+requests as with 0.2.0 (checked byte for byte against the published 0.2.0 over eight scenarios).
+
+### Added
+
+- **`view_pages`: the real pages of a PDF, on request.** The tool cuts up to five pages out of the
+  uploaded file and returns them as one small PDF, which Gemini reads like any PDF. Asked which bar
+  of a chart is tallest, `gemini-3.5-flash-lite` said from the text alone that it could not see the
+  chart; with the tool it looked at the page unasked and answered correctly. For ten questions that
+  the text answers, it did not look at a page once. A page costs about 530 tokens. See
+  [Pictures in PDFs](docs/configuration.md#pictures-in-pdfs) for the limits and the measurements.
+  - It needs the new optional dependency `@cantoo/pdf-lib`, and the uploaded file (next item).
+  - `askGemini` offers it for every PDF whose original is kept, also for one whose text fits in
+    the prompt (a slide deck of photos has little text). `viewPages: false` turns it off.
+    It works on the Gemini API and on Vertex AI. `toolFilePlacement: "beside"` sends the pages in
+    a user turn of their own instead of inside the function response: Gemini 2.5 needs that, as it
+    does not see a file inside a function response.
+  - In a loop of your own: `prepare(ids, base, { viewPages: true })` lists the PDFs in
+    `PreparedContext.viewable`, `tools(documents, { viewPages })` declares the tool, and
+    `ToolSet.executeWithFiles(name, args, { maxFileBytes, maxPages })` returns `{ result, files }`.
+    The tool is declared only on request, and `execute()` answers it with an error, because a loop
+    that drops the file would tell the model that pages are attached with nothing attached.
+  - Search and read results carry page numbers (`page`, `pages`) for a PDF that can be shown.
+- **`keepOriginals`: keep the uploaded file.** `createLargeFiles({ keepOriginals: ["pdf"] })`
+  stores the file next to its text. It is off by default, because a kept file takes disk space, up
+  to the upload limit, until the document expires. `DocumentStore` has two new optional methods,
+  `putOriginal` and `getOriginal`; a store without them works as before and keeps nothing.
+  `FileDocumentStore` writes `<id>.bin`, and delete, expiry and sweep remove it.
+  `DocumentMeta.originalKept` records it, and `files.getOriginal(id, { owner })` returns the file
+  to its owner.
+- **Scanned PDFs of up to 30 pages are accepted** when their original is kept: the model reads them
+  by looking at the pages. `scannedPdfPages` sets the limit, and 0 refuses them as before. A longer
+  scan, and any scan without a kept original, is still refused.
+- `geminiFunctionResponseTurns(answers, { files })`: the turns that answer a model turn's function
+  calls, for a loop of your own. `geminiFunctionResponses` takes the files of each call and puts
+  them inside its function response.
+- `createPdfExtractor({ pictures })`, `ExtractInput.scannedPages`, `MAX_VIEW_PAGES`,
+  `FINAL_ANSWER_AFTER_PAGES`, and the types `ToolFile`, `ToolOutput`, `ToolFileLimits`,
+  `PrepareOptions`, `GeminiToolAnswer` and `GeminiToolFilePlacement`.
+
+### Changed
+
+- **A page of a PDF that shows a picture is marked**, with one line under its header:
+  `[Picture on this page. This text cannot show it.]`. A picture is images that cover 3% of the
+  page or more, other than a logo or background that is on most pages; a drawing is shapes filled
+  in three or more colours, outside the tables. The pages are found from the structure of the file,
+  without decoding any image: a PDF of 200 photos took 0.3 s to ingest before and takes 0.8 s now.
+  This needs `@cantoo/pdf-lib`. Without it, and with `createPdfExtractor({ pictures: false })`, the
+  text is exactly that of 0.2.0. Documents already in a store keep the text they were ingested
+  with.
+- `ToolSet` has a new method, `executeWithFiles`, `LargeFiles` has `getOriginal`, and
+  `PreparedContext` has `viewable`. Code that builds these objects itself (a test double, for
+  example) has to add them.
+
+### Known limits
+
+- A chart in one or two colours, and a drawing made only of lines, is not marked. The model can
+  still look at the page: it did so for a one-colour chart that had only a caption.
+- Every look reads the whole PDF into memory: 0.06 s for 100 MB of photos, but 4 to 5 seconds and
+  700 MB for a file of 330,000 objects. A file that declares more objects than memory allows is
+  refused. Reading cannot be interrupted, so a crafted PDF can hold the process for a long time:
+  see [Security](docs/security.md#reading-pdfs-for-pages-and-pictures).
+- Tested with PDFs made by Chrome, Word and PowerPoint. PDFs made by LaTeX and InDesign were not
+  tested. For FPDF, Ghostscript and scanners, the structures they are known to write were tested
+  with files made for the purpose, not with files from those tools. Encrypted PDFs were tested
+  with files encrypted by the library itself, and confirmed as encrypted by pdf.js.
+
 ## [0.2.0] - 2026-11-10
 
 ### Fixed

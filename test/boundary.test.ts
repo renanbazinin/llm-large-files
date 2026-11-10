@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 // The package must stay extractable to its own npm repository: it may import only its own
 // files, Node built-ins, and its declared optional peers.
-const ALLOWED_PACKAGES = new Set(["jszip", "unpdf"]);
+const ALLOWED_PACKAGES = new Set(["@cantoo/pdf-lib", "jszip", "unpdf"]);
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
 
 async function files(directory: string): Promise<string[]> {
