@@ -1,4 +1,5 @@
-import { layoutPageText, plainPageText, type PdfTextItem } from "./pdf-layout.js";
+import { layoutPage, plainPageText, type LayoutBox, type PdfTextItem } from "./pdf-layout.js";
+import { findPicturePages, type PageGeometry } from "./pdf-pictures.js";
 import type { DocumentFormat, ExtractedText, Extractor } from "./types.js";
 
 const EXTENSION_FORMATS: Record<string, DocumentFormat> = {
@@ -146,10 +147,21 @@ export type PdfExtractorOptions = {
    * in version 0.1.0.
    */
   tables?: boolean;
+  /**
+   * Write a line under the page header of every page that shows a picture or a drawing, so the
+   * model knows that the text does not tell all of that page. Defaults to true. It needs the
+   * optional dependency `@cantoo/pdf-lib`; without it, and with false, the text is that of 0.2.0.
+   */
+  pictures?: boolean;
 };
 
 /** Written in place of a page that has no text at all, so the model can say so instead of guessing. */
 const PAGE_WITHOUT_TEXT = "[No text on this page. It may be a scan, a photo, or a chart.]";
+/**
+ * Written under the header of a page that shows a picture or a drawing. The words hold whether or
+ * not the model is later given a way to look at the page.
+ */
+export const PICTURE_ON_PAGE = "[Picture on this page. This text cannot show it.]";
 
 /**
  * The built-in PDF extractor (needs `unpdf`). Use it to change an option:
@@ -157,6 +169,7 @@ const PAGE_WITHOUT_TEXT = "[No text on this page. It may be a scan, a photo, or 
  */
 export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor {
   const tables = options.tables ?? true;
+  const pictures = options.pictures ?? true;
   return async (bytes) => {
     let unpdf: typeof import("unpdf");
     try {
@@ -166,16 +179,19 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
     }
     // pdf.js may detach the buffer it reads, so give it a copy.
     const document = await unpdf.getDocumentProxy(new Uint8Array(bytes));
-    const pages: string[] = [];
+    const texts: string[] = [];
+    const geometry: PageGeometry[] = [];
     let hasText = false;
     for (let number = 1; number <= document.numPages; number++) {
       const page = await document.getPage(number);
       const content = await page.getTextContent();
       const items = (content.items as unknown[]).filter((item): item is PdfTextItem => typeof (item as PdfTextItem).str === "string");
+      const transform = page.getViewport({ scale: 1 }).transform as number[];
       let text = "";
+      let found: LayoutBox[] = [];
       if (tables) {
         try {
-          text = layoutPageText(items, page.getViewport({ scale: 1 }).transform);
+          ({ text, tables: found } = layoutPage(items, transform));
         } catch {
           // Unusual geometry must never lose a page: fall back to the plain order.
           text = plainPageText(items);
@@ -185,12 +201,16 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
       }
       text = text.trim();
       if (text) hasText = true;
-      pages.push(`--- Page ${number} ---\n${text || PAGE_WITHOUT_TEXT}`);
+      texts.push(text);
+      geometry.push({ view: page.view, transform, tables: found });
       page.cleanup();
     }
     if (!hasText) {
       throw new Error("This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.");
     }
+    // Which pages show a picture. Undefined when that could not be found out: then none is marked.
+    const pictured = pictures ? await findPicturePages(bytes, geometry) : undefined;
+    const pages = texts.map((text, index) => `--- Page ${index + 1} ---\n${pictured?.[index] ? `${PICTURE_ON_PAGE}\n` : ""}${text || PAGE_WITHOUT_TEXT}`);
     return { text: pages.join("\n\n"), pages: document.numPages };
   };
 }

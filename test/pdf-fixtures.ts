@@ -136,6 +136,64 @@ export function pdfWithPictures(count: number, options: PicturePdfOptions = {}):
 }
 
 /**
+ * A PDF put together object by object, for tests that need a particular structure. Object 3 is
+ * the font /F1 (Helvetica), which every page gets.
+ */
+export class PdfBuilder {
+  private readonly objects: Array<string | Uint8Array> = ["", "", HELVETICA];
+  private readonly pages: number[] = [];
+
+  /** Adds an object and returns its number. */
+  add(body: string | Uint8Array): number {
+    this.objects.push(body);
+    return this.objects.length;
+  }
+
+  /** A small image (noise). How large it shows is decided by the content that paints it. */
+  image(): number {
+    return this.add(pdfStream("/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 8", noise(64, this.objects.length)));
+  }
+
+  /** A form: content that a page paints with `/Name Do`. `entries` are added to its dictionary. */
+  form(content: string, entries = ""): number {
+    return this.add(pdfStream(`/Type /XObject /Subtype /Form /BBox [0 0 612 792] ${entries}`, content));
+  }
+
+  /** Puts another body in the place of an object: for one that has to name itself. */
+  replace(number: number, body: string | Uint8Array): void {
+    this.objects[number - 1] = body;
+  }
+
+  /**
+   * A page of 612 x 792 units. `xobjects` names the images and forms its content may paint.
+   * `dictionary` adds entries to the content stream, for content that is stored encoded.
+   */
+  page(content: string | Uint8Array, xobjects: Record<string, number> = {}, dictionary = ""): number {
+    const stream = this.add(pdfStream(dictionary, content));
+    const named = Object.entries(xobjects).map(([name, object]) => `/${name} ${object} 0 R`).join(" ");
+    const page = this.add(`<< /Type /Page /Parent 2 0 R /Contents ${stream} 0 R /Resources << /Font << /F1 3 0 R >> /XObject << ${named} >> >> >>`);
+    this.pages.push(page);
+    return page;
+  }
+
+  build(declaredSize?: number): Uint8Array {
+    this.objects[0] = "<< /Type /Catalog /Pages 2 0 R >>";
+    this.objects[1] = `<< /Type /Pages /Kids [${this.pages.map((page) => `${page} 0 R`).join(" ")}] /Count ${this.pages.length} /MediaBox [0 0 612 792] >>`;
+    return pdfFromObjects(this.objects, declaredSize);
+  }
+}
+
+/** Content that paints the image or form `name` in a box of `width` x `height` units at (x, y). */
+export function paint(name: string, width: number, height: number, x = 72, y = 400): string {
+  return `q ${width} 0 0 ${height} ${x} ${y} cm /${name} Do Q`;
+}
+
+/** Content that fills a rectangle with a colour given as red, green and blue between 0 and 1. */
+export function filled(colour: [number, number, number], x: number, y: number, width: number, height: number): string {
+  return `${colour.join(" ")} rg ${x} ${y} ${width} ${height} re f`;
+}
+
+/**
  * Two pages with one layer that is shown and one that is hidden, a rotation and a crop box that
  * the pages inherit from the page tree.
  */

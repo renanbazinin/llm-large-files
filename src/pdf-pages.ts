@@ -37,15 +37,33 @@ const DROPPED_PAGE_ENTRIES = ["PieceInfo", "B", "AA", "Thumb"];
 const UNREADABLE = "This PDF could not be read to cut pages from it. It may be damaged.";
 
 /** Bytes as a string of the same length: each byte becomes the character with that code. */
-function latin1(bytes: Uint8Array): string {
+export function latin1(bytes: Uint8Array): string {
   return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("latin1");
 }
 
-async function loadLibrary(): Promise<PdfLibrary> {
+export async function loadPdfLibrary(): Promise<PdfLibrary> {
   try {
     return await import("@cantoo/pdf-lib");
   } catch {
     throw new Error("Showing PDF pages needs the optional dependency \"@cantoo/pdf-lib\".");
+  }
+}
+
+/**
+ * The content of a stream as text, one character per byte, or undefined when it cannot be had:
+ * the stream is larger than `maxBytes`, uses a filter the library does not undo, or is damaged.
+ */
+export function decodeContent(library: PdfLibrary, context: PDFContext, stream: PDFObject | undefined, maxBytes: number): string | undefined {
+  const { PDFArray, PDFDict, PDFName, PDFRawStream, decodePDFRawStream } = library;
+  if (!(stream instanceof PDFRawStream) || stream.contents.length > maxBytes) return undefined;
+  // The library does not undo a predictor, and would hand back bytes that are not the content.
+  const parameters = stream.dict.lookup(PDFName.of("DecodeParms"));
+  const list = parameters instanceof PDFArray ? parameters.asArray().map((entry) => context.lookup(entry)) : [parameters];
+  if (list.some((entry) => entry instanceof PDFDict && entry.has(PDFName.of("Predictor")))) return undefined;
+  try {
+    return latin1(decodePDFRawStream(stream).decode());
+  } catch {
+    return undefined;
   }
 }
 
@@ -71,21 +89,20 @@ export function declaredObjectCount(bytes: Uint8Array): number | undefined {
 }
 
 /**
- * The library reads the whole file into objects before a page can be copied. Refuse a file that
- * says it has more objects than this process can hold, instead of running out of memory.
+ * The library reads the whole file into objects before anything can be done with a page. The
+ * number of objects a file declares, when that is more than `most` or more than this process can
+ * hold; undefined when the file can be read.
  */
-function refuseTooManyObjects(original: Uint8Array): void {
+export function tooManyObjects(original: Uint8Array, most = MAX_OBJECTS): number | undefined {
   const objects = declaredObjectCount(original);
-  if (objects === undefined) return;
+  if (objects === undefined) return undefined;
   const heap = getHeapStatistics();
   const free = heap.heap_size_limit - heap.used_heap_size;
-  if (objects > MAX_OBJECTS || objects * BYTES_PER_OBJECT > free * 0.6) {
-    throw new Error(`This PDF has ${objects.toLocaleString("en-US")} objects, too many to cut pages from it in memory.`);
-  }
+  return objects > most || objects * BYTES_PER_OBJECT > free * 0.6 ? objects : undefined;
 }
 
 /** A PDF name as the characters it stands for, so that "#20" and a space are the same name. */
-function canonicalName(raw: string): string {
+export function canonicalName(raw: string): string {
   let name = raw;
   // Until nothing changes: a library may keep an escape it did not decode as literal characters.
   for (;;) {
@@ -108,7 +125,7 @@ const PAINTED = new RegExp(`/(${REGULAR_CHARACTER}*)[\\x00\\t\\n\\f\\r ]+Do(?!${
  * was read.
  */
 function dropUnusedImages(library: PdfLibrary, context: PDFContext, page: PDFPageLeaf): void {
-  const { PDFArray, PDFDict, PDFName, PDFRawStream, PDFStream, decodePDFRawStream } = library;
+  const { PDFArray, PDFDict, PDFName, PDFStream } = library;
   const key = (value: string) => PDFName.of(value);
   const resources = page.Resources();
   if (!resources) return;
@@ -121,18 +138,7 @@ function dropUnusedImages(library: PdfLibrary, context: PDFContext, page: PDFPag
   let readable = true;
   /** Names found in content that looks them up in this page's dictionary, still to be followed. */
   const found: string[] = [];
-  const decode = (stream: PDFObject | undefined): string | undefined => {
-    if (!(stream instanceof PDFRawStream) || stream.contents.length > MAX_CONTENT_BYTES) return undefined;
-    // The library does not undo a predictor, and would hand back bytes that are not the content.
-    const parameters = stream.dict.lookup(key("DecodeParms"));
-    const list = parameters instanceof PDFArray ? parameters.asArray().map((entry) => context.lookup(entry)) : [parameters];
-    if (list.some((entry) => entry instanceof PDFDict && entry.has(key("Predictor")))) return undefined;
-    try {
-      return latin1(decodePDFRawStream(stream).decode());
-    } catch {
-      return undefined;
-    }
-  };
+  const decode = (stream: PDFObject | undefined) => decodeContent(library, context, stream, MAX_CONTENT_BYTES);
   const read = (text: string) => {
     for (const match of text.matchAll(PAINTED)) found.push(canonicalName(match[1]!));
   };
@@ -272,8 +278,10 @@ async function copyPages(library: PdfLibrary, source: import("@cantoo/pdf-lib").
  * page in both, and showing the wrong page is worse than showing none.
  */
 export async function cutPdfPages(original: Uint8Array, from: number, to: number, maxBytes: number, expectedPages?: number): Promise<PageCut> {
-  const library = await loadLibrary();
-  refuseTooManyObjects(original);
+  const library = await loadPdfLibrary();
+  // Refuse a file that says it has more objects than this process can hold, instead of running out of memory.
+  const objects = tooManyObjects(original);
+  if (objects !== undefined) throw new Error(`This PDF has ${objects.toLocaleString("en-US")} objects, too many to cut pages from it in memory.`);
   let source: import("@cantoo/pdf-lib").PDFDocument;
   let pages: PDFPage[];
   try {
