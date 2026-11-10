@@ -234,14 +234,15 @@ function dropUnusedImages(library: PdfLibrary, context: PDFContext, page: PDFPag
 
 /** A PDF with pages `from` to `last` of `source`. Changes `source`: use it only for smaller cuts afterwards. */
 async function copyPages(library: PdfLibrary, source: import("@cantoo/pdf-lib").PDFDocument, pages: PDFPage[], from: number, last: number): Promise<Uint8Array> {
-  const { PDFDocument, PDFName, PDFObjectCopier, PDFPage: Page, PDFPageLeaf: Leaf } = library;
+  const { PDFDocument, PDFName, PDFNull, PDFObjectCopier, PDFPage: Page, PDFPageLeaf: Leaf } = library;
   const { context } = source;
   const wanted = pages.slice(from - 1, last);
   const wantedReferences = new Set(wanted.map((page) => page.ref));
-  // Every other page becomes an empty one, so a link, a form field or a thread that leads to it
-  // copies a few bytes and not the page.
+  // Every other page becomes nothing, so a link, a form field or a thread that leads to it copies
+  // a few bytes and not the page. (Null, not an empty page: the cut must not hold objects that
+  // call themselves pages and are not among its pages.)
   for (const page of pages) {
-    if (!wantedReferences.has(page.ref)) context.assign(page.ref, context.obj({ Type: "Page" }));
+    if (!wantedReferences.has(page.ref)) context.assign(page.ref, PDFNull);
   }
   for (const page of wanted) {
     for (const entry of DROPPED_PAGE_ENTRIES) page.node.delete(PDFName.of(entry));

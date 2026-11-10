@@ -386,8 +386,9 @@ export function createDocumentTools(options: {
       const id = typeof args.document_id === "string" ? args.document_id : "";
       const file = names.get(id) ?? "the file";
       if (name === TOOL_NAMES.view) {
+        // Read the numbers the way the tool will: a model sometimes sends them as text.
         const from = integer(args.from_page, 1, 1, Number.MAX_SAFE_INTEGER);
-        const to = typeof args.to_page === "number" && args.to_page > from ? Math.trunc(args.to_page) : from;
+        const to = integer(args.to_page, from, from, Number.MAX_SAFE_INTEGER);
         return `Look at ${file} ${to > from ? "pages" : "page"} ${pageRange(from, to)}`;
       }
       if (name === TOOL_NAMES.search) {

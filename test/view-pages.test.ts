@@ -5,7 +5,7 @@ import { createLargeFiles, MemoryDocumentStore, TOOL_NAMES, toolResultSummary, t
 import { cutPdfPages, declaredObjectCount } from "../src/pdf-pages.js";
 import { SearchableDocument } from "../src/search.js";
 import { createDocumentTools } from "../src/tools.js";
-import { layeredPdf, numberedPdf, pdfFromObjects, pdfWithPictures, utf8 } from "./pdf-fixtures.js";
+import { HELVETICA, layeredPdf, numberedPdf, pdfFromObjects, pdfStream, pdfWithPictures, textLine, utf8 } from "./pdf-fixtures.js";
 
 // ---------- Reading a cut back with pdf.js, which did not write it ----------
 
@@ -131,6 +131,9 @@ describe("view_pages: the pages it returns", () => {
 
     expect(tools.describe("view_pages", { document_id: meta.id, from_page: 2, to_page: 3 })).toBe("Look at report.pdf pages 2-3");
     expect(tools.describe("view_pages", { document_id: meta.id, from_page: 6 })).toBe("Look at report.pdf page 6");
+    // Numbers sent as text are described as the tool reads them.
+    expect(tools.describe("view_pages", { document_id: meta.id, from_page: "2", to_page: "3" })).toBe("Look at report.pdf pages 2-3");
+    expect(tools.describe("view_pages", { document_id: meta.id, from_page: 4, to_page: 1 })).toBe("Look at report.pdf page 4");
   });
 
   it("gives the same bytes for the same pages", async () => {
@@ -358,6 +361,23 @@ describe("cutPdfPages", () => {
     expect(await pageTexts(cut.bytes)).toEqual([pageLine(2), pageLine(3)]);
     await expect(cutPdfPages(numberedPdf(3), 4, 4, 1_000_000)).rejects.toThrow("There is no page 4: the file has 3 pages.");
     await expect(cutPdfPages(numberedPdf(1), 2, 2, 1_000_000)).rejects.toThrow("There is no page 2: the file has 1 page.");
+  });
+
+  it("cuts a file that lists one page object twice, without emptying the copy that is wanted", async () => {
+    // Some producers reuse a page object: here the page tree lists A, B, A.
+    const twice = pdfFromObjects([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [4 0 R 6 0 R 4 0 R] /Count 3 /MediaBox [0 0 612 792] >>",
+      HELVETICA,
+      "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >> >>",
+      pdfStream("", textLine("Page A.")),
+      "<< /Type /Page /Parent 2 0 R /Contents 7 0 R /Resources << /Font << /F1 3 0 R >> >> >>",
+      pdfStream("", textLine("Page B.")),
+    ]);
+    // Page 1 is wanted, and the same object is also page 3, which is not.
+    expect(await pageTexts((await cutPdfPages(twice, 1, 1, 1_000_000)).bytes)).toEqual(["Page A."]);
+    expect(await pageTexts((await cutPdfPages(twice, 2, 2, 1_000_000)).bytes)).toEqual(["Page B."]);
+    expect(await pageTexts((await cutPdfPages(twice, 1, 3, 1_000_000)).bytes)).toEqual(["Page A.", "Page B.", "Page A."]);
   });
 
   it("does not change the bytes it was given", async () => {
