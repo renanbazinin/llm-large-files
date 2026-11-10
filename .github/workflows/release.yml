@@ -24,7 +24,11 @@ jobs:
       - name: Check the tag matches package.json
         run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
       - run: npm run check
-      # Uses trusted publishing when configured on npmjs.com; otherwise the NPM_TOKEN secret.
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Check that this job can identify itself to npm
+        run: test -n "${ACTIONS_ID_TOKEN_REQUEST_URL}" || { echo "::error::No identity token for this job. The workflow needs 'id-token: write'."; exit 1; }
+      # Trusted publishing: npm exchanges this job's identity for a short-lived token, so no secret
+      # is involved. Leave NODE_AUTH_TOKEN unset: with it set to an empty value (a secret that does
+      # not exist), npm did not use trusted publishing and failed with ENEEDAUTH.
+      # npm checks the trusted publisher settings only at publish time and says why it refused an
+      # identity only in the verbose log.
+      - run: npm publish --provenance --access public --loglevel verbose
