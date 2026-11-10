@@ -9,6 +9,16 @@ import { HELVETICA, layeredPdf, numberedPdf, pdfFromObjects, pdfStream, pdfWithP
 
 // ---------- Reading a cut back with pdf.js, which did not write it ----------
 
+// To list what a page paints, pdf.js calls ArrayBuffer.prototype.transferToFixedLength, which Node
+// 20 does not have (Node 22 does). Only these tests ask pdf.js for that list: the package reads
+// text through pdf.js and never the painting operators, so it needs nothing of the kind.
+const buffers = ArrayBuffer.prototype as ArrayBuffer & { transferToFixedLength?: (this: ArrayBuffer, length?: number) => ArrayBuffer };
+buffers.transferToFixedLength ??= function (this: ArrayBuffer, length = this.byteLength) {
+  const copy = new ArrayBuffer(length);
+  new Uint8Array(copy).set(new Uint8Array(this, 0, Math.min(length, this.byteLength)));
+  return copy;
+};
+
 async function open(bytes: Uint8Array) {
   return getDocumentProxy(new Uint8Array(bytes));
 }
