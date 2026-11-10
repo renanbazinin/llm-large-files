@@ -1,0 +1,60 @@
+{
+  "source": "Token counts from gemini-3.5-flash-lite countTokens (Gemini 2.5, 3.5, and 3.8 Flash count the same).",
+  "samples": [
+    {
+      "name": "English prose",
+      "geminiTokens": 70,
+      "text": "It was almost dark when the ferry finally pulled away from the harbour, and Maria stood at the rail watching the lights of the town grow smaller. She had not planned to leave so suddenly, but the letter had changed everything. Her grandfather, who had kept the lighthouse for forty years, wanted to see her before the winter storms closed the crossing."
+    },
+    {
+      "name": "Hebrew prose",
+      "geminiTokens": 118,
+      "text": "כמעט החשיך כשהמעבורת עזבה סוף סוף את הנמל, ומריה עמדה ליד המעקה והביטה באורות העיירה המתרחקים. היא לא תכננה לעזוב בפתאומיות כזאת, אבל המכתב שינה את הכול. סבא שלה, ששמר על המגדלור במשך ארבעים שנה, רצה לראות אותה לפני שסערות החורף יסגרו את המעבר."
+    },
+    {
+      "name": "Russian prose",
+      "geminiTokens": 56,
+      "text": "Уже почти стемнело, когда паром наконец отошёл от причала, и Мария стояла у перил, глядя, как огни города становятся всё меньше. Она не собиралась уезжать так внезапно, но письмо всё изменило."
+    },
+    {
+      "name": "Chinese prose",
+      "geminiTokens": 49,
+      "text": "渡轮终于离开港口的时候，天几乎已经黑了，玛丽亚站在栏杆旁，看着小镇的灯光越来越远。她原本没有打算这么突然地离开，但那封信改变了一切。"
+    },
+    {
+      "name": "Service log",
+      "geminiTokens": 315,
+      "text": "2026-05-02T22:28:29.946Z WARN config-reloader: applied config revision r4821: db.pool.max changed 200 -> 20 (requested by deploy job cd-7731)\n2026-05-02T22:28:31.102Z ERROR db-pool: connection pool exhausted (20/20 in use), 311 waiters\n2026-05-02T22:28:31.954Z INFO gateway: request 3fa9c1d2-7b1e-4c55-9a0f-5d2e8c7b6a10 GET /orders/checkout 503 in 30001ms user=u48213 ip=10.42.7.119\n2026-05-02T22:28:32.377Z INFO orders-api: request 9d07e6b4-11aa-4f0c-8e52-c41b7a3f2d90 POST /cart 201 in 87ms user=u1093 ip=10.8.201.4"
+    },
+    {
+      "name": "Web server access log",
+      "geminiTokens": 226,
+      "text": "203.0.113.7 - - [02/May/2026:18:04:51 +0000] \"GET /api/v1/orders/8812?page=2 HTTP/1.1\" 200 5123 \"https://shop.example.com/cart\" \"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36\" 0.123\n198.51.100.23 - - [02/May/2026:18:04:52 +0000] \"POST /api/v1/login HTTP/1.1\" 401 312 \"-\" \"curl/8.9.1\" 0.004"
+    },
+    {
+      "name": "JSON-lines log",
+      "geminiTokens": 193,
+      "text": "{\"level\":50,\"time\":1777744800731,\"pid\":4211,\"hostname\":\"orders-7c9f\",\"reqId\":\"5e1c9a70-2f4b-4d8e-b6a1-0c3d9e8f7a62\",\"msg\":\"upstream timeout\",\"responseTime\":30001,\"url\":\"/orders/checkout\"}\n{\"level\":30,\"time\":1777744801462,\"pid\":4211,\"hostname\":\"orders-7c9f\",\"reqId\":\"0b77d3e1-94c2-4a16-a3f8-7e5d2c1b9a04\",\"msg\":\"request completed\",\"responseTime\":41,\"url\":\"/cart\"}"
+    },
+    {
+      "name": "CSV of numbers",
+      "geminiTokens": 157,
+      "text": "id,price,qty,date,sku\n100000,734.12,7,2026-03-14,SKU-a91f3c\n100001,58.90,31,2026-07-22,SKU-07be4d\n100002,1299.00,2,2026-01-19,SKU-c3d2e1\n100003,4.75,118,2026-11-03,SKU-5f60aa"
+    },
+    {
+      "name": "Base64",
+      "geminiTokens": 115,
+      "text": "QWxhZGRpbjpvcGVuIHNlc2FtZSBhbmQgdGhlIGZvcnR5IHRoaWV2ZXMgd2VyZSBub3QgaW1wcmVzc2Vk\nUGFja215Ym94d2l0aGZpdmVkb3plbmxpcXVvcmp1Z3NhbmR0aGVuc29tZW1vcmVqdXN0dG9iZXN1cmU="
+    },
+    {
+      "name": "TypeScript",
+      "geminiTokens": 105,
+      "text": "export function utf8Bytes(text: string): number {\n  let bytes = 0;\n  for (let index = 0; index < text.length; index++) {\n    const code = text.charCodeAt(index);\n    if (code < 0x80) bytes += 1;\n    else if (code < 0x800) bytes += 2;\n    else bytes += 3;\n  }\n  return bytes;\n}"
+    },
+    {
+      "name": "Java stack trace",
+      "geminiTokens": 119,
+      "text": "java.sql.SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms.\n\tat com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)\n\tat com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:197)\n\tat com.example.orders.OrderService.placeOrder(OrderService.java:142)"
+    }
+  ]
+}

@@ -38,7 +38,9 @@ export function buildOutline(lines: string[], format: DocumentFormat): OutlineEn
   }
   if (entries.length <= MAX_OUTLINE_ENTRIES) return entries;
   // Keep the top levels first, then sample evenly so the outline still spans the document.
-  const minLevel = Math.min(...entries.map((entry) => entry.level));
+  // A loop, not Math.min(...levels): spreading a few hundred thousand values overflows the stack.
+  let minLevel = Number.POSITIVE_INFINITY;
+  for (const entry of entries) if (entry.level < minLevel) minLevel = entry.level;
   const top = entries.filter((entry) => entry.level === minLevel);
   const pool = top.length >= 20 ? top : entries;
   const step = pool.length / MAX_OUTLINE_ENTRIES;

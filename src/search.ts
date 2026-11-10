@@ -1,4 +1,5 @@
-import { LineIndex } from "./text.js";
+import { createContext, Script, type Context } from "node:vm";
+import { foldCase, LineIndex } from "./text.js";
 import type { DocumentMeta, StoredDocument } from "./types.js";
 
 const PASSAGE_CHARACTERS = 1_500;
@@ -27,13 +28,10 @@ export class SearchableDocument {
     this.lines = new LineIndex(document.text);
   }
 
-  /** Lowercased text for case-insensitive search, or undefined if lowercasing changes offsets. */
-  get lower(): string | undefined {
-    if (this.lowerText === undefined) {
-      const lower = this.text.toLowerCase();
-      this.lowerText = lower.length === this.text.length ? lower : "";
-    }
-    return this.lowerText || undefined;
+  /** The text lowercased for case-insensitive search. Same length as `text`, so offsets match. */
+  get lower(): string {
+    this.lowerText ??= foldCase(this.text);
+    return this.lowerText;
   }
 
   /** First line of each passage: groups of lines up to about 1,500 characters. */
@@ -89,7 +87,36 @@ function clip(line: string, column: number): string {
   return `${start > 0 ? "…" : ""}${line.slice(start, start + SHOWN_LINE_CHARACTERS)}${start + SHOWN_LINE_CHARACTERS < line.length ? "…" : ""}`;
 }
 
-/** Rejects patterns with nested quantifiers such as (a+)+, the usual cause of catastrophic backtracking. */
+const RUN_SCAN = new Script("scan()");
+let scanSandbox: { scan: () => void } | undefined;
+let scanContext: Context | undefined;
+
+/**
+ * Runs `scan` and stops it after `milliseconds`, returning false if it was stopped.
+ *
+ * A check between lines cannot interrupt one regex match, and a pattern such as `(a|a)+$` can
+ * take longer than the age of the universe on a single 40-character line. Node's `vm` timeout
+ * can: V8 checks for it while a regex backtracks, even in a function called from the script.
+ */
+function withinTimeLimit(scan: () => void, milliseconds: number): boolean {
+  scanSandbox ??= { scan };
+  scanContext ??= createContext(scanSandbox);
+  scanSandbox.scan = scan;
+  try {
+    RUN_SCAN.runInContext(scanContext, { timeout: milliseconds });
+    return true;
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === "ERR_SCRIPT_EXECUTION_TIMEOUT") return false;
+    throw error;
+  } finally {
+    scanSandbox.scan = () => undefined;
+  }
+}
+
+/**
+ * A quick refusal for the most common catastrophic shape, a nested quantifier such as (a+)+.
+ * It does not catch every slow pattern; the time limit in `grep` is what bounds the search.
+ */
 export function unsafeRegexReason(pattern: string): string | null {
   if (pattern.length > 300) return "Regex is longer than 300 characters.";
   if (/\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*[+*{]/.test(pattern)) {
@@ -107,7 +134,7 @@ export function unsafeRegexReason(pattern: string): string | null {
 export function grep(
   document: SearchableDocument,
   query: string,
-  options: { regex?: boolean; caseSensitive?: boolean; maxResults: number; contextLines: number },
+  options: { regex?: boolean; caseSensitive?: boolean; maxResults: number; contextLines: number; /** Regex mode only. Defaults to 3 seconds. */ timeLimitMs?: number },
 ): GrepResult {
   const { lines } = document;
   if (!query) throw new Error("The search query is empty.");
@@ -123,20 +150,16 @@ export function grep(
     const problem = unsafeRegexReason(query);
     if (problem) throw new Error(problem);
     const pattern = new RegExp(query, options.caseSensitive ? "" : "i");
-    const started = Date.now();
-    for (let line = 1; line <= lines.lineCount; line++) {
-      const text = lines.line(line);
-      const match = pattern.exec(text);
-      if (match) record(line, match.index);
-      if (line % 2_000 === 0 && Date.now() - started > REGEX_TIME_LIMIT_MS) {
-        stoppedEarly = true;
-        break;
+    const finished = withinTimeLimit(() => {
+      for (let line = 1; line <= lines.lineCount; line++) {
+        const match = pattern.exec(lines.line(line));
+        if (match) record(line, match.index);
       }
-    }
+    }, options.timeLimitMs ?? REGEX_TIME_LIMIT_MS);
+    if (!finished) stoppedEarly = true;
   } else {
-    const lower = options.caseSensitive ? undefined : document.lower;
-    const haystack = options.caseSensitive || !lower ? document.text : lower;
-    const needle = options.caseSensitive || !lower ? query : query.toLowerCase();
+    const haystack = options.caseSensitive ? document.text : document.lower;
+    const needle = options.caseSensitive ? query : foldCase(query);
     let lastLine = 0;
     for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) {
       const line = lines.lineAt(at);
@@ -165,7 +188,7 @@ export function grep(
 }
 
 export function queryTerms(query: string): string[] {
-  const terms = query.toLowerCase().split(/[^\p{L}\p{N}_]+/u).filter((term) => term.length >= 2 && !STOPWORDS.has(term));
+  const terms = foldCase(query).split(/[^\p{L}\p{N}_]+/u).filter((term) => term.length >= 2 && !STOPWORDS.has(term));
   return [...new Set(terms)].slice(0, 12);
 }
 
@@ -178,7 +201,7 @@ export type RankedPassage = { from: number; to: number; score: number };
 export function rankPassages(document: SearchableDocument, query: string, topK: number): RankedPassage[] {
   const terms = queryTerms(query);
   if (terms.length === 0) return [];
-  const haystack = document.lower ?? document.text;
+  const haystack = document.lower;
   const passageCount = document.passages.length;
   const averageLength = Math.max(1, document.text.length / passageCount);
   const scores = new Map<number, number>();
@@ -201,7 +224,7 @@ export function rankPassages(document: SearchableDocument, query: string, topK: 
     }
   }
   // Passages that contain the whole phrase rank above passages with scattered terms.
-  const phrase = query.trim().toLowerCase();
+  const phrase = foldCase(query.trim());
   if (terms.length > 1 && phrase.length <= 200) {
     const withPhrase = new Set<number>();
     for (let at = haystack.indexOf(phrase); at !== -1 && withPhrase.size < 10_000; at = haystack.indexOf(phrase, at + phrase.length)) {

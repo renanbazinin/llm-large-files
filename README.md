@@ -79,7 +79,7 @@ There's also a [one-file demo server](examples/server.ts).
 
 | | |
 |---|---|
-| **Formats** | Text, Markdown, logs (UTF-8 and UTF-16), JSON/JSONL, CSV/TSV, DOCX, PPTX, PDF (text layer) |
+| **Formats** | Text, Markdown, logs (UTF-8 and UTF-16), JSON/JSONL, CSV/TSV, DOCX, PPTX, PDF (text layer, with tables rebuilt so empty cells stay empty) |
 | **Logs** | Detected automatically; the card shows level counts, the time range, and the most frequent errors grouped by shape (`timeout after <n>ms to <ip>`) |
 | **Books and documents** | An outline of headings with line numbers, including Markdown, "Chapter 12", numbered sections, and Hebrew chapter titles |
 | **Limits** | One budget covers tokens *and* request bytes, so files fit both your context window and your connector's payload limit |

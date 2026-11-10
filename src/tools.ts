@@ -66,8 +66,11 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
 
 function integer(value: unknown, fallback: number, min: number, max: number): number {
   const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-  return Number.isFinite(number) ? Math.min(max, Math.max(min, Math.trunc(number))) : fallback;
+  // The fallback is clamped too: a default end line must not point past the end of the file.
+  return Math.min(max, Math.max(min, Math.trunc(Number.isFinite(number) ? number : fallback)));
 }
+
+const INCOMPLETE_ANALYSIS = "Incomplete: the model's output limit was reached, so some relevant items are missing from this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file.";
 
 function text(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required.`);
@@ -104,7 +107,10 @@ export function toolResultSummary(label: string, result: ToolResult): string {
   if (typeof result.error === "string") return ` — failed: ${result.error}`;
   if (typeof result.total_matching_lines === "number") return ` — ${result.total_matching_lines.toLocaleString("en-US")} matching lines`;
   if (Array.isArray(result.passages)) return ` — ${result.passages.length} passages`;
-  if (typeof result.parts_read === "number") return ` — ${result.parts_read} parts, ${String(result.parts_with_relevant_content ?? 0)} relevant`;
+  if (typeof result.parts_read === "number") {
+    const incomplete = result.notes_cut_short || result.answer_cut_short ? ", incomplete" : "";
+    return ` — ${result.parts_read} parts, ${String(result.parts_with_relevant_content ?? 0)} relevant${incomplete}`;
+  }
   // A read reports its range only when it was cut short of what was asked.
   if (typeof result.lines === "string" && typeof result.total_lines === "number") return label.endsWith(result.lines) ? "" : ` — got ${result.lines}`;
   return "";
@@ -222,11 +228,15 @@ export function createDocumentTools(options: {
         onProgress: options.onProgress,
         signal: options.signal,
       });
+      const notesCutShort = result.truncatedParts + result.truncatedMerges;
       return fit({
         document: document.meta.name,
         parts_read: result.parts,
         parts_with_relevant_content: result.relevantParts,
         ...(result.failedParts ? { parts_that_failed: result.failedParts } : {}),
+        ...(notesCutShort ? { notes_cut_short: notesCutShort } : {}),
+        ...(result.answerTruncated ? { answer_cut_short: true } : {}),
+        ...(notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
         answer: result.answer,
       }, null, Math.max(limit, 40_000));
     },

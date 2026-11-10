@@ -137,6 +137,12 @@ export type GenerateText = (request: {
   prompt: string;
   maxOutputTokens: number;
   signal?: AbortSignal;
+  /**
+   * Call this when the model stopped because it reached `maxOutputTokens`, so a whole-document
+   * read can say its result is incomplete. Optional: an implementation that never calls it works
+   * as before, without that warning.
+   */
+  onTruncated?: () => void;
 }) => Promise<string>;
 
 export type ProgressEvent = {

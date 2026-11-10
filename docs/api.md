@@ -75,6 +75,9 @@ Three entry points:
 - `isDocumentId(value)`, `DOCUMENT_ID_PATTERN`.
 - `estimateTokens(text)`, `utf8Bytes(text)`, `jsonBytes(text)`.
 - `detectFormat(name, mimeType)`, `defaultExtractors`, `TOOL_NAMES`, `DEFAULT_BUDGET`.
+- `createPdfExtractor({ tables?: boolean })`: the built-in PDF extractor with an option changed.
+  `tables: false` gives the text in pdf.js order, without rebuilt tables
+  (see [PDF tables](configuration.md#pdf-tables)).
 
 ### Key types
 
@@ -91,7 +94,10 @@ type DocumentMeta = {
   createdAt: string; expiresAt: string;
 };
 
-type GenerateText = (request: { system: string; prompt: string; maxOutputTokens: number; signal?: AbortSignal }) => Promise<string>;
+type GenerateText = (request: {
+  system: string; prompt: string; maxOutputTokens: number; signal?: AbortSignal;
+  onTruncated?: () => void; // call it when the model stopped at maxOutputTokens
+}) => Promise<string>;
 type Extractor = (bytes: Uint8Array, input: { name: string; mimeType: string; format: DocumentFormat }) => Promise<{ text: string; pages?: number }>;
 ```
 
@@ -107,13 +113,24 @@ type Extractor = (bytes: Uint8Array, input: { name: string; mimeType: string; fo
 | `system` | System instruction; the tool guide is appended when needed. |
 | `generationConfig` | Sent with every chat request. |
 | `owner` | Only documents with this owner (or no owner) are used. |
-| `maxToolTurns` | Default 12. A final tool-free turn always follows if needed. |
+| `documentPlacement` | `"first"` (default): document text and cards go at the start of the first user turn and stay there, so follow-up questions reuse Gemini's prompt cache. `"last"`: appended to the latest user turn, as in 0.1.0. |
+| `maxToolTurns` | Default 12. The most requests for one question, counting the answer. If the model is still calling tools on the last one, it is sent with no tools so the model must answer. |
 | `wholeDocumentAnalysis` | Default `true`. Set `false` to withhold the costly whole-file tool. |
 | `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. |
 | `onText`, `onActivity`, `onStep` | Streaming answer text, transient status, completed steps. |
 | `fetch`, `signal` | Custom fetch (proxies, tests) and cancellation. |
 
-Returns `{ text, steps, plan, turns, finishReason?, usage? }`.
+Returns `{ text, answered, blockReason?, steps, plan, turns, finishReason?, usage? }`.
+
+`answered` is `false` when the model's last turn had no text: the prompt was blocked
+(`blockReason` says why), the reply was cut off before any text, or the model produced a malformed
+tool call and the tool-free retry came back empty too. `text` is then empty or holds only a remark
+the model made before a tool call, so show your own message:
+
+```ts
+const result = await askGemini({ ... });
+if (!result.answered) show(result.blockReason ? "The request was blocked." : "No answer this time. Try again.");
+```
 
 It throws `DocumentsNotFoundError` (`.ids`) before calling the model, `GeminiRequestError` (`.status`)
 for HTTP errors, and `Error` when the last message isn't the user's.

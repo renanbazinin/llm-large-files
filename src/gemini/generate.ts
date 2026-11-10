@@ -31,7 +31,7 @@ export function createGeminiGenerateText(options: {
   timeoutMs?: number;
 }): GenerateText {
   const fetchImpl = options.fetchImpl ?? fetch;
-  return async ({ system, prompt, maxOutputTokens, signal }) => {
+  return async ({ system, prompt, maxOutputTokens, signal, onTruncated }) => {
     const timeout = AbortSignal.timeout(options.timeoutMs ?? 180_000);
     const response = await fetchImpl(options.url, {
       method: "POST",
@@ -54,6 +54,8 @@ export function createGeminiGenerateText(options: {
       .map((part) => part.text as string)
       .join("");
     if (!text.trim()) throw new Error(`The model returned no text${candidate?.finishReason ? ` (${candidate.finishReason})` : ""}.`);
+    // The text stops mid-list when the output limit is reached. Say so instead of passing it off as complete.
+    if (candidate?.finishReason === "MAX_TOKENS") onTruncated?.();
     return text;
   };
 }

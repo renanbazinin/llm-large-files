@@ -1,3 +1,4 @@
+import { layoutPageText, plainPageText, type PdfTextItem } from "./pdf-layout.js";
 import type { DocumentFormat, ExtractedText, Extractor } from "./types.js";
 
 const EXTENSION_FORMATS: Record<string, DocumentFormat> = {
@@ -23,10 +24,22 @@ export function detectFormat(name: string, mimeType: string): DocumentFormat {
   return EXTENSION_FORMATS[extension] ?? MIME_FORMATS[mimeType.toLowerCase()] ?? "text";
 }
 
-/** Decodes text bytes, honoring UTF-8 and UTF-16 byte-order marks (common for Windows logs). */
+const NOT_TEXT = "This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.";
+
+/**
+ * Decodes text bytes, honoring UTF-8 and UTF-16 byte-order marks (common for Windows logs).
+ * Throws a readable error for compressed and other binary files.
+ */
 export function decodeText(bytes: Uint8Array): string {
   if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes.subarray(2));
   if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes.subarray(2));
+  // Rotated logs often arrive as app.log.gz. Compressed bytes have few zeros, so name them here.
+  if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    throw new Error("This file is gzip-compressed. Decompress it, then attach the text file inside.");
+  }
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
+    throw new Error("This file is a ZIP archive. Extract it, then attach the text file you need.");
+  }
   const sample = bytes.subarray(0, 8_192);
   let zeros = 0;
   for (const byte of sample) if (byte === 0) zeros++;
@@ -41,9 +54,15 @@ export function decodeText(bytes: Uint8Array): string {
     const half = sample.length / 2;
     if (oddZeros / half > 0.6 && evenText / half > 0.6) return new TextDecoder("utf-16le").decode(bytes);
   }
-  if (sample.length > 0 && zeros / sample.length > 0.01) {
-    throw new Error("This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.");
+  if (sample.length > 0 && zeros / sample.length > 0.01) throw new Error(NOT_TEXT);
+  // Compressed, encrypted, and media files spread control bytes evenly: about 1 byte in 10.
+  // Text has almost none, in UTF-8 or in a legacy single-byte encoding. Tab, line breaks, form
+  // feed, and ESC (colour codes) do not count.
+  let controls = 0;
+  for (const byte of sample) {
+    if (byte < 0x09 || (byte > 0x0d && byte < 0x20 && byte !== 0x1b) || byte === 0x7f) controls++;
   }
+  if (sample.length >= 64 && controls / sample.length > 0.03) throw new Error(NOT_TEXT);
   return new TextDecoder("utf-8").decode(bytes);
 }
 
@@ -120,25 +139,61 @@ const pptx: Extractor = async (bytes) => {
   return { text: slides.join("\n\n"), pages: names.length };
 };
 
-const pdf: Extractor = async (bytes) => {
-  let unpdf: typeof import("unpdf");
-  try {
-    unpdf = await import("unpdf");
-  } catch {
-    throw new Error("Reading PDF files needs the optional dependency \"unpdf\".");
-  }
-  // pdf.js may detach the buffer it reads, so give it a copy.
-  const document = await unpdf.getDocumentProxy(new Uint8Array(bytes));
-  const { totalPages, text } = await unpdf.extractText(document, { mergePages: false });
-  const pages = Array.isArray(text) ? text : [text];
-  if (!pages.some((page) => page.trim())) {
-    throw new Error("This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.");
-  }
-  return {
-    text: pages.map((page, index) => `--- Page ${index + 1} ---\n${page.trim()}`).join("\n\n"),
-    pages: totalPages,
-  };
+export type PdfExtractorOptions = {
+  /**
+   * Rebuild tables from the position of the text, and write each row as `| cell | cell |  |`, so an
+   * empty cell stays an empty cell. Defaults to true. With false, the text is in pdf.js order, as
+   * in version 0.1.0.
+   */
+  tables?: boolean;
 };
+
+/** Written in place of a page that has no text at all, so the model can say so instead of guessing. */
+const PAGE_WITHOUT_TEXT = "[No text on this page. It may be a scan, a photo, or a chart.]";
+
+/**
+ * The built-in PDF extractor (needs `unpdf`). Use it to change an option:
+ * `createLargeFiles({ extractors: { pdf: createPdfExtractor({ tables: false }) } })`.
+ */
+export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor {
+  const tables = options.tables ?? true;
+  return async (bytes) => {
+    let unpdf: typeof import("unpdf");
+    try {
+      unpdf = await import("unpdf");
+    } catch {
+      throw new Error("Reading PDF files needs the optional dependency \"unpdf\".");
+    }
+    // pdf.js may detach the buffer it reads, so give it a copy.
+    const document = await unpdf.getDocumentProxy(new Uint8Array(bytes));
+    const pages: string[] = [];
+    let hasText = false;
+    for (let number = 1; number <= document.numPages; number++) {
+      const page = await document.getPage(number);
+      const content = await page.getTextContent();
+      const items = (content.items as unknown[]).filter((item): item is PdfTextItem => typeof (item as PdfTextItem).str === "string");
+      let text = "";
+      if (tables) {
+        try {
+          text = layoutPageText(items, page.getViewport({ scale: 1 }).transform);
+        } catch {
+          // Unusual geometry must never lose a page: fall back to the plain order.
+          text = plainPageText(items);
+        }
+      } else {
+        text = plainPageText(items);
+      }
+      text = text.trim();
+      if (text) hasText = true;
+      pages.push(`--- Page ${number} ---\n${text || PAGE_WITHOUT_TEXT}`);
+      page.cleanup();
+    }
+    if (!hasText) {
+      throw new Error("This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.");
+    }
+    return { text: pages.join("\n\n"), pages: document.numPages };
+  };
+}
 
 export const defaultExtractors: Record<DocumentFormat, Extractor> = {
   text: plainText,
@@ -146,7 +201,7 @@ export const defaultExtractors: Record<DocumentFormat, Extractor> = {
   log: plainText,
   json: plainText,
   csv: plainText,
-  pdf,
+  pdf: createPdfExtractor(),
   docx,
   pptx,
 };
