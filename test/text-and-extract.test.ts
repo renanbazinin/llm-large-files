@@ -86,6 +86,20 @@ describe("text utilities", () => {
     expect(buildLogProfile(normalizeText("2026-01-01 10:00:00 \x1b[31mERROR\x1b[0m boom\n2026-01-01 10:00:01 \x1b[32mINFO\x1b[0m ok").split("\n")).levels).toEqual({ ERROR: 1, INFO: 1 });
   });
 
+  it("keeps the lines after an escape sequence that has no end", () => {
+    // Two bytes in a logged user agent used to remove every line after them.
+    const lines = Array.from({ length: 1_000 }, (_, index) => `2026-01-01 10:00:00 INFO request ${index + 1}`);
+    lines[2] = "2026-01-01 10:00:00 INFO GET /x ua=\"evil\x1b]\" 200";
+    const text = normalizeText(lines.join("\n"));
+    expect(text.split("\n")).toHaveLength(1_000);
+    expect(text.split("\n")[2]).toBe("2026-01-01 10:00:00 INFO GET /x ua=\"evil\" 200");
+    // A window title whose end was cut off loses its two escape characters, not the next line.
+    expect(normalizeText("\x1b]0;deploy@host: ~/app\nnext line")).toBe("0;deploy@host: ~/app\nnext line");
+    // An OSC ended by ESC \ (a link), and the escapes that save and restore the cursor or reset.
+    expect(normalizeText("see \x1b]8;;https://example.com\x1b\\the docs\x1b]8;;\x1b\\ now")).toBe("see the docs now");
+    expect(normalizeText("\x1b7status line\x1b8 done\x1bc")).toBe("status line done");
+  });
+
   it("lowercases for search without changing length", () => {
     const text = "İstanbul and ISTANBUL, Straße, ΑΒΓ, ok";
     const folded = foldCase(text);
@@ -137,6 +151,39 @@ describe("extraction", () => {
     expect(officeXmlParagraphs(xml, "w")).toEqual(["Fish & chips\t now", "Line\ntwo ש"]);
   });
 
+  it("reads a text box once, after the paragraph it is anchored in, and keeps the text around it", () => {
+    // How Word writes a shape with text: once for programs that read shapes, again in VML for
+    // older ones.
+    const box = "<w:txbxContent><w:p><w:r><w:t>Box text</w:t></w:r></w:p></w:txbxContent>";
+    const xml = [
+      "<w:body><w:p><w:r><w:t>Before</w:t></w:r><w:r><mc:AlternateContent>",
+      `<mc:Choice Requires="wps"><w:drawing><wp:anchor><a:graphic><a:graphicData><wps:wsp><wps:txbx>${box}</wps:txbx></wps:wsp></a:graphicData></a:graphic></wp:anchor></w:drawing></mc:Choice>`,
+      `<mc:Fallback><w:pict><v:shape><v:textbox>${box}</v:textbox></v:shape></w:pict></mc:Fallback>`,
+      "</mc:AlternateContent></w:r><w:r><w:t xml:space=\"preserve\"> and after the box</w:t></w:r></w:p>",
+      "<w:p><w:r><w:t>Next paragraph</w:t></w:r></w:p></w:body>",
+    ].join("");
+    expect(officeXmlParagraphs(xml, "w")).toEqual(["Before and after the box", "Box text", "Next paragraph"]);
+  });
+
+  it("does not take tab stops for tabs, and reads PowerPoint line breaks", () => {
+    const word = "<w:p><w:pPr><w:tabs><w:tab w:val=\"left\" w:pos=\"720\"/></w:tabs></w:pPr><w:r><w:t>Name</w:t><w:tab/><w:t>Value</w:t></w:r></w:p>";
+    expect(officeXmlParagraphs(word, "w")).toEqual(["Name\tValue"]);
+    const slide = "<a:p><a:pPr><a:tabLst><a:tab pos=\"914400\" algn=\"l\"/></a:tabLst></a:pPr><a:r><a:t>Quarterly</a:t></a:r><a:br><a:rPr lang=\"en-US\"/></a:br><a:r><a:t>Results</a:t></a:r></a:p>";
+    expect(officeXmlParagraphs(slide, "a")).toEqual(["Quarterly\nResults"]);
+  });
+
+  it("reads Office XML in time that follows its length, whatever its shape", () => {
+    // Paragraphs or text runs that are never closed made each of them a scan to the end of the file.
+    const shapes = ["<w:p>".repeat(200_000), `<w:p><w:r>${"<w:t>".repeat(200_000)}</w:r></w:p>`, `<w:p a="${"<w:p>".repeat(100_000)}`];
+    for (const xml of shapes) {
+      const started = performance.now();
+      officeXmlParagraphs(xml, "w");
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+    // A ">" inside a quoted value does not end the tag.
+    expect(officeXmlParagraphs("<w:p><w:r w:x=\"a>b\"><w:t>Text</w:t></w:r></w:p>", "w")).toEqual(["Text"]);
+  });
+
   it("extracts DOCX and PPTX text through jszip", async () => {
     const docx = new JSZip();
     docx.file("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>Chapter 1</w:t></w:r></w:p></w:body></w:document>");
@@ -149,6 +196,27 @@ describe("extraction", () => {
     const result = await extractText(await pptx.generateAsync({ type: "uint8array" }), { name: "a.pptx", mimeType: "", format: "pptx" });
     expect(result.text).toBe("## Slide 1\nFirst\n\n## Slide 2\nSecond");
     expect(result.pages).toBe(2);
+  });
+
+  it("reads a long DOCX whose tags fall across the pieces it is unpacked in", async () => {
+    const docx = new JSZip();
+    const paragraphs = Array.from({ length: 5_000 }, (_, index) => `<w:p w:rsidR="00A1B2C3"><w:pPr><w:spacing w:after="160"/></w:pPr><w:r><w:t xml:space="preserve">Paragraph ${index + 1} &amp; more.</w:t></w:r></w:p>`);
+    docx.file("word/document.xml", `<w:document><w:body>${paragraphs.join("")}</w:body></w:document>`);
+    const bytes = await docx.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+    const lines = (await extractText(bytes, { name: "a.docx", mimeType: "", format: "docx" })).text.split("\n");
+    expect(lines).toHaveLength(5_000);
+    expect(lines[0]).toBe("Paragraph 1 & more.");
+    expect(lines[4_999]).toBe("Paragraph 5000 & more.");
+  });
+
+  it("refuses a DOCX that unpacks to far more than its size, before it is all unpacked", async () => {
+    const docx = new JSZip();
+    const paragraph = "<w:p><w:r><w:t>The same words, over and over again.</w:t></w:r></w:p>";
+    docx.file("word/document.xml", `<w:document><w:body>${paragraph.repeat(300_000)}</w:body></w:document>`);
+    const bytes = await docx.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+    // About 20 MB of XML in a file of a few hundred kilobytes at most.
+    expect(bytes.length).toBeLessThan(200_000);
+    await expect(extractText(bytes, { name: "a.docx", mimeType: "", format: "docx" })).rejects.toThrow(/over 100 times its size.*zip bomb/);
   });
 
   it("extracts PDF text with page markers through unpdf", async () => {

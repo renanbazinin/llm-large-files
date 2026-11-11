@@ -61,7 +61,9 @@ The response is a `DocumentSummary`:
 ```
 
 Errors are JSON `{ "error": "…" }`: 400 when there's no file name, 413 when the file is too large,
-and 422 for an unreadable file (binary, empty, or a scanned PDF that cannot be shown page by page).
+422 for an unreadable file (binary, empty, a zip bomb, or a scanned PDF that cannot be shown page by
+page), and 500 when the server fails, as when the store's disk is full. `getOwner` can refuse a
+request by throwing an error with a `status`, such as 401 (see the [API reference](api.md)).
 
 **Other servers.** The handlers take Node's `IncomingMessage` / `ServerResponse`, so they work with
 `node:http`, Express, Koa (`ctx.req`, `ctx.res`), Fastify (`request.raw`, `reply.raw`), and Next.js

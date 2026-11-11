@@ -2,11 +2,14 @@
 export const MAX_LINE_CHARACTERS = 2_000;
 
 /**
- * Terminal escape sequences: CSI ("ESC [ 31 m"), OSC ("ESC ] ... BEL"), character-set selection
- * ("ESC ( B"), and two-character escapes. Coloured logs are full of them.
+ * Terminal escape sequences: CSI ("ESC [ 31 m"), OSC ("ESC ] 0;title BEL", ended by BEL or
+ * "ESC \" on the same line), character-set selection ("ESC ( B"), and two-character escapes
+ * ("ESC 7", "ESC c"). Coloured logs are full of them. An "ESC ]" whose end is not on its line is
+ * not a sequence: only those two characters go. Otherwise one stray "ESC ]", a cut-off window title
+ * or two bytes in a logged user agent, would take every line after it.
  */
 // eslint-disable-next-line no-control-regex
-const ANSI_ESCAPE = /\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[ -\/]+[0-~]|[@-Z\\-_])/g;
+const ANSI_ESCAPE = /\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)|[ -\/]+[0-~]|[0-~])/g;
 
 /**
  * Strips a BOM, unifies line endings, and removes terminal escape sequences and control characters

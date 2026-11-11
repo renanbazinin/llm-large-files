@@ -42,10 +42,50 @@ const FURNITURE_SHARE = 0.3;
 const DRAWING_COLOURS = 3;
 const MAX_SHAPES = 20_000;
 const MAX_FORM_DEPTH = 4;
+/** Images painted on one page past which the page is marked without reading further. */
+const MAX_IMAGES = 20_000;
+/**
+ * Content read for one page, a form counted each time it is painted. A page of text holds a few
+ * kilobytes. A page past this paints so much that it is a drawing, and is marked: forms painted
+ * inside forms, many times over, grow to that in a few milliseconds instead of without end.
+ */
+const MAX_PAGE_CONTENT = 16 * 1024 * 1024;
+/** Decoded forms kept for the whole file, so that a letterhead painted on every page is decoded once. */
+const MAX_KEPT_FORMS = 64 * 1024 * 1024;
 
 type Image = { id: number; box: Box };
 type Shape = { box: Box; fill: string };
-type Graphics = { images: Image[]; shapes: Shape[]; tooLarge: boolean };
+/** What a page draws. `read` counts the content run for it, forms each time they are painted. */
+type Graphics = { images: Image[]; shapes: Shape[]; tooLarge: boolean; read: number };
+
+/** What one reading of a file shares between its pages. */
+type Reading = {
+  library: PdfLibrary;
+  context: PDFContext;
+  /** The content of each form, decoded once however many times and on however many pages it is painted. */
+  forms: Map<PDFObject, string | undefined>;
+  /** Characters of content in `forms`. Past `MAX_KEPT_FORMS`, a form is decoded each time instead. */
+  kept: number;
+  /** When the time for the whole file is up. */
+  deadline: number;
+};
+
+/** The content of a form, from the forms already decoded for this file when it is there. */
+function formContent(reading: Reading, form: PDFObject): string | undefined {
+  if (reading.forms.has(form)) return reading.forms.get(form);
+  const content = decodeContent(reading.library, reading.context, form, MAX_CONTENT_BYTES);
+  const size = content?.length ?? 0;
+  if (reading.kept + size <= MAX_KEPT_FORMS) {
+    reading.forms.set(form, content);
+    reading.kept += size;
+  }
+  return content;
+}
+
+/** A page paints too much to be text: it is marked as showing a drawing. */
+class PaintsTooMuch extends Error {}
+/** The time for the whole file is up: no page is marked. */
+class OutOfTime extends Error {}
 
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 /** Applies `first`, then `second`. */
@@ -69,8 +109,13 @@ const INLINE_IMAGE_END = /[\x00\t\n\f\r ]EI(?![^\x00\t\n\f\r /\[\]<>(){}%])/g;
  * Runs the content of a page, or of a form it paints, and adds what it draws to `found`.
  * It understands just enough: the matrix (q, Q, cm), paths and how they are painted, the fill
  * colour, and Do. Text, clipping and everything else pass through unread.
+ * Throws `PaintsTooMuch` when the page paints more than a page of text can, and `OutOfTime`.
  */
-function run(library: PdfLibrary, context: PDFContext, content: string, resources: PDFDict | undefined, matrix: Matrix, found: Graphics, depth: number, open: Set<PDFObject>): void {
+function run(reading: Reading, content: string, resources: PDFDict | undefined, matrix: Matrix, found: Graphics, depth: number, open: Set<PDFObject>): void {
+  found.read += content.length;
+  if (found.read > MAX_PAGE_CONTENT) throw new PaintsTooMuch();
+  if (performance.now() > reading.deadline) throw new OutOfTime();
+  const { library, context } = reading;
   const { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef, PDFStream } = library;
   const saved: Array<{ ctm: Matrix; fill: string }> = [];
   let ctm = matrix;
@@ -208,19 +253,20 @@ function run(library: PdfLibrary, context: PDFContext, content: string, resource
         if (!(object instanceof PDFStream)) break;
         const subtype = object.dict.lookup(PDFName.of("Subtype"));
         if (subtype === PDFName.of("Image")) {
+          if (found.images.length >= MAX_IMAGES) throw new PaintsTooMuch();
           // An image fills the unit square of the space it is painted in.
           const xs = [mapX(ctm, 0, 0), mapX(ctm, 1, 0), mapX(ctm, 0, 1), mapX(ctm, 1, 1)];
           const ys = [mapY(ctm, 0, 0), mapY(ctm, 1, 0), mapY(ctm, 0, 1), mapY(ctm, 1, 1)];
           found.images.push({ id: value instanceof PDFRef ? value.objectNumber : -1, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] });
         } else if (subtype === PDFName.of("Form") && depth < MAX_FORM_DEPTH && !open.has(object)) {
-          const inner = decodeContent(library, context, object, MAX_CONTENT_BYTES);
+          const inner = formContent(reading, object);
           if (inner === undefined) break;
           const own = object.dict.lookup(PDFName.of("Resources"));
           const formMatrix = object.dict.lookup(PDFName.of("Matrix"));
           const values = formMatrix instanceof PDFArray ? formMatrix.asArray().map((entry) => (entry instanceof PDFNumber ? entry.asNumber() : Number.NaN)) : [];
           open.add(object);
           // A form without resources of its own uses those of the content that paints it.
-          run(library, context, inner, own instanceof PDFDict ? own : resources, values.length === 6 && values.every(Number.isFinite) ? multiply(values, ctm) : ctm, found, depth + 1, open);
+          run(reading, inner, own instanceof PDFDict ? own : resources, values.length === 6 && values.every(Number.isFinite) ? multiply(values, ctm) : ctm, found, depth + 1, open);
           open.delete(object);
         }
         break;
@@ -292,11 +338,11 @@ export async function findPicturePages(bytes: Uint8Array, pages: readonly PageGe
     const leaves = document.getPages();
     if (leaves.length !== pages.length) return undefined;
     const { context } = document;
-    const deadline = performance.now() + TIME_LIMIT_MS;
+    const reading: Reading = { library, context, forms: new Map(), kept: 0, deadline: performance.now() + TIME_LIMIT_MS };
     const graphics: Graphics[] = [];
     for (const leaf of leaves) {
-      if (performance.now() > deadline) return undefined;
-      const found: Graphics = { images: [], shapes: [], tooLarge: false };
+      if (performance.now() > reading.deadline) return undefined;
+      const found: Graphics = { images: [], shapes: [], tooLarge: false, read: 0 };
       graphics.push(found);
       try {
         const contents = leaf.node.Contents();
@@ -307,9 +353,13 @@ export async function findPicturePages(bytes: Uint8Array, pages: readonly PageGe
         }
         const parts = streams.map((stream) => decodeContent(library, context, stream, MAX_CONTENT_BYTES));
         // Content that cannot be read is not guessed at: the page stays unmarked.
-        if (!parts.includes(undefined)) run(library, context, parts.join(" "), leaf.node.Resources(), IDENTITY, found, 0, new Set());
-      } catch {
-        // An unusual page: unmarked.
+        if (!parts.includes(undefined)) run(reading, parts.join(" "), leaf.node.Resources(), IDENTITY, found, 0, new Set());
+      } catch (error) {
+        // The time for the file is up within a page: no page is marked, as between pages.
+        if (error instanceof OutOfTime) return undefined;
+        // A page that paints more than a page of text can is a drawing. Any other trouble leaves
+        // an unusual page unmarked.
+        if (error instanceof PaintsTooMuch) found.tooLarge = true;
       }
     }
     // An image painted on many pages is part of the page design, whatever its size.
