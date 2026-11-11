@@ -16,6 +16,13 @@ export type ChatTurn = { role: "user" | "model" | "assistant"; text: string };
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find.";
 /** The same, when the only tool was `view_pages`: the text of the files is in the prompt, not in tool results. */
 export const FINAL_ANSWER_AFTER_PAGES = "Stop using tools now. Answer my question from the text of the files and the pages you looked at. Say plainly what you could not see or find.";
+/** Sent to the answering model when an explorer model used no tool, so there is no tool result to answer from. */
+export const FINAL_ANSWER_WITHOUT_TOOLS = "Answer my question now, from what is in this conversation. No tools are available for this reply: if the answer needs a part of a file that is not shown here, say so plainly.";
+/**
+ * Added to the system instruction of an explorer model's requests: it gathers what the answer
+ * needs, and the other model writes the answer.
+ */
+export const EXPLORER_INSTRUCTION = "You only gather material in this conversation: another model writes the answer. It sees this conversation and what your tool calls returned, not what you thought or wrote. So call the tools until their results hold everything the answer needs from the files. Then, or at once if no tool is needed, reply with the single word DONE instead of an answer.";
 
 /** What Gemini bills for one PDF page it is shown (measured: 520 to 532). */
 const PAGE_TOKENS = 530;
@@ -38,6 +45,12 @@ export class GeminiRequestError extends Error {
 
 export type AskGeminiOptions = {
   files: LargeFiles;
+  /**
+   * Where the model is: the one that answers. When the endpoint also names an explorer model
+   * (`explorerModel` in `geminiApi()` and `vertexAi()`, or `explorerUrl`), that model makes the
+   * tool calls and reads a whole file in parts, and this one writes the answer from what the
+   * tools returned. Without an explorer, one model does both.
+   */
   endpoint: GeminiEndpoint;
   /** Documents this conversation may use. Where their text or cards go: see `documentPlacement`. */
   documentIds: string[];
@@ -55,12 +68,19 @@ export type AskGeminiOptions = {
   system?: string;
   /** Sent with every chat request: temperature, maxOutputTokens, thinkingConfig, and so on. */
   generationConfig?: Record<string, unknown>;
+  /**
+   * The same, for the requests of an explorer model. Defaults to `generationConfig`. Set it when
+   * the two models do not take the same settings: a thinking level that one of them refuses, for
+   * example. It is not used without an explorer model.
+   */
+  explorerGenerationConfig?: Record<string, unknown>;
   /** The user asking. Documents ingested with a different owner are treated as missing. */
   owner?: string;
   /**
    * The most model requests for one question, counting the answer. Tools can run in all but the
    * last: if the model is still calling tools then, the last request is sent with no tools so it
-   * must answer. Defaults to 12.
+   * must answer. Defaults to 12. With an explorer model the answer is always a request of its
+   * own, the last one, so the explorer has one less than this.
    */
   maxToolTurns?: number;
   /** Offer `analyze_whole_document`, which reads a whole file in many model calls. Defaults to true. */
@@ -78,7 +98,10 @@ export type AskGeminiOptions = {
    * function response.
    */
   toolFilePlacement?: GeminiToolFilePlacement;
-  /** generationConfig for whole-document part reads. Defaults to `{ temperature: 0.2, maxOutputTokens }`. */
+  /**
+   * generationConfig for whole-document part reads. Defaults to `{ temperature: 0.2, maxOutputTokens }`.
+   * The parts are read by the explorer model when there is one, so write it for that model.
+   */
   analysisConfig?: (maxOutputTokens: number) => Record<string, unknown>;
   /** Answer text as it streams. Streaming is used when this is set and the endpoint has `streamUrl`. */
   onText?: (delta: string) => void;
@@ -91,7 +114,10 @@ export type AskGeminiOptions = {
 };
 
 export type AskGeminiResult = {
-  /** Everything the model wrote, including any remark it made before calling a tool. */
+  /**
+   * Everything the model wrote, including any remark it made before calling a tool. With an
+   * explorer model, only what the answering model wrote: the explorer's words are not shown.
+   */
   text: string;
   /**
    * False when the model's last turn had no text: the prompt was blocked, the reply was cut off
@@ -105,7 +131,7 @@ export type AskGeminiResult = {
   steps: string[];
   /** Which documents went in whole and which were searched. */
   plan: DocumentPlan;
-  /** Model requests made for the chat itself (whole-document part reads not included). */
+  /** Model requests made for the chat itself, an explorer model's among them (whole-document part reads not included). */
   turns: number;
   finishReason?: string;
   /** Usage metadata of the last model response. */
@@ -155,13 +181,27 @@ function baseSize(contents: GeminiContent[], system: string | undefined): { toke
 }
 
 /**
+ * A turn of an explorer model as the answering model gets it: the tool calls alone. A thought
+ * signature belongs to the model that wrote it, and the explorer's thoughts and remarks are not
+ * what the files say.
+ */
+function callsOnly(content: GeminiContent): GeminiContent {
+  if (content.role !== "model") return content;
+  return { role: "model", parts: content.parts.flatMap((part) => (part.functionCall ? [{ functionCall: part.functionCall }] : [])) };
+}
+
+/**
  * Answers a chat turn about large documents with Gemini (Generate Content REST).
  * Documents that fit go into the prompt whole; otherwise Gemini gets search/read tools and this
  * runs the tool loop, ending with a tool-free turn so there is always an answer.
+ * When the endpoint names an explorer model, that model runs the tool loop and the endpoint's own
+ * model writes the answer, in the tool-free turn.
  */
 export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiResult> {
   const fetchImpl = options.fetch ?? fetch;
   const { files, endpoint, signal } = options;
+  // A second model for the requests that use tools. The answering model's own URL is not one.
+  const explorerUrl = endpoint.explorerUrl && endpoint.explorerUrl !== endpoint.url ? endpoint.explorerUrl : undefined;
   const contents = toContents(options);
   const prepared = await files.prepare(options.documentIds, baseSize(contents, options.system), { owner: options.owner, viewPages: options.viewPages !== false });
   if (prepared.missing.length) throw new DocumentsNotFoundError(prepared.missing);
@@ -196,13 +236,16 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   /**
    * One model request. Text is emitted as it arrives; parts are kept as received.
    * `wroteText` says whether this request produced any text of its own.
+   * Given `exploring`, the request is the explorer model's: that body goes to its URL, in one
+   * piece, and what it writes is not emitted, because the answer comes from the other model.
    */
-  const turn = async (): Promise<{ parts: GeminiPart[]; calls: GeminiFunctionCall[]; wroteText: boolean }> => {
+  const turn = async (exploring?: Body): Promise<{ parts: GeminiPart[]; calls: GeminiFunctionCall[]; wroteText: boolean }> => {
     turns++;
-    const response = await fetchImpl(streaming ? endpoint.streamUrl! : endpoint.url, {
+    const stream = streaming && !exploring;
+    const response = await fetchImpl(exploring ? explorerUrl! : stream ? endpoint.streamUrl! : endpoint.url, {
       method: "POST",
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify(exploring ?? body),
       signal,
     });
     if (!response.ok) {
@@ -221,11 +264,13 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
         // Keep every part unchanged: Gemini 3 requires its thought signatures back.
         parts.push(part);
         if (typeof part.text === "string" && part.text && part.thought !== true) {
-          if (!separated) {
-            emit("\n\n");
-            separated = true;
+          if (!exploring) {
+            if (!separated) {
+              emit("\n\n");
+              separated = true;
+            }
+            emit(part.text);
           }
-          emit(part.text);
           if (part.text.trim()) wroteText = true;
         }
         const call = part.functionCall as { name?: unknown; args?: unknown; id?: unknown } | undefined;
@@ -237,7 +282,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
       finishReason = candidate?.finishReason ?? finishReason;
       usage = chunk.usageMetadata ?? usage;
     };
-    if (streaming) {
+    if (stream) {
       if (!response.body) throw new GeminiRequestError("Gemini returned an empty stream.", response.status);
       for await (const chunk of parseSseJson<Chunk>(response.body)) take(chunk);
     } else {
@@ -265,14 +310,27 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
 
   const tools = files.tools(searchable, {
     ...(options.wholeDocumentAnalysis === false ? {} : {
-      generate: createGeminiGenerateText({ url: endpoint.url, headers, fetchImpl, ...(options.analysisConfig ? { generationConfig: options.analysisConfig } : {}) }),
+      // Reading a whole file in parts is exploring too: the explorer model's work, when there is one.
+      generate: createGeminiGenerateText({ url: explorerUrl ?? endpoint.url, headers, fetchImpl, ...(options.analysisConfig ? { generationConfig: options.analysisConfig } : {}) }),
     }),
     onProgress: (event) => options.onActivity?.(`${event.message}…`),
     ...(signal ? { signal } : {}),
     ...(viewable.length > 0 ? { viewPages: viewable } : {}),
   });
-  body.tools = [{ functionDeclarations: tools.declarations }];
-  body.toolConfig = { functionCallingConfig: { mode: "AUTO" } };
+  // The request that uses the tools is the chat's own, or one for the explorer model: the same
+  // conversation (`contents` is one array, so it grows in both), that model's settings, and a
+  // line that says what its part is.
+  const explorerConfig = options.explorerGenerationConfig ?? options.generationConfig;
+  const exploring: Body | undefined = explorerUrl ? {
+    contents,
+    systemInstruction: { parts: [{ text: `${system}\n\n${EXPLORER_INSTRUCTION}` }] },
+    ...(explorerConfig ? { generationConfig: explorerConfig } : {}),
+  } : undefined;
+  const withTools = exploring ?? body;
+  withTools.tools = [{ functionDeclarations: tools.declarations }];
+  withTools.toolConfig = { functionCallingConfig: { mode: "AUTO" } };
+  // How many turns the conversation had as it was asked. What follows them is the tool loop's.
+  const asked = contents.length;
   if (searchable.length > 0) options.onActivity?.(`Too large to read at once: ${searchable.map((meta) => meta.name).join(", ")}. Searching instead…`);
 
   // Pages the model looks at stay in the request until the question is answered, so they are
@@ -287,10 +345,11 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   // Tools run in at most maxTurns - 1 requests. The last request is the tool-free one below, so a
   // model that never stops calling tools does not cost a request whose calls are thrown away.
   for (let round = 1; round < maxTurns; round++) {
-    const { parts, calls, wroteText } = await turn();
+    const { parts, calls, wroteText } = await turn(exploring);
     if (calls.length === 0) {
       // Text from this turn is the answer. A remark made earlier, before a tool call, is not.
-      answered = wroteText;
+      // Neither is anything an explorer model writes: the answer is asked for below.
+      answered = wroteText && !exploring;
       break;
     }
     body.contents.push({ role: "model", parts });
@@ -302,7 +361,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
       options.onActivity?.(`${label}…`);
       let limits: ToolFileLimits | undefined;
       if (call.name === TOOL_NAMES.view) {
-        requestBytes ??= Buffer.byteLength(JSON.stringify(body));
+        requestBytes ??= Buffer.byteLength(JSON.stringify(withTools));
         // Base64 turns three bytes into four characters.
         limits = { maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4), maxPages: pagesLeft };
       }
@@ -320,11 +379,20 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   // Out of tool turns, or the last turn had no text (cut off, or a malformed tool call): ask once
   // more with no tools declared at all. (Gemini can ignore functionCallingConfig mode NONE and
   // keep calling tools.) A blocked prompt would only be blocked again.
+  // With an explorer model this request is always made: it is the one the answering model gets.
   if (!answered && !blockReason) {
     options.onActivity?.("Writing the answer…");
     delete body.tools;
     delete body.toolConfig;
-    body.contents.push({ role: "user", parts: [{ text: searchable.length > 0 ? FINAL_ANSWER_REQUEST : FINAL_ANSWER_AFTER_PAGES }] });
+    let request = searchable.length > 0 ? FINAL_ANSWER_REQUEST : FINAL_ANSWER_AFTER_PAGES;
+    if (exploring) {
+      // The answering model gets the explorer's calls and what they returned, and nothing else of
+      // it. This request ends with a user message, as it must: a Gemini 3 model refuses a
+      // function call without its own thought signature in the turn it is still answering.
+      body.contents = [...contents.slice(0, asked), ...contents.slice(asked).map(callsOnly)];
+      if (steps.length === 0) request = FINAL_ANSWER_WITHOUT_TOOLS;
+    }
+    body.contents.push({ role: "user", parts: [{ text: request }] });
     answered = (await turn()).wroteText;
   }
   return result(answered);
