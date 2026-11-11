@@ -82,23 +82,204 @@ function decodeXmlEntities(value: string): string {
   });
 }
 
-/** Text of each `<prefix:p>` paragraph in Office XML. Regex keeps this free of an XML parser dependency. */
-export function officeXmlParagraphs(xml: string, prefix: "w" | "a"): string[] {
-  const paragraphs = xml.match(new RegExp(`<${prefix}:p[\\s>][\\s\\S]*?</${prefix}:p>`, "g")) ?? [];
-  const textPattern = new RegExp(`<${prefix}:t(?:\\s[^>]*)?>([\\s\\S]*?)</${prefix}:t>|<${prefix}:(tab|br)\\b[^>]*/>`, "g");
-  return paragraphs.map((paragraph) => {
-    let text = "";
-    for (const match of paragraph.matchAll(textPattern)) {
-      if (match[2] === "tab") text += "\t";
-      else if (match[2] === "br") text += "\n";
-      else text += decodeXmlEntities(match[1] ?? "");
+/** A tag name is read up to this many characters: the names that matter here are short. */
+const MAX_TAG_NAME = 64;
+
+/**
+ * Collects the text of each paragraph of Office XML (`<w:p>` in Word, `<a:p>` in PowerPoint) in one
+ * pass, with no XML parser. The XML can come in pieces, as it is unpacked: a tag cut between two
+ * pieces is read whole. Every character is looked at once, so the time follows the length of the
+ * XML whatever its shape: a file of unclosed tags costs what a file of closed ones does.
+ *
+ * - A paragraph inside another one (the text box of a shape anchored in a paragraph) is a paragraph
+ *   of its own, after the one it is anchored in, which keeps its text before and after the box.
+ * - `mc:Fallback` repeats `mc:Choice` for older programs, so it is skipped: a text box is read once.
+ * - Paragraph properties hold no text. Their tab stops are not tabs.
+ */
+class OfficeText {
+  private readonly paragraphTag: string;
+  private readonly paragraphEnd: string;
+  private readonly textTag: string;
+  private readonly textEnd: string;
+  private readonly propertiesTag: string;
+  private readonly propertiesEnd: string;
+  private readonly tabTag: string;
+  private readonly breakTags: ReadonlySet<string>;
+  /** The pieces of text of each paragraph, in the order the paragraphs start. */
+  private readonly paragraphs: string[][] = [];
+  /** The paragraphs that are open, the innermost last. */
+  private readonly open: string[][] = [];
+  private inText = false;
+  private inProperties = 0;
+  private inFallback = 0;
+  /** The tag being read, from its "<": its name so far, the quote of a value it is in, its last character. */
+  private tag: { name: string; named: boolean; quote: number; last: number } | undefined;
+
+  constructor(prefix: "w" | "a") {
+    this.paragraphTag = `${prefix}:p`;
+    this.paragraphEnd = `/${prefix}:p`;
+    this.textTag = `${prefix}:t`;
+    this.textEnd = `/${prefix}:t`;
+    this.propertiesTag = `${prefix}:pPr`;
+    this.propertiesEnd = `/${prefix}:pPr`;
+    this.tabTag = `${prefix}:tab`;
+    this.breakTags = new Set([`${prefix}:br`, `${prefix}:cr`]);
+  }
+
+  write(xml: string): void {
+    const length = xml.length;
+    let at = 0;
+    while (at < length) {
+      const tag = this.tag;
+      if (!tag) {
+        const start = xml.indexOf("<", at);
+        const end = start === -1 ? length : start;
+        if (end > at && this.inText && this.inProperties === 0 && this.inFallback === 0) this.open.at(-1)?.push(xml.slice(at, end));
+        if (start === -1) return;
+        this.tag = { name: "", named: false, quote: 0, last: 0 };
+        at = start + 1;
+        continue;
+      }
+      for (; at < length; at++) {
+        const code = xml.charCodeAt(at);
+        if (tag.quote !== 0) {
+          if (code === tag.quote) tag.quote = 0;
+          continue;
+        }
+        if (!tag.named) {
+          // A name ends at white space, at ">", or at the "/" of "<w:br/>". "</w:p>" starts with one.
+          if (code === 62 || code === 32 || code === 9 || code === 10 || code === 13 || (code === 47 && tag.name !== "")) tag.named = true;
+          else {
+            if (tag.name.length < MAX_TAG_NAME) tag.name += xml[at];
+            continue;
+          }
+        }
+        if (code === 62) break;
+        if (code === 34 || code === 39) tag.quote = code;
+        else if (code !== 32 && code !== 9 && code !== 10 && code !== 13) tag.last = code;
+      }
+      if (at === length) return; // The tag goes on in the next piece.
+      this.tag = undefined;
+      this.read(tag.name, tag.last === 47);
+      at++;
     }
-    return text;
-  }).filter((text) => text.trim());
+  }
+
+  /** The text of each paragraph that has some, in the order the paragraphs start. */
+  texts(): string[] {
+    return this.paragraphs.map((pieces) => decodeXmlEntities(pieces.join(""))).filter((text) => text.trim());
+  }
+
+  /** Acts on a tag that has been read. `empty` is a tag that closes itself, as `<w:br/>`. */
+  private read(name: string, empty: boolean): void {
+    if (name === "mc:Fallback") {
+      if (!empty) this.inFallback++;
+      return;
+    }
+    if (name === "/mc:Fallback") {
+      if (this.inFallback > 0) this.inFallback--;
+      return;
+    }
+    if (this.inFallback > 0) return;
+    if (name === this.paragraphTag) {
+      if (!empty) {
+        const pieces: string[] = [];
+        this.paragraphs.push(pieces);
+        this.open.push(pieces);
+      }
+    } else if (name === this.paragraphEnd) {
+      this.open.pop();
+      this.inText = false;
+      this.inProperties = 0;
+    } else if (name === this.textTag) {
+      this.inText = !empty;
+    } else if (name === this.textEnd) {
+      this.inText = false;
+    } else if (name === this.propertiesTag) {
+      if (!empty) this.inProperties++;
+    } else if (name === this.propertiesEnd) {
+      if (this.inProperties > 0) this.inProperties--;
+    } else if (this.inProperties === 0) {
+      if (name === this.tabTag) this.open.at(-1)?.push("\t");
+      else if (this.breakTags.has(name)) this.open.at(-1)?.push("\n");
+    }
+  }
 }
 
-type ZipFile = { async(type: "string"): Promise<string> };
+/** Text of each paragraph of Office XML, in the order the paragraphs start. See `OfficeText`. */
+export function officeXmlParagraphs(xml: string, prefix: "w" | "a"): string[] {
+  const text = new OfficeText(prefix);
+  text.write(xml);
+  return text.texts();
+}
+
+/** The part of JSZip's stream of one file that is used here. */
+type ZipStream = {
+  on(event: "data", listener: (chunk: string) => void): ZipStream;
+  on(event: "error", listener: (error: unknown) => void): ZipStream;
+  on(event: "end", listener: () => void): ZipStream;
+  resume(): ZipStream;
+  pause(): ZipStream;
+};
+/** `internalStream` hands out a file of the archive in pieces, as it is unpacked. */
+type ZipFile = { internalStream(type: "string"): ZipStream };
 type ZipArchive = { files: Record<string, unknown>; file(name: string): ZipFile | null };
+
+/** The most XML read from one DOCX or PPTX, whatever its size: a document of thousands of pages. */
+const MAX_OFFICE_XML = 128 * 1024 * 1024;
+/**
+ * The parts read from an Office file unpack to less than its size: pictures, fonts and styles stay
+ * packed. A generated report that repeats one paragraph 50,000 times unpacks to 90 times its size.
+ * A file that unpacks to more than this many times its size, past the first 16 MB, is taken for a
+ * zip bomb, as Apache POI does.
+ */
+const MAX_OFFICE_EXPANSION = 100;
+const OFFICE_ALLOWANCE = 16 * 1024 * 1024;
+
+const megabytes = (size: number) => `${Math.round(size / 1024 / 1024)} MB`;
+
+/**
+ * Reads the paragraphs of the parts of one DOCX or PPTX, each a piece at a time as it is unpacked,
+ * counting what is unpacked: a file that grows far past its size is refused as it grows, before
+ * that much is in memory. Unpacking yields to other work between pieces.
+ */
+function officeReader(archive: ZipArchive, kind: "DOCX" | "PPTX", size: number) {
+  const limit = Math.min(MAX_OFFICE_XML, Math.max(OFFICE_ALLOWANCE, size * MAX_OFFICE_EXPANSION));
+  const refusal = limit === MAX_OFFICE_XML
+    ? `This ${kind} unpacks to more than ${megabytes(limit)} of XML, more than is read from one file. Save it as text or PDF, and attach that.`
+    : `This ${kind} unpacks to more than ${megabytes(limit)}, over ${MAX_OFFICE_EXPANSION} times its size. A file that grows that much is not read: it may be a zip bomb. Save it as text or PDF, and attach that.`;
+  let unpacked = 0;
+  return (name: string, prefix: "w" | "a") => new Promise<string[]>((resolve, reject) => {
+    const file = archive.file(name);
+    if (!file) {
+      resolve([]);
+      return;
+    }
+    const text = new OfficeText(prefix);
+    let stopped = false;
+    const stream = file.internalStream("string");
+    stream
+      .on("data", (chunk) => {
+        if (stopped) return;
+        unpacked += chunk.length;
+        if (unpacked > limit) {
+          stopped = true;
+          stream.pause();
+          reject(new Error(refusal));
+          return;
+        }
+        text.write(chunk);
+      })
+      .on("error", (error) => {
+        stopped = true;
+        reject(error);
+      })
+      .on("end", () => {
+        if (!stopped) resolve(text.texts());
+      })
+      .resume();
+  });
+}
 
 async function loadZip(bytes: Uint8Array): Promise<ZipArchive> {
   let JSZip: { loadAsync(data: Uint8Array): Promise<ZipArchive> };
@@ -116,11 +297,9 @@ const docx: Extractor = async (bytes) => {
     .filter((name) => /^word\/(document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i.test(name))
     .sort((left, right) => left === "word/document.xml" ? -1 : right === "word/document.xml" ? 1 : left.localeCompare(right));
   if (!names.includes("word/document.xml")) throw new Error("This DOCX does not contain word/document.xml.");
+  const read = officeReader(archive, "DOCX", bytes.byteLength);
   const sections: string[] = [];
-  for (const name of names) {
-    const xml = await archive.file(name)?.async("string");
-    if (xml) sections.push(officeXmlParagraphs(xml, "w").join("\n"));
-  }
+  for (const name of names) sections.push((await read(name, "w")).join("\n"));
   return { text: sections.filter(Boolean).join("\n\n") };
 };
 
@@ -131,10 +310,10 @@ const pptx: Extractor = async (bytes) => {
     .filter((name) => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
     .sort((left, right) => slideNumber(left) - slideNumber(right));
   if (names.length === 0) throw new Error("This PPTX does not contain any slides.");
+  const read = officeReader(archive, "PPTX", bytes.byteLength);
   const slides: string[] = [];
   for (const name of names) {
-    const xml = await archive.file(name)?.async("string");
-    const text = xml ? officeXmlParagraphs(xml, "a").join("\n") : "";
+    const text = (await read(name, "a")).join("\n");
     slides.push(`## Slide ${slideNumber(name)}\n${text || "[No text on this slide]"}`);
   }
   return { text: slides.join("\n\n"), pages: names.length };

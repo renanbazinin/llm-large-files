@@ -203,3 +203,12 @@ Returns `{ upload(req, res), get(req, res, id), remove(req, res, id) }`.
   (`express.raw()`), that buffer is used.
 - **get**: 200 with a `DocumentSummary`, or 404.
 - **remove**: `{ deleted: boolean }`.
+
+Each handler answers its errors itself and never rejects, so it needs no `catch`. 422 is a file
+that cannot be read. 500 is the server's trouble, such as a store that fails: the message says
+what failed and gives a system error's code (`Upload failed (ENOSPC).`), never a path or a host.
+
+`getOwner` runs before the upload is read. To refuse a request, throw an error with a `status`
+(or `statusCode`) between 400 and 599, as the `http-errors` package makes:
+`throw Object.assign(new Error("Sign in first."), { status: 401 })`. The handler answers with that
+status and message. Any other error from `getOwner` is a 500 that does not repeat its message.

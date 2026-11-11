@@ -195,6 +195,26 @@ describe("picture marks: when they are left out", () => {
     expect(marked(text)).toEqual([1, 3]);
   });
 
+  it("stops reading a page that paints forms inside forms thousands of times, and marks it", async () => {
+    // Each form paints the next one 30 times: 30^5 images from a file of a few kilobytes, which
+    // used to take seconds and gigabytes, and then the process.
+    const builder = new PdfBuilder();
+    let object = builder.image();
+    let name = "Im1";
+    for (let level = 1; level <= 4; level++) {
+      const content = Array.from({ length: 30 }, () => `q 0.5 0 0 0.5 0 0 cm /${name} Do Q`).join("\n");
+      object = builder.form(content, `/Resources << /XObject << /${name} ${object} 0 R >> >>`);
+      name = `Fm${level}`;
+    }
+    builder.page(`${textLine("Forms inside forms.")}\n${Array.from({ length: 30 }, () => `q /${name} Do Q`).join("\n")}`, { [name]: object });
+    builder.page(textLine("A page of text."));
+    const bytes = builder.build();
+    expect(bytes.length).toBeLessThan(10_000);
+    const started = performance.now();
+    expect(marked(await read(bytes))).toEqual([1]);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
   it("says nothing when the file does not have the pages the text was read from", async () => {
     const page = { view: [0, 0, 612, 792], transform: [1, 0, 0, -1, 0, 792], tables: [] };
     expect(await findPicturePages(withPicture, [page, page, page])).toEqual([false, true, true]);

@@ -4,6 +4,43 @@ All notable changes to this package are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org).
 
+## [0.3.6] - 2026-11-11
+
+### Fixed
+
+- **A terminal escape without an end no longer deletes the rest of a file.** An `ESC ]` whose end
+  (BEL, or `ESC \`) was not on its line removed everything up to the next escape, or to the end of
+  the file: a log of 10,000 lines whose third line held a logged user agent `ua="evil␛]"` was
+  stored as 3 lines, with no error. Now only those two characters go. The escapes that save and
+  restore the cursor (`ESC 7`, `ESC 8`) and the like no longer leave a character behind.
+- **DOCX and PPTX files are read in one pass, a piece at a time.** The paragraph pattern scanned
+  to the end of the file from every paragraph that was not closed: a DOCX of 900 bytes held the
+  server for 8 seconds, and one of 10 KB would have held it for an hour. The new reader looks at
+  each character once. It also:
+  - refuses a file that unpacks to more than 100 times its size (past the first 16 MB) or to more
+    than 128 MB of XML, as it unpacks, before that much is in memory. A DOCX of 160 KB that unpacked
+    to 50 MB of XML was stored as 29 million characters; it is now refused at 16 MB, in 0.2 s;
+  - reads a text box once, after the paragraph it is anchored in. Word writes each text box twice,
+    and the paragraph it was anchored in lost its text after the box: a resume template lost its
+    "Objective" heading;
+  - no longer takes the tab stops of a paragraph for tabs, and reads PowerPoint's line breaks
+    (`<a:br>` with its run properties inside), which were lost.
+- **Picture marks: forms painted inside forms cannot hold the server.** A form was read again each
+  time it was painted, and the time limit was checked only between pages: a PDF of 3 KB whose
+  forms each paint the next one 30 times ran the process out of memory. Now each form is decoded
+  once per file, a page that paints more than 20,000 images or makes the reader go through more
+  than 16 MB of content is marked as a drawing at once, and the time limit holds within a page.
+  Such a file is now read in 0.6 s.
+- **`llm-large-files/node`: `get` and `remove` answer their errors.** A `getOwner` that threw, or a
+  store call that failed, rejected the handler's promise, which ends a Node process that has no
+  handler for it (Express 4, plain `node:http`). All three handlers now answer every error
+  themselves:
+  - an error with a `status` between 400 and 599, as `getOwner` can now throw to refuse a request,
+    is answered with that status and its message;
+  - a store that fails is a 500 that gives the error's code (`Upload failed (ENOSPC).`). It was a
+    422 with the error's message, which named the server's paths;
+  - `getOwner` runs before the upload is read, so a refused upload is not buffered.
+
 ## [0.3.5] - 2026-11-11
 
 ### Added

@@ -82,6 +82,11 @@ process, on a file a user uploaded.
 - `maxUploadBytes` (default 100 MB) is enforced while reading, before the body is buffered fully.
 - The handlers buffer the upload in memory before extraction. Under heavy concurrent uploads, put a
   limit in front (a reverse proxy or a rate limiter).
+- A DOCX or PPTX is unpacked a piece at a time, and refused as it grows past 100 times its size
+  (after the first 16 MB) or past 128 MB of XML: a zip bomb of 160 KB that unpacks to 50 MB is
+  stopped at 16 MB. Its XML is read in one pass, so its shape cannot make reading slower.
+- A terminal escape sequence (`ESC ]` …) is removed only up to its end on the same line: one
+  without an end loses its two escape characters, not the lines after it.
 - Binary files are rejected, including compressed ones (`.gz`, `.zip`), which get a message
   telling the user to decompress first. PDF parsing runs `unpdf` (pdf.js), and with it installed
   `@cantoo/pdf-lib`, on untrusted input in your process. Keep them updated, or move extraction to a

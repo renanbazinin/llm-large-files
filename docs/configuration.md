@@ -230,7 +230,7 @@ createLargeFiles({ store: new FileDocumentStore(dir), keepOriginals: ["pdf"] });
 | `json` | `.json`, `.jsonl`, `.ndjson` | Minified JSON is wrapped into addressable lines |
 | `csv` | `.csv`, `.tsv` | |
 | `pdf` | `.pdf` | Needs `unpdf`. Pages are marked `--- Page N ---`, tables are rebuilt (below), and a page without text says so. With `@cantoo/pdf-lib`, a page that shows a picture says so too, and the model can be shown the page itself ([Pictures in PDFs](#pictures-in-pdfs)). A scanned PDF (no text layer at all) is rejected, unless its original is kept and it has at most 30 pages. |
-| `docx`, `pptx` | extension or MIME type | Needs `jszip`. Slides are marked `## Slide N`. |
+| `docx`, `pptx` | extension or MIME type | Needs `jszip`. Slides are marked `## Slide N`. A text box is read once, after the paragraph it is anchored in. A file that unpacks to more than 100 times its size (past the first 16 MB), or to more than 128 MB of XML, is rejected as a possible zip bomb. |
 | `text` | anything else that decodes as text | UTF-8 or UTF-16 (with or without BOM); binary is rejected |
 
 Lines longer than 2,000 characters are split, so every line can be read by number.
@@ -329,6 +329,10 @@ What counts:
 - **A drawing:** shapes filled in three or more colours, outside the tables. Greys, rules, dots
   and page backgrounds do not count, and neither does the shading of a table's cells.
 - A page whose drawing instructions are larger than 2 MB: that is a map or a technical drawing.
+  So is a page that paints more than 20,000 images, or whose instructions come to more than 16 MB
+  once each form (a drawing kept apart and painted by name) is counted every time it is painted.
+  Reading such a page stops there, so a few kilobytes of forms painted inside forms cannot hold
+  the server.
 
 What it gets wrong:
 
