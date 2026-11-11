@@ -3,16 +3,21 @@
 //   npm run build
 //   GEMINI_API_KEY=... node examples/ask-cli.ts ./big.log "What failed first, and when?"
 //
+// Two more arguments are optional: the model, and a second model that searches and reads the
+// file, so that the first only writes the answer.
+//
+//   ... node examples/ask-cli.ts ./big.log "What failed first?" gemini-3.8-flash gemini-3.5-flash-lite
+//
 // Runs on Node 22.18+ or 24 (built-in TypeScript type stripping).
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, geminiApi } from "llm-large-files/gemini";
 
-const [file, question, model = "gemini-3.8-flash"] = process.argv.slice(2);
+const [file, question, model = "gemini-3.8-flash", explorerModel] = process.argv.slice(2);
 const apiKey = process.env.GEMINI_API_KEY;
 if (!file || !question || !apiKey) {
-  console.error("Usage: GEMINI_API_KEY=... node examples/ask-cli.ts <file> \"<question>\" [model]");
+  console.error("Usage: GEMINI_API_KEY=... node examples/ask-cli.ts <file> \"<question>\" [model] [explorer model]");
   process.exit(1);
 }
 
@@ -23,7 +28,7 @@ console.error(`${meta.name}: ${meta.format}, ${meta.lines.toLocaleString()} line
 
 const result = await askGemini({
   files,
-  endpoint: geminiApi({ apiKey, model }),
+  endpoint: geminiApi({ apiKey, model, explorerModel }),
   documentIds: [meta.id],
   messages: [{ role: "user", text: question }],
   onText: (delta) => process.stdout.write(delta),

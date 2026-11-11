@@ -4,6 +4,36 @@ All notable changes to this package are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org).
 
+## [0.3.5] - 2026-11-11
+
+### Added
+
+- **`explorerModel`: a second model for the searching and reading.** The application chooses the
+  model, as before, in `geminiApi()` or `vertexAi()`. It can now name two. The explorer makes the
+  tool calls (search, read, look at pages) and reads a whole file in parts; `model` then writes the
+  answer from what the tools returned, in one request without tools. So the many requests of a
+  search through a large file can go to a cheaper or faster model.
+  `geminiApi({ apiKey, model, explorerModel: process.env.GEMINI_EXPLORER_MODEL })`: left out,
+  empty, or the same as `model`, one model does both, and the requests are those of 0.3.0 (checked
+  byte for byte over seven scenarios). See
+  [An explorer model](docs/configuration.md#an-explorer-model).
+  - An endpoint of your own takes the explorer's URL as `explorerUrl`. It is called with the same
+    headers.
+  - `explorerGenerationConfig` is the explorer's `generationConfig`, for two models that do not
+    take the same settings. It defaults to `generationConfig`. `analysisConfig` applies to the part
+    reads of a whole-file read, which are the explorer's when there is one.
+  - The answering model gets the explorer's tool calls and their results, pages included. It does
+    not get the explorer's thoughts, thought signatures or words, and `text` and `onText` carry
+    only the answer. The answer is always a request of its own, so a question takes one request
+    more than with one model.
+  - Checked live with Flash-Lite models, on the Gemini API and on Vertex AI, between Gemini 3.1 and
+    3.5 and between Gemini 2.5 and 3.5, in both directions, with thinking on and off: counts and
+    causes from a searched log, a whole-file read, and a chart and a photo from pages that the
+    explorer looked at. Every answer was right. `gemini-3.5-flash-lite` as explorer stopped with
+    `DONE` each time, at one output token.
+- `EXPLORER_INSTRUCTION` and `FINAL_ANSWER_WITHOUT_TOOLS`: the two texts that `askGemini` adds for
+  an explorer.
+
 ## [0.3.0] - 2026-11-10
 
 The model can look at the pages of a large PDF. Until now such a PDF reached it as text only, and

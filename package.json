@@ -1,6 +1,6 @@
 {
   "name": "llm-large-files",
-  "version": "0.3.0",
+  "version": "0.3.5",
   "description": "Let an LLM answer questions about books, logs, and other files larger than its request limit or context window: upload, plan, search and read tools, map-reduce, and a look at the pages of a PDF. Gemini and Vertex AI helpers included.",
   "keywords": [
     "llm",

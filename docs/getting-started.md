@@ -170,6 +170,22 @@ Without `streamUrl`, answers arrive in one piece (and `onText` fires once).
 **Existing Gemini history.** If your chat already stores Gemini `contents` (with images or inline
 PDFs), pass `contents` instead of `messages`; document text is added at the start of the first user turn.
 
+**A second model for the searching (optional).** The model you name does both halves of the work:
+it searches and reads a large file, and it answers. `explorerModel` gives the first half to another
+model, for example a cheaper one, and `model` then only writes the answer:
+
+```ts
+const endpoint = geminiApi({
+  apiKey: process.env.GEMINI_API_KEY!,
+  model: "gemini-3.8-flash",
+  explorerModel: process.env.GEMINI_EXPLORER_MODEL, // unset or empty: one model does both
+});
+```
+
+`vertexAi()` takes it the same way, and an endpoint of your own takes the explorer's URL as
+`explorerUrl`. What each model gets, and what it costs, is in
+[An explorer model](configuration.md#an-explorer-model).
+
 ### Pictures, charts and scans in PDFs
 
 The text of a PDF does not hold its pictures. To let the model look at a page when the text is not

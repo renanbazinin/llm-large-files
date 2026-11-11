@@ -99,6 +99,26 @@ not see the chart; with `view_pages` it looked at the page and answered correctl
 at a page for any of ten questions that the text answers. A page costs about 530 tokens.
 Details, limits and measurements: [Pictures in PDFs](docs/configuration.md#pictures-in-pdfs).
 
+## One model to explore, another to answer
+
+Your application chooses the model: it is the `model` of the endpoint, and the package has no
+default. That model does both halves of the work on a large file. It explores the file (searches,
+reads, looks at pages), and then it answers. You can name a second model for the first half:
+
+```ts
+const endpoint = geminiApi({
+  apiKey: process.env.GEMINI_API_KEY!,
+  model: "gemini-3.8-flash",                        // writes the answer
+  explorerModel: process.env.GEMINI_EXPLORER_MODEL, // optional: searches and reads
+});
+```
+
+Left out or empty, nothing changes: one model does both. With an explorer, the many requests of a
+search through a large file go to that model, which can be a cheaper or faster one, and `model`
+gets what the tools returned and writes the answer in one request. In eleven live checks with
+`gemini-3.5-flash-lite` exploring, the other model answered every one correctly from what it found.
+What each model gets, and what it costs: [An explorer model](docs/configuration.md#an-explorer-model).
+
 ## What it handles
 
 | | |
@@ -125,7 +145,7 @@ With `gemini-3.8-flash` on the Gemini API:
 
 - [Integration guide](docs/getting-started.md): Express, plain Node, browser upload, streaming, Vertex AI, gateways, existing chat history
 - [API reference](docs/api.md)
-- [Configuration](docs/configuration.md): budget, stores, formats, extractors, pictures in PDFs
+- [Configuration](docs/configuration.md): budget, an explorer model, stores, formats, extractors, pictures in PDFs
 - [How it works](docs/how-it-works.md): planner, cards, tools, map-reduce, looking at pages, and the Gemini quirks it handles
 - [Security](docs/security.md): owners, tool scoping, retention, original files, regex safety
 
