@@ -56,6 +56,128 @@ Tokenizers differ between providers. These weights are fitted to Gemini, which c
 by one. A tokenizer that groups digits will count fewer tokens than this estimate for logs and
 data, which is the safe direction.
 
+## An explorer model
+
+The model is yours to choose: it is the `model` you give `geminiApi()` or `vertexAi()`, or the URL
+of your own endpoint. The package has no default. That one model does both halves of the work on a
+large file: it explores the file (searches, reads, looks at pages), and it answers.
+`explorerModel` names a second model for the first half:
+
+```ts
+const endpoint = geminiApi({
+  apiKey,
+  model: "gemini-3.8-flash",                        // writes the answer
+  explorerModel: process.env.GEMINI_EXPLORER_MODEL, // optional: searches and reads
+});
+// vertexAi({ project, model, explorerModel, accessToken }) takes it the same way.
+```
+
+Left out, empty, or the same as `model`, there is no explorer, and `askGemini` sends exactly the
+requests it sent before. So a setting that may be unset can be passed as it is.
+
+With URLs of your own, give the explorer's as `explorerUrl`. It is called with the same headers:
+
+```ts
+const endpoint = {
+  url: "https://llm-gateway.corp.example/gemini/models/gemini-3.8-flash:generateContent",
+  streamUrl: "https://llm-gateway.corp.example/gemini/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  explorerUrl: "https://llm-gateway.corp.example/gemini/models/gemini-3.5-flash-lite:generateContent",
+  headers,
+};
+```
+
+The reason to use one: a question about a large log can take ten requests of searching and
+reading, each larger than the one before, and a whole-file read adds up to 30 part reads. With an
+explorer those go to a cheaper or faster model, and the model you chose for its answers is called
+once.
+
+### Who does what
+
+| | The explorer | `model` |
+|---|---|---|
+| Requests with tools: `search_document`, `read_document`, `get_document_overview`, `view_pages` | All | None |
+| The part reads of `analyze_whole_document` | All | None |
+| The answer | | One request, without tools |
+| A question about files that are sent whole, with no pages to look at | Not called | One request, as before |
+
+The answering model gets the conversation, the explorer's tool calls, and what each call
+returned, pages included. It does not get the explorer's thoughts, its thought signatures, or
+anything it wrote: the answer is written from what the files say, not from what the explorer made
+of them. So the answering model can use only what the explorer fetched. It has no tools of its own
+to fetch more.
+
+The explorer is told its part, in a line added to its system instruction (`EXPLORER_INSTRUCTION`):
+gather what the answer needs, then reply `DONE`. `gemini-3.5-flash-lite` did exactly that, at one
+output token. A model that writes an answer anyway (`gemini-2.5-flash-lite` did) costs those output
+tokens, and its answer is dropped.
+
+### What changes for your application
+
+- **One request more.** The answer is always a request of its own, so a question that one model
+  settles in three requests takes four. `maxToolTurns` still counts them all: the explorer has
+  `maxToolTurns − 1` requests, and the last one is the answer.
+- **`text` and `onText` carry only the answer.** Without an explorer, a remark that the model makes
+  before a tool call ("Let me search…") is part of `text`. The explorer's words are not shown.
+  `onActivity` and `onStep` report its tool calls as before, and `turns` counts its requests too.
+  `usage` and `finishReason` are those of the answer.
+- **The explorer's requests are not streamed.** Nothing it writes is shown, so each goes to
+  `explorerUrl` in one piece. The answer streams as before.
+- **Settings are per model.** `explorerGenerationConfig` is the explorer's `generationConfig`, and
+  defaults to yours. Set it when the two models do not take the same settings: given a
+  `thinkingLevel`, `gemini-2.5-flash-lite` on Vertex AI answers HTTP 400, "thinking_level is not
+  supported by this model". `analysisConfig` is for the part reads, which the explorer does, so
+  write it for the explorer.
+- **The budget has to fit both models.** Both get the same conversation and the same tool
+  results. Set `contextTokens` and `maxRequestBytes` to the smaller of the two.
+- **Pages have to be readable by both models.** `toolFilePlacement: "inside"` is read by Gemini 3
+  models only. If either model is Gemini 2.5, use `"beside"`, which both read
+  ([below](#where-the-pages-go-toolfileplacement)).
+- **An explorer that fails is an error.** A model name that does not exist, or a quota that is
+  used up, throws `GeminiRequestError`, as it does for `model`. The question is not passed to
+  `model` instead: that would hide the mistake, and send the searching to the model you wanted to
+  spare.
+- **A PDF whose text is in the prompt**, and whose pages can be looked at, goes to the explorer
+  first: it decides whether to look. The text of such a PDF is then sent twice, once to each model.
+
+```ts
+await askGemini({
+  files, endpoint, messages, documentIds,
+  generationConfig: { thinkingConfig: { thinkingLevel: "high" } },   // for `model`
+  explorerGenerationConfig: { thinkingConfig: { thinkingBudget: 0 } }, // for a Gemini 2.5 explorer
+  toolFilePlacement: "beside",                                       // one of the two is Gemini 2.5
+});
+```
+
+### Live results with an explorer
+
+Flash-Lite models, November 2026, through `ingest` and `askGemini`. The log has 6,000 lines, 24
+deadlocks and one fatal error. The PDF is the one with a chart and a photo from
+[Pictures in PDFs](#live-results).
+
+| Explorer → `model` | Question | Result |
+|---|---|---|
+| `gemini-3.5-flash-lite` → `gemini-3.1-flash-lite`, Gemini API | How many deadlocks, and the line of the first | Two searches, then `DONE`. Answer right. Four requests, 3 s. |
+| | What shut the gateway down, its error code, the warning before it | One search, then `DONE`. Four of four facts, with the right lines. |
+| | The name of the file and its line count, which the card shows | `DONE` at once. Answered from the card, in two requests. |
+| | Every kind of error, from a whole-file read | The explorer read the four parts and wrote up the notes, then searched three times. Answer right. |
+| | The chart and the photo, with the text sent whole | The explorer looked at two pages. The other model got them and had five of five facts right. |
+| | The same, with the PDF searched | A read and a look in one turn. Five of five. |
+| | The gateway and the chart again, both models thinking (`thinkingLevel: "high"`) | Both right. |
+| `gemini-3.1-flash-lite` → `gemini-3.5-flash-lite`, Gemini API | The deadlocks | Answer right. The explorer repeated one search until its eleven requests were used up, as it does when it works alone. |
+| `gemini-2.5-flash-lite` → `gemini-3.5-flash-lite`, Vertex AI | The deadlocks, the gateway, and the chart with pages `"beside"` | All right. This explorer wrote an answer each time instead of `DONE`. |
+| `gemini-3.5-flash-lite` → `gemini-2.5-flash-lite`, Vertex AI | The deadlocks, the chart with pages `"beside"`, and the card | All right. |
+| `gemini-3.1-flash-lite` → `gemini-3.5-flash-lite`, Vertex AI, both thinking | The gateway | Right. |
+
+What made the form of the handoff: a Gemini 3 model refuses a request that ends with the result of
+a function call it did not sign (HTTP 400, "Function call is missing a thought_signature"), and a
+thought signature belongs to the model that made the call. When a user message follows the
+results, the same calls are accepted without a signature: by Gemini 3.1 and 3.5 Flash-Lite on the
+Gemini API and on Vertex AI, and by Gemini 2.5 Flash-Lite on Vertex AI. So the answering model's
+request always ends with a user message, and holds no signatures.
+
+Not checked: models larger than Flash-Lite, and Gemini 4. The two models have to be reachable with
+the same headers, so one cannot be on the Gemini API and the other on Vertex AI.
+
 ## Stores
 
 | Store | Use it for |

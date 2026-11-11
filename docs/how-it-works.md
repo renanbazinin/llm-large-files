@@ -130,6 +130,27 @@ Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow t
 - Tool results, pages included, live inside one call of `askGemini`. They are not sent again with
   the next question.
 
+### With an explorer model
+
+One model does all of the above unless the endpoint names an explorer
+([configuration](configuration.md#an-explorer-model)). Then the loop is split in two:
+
+- **The requests with tools go to the explorer.** It gets the same conversation, the same tool
+  guide and a line that says what its part is: gather what the answer needs, then reply `DONE`.
+  Its turns go back to it unchanged, thought signatures included. Reading a whole file in parts is
+  its work too.
+- **The request without tools goes to the answering model**, and with an explorer it is always
+  made. It holds the conversation, the explorer's function calls, and the function responses, pages
+  included. It does not hold the explorer's thoughts, its thought signatures, or anything it
+  wrote: the answer is written from what the files say.
+- **That request ends with a user message.** A Gemini 3 model refuses a request that ends with
+  the result of a function call it did not sign (HTTP 400, "Function call is missing a
+  thought_signature"), and a signature belongs to the model that made the call. With a user message
+  after the results, the calls belong to an earlier turn, and the request is accepted without
+  signatures. The message is the "answer now" one from above.
+- An explorer that calls no tool leaves nothing to answer from but the conversation, so the
+  message then says that instead (`FINAL_ANSWER_WITHOUT_TOOLS`).
+
 ## Live results
 
 `gemini-3.8-flash` on the Gemini API, November 2026:

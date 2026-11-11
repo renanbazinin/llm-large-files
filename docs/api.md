@@ -132,13 +132,14 @@ type ToolFile = { name: string; mimeType: string; bytes: Uint8Array };
 | `contents` | Instead of `messages`: raw Gemini `contents` (images, inline PDFs…). Not mutated. |
 | `system` | System instruction; the tool guide is appended when needed. |
 | `generationConfig` | Sent with every chat request. |
+| `explorerGenerationConfig` | The same, for the requests of an [explorer model](configuration.md#an-explorer-model). Defaults to `generationConfig`. Not used without an explorer. |
 | `owner` | Only documents with this owner (or no owner) are used. |
 | `documentPlacement` | `"first"` (default): document text and cards go at the start of the first user turn and stay there, so follow-up questions reuse Gemini's prompt cache. `"last"`: appended to the latest user turn, as in 0.1.0. |
-| `maxToolTurns` | Default 12. The most requests for one question, counting the answer. If the model is still calling tools on the last one, it is sent with no tools so the model must answer. |
+| `maxToolTurns` | Default 12. The most requests for one question, counting the answer. If the model is still calling tools on the last one, it is sent with no tools so the model must answer. With an explorer model the answer is always the last request, so the explorer has one less. |
 | `wholeDocumentAnalysis` | Default `true`. Set `false` to withhold the costly whole-file tool. |
 | `viewPages` | Default `true`. Offers `view_pages` for PDFs whose original is kept. It changes nothing for a library that keeps no originals. |
 | `toolFilePlacement` | `"inside"` (default): the pages go in the function response itself, which Gemini 3 models read. `"beside"`: in a user turn of their own after the function responses, for Gemini 2.5, which does not see a file inside a function response. See [Where the pages go](configuration.md#where-the-pages-go-toolfileplacement). |
-| `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. |
+| `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. The explorer model reads the parts when there is one, so write it for that model. |
 | `onText`, `onActivity`, `onStep` | Streaming answer text, transient status, completed steps. |
 | `fetch`, `signal` | Custom fetch (proxies, tests) and cancellation. |
 
@@ -157,12 +158,22 @@ if (!result.answered) show(result.blockReason ? "The request was blocked." : "No
 It throws `DocumentsNotFoundError` (`.ids`) before calling the model, `GeminiRequestError` (`.status`)
 for HTTP errors, and `Error` when the last message isn't the user's.
 
+With an [explorer model](configuration.md#an-explorer-model), `text` and `onText` carry only what
+the answering model wrote, `turns` counts the requests of both models, and `usage` and
+`finishReason` are those of the answer. An explorer that fails throws `GeminiRequestError` too.
+
 ### Endpoints
 
-- `geminiApi({ apiKey, model, apiVersion = "v1beta", baseUrl? })`
-- `vertexAi({ project, model, location = "global", accessToken, apiVersion = "v1" })`, where
-  `accessToken` can be a string or `() => string | Promise<string>`.
-- Or any `{ url, streamUrl?, headers }` (`headers` can be a function).
+- `geminiApi({ apiKey, model, explorerModel?, apiVersion = "v1beta", baseUrl? })`
+- `vertexAi({ project, model, explorerModel?, location = "global", accessToken, apiVersion = "v1" })`,
+  where `accessToken` can be a string or `() => string | Promise<string>`.
+- Or any `{ url, streamUrl?, headers, explorerUrl? }` (`headers` can be a function).
+
+`model` is the model that answers. `explorerModel` names a second one that makes the tool calls and
+reads whole files in parts, so that `model` only writes the answer. Left out, empty, or the same as
+`model`, one model does both, as before. In an endpoint of your own it is `explorerUrl`: the
+`...:generateContent` URL of the explorer, called with the same headers. See
+[An explorer model](configuration.md#an-explorer-model).
 
 ### Lower-level helpers
 
@@ -175,6 +186,9 @@ for HTTP errors, and `Error` when the last message isn't the user's.
   responses followed by a `user` turn that holds the files.
 - `FINAL_ANSWER_REQUEST`, `FINAL_ANSWER_AFTER_PAGES`: the messages `askGemini` adds when the model
   must stop using tools. The second is used when `view_pages` was the only tool.
+- `FINAL_ANSWER_WITHOUT_TOOLS`, `EXPLORER_INSTRUCTION`: the two texts `askGemini` adds for an
+  explorer model. The first asks the answering model for the answer when the explorer called no
+  tool. The second is the line in the explorer's system instruction that says what its part is.
 - `parseSseJson(stream)`: async iterator over a Generate Content SSE stream.
 
 ## `llm-large-files/node`

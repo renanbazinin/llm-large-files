@@ -4,6 +4,9 @@
 //   npm run build
 //   GEMINI_API_KEY=... node examples/server.ts      →  http://localhost:3000
 //
+// GEMINI_MODEL picks the model. GEMINI_EXPLORER_MODEL is optional: a second model that searches
+// and reads the files, so that GEMINI_MODEL only writes the answer.
+//
 // Runs on Node 22.18+ or 24 (built-in TypeScript type stripping).
 import { createServer, type IncomingMessage } from "node:http";
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
@@ -12,7 +15,12 @@ import { createDocumentHandlers } from "llm-large-files/node";
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) throw new Error("Set GEMINI_API_KEY.");
-const endpoint = geminiApi({ apiKey, model: process.env.GEMINI_MODEL ?? "gemini-3.8-flash" });
+const endpoint = geminiApi({
+  apiKey,
+  model: process.env.GEMINI_MODEL ?? "gemini-3.8-flash",
+  // Unset or empty, there is no explorer: the one model searches, reads and answers.
+  explorerModel: process.env.GEMINI_EXPLORER_MODEL,
+});
 
 // keepOriginals lets the model look at the pages of an uploaded PDF (charts, photos, scans). It
 // needs the optional dependency @cantoo/pdf-lib, and keeps each PDF on disk until it expires.
