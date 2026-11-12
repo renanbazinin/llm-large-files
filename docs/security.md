@@ -38,6 +38,9 @@ treat the model's output as untrusted.
 
 - Files expire after `ttlMs` (default 72 h); expired files are never returned. `sweep()` deletes
   them from disk. Set the TTL to match your data policy.
+- A delete takes effect on every server that shares the store, from the next tool call on: a
+  document kept in memory is used only after the store confirms that it is still there. (Before
+  0.4, another server could keep answering from its memory until the document expired.)
 - `FileDocumentStore` writes plain text to disk. Use an encrypted volume, or implement
   `DocumentStore` over storage with encryption at rest.
 - Only IDs matching `doc_` plus 32 hex characters ever reach the file system, so there's no path

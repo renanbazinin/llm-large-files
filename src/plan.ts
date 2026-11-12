@@ -1,5 +1,4 @@
 import type { Budget, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.js";
-import type { SearchableDocument } from "./search.js";
 
 /** Bytes kept free for document cards, the tool declarations, and JSON framing. */
 export const REQUEST_BYTES_MARGIN = 256 * 1024;
@@ -50,17 +49,19 @@ export function outlineLines(outline: OutlineEntry[]): string[] {
   return outline.map((entry) => `L${entry.line} ${"  ".repeat(entry.level - top)}${entry.title}`);
 }
 
-export function renderInline(document: SearchableDocument): string {
-  const { meta } = document;
-  return `--- Attached file: ${meta.name} (${meta.format}, ${meta.lines.toLocaleString("en-US")} lines) ---\n${document.text}\n--- End attached file: ${meta.name} ---`;
+export function renderInline(meta: DocumentMeta, text: string): string {
+  return `--- Attached file: ${meta.name} (${meta.format}, ${meta.lines.toLocaleString("en-US")} lines) ---\n${text}\n--- End attached file: ${meta.name} ---`;
 }
 
+/** How many lines of a file its card shows. */
+export const CARD_LINES = CARD_HEAD_LINES;
+
 /**
- * A compact stand-in for a document that is too large for the prompt. `viewable` adds a line
- * saying that its pages can be looked at with `view_pages`.
+ * A compact stand-in for a document that is too large for the prompt. `head` is its first
+ * `CARD_LINES` lines, numbered. `viewable` adds a line saying that its pages can be looked at
+ * with `view_pages`.
  */
-export function renderCard(document: SearchableDocument, viewable = false): string {
-  const { meta } = document;
+export function renderCard(meta: DocumentMeta, head: string, viewable = false): string {
   const out = [
     `--- Large attached file: ${meta.name} ---`,
     `document_id: ${meta.id}`,
@@ -82,7 +83,7 @@ export function renderCard(document: SearchableDocument, viewable = false): stri
     out.push(`Outline (${Math.min(meta.outline.length, CARD_OUTLINE_ENTRIES)} of ${meta.outline.length} headings):`);
     out.push(...outlineLines(meta.outline.slice(0, CARD_OUTLINE_ENTRIES)).map((line) => `  ${line}`));
   }
-  out.push(`First lines:`, document.lines.numbered(1, CARD_HEAD_LINES).split("\n").map((line) => `  ${line.slice(0, 300)}`).join("\n"));
+  out.push(`First lines:`, head.split("\n").map((line) => `  ${line.slice(0, 300)}`).join("\n"));
   out.push(`--- End large attached file: ${meta.name} ---`);
   return out.join("\n");
 }

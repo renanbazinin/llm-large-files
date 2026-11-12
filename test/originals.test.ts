@@ -146,7 +146,7 @@ describe("FileDocumentStore with original files", () => {
     const files = createLargeFiles({ store: new FileDocumentStore(directory), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdf });
     const text = await files.ingest({ name: "notes.md", bytes: utf8("# Notes") });
-    expect((await readdir(directory)).sort()).toEqual([`${meta.id}.bin`, `${meta.id}.json`, `${meta.id}.txt`, `${text.id}.json`, `${text.id}.txt`].sort());
+    expect((await readdir(directory)).sort()).toEqual([`${meta.id}.bin`, `${meta.id}.idx`, `${meta.id}.json`, `${meta.id}.txt`, `${text.id}.idx`, `${text.id}.json`, `${text.id}.txt`].sort());
     expect(new Uint8Array(await readFile(path.join(directory, `${meta.id}.bin`)))).toEqual(pdf);
     expect((JSON.parse(await readFile(path.join(directory, `${meta.id}.json`), "utf8")) as DocumentMeta).originalKept).toBe(true);
 
@@ -164,7 +164,7 @@ describe("FileDocumentStore with original files", () => {
     const deleted = await files.ingest({ name: "a.pdf", bytes: pdf });
     const kept = await files.ingest({ name: "b.pdf", bytes: pdf });
     expect(await files.delete(deleted.id)).toBe(true);
-    expect((await readdir(directory)).sort()).toEqual([`${kept.id}.bin`, `${kept.id}.json`, `${kept.id}.txt`]);
+    expect((await readdir(directory)).sort()).toEqual([`${kept.id}.bin`, `${kept.id}.idx`, `${kept.id}.json`, `${kept.id}.txt`]);
 
     clock = new Date("2026-01-01T00:00:30Z");
     expect(await files.sweep()).toBe(0);

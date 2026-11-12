@@ -4,6 +4,43 @@ All notable changes to this package are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org).
 
+## [0.4.0] - 2026-11-12
+
+Nothing to change in your code: the API, the tools and their results are those of 0.3.6 (compared
+call by call). Servers of 0.3.x and 0.4.0 can share a `FileDocumentStore` during a rolling update;
+0.3.x servers ignore the new index files. The delete fix below holds once every server runs 0.4.0.
+
+### Fixed
+
+- **A document deleted on one server is no longer served by another.** Servers sharing a store
+  kept a document in memory and answered from it until it expired, up to 72 hours after a delete.
+  Every use of a kept document now asks the store first (`getMeta`, about a millisecond).
+
+### Changed
+
+- **The memory cache is bounded in bytes** (`cacheBytes`, default 256 MB), not in documents. Six
+  documents of 50 MB took over 600 MB before. `cacheSize` still caps the number when given. Calls
+  that arrive together for a document that is not in memory open it once.
+- **Large documents are read by range on a store that can** (`FileDocumentStore`, or your own with
+  `readTextRange`): a tool call reads the lines it needs, and a search reads the text 1 MB at a time,
+  so memory no longer grows with file size and the number of users. Documents up to
+  `wholeDocumentBytes` (2 MB) are loaded whole as before. Results are the same.
+- `FileDocumentStore` writes every file whole (to a temporary name, then renamed), and `sweep` no
+  longer deletes a document whose metadata cannot be read unless that file is an hour old: on a
+  shared volume it may be an upload in progress.
+
+### Added
+
+- A line index per document (`<id>.idx` in `FileDocumentStore`, a few bytes a line), written at
+  ingest. Documents from older versions get one the first time they are used.
+- `DocumentStore.readTextRange`, `putIndex` and `getIndex`: optional, for stores of your own.
+- `sweep` removes files that belong to no document, and temporary files, once they are an hour old
+  (`orphanAgeMs`).
+- Options `wholeDocumentBytes`, `scanChunkBytes` and `maxConcurrentScans` (at most 4 searches of
+  large documents at once per process; the others wait, and those of the same document share one
+  pass over it). Decoded pieces of documents in use are kept within `cacheBytes`.
+- `get_document_overview` works out the number of parts of a file once per document, not on every call.
+
 ## [0.3.6] - 2026-11-11
 
 ### Fixed

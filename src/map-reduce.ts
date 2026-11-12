@@ -1,5 +1,5 @@
 import { estimateTokens, jsonBytes } from "./text.js";
-import type { SearchableDocument } from "./search.js";
+import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
 import type { Budget, GenerateText, ProgressListener } from "./types.js";
 
 const NOTHING = "NOTHING RELEVANT";
@@ -20,29 +20,73 @@ export type WholeDocumentResult = {
   answerTruncated: boolean;
 };
 
-/** Splits a document into line ranges that each fit one model request. */
-export function splitIntoParts(document: SearchableDocument, budget: Budget): Array<{ from: number; to: number }> {
-  const maxTokens = budget.mapChunkTokens;
-  const maxBytes = Math.floor(budget.maxRequestBytes * 0.8);
-  const parts: Array<{ from: number; to: number }> = [];
-  let from = 1;
-  let tokens = 0;
-  let bytes = 0;
-  for (let line = 1; line <= document.lines.lineCount; line++) {
-    // Count the "123| " prefix each line carries in the prompt.
-    const text = `${line}| ${document.lines.line(line)}\n`;
-    const lineTokens = estimateTokens(text);
-    const lineBytes = jsonBytes(text);
-    if (line > from && (tokens + lineTokens > maxTokens || bytes + lineBytes > maxBytes)) {
-      parts.push({ from, to: line - 1 });
-      from = line;
-      tokens = 0;
-      bytes = 0;
-    }
-    tokens += lineTokens;
-    bytes += lineBytes;
+type Parts = Array<{ from: number; to: number }>;
+
+/** Splits a text, fed a piece at a time, into line ranges that each fit one model request. */
+class PartSplitter {
+  private readonly maxTokens: number;
+  private readonly maxBytes: number;
+  private readonly parts: Parts = [];
+  private from = 1;
+  private tokens = 0;
+  private bytes = 0;
+
+  constructor(budget: Budget) {
+    this.maxTokens = budget.mapChunkTokens;
+    this.maxBytes = Math.floor(budget.maxRequestBytes * 0.8);
   }
-  if (document.lines.lineCount >= from) parts.push({ from, to: document.lines.lineCount });
+
+  add(chunk: TextChunk): void {
+    for (let local = 1; local <= chunk.lines.lineCount; local++) {
+      const line = chunk.firstLine + local - 1;
+      // Count the "123| " prefix each line carries in the prompt.
+      const text = `${line}| ${chunk.lines.line(local)}\n`;
+      const lineTokens = estimateTokens(text);
+      const lineBytes = jsonBytes(text);
+      if (line > this.from && (this.tokens + lineTokens > this.maxTokens || this.bytes + lineBytes > this.maxBytes)) {
+        this.parts.push({ from: this.from, to: line - 1 });
+        this.from = line;
+        this.tokens = 0;
+        this.bytes = 0;
+      }
+      this.tokens += lineTokens;
+      this.bytes += lineBytes;
+    }
+  }
+
+  finish(lineCount: number): Parts {
+    if (lineCount >= this.from) this.parts.push({ from: this.from, to: lineCount });
+    return this.parts;
+  }
+}
+
+/** Splits a document held in memory into line ranges that each fit one model request. */
+export function splitIntoParts(document: SearchableDocument, budget: Budget): Parts {
+  const splitter = new PartSplitter(budget);
+  splitter.add(document.wholeChunk());
+  return splitter.finish(document.lines.lineCount);
+}
+
+/** Parts already worked out, by document and budget: counting them reads the whole text. */
+const knownParts = new WeakMap<DocumentSource, Map<string, Parts>>();
+
+/** `splitIntoParts` for any document, worked out once per document object and budget. */
+export async function partsOf(source: DocumentSource, budget: Budget, signal?: AbortSignal): Promise<Parts> {
+  const key = `${budget.mapChunkTokens}|${budget.maxRequestBytes}`;
+  const known = knownParts.get(source)?.get(key);
+  if (known) return known;
+  let parts: Parts;
+  if (source instanceof SearchableDocument) {
+    parts = splitIntoParts(source, budget);
+  } else {
+    const splitter = new PartSplitter(budget);
+    await scanSource(source, (chunk) => {
+      splitter.add(chunk);
+    }, signal);
+    parts = splitter.finish(source.lineCount);
+  }
+  if (!knownParts.has(source)) knownParts.set(source, new Map());
+  knownParts.get(source)!.set(key, parts);
   return parts;
 }
 
@@ -88,7 +132,7 @@ async function ask(
  * then the notes are combined ("reduce"), in several rounds if the notes are still too large.
  */
 export async function analyzeWholeDocument(options: {
-  document: SearchableDocument;
+  document: DocumentSource;
   task: string;
   generate: GenerateText;
   budget: Budget;
@@ -98,7 +142,7 @@ export async function analyzeWholeDocument(options: {
 }): Promise<WholeDocumentResult> {
   const { document, task, generate, budget, onProgress, signal } = options;
   const name = document.meta.name;
-  const parts = splitIntoParts(document, budget);
+  const parts = await partsOf(document, budget, signal);
   if (parts.length > budget.maxMapChunks) {
     throw new Error(`Reading all of ${name} needs ${parts.length} model calls, over the limit of ${budget.maxMapChunks}. Use search_document to narrow the question first.`);
   }
@@ -112,6 +156,7 @@ export async function analyzeWholeDocument(options: {
     let text: string;
     let read = true;
     try {
+      const part = numberLines(await document.readLines(from, to), from);
       const reply = await ask(generate, {
         system: "You read one part of a larger document and take notes for a later step that combines the notes from every part.",
         prompt: [
@@ -121,7 +166,7 @@ export async function analyzeWholeDocument(options: {
           `Write concise notes on everything in this part that is relevant to the task. Keep exact names, numbers, and quotes that matter. Cite line numbers like (L123). If nothing in this part is relevant, reply exactly: ${NOTHING}`,
           "",
           "<part>",
-          document.lines.numbered(from, to),
+          part,
           "</part>",
         ].join("\n"),
         maxOutputTokens: PART_OUTPUT_TOKENS,

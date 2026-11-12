@@ -87,6 +87,21 @@ export interface DocumentStore {
   putOriginal?(id: string, bytes: Uint8Array): Promise<void>;
   /** The uploaded file, or undefined when none was kept or the document is unknown or expired. */
   getOriginal?(id: string): Promise<Uint8Array | undefined>;
+  /**
+   * Bytes `start` (inclusive) to `end` (exclusive) of the stored text, as UTF-8. Optional: with it,
+   * a tool call reads only the lines it needs, and a search reads the text a piece at a time,
+   * instead of loading the whole text into memory. Return fewer bytes at the end of the text, and
+   * undefined when the document is gone. It is called only after `getMeta` found the document.
+   */
+  readTextRange?(id: string, start: number, end: number): Promise<Uint8Array | undefined>;
+  /**
+   * Keeps the line index of a document (a few bytes a line), so that reading by range needs no
+   * pass over the text first. Called at ingest, before `put`, and when an older document without an
+   * index is first read. Optional, and only useful with `readTextRange`.
+   */
+  putIndex?(id: string, index: Uint8Array): Promise<void>;
+  /** The index kept by `putIndex`, or undefined. A damaged one is noticed and built again. */
+  getIndex?(id: string): Promise<Uint8Array | undefined>;
 }
 
 export type ExtractedText = { text: string; pages?: number };
