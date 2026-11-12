@@ -191,15 +191,57 @@ interface DocumentStore {
   put(document: { meta: DocumentMeta; text: string }): Promise<void>;
   get(id: string): Promise<{ meta: DocumentMeta; text: string } | undefined>; // undefined if expired
   getMeta(id: string): Promise<DocumentMeta | undefined>;
-  delete(id: string): Promise<boolean>;                       // the original file too
+  delete(id: string): Promise<boolean>;                       // the original file and the index too
   sweep?(now?: Date): Promise<number>;
   putOriginal?(id: string, bytes: Uint8Array): Promise<void>; // optional: see below
   getOriginal?(id: string): Promise<Uint8Array | undefined>;  // undefined if not kept, or expired
+  // Optional: read large documents by range instead of loading them whole (see below).
+  readTextRange?(id: string, start: number, end: number): Promise<Uint8Array | undefined>; // UTF-8 bytes
+  putIndex?(id: string, index: Uint8Array): Promise<void>;
+  getIndex?(id: string): Promise<Uint8Array | undefined>;
 }
 ```
 
-Keep `getMeta` cheap (store the metadata separately from the text). Parsed documents are cached
-in memory (`cacheSize`, default 6), so repeated tool calls don't reload the text.
+Keep `getMeta` cheap (store the metadata separately from the text): it is called on every tool
+call. A document ready to search is kept in memory between tool calls, within `cacheBytes`
+(default 256 MB, the least recently used dropped first; `cacheSize` caps their number too). Every
+use of a kept document asks the store first, so a document deleted or expired anywhere is gone
+everywhere at once.
+
+### Large files, many users, several servers
+
+With a store that has `readTextRange`, as `FileDocumentStore` does, a document whose text is larger
+than `wholeDocumentBytes` (default 2 MB) is never loaded whole:
+
+- At ingest, a line index is written next to the text (`<id>.idx`, four bytes a line: 3 MB for a
+  file of 730,000 lines). `read_document`, the card and the overview read only the lines they show.
+- A search reads the text 1 MB at a time (`scanChunkBytes`), reading the next piece while it searches
+  the current one, so a search holds a few MB whatever the size of the file. At most
+  `maxConcurrentScans` searches (default 4) run at once in a process; the others wait their turn,
+  and those waiting for the same file share one pass over it: it is read, decoded and lowercased
+  once for all of them. Results are the same as from the whole text: the tests compare them call by call.
+- Decoded pieces of a file are kept in the same `cacheBytes` budget, so the next search of a file in
+  use reads nothing. A file whose decoded text would take more than a quarter of the budget is never
+  kept: it would push out everything else. A larger `cacheBytes` spends memory to save CPU.
+- A document from an older version, without an index, gets one the first time it is used: it is
+  built from the text in one pass and saved for the other servers. A damaged index, or one that
+  does not match its document, is noticed and built again.
+
+Smaller documents are loaded whole and kept in the cache: for them that is faster, and they are small.
+`wholeDocumentBytes: Infinity` loads every document whole, as before 0.4; `0` reads every one by range.
+
+`FileDocumentStore` on a volume that several servers share:
+
+- Every file is written under a temporary name and then renamed, so no server reads half a file.
+- `sweep` removes files of no document (an upload that failed, a server that stopped while writing)
+  and temporary files once they are an hour old (`orphanAgeMs`), never younger ones: they may be an
+  upload in progress on another server. Run `sweep` from one place, such as a scheduled job.
+- Servers of an older version on the same volume (during a rolling update) read the same files and
+  ignore the index. An index left behind when one of them deletes a document is swept an hour later.
+
+A store of your own can do the same over S3 (`Range` requests), Redis (`GETRANGE`) or a database:
+add `readTextRange`, and `putIndex` with `getIndex` to keep the index. Without `putIndex` the index
+is built in memory each time the document is opened.
 
 ### Keeping the uploaded file
 

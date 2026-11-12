@@ -367,7 +367,7 @@ describe("FileDocumentStore", () => {
     const now = () => clock;
     const files = createLargeFiles({ store: new FileDocumentStore(directory, { now }), ttlMs: 60_000, now });
     const meta = await files.ingest({ name: "a.md", bytes: bytes("# A\n\nhello") });
-    expect((await readdir(directory)).sort()).toEqual([`${meta.id}.json`, `${meta.id}.txt`]);
+    expect((await readdir(directory)).sort()).toEqual([`${meta.id}.idx`, `${meta.id}.json`, `${meta.id}.txt`]);
     expect(await readFile(path.join(directory, `${meta.id}.txt`), "utf8")).toBe("# A\n\nhello");
     expect(await files.getMeta("../../etc/passwd")).toBeUndefined();
     expect(await files.delete("doc_../../x")).toBe(false);

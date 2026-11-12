@@ -1,6 +1,6 @@
-import { analyzeWholeDocument, splitIntoParts } from "./map-reduce.js";
+import { analyzeWholeDocument, partsOf } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
-import { grep, rankPassages, type SearchableDocument } from "./search.js";
+import { grepSource, numberLines, rankSource, type DocumentSource } from "./search.js";
 import { formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { Budget, GenerateText, ProgressListener, ToolDeclaration, ToolFileLimits, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
@@ -153,7 +153,7 @@ export function toolResultSummary(label: string, result: ToolResult): string {
 
 export function createDocumentTools(options: {
   /** Loads a document the tools may access. Return undefined for anything out of scope. */
-  load(documentId: string): Promise<SearchableDocument | undefined>;
+  load(documentId: string): Promise<DocumentSource | undefined>;
   documentIds: string[];
   /** File names by document ID, so `describe` can name files before they are loaded. */
   names?: Record<string, string>;
@@ -184,7 +184,7 @@ export function createDocumentTools(options: {
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
-  async function documentFor(args: Record<string, unknown>): Promise<SearchableDocument> {
+  async function documentFor(args: Record<string, unknown>): Promise<DocumentSource> {
     const id = text(args.document_id, "document_id");
     // Scope check: a model can only reach files attached to this conversation.
     if (!allowed.has(id)) throw new Error(`Unknown document_id ${id}. Use an ID from a file card.`);
@@ -204,27 +204,29 @@ export function createDocumentTools(options: {
       const paged = viewable.has(document.meta.id);
       if (mode === "keywords") {
         const topK = integer(args.max_results, 5, 1, 10);
-        const ranked = rankPassages(document, query, topK);
+        const ranked = await rankSource(document, query, topK, options.signal);
+        const texts = await Promise.all(ranked.map((passage) => document.readLines(passage.from, passage.to)));
         return fit({
           document: document.meta.name,
           mode,
-          passages: ranked.map((passage) => {
+          passages: ranked.map((passage, index) => {
             const pages = paged ? document.pagesOfLines(passage.from, passage.to) : undefined;
             return {
               lines: `${passage.from}-${passage.to}`,
               ...(pages ? { pages } : {}),
               score: passage.score,
-              text: document.lines.numbered(passage.from, passage.to),
+              text: numberLines(texts[index]!, passage.from),
             };
           }),
           ...(ranked.length === 0 ? { note: "No passage contains these keywords. Try other words, synonyms, or exact mode." } : {}),
         }, "passages", limit);
       }
-      const result = grep(document, query, {
+      const result = await grepSource(document, query, {
         regex: mode === "regex",
         caseSensitive: args.case_sensitive === true,
         maxResults: integer(args.max_results, 20, 1, 50),
         contextLines: integer(args.context_lines, 0, 0, 5),
+        ...(options.signal ? { signal: options.signal } : {}),
       });
       return fit({
         document: document.meta.name,
@@ -240,14 +242,16 @@ export function createDocumentTools(options: {
 
     async [TOOL_NAMES.read](args) {
       const document = await documentFor(args);
-      const total = document.lines.lineCount;
+      const total = document.lineCount;
       const start = integer(args.start_line, 1, 1, total);
       const end = integer(args.end_line, start + DEFAULT_READ_LINES - 1, start, Math.min(total, start + MAX_READ_LINES - 1));
+      // One read for the range asked; trimming to the size limit works on what was read.
+      const read = await document.readLines(start, end);
       let to = end;
-      let body = document.lines.numbered(start, to);
+      let body = numberLines(read, start);
       while (body.length > limit - 500 && to > start) {
         to = start + Math.max(0, Math.floor((to - start) * 0.7));
-        body = document.lines.numbered(start, to);
+        body = numberLines(read.slice(0, to - start + 1), start);
       }
       const pages = viewable.has(document.meta.id) ? document.pagesOfLines(start, to) : undefined;
       return {
@@ -262,8 +266,10 @@ export function createDocumentTools(options: {
 
     async [TOOL_NAMES.overview](args) {
       const document = await documentFor(args);
-      const { meta, lines } = document;
-      const tail = Math.max(1, lines.lineCount - 19);
+      const { meta, lineCount } = document;
+      const tail = Math.max(1, lineCount - 19);
+      const parts = await partsOf(document, options.budget, options.signal);
+      const first = Math.min(30, lineCount);
       return fit({
         document: meta.name,
         format: meta.format,
@@ -271,10 +277,10 @@ export function createDocumentTools(options: {
         lines: meta.lines,
         estimated_tokens: meta.estimatedTokens,
         ...(meta.pages ? { pages: meta.pages } : {}),
-        parts_for_whole_document_analysis: splitIntoParts(document, options.budget).length,
+        parts_for_whole_document_analysis: parts.length,
         ...(meta.logProfile ? { log_profile: meta.logProfile } : {}),
-        first_lines: lines.numbered(1, Math.min(30, lines.lineCount)),
-        last_lines: lines.lineCount > 30 ? lines.numbered(tail, lines.lineCount) : "",
+        first_lines: numberLines(await document.readLines(1, first), 1),
+        last_lines: lineCount > 30 ? numberLines(await document.readLines(tail, lineCount), tail) : "",
         outline: meta.outline.length ? outlineLines(meta.outline) : [],
       }, "outline", limit);
     },

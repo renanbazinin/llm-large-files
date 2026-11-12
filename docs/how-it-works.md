@@ -28,7 +28,9 @@ chat turn ─► prepare(ids, size of the rest of the request)
    by *shape*. Numbers, IDs, IPs, hex, and quoted values are replaced with placeholders, so 800
    timeouts to different hosts become one entry: `[ERROR ×812, L1203] timeout after <n>ms to <ip>`.
 4. **Store** the text and metadata, and the uploaded file when its format is in `keepOriginals`.
-   Nothing else is indexed up front.
+   With a store that can read by range (`FileDocumentStore`), also a line index: where each line
+   starts, a few bytes a line, so a tool call on a large file reads only the lines it needs
+   ([details](configuration.md#large-files-many-users-several-servers)). Nothing else is indexed up front.
 
 ## The card
 

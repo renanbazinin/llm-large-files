@@ -1,10 +1,11 @@
 import { createContext, Script, type Context } from "node:vm";
+import { PASSAGE_CHARACTERS, PASSAGE_MAX_LINES, positionOf } from "./text-index.js";
 import { foldCase, LineIndex } from "./text.js";
 import type { DocumentMeta, StoredDocument } from "./types.js";
 
-const PASSAGE_CHARACTERS = 1_500;
-const PASSAGE_MAX_LINES = 40;
 const MAX_OCCURRENCES_PER_TERM = 200_000;
+const MAX_EXACT_MATCHES = 1_000_000;
+const MAX_PHRASE_PASSAGES = 10_000;
 const REGEX_TIME_LIMIT_MS = 3_000;
 const SHOWN_LINE_CHARACTERS = 400;
 
@@ -14,19 +15,97 @@ const STOPWORDS = new Set([
   "של", "את", "על", "עם", "מה", "איך", "למה", "מתי", "איפה", "מי", "זה", "זאת", "גם", "או", "אם", "כל", "יש", "אין",
 ]);
 
-/** A stored document with lazily built search structures. Build once, query many times. */
-export class SearchableDocument {
+/**
+ * A piece of a document's text: whole lines, in order. A document read by range is scanned in
+ * pieces that start at passage starts; a document held in memory is one piece.
+ */
+export type TextChunk = {
+  /** The document line of the piece's first line. */
+  firstLine: number;
+  /** Where the piece starts in the whole text, in UTF-16 units. */
+  startCharacter: number;
+  text: string;
+  lines: LineIndex;
+  /** `text` lowercased with `foldCase`: the same length, so offsets match. */
+  lower(): string;
+};
+
+/** A document the tools can read and search: held whole in memory, or read by range from the store. */
+export interface DocumentSource {
+  readonly meta: DocumentMeta;
+  readonly lineCount: number;
+  /** The length of the whole text, in UTF-16 units. */
+  readonly characters: number;
+  /** The first line of each passage (keyword search). */
+  readonly passageStarts: ArrayLike<number>;
+  /** Memory this object holds, for the cache. */
+  readonly memoryBytes: number;
+  /** Set when the stored text turned out not to match what this object knows of it: open it again. */
+  readonly broken?: boolean;
+  pageOfLine(line: number): number | undefined;
+  pagesOfLines(from: number, to: number): string | undefined;
+  /** Lines `from` to `to`, clamped to the document. */
+  readLines(from: number, to: number): Promise<string[]>;
+  readText(): Promise<string>;
+  /** The whole text in pieces of whole lines, in order. */
+  chunks(signal?: AbortSignal): AsyncIterable<TextChunk>;
+  /**
+   * Optional: feeds the pieces in order to `feed` until it returns true, sharing one pass over the
+   * text with other scans of the same document where it can.
+   */
+  scan?(feed: (chunk: TextChunk) => boolean | void, signal?: AbortSignal): Promise<void>;
+}
+
+/** Feeds a document's text, a piece at a time, to `feed` until it returns true or the text ends. */
+export async function scanSource(source: DocumentSource, feed: (chunk: TextChunk) => boolean | void, signal?: AbortSignal): Promise<void> {
+  if (source.scan) return source.scan(feed, signal);
+  for await (const chunk of source.chunks(signal)) if (feed(chunk) === true) break;
+}
+
+/** Lines as the tools show them: "12| text", one a line. */
+export function numberLines(lines: readonly string[], from: number): string {
+  return lines.map((text, index) => `${from + index}| ${text}`).join("\n");
+}
+
+/** The pages a range of lines is on, as "12" or "12-14", from the first line of each page. */
+export function pagesOfLines(pageStarts: ArrayLike<number>, from: number, to: number): string | undefined {
+  const page = (line: number) => (pageStarts.length === 0 || line < pageStarts[0]! ? undefined : positionOf(pageStarts, line));
+  const last = page(to);
+  if (last === undefined) return undefined;
+  const first = page(from) ?? 1;
+  return first === last ? String(last) : `${first}-${last}`;
+}
+
+/** A stored document held whole in memory, with lazily built search structures. */
+export class SearchableDocument implements DocumentSource {
   readonly meta: DocumentMeta;
   readonly text: string;
   readonly lines: LineIndex;
   private lowerText?: string;
-  private passageStarts?: number[];
+  private passageStartList?: number[];
   private pageStarts?: number[];
 
   constructor(document: StoredDocument) {
     this.meta = document.meta;
     this.text = document.text;
     this.lines = new LineIndex(document.text);
+  }
+
+  get lineCount(): number {
+    return this.lines.lineCount;
+  }
+
+  get characters(): number {
+    return this.text.length;
+  }
+
+  /**
+   * Memory this document takes once it has been searched: the text, its lowercased copy, and the
+   * line index. A text of ASCII only is held at one byte a character, any other at two.
+   */
+  get memoryBytes(): number {
+    const ascii = this.meta.textBytes !== undefined && this.meta.textBytes === this.text.length;
+    return this.text.length * (ascii ? 1 : 2) * 2 + this.lines.lineCount * 4 + 1_024;
   }
 
   /** The text lowercased for case-insensitive search. Same length as `text`, so offsets match. */
@@ -37,7 +116,7 @@ export class SearchableDocument {
 
   /** First line of each passage: groups of lines up to about 1,500 characters. */
   get passages(): number[] {
-    if (!this.passageStarts) {
+    if (!this.passageStartList) {
       const starts: number[] = [];
       let line = 1;
       while (line <= this.lines.lineCount) {
@@ -50,9 +129,13 @@ export class SearchableDocument {
           line++;
         }
       }
-      this.passageStarts = starts;
+      this.passageStartList = starts;
     }
-    return this.passageStarts;
+    return this.passageStartList;
+  }
+
+  get passageStarts(): ArrayLike<number> {
+    return this.passages;
   }
 
   passageRange(index: number): { from: number; to: number } {
@@ -61,15 +144,7 @@ export class SearchableDocument {
   }
 
   passageOfLine(line: number): number {
-    const starts = this.passages;
-    let low = 0;
-    let high = starts.length - 1;
-    while (low < high) {
-      const middle = (low + high + 1) >> 1;
-      if (starts[middle]! <= line) low = middle;
-      else high = middle - 1;
-    }
-    return low;
+    return positionOf(this.passages, line) - 1;
   }
 
   /**
@@ -78,6 +153,35 @@ export class SearchableDocument {
    * used, so a line of the document that happens to read "--- Page 7 ---" is not taken for one.
    */
   pageOfLine(line: number): number | undefined {
+    const starts = this.pageLines();
+    return starts.length === 0 || line < starts[0]! ? undefined : positionOf(starts, line);
+  }
+
+  /** The pages a range of lines is on, as "12" or "12-14". Undefined for a text without page lines. */
+  pagesOfLines(from: number, to: number): string | undefined {
+    return pagesOfLines(this.pageLines(), from, to);
+  }
+
+  async readLines(from: number, to: number): Promise<string[]> {
+    const out: string[] = [];
+    for (let line = Math.max(1, from); line <= Math.min(to, this.lines.lineCount); line++) out.push(this.lines.line(line));
+    return out;
+  }
+
+  async readText(): Promise<string> {
+    return this.text;
+  }
+
+  /** The whole text as one piece. */
+  wholeChunk(): TextChunk {
+    return { firstLine: 1, startCharacter: 0, text: this.text, lines: this.lines, lower: () => this.lower };
+  }
+
+  async *chunks(): AsyncGenerator<TextChunk> {
+    yield this.wholeChunk();
+  }
+
+  private pageLines(): number[] {
     if (!this.pageStarts) {
       const starts: number[] = [];
       const marker = "--- Page ";
@@ -88,24 +192,7 @@ export class SearchableDocument {
       }
       this.pageStarts = starts;
     }
-    const starts = this.pageStarts;
-    if (starts.length === 0 || line < starts[0]!) return undefined;
-    let low = 0;
-    let high = starts.length - 1;
-    while (low < high) {
-      const middle = (low + high + 1) >> 1;
-      if (starts[middle]! <= line) low = middle;
-      else high = middle - 1;
-    }
-    return low + 1;
-  }
-
-  /** The pages a range of lines is on, as "12" or "12-14". Undefined for a text without page lines. */
-  pagesOfLines(from: number, to: number): string | undefined {
-    const last = this.pageOfLine(to);
-    if (last === undefined) return undefined;
-    const first = this.pageOfLine(from) ?? 1;
-    return first === last ? String(last) : `${first}-${last}`;
+    return this.pageStarts;
   }
 }
 
@@ -116,6 +203,15 @@ export type GrepResult = {
   /** True when the scan stopped early (too many matches or the regex time limit). */
   stoppedEarly: boolean;
   matches: LineMatch[];
+};
+
+export type GrepOptions = {
+  regex?: boolean;
+  caseSensitive?: boolean;
+  maxResults: number;
+  contextLines: number;
+  /** Regex mode only. Defaults to 3 seconds of scanning. */
+  timeLimitMs?: number;
 };
 
 function clip(line: string, column: number): string {
@@ -140,7 +236,7 @@ function withinTimeLimit(scan: () => void, milliseconds: number): boolean {
   scanContext ??= createContext(scanSandbox);
   scanSandbox.scan = scan;
   try {
-    RUN_SCAN.runInContext(scanContext, { timeout: milliseconds });
+    RUN_SCAN.runInContext(scanContext, { timeout: Math.max(1, Math.ceil(milliseconds)) });
     return true;
   } catch (error) {
     if ((error as { code?: unknown } | null)?.code === "ERR_SCRIPT_EXECUTION_TIMEOUT") return false;
@@ -167,61 +263,207 @@ export function unsafeRegexReason(pattern: string): string | null {
   return null;
 }
 
-/** Lines that contain `query` (exact text) or match it (regex). */
-export function grep(
-  document: SearchableDocument,
-  query: string,
-  options: { regex?: boolean; caseSensitive?: boolean; maxResults: number; contextLines: number; /** Regex mode only. Defaults to 3 seconds. */ timeLimitMs?: number },
-): GrepResult {
-  const { lines } = document;
-  if (!query) throw new Error("The search query is empty.");
-  const hits: Array<{ line: number; column: number }> = [];
-  let total = 0;
-  let stoppedEarly = false;
-  const record = (line: number, column: number) => {
-    total++;
-    if (hits.length < options.maxResults) hits.push({ line, column });
-  };
+const newlinesIn = (text: string) => text.split("\n").length - 1;
 
-  if (options.regex) {
-    const problem = unsafeRegexReason(query);
-    if (problem) throw new Error(problem);
-    const pattern = new RegExp(query, options.caseSensitive ? "" : "i");
-    const finished = withinTimeLimit(() => {
-      for (let line = 1; line <= lines.lineCount; line++) {
-        const match = pattern.exec(lines.line(line));
-        if (match) record(line, match.index);
+/**
+ * The text of the `keep` lines before a piece, with their line breaks, and the number of its
+ * first line: what a needle across lines may start in.
+ */
+function carried(recent: ReadonlyArray<readonly [number, string]>, keep: number): { text: string; firstLine: number } | undefined {
+  const lines = recent.slice(-keep);
+  if (lines.length === 0) return undefined;
+  return { text: lines.map(([, text]) => `${text}\n`).join(""), firstLine: lines[0]![0] };
+}
+
+/** The lines read last, for lines shown before a hit and for needles across lines. */
+function remember(recent: Array<readonly [number, string]>, chunk: TextChunk, keep: number): Array<readonly [number, string]> {
+  if (keep === 0) return recent;
+  const count = chunk.lines.lineCount;
+  const fresh: Array<readonly [number, string]> = [];
+  for (let local = Math.max(1, count - keep + 1); local <= count; local++) fresh.push([chunk.firstLine + local - 1, chunk.lines.line(local)]);
+  return [...recent, ...fresh].slice(-keep);
+}
+
+/**
+ * Lines that contain `query` (exact text) or match it (regex), counted over a whole document fed
+ * a piece at a time. The pieces must come in order. Given the whole text as one piece, it does
+ * what `grep` always did; given it in pieces, it finds the same lines.
+ */
+class LineSearch {
+  private readonly hits: Array<{ line: number; column: number; text: string }> = [];
+  private total = 0;
+  stoppedEarly = false;
+  /** True once nothing more is to be found or counted: the rest of the text need not be read. */
+  done = false;
+  private readonly context: number;
+  /** Lines shown around the hits, by number: undefined until their piece has been read. */
+  private readonly shown = new Map<number, string | undefined>();
+  private unfilled = 0;
+  private recent: Array<readonly [number, string]> = [];
+  private readonly keep: number;
+  private readonly needle: string = "";
+  private readonly newlines: number = 0;
+  /** Exact mode: where the next match may start in the whole text, as the scan of one string skips past each match. */
+  private nextAllowed = 0;
+  private lastLine = 0;
+  private readonly pattern?: RegExp;
+  private timeLeft: number;
+
+  constructor(query: string, private readonly settings: GrepOptions, private readonly lineCount: number) {
+    if (!query) throw new Error("The search query is empty.");
+    if (settings.regex) {
+      const problem = unsafeRegexReason(query);
+      if (problem) throw new Error(problem);
+      this.pattern = new RegExp(query, settings.caseSensitive ? "" : "i");
+    } else {
+      this.needle = settings.caseSensitive ? query : foldCase(query);
+      this.newlines = newlinesIn(this.needle);
+    }
+    this.timeLeft = settings.timeLimitMs ?? REGEX_TIME_LIMIT_MS;
+    this.context = Math.max(0, Math.min(5, settings.contextLines));
+    this.keep = this.context + this.newlines;
+  }
+
+  add(chunk: TextChunk): void {
+    if (this.done) return;
+    if (this.pattern) this.scanRegex(chunk);
+    else this.scanExact(chunk);
+    if (this.unfilled > 0) {
+      const last = chunk.firstLine + chunk.lines.lineCount - 1;
+      for (const [line, text] of this.shown) {
+        if (text !== undefined) continue;
+        const found = line >= chunk.firstLine && line <= last
+          ? chunk.lines.line(line - chunk.firstLine + 1)
+          : this.recent.find(([number]) => number === line)?.[1];
+        if (found !== undefined) this.fill(line, found);
       }
-    }, options.timeLimitMs ?? REGEX_TIME_LIMIT_MS);
-    if (!finished) stoppedEarly = true;
-  } else {
-    const haystack = options.caseSensitive ? document.text : document.lower;
-    const needle = options.caseSensitive ? query : foldCase(query);
-    let lastLine = 0;
-    for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) {
-      const line = lines.lineAt(at);
-      if (line === lastLine) continue;
-      lastLine = line;
-      record(line, at - lines.startOf(line));
-      if (total >= 1_000_000) {
-        stoppedEarly = true;
-        break;
+    }
+    this.recent = remember(this.recent, chunk, this.keep);
+  }
+
+  /** Lines to show that were not in the pieces read (the scan stopped early). Read them and `fill` them. */
+  missing(): number[] {
+    if (this.unfilled === 0) return [];
+    return [...this.shown].filter(([, text]) => text === undefined).map(([line]) => line).sort((left, right) => left - right);
+  }
+
+  fill(line: number, text: string): void {
+    if (this.shown.get(line) !== undefined || !this.shown.has(line)) return;
+    this.shown.set(line, text);
+    this.unfilled--;
+  }
+
+  result(): GrepResult {
+    const lineText = (line: number) => this.shown.get(line) ?? "";
+    const matches = this.hits.map(({ line, column, text }): LineMatch => {
+      const match: LineMatch = { line, text: clip(text, column) };
+      if (this.context > 0) {
+        match.before = [];
+        match.after = [];
+        for (let other = Math.max(1, line - this.context); other < line; other++) match.before.push(`${other}| ${clip(lineText(other), 0)}`);
+        for (let other = line + 1; other <= Math.min(this.lineCount, line + this.context); other++) match.after.push(`${other}| ${clip(lineText(other), 0)}`);
+      }
+      return match;
+    });
+    return { totalMatchingLines: this.total, stoppedEarly: this.stoppedEarly, matches };
+  }
+
+  private record(line: number, column: number, text: string): void {
+    this.total++;
+    if (this.hits.length >= this.settings.maxResults) return;
+    this.hits.push({ line, column, text });
+    for (let other = Math.max(1, line - this.context); other <= Math.min(this.lineCount, line + this.context); other++) {
+      if (other !== line && !this.shown.has(other)) {
+        this.shown.set(other, undefined);
+        this.unfilled++;
       }
     }
   }
 
-  const context = Math.max(0, Math.min(5, options.contextLines));
-  const matches = hits.map(({ line, column }): LineMatch => {
-    const match: LineMatch = { line, text: clip(lines.line(line), column) };
-    if (context > 0) {
-      match.before = [];
-      match.after = [];
-      for (let other = Math.max(1, line - context); other < line; other++) match.before.push(`${other}| ${clip(lines.line(other), 0)}`);
-      for (let other = line + 1; other <= Math.min(lines.lineCount, line + context); other++) match.after.push(`${other}| ${clip(lines.line(other), 0)}`);
+  private scanExact(chunk: TextChunk): void {
+    const { needle } = this;
+    const caseSensitive = this.settings.caseSensitive === true;
+    let text = caseSensitive ? chunk.text : chunk.lower();
+    let lines = chunk.lines;
+    let firstLine = chunk.firstLine;
+    let start = chunk.startCharacter;
+    // A needle across lines can start in the lines before this piece.
+    const before = this.newlines > 0 ? carried(this.recent, this.newlines) : undefined;
+    if (before) {
+      text = (caseSensitive ? before.text : foldCase(before.text)) + text;
+      lines = new LineIndex(before.text + chunk.text);
+      firstLine = before.firstLine;
+      start = chunk.startCharacter - before.text.length;
     }
-    return match;
-  });
-  return { totalMatchingLines: total, stoppedEarly, matches };
+    for (let at = text.indexOf(needle, Math.max(0, this.nextAllowed - start)); at !== -1; at = text.indexOf(needle, at + needle.length)) {
+      this.nextAllowed = start + at + needle.length;
+      const local = lines.lineAt(at);
+      const line = firstLine + local - 1;
+      if (line === this.lastLine) continue;
+      this.lastLine = line;
+      this.record(line, at - lines.startOf(local), lines.line(local));
+      if (this.total >= MAX_EXACT_MATCHES) {
+        this.stoppedEarly = true;
+        this.done = true;
+        return;
+      }
+    }
+  }
+
+  private scanRegex(chunk: TextChunk): void {
+    if (this.timeLeft <= 0) {
+      this.stoppedEarly = true;
+      this.done = true;
+      return;
+    }
+    const pattern = this.pattern!;
+    const { lines, firstLine } = chunk;
+    const started = performance.now();
+    const finished = withinTimeLimit(() => {
+      for (let local = 1; local <= lines.lineCount; local++) {
+        const text = lines.line(local);
+        const match = pattern.exec(text);
+        if (match) this.record(firstLine + local - 1, match.index, text);
+      }
+    }, this.timeLeft);
+    this.timeLeft -= performance.now() - started;
+    if (!finished) {
+      this.stoppedEarly = true;
+      this.done = true;
+    }
+  }
+}
+
+/** Reads the given lines (sorted) from a document, a run of neighbouring lines at a time. */
+async function readSome(source: DocumentSource, lines: number[], use: (line: number, text: string) => void): Promise<void> {
+  for (let at = 0; at < lines.length;) {
+    let end = at;
+    while (end + 1 < lines.length && lines[end + 1]! <= lines[end]! + 1) end++;
+    const texts = await source.readLines(lines[at]!, lines[end]!);
+    texts.forEach((text, index) => use(lines[at]! + index, text));
+    at = end + 1;
+  }
+}
+
+/** Lines that contain `query` (exact text) or match it (regex), in a document held in memory. */
+export function grep(document: SearchableDocument, query: string, options: GrepOptions): GrepResult {
+  const search = new LineSearch(query, options, document.lines.lineCount);
+  search.add(document.wholeChunk());
+  for (const line of search.missing()) search.fill(line, document.lines.line(line));
+  return search.result();
+}
+
+/** `grep` over any document: one held in memory, or one read from the store a piece at a time. */
+export async function grepSource(source: DocumentSource, query: string, options: GrepOptions & { signal?: AbortSignal }): Promise<GrepResult> {
+  if (source instanceof SearchableDocument) return grep(source, query, options);
+  const search = new LineSearch(query, options, source.lineCount);
+  await scanSource(source, (chunk) => {
+    search.add(chunk);
+    return search.done;
+  }, options.signal);
+  const missing = search.missing();
+  if (missing.length) await readSome(source, missing, (line, text) => search.fill(line, text));
+  return search.result();
 }
 
 export function queryTerms(query: string): string[] {
@@ -232,45 +474,115 @@ export function queryTerms(query: string): string[] {
 export type RankedPassage = { from: number; to: number; score: number };
 
 /**
- * BM25 over fixed passages, computed at query time from substring hits. No index to build or
- * store, works for any language, and a term also matches longer words ("timeout" → "timeouts").
+ * BM25 over fixed passages, computed at query time from substring hits, over a document fed a
+ * piece at a time (pieces start at passage starts). No index to build or store, works for any
+ * language, and a term also matches longer words ("timeout" → "timeouts").
  */
+class PassageRank {
+  private readonly terms: Array<{ term: string; seen: number; frequency: Map<number, number> }>;
+  /** Passage lengths in characters, for the passages that have a hit. */
+  private readonly lengths = new Map<number, number>();
+  private readonly phrase?: { needle: string; newlines: number; passages: Set<number>; nextAllowed: number };
+  private recent: Array<readonly [number, string]> = [];
+
+  constructor(query: string, private readonly source: Pick<DocumentSource, "passageStarts" | "lineCount" | "characters">) {
+    this.terms = queryTerms(query).map((term) => ({ term, seen: 0, frequency: new Map() }));
+    // Passages that contain the whole phrase rank above passages with scattered terms.
+    const phrase = foldCase(query.trim());
+    if (this.terms.length > 1 && phrase.length <= 200) this.phrase = { needle: phrase, newlines: newlinesIn(phrase), passages: new Set(), nextAllowed: 0 };
+  }
+
+  get empty(): boolean {
+    return this.terms.length === 0;
+  }
+
+  add(chunk: TextChunk): void {
+    if (this.empty) return;
+    const haystack = chunk.lower();
+    for (const entry of this.terms) {
+      const { term } = entry;
+      for (let at = haystack.indexOf(term); at !== -1 && entry.seen < MAX_OCCURRENCES_PER_TERM; at = haystack.indexOf(term, at + term.length)) {
+        entry.seen++;
+        const passage = this.passageOf(chunk.firstLine + chunk.lines.lineAt(at) - 1);
+        entry.frequency.set(passage, (entry.frequency.get(passage) ?? 0) + 1);
+        if (!this.lengths.has(passage)) this.lengths.set(passage, this.lengthOf(passage, chunk));
+      }
+    }
+    const phrase = this.phrase;
+    if (phrase && phrase.passages.size < MAX_PHRASE_PASSAGES) {
+      let text = haystack;
+      let lines = chunk.lines;
+      let firstLine = chunk.firstLine;
+      let start = chunk.startCharacter;
+      const before = phrase.newlines > 0 ? carried(this.recent, phrase.newlines) : undefined;
+      if (before) {
+        text = foldCase(before.text) + haystack;
+        lines = new LineIndex(before.text + chunk.text);
+        firstLine = before.firstLine;
+        start = chunk.startCharacter - before.text.length;
+      }
+      for (let at = text.indexOf(phrase.needle, Math.max(0, phrase.nextAllowed - start)); at !== -1 && phrase.passages.size < MAX_PHRASE_PASSAGES; at = text.indexOf(phrase.needle, at + phrase.needle.length)) {
+        phrase.nextAllowed = start + at + phrase.needle.length;
+        phrase.passages.add(this.passageOf(firstLine + lines.lineAt(at) - 1));
+      }
+      this.recent = remember(this.recent, chunk, phrase.newlines);
+    }
+  }
+
+  result(topK: number): RankedPassage[] {
+    if (this.empty) return [];
+    const passageCount = this.source.passageStarts.length;
+    const averageLength = Math.max(1, this.source.characters / passageCount);
+    const scores = new Map<number, number>();
+    for (const { frequency } of this.terms) {
+      const df = frequency.size;
+      if (df === 0) continue;
+      const idf = Math.log(1 + (passageCount - df + 0.5) / (df + 0.5));
+      for (const [passage, tf] of frequency) {
+        const length = this.lengths.get(passage)!;
+        const score = idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * (length / averageLength)));
+        scores.set(passage, (scores.get(passage) ?? 0) + score);
+      }
+    }
+    if (this.phrase) for (const passage of this.phrase.passages) scores.set(passage, (scores.get(passage) ?? 0) * 1.5 + 1);
+    return [...scores.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, topK)
+      .map(([passage, score]) => ({ ...this.range(passage), score: Math.round(score * 100) / 100 }));
+  }
+
+  private passageOf(line: number): number {
+    return positionOf(this.source.passageStarts, line) - 1;
+  }
+
+  private range(passage: number): { from: number; to: number } {
+    const starts = this.source.passageStarts;
+    return { from: starts[passage]!, to: (passage + 1 < starts.length ? starts[passage + 1]! : this.source.lineCount + 1) - 1 };
+  }
+
+  private lengthOf(passage: number, chunk: TextChunk): number {
+    const { from, to } = this.range(passage);
+    const first = from - chunk.firstLine + 1;
+    const last = to - chunk.firstLine + 1;
+    if (first < 1 || last > chunk.lines.lineCount) throw new Error("A piece of the text does not hold whole passages.");
+    return chunk.lines.endOf(last) - chunk.lines.startOf(first) + 1;
+  }
+}
+
+/** BM25 passage ranking over a document held in memory. */
 export function rankPassages(document: SearchableDocument, query: string, topK: number): RankedPassage[] {
-  const terms = queryTerms(query);
-  if (terms.length === 0) return [];
-  const haystack = document.lower;
-  const passageCount = document.passages.length;
-  const averageLength = Math.max(1, document.text.length / passageCount);
-  const scores = new Map<number, number>();
-  for (const term of terms) {
-    const frequency = new Map<number, number>();
-    let seen = 0;
-    for (let at = haystack.indexOf(term); at !== -1 && seen < MAX_OCCURRENCES_PER_TERM; at = haystack.indexOf(term, at + term.length)) {
-      seen++;
-      const passage = document.passageOfLine(document.lines.lineAt(at));
-      frequency.set(passage, (frequency.get(passage) ?? 0) + 1);
-    }
-    const df = frequency.size;
-    if (df === 0) continue;
-    const idf = Math.log(1 + (passageCount - df + 0.5) / (df + 0.5));
-    for (const [passage, tf] of frequency) {
-      const range = document.passageRange(passage);
-      const length = document.lines.endOf(range.to) - document.lines.startOf(range.from) + 1;
-      const score = idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * (length / averageLength)));
-      scores.set(passage, (scores.get(passage) ?? 0) + score);
-    }
-  }
-  // Passages that contain the whole phrase rank above passages with scattered terms.
-  const phrase = foldCase(query.trim());
-  if (terms.length > 1 && phrase.length <= 200) {
-    const withPhrase = new Set<number>();
-    for (let at = haystack.indexOf(phrase); at !== -1 && withPhrase.size < 10_000; at = haystack.indexOf(phrase, at + phrase.length)) {
-      withPhrase.add(document.passageOfLine(document.lines.lineAt(at)));
-    }
-    for (const passage of withPhrase) scores.set(passage, (scores.get(passage) ?? 0) * 1.5 + 1);
-  }
-  return [...scores.entries()]
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, topK)
-    .map(([passage, score]) => ({ ...document.passageRange(passage), score: Math.round(score * 100) / 100 }));
+  const rank = new PassageRank(query, document);
+  rank.add(document.wholeChunk());
+  return rank.result(topK);
+}
+
+/** `rankPassages` over any document: one held in memory, or one read from the store a piece at a time. */
+export async function rankSource(source: DocumentSource, query: string, topK: number, signal?: AbortSignal): Promise<RankedPassage[]> {
+  if (source instanceof SearchableDocument) return rankPassages(source, query, topK);
+  const rank = new PassageRank(query, source);
+  if (rank.empty) return [];
+  await scanSource(source, (chunk) => {
+    rank.add(chunk);
+  }, signal);
+  return rank.result(topK);
 }

@@ -197,7 +197,13 @@ export class LineIndex {
   private readonly starts: Uint32Array;
   readonly lineCount: number;
 
-  constructor(private readonly text: string) {
+  /** `knownStarts`, when given, are where each line starts in `text`: they are used as they are. */
+  constructor(private readonly text: string, knownStarts?: Uint32Array) {
+    if (knownStarts) {
+      this.starts = knownStarts;
+      this.lineCount = knownStarts.length;
+      return;
+    }
     let count = 1;
     for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) count++;
     // A trailing newline does not start another line.

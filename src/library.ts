@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { buildLogProfile, buildOutline, looksLikeLog } from "./analyze.js";
+import { DocumentCache, documentVersion, type Sized } from "./cache.js";
 import { detectFormat, extractText } from "./extract.js";
-import { documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline } from "./plan.js";
-import { SearchableDocument } from "./search.js";
+import { Limiter } from "./limiter.js";
+import { CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline } from "./plan.js";
+import { openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
+import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
+import { buildTextIndex, canSerialize, serializeTextIndex } from "./text-index.js";
 import { estimateTokens, normalizeText, utf8Bytes, wrapLongLines } from "./text.js";
 import { createDocumentTools } from "./tools.js";
 import type {
@@ -53,8 +57,31 @@ export type LargeFilesOptions = {
    * is accepted. Defaults to 30. 0 refuses every PDF without text, as before.
    */
   scannedPdfPages?: number;
-  /** How many parsed documents to keep in memory for repeated tool calls. Defaults to 6. */
+  /**
+   * The most memory, in bytes, that documents kept ready for repeated tool calls may take.
+   * Defaults to 256 MB. A document larger than this is read again for each call. 0 keeps none.
+   *
+   * Every use of a kept document first asks the store whether it is still there, so a document
+   * deleted or expired on another server sharing the store is never served from memory here.
+   */
+  cacheBytes?: number;
+  /** Also caps the number of documents kept (the only limit before 0.4). Unset: no cap on the number. */
   cacheSize?: number;
+  /**
+   * Documents whose text is at most this many bytes are loaded whole into memory (and kept there
+   * within `cacheBytes`). Larger ones are read by range, when the store can (`readTextRange`, as
+   * `FileDocumentStore` does): a tool call reads the lines it needs, and a search reads the text a
+   * piece at a time, so memory does not grow with the size of the files or the number of users.
+   * Defaults to 2 MB. `Infinity` loads every document whole, as before 0.4; 0 reads every one by range.
+   */
+  wholeDocumentBytes?: number;
+  /** Reading by range: about this many bytes of text are read and searched at a time. Defaults to 1 MB. */
+  scanChunkBytes?: number;
+  /**
+   * Reading by range: how many scans of whole documents (searches, counting the parts of a file)
+   * run at once in this process. The others wait their turn. Defaults to 4.
+   */
+  maxConcurrentScans?: number;
   /** Clock override, for tests. */
   now?: () => Date;
 };
@@ -154,40 +181,125 @@ function allowed(meta: DocumentMeta, access: AccessOptions | undefined): boolean
   return meta.owner === undefined || meta.owner === access?.owner;
 }
 
+/** Default for `cacheBytes`. */
+export const DEFAULT_CACHE_BYTES = 256 * 1024 * 1024;
+/** Default for `wholeDocumentBytes`. */
+export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
+
 export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const budget: Budget = { ...DEFAULT_BUDGET, ...options.budget };
   const ttlMs = options.ttlMs ?? 72 * 60 * 60 * 1000;
   const maxUploadBytes = options.maxUploadBytes ?? 100 * 1024 * 1024;
   const now = options.now ?? (() => new Date());
-  const cacheSize = Math.max(1, options.cacheSize ?? 6);
-  const cache = new Map<string, SearchableDocument>();
+  const { store } = options;
+  const cacheBytes = Math.max(0, options.cacheBytes ?? DEFAULT_CACHE_BYTES);
+  /** Documents ready to search, and decoded pieces of documents read by range, in one memory budget. */
+  const cache = new DocumentCache<Sized>(
+    cacheBytes,
+    options.cacheSize === undefined ? Number.POSITIVE_INFINITY : Math.max(0, Math.trunc(options.cacheSize)),
+  );
+  /** Forgets everything kept of a document: the document, and its pieces. */
+  const forget = (id: string) => {
+    cache.delete(id);
+    cache.deletePrefix(pieceKey(id, 0).slice(0, -1));
+  };
+  /** Documents being opened, so that calls arriving together open each one once. */
+  const opening = new Map<string, Promise<DocumentSource | undefined>>();
+  /** The store, when large documents can be read from it by range rather than loaded whole. */
+  const ranged = typeof store.readTextRange === "function" ? store as RangeStore : undefined;
+  const wholeDocumentBytes = Math.max(0, options.wholeDocumentBytes ?? DEFAULT_WHOLE_DOCUMENT_BYTES);
+  /** Documents whose saved index did not match their text: the next opening builds it from the text. */
+  const rebuildIndex = new Set<string>();
+  const scan: ScanSettings = {
+    chunkBytes: Math.max(1, Math.trunc(options.scanChunkBytes ?? 1024 * 1024)),
+    limiter: new Limiter(Math.max(1, Math.trunc(options.maxConcurrentScans ?? 4))),
+    onBroken: (id) => {
+      rebuildIndex.add(id);
+      forget(id);
+    },
+    pieces: {
+      get: (key, version) => cache.get(key, version) as CachedPiece | undefined,
+      set: (key, version, piece) => cache.set(key, version, piece),
+      // A quarter of the cache: a few documents can be kept, and no one pushes out all the rest.
+      maxDocumentBytes: cacheBytes / 4,
+    },
+  };
   const keepOriginals = new Set<DocumentFormat>(options.keepOriginals ?? []);
   const scannedPdfPages = Math.max(0, Math.trunc(options.scannedPdfPages ?? 30));
   /** Whether the uploaded file of a document of this format is kept. */
   const keeps = (format: DocumentFormat) => keepOriginals.has(format) && typeof options.store.putOriginal === "function";
 
-  async function load(id: string): Promise<SearchableDocument | undefined> {
-    const cached = cache.get(id);
-    if (cached) {
-      if (Date.parse(cached.meta.expiresAt) > now().getTime()) {
-        // Refresh its place as most recently used.
-        cache.delete(id);
-        cache.set(id, cached);
-        return cached;
-      }
-      cache.delete(id);
+  /**
+   * The document as the store describes it now: undefined when it was never there, has been
+   * deleted (by this server or another one sharing the store), or has expired.
+   */
+  async function currentMeta(id: string): Promise<DocumentMeta | undefined> {
+    if (!isDocumentId(id)) return undefined;
+    const meta = await options.store.getMeta(id);
+    if (!meta || Date.parse(meta.expiresAt) <= now().getTime()) {
+      forget(id);
+      return undefined;
     }
-    const stored = await options.store.get(id);
-    if (!stored) return undefined;
-    const document = new SearchableDocument(stored);
-    cache.set(id, document);
-    while (cache.size > cacheSize) cache.delete(cache.keys().next().value!);
+    return meta;
+  }
+
+  /**
+   * A document ready to read and search. The store is asked first, every time: a kept copy is
+   * used only while the store still has the same document. `known` is metadata just read from
+   * the store, to save asking twice.
+   */
+  async function load(id: string, known?: DocumentMeta): Promise<DocumentSource | undefined> {
+    const meta = known ?? await currentMeta(id);
+    if (!meta) return undefined;
+    const version = documentVersion(meta);
+    const cached = cache.get(id, version) as DocumentSource | undefined;
+    if (cached && !cached.broken) return cached;
+    const key = `${id}|${version}`;
+    let pending = opening.get(key);
+    if (!pending) {
+      pending = open(id, meta).finally(() => opening.delete(key));
+      opening.set(key, pending);
+    }
+    const document = await pending;
+    if (document) cache.set(id, version, document);
     return document;
   }
 
+  /** Reads a document from the store: its index, to read it by range, or all of it. */
+  async function open(id: string, meta: DocumentMeta): Promise<DocumentSource | undefined> {
+    if (ranged && meta.textBytes > wholeDocumentBytes) {
+      const rebuild = rebuildIndex.delete(id);
+      return openRangedDocument(ranged, meta, scan, { ignoreSavedIndex: rebuild });
+    }
+    const stored = await store.get(id);
+    return stored ? new SearchableDocument(stored) : undefined;
+  }
+
+  /**
+   * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
+   * by now. A copy found to disagree with the store is opened again once.
+   */
+  async function block(id: string, meta: DocumentMeta, whole: boolean, viewable: boolean): Promise<string | undefined> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const document = await load(id, attempt === 0 ? meta : undefined);
+      if (!document) return undefined;
+      try {
+        return whole
+          ? renderInline(document.meta, await document.readText())
+          : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable);
+      } catch (error) {
+        if (!document.broken) {
+          // Deleted between the look-up and the read: the same as missing.
+          if (!await currentMeta(id)) return undefined;
+          throw error;
+        }
+      }
+    }
+    return undefined;
+  }
+
   async function metaFor(id: string, access: AccessOptions | undefined): Promise<DocumentMeta | undefined> {
-    if (!isDocumentId(id)) return undefined;
-    const meta = await options.store.getMeta(id);
+    const meta = await currentMeta(id);
     return meta && allowed(meta, access) ? meta : undefined;
   }
 
@@ -236,13 +348,22 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         createdAt: created.toISOString(),
         expiresAt: new Date(created.getTime() + ttlMs).toISOString(),
       };
+      // The line index, so that the text can be read by range: a few bytes a line, built from the
+      // UTF-8 bytes the store writes. Kept by any store that can keep it, even one this library
+      // then loads whole, so that switching to reading by range finds it ready.
+      const index = typeof store.putIndex === "function" ? buildTextIndex(text) : undefined;
+      const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters
+        ? serializeTextIndex(index)
+        : undefined;
       try {
-        // The file first, the document last: a document is there once its metadata is.
-        if (keepOriginal) await options.store.putOriginal!(meta.id, input.bytes);
-        await options.store.put({ meta, text });
+        // The files first, the document last: a document is there once its metadata is.
+        if (keepOriginal) await store.putOriginal!(meta.id, input.bytes);
+        if (savedIndex) await store.putIndex!(meta.id, savedIndex);
+        await store.put({ meta, text });
       } catch (error) {
-        // Do not leave a file of up to the upload limit behind for a document that does not exist.
-        if (keepOriginal) await options.store.delete(meta.id).catch(() => undefined);
+        // Do not leave a file of up to the upload limit, or a part of one, behind for a document
+        // that does not exist.
+        await store.delete(meta.id).catch(() => undefined);
         throw error;
       }
       return meta;
@@ -257,7 +378,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
     async delete(id, access) {
       if (!await metaFor(id, access)) return false;
-      cache.delete(id);
+      forget(id);
       return options.store.delete(id);
     },
 
@@ -267,27 +388,38 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
     async prepare(ids, base, access) {
       const unique = [...new Set(ids)];
-      const documents: SearchableDocument[] = [];
+      let documents: DocumentMeta[] = [];
       const missing: string[] = [];
       for (const id of unique) {
-        const document = isDocumentId(id) ? await load(id) : undefined;
-        // A document owned by someone else is reported as missing, not as forbidden.
-        if (document && allowed(document.meta, access)) documents.push(document);
+        // A document owned by someone else is reported as missing, not as forbidden, and is not
+        // read at all.
+        const meta = await metaFor(id, access);
+        if (meta) documents.push(meta);
         else missing.push(id);
       }
-      const plan = planDocuments(documents.map((document) => document.meta), budget, base);
-      const inline = new Set(plan.inline.map((meta) => meta.id));
-      // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
-      const viewable = access?.viewPages && options.store.getOriginal
-        ? documents.map((document) => document.meta).filter((meta) => meta.format === "pdf" && meta.originalKept)
-        : [];
-      const shown = new Set(viewable.map((meta) => meta.id));
-      const blocks = new Map<string, string>();
-      for (const document of documents) {
-        const { id } = document.meta;
-        blocks.set(id, inline.has(id) ? renderInline(document) : renderCard(document, shown.has(id)));
+      // Planning needs only the metadata. The text is read for the documents sent whole, and the
+      // first lines for the others. One that is gone by then is missing, and the plan is made again.
+      for (;;) {
+        const plan = planDocuments(documents, budget, base);
+        const inline = new Set(plan.inline.map((meta) => meta.id));
+        // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
+        const viewable = access?.viewPages && store.getOriginal
+          ? documents.filter((meta) => meta.format === "pdf" && meta.originalKept)
+          : [];
+        const shown = new Set(viewable.map((meta) => meta.id));
+        const blocks = new Map<string, string>();
+        const gone: string[] = [];
+        for (const meta of documents) {
+          const text = await block(meta.id, meta, inline.has(meta.id), shown.has(meta.id));
+          if (text === undefined) gone.push(meta.id);
+          else blocks.set(meta.id, text);
+        }
+        if (gone.length === 0) {
+          return { plan, blocks, instruction: documentToolsInstruction(plan.searchable, viewable), missing, viewable };
+        }
+        missing.push(...gone);
+        documents = documents.filter((meta) => !gone.includes(meta.id));
       }
-      return { plan, blocks, instruction: documentToolsInstruction(plan.searchable, viewable), missing, viewable };
     },
 
     tools(documents, toolOptions = {}) {

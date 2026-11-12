@@ -19,7 +19,11 @@ Three entry points:
 | `ttlMs` | `number` | 72 hours |
 | `maxUploadBytes` | `number` | 100 MB |
 | `extractors` | `Partial<Record<DocumentFormat, Extractor>>` | built-ins |
-| `cacheSize` | `number` | 6 parsed documents in memory |
+| `cacheBytes` | `number` | 256 MB: memory that documents kept ready between tool calls may take. Each use checks the store first. 0 keeps none |
+| `cacheSize` | `number` | no limit: also caps the number of documents kept |
+| `wholeDocumentBytes` | `number` | 2 MB: larger documents are read by range when the store can ([details](configuration.md#large-files-many-users-several-servers)). `Infinity` loads all whole |
+| `scanChunkBytes` | `number` | 1 MB: text read and searched at a time, reading by range |
+| `maxConcurrentScans` | `number` | 4: searches of a document read by range that run at once; the others wait |
 | `keepOriginals` | `DocumentFormat[]` | `[]`: only text is kept. `["pdf"]` keeps uploaded PDFs, which `view_pages` needs ([details](configuration.md#keeping-the-uploaded-file)) |
 | `scannedPdfPages` | `number` | 30: the longest PDF without any text that is accepted when its original is kept. 0 refuses them all |
 
@@ -77,10 +81,13 @@ carry page numbers: `page` on each matching line, `pages` on a passage and on a 
 ### Stores
 
 - `new MemoryDocumentStore({ now? })`: in-process, for tests and single-instance demos.
-- `new FileDocumentStore(directory, { now? })`: `<id>.txt` and `<id>.json` per document, and
-  `<id>.bin` for a kept original.
-- Implement `DocumentStore` (`put`, `get`, `getMeta`, `delete`, `sweep?`, and `putOriginal?` with
-  `getOriginal?` to keep originals) for anything else.
+- `new FileDocumentStore(directory, { now?, orphanAgeMs? })`: `<id>.txt`, `<id>.json` and the line
+  index `<id>.idx` per document, and `<id>.bin` for a kept original. Safe for several servers on one
+  volume: files are written whole, large documents are read by range, and `sweep` leaves files
+  younger than `orphanAgeMs` (1 hour) that belong to no document yet.
+- Implement `DocumentStore` (`put`, `get`, `getMeta`, `delete`, `sweep?`, `putOriginal?` with
+  `getOriginal?` to keep originals, and `readTextRange?` with `putIndex?` and `getIndex?` to read
+  large documents by range) for anything else.
 
 ### Helpers
 
