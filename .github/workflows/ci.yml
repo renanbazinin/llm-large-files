@@ -10,9 +10,11 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows too: the file store has rename handling that only runs there.
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v7

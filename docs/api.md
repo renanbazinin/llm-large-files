@@ -16,11 +16,11 @@ Three entry points:
 |---|---|---|
 | `store` | `DocumentStore` | required |
 | `budget` | `Partial<Budget>` | see [configuration](configuration.md#budget) |
-| `ttlMs` | `number` | 72 hours |
+| `ttlMs` | `number` | 72 hours. `Infinity` keeps documents until they are deleted (`expiresAt` is then `NEVER_EXPIRES`) |
 | `maxUploadBytes` | `number` | 100 MB |
 | `extractors` | `Partial<Record<DocumentFormat, Extractor>>` | built-ins |
 | `cacheBytes` | `number` | 256 MB: memory that documents kept ready between tool calls may take. Each use checks the store first. 0 keeps none |
-| `cacheSize` | `number` | no limit: also caps the number of documents kept |
+| `cacheSize` | `number` | no limit: also caps the number of documents kept. The pieces kept of a document read by range are not counted |
 | `wholeDocumentBytes` | `number` | 2 MB: larger documents are read by range when the store can ([details](configuration.md#large-files-many-users-several-servers)). `Infinity` loads all whole |
 | `scanChunkBytes` | `number` | 1 MB: text read and searched at a time, reading by range |
 | `maxConcurrentScans` | `number` | 4: searches of a document read by range that run at once; the others wait |
@@ -37,7 +37,12 @@ Three entry points:
 | `delete(id, { owner }?)` | `true` if deleted. |
 | `sweep()` | Removes expired documents; returns the count. |
 | `prepare(ids, base, { owner?, viewPages? }?)` | Plans one request. `base` is `{ tokens, bytes }` for everything else in the request. Returns `PreparedContext`. `viewPages: true` says that your loop can pass files to the model. |
-| `tools(documents, { generate?, onProgress?, signal?, viewPages? })` | A `ToolSet` scoped to these documents. `generate` enables `analyze_whole_document`. `viewPages` (`true`, or a list of documents such as `prepared.viewable`) enables `view_pages`. |
+| `tools(documents, { generate?, onProgress?, signal?, viewPages?, regexBudgetMs? })` | A `ToolSet` scoped to these documents. `generate` enables `analyze_whole_document`, for documents small enough for it. `viewPages` (`true`, or a list of documents such as `prepared.viewable`) enables `view_pages`. `regexBudgetMs` (default 6,000) is the time the regex searches of the tool set may take together. |
+
+`getMeta`, `getOriginal`, `delete`, `prepare` and the tools read the store. When it cannot be read
+(a volume that does not answer, a database that is down) they throw `DocumentStoreError`, and a
+tool call answers with its message. That is not "the document is gone": retry. The message names
+no path and no host; `error.cause` is what the store threw, for your log.
 | `budget`, `maxUploadBytes` | The effective settings. |
 
 ### `PreparedContext`
@@ -143,10 +148,11 @@ type ToolFile = { name: string; mimeType: string; bytes: Uint8Array };
 | `owner` | Only documents with this owner (or no owner) are used. |
 | `documentPlacement` | `"first"` (default): document text and cards go at the start of the first user turn and stay there, so follow-up questions reuse Gemini's prompt cache. `"last"`: appended to the latest user turn, as in 0.1.0. |
 | `maxToolTurns` | Default 12. The most requests for one question, counting the answer. If the model is still calling tools on the last one, it is sent with no tools so the model must answer. With an explorer model the answer is always the last request, so the explorer has one less. |
+| `maxToolCallsPerTurn` | Default 8. The most tool calls of one model turn that are run. The others are answered with an error that tells the model to send them again if it still needs them. |
 | `wholeDocumentAnalysis` | Default `true`. Set `false` to withhold the costly whole-file tool. |
 | `viewPages` | Default `true`. Offers `view_pages` for PDFs whose original is kept. It changes nothing for a library that keeps no originals. |
 | `toolFilePlacement` | `"inside"` (default): the pages go in the function response itself, which Gemini 3 models read. `"beside"`: in a user turn of their own after the function responses, for Gemini 2.5, which does not see a file inside a function response. See [Where the pages go](configuration.md#where-the-pages-go-toolfileplacement). |
-| `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. The explorer model reads the parts when there is one, so write it for that model. |
+| `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. The explorer model reads the parts when there is one, so write it for that model. Without it a part is asked for with `{ maxOutputTokens, temperature: 0.2 }`. A model that thinks counts its thoughts in that limit: a reply that it cut off that way is asked for again with 32,768, and later parts start there. |
 | `onText`, `onActivity`, `onStep` | Streaming answer text, transient status, completed steps. |
 | `fetch`, `signal` | Custom fetch (proxies, tests) and cancellation. |
 
@@ -162,8 +168,9 @@ const result = await askGemini({ ... });
 if (!result.answered) show(result.blockReason ? "The request was blocked." : "No answer this time. Try again.");
 ```
 
-It throws `DocumentsNotFoundError` (`.ids`) before calling the model, `GeminiRequestError` (`.status`)
-for HTTP errors, and `Error` when the last message isn't the user's.
+It throws `DocumentsNotFoundError` (`.ids`) before calling the model, `DocumentStoreError` when the
+store could not be read (retry: the documents are not gone), `GeminiRequestError` (`.status`) for
+HTTP errors, and `Error` when the last message isn't the user's.
 
 With an [explorer model](configuration.md#an-explorer-model), `text` and `onText` carry only what
 the answering model wrote, `turns` counts the requests of both models, and `usage` and

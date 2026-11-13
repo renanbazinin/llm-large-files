@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { buildLogProfile, buildOutline, looksLikeLog } from "./analyze.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
+import { DocumentStoreError } from "./errors.js";
 import { detectFormat, extractText } from "./extract.js";
 import { Limiter } from "./limiter.js";
-import { CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline } from "./plan.js";
+import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline } from "./plan.js";
 import { openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
 import { buildTextIndex, canSerialize, serializeTextIndex } from "./text-index.js";
-import { estimateTokens, normalizeText, utf8Bytes, wrapLongLines } from "./text.js";
+import { estimateTokens, normalizeText, textSizes, wrapLongLines } from "./text.js";
 import { createDocumentTools } from "./tools.js";
 import type {
   Budget,
@@ -39,7 +40,10 @@ export type LargeFilesOptions = {
   store: DocumentStore;
   /** Your model's limits. Anything left out uses DEFAULT_BUDGET. */
   budget?: Partial<Budget>;
-  /** How long uploaded documents are kept. Defaults to 72 hours. */
+  /**
+   * How long uploaded documents are kept. Defaults to 72 hours. `Infinity` keeps them until they
+   * are deleted: their `expiresAt` is then `NEVER_EXPIRES`.
+   */
   ttlMs?: number;
   /** Largest accepted upload. Defaults to 100 MB. */
   maxUploadBytes?: number;
@@ -65,7 +69,11 @@ export type LargeFilesOptions = {
    * deleted or expired on another server sharing the store is never served from memory here.
    */
   cacheBytes?: number;
-  /** Also caps the number of documents kept (the only limit before 0.4). Unset: no cap on the number. */
+  /**
+   * Also caps the number of documents kept (the only limit before 0.4). Unset: no cap on the
+   * number. The pieces kept of a document that is read by range are not counted, and go when
+   * their document does.
+   */
   cacheSize?: number;
   /**
    * Documents whose text is at most this many bytes are loaded whole into memory (and kept there
@@ -112,6 +120,13 @@ export type ToolOptions = {
   /** Progress of whole-document reads, for status messages. */
   onProgress?: ProgressListener;
   signal?: AbortSignal;
+  /**
+   * The most time, in milliseconds, that the regex searches of this tool set may take together.
+   * Past it, a regex search answers with an error that tells the model to search another way.
+   * Defaults to 6,000. One search still stops after 3,000, and at once at a line its pattern
+   * cannot get past.
+   */
+  regexBudgetMs?: number;
   /**
    * Offers `view_pages`, which hands the model real pages of a PDF whose original file is kept
    * (see `keepOriginals`). The pages come back as a file, so turn this on only when your loop
@@ -177,6 +192,24 @@ export function cleanFileName(raw: string): string {
     .slice(0, 255) || "file";
 }
 
+/**
+ * A read of the store. Whatever it throws is passed on as a `DocumentStoreError`: a store that
+ * could not be read is not a document that is gone, and its own error names paths or hosts.
+ */
+async function reading<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    throw error instanceof DocumentStoreError ? error : new DocumentStoreError(error);
+  }
+}
+
+/**
+ * The `expiresAt` of a document that never expires (`ttlMs: Infinity`): the last instant of the
+ * year 9999. A date, so that every comparison, and a server of an older version, reads it as any other.
+ */
+export const NEVER_EXPIRES = "9999-12-31T23:59:59.999Z";
+
 function allowed(meta: DocumentMeta, access: AccessOptions | undefined): boolean {
   return meta.owner === undefined || meta.owner === access?.owner;
 }
@@ -206,7 +239,13 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   /** Documents being opened, so that calls arriving together open each one once. */
   const opening = new Map<string, Promise<DocumentSource | undefined>>();
   /** The store, when large documents can be read from it by range rather than loaded whole. */
-  const ranged = typeof store.readTextRange === "function" ? store as RangeStore : undefined;
+  const ranged: RangeStore | undefined = typeof store.readTextRange === "function" ? {
+    readTextRange: (id, start, end) => reading(() => store.readTextRange!(id, start, end)),
+    ...(store.getIndex ? { getIndex: (id: string) => reading(() => store.getIndex!(id)) } : {}),
+    ...(store.putIndex ? { putIndex: (id: string, index: Uint8Array) => store.putIndex!(id, index) } : {}),
+  } : undefined;
+  /** The uploaded file of a document, when the store keeps such files. */
+  const loadOriginal = store.getOriginal ? (id: string) => reading(() => store.getOriginal!(id)) : undefined;
   const wholeDocumentBytes = Math.max(0, options.wholeDocumentBytes ?? DEFAULT_WHOLE_DOCUMENT_BYTES);
   /** Documents whose saved index did not match their text: the next opening builds it from the text. */
   const rebuildIndex = new Set<string>();
@@ -219,7 +258,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
     pieces: {
       get: (key, version) => cache.get(key, version) as CachedPiece | undefined,
-      set: (key, version, piece) => cache.set(key, version, piece),
+      // A piece belongs to its document: it is not one of the `cacheSize` documents, and leaves with it.
+      set: (key, version, piece) => cache.set(key, version, piece, key.slice(0, key.indexOf("#"))),
       // A quarter of the cache: a few documents can be kept, and no one pushes out all the rest.
       maxDocumentBytes: cacheBytes / 4,
     },
@@ -235,7 +275,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
    */
   async function currentMeta(id: string): Promise<DocumentMeta | undefined> {
     if (!isDocumentId(id)) return undefined;
-    const meta = await options.store.getMeta(id);
+    const meta = await reading(() => store.getMeta(id));
     if (!meta || Date.parse(meta.expiresAt) <= now().getTime()) {
       forget(id);
       return undefined;
@@ -271,7 +311,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       const rebuild = rebuildIndex.delete(id);
       return openRangedDocument(ranged, meta, scan, { ignoreSavedIndex: rebuild });
     }
-    const stored = await store.get(id);
+    const stored = await reading(() => store.get(id));
     return stored ? new SearchableDocument(stored) : undefined;
   }
 
@@ -279,14 +319,14 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
    * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
    * by now. A copy found to disagree with the store is opened again once.
    */
-  async function block(id: string, meta: DocumentMeta, whole: boolean, viewable: boolean): Promise<string | undefined> {
+  async function block(id: string, meta: DocumentMeta, whole: boolean, viewable: boolean, readableWhole: boolean): Promise<string | undefined> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const document = await load(id, attempt === 0 ? meta : undefined);
       if (!document) return undefined;
       try {
         return whole
           ? renderInline(document.meta, await document.readText())
-          : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable);
+          : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, readableWhole);
       } catch (error) {
         if (!document.broken) {
           // Deleted between the look-up and the read: the same as missing.
@@ -328,6 +368,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       if (text.endsWith("\n")) lines.pop();
       if (format === "text" && looksLikeLog(lines)) format = "log";
       const created = now();
+      const expires = created.getTime() + ttlMs;
+      const sizes = textSizes(text);
       const keepOriginal = keeps(format);
       const meta: DocumentMeta = {
         id: `doc_${randomUUID().replaceAll("-", "")}`,
@@ -336,7 +378,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         mimeType,
         format,
         bytes: input.bytes.byteLength,
-        textBytes: utf8Bytes(text),
+        textBytes: sizes.utf8,
+        jsonBytes: sizes.json,
         characters: text.length,
         lines: lines.length,
         estimatedTokens: estimateTokens(text),
@@ -346,7 +389,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         outline: buildOutline(lines, format),
         ...(format === "log" ? { logProfile: buildLogProfile(lines) } : {}),
         createdAt: created.toISOString(),
-        expiresAt: new Date(created.getTime() + ttlMs).toISOString(),
+        // Never, for a time to live without end (or one that runs past what a date can hold).
+        expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
       };
       // The line index, so that the text can be read by range: a few bytes a line, built from the
       // UTF-8 bytes the store writes. Kept by any store that can keep it, even one this library
@@ -373,7 +417,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
     async getOriginal(id, access) {
       const meta = await metaFor(id, access);
-      return meta?.originalKept ? options.store.getOriginal?.(id) : undefined;
+      return meta?.originalKept ? loadOriginal?.(id) : undefined;
     },
 
     async delete(id, access) {
@@ -410,12 +454,14 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const blocks = new Map<string, string>();
         const gone: string[] = [];
         for (const meta of documents) {
-          const text = await block(meta.id, meta, inline.has(meta.id), shown.has(meta.id));
+          const text = await block(meta.id, meta, inline.has(meta.id), shown.has(meta.id), canBeReadWhole(meta, budget));
           if (text === undefined) gone.push(meta.id);
           else blocks.set(meta.id, text);
         }
         if (gone.length === 0) {
-          return { plan, blocks, instruction: documentToolsInstruction(plan.searchable, viewable), missing, viewable };
+          // A whole-document read is named only when one of the files is small enough for it.
+          const wholeReads = plan.searchable.some((meta) => canBeReadWhole(meta, budget));
+          return { plan, blocks, instruction: documentToolsInstruction(plan.searchable, viewable, wholeReads), missing, viewable };
         }
         missing.push(...gone);
         documents = documents.filter((meta) => !gone.includes(meta.id));
@@ -424,7 +470,6 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
     tools(documents, toolOptions = {}) {
       const { viewPages, ...rest } = toolOptions;
-      const loadOriginal = options.store.getOriginal?.bind(options.store);
       const viewable = (loadOriginal ? (viewPages === true ? documents : viewPages || []) : [])
         .filter((meta) => meta.format === "pdf" && meta.originalKept);
       return createDocumentTools({
@@ -433,6 +478,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, meta.name])),
         budget,
         ...(loadOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal } : {}),
+        // `analyze_whole_document` is declared only when it can read at least one of the documents.
+        wholeReads: documents.some((meta) => canBeReadWhole(meta, budget)),
         ...rest,
       });
     },

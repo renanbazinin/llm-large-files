@@ -18,7 +18,7 @@ export function planDocuments(
   const byteRoom = budget.maxRequestBytes - REQUEST_BYTES_MARGIN - base.bytes;
   const plan: DocumentPlan = { inline: [], searchable: [], inlineTokens: 0, inlineBytes: 0 };
   for (const meta of [...documents].sort((left, right) => left.estimatedTokens - right.estimatedTokens)) {
-    const bytes = Math.ceil(meta.textBytes * 1.08) + 200;
+    const bytes = (meta.jsonBytes ?? Math.ceil(meta.textBytes * 1.08)) + 200;
     if (plan.inlineTokens + meta.estimatedTokens <= tokenRoom && plan.inlineBytes + bytes <= byteRoom) {
       plan.inline.push(meta);
       plan.inlineTokens += meta.estimatedTokens;
@@ -28,6 +28,41 @@ export function planDocuments(
     }
   }
   return plan;
+}
+
+/** The digits of the numbers 1 to `count`, written out: what the line numbers of a text take. */
+function digitsUpTo(count: number): number {
+  let digits = 0;
+  for (let width = 1, first = 1; first <= count; width++, first *= 10) digits += (Math.min(count, first * 10 - 1) - first + 1) * width;
+  return digits;
+}
+
+/**
+ * About how many parts a whole-document read of a document takes, from its metadata alone:
+ * counting them exactly means reading the whole text. In the prompt every line carries its number
+ * (`12345| `), at about 1.2 tokens a digit and one for the bar, and each line's estimate is
+ * rounded up. A part ends at the end of a line, so it is short of full by half a line on average.
+ * On logs, prose, tables and blank-heavy text this lands within a few percent of the count.
+ */
+export function estimateParts(meta: Pick<DocumentMeta, "estimatedTokens" | "lines" | "textBytes" | "jsonBytes">, budget: Budget): number {
+  const lines = Math.max(1, meta.lines);
+  const digits = digitsUpTo(lines);
+  const tokens = meta.estimatedTokens + 1.2 * digits + 1.5 * lines;
+  const bytes = (meta.jsonBytes ?? meta.textBytes * 1.08) + digits + 4 * lines;
+  const room = (limit: number, size: number) => Math.max(1, limit - size / lines / 2);
+  const maxBytes = Math.floor(budget.maxRequestBytes * 0.8);
+  return Math.max(1, Math.ceil(Math.max(tokens / room(budget.mapChunkTokens, tokens), bytes / room(maxBytes, bytes))));
+}
+
+/**
+ * Whether a whole-document read of a document is within `maxMapChunks`, as far as its metadata
+ * tells. The estimate runs a few percent high, so a file just over the limit by it is let through:
+ * the read counts its parts, and refuses with the reason if they are too many after all.
+ */
+export function canBeReadWhole(meta: Pick<DocumentMeta, "estimatedTokens" | "lines" | "textBytes" | "jsonBytes">, budget: Budget): boolean {
+  const parts = estimateParts(meta, budget);
+  // Metadata that does not say (a record of a document that an application kept in part): not refused here.
+  return !Number.isFinite(parts) || parts <= budget.maxMapChunks * 1.05;
 }
 
 function formatCount(value: number): string {
@@ -59,14 +94,17 @@ export const CARD_LINES = CARD_HEAD_LINES;
 /**
  * A compact stand-in for a document that is too large for the prompt. `head` is its first
  * `CARD_LINES` lines, numbered. `viewable` adds a line saying that its pages can be looked at
- * with `view_pages`.
+ * with `view_pages`. `readableWhole` is false for a file that a whole-document read would refuse:
+ * the card then does not offer one.
  */
-export function renderCard(meta: DocumentMeta, head: string, viewable = false): string {
+export function renderCard(meta: DocumentMeta, head: string, viewable = false, readableWhole = true): string {
   const out = [
     `--- Large attached file: ${meta.name} ---`,
     `document_id: ${meta.id}`,
     `${meta.format} · ${formatBytes(meta.bytes)} · ${meta.lines.toLocaleString("en-US")} lines${meta.pages ? ` · ${meta.pages} pages` : ""} · about ${formatCount(meta.estimatedTokens)} tokens`,
-    "This file is NOT in your context. Use the document tools to search it, read line ranges, or analyze all of it.",
+    readableWhole
+      ? "This file is NOT in your context. Use the document tools to search it, read line ranges, or analyze all of it."
+      : "This file is NOT in your context. Use the document tools to search it and to read line ranges. It is too large to be analyzed whole.",
     ...(viewable ? ["Its text cannot show pictures. To see a picture, a chart or the layout of a page, look at the page with view_pages."] : []),
   ];
   const profile = meta.logProfile;
@@ -91,9 +129,10 @@ export function renderCard(meta: DocumentMeta, head: string, viewable = false): 
 /**
  * The tool guide for the system prompt. `searchable` are the files the model reads through the
  * text tools. `viewable` are the PDFs whose pages it can look at with `view_pages`: some of them
- * may be searchable, and some may have their whole text in the prompt.
+ * may be searchable, and some may have their whole text in the prompt. `wholeReads` is false when
+ * every searchable file is too large for `analyze_whole_document`: the guide then leaves it out.
  */
-export function documentToolsInstruction(searchable: DocumentMeta[], viewable: DocumentMeta[] = []): string {
+export function documentToolsInstruction(searchable: DocumentMeta[], viewable: DocumentMeta[] = [], wholeReads = true): string {
   // File names come from uploads. Quoting keeps a name that reads like an instruction a name.
   const named = (meta: DocumentMeta, detail = "") => `${JSON.stringify(meta.name)} (document_id ${meta.id}${detail})`;
   const guide: string[] = [];
@@ -104,7 +143,7 @@ export function documentToolsInstruction(searchable: DocumentMeta[], viewable: D
       "- search_document finds lines (exact or regex) or the most relevant passages (keywords).",
       "- read_document reads a line range. Read around search hits before you rely on them.",
       "- get_document_overview returns the outline, log profile, and the start and end of a file.",
-      "- analyze_whole_document reads the entire file in parts. Use it only when the task needs all of it (a full summary, every occurrence, a timeline). It is slow and costly.",
+      ...(wholeReads ? ["- analyze_whole_document reads the entire file in parts. Use it only when the task needs all of it (a full summary, every occurrence, a timeline). It is slow and costly."] : []),
       "You have a limited number of tool turns. Call several tools in the same turn when the searches do not depend on each other, and answer as soon as you have enough evidence.",
       "Base your answer on text you actually read. Cite line numbers like (app.log L1203). If the tools did not find something, say so rather than guessing.",
     );

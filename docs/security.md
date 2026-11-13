@@ -108,6 +108,21 @@ slow pattern. Two things bound the cost:
 - Every regex scan runs under a 3-second limit enforced by Node's `vm` timeout, which interrupts a
   match that is still backtracking. The search returns what it found with a note that it stopped
   early.
+- The scan runs in slices of 250 ms, and other requests get a turn between two slices. A line
+  that takes two whole slices ends the search: `(a|a)+$` on a line it cannot get past costs
+  about 0.8 seconds, not 3.
+- The regex searches of one tool set, which is one question in `askGemini`, share 6 seconds
+  (`regexBudgetMs`). Past that, a regex search is refused and the model is told to search
+  another way.
+- `askGemini` runs at most 8 tool calls of one model turn (`maxToolCallsPerTurn`).
 
-The scan is synchronous, so a slow pattern still holds the event loop for up to 3 seconds per
-search. If that matters for your latency, run the document tools in a worker thread.
+A slice is synchronous, so a slow pattern still holds the event loop for up to a quarter of a
+second at a time, and twice that at the start of a search. If that matters for your latency, run
+the document tools in a worker thread.
+
+## Storage errors
+
+A file-system error names the path it failed on, and a database error its host. Neither is shown
+to a model or a user: a read of the store that fails becomes a `DocumentStoreError` whose message
+holds the error code at most (`The document store could not be read (EACCES). Try again.`), and a
+tool call answers with that message. The original error is its `cause`. Log that one.

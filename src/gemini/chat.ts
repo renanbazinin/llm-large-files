@@ -83,6 +83,11 @@ export type AskGeminiOptions = {
    * own, the last one, so the explorer has one less than this.
    */
   maxToolTurns?: number;
+  /**
+   * The most tool calls of one model turn that are run. A turn with more gets an error for each
+   * of the others, which tells the model to send it again if it is still needed. Defaults to 8.
+   */
+  maxToolCallsPerTurn?: number;
   /** Offer `analyze_whole_document`, which reads a whole file in many model calls. Defaults to true. */
   wholeDocumentAnalysis?: boolean;
   /**
@@ -341,6 +346,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   let pagesLeft = Math.floor(reservedTokens / 2 / PAGE_TOKENS);
 
   const maxTurns = Math.max(1, options.maxToolTurns ?? 12);
+  const maxCalls = Math.max(1, Math.trunc(options.maxToolCallsPerTurn ?? 8));
   let answered = false;
   // Tools run in at most maxTurns - 1 requests. The last request is the tool-free one below, so a
   // model that never stops calling tools does not cost a request whose calls are thrown away.
@@ -356,7 +362,17 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     const responses: Array<{ call: GeminiFunctionCall; result: ToolResult; files: ToolFile[] }> = [];
     // The size of the request as it stands, worked out when the first look at pages in this turn needs it.
     let requestBytes: number | undefined;
-    for (const call of calls) {
+    for (const [index, call] of calls.entries()) {
+      // Every call must be answered, but not every call is run: a turn of sixty reads would build
+      // a request that no model accepts, and a file can ask a model for exactly that.
+      if (index >= maxCalls) {
+        responses.push({
+          call,
+          result: { error: `Not run: one turn runs at most ${maxCalls} tool calls. Send this call again if you still need it.`, tool_turns_left: maxTurns - round - 1 },
+          files: [],
+        });
+        continue;
+      }
       const label = tools.has(call.name) ? tools.describe(call.name, call.args) : call.name;
       options.onActivity?.(`${label}…`);
       let limits: ToolFileLimits | undefined;
@@ -372,6 +388,11 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
       steps.push(step);
       options.onStep?.(step);
       responses.push({ call, result: { ...output.result, tool_turns_left: maxTurns - round - 1 }, files: output.files });
+    }
+    if (calls.length > maxCalls) {
+      const step = `${calls.length - maxCalls} more tool calls in this turn were not run (at most ${maxCalls} a turn)`;
+      steps.push(step);
+      options.onStep?.(step);
     }
     body.contents.push(...geminiFunctionResponseTurns(responses, { files: options.toolFilePlacement ?? "inside" }) as GeminiContent[]);
   }

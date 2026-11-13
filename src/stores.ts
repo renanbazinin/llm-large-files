@@ -74,6 +74,18 @@ const RETRY_RENAME = new Set(["EPERM", "EACCES", "EBUSY"]);
 const RENAME_PAUSES_MS = [10, 20, 40, 80, 160, 320, 500, 500, 500, 500];
 
 const code = (error: unknown) => (error as { code?: unknown } | null)?.code;
+/** There is no such file. Every other failure (a volume that does not answer, too many open files) says nothing about the file. */
+const missing = (error: unknown) => code(error) === "ENOENT";
+
+/** Metadata as it was written, or undefined for text that is not that: cut short, or damaged. */
+function parseMeta(raw: string): DocumentMeta | undefined {
+  try {
+    const meta = JSON.parse(raw) as DocumentMeta | null;
+    return meta !== null && typeof meta === "object" && typeof meta.expiresAt === "string" ? meta : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Writes a file whole or not at all, as other processes see it: to a temporary name first, then
@@ -142,12 +154,18 @@ export class FileDocumentStore implements DocumentStore {
   async getMeta(id: string): Promise<DocumentMeta | undefined> {
     const paths = this.paths(id);
     if (!paths) return undefined;
-    let meta: DocumentMeta;
+    let raw: string;
     try {
-      meta = JSON.parse(await readFile(paths.meta, "utf8")) as DocumentMeta;
-    } catch {
-      return undefined;
+      raw = await readFile(paths.meta, "utf8");
+    } catch (error) {
+      // Only a file that is not there means that the document is not there. A read that failed for
+      // another reason is thrown, so that a busy volume is not taken for a deleted document.
+      if (missing(error)) return undefined;
+      throw error;
     }
+    // Metadata that cannot be parsed is an upload being written by a server of 0.3.x, or damaged: absent.
+    const meta = parseMeta(raw);
+    if (!meta) return undefined;
     if (expired(meta, this.now())) {
       await this.delete(id);
       return undefined;
@@ -161,8 +179,9 @@ export class FileDocumentStore implements DocumentStore {
     if (!meta || !paths) return undefined;
     try {
       return { meta, text: await readFile(paths.text, "utf8") };
-    } catch {
-      return undefined;
+    } catch (error) {
+      if (missing(error)) return undefined;
+      throw error;
     }
   }
 
@@ -213,7 +232,11 @@ export class FileDocumentStore implements DocumentStore {
     const paths = this.paths(id);
     if (!paths) return false;
     const existed = Boolean(await readFile(paths.meta, "utf8").catch(() => null));
-    await Promise.all([paths.meta, paths.text, paths.original, paths.index].map((file) => rm(file, { force: true })));
+    // The metadata first: a document is there while its metadata is. If that file cannot be removed,
+    // nothing else is, and the document stays whole. The other way round, a document whose text is
+    // gone would still be listed.
+    await rm(paths.meta, { force: true });
+    await Promise.all([paths.text, paths.original, paths.index].map((file) => rm(file, { force: true })));
     return existed;
   }
 
@@ -232,16 +255,21 @@ export class FileDocumentStore implements DocumentStore {
     try {
       const file = await readFile(paths.original);
       return new Uint8Array(file.buffer, file.byteOffset, file.byteLength);
-    } catch {
-      return undefined;
+    } catch (error) {
+      if (missing(error)) return undefined;
+      throw error;
     }
   }
 
   /**
    * Removes expired documents and returns how many. Also removes files that belong to no
    * document, and temporary files, once they are older than `orphanAgeMs`. A document whose
-   * metadata cannot be read is removed only when that file is that old too: it may be being
+   * metadata is not valid is removed only when that file is that old too: it may be being
    * written by a server of an older version, which does not write whole files.
+   *
+   * A document whose metadata could not be read at all (the volume did not answer, too many files
+   * were open) is left alone, whatever its age: the next sweep looks at it again. A document that
+   * cannot be removed is left for the next sweep too, and does not stop this one.
    */
   async sweep(now = this.now()): Promise<number> {
     let entries: string[];
@@ -266,11 +294,19 @@ export class FileDocumentStore implements DocumentStore {
     for (const [id, names] of files) {
       const metaFile = `${id}.json`;
       if (names.includes(metaFile)) {
-        const meta = await readFile(path.join(this.directory, metaFile), "utf8").then((value) => JSON.parse(value) as DocumentMeta).catch(() => null);
-        if (meta ? expired(meta, now) : await old(metaFile)) {
-          await this.delete(id);
-          removed++;
-          continue;
+        let raw: string | undefined;
+        try {
+          raw = await readFile(path.join(this.directory, metaFile), "utf8");
+        } catch (error) {
+          // Not read is not the same as not valid: nothing of this document is touched.
+          if (!missing(error)) continue;
+        }
+        if (raw !== undefined) {
+          const meta = parseMeta(raw);
+          if (meta ? expired(meta, now) : await old(metaFile)) {
+            if (await this.delete(id).then(() => true, () => false)) removed++;
+            continue;
+          }
         }
       }
       // Temporary files of this document, and every file of one without metadata, once they are old.
