@@ -1,3 +1,4 @@
+import { withRetry, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes } from "./text.js";
 import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
 import type { Budget, GenerateText, ProgressListener } from "./types.js";
@@ -114,26 +115,31 @@ async function pool<T>(count: number, concurrency: number, run: (index: number) 
   return results;
 }
 
-async function withRetry(call: () => Promise<string>, signal?: AbortSignal): Promise<string> {
-  try {
-    return await call();
-  } catch (error) {
-    if (signal?.aborted) throw error;
-    return call();
+/** A whole-document read that was refused before any model call: the document has too many parts. */
+export class TooManyPartsError extends Error {
+  constructor(name: string, readonly parts: number, readonly limit: number) {
+    super(`Reading all of ${name} needs ${parts} model calls, over the limit of ${limit}. Use search_document to narrow the question first.`);
+    this.name = "TooManyPartsError";
   }
 }
 
-/** One model call, retried once. `truncated` is true when the reply that was kept hit the output limit. */
+/**
+ * One model call. A model that was busy or failed on its side (an error with an HTTP status worth
+ * retrying) is asked again after a wait, a few times; a request it refused is not. An error that
+ * says nothing of the kind is tried once more, at once. `truncated` is true when the reply that
+ * was kept hit the output limit.
+ */
 async function ask(
   generate: GenerateText,
   request: { system: string; prompt: string; maxOutputTokens: number },
   signal: AbortSignal | undefined,
+  retry: RetryOptions | undefined,
 ): Promise<{ text: string; truncated: boolean }> {
   let truncated = false;
   const text = await withRetry(() => {
     truncated = false;
-    return generate({ ...request, signal, onTruncated: () => { truncated = true; } });
-  }, signal);
+    return generate({ ...request, ...(signal ? { signal } : {}), onTruncated: () => { truncated = true; } });
+  }, { retry, signal, unknownErrors: "once" });
   return { text: text.trim(), truncated };
 }
 
@@ -149,13 +155,13 @@ export async function analyzeWholeDocument(options: {
   onProgress?: ProgressListener;
   signal?: AbortSignal;
   concurrency?: number;
+  /** How a model request that failed is sent again. See `RetryOptions`. */
+  retry?: RetryOptions;
 }): Promise<WholeDocumentResult> {
-  const { document, task, generate, budget, onProgress, signal } = options;
+  const { document, task, generate, budget, onProgress, signal, retry } = options;
   const name = document.meta.name;
   const parts = await partsOf(document, budget, signal);
-  if (parts.length > budget.maxMapChunks) {
-    throw new Error(`Reading all of ${name} needs ${parts.length} model calls, over the limit of ${budget.maxMapChunks}. Use search_document to narrow the question first.`);
-  }
+  if (parts.length > budget.maxMapChunks) throw new TooManyPartsError(name, parts.length, budget.maxMapChunks);
 
   let done = 0;
   let failed = 0;
@@ -180,7 +186,7 @@ export async function analyzeWholeDocument(options: {
           "</part>",
         ].join("\n"),
         maxOutputTokens: PART_OUTPUT_TOKENS,
-      }, signal);
+      }, signal, retry);
       text = reply.text;
       if (reply.truncated) {
         truncatedParts++;
@@ -252,7 +258,7 @@ export async function analyzeWholeDocument(options: {
           system: "You merge partial notes about a document into shorter notes, keeping every relevant fact and line citation.",
           prompt: `Task: ${task}\n\nMerge these notes from ${name} into one set of notes. Keep line citations.\n\n${batch}`,
           maxOutputTokens: PART_OUTPUT_TOKENS,
-        }, signal);
+        }, signal, retry);
         if (reply.truncated) truncatedMerges++;
         merged = reply.truncated ? `${reply.text}\n[These merged notes were cut off at the output limit.]` : reply.text;
       } catch (error) {
@@ -283,7 +289,7 @@ export async function analyzeWholeDocument(options: {
       layer.join("\n\n"),
     ].join("\n"),
     maxOutputTokens: FINAL_OUTPUT_TOKENS,
-  }, signal);
+  }, signal, retry);
   return {
     answer: final.text,
     parts: parts.length,

@@ -9,18 +9,88 @@ planner uses them to decide what goes into a request whole.
 |---|---|---|
 | `contextTokens` | 1,000,000 | The model's context window. |
 | `maxRequestBytes` | 10,000,000 | The largest request body your connector accepts. Checked separately from tokens: non-English text and JSON escaping make bytes run ahead of tokens. |
-| `inlineTokens` | 200,000 | The most document text sent whole in one request. Lower it to cut cost and latency; raise it to rely on the long context more. |
-| `reservedTokens` | 64,000 | Kept free for the answer, tool results, and growing history. |
-| `mapChunkTokens` | 100,000 | Part size when a whole file is read in parts. Smaller parts give more detailed notes but more model calls. |
+| `inlineTokens` | half the window, 200,000 at most | The most document text sent whole in one request. Lower it to cut cost and latency; raise it to rely on the long context more. |
+| `reservedTokens` | a quarter of the window, 64,000 at most | Kept free for the answer, tool results, and growing history. |
+| `mapChunkTokens` | half the window, 100,000 at most | Part size when a whole file is read in parts. Smaller parts give more detailed notes but more model calls. |
 | `maxMapChunks` | 30 | Refuse whole-file reads needing more model calls than this. 30 parts × 100K tokens = 3M tokens of input. |
-| `toolResultCharacters` | 24,000 | Cap on one tool result, in characters. For a log that can be 16,000 tokens, and every result is sent again on each later turn. |
+| `toolResultCharacters` | 12% of the window, 24,000 at most | Cap on one tool result, in characters. For a log that can be 12,000 tokens. |
+
+For a model with a smaller window, setting the window is enough: the rest follows it.
 
 ```ts
-createLargeFiles({
-  store,
-  budget: { contextTokens: 128_000, maxRequestBytes: 4_000_000, inlineTokens: 60_000, mapChunkTokens: 40_000 },
-});
+createLargeFiles({ store, budget: { contextTokens: 128_000, maxRequestBytes: 4_000_000 } });
+// → inlineTokens 64,000 · reservedTokens 32,000 · mapChunkTokens 64,000 · toolResultCharacters 15,360
 ```
+
+A field you set stays as you set it. Values that cannot work together are an error when the
+library is created: `reservedTokens` or `mapChunkTokens` at or above `contextTokens`.
+`resolveBudget(partial)` gives the whole budget for any set of fields.
+
+### One library, several models
+
+The budget of a question is the library's, made to fit the model that is asked. An adapter can say
+what its model takes:
+
+```ts
+const small = openAiCompatible({ baseUrl, apiKey, model: "small-model", contextTokens: 128_000 });
+const result = await askWithFiles({ files, model: small, documentIds, messages });
+result.budget; // the library's budget, fitted to a window of 128,000 tokens
+```
+
+- The smaller window holds: the library's `contextTokens`, or the model's. With an explorer, the
+  smallest of the three. The same for `maxRequestBytes`.
+- Fields the library left open follow that window. Fields it set are kept, and lowered if they are
+  too large for it.
+- `outputTokens` of a model is kept free on top: Claude counts `max_tokens` against the window.
+- `tokenScale` is how many of the model's tokens one token of the library's estimate comes to. The
+  estimate is fitted to Gemini, so that is 1 there. For a tokenizer that counts more (the Claude
+  adapter says 1.35), the window is that much smaller in the library's terms.
+- `budget` in `askWithFiles` (and in `prepare` and `tools`) changes fields for one question:
+  `budget: { inlineTokens: 20_000 }`.
+
+### Limits and retries
+
+What one question may do, in `limits` of `askWithFiles` and `askGemini`:
+
+| Limit | Default | |
+|---|---|---|
+| `toolTurns` | 12 | Chat requests for one question, counting the answer. |
+| `callsPerTurn` | 8 | Tool calls of one model turn that are run. The others are answered "send it again if you still need it". |
+| `wholeDocumentReads` | 1 | How often each document may be read whole. One read is up to `maxMapChunks` requests. 0 refuses them all. |
+| `inputTokens` | none | Once the question has used this many input tokens, over all its requests, the next request is the answer. A whole-file read that would pass it is refused with the numbers. |
+| `requests` | none | The same, for the number of requests: the chat's and the part reads' together. |
+
+```ts
+await askWithFiles({ files, model, documentIds, messages, limits: { toolTurns: 8, inputTokens: 2_000_000 } });
+```
+
+A request that failed is sent again when another try can help: HTTP 408, 409, 429 and 5xx, and a
+connection that failed. It waits 0.25 to 0.5 seconds, then twice and four times that, or as long as
+the provider asks (`Retry-After`, or the `retryDelay` of Gemini's `RetryInfo`). It is not sent
+again once text of the reply was shown, after you stopped the question, or when the provider asks
+for a longer wait than `maxDelayMs`. The part reads of a whole-file read follow the same rule.
+
+```ts
+retry: { retries: 3, baseDelayMs: 500, maxDelayMs: 60_000 }  // the defaults; retries: 0 turns it off
+```
+
+### Room in the request
+
+Every tool result stays in the conversation until the question is answered, and is sent again with
+each later request. The loop counts the request as it grows, by the library's estimate and, once
+the provider has answered, by the provider's own count:
+
+- Before the calls of a turn run, each is given the room that is left, up to
+  `toolResultCharacters`. A result is cut to its room and says where to go on.
+- When the room runs short, the results of all but the last three tool rounds are replaced by
+  stand-ins: `{ document, dropped: true, lines: "1-212", note: "… Read them again with
+  read_document if you need them." }`. `steps` then holds "Older tool results were shortened to
+  make room in the request". Claude's conversation is never rewritten, so this step is skipped for
+  it.
+- A call that still finds no room is answered "no room left, answer now", and the next request is
+  the answer.
+
+Text tools may fill the window up to half of `reservedTokens`; the other half is the answer's.
 
 ### How the plan is made
 
@@ -119,7 +189,11 @@ tokens, and its answer is dropped.
 - **`text` and `onText` carry only the answer.** Without an explorer, a remark that the model makes
   before a tool call ("Let me search…") is part of `text`. The explorer's words are not shown.
   `onActivity` and `onStep` report its tool calls as before, and `turns` counts its requests too.
-  `usage` and `finishReason` are those of the answer.
+  `usage` is the total of both models, with an entry for each in `usage.byModel`; `finishReason`
+  and `lastUsage` are those of the answer.
+- **The explorer need not be a Gemini model.** With `askWithFiles`, `explorer` is any adapter:
+  `askWithFiles({ model: gemini(…), explorer: openAiCompatible(…) })`. The answering model gets
+  the explorer's calls and results in its own provider's form.
 - **The explorer's requests are not streamed.** Nothing it writes is shown, so each goes to
   `explorerUrl` in one piece. The answer streams as before.
 - **Settings are per model.** `explorerGenerationConfig` is the explorer's `generationConfig`, and

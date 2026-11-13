@@ -112,7 +112,42 @@ tool: it reports `total_matching_lines`.
 
 Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow the question first.
 
-## The Gemini loop (`askGemini`)
+## The loop (`askWithFiles`)
+
+One loop serves every model. A provider is an adapter that turns the loop's request into its own
+and reads the reply back; everything else happens once, in the core:
+
+- **Retries.** A request that failed with HTTP 408, 409, 429 or 5xx, or that got no answer, is sent
+  again after a wait that doubles, or after the wait the provider asks for. Not after text of the
+  reply was shown, and not after a refusal such as 400 or 401. The part reads of a whole-file read
+  follow the same rule.
+- **Calls of one turn run together**, four at a time, and are answered in the order they were made.
+  Looks at pages run one after another, because each is given the room the one before it left.
+  Regex searches do too: they share the time of the tool set. At most eight calls of a turn run.
+- **Room.** The loop counts the request as it grows. Each call gets the room that is left, old
+  results are shortened to stand-ins when it runs short, and a call that finds none ends the tools:
+  the next request is the answer. See [Room in the request](configuration.md#room-in-the-request).
+- **One whole-file read** of each document for a question. A model that asks again, with the task
+  put another way, is told to use the answer it has.
+- **Usage** is summed over every request, the part reads included, for each model.
+- **Evidence** is read from the tool calls: for each, the document and the lines or pages shown.
+- **A call that did not arrive whole** (arguments that are not JSON, or cut off at the output
+  limit) is answered with what was wrong, and not run.
+- **The end.** When the turns or the room run out, or the model's last turn has no text, one more
+  request must be answered in text. For Gemini it declares no tools; for an OpenAI-compatible
+  endpoint and for Claude it keeps them and sets the tool choice to none.
+
+What differs between providers is in the adapters:
+
+| | Gemini | OpenAI-compatible | Claude |
+|---|---|---|---|
+| The model's turn goes back | unchanged: thought signatures | unchanged: `reasoning_content`, signatures | unchanged: thinking blocks |
+| The request for the answer | no tools declared | `tool_choice: "none"`, tools kept | `tool_choice: none`, tools kept |
+| Pages of `view_pages` | inside the function response | a `file` part after the results, opt-in | a document block in the tool result |
+| Old results shortened for room | yes | yes | no: the conversation may only grow |
+| Prompt cache | the provider's own | the provider's own | `cache_control` on each request |
+
+## Gemini (`askGemini`, `gemini()`)
 
 - Document text and cards go at the **start of the first user turn** and stay there as the
   conversation grows. Gemini's prompt cache works on a matching prefix, so a follow-up question
@@ -136,7 +171,8 @@ Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow t
   responses, because Vertex AI refuses a turn in which anything follows one. Both forms work with
   Gemini 3.5 on the Gemini API and on Vertex AI.
 - Tool results, pages included, live inside one call of `askGemini`. They are not sent again with
-  the next question.
+  the next question unless you pass `result.toolTurns` back with the conversation. Pages are not
+  in those: a stored round says that they were shown.
 
 ### With an explorer model
 

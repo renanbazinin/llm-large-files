@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { buildLogProfile, buildOutline, looksLikeLog } from "./analyze.js";
+import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
 import { DocumentStoreError } from "./errors.js";
 import { detectFormat, extractText } from "./extract.js";
@@ -10,6 +11,7 @@ import { numberLines, SearchableDocument, type DocumentSource } from "./search.j
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
 import { buildTextIndex, canSerialize, serializeTextIndex } from "./text-index.js";
 import { estimateTokens, normalizeText, textSizes, wrapLongLines } from "./text.js";
+import type { RetryOptions } from "./retry.js";
 import { createDocumentTools } from "./tools.js";
 import type {
   Budget,
@@ -24,21 +26,16 @@ import type {
   ToolSet,
 } from "./types.js";
 
-/** Defaults sized for a 1M-token model behind a 10 MB request limit. */
-export const DEFAULT_BUDGET: Budget = {
-  contextTokens: 1_000_000,
-  maxRequestBytes: 10_000_000,
-  inlineTokens: 200_000,
-  reservedTokens: 64_000,
-  mapChunkTokens: 100_000,
-  maxMapChunks: 30,
-  toolResultCharacters: 24_000,
-};
+export { DEFAULT_BUDGET } from "./budget.js";
 
 export type LargeFilesOptions = {
   /** Where extracted text is kept: `new FileDocumentStore(dir)`, `new MemoryDocumentStore()`, or your own. */
   store: DocumentStore;
-  /** Your model's limits. Anything left out uses DEFAULT_BUDGET. */
+  /**
+   * Your model's limits. What is left out follows `contextTokens` (see `resolveBudget`), which is
+   * 1M tokens unless you set it: for a model with a smaller window, setting that one number is
+   * enough. Values that cannot work together are an error.
+   */
   budget?: Partial<Budget>;
   /**
    * How long uploaded documents are kept. Defaults to 72 hours. `Infinity` keeps them until they
@@ -107,6 +104,11 @@ export type AccessOptions = { owner?: string };
 
 export type PrepareOptions = AccessOptions & {
   /**
+   * The budget of this request, when it is not the library's own: the fields to change, as in
+   * `LargeFilesOptions.budget`. `askWithFiles` passes the budget that fits the model it was given.
+   */
+  budget?: Partial<Budget>;
+  /**
    * Say that your tool loop can pass files to the model (see `ToolOptions.viewPages`). The result
    * then lists the PDFs whose pages can be shown in `viewable`, and the instruction and the cards
    * tell the model about `view_pages`. Without it, the result is that of 0.2.0.
@@ -128,6 +130,16 @@ export type ToolOptions = {
    */
   regexBudgetMs?: number;
   /**
+   * How many times each document may be read whole (`analyze_whole_document`) by this tool set.
+   * A call past it answers with an error that tells the model to use what it has. Defaults to 1:
+   * make one tool set for each question, as `askWithFiles` does.
+   */
+  maxWholeDocumentReads?: number;
+  /** How a model request of a whole-document read that failed is sent again. Defaults to three more tries, with a wait that doubles. */
+  retry?: RetryOptions;
+  /** The budget of these tools, when it is not the library's own: the fields to change. Use the one you planned the request with. */
+  budget?: Partial<Budget>;
+  /**
    * Offers `view_pages`, which hands the model real pages of a PDF whose original file is kept
    * (see `keepOriginals`). The pages come back as a file, so turn this on only when your loop
    * runs tools with `executeWithFiles` and sends the files to the model. `true` offers it for the
@@ -140,6 +152,12 @@ export type ToolOptions = {
 export interface LargeFiles {
   /** The effective budget (defaults merged with your overrides). */
   readonly budget: Budget;
+  /**
+   * The budget for one request: the library's, with `overrides` in place of its fields, made to
+   * fit `limits` (a model's context window and request size, when they are smaller). Fields that
+   * neither the library nor `overrides` set follow the context window that results.
+   */
+  budgetFor(overrides?: Partial<Budget>, limits?: ModelLimits): Budget;
   readonly maxUploadBytes: number;
   /** Extracts, normalizes, profiles, and stores a file. Throws a user-readable Error on bad input. */
   ingest(input: IngestInput): Promise<DocumentMeta>;
@@ -220,7 +238,12 @@ export const DEFAULT_CACHE_BYTES = 256 * 1024 * 1024;
 export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
 
 export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
-  const budget: Budget = { ...DEFAULT_BUDGET, ...options.budget };
+  /** The fields the application set. The others follow the context window, whichever it is for a request. */
+  const ownBudget = givenBudget(options.budget);
+  const budget: Budget = resolveBudget(ownBudget);
+  const budgetFor = (overrides?: Partial<Budget>, limits?: ModelLimits): Budget => (
+    overrides || limits ? resolveBudget({ ...ownBudget, ...givenBudget(overrides) }, limits) : budget
+  );
   const ttlMs = options.ttlMs ?? 72 * 60 * 60 * 1000;
   const maxUploadBytes = options.maxUploadBytes ?? 100 * 1024 * 1024;
   const now = options.now ?? (() => new Date());
@@ -345,6 +368,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
   return {
     budget,
+    budgetFor,
     maxUploadBytes,
 
     async ingest(input) {
@@ -431,6 +455,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
 
     async prepare(ids, base, access) {
+      const budget = budgetFor(access?.budget);
       const unique = [...new Set(ids)];
       let documents: DocumentMeta[] = [];
       const missing: string[] = [];
@@ -469,7 +494,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
 
     tools(documents, toolOptions = {}) {
-      const { viewPages, ...rest } = toolOptions;
+      const { viewPages, budget: overrides, ...rest } = toolOptions;
+      const budget = budgetFor(overrides);
       const viewable = (loadOriginal ? (viewPages === true ? documents : viewPages || []) : [])
         .filter((meta) => meta.format === "pdf" && meta.originalKept);
       return createDocumentTools({

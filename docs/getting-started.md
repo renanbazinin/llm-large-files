@@ -138,9 +138,15 @@ What `askGemini` does each turn:
 3. Adds each document's text or card at the start of the first user message, where it stays for
    the whole conversation (so follow-up questions reuse Gemini's prompt cache), and a short tool
    guide to the system prompt.
-4. Runs the tool loop if needed (up to `maxToolTurns` requests, default 12). If the model keeps
+4. Runs the tool loop if needed (up to `limits.toolTurns` requests, default 12). If the model keeps
    searching, the last request is sent without tools so it has to answer. `result.answered` is
    `false` in the rare case that there is still no answer (a blocked prompt, or an empty reply).
+5. Sends a request again when the model was busy or could not be reached, keeps the request
+   inside the model's window as tool results add up, and returns what the question used
+   (`result.usage`) and what it read (`result.evidence`).
+
+`askGemini` is `askWithFiles` with a Gemini model. Everything it does, it does for
+[any other model](#with-another-model-askwithfiles) too.
 
 **Vertex AI:**
 
@@ -212,27 +218,57 @@ Kept files take disk space until they expire, which is why this is off by defaul
 costs and the measurements are in [Pictures in PDFs](configuration.md#pictures-in-pdfs), and what
 to think about before turning it on in [Security](security.md#original-files).
 
-### With another model: build your own loop
+### With another model: `askWithFiles`
 
-`files.prepare()` and `files.tools()` are provider-neutral. Tool declarations are plain JSON Schema,
-which OpenAI (`{ type: "function", function: declaration }`) and Anthropic
-(`{ name, description, input_schema: parameters }`) also accept.
+The loop is not Gemini's. `askWithFiles` takes the model as an adapter, and two adapters come with
+the package next to Gemini's:
 
 ```ts
-const prepared = await files.prepare(documentIds, { tokens: historyTokens, bytes: historyBytes }, { owner });
-// 1. Add prepared.blocks.get(id) for each document to the user's message.
-// 2. Add prepared.instruction to the system prompt.
-// 3. If prepared.plan.searchable is not empty, give the model tools:
-const tools = files.tools(prepared.plan.searchable, { generate: myTextCompletion /* optional: enables analyze-all */ });
-//    tools.declarations → your SDK's tool format
-//    for each tool call: const result = await tools.execute(call.name, call.args)
-//    return result to the model; repeat until it answers.
+import { askWithFiles, DocumentsNotFoundError, ModelRequestError } from "llm-large-files";
+import { openAiCompatible } from "llm-large-files/openai";
+import { anthropic } from "llm-large-files/anthropic";
+
+// Any Chat Completions endpoint: OpenAI, Azure OpenAI, DeepSeek, LiteLLM, vLLM, Ollama, OpenRouter.
+const model = openAiCompatible({
+  baseUrl: "https://api.deepseek.com/v1",
+  apiKey: process.env.DEEPSEEK_API_KEY!,
+  model: "deepseek-v4-pro",
+  contextTokens: 1_000_000,          // the budget of a question follows it
+  body: { temperature: 0.3 },
+});
+
+// Or Claude:
+const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", fallbacks: "default" });
+
+const result = await askWithFiles({
+  files, model, documentIds, messages,
+  owner: req.user?.id,
+  system: "You are our support assistant.",
+  signal: abort.signal,
+  onText: (text) => send("text", text),
+  onActivity: (text) => send("activity", text),
+  onStep: (text) => send("step", text),
+});
 ```
 
-`generate` is any `({ system, prompt, maxOutputTokens, signal }) => Promise<string>`. It's used
-only to read whole files in parts.
+`messages` are `{ role: "user" | "assistant", text }`. A turn that holds more than text takes
+parts, with anything but text in the provider's own form:
+`{ role: "user", parts: [{ text: "What is in this picture?" }, { native: { type: "image_url", image_url: { url } } }] }`.
 
-To offer `view_pages` in your own loop, it has to send a file to the model with a tool result. See
+**Two models, of two providers.** `explorer` is a second adapter. It makes the tool calls and
+reads whole files in parts, and `model` writes the answer from what the tools returned:
+
+```ts
+await askWithFiles({ files, model: claude, explorer: model, documentIds, messages });
+```
+
+**Errors.** A model's HTTP error is a `ModelRequestError` with a `status` (0 when the model could
+not be reached). It reaches you after the request was tried again, when another try could have
+helped.
+
+**A model without an adapter** needs one object with a `send` method:
+[your own adapter](api.md#your-own-adapter). `files.prepare()` and `files.tools()` are still there
+for a loop that is all your own; `view_pages` in such a loop is described in
 [Your own loop](configuration.md#your-own-loop).
 
 ## Keeping the conversation working
@@ -241,6 +277,21 @@ To offer `view_pages` in your own loop, it has to send a file to the model with 
   because the history grows. Stateful APIs that keep history server-side (such as Gemini
   Interactions with `previous_interaction_id`) don't mix with per-turn planning.
 - Keep the document IDs with the conversation, not with one message. Pass all of them on every turn.
+- Keep **what a question read** with the conversation too. `result.toolTurns` is plain JSON: store
+  it between the question and its answer, and pass it back in `messages` in that place. The model
+  then sees its earlier searches and reads, and a follow-up question often needs no new one. In a
+  live check a follow-up took one request instead of three.
+
+  ```ts
+  const messages = history.flatMap((turn) => [
+    { role: "user", text: turn.question }, ...turn.toolTurns, { role: "assistant", text: turn.answer },
+  ]).concat({ role: "user", text: newQuestion });
+  ```
+
+  If your history is Gemini `contents`, `geminiToolTurns(result.toolTurns)` gives the rounds in
+  that form.
+- `result.evidence` lists, for each tool call, the document and the lines or pages the model was
+  shown. Store it with the answer if you want to show sources, or to check a citation later.
 - Expired documents raise `DocumentsNotFoundError` (with `.ids`). Ask the user to attach them again.
   A store that could not be read raises `DocumentStoreError` instead: the documents are still
   there, so retry the request. With `ttlMs: Infinity` documents do not expire at all.

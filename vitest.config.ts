@@ -8,6 +8,8 @@ export default defineConfig({
     // Tests and examples import the package by name; resolve it to source, not dist.
     alias: [
       { find: /^llm-large-files\/gemini$/, replacement: source("./src/gemini/index.ts") },
+      { find: /^llm-large-files\/openai$/, replacement: source("./src/openai/index.ts") },
+      { find: /^llm-large-files\/anthropic$/, replacement: source("./src/anthropic/index.ts") },
       { find: /^llm-large-files\/node$/, replacement: source("./src/node/index.ts") },
       { find: /^llm-large-files$/, replacement: source("./src/index.ts") },
     ],

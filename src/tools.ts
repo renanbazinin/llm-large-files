@@ -1,9 +1,10 @@
 import { safeErrorMessage } from "./errors.js";
-import { analyzeWholeDocument } from "./map-reduce.js";
+import { analyzeWholeDocument, TooManyPartsError } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
 import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource } from "./search.js";
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
-import type { Budget, GenerateText, ProgressListener, ToolDeclaration, ToolFileLimits, ToolOutput, ToolResult, ToolSet } from "./types.js";
+import type { RetryOptions } from "./retry.js";
+import type { Budget, GenerateText, ProgressListener, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
 const MAX_READ_LINES = 600;
@@ -16,6 +17,16 @@ export const MAX_VIEW_PAGES = 5;
 export const REGEX_BUDGET_MS = 6_000;
 /** Below this, no page fits: a cut of one page of plain text is larger. */
 const MIN_FILE_BYTES = 1_024;
+/** The answer of a whole-document read may be this long, when the cap on tool results is lower. */
+const ANALYSIS_RESULT_CHARACTERS = 40_000;
+/** A result is never cut below this, whatever room a caller names: less holds no line of a file. */
+const LEAST_RESULT_CHARACTERS = 600;
+/**
+ * How many times one document is read whole by the tools of one tool set (one question, in
+ * `askWithFiles`), unless `maxWholeDocumentReads` says otherwise. One read of a large file is
+ * up to `maxMapChunks` model requests.
+ */
+export const MAX_WHOLE_DOCUMENT_READS = 1;
 
 export const TOOL_NAMES = {
   search: "search_document",
@@ -169,6 +180,10 @@ export function createDocumentTools(options: {
   signal?: AbortSignal;
   /** The most time, in milliseconds, that the regex searches of this tool set may take together. Defaults to `REGEX_BUDGET_MS`. */
   regexBudgetMs?: number;
+  /** How many times each document may be read whole by this tool set. Defaults to `MAX_WHOLE_DOCUMENT_READS`. */
+  maxWholeDocumentReads?: number;
+  /** How a model request of a whole-document read that failed is sent again. */
+  retry?: RetryOptions;
   /**
    * False when every document is too large for a whole-document read: `analyze_whole_document` is
    * then not declared. A call of it still answers with the reason. Defaults to true.
@@ -195,11 +210,27 @@ export function createDocumentTools(options: {
   const known = new Set(declarations.map((declaration) => declaration.name));
   // Not declared for files that are all too large for it, but still answered: with the reason, not "unknown tool".
   if (textTools && options.generate) known.add(TOOL_NAMES.analyze);
-  const limit = options.budget.toolResultCharacters;
+  const cap = options.budget.toolResultCharacters;
+  /** The cap on the result of one call: the tool set's own, or the room its caller has left when that is less. */
+  const limitOf = (limits: ToolCallLimits, own = cap): number => {
+    const room = limits.maxResultCharacters;
+    return typeof room === "number" && Number.isFinite(room) ? Math.max(LEAST_RESULT_CHARACTERS, Math.min(own, Math.trunc(room))) : own;
+  };
   // The model writes the regex, and a file it reads can ask for a slow one: the time is counted
   // over every search of this tool set, not only within one.
   const regexBudget = Math.max(0, options.regexBudgetMs ?? REGEX_BUDGET_MS);
   const regexClock = { usedMs: 0 };
+  // Calls of one turn may run together. Regex searches still take their turns, one after another:
+  // each must know how much of the time the ones before it used.
+  let regexQueue: Promise<unknown> = Promise.resolve();
+  const inRegexTurn = <T>(run: () => Promise<T>): Promise<T> => {
+    const next = regexQueue.then(run, run);
+    regexQueue = next.catch(() => undefined);
+    return next;
+  };
+  const maxWholeReads = Math.max(0, Math.trunc(options.maxWholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS));
+  /** Whole-document reads started, by document. */
+  const wholeReads = new Map<string, number>();
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
@@ -213,8 +244,9 @@ export function createDocumentTools(options: {
     return document;
   }
 
-  const handlers: Record<string, (args: Record<string, unknown>) => Promise<ToolResult>> = {
-    async [TOOL_NAMES.search](args) {
+  const handlers: Record<string, (args: Record<string, unknown>, limits: ToolCallLimits) => Promise<ToolResult>> = {
+    async [TOOL_NAMES.search](args, limits) {
+      const limit = limitOf(limits);
       const document = await documentFor(args);
       const query = text(args.query, "query");
       const mode = args.mode === "exact" || args.mode === "regex" ? args.mode : "keywords";
@@ -241,18 +273,21 @@ export function createDocumentTools(options: {
         }, "passages", limit);
       }
       const regex = mode === "regex";
-      const regexLeft = regexBudget - regexClock.usedMs;
-      if (regex && regexLeft <= 0) {
-        throw new Error("The time for regex searches is used up for this answer. Search with mode \"exact\" or \"keywords\" instead.");
-      }
-      const result = await grepSource(document, query, {
-        regex,
-        caseSensitive: args.case_sensitive === true,
-        maxResults: integer(args.max_results, 20, 1, 50),
-        contextLines: integer(args.context_lines, 0, 0, 5),
-        ...(regex ? { timeLimitMs: Math.min(REGEX_TIME_LIMIT_MS, regexLeft), regexClock } : {}),
-        ...(options.signal ? { signal: options.signal } : {}),
-      });
+      const grep = async () => {
+        const regexLeft = regexBudget - regexClock.usedMs;
+        if (regex && regexLeft <= 0) {
+          throw new Error("The time for regex searches is used up for this answer. Search with mode \"exact\" or \"keywords\" instead.");
+        }
+        return grepSource(document, query, {
+          regex,
+          caseSensitive: args.case_sensitive === true,
+          maxResults: integer(args.max_results, 20, 1, 50),
+          contextLines: integer(args.context_lines, 0, 0, 5),
+          ...(regex ? { timeLimitMs: Math.min(REGEX_TIME_LIMIT_MS, regexLeft), regexClock } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+      };
+      const result = await (regex ? inRegexTurn(grep) : grep());
       return fit({
         document: document.meta.name,
         mode,
@@ -265,7 +300,8 @@ export function createDocumentTools(options: {
       }, "matches", limit);
     },
 
-    async [TOOL_NAMES.read](args) {
+    async [TOOL_NAMES.read](args, limits) {
+      const limit = limitOf(limits);
       const document = await documentFor(args);
       const total = document.lineCount;
       const start = integer(args.start_line, 1, 1, total);
@@ -291,7 +327,8 @@ export function createDocumentTools(options: {
       };
     },
 
-    async [TOOL_NAMES.overview](args) {
+    async [TOOL_NAMES.overview](args, limits) {
+      const limit = limitOf(limits);
       const document = await documentFor(args);
       const { meta, lineCount } = document;
       const tail = Math.max(1, lineCount - 19);
@@ -316,18 +353,37 @@ export function createDocumentTools(options: {
       }, "outline", limit);
     },
 
-    async [TOOL_NAMES.analyze](args) {
+    async [TOOL_NAMES.analyze](args, limits) {
       if (!options.generate) throw new Error("Whole-document analysis is not enabled.");
       const document = await documentFor(args);
       const task = text(args.task, "task");
-      const result = await analyzeWholeDocument({
-        document,
-        task,
-        generate: options.generate,
-        budget: options.budget,
-        onProgress: options.onProgress,
-        signal: options.signal,
-      });
+      // A read of the whole file is many model requests. A model that asks for it again, with the
+      // task put another way, is told to use what it has. The count is taken before the read
+      // starts, so that two calls in one turn do not both pass.
+      const id = document.meta.id;
+      const reads = wholeReads.get(id) ?? 0;
+      if (reads >= maxWholeReads) {
+        throw new Error(maxWholeReads === 0
+          ? `Whole-file reads are turned off for this question. Use search_document and read_document on ${document.meta.name}.`
+          : `${document.meta.name} was already read whole for this question${maxWholeReads > 1 ? ` ${maxWholeReads} times` : ""}, and is not read whole again. Use the answer of that read, or search_document and read_document for the details.`);
+      }
+      wholeReads.set(id, reads + 1);
+      let result;
+      try {
+        result = await analyzeWholeDocument({
+          document,
+          task,
+          generate: options.generate,
+          budget: options.budget,
+          onProgress: options.onProgress,
+          signal: options.signal,
+          ...(options.retry ? { retry: options.retry } : {}),
+        });
+      } catch (error) {
+        // Refused before any model call: that was no read.
+        if (error instanceof TooManyPartsError) wholeReads.set(id, reads);
+        throw error;
+      }
       const notesCutShort = result.truncatedParts + result.truncatedMerges;
       return fit({
         document: document.meta.name,
@@ -338,12 +394,12 @@ export function createDocumentTools(options: {
         ...(result.answerTruncated ? { answer_cut_short: true } : {}),
         ...(notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
         answer: result.answer,
-      }, null, Math.max(limit, 40_000));
+      }, null, limitOf(limits, Math.max(cap, ANALYSIS_RESULT_CHARACTERS)));
     },
   };
 
   /** `view_pages`: the pages as one small PDF, next to a short JSON result. */
-  async function viewPages(args: Record<string, unknown>, limits: ToolFileLimits): Promise<ToolOutput> {
+  async function viewPages(args: Record<string, unknown>, limits: ToolCallLimits): Promise<ToolOutput> {
     const id = text(args.document_id, "document_id");
     // The same scope check as the text tools, on its own list: a PDF can be looked at without
     // being searchable, and the other way round.
@@ -394,13 +450,13 @@ export function createDocumentTools(options: {
   // What a tool could not do goes to the model, and from there to a user's screen: never a server path.
   const failure = (error: unknown): ToolResult => ({ error: safeErrorMessage(error) });
 
-  async function execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  async function execute(name: string, args: Record<string, unknown>, limits: ToolCallLimits = {}): Promise<ToolResult> {
     if (!known.has(name)) return { error: `Unknown tool ${name}.` };
     // The pages are a file, and this method returns only JSON. Saying that pages are attached
     // with nothing attached would be worse than saying that they could not be shown.
     if (name === TOOL_NAMES.view) return { error: FILES_NOT_DELIVERED };
     try {
-      return await handlers[name]!(args);
+      return await handlers[name]!(args, limits);
     } catch (error) {
       if (options.signal?.aborted) throw error;
       return failure(error);
@@ -410,9 +466,10 @@ export function createDocumentTools(options: {
   return {
     declarations,
     has: (name) => known.has(name),
-    execute,
+    execute: (name, args) => execute(name, args),
+    resultCharacters: (name) => (name === TOOL_NAMES.analyze ? Math.max(cap, ANALYSIS_RESULT_CHARACTERS) : name === TOOL_NAMES.view ? LEAST_RESULT_CHARACTERS : cap),
     async executeWithFiles(name, args, limits = {}) {
-      if (name !== TOOL_NAMES.view || !known.has(name)) return { result: await execute(name, args), files: [] };
+      if (name !== TOOL_NAMES.view || !known.has(name)) return { result: await execute(name, args, limits), files: [] };
       try {
         return await viewPages(args, limits);
       } catch (error) {
