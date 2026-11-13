@@ -6,7 +6,14 @@ import type { DocumentMeta, StoredDocument } from "./types.js";
 const MAX_OCCURRENCES_PER_TERM = 200_000;
 const MAX_EXACT_MATCHES = 1_000_000;
 const MAX_PHRASE_PASSAGES = 10_000;
-const REGEX_TIME_LIMIT_MS = 3_000;
+/** The most time one regex search may spend matching. */
+export const REGEX_TIME_LIMIT_MS = 3_000;
+/**
+ * A regex scan runs in slices of this length, and other work gets a turn between two slices. A
+ * line that takes two whole slices is a pattern that backtracks without end on it: the search
+ * stops there, long before its time limit.
+ */
+const REGEX_SLICE_MS = 250;
 const SHOWN_LINE_CHARACTERS = 400;
 
 const STOPWORDS = new Set([
@@ -53,13 +60,31 @@ export interface DocumentSource {
    * Optional: feeds the pieces in order to `feed` until it returns true, sharing one pass over the
    * text with other scans of the same document where it can.
    */
-  scan?(feed: (chunk: TextChunk) => boolean | void, signal?: AbortSignal): Promise<void>;
+  scan?(feed: ScanFeed, signal?: AbortSignal): Promise<void>;
 }
 
+/**
+ * What a scan does with a piece of the text. True: it has all it needs, so nothing more is read.
+ * "again": it stopped part-way through the piece to let other work run, and wants the same piece
+ * once more.
+ */
+export type ScanFeed = (chunk: TextChunk) => boolean | void | "again";
+
+/** Lets other work on the server run (an answer streaming to another user) before going on. */
+export const pause = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 /** Feeds a document's text, a piece at a time, to `feed` until it returns true or the text ends. */
-export async function scanSource(source: DocumentSource, feed: (chunk: TextChunk) => boolean | void, signal?: AbortSignal): Promise<void> {
+export async function scanSource(source: DocumentSource, feed: ScanFeed, signal?: AbortSignal): Promise<void> {
   if (source.scan) return source.scan(feed, signal);
-  for await (const chunk of source.chunks(signal)) if (feed(chunk) === true) break;
+  for await (const chunk of source.chunks(signal)) {
+    let more = feed(chunk);
+    while (more === "again") {
+      await pause();
+      signal?.throwIfAborted();
+      more = feed(chunk);
+    }
+    if (more === true) break;
+  }
 }
 
 /** Lines as the tools show them: "12| text", one a line. */
@@ -212,6 +237,8 @@ export type GrepOptions = {
   contextLines: number;
   /** Regex mode only. Defaults to 3 seconds of scanning. */
   timeLimitMs?: number;
+  /** Regex mode only: the time spent matching is added to `usedMs`, for a caller that keeps a budget over several searches. */
+  regexClock?: { usedMs: number };
 };
 
 function clip(line: string, column: number): string {
@@ -263,6 +290,19 @@ export function unsafeRegexReason(pattern: string): string | null {
   return null;
 }
 
+/**
+ * The pattern as a regular expression. With the Unicode flag when the pattern allows it, so that
+ * `\p{L}` means a letter and a character outside the basic plane is one character; without it for
+ * a pattern that is only valid the old way (`[\w-.]`, `\-`).
+ */
+function compileRegex(pattern: string, flags: string): RegExp {
+  try {
+    return new RegExp(pattern, `${flags}u`);
+  } catch {
+    return new RegExp(pattern, flags);
+  }
+}
+
 const newlinesIn = (text: string) => text.split("\n").length - 1;
 
 /**
@@ -308,13 +348,17 @@ class LineSearch {
   private lastLine = 0;
   private readonly pattern?: RegExp;
   private timeLeft: number;
+  /** Regex mode: the piece whose scan stopped at the end of a time slice, and the next line of it to look at. */
+  private unfinished?: { chunk: TextChunk; next: number };
+  /** Regex mode: the line that took a whole slice without being finished. A second such slice ends the search. */
+  private stuck?: number;
 
   constructor(query: string, private readonly settings: GrepOptions, private readonly lineCount: number) {
     if (!query) throw new Error("The search query is empty.");
     if (settings.regex) {
       const problem = unsafeRegexReason(query);
       if (problem) throw new Error(problem);
-      this.pattern = new RegExp(query, settings.caseSensitive ? "" : "i");
+      this.pattern = compileRegex(query, settings.caseSensitive ? "" : "i");
     } else {
       this.needle = settings.caseSensitive ? query : foldCase(query);
       this.newlines = newlinesIn(this.needle);
@@ -324,10 +368,25 @@ class LineSearch {
     this.keep = this.context + this.newlines;
   }
 
+  /** Scans a piece to its end, without a pause: for a caller that cannot wait. See `addSome`. */
   add(chunk: TextChunk): void {
-    if (this.done) return;
-    if (this.pattern) this.scanRegex(chunk);
-    else this.scanExact(chunk);
+    while (!this.addSome(chunk)) {
+      // The next slice of a regex scan.
+    }
+  }
+
+  /**
+   * Scans a piece, or goes on scanning it. False means that a regex scan reached the end of a time
+   * slice with lines of this piece still to look at: let other work run, then call this again with
+   * the same piece. Exact search always finishes the piece.
+   */
+  addSome(chunk: TextChunk): boolean {
+    if (this.done) return true;
+    if (this.pattern) {
+      if (!this.scanRegex(chunk)) return false;
+    } else {
+      this.scanExact(chunk);
+    }
     if (this.unfilled > 0) {
       const last = chunk.firstLine + chunk.lines.lineCount - 1;
       for (const [line, text] of this.shown) {
@@ -339,6 +398,7 @@ class LineSearch {
       }
     }
     this.recent = remember(this.recent, chunk, this.keep);
+    return true;
   }
 
   /** Lines to show that were not in the pieces read (the scan stopped early). Read them and `fill` them. */
@@ -410,27 +470,52 @@ class LineSearch {
     }
   }
 
-  private scanRegex(chunk: TextChunk): void {
-    if (this.timeLeft <= 0) {
+  /**
+   * One time slice of a regex scan of a piece. True when the piece is finished, or the search is
+   * (out of time, or stopped at a line the pattern cannot get past); false when lines of the piece
+   * are left for the next slice.
+   */
+  private scanRegex(chunk: TextChunk): boolean {
+    const stop = (): true => {
       this.stoppedEarly = true;
       this.done = true;
-      return;
-    }
+      return true;
+    };
+    // Where to go on: in a piece that was left at the end of a slice, or at the start of a new one.
+    let next = this.unfinished?.chunk === chunk ? this.unfinished.next : 1;
+    this.unfinished = undefined;
+    if (this.timeLeft <= 0) return stop();
     const pattern = this.pattern!;
     const { lines, firstLine } = chunk;
+    const from = next;
+    const slice = Math.min(this.timeLeft, REGEX_SLICE_MS);
     const started = performance.now();
     const finished = withinTimeLimit(() => {
-      for (let local = 1; local <= lines.lineCount; local++) {
-        const text = lines.line(local);
+      for (; next <= lines.lineCount; next++) {
+        const line = firstLine + next - 1;
+        const text = lines.line(next);
         const match = pattern.exec(text);
-        if (match) this.record(firstLine + local - 1, match.index, text);
+        // A line is recorded once, also when a slice ended while it was being recorded and it is looked at again.
+        if (match && line > this.lastLine) {
+          this.lastLine = line;
+          this.record(line, match.index, text);
+        }
       }
-    }, this.timeLeft);
-    this.timeLeft -= performance.now() - started;
-    if (!finished) {
-      this.stoppedEarly = true;
-      this.done = true;
+    }, slice);
+    const spent = performance.now() - started;
+    this.timeLeft -= spent;
+    if (this.settings.regexClock) this.settings.regexClock.usedMs += spent;
+    if (finished) return true;
+    if (this.timeLeft <= 0) return stop();
+    // The slice ended in the middle of line `next`. A whole slice without one line finished can be
+    // a stall of the machine, once. Twice on the same line, it is the pattern.
+    if (next === from && slice >= REGEX_SLICE_MS) {
+      const line = firstLine + next - 1;
+      if (this.stuck === line) return stop();
+      this.stuck = line;
     }
+    this.unfinished = { chunk, next };
+    return false;
   }
 }
 
@@ -455,12 +540,18 @@ export function grep(document: SearchableDocument, query: string, options: GrepO
 
 /** `grep` over any document: one held in memory, or one read from the store a piece at a time. */
 export async function grepSource(source: DocumentSource, query: string, options: GrepOptions & { signal?: AbortSignal }): Promise<GrepResult> {
-  if (source instanceof SearchableDocument) return grep(source, query, options);
   const search = new LineSearch(query, options, source.lineCount);
-  await scanSource(source, (chunk) => {
-    search.add(chunk);
-    return search.done;
-  }, options.signal);
+  if (source instanceof SearchableDocument) {
+    const chunk = source.wholeChunk();
+    // A regex scan runs a slice at a time, and other work gets a turn between two slices.
+    while (!search.addSome(chunk)) {
+      await pause();
+      options.signal?.throwIfAborted();
+    }
+    for (const line of search.missing()) search.fill(line, source.lines.line(line));
+    return search.result();
+  }
+  await scanSource(source, (chunk) => (search.addSome(chunk) ? search.done : "again"), options.signal);
   const missing = search.missing();
   if (missing.length) await readSome(source, missing, (line, text) => search.fill(line, text));
   return search.result();

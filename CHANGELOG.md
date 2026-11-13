@@ -4,6 +4,84 @@ All notable changes to this package are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org).
 
+## [0.4.1] - 2026-11-13
+
+Fixes from a review of 0.4.0. Nothing to change in your code. Tool results are those of 0.4.0
+except for the three points under Changed (compared call by call with 0.3.6 over 40 documents).
+
+### Fixed
+
+- **A whole-file read returned almost nothing on a model that thinks.** Such a model counts its
+  thoughts in `maxOutputTokens`. Asked for 4,096 tokens of notes on a part of a log, Gemini 3.8
+  Flash spent 3,931 of them thinking and wrote 317 characters, and Gemini 4 Hydrogen wrote none.
+  `createGeminiGenerateText` now sends such a request once more with 32,768
+  (`THINKING_OUTPUT_TOKENS`), and starts there for every later request to that model: one request
+  is wasted per model and process, not one per part. A model or a gateway that refuses the larger
+  limit is not asked for it again. An `analysisConfig` of your own still decides what it sets.
+  Checked live: both models then returned whole notes, and an answer that cited all 70 matching
+  lines of a log read in three parts.
+- **`sweep` deleted a healthy document when one read of its metadata failed.** Every error counted
+  as "cannot be read", and a file older than an hour was then removed, with its text and its
+  original. Now only metadata that is not valid is that. A read that failed (a busy volume, too
+  many open files) leaves the document alone, and a document that cannot be removed no longer
+  stops the sweep.
+- **A store that could not be read looked like a deleted document.** `FileDocumentStore` answered
+  every failed read with "not there", and `askGemini` then told the user to upload the file
+  again. A failed read is now a `DocumentStoreError`: retry the call. Its message names no path
+  and no host, and the error that was caught is its `cause`.
+- **Storage errors reached the model, and a user's screen, with the server's path.** A tool call
+  that met `EACCES: permission denied, open '/data/large-files/doc_….txt'` passed that on in its
+  result and in `steps`. It now answers `The document store could not be read (EACCES). Try again.`
+- **One model turn could hold the server.** A regex that the quick check lets through, such as
+  `(a|a)+$`, ran for its full 3 seconds on the main thread, and a turn can hold any number of
+  calls: five such searches in one turn answered no other request for 15 seconds. A file can ask
+  a model for exactly that. Now:
+  - a regex scan runs in slices of 250 ms with other work in between, and stops at a line that
+    takes two whole slices: 0.8 s for such a search, not 3;
+  - the regex searches of one tool set (one question, in `askGemini`) share 6 seconds
+    (`regexBudgetMs`). Past that, a regex search answers with an error that tells the model to
+    search another way;
+  - `askGemini` runs at most 8 tool calls of one turn (`maxToolCallsPerTurn`). The others are
+    answered "not run, send it again if you still need it". Sixty reads in one turn built a
+    request of 339,000 tokens before.
+- **`ttlMs: Infinity` made every ingest throw** (`RangeError: Invalid time value`). It now keeps
+  documents until they are deleted: their `expiresAt` is `NEVER_EXPIRES`.
+- **A long line of emoji lost characters when it was wrapped.** The cut at 2,000 could fall
+  between the two halves of a character outside the basic plane, and each half was stored as a
+  replacement character.
+- **`jsonBytes` and the planner under-counted** text with quotes, backslashes, tabs or many line
+  breaks: by 23% for a JSON-lines export and 31% for TSV. They now count what JSON adds exactly,
+  `DocumentMeta.jsonBytes` keeps it for planning, and `read_document` trims its result to the
+  limit as it is sent: a read of quoted text came out at 42,514 characters against 24,000.
+- **`**NOTHING RELEVANT**` counted as a relevant part** of a whole-file read. The reply of a part
+  that found nothing is recognised whatever Markdown is around it.
+- **A merge of notes that failed twice lost the notes of every part.** They now go on unmerged,
+  and the answer is written from them.
+- **`cacheSize` counted the pieces kept of a document that is read by range**, so with a small
+  value a document pushed itself out of memory on every search. It counts documents again.
+- **`delete` could leave a document listed without its text.** The metadata is removed first, and
+  if that fails nothing else is removed.
+- **`\p{L}` matched nothing in a regex search.** Patterns are compiled with the Unicode flag when
+  they allow it, and without it otherwise.
+
+### Changed
+
+- **A file too large for `analyze_whole_document` is no longer offered it.** Its card says "It is
+  too large to be analyzed whole", the tool guide and the declared tools leave the tool out when
+  no file can use it, and `get_document_overview` says so in `whole_document_analysis`. A call of
+  the tool still answers with the reason.
+- **`get_document_overview` works out the number of parts from the metadata**, not by reading
+  the whole file: that took 60 MB of reads and 0.7 s for a 60 MB log. The number is the count, or
+  within a few percent of it.
+- In a regex, `.` and a quantifier take a character outside the basic plane (an emoji) as one
+  character.
+
+### Added
+
+- `DocumentStoreError`, `NEVER_EXPIRES`, `REGEX_BUDGET_MS` and `THINKING_OUTPUT_TOKENS`.
+- Options `maxToolCallsPerTurn` (`askGemini`) and `regexBudgetMs` (`tools`).
+- `DocumentMeta.jsonBytes`. Documents ingested before keep the planner's 8% rule.
+
 ## [0.4.0] - 2026-11-12
 
 Nothing to change in your code: the API, the tools and their results are those of 0.3.6 (compared

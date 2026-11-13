@@ -5,7 +5,7 @@
  * text the first time an older document without one is opened, and saved for next time.
  */
 import type { Limiter } from "./limiter.js";
-import { pagesOfLines, type DocumentSource, type TextChunk } from "./search.js";
+import { pagesOfLines, pause, type DocumentSource, type ScanFeed, type TextChunk } from "./search.js";
 import { canSerialize, parseTextIndex, positionOf, serializeTextIndex, TextIndexBuilder, type TextIndex } from "./text-index.js";
 import { foldCase, LineIndex } from "./text.js";
 import type { DocumentMeta, DocumentStore } from "./types.js";
@@ -49,7 +49,7 @@ const decoder = new TextDecoder("utf-8");
 const gone = (id: string) => new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
 
 /** A scan of a document: fed the pieces in order until it says it is done. */
-type Consumer = { feed: (chunk: TextChunk) => boolean | void; done: boolean; settle: (error?: unknown) => void };
+type Consumer = { feed: ScanFeed; done: boolean; settle: (error?: unknown) => void };
 
 export class RangedDocument implements DocumentSource {
   /**
@@ -140,7 +140,7 @@ export class RangedDocument implements DocumentSource {
    * the pieces are then read, decoded and lowercased once, for all of them. A scan asked for once
    * the pass has started waits for the next one, since every scan must see the text from the start.
    */
-  scan(feed: (chunk: TextChunk) => boolean | void, signal?: AbortSignal): Promise<void> {
+  scan(feed: ScanFeed, signal?: AbortSignal): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       if (signal?.aborted) {
         reject(signal.reason);
@@ -184,14 +184,21 @@ export class RangedDocument implements DocumentSource {
         for (const consumer of group) {
           if (consumer.done) continue;
           try {
-            if (consumer.feed(chunk) === true) consumer.settle();
-            else open++;
+            let more = consumer.feed(chunk);
+            // A scan that asks for the same piece again has stopped part-way to let other work run.
+            while (more === "again" && !consumer.done) {
+              await pause();
+              slice = performance.now();
+              more = consumer.feed(chunk);
+            }
+            if (more === true) consumer.settle();
+            else if (!consumer.done) open++;
           } catch (error) {
             consumer.settle(error);
           }
           // Many scans on one piece add up: give other work (answers streaming to other users) a turn.
           if (performance.now() - slice > YIELD_AFTER_MS) {
-            await new Promise((resolve) => setImmediate(resolve));
+            await pause();
             slice = performance.now();
           }
         }

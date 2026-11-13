@@ -1,13 +1,19 @@
-import { analyzeWholeDocument, partsOf } from "./map-reduce.js";
+import { safeErrorMessage } from "./errors.js";
+import { analyzeWholeDocument } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
-import { grepSource, numberLines, rankSource, type DocumentSource } from "./search.js";
-import { formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
+import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource } from "./search.js";
+import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { Budget, GenerateText, ProgressListener, ToolDeclaration, ToolFileLimits, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
 const MAX_READ_LINES = 600;
 /** The most pages one `view_pages` call shows. A page costs a model about 530 tokens. */
 export const MAX_VIEW_PAGES = 5;
+/**
+ * The time the regex searches of one tool set (one question, in `askGemini`) may take together,
+ * unless `regexBudgetMs` says otherwise. An ordinary search of a 60 MB log takes about 0.15 s.
+ */
+export const REGEX_BUDGET_MS = 6_000;
 /** Below this, no page fits: a cut of one page of plain text is larger. */
 const MIN_FILE_BYTES = 1_024;
 
@@ -161,6 +167,13 @@ export function createDocumentTools(options: {
   generate?: GenerateText;
   onProgress?: ProgressListener;
   signal?: AbortSignal;
+  /** The most time, in milliseconds, that the regex searches of this tool set may take together. Defaults to `REGEX_BUDGET_MS`. */
+  regexBudgetMs?: number;
+  /**
+   * False when every document is too large for a whole-document read: `analyze_whole_document` is
+   * then not declared. A call of it still answers with the reason. Defaults to true.
+   */
+  wholeReads?: boolean;
   /**
    * PDFs whose pages `view_pages` may show. The tool is declared only when there is at least one
    * and `loadOriginal` is given. They need not be among `documentIds`: a PDF whose text is in the
@@ -176,11 +189,17 @@ export function createDocumentTools(options: {
   // The text tools are left out only when there are pages to look at and no document to search.
   const textTools = allowed.size > 0 || viewable.size === 0;
   const declarations = [
-    ...(textTools ? [DECLARATIONS.search, DECLARATIONS.read, DECLARATIONS.overview, ...(options.generate ? [DECLARATIONS.analyze] : [])] : []),
+    ...(textTools ? [DECLARATIONS.search, DECLARATIONS.read, DECLARATIONS.overview, ...(options.generate && options.wholeReads !== false ? [DECLARATIONS.analyze] : [])] : []),
     ...(viewable.size > 0 ? [DECLARATIONS.view] : []),
   ];
   const known = new Set(declarations.map((declaration) => declaration.name));
+  // Not declared for files that are all too large for it, but still answered: with the reason, not "unknown tool".
+  if (textTools && options.generate) known.add(TOOL_NAMES.analyze);
   const limit = options.budget.toolResultCharacters;
+  // The model writes the regex, and a file it reads can ask for a slow one: the time is counted
+  // over every search of this tool set, not only within one.
+  const regexBudget = Math.max(0, options.regexBudgetMs ?? REGEX_BUDGET_MS);
+  const regexClock = { usedMs: 0 };
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
@@ -221,11 +240,17 @@ export function createDocumentTools(options: {
           ...(ranked.length === 0 ? { note: "No passage contains these keywords. Try other words, synonyms, or exact mode." } : {}),
         }, "passages", limit);
       }
+      const regex = mode === "regex";
+      const regexLeft = regexBudget - regexClock.usedMs;
+      if (regex && regexLeft <= 0) {
+        throw new Error("The time for regex searches is used up for this answer. Search with mode \"exact\" or \"keywords\" instead.");
+      }
       const result = await grepSource(document, query, {
-        regex: mode === "regex",
+        regex,
         caseSensitive: args.case_sensitive === true,
         maxResults: integer(args.max_results, 20, 1, 50),
         contextLines: integer(args.context_lines, 0, 0, 5),
+        ...(regex ? { timeLimitMs: Math.min(REGEX_TIME_LIMIT_MS, regexLeft), regexClock } : {}),
         ...(options.signal ? { signal: options.signal } : {}),
       });
       return fit({
@@ -249,7 +274,9 @@ export function createDocumentTools(options: {
       const read = await document.readLines(start, end);
       let to = end;
       let body = numberLines(read, start);
-      while (body.length > limit - 500 && to > start) {
+      // The limit is on the result as it is sent, as JSON: quotes, tabs and line breaks each take two characters there.
+      const fits = (text: string) => JSON.stringify(text).length <= limit - 500;
+      while (!fits(body) && to > start) {
         to = start + Math.max(0, Math.floor((to - start) * 0.7));
         body = numberLines(read.slice(0, to - start + 1), start);
       }
@@ -259,7 +286,7 @@ export function createDocumentTools(options: {
         lines: `${start}-${to}`,
         ...(pages ? { pages } : {}),
         total_lines: total,
-        text: body.slice(0, limit - 500),
+        text: fits(body) ? body : body.slice(0, Math.floor((limit - 500) / 2)),
         ...(to < total ? { next_start_line: to + 1 } : { note: "End of file." }),
       };
     },
@@ -268,7 +295,10 @@ export function createDocumentTools(options: {
       const document = await documentFor(args);
       const { meta, lineCount } = document;
       const tail = Math.max(1, lineCount - 19);
-      const parts = await partsOf(document, options.budget, options.signal);
+      // Counting the parts means reading the whole text, for a number that only says how costly a
+      // whole-document read is. It is worked out from the metadata instead, to within a part or
+      // two; the read itself counts them.
+      const parts = estimateParts(meta, options.budget);
       const first = Math.min(30, lineCount);
       return fit({
         document: meta.name,
@@ -277,7 +307,8 @@ export function createDocumentTools(options: {
         lines: meta.lines,
         estimated_tokens: meta.estimatedTokens,
         ...(meta.pages ? { pages: meta.pages } : {}),
-        parts_for_whole_document_analysis: parts.length,
+        parts_for_whole_document_analysis: parts,
+        ...(parts > options.budget.maxMapChunks ? { whole_document_analysis: `Not available for this file: it would take about ${parts} parts, and the limit is ${options.budget.maxMapChunks}. Use search_document and read_document.` } : {}),
         ...(meta.logProfile ? { log_profile: meta.logProfile } : {}),
         first_lines: numberLines(await document.readLines(1, first), 1),
         last_lines: lineCount > 30 ? numberLines(await document.readLines(tail, lineCount), tail) : "",
@@ -341,7 +372,7 @@ export function createDocumentTools(options: {
     try {
       cut = await cutPdfPages(original, from, Math.min(asked, from + mostPages - 1), maxBytes, total);
     } catch (error) {
-      throw new Error(`${file}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`${file}: ${safeErrorMessage(error)}`);
     }
     const pages = pageRange(cut.from, cut.to);
     const shown = cut.to - cut.from + 1;
@@ -360,7 +391,8 @@ export function createDocumentTools(options: {
     };
   }
 
-  const failure = (error: unknown): ToolResult => ({ error: error instanceof Error ? error.message : String(error) });
+  // What a tool could not do goes to the model, and from there to a user's screen: never a server path.
+  const failure = (error: unknown): ToolResult => ({ error: safeErrorMessage(error) });
 
   async function execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
     if (!known.has(name)) return { error: `Unknown tool ${name}.` };

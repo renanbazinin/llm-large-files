@@ -204,7 +204,7 @@ interface DocumentStore {
 
 Keep `getMeta` cheap (store the metadata separately from the text): it is called on every tool
 call. A document ready to search is kept in memory between tool calls, within `cacheBytes`
-(default 256 MB, the least recently used dropped first; `cacheSize` caps their number too). Every
+(default 256 MB, the least recently used dropped first; `cacheSize` caps the number of documents too). Every
 use of a kept document asks the store first, so a document deleted or expired anywhere is gone
 everywhere at once.
 
@@ -236,6 +236,11 @@ Smaller documents are loaded whole and kept in the cache: for them that is faste
 - `sweep` removes files of no document (an upload that failed, a server that stopped while writing)
   and temporary files once they are an hour old (`orphanAgeMs`), never younger ones: they may be an
   upload in progress on another server. Run `sweep` from one place, such as a scheduled job.
+- A document whose metadata could not be read during a sweep (the volume did not answer) is left
+  alone, whatever its age. Only metadata that is not valid is taken for a broken document.
+- A read that fails for another reason than "no such file" is thrown, and the library passes it
+  on as `DocumentStoreError`: a busy volume is not a deleted document. A store of your own should
+  do the same: return `undefined` only for a document that is not there.
 - Servers of an older version on the same volume (during a rolling update) read the same files and
   ignore the index. An index left behind when one of them deletes a document is swept an hour later.
 

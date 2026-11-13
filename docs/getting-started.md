@@ -242,6 +242,8 @@ To offer `view_pages` in your own loop, it has to send a file to the model with 
   Interactions with `previous_interaction_id`) don't mix with per-turn planning.
 - Keep the document IDs with the conversation, not with one message. Pass all of them on every turn.
 - Expired documents raise `DocumentsNotFoundError` (with `.ids`). Ask the user to attach them again.
+  A store that could not be read raises `DocumentStoreError` instead: the documents are still
+  there, so retry the request. With `ttlMs: Infinity` documents do not expire at all.
 
 ## Run the demo
 

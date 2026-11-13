@@ -41,6 +41,10 @@ export function foldCase(text: string): string {
   return out;
 }
 
+/** The first and the second half of a character outside the basic plane, as JavaScript holds it. */
+const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
+const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
+
 /**
  * Splits lines longer than `limit`, preferring a break after whitespace or punctuation near the
  * end of each piece. Minified JSON or a PDF paragraph becomes many addressable lines.
@@ -59,7 +63,10 @@ export function wrapLongLines(text: string, limit = MAX_LINE_CHARACTERS): { text
     while (rest.length > limit) {
       const window = rest.slice(0, limit);
       const soft = Math.max(window.lastIndexOf(" "), window.lastIndexOf(","), window.lastIndexOf(";"), window.lastIndexOf("}"));
-      const cut = soft > limit * 0.8 ? soft + 1 : limit;
+      let cut = soft > limit * 0.8 ? soft + 1 : limit;
+      // Never between the two halves of a character outside the basic plane (an emoji): each half
+      // alone is stored as a replacement character.
+      if (isHighSurrogate(rest.charCodeAt(cut - 1)) && isLowSurrogate(rest.charCodeAt(cut))) cut--;
       out.push(rest.slice(0, cut));
       rest = rest.slice(cut);
     }
@@ -172,24 +179,44 @@ export function estimateTokens(text: string): number {
   return Math.ceil(tokens);
 }
 
-/** UTF-8 byte length without allocating an encoded copy. */
-export function utf8Bytes(text: string): number {
-  let bytes = 0;
+/**
+ * The size of a text in one pass: its UTF-8 bytes, and the bytes it takes as a string in a JSON
+ * request body, which is what a model connector's request limit counts. JSON writes a quote and a
+ * backslash as two characters, a line break or a tab as two, any other control character as six
+ * (`\u0007`), and half of a surrogate pair as six: an export full of quotes or tabs grows by a
+ * quarter or more, a novel by a hundredth.
+ */
+export function textSizes(text: string): { utf8: number; json: number } {
+  let utf8 = 0;
+  let escapes = 0;
   for (let index = 0; index < text.length; index++) {
     const code = text.charCodeAt(index);
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff) {
-      bytes += 4;
+    if (code < 0x80) {
+      utf8 += 1;
+      if (code === 0x22 || code === 0x5c) escapes += 1;
+      else if (code < 0x20) escapes += code === 0x0a || code === 0x09 || code === 0x0d || code === 0x08 || code === 0x0c ? 1 : 5;
+    } else if (code < 0x800) {
+      utf8 += 2;
+    } else if (isHighSurrogate(code) && isLowSurrogate(text.charCodeAt(index + 1))) {
+      utf8 += 4;
       index++;
-    } else bytes += 3;
+    } else {
+      utf8 += 3;
+      // Half of a pair on its own: three bytes of replacement character as UTF-8, six as \udXXX in JSON.
+      if (code >= 0xd800 && code <= 0xdfff) escapes += 3;
+    }
   }
-  return bytes;
+  return { utf8, json: utf8 + escapes + 2 };
 }
 
-/** Bytes a string adds to a JSON request body, including escapes for quotes and newlines. */
+/** UTF-8 byte length without allocating an encoded copy. */
+export function utf8Bytes(text: string): number {
+  return textSizes(text).utf8;
+}
+
+/** Bytes a string takes in a JSON request body: its UTF-8 bytes, the escapes JSON adds, and its two quotes. */
 export function jsonBytes(text: string): number {
-  return Math.ceil(utf8Bytes(text) * 1.08) + 2;
+  return textSizes(text).json;
 }
 
 /** Fast line lookups over one text. Line numbers are 1-based. */

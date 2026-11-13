@@ -46,8 +46,10 @@ FATAL line listed on the card.
     substring hits. No index to build, it works in any language, and "timeout" also matches
     "timeouts". A passage containing the exact phrase gets a boost.
   - `exact` and `regex`: matching lines with optional context. Regexes with nested quantifiers are
-    refused up front, and every regex scan runs under a 3-second limit that can interrupt a match
-    in progress, so a slow pattern returns partial results instead of hanging the process.
+    refused up front. A regex scan runs in slices of 250 ms, with other work in between, under a
+    3-second limit that can interrupt a match in progress. A line that takes two whole slices
+    ends the search there, so a pattern that backtracks without end returns partial results in
+    under a second. The regex searches of one question share 6 seconds.
 - **`read_document`**: numbered line ranges, trimmed to the result-size cap, with `next_start_line`
   for paging.
 - **`get_document_overview`**: the full outline and profile, the first and last lines, and how many
@@ -96,6 +98,10 @@ slide deck: little text, a picture on every page.
    rather than failing the whole read.
 3. If the notes are still too large, merge them in batches (or pairs) for up to 8 rounds.
 4. Write one answer from the notes, flagging contradictions and parts that couldn't be read.
+
+A model that thinks counts its thoughts in the output limit. When a reply stops at the limit with
+half of it or more spent on thoughts, or with nothing written, the Gemini helper asks once more
+with 32,768 and starts there for the later parts.
 
 Part notes are capped at 4,096 output tokens and the answer at 8,192. When either cap is reached,
 the tool result says the answer is incomplete and points the model to exact search. That matters

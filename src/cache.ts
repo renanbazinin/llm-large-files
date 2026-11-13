@@ -17,12 +17,18 @@ export function documentVersion(meta: DocumentMeta): string {
  * first. Bounded by the memory the documents take, not by their number: six small files and
  * six 50 MB files are not the same load.
  *
+ * An entry can belong to another one, as a decoded piece of a document's text belongs to that
+ * document: it counts toward the memory, not toward the number of documents, and it is dropped
+ * when the entry it belongs to is dropped for being one document too many.
+ *
  * The cache never decides whether a document still exists. The caller asks the store first,
  * every time (see `createLargeFiles`), so a document deleted or expired on another server is
  * not served from here.
  */
 export class DocumentCache<T extends Sized> {
-  private readonly entries = new Map<string, { version: string; value: T; bytes: number }>();
+  private readonly entries = new Map<string, { version: string; value: T; bytes: number; owner?: string }>();
+  /** Entries that belong to no other: the documents. */
+  private documents = 0;
   private total = 0;
 
   constructor(
@@ -53,19 +59,36 @@ export class DocumentCache<T extends Sized> {
     return entry.value;
   }
 
-  /** Keeps a document. One larger than the whole cache is not kept: it is used for this call only. */
-  set(id: string, version: string, value: T): void {
+  /**
+   * Keeps a document. One larger than the whole cache is not kept: it is used for this call only.
+   * `owner` is the key of the entry this one belongs to (a piece of that document's text).
+   */
+  set(id: string, version: string, value: T, owner?: string): void {
     const existing = this.entries.get(id);
     if (existing?.value === value && existing.version === version) return;
     this.delete(id);
     const bytes = Math.max(0, value.memoryBytes);
     if (bytes > this.maxBytes || this.maxEntries < 1) return;
-    this.entries.set(id, { version, value, bytes });
+    this.entries.set(id, { version, value, bytes, ...(owner !== undefined ? { owner } : {}) });
     this.total += bytes;
-    for (const [oldest, entry] of this.entries) {
-      if (this.total <= this.maxBytes && this.entries.size <= this.maxEntries) break;
-      this.entries.delete(oldest);
-      this.total -= entry.bytes;
+    if (owner === undefined) this.documents++;
+    // One document too many: the one used longest ago goes, with what belongs to it.
+    while (this.documents > this.maxEntries) {
+      let oldest: string | undefined;
+      for (const [key, entry] of this.entries) {
+        if (entry.owner === undefined) {
+          oldest = key;
+          break;
+        }
+      }
+      if (oldest === undefined) break;
+      this.delete(oldest);
+      for (const [key, entry] of [...this.entries]) if (entry.owner === oldest) this.delete(key);
+    }
+    // Too much memory: the entries used longest ago go, whatever they are.
+    for (const [oldest] of this.entries) {
+      if (this.total <= this.maxBytes) break;
+      this.delete(oldest);
     }
   }
 
@@ -74,6 +97,7 @@ export class DocumentCache<T extends Sized> {
     if (!entry) return;
     this.entries.delete(id);
     this.total -= entry.bytes;
+    if (entry.owner === undefined) this.documents--;
   }
 
   /** Drops every entry whose key starts with `prefix`: all the pieces of one document. */

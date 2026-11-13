@@ -22,6 +22,16 @@ export type WholeDocumentResult = {
 
 type Parts = Array<{ from: number; to: number }>;
 
+/**
+ * Whether a part's reply says that the part holds nothing for the task: the sentinel, whatever
+ * Markdown or punctuation a model puts around it (`**NOTHING RELEVANT**`). A reply that starts
+ * that way and then cites a line did find something, and is kept.
+ */
+export function saysNothingRelevant(reply: string): boolean {
+  const text = reply.replace(/^[^\p{L}\p{N}]+/u, "");
+  return text.toUpperCase().startsWith(NOTHING) && !/\(L\d+/.test(text.slice(NOTHING.length));
+}
+
 /** Splits a text, fed a piece at a time, into line ranges that each fit one model request. */
 class PartSplitter {
   private readonly maxTokens: number;
@@ -192,7 +202,7 @@ export async function analyzeWholeDocument(options: {
   // Nothing was read at all: an answer written from here would be invented.
   if (failed === parts.length) throw new Error(`Could not read any part of ${name}: ${firstFailure}`);
 
-  const relevant = notes.filter((note) => !note.text.toUpperCase().startsWith(NOTHING));
+  const relevant = notes.filter((note) => !saysNothingRelevant(note.text));
   const relevantParts = relevant.filter((note) => note.read).length;
   if (relevantParts === 0) {
     return {
@@ -233,17 +243,30 @@ export async function analyzeWholeDocument(options: {
       for (let index = 0; index < layer.length; index += 2) batches.push(layer.slice(index, index + 2));
     }
     let combined = 0;
+    let unmerged = 0;
     layer = await pool(batches.length, options.concurrency ?? 4, async (index) => {
-      const reply = await ask(generate, {
-        system: "You merge partial notes about a document into shorter notes, keeping every relevant fact and line citation.",
-        prompt: `Task: ${task}\n\nMerge these notes from ${name} into one set of notes. Keep line citations.\n\n${batches[index]!.join("\n\n")}`,
-        maxOutputTokens: PART_OUTPUT_TOKENS,
-      }, signal);
-      if (reply.truncated) truncatedMerges++;
+      const batch = batches[index]!.join("\n\n");
+      let merged: string;
+      try {
+        const reply = await ask(generate, {
+          system: "You merge partial notes about a document into shorter notes, keeping every relevant fact and line citation.",
+          prompt: `Task: ${task}\n\nMerge these notes from ${name} into one set of notes. Keep line citations.\n\n${batch}`,
+          maxOutputTokens: PART_OUTPUT_TOKENS,
+        }, signal);
+        if (reply.truncated) truncatedMerges++;
+        merged = reply.truncated ? `${reply.text}\n[These merged notes were cut off at the output limit.]` : reply.text;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        // A merge that cannot be made loses nothing: the notes of every part were paid for, and go on as they are.
+        unmerged++;
+        merged = batch;
+      }
       combined++;
       onProgress?.({ kind: "reduce", message: `Combining notes on ${name} (round ${round}): ${combined} of ${batches.length}`, done: combined, total: batches.length });
-      return reply.truncated ? `${reply.text}\n[These merged notes were cut off at the output limit.]` : reply.text;
+      return merged;
     }, signal);
+    // Notes that would not merge will not merge in another round either: the answer is written from what there is.
+    if (unmerged > 0) break;
   }
 
   onProgress?.({ kind: "reduce", message: `Writing the answer from ${relevantParts} relevant parts of ${name}`, done: 0, total: 1 });

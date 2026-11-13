@@ -38,6 +38,11 @@ export type DocumentMeta = {
   bytes: number;
   /** UTF-8 size of the extracted text. */
   textBytes: number;
+  /**
+   * Bytes the text takes inside a JSON request body, with the escapes JSON adds. Absent on a
+   * document ingested before 0.4.1: planning then assumes 8% more than `textBytes`.
+   */
+  jsonBytes?: number;
   characters: number;
   lines: number;
   estimatedTokens: number;
