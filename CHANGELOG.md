@@ -4,6 +4,133 @@ All notable changes to this package are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org).
 
+## [0.5.0] - 2026-11-13
+
+One tool loop for every model. What `askGemini` did (plan the documents, offer the tools, run the
+calls, end with an answer) is now `askWithFiles` in the core, and a model provider is an adapter.
+Three come with the package: Gemini and Vertex AI, any OpenAI-compatible endpoint, and Claude. The
+loop also learned to send a failed request again, to count what a question costs, and to keep a
+growing request inside the model's window.
+
+`askGemini` is still there and takes the options it took. Read **Changed** before you upgrade:
+six of its points can need a change in your code.
+
+### Added
+
+- **`askWithFiles({ files, model, explorer?, documentIds, messages, … })`** in `llm-large-files`.
+  `model` and `explorer` are adapters, and need not be of the same provider: a cheap model behind
+  an OpenAI-compatible endpoint can explore while Gemini or Claude writes the answer.
+- **Adapters.** `gemini(endpoint, options)` in `llm-large-files/gemini`,
+  `openAiCompatible({ baseUrl, apiKey, model })` in `llm-large-files/openai` (OpenAI, Azure OpenAI,
+  DeepSeek, LiteLLM, vLLM, Ollama, OpenRouter, Gemini's OpenAI layer), and
+  `anthropic({ apiKey, model })` in `llm-large-files/anthropic`. None needs an SDK. An adapter of
+  your own is an object with `id`, `capabilities`, `send` and, for whole-file reads,
+  `generateText`: see `ModelAdapter` in the API reference.
+- **A request that failed is sent again.** HTTP 408, 409, 429, any 5xx, and a connection that
+  failed are retried up to three times, after a wait that doubles (at most 0.5, 1 and 2 seconds,
+  with jitter), or after the wait the provider asks for (`Retry-After`, `retry-after-ms`, and the
+  `retryDelay` of Gemini's `RetryInfo`). A request the model refused (400, 401, 403, 404) is not retried, and nothing is
+  retried once text of the reply was shown, or after the caller stopped the question. A wait the
+  provider asks for that is longer than `retry.maxDelayMs` (one minute) is not waited for. The
+  part reads of a whole-file read follow the same rule: a 429 was retried 0.2 ms later before.
+  Set it with `retry: { retries, baseDelayMs, maxDelayMs }`.
+- **`usage` is the whole question.** `{ requests, inputTokens, cachedInputTokens, outputTokens,
+  thoughtTokens, byModel }`, summed over every request that was answered, the part reads of a
+  whole-file read included. In a live run of 0.4.0, 13,687 prompt tokens were billed and 6,398
+  reported.
+- **Ceilings for one question**, in `limits`: `wholeDocumentReads` (1 for each document: the
+  model asked for the same file to be read whole six times in one probe), `inputTokens` and
+  `requests` (no more tools once they are reached, and a whole-file read that would pass them is
+  refused with the numbers), next to `toolTurns` and `callsPerTurn`.
+- **The request is kept inside the window.** The loop counts the request as it grows. Before it
+  runs the calls of a turn it gives each one the room that is left: a result is cut to it and says
+  where to go on, and a call that finds no room is answered "no room left, answer now", after
+  which the next request is the answer. When the room runs short, the results of all but the last
+  three tool rounds are replaced by short stand-ins that keep the document and the lines or pages
+  they showed. A turn of sixty reads built a request of 491,000 tokens against a window of 128,000
+  before; the same run now peaks at about 100,000.
+- **The tool calls of one turn run together**, four at a time, and are answered in the order they
+  were made. Looks at pages still run one after another, because each is given the room the one
+  before it left, and so do regex searches, which share their time. Six whole-file reads, two in
+  each of three turns, took 841 ms one after another against a fake model, and take about 540 ms.
+- **Headers are asked for with every request**, the part reads included, so a token that
+  `vertexAi({ accessToken })` renews is used. They were asked for once a question.
+- **The budget follows the model.** `reservedTokens`, `inlineTokens`, `mapChunkTokens` and
+  `toolResultCharacters` are worked out from `contextTokens` when they are left out
+  (`resolveBudget`): setting only `contextTokens: 64_000` made a nine-token note a card with tools
+  before. An adapter can say what its model takes (`contextTokens`, `maxRequestBytes`,
+  `outputTokens`, `pageTokens`, and `tokenScale` for a tokenizer that counts more than the
+  library's estimate), and the budget of a question is made to fit it. `budget` in `askWithFiles`,
+  `prepare` and `tools` changes fields for one question, and `files.budgetFor()` shows the result.
+- **`evidence`** in the result: for each tool call, the document and the lines or pages the model
+  was shown.
+- **`toolTurns`** in the result: the tool rounds of the question as plain JSON. Kept with the
+  conversation and passed back in `messages` between the question and its answer, they let a
+  follow-up question be answered from what was already read. In a live check the follow-up took
+  one request and no search. `geminiToolTurns`, `openAiToolTurns` and `anthropicToolTurns` give
+  them in a provider's own form, and `fromGeminiContents`, `fromOpenAiMessages` and
+  `fromAnthropicMessages` turn a history kept in that form into `messages`.
+- **A tool call that did not arrive whole is not run.** Arguments that are not JSON, or a call cut
+  off at the output limit, are answered with what was wrong, and the model can send the call again.
+- **The output limit of a part read is raised for any model that thinks**, not only Gemini: the
+  rule of 0.4.1 is shared by the three adapters.
+- For Claude: the model's turn goes back exactly as it came, thinking blocks included; the tools
+  stay listed in the request that must be answered in text (`tool_choice: none`); the conversation
+  is never rewritten, so old results are not shortened for it; pages go into the tool result as a
+  document block; prompt caching is on; a refusal is reported as `blockReason`; and `fallbacks`
+  turns on the API's own fallback to another model.
+
+### Changed
+
+What can need a change in your code:
+
+- **`result.usage` is no longer Gemini's `usageMetadata` of the last response.** That object is
+  now `result.lastUsage`. If you forward `usage` to a browser or a log, read `lastUsage` for the
+  old shape, or use the totals.
+- **A failure can take longer to reach you**, because the request is tried again first: up to
+  three and a half seconds of waiting by default for a model that stays down, and up to a minute
+  when the provider names a wait. `retry: { retries: 0 }` gives the old behaviour.
+- **A connection that failed throws `GeminiRequestError` with `status` 0**, not the `TypeError` of
+  `fetch`. The original error is its `cause`.
+- **A second whole-file read of the same document in one question is refused.** Set
+  `limits.wholeDocumentReads` (or `maxWholeDocumentReads` in `files.tools()`) to allow more. Make
+  one tool set for each question: the count is the tool set's.
+- **Budget values that cannot work together throw at `createLargeFiles`**: `reservedTokens` or
+  `mapChunkTokens` at or above `contextTokens`. And with `contextTokens` below 400,000, fields you
+  left out are now smaller than the fixed defaults they had.
+- **`onActivity` and `onStep` can interleave differently.** Calls of one turn start together, so
+  the "Searching…" lines of several calls can come before the first finished step. Steps still
+  arrive in call order.
+
+What needs none, unless you built on it:
+
+- Old tool results can be replaced by stand-ins (`{ dropped: true, lines, note }`) late in a long
+  question. `steps` then holds "Older tool results were shortened to make room in the request".
+- `ToolSet` has a new member, `resultCharacters(name)`, and `LargeFiles` has `budgetFor()`: a mock
+  of either needs them to type-check.
+- `createGeminiGenerateText` throws `GeminiRequestError` (it threw an `Error` with a `status`),
+  and takes `headers` as a function too.
+- `GeminiFunctionCall` and `GeminiToolAnswer` are now the core's `ToolCall` and `ToolAnswer`, and
+  `ToolFileLimits` is `ToolCallLimits` (the old name is kept).
+- `maxToolTurns` and `maxToolCallsPerTurn` of `askGemini` still work. Their new home is
+  `limits.toolTurns` and `limits.callsPerTurn`.
+- Tool results are those of 0.4.1, compared call by call with 0.3.6 over 40 documents, except
+  that a repeated whole-file read is refused.
+
+### Checked
+
+- 331 tests, 65 of them new. The requests `askGemini` sends are the ones 0.4.1 sent: its 44 tests
+  pass unchanged but for one that now turns the retry off.
+- Live, on the Gemini API: `askWithFiles` with `gemini()` and with `openAiCompatible()` on Gemini's
+  OpenAI layer (streamed, a 5.2 MB log), an explorer behind the OpenAI layer with a thinking Gemini
+  model answering, `askGemini` on a thinking model alone and with an explorer, a follow-up
+  question from stored tool rounds, and a part read through the OpenAI adapter. In each, the usage
+  the library returned was what the provider reported, request by request.
+- **Not run against a real server:** the Claude adapter (there was no key: it is tested against
+  the request and response shapes of the Messages API documentation), and `pdfInput` of the OpenAI
+  adapter, which sends the pages of a PDF as a `file` part. Gemini's OpenAI layer refuses that part
+  (HTTP 400), so it is off by default and follows OpenAI's documented shape untested.
+
 ## [0.4.1] - 2026-11-13
 
 Fixes from a review of 0.4.0. Nothing to change in your code. Tool results are those of 0.4.0

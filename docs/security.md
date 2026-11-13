@@ -120,6 +120,24 @@ A slice is synchronous, so a slow pattern still holds the event loop for up to a
 second at a time, and twice that at the start of a search. If that matters for your latency, run
 the document tools in a worker thread.
 
+## What a question can cost
+
+A file can ask a model to do expensive things, and a model can decide to on its own. These bound
+one question, whatever the model:
+
+- `limits.toolTurns` (12) chat requests, with at most `limits.callsPerTurn` (8) tool calls run in
+  each.
+- One whole-file read of each document (`limits.wholeDocumentReads`). A read is up to
+  `maxMapChunks` requests of up to `mapChunkTokens` each: 3M input tokens with the defaults. In a
+  probe a model asked for the same file to be read whole six times in one question.
+- `limits.inputTokens` and `limits.requests`, unset by default, are ceilings for the whole
+  question, part reads included. Set them if a question must not pass a cost.
+- The request is kept inside the model's window ([Room in the request](configuration.md#room-in-the-request)),
+  so a turn of many large reads cannot build a request that the model refuses.
+
+`result.usage` is what the question used: every request that was answered, for each model. Log it
+per user to see who spends what.
+
 ## Storage errors
 
 A file-system error names the path it failed on, and a database error its host. Neither is shown

@@ -1,7 +1,7 @@
 {
   "name": "llm-large-files",
-  "version": "0.4.1",
-  "description": "Let an LLM answer questions about books, logs, and other files larger than its request limit or context window: upload, plan, search and read tools, map-reduce, and a look at the pages of a PDF. Gemini and Vertex AI helpers included.",
+  "version": "0.5.0",
+  "description": "Let an LLM answer questions about books, logs, and other files larger than its request limit or context window: upload, plan, search and read tools, map-reduce, a look at the pages of a PDF, and one tool loop for any model. Adapters for Gemini and Vertex AI, OpenAI-compatible endpoints, and Claude.",
   "keywords": [
     "llm",
     "gemini",
@@ -15,7 +15,11 @@
     "logs",
     "pdf",
     "rag",
-    "chatbot"
+    "chatbot",
+    "openai",
+    "anthropic",
+    "claude",
+    "deepseek"
   ],
   "license": "MIT",
   "author": "renanbazinin",
@@ -43,6 +47,14 @@
       "types": "./dist/gemini/index.d.ts",
       "default": "./dist/gemini/index.js"
     },
+    "./openai": {
+      "types": "./dist/openai/index.d.ts",
+      "default": "./dist/openai/index.js"
+    },
+    "./anthropic": {
+      "types": "./dist/anthropic/index.d.ts",
+      "default": "./dist/anthropic/index.js"
+    },
     "./node": {
       "types": "./dist/node/index.d.ts",
       "default": "./dist/node/index.js"
@@ -53,6 +65,12 @@
     "*": {
       "gemini": [
         "./dist/gemini/index.d.ts"
+      ],
+      "openai": [
+        "./dist/openai/index.d.ts"
+      ],
+      "anthropic": [
+        "./dist/anthropic/index.d.ts"
       ],
       "node": [
         "./dist/node/index.d.ts"

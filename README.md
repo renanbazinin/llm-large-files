@@ -12,8 +12,9 @@ and 1M tokens of context. This package bridges the gap:
 - **Pictures in a PDF** are not in its text. The model can **look at the real pages** when it
   needs to: a chart, a photo, a scan.
 
-It's a small library, not a framework: no model SDK, no server, and no UI are required. A drop-in
-Gemini / Vertex AI helper and Node HTTP handlers are included for the common case.
+It's a small library, not a framework: no model SDK, no server, and no UI are required. One tool
+loop, `askWithFiles`, works with any model through an adapter. Adapters for **Gemini and Vertex
+AI**, **any OpenAI-compatible endpoint** and **Claude** are included, and so are Node HTTP handlers.
 
 ```bash
 npm install llm-large-files
@@ -52,6 +53,43 @@ const endpoint = vertexAi({ project: "my-project", model: "gemini-3.8-flash", ac
 // or your own proxy:
 const endpoint = { url: "https://llm-gw.corp/v1/gemini:generateContent", headers: { Authorization: `Bearer ${key}` } };
 ```
+
+## Any model
+
+`askGemini` is `askWithFiles` with a Gemini model. With another provider, name the model yourself:
+
+```ts
+import { askWithFiles } from "llm-large-files";
+import { openAiCompatible } from "llm-large-files/openai";
+import { anthropic } from "llm-large-files/anthropic";
+
+// OpenAI, Azure OpenAI, DeepSeek, LiteLLM, vLLM, Ollama, OpenRouter: anything that speaks Chat Completions.
+const deepseek = openAiCompatible({ baseUrl: "https://api.deepseek.com/v1", apiKey: process.env.DEEPSEEK_API_KEY!, model: "deepseek-v4-pro" });
+// Claude. `fallbacks` lets another model answer when a safety classifier declines the request.
+const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", fallbacks: "default" });
+
+const result = await askWithFiles({
+  files,
+  model: claude,       // writes the answer
+  explorer: deepseek,  // optional: a second model, of any provider, that searches and reads
+  documentIds: [doc.id],
+  messages: [{ role: "user", text: "What caused the outage, and when? Cite lines." }],
+  onText: (delta) => process.stdout.write(delta),
+});
+```
+
+Every model gets the same loop: a request that failed is sent again, the request is kept inside
+the model's window, and one question cannot read a file whole twice. The result says what it cost
+and what it read:
+
+```ts
+result.usage;     // { requests: 5, inputTokens: 32662, cachedInputTokens: 6086, outputTokens: 750, byModel: { … } }
+result.evidence;  // [{ tool: "read_document", documentId, document: "prod.log", lines: [[34100, 34110]] }, …]
+result.toolTurns; // keep these with the conversation: a follow-up question then needs no new search
+```
+
+A model that has no adapter needs one object with a `send` method:
+[your own adapter](docs/api.md#your-own-adapter).
 
 ## Add it to a web app
 
@@ -126,7 +164,9 @@ What each model gets, and what it costs: [An explorer model](docs/configuration.
 | **Formats** | Text, Markdown, logs (UTF-8 and UTF-16), JSON/JSONL, CSV/TSV, DOCX, PPTX, PDF (text layer, with tables rebuilt so empty cells stay empty; pages with a picture are marked, and the model can look at the pages themselves; scans of up to 30 pages) |
 | **Logs** | Detected automatically; the card shows level counts, the time range, and the most frequent errors grouped by shape (`timeout after <n>ms to <ip>`) |
 | **Books and documents** | An outline of headings with line numbers, including Markdown, "Chapter 12", numbered sections, and Hebrew chapter titles |
-| **Limits** | One budget covers tokens *and* request bytes, so files fit both your context window and your connector's payload limit |
+| **Limits** | One budget covers tokens *and* request bytes, so files fit both your context window and your connector's payload limit. It follows the model: set `contextTokens`, or let the adapter say it |
+| **Models** | Gemini and Vertex AI, any OpenAI-compatible endpoint, Claude, or an adapter of your own. Two models of different providers can share a question |
+| **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and tokens |
 | **Privacy** | Documents can belong to an `owner`; other users can't plan, read, or delete them |
 | **Storage** | In memory, on disk with expiry, or your own store (Redis, S3, a database) |
 
@@ -143,11 +183,11 @@ With `gemini-3.8-flash` on the Gemini API:
 
 ## Documentation
 
-- [Integration guide](docs/getting-started.md): Express, plain Node, browser upload, streaming, Vertex AI, gateways, existing chat history
-- [API reference](docs/api.md)
-- [Configuration](docs/configuration.md): budget, an explorer model, stores, formats, extractors, pictures in PDFs
-- [How it works](docs/how-it-works.md): planner, cards, tools, map-reduce, looking at pages, and the Gemini quirks it handles
-- [Security](docs/security.md): owners, tool scoping, retention, original files, regex safety
+- [Integration guide](docs/getting-started.md): Express, plain Node, browser upload, streaming, Vertex AI, gateways, other models, existing chat history
+- [API reference](docs/api.md): `askWithFiles`, the three adapters, and what an adapter of your own must do
+- [Configuration](docs/configuration.md): budget, limits and retries, an explorer model, stores, formats, extractors, pictures in PDFs
+- [How it works](docs/how-it-works.md): planner, cards, tools, map-reduce, looking at pages, the loop, and the provider quirks it handles
+- [Security](docs/security.md): owners, tool scoping, retention, original files, regex safety, what a question can cost
 
 ## Requirements
 

@@ -196,7 +196,8 @@ describe("askGemini", () => {
     await expect(askGemini({ files, endpoint, fetch, documentIds: [meta.id], owner: "bob", messages: [{ role: "user", text: "?" }] }))
       .rejects.toBeInstanceOf(DocumentsNotFoundError);
     expect(fetch).not.toHaveBeenCalled();
-    const failure = askGemini({ files, endpoint, fetch, documentIds: [meta.id], owner: "alice", messages: [{ role: "user", text: "?" }] });
+    // Without a second try: what is sent again, and when, has tests of its own.
+    const failure = askGemini({ files, endpoint, fetch, documentIds: [meta.id], owner: "alice", retry: { retries: 0 }, messages: [{ role: "user", text: "?" }] });
     await expect(failure).rejects.toBeInstanceOf(GeminiRequestError);
     await expect(failure).rejects.toMatchObject({ status: 429, message: "quota exceeded" });
   });

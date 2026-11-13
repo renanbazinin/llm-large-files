@@ -172,8 +172,8 @@ export type ToolFile = {
 /** A tool's JSON result, and the files that belong to it. Most tools return no files. */
 export type ToolOutput = { result: ToolResult; files: ToolFile[] };
 
-/** What a call that can return files is allowed to use of the request it will be sent in. */
-export type ToolFileLimits = {
+/** What one tool call is allowed to use of the request its result will be sent in. */
+export type ToolCallLimits = {
   /**
    * The most bytes the files of this call may have together. Give the room left in your request,
    * times 3/4 when files are sent as base64. Defaults to about a third of `maxRequestBytes`.
@@ -181,7 +181,15 @@ export type ToolFileLimits = {
   maxFileBytes?: number;
   /** The most pages this call may show. Lower it as the pages already shown use up your token budget. */
   maxPages?: number;
+  /**
+   * The most characters the JSON result of this call may have, when that is less than the tool's
+   * own cap (`toolResultCharacters`): the room left in the request. The result is cut to it, and
+   * says where to go on.
+   */
+  maxResultCharacters?: number;
 };
+/** The name of `ToolCallLimits` before 0.5.0. */
+export type ToolFileLimits = ToolCallLimits;
 
 export type ToolSet = {
   declarations: ToolDeclaration[];
@@ -195,10 +203,18 @@ export type ToolSet = {
    * Runs a tool call and also returns the files it produced, to be sent to the model with the
    * result. Use it in place of `execute` in a loop that can send files.
    */
-  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolFileLimits): Promise<ToolOutput>;
+  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallLimits): Promise<ToolOutput>;
   /** A short, human-readable line describing a call, for progress UIs. */
   describe(name: string, args: Record<string, unknown>): string;
+  /**
+   * The most characters the JSON result of a tool can have: what a loop sets aside in its request
+   * before it runs a call.
+   */
+  resultCharacters(name: string): number;
 };
+
+/** Tokens one model request used, as far as the provider said. */
+export type GenerateUsage = { inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; thoughtTokens?: number };
 
 /** A plain text completion. The package stays provider-neutral by taking this as a function. */
 export type GenerateText = (request: {
@@ -212,6 +228,11 @@ export type GenerateText = (request: {
    * as before, without that warning.
    */
   onTruncated?: () => void;
+  /**
+   * Call this once for every request that was answered, with the tokens it used, so that the cost
+   * of a whole-document read is counted. Optional: without it those requests are not in the totals.
+   */
+  onUsage?: (usage: GenerateUsage) => void;
 }) => Promise<string>;
 
 export type ProgressEvent = {
