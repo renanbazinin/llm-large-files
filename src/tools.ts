@@ -76,7 +76,7 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
   },
   analyze: {
     name: TOOL_NAMES.analyze,
-    description: "Read an entire large file in parts and answer a task that needs all of it, such as a full summary, a timeline, or every occurrence of something. Slow and costly: prefer search_document and read_document for specific questions.",
+    description: "Read an entire large file in parts and answer a task that needs all of it, such as a full summary, a timeline, or items that must be judged by meaning. To count or list lines that contain a word, an ID or a pattern, use search_document in exact or regex mode instead: its count is exact, and this can miss items. Slow and costly: prefer search_document and read_document for specific questions.",
     parameters: {
       type: "object",
       properties: {
@@ -172,6 +172,93 @@ export function fitAnswer(result: ToolResult, limit: number): ToolResult {
   return fit(cutAt(low), null, limit);
 }
 
+const searchMode = (mode: unknown): "keywords" | "exact" | "regex" => (mode === "exact" || mode === "regex" ? mode : "keywords");
+
+/** The lines a `read_document` call asks for, as its handler reads them, before the end of the file is known. */
+function requestedLines(args: Record<string, unknown>): [number, number] {
+  const start = integer(args.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
+  return [start, integer(args.end_line, start + DEFAULT_READ_LINES - 1, start, start + MAX_READ_LINES - 1)];
+}
+
+/**
+ * A call's arguments as its tool reads them, with the defaults filled in: two calls with the same
+ * key get the same result from a file that has not changed. Undefined for a tool whose calls are
+ * not compared (a whole-file read has a count of its own; a look at pages returns a file).
+ */
+export function toolCallKey(name: string, args: Record<string, unknown>): string | undefined {
+  const id = typeof args.document_id === "string" && args.document_id ? args.document_id : undefined;
+  if (!id) return undefined;
+  if (name === TOOL_NAMES.search) {
+    if (typeof args.query !== "string" || !args.query.trim()) return undefined;
+    const mode = searchMode(args.mode);
+    return JSON.stringify(mode === "keywords"
+      ? [name, id, args.query, mode, integer(args.max_results, 5, 1, 10)]
+      : [name, id, args.query, mode, integer(args.max_results, 20, 1, 50), integer(args.context_lines, 0, 0, 5), args.case_sensitive === true]);
+  }
+  if (name === TOOL_NAMES.read) return JSON.stringify([name, id, ...requestedLines(args)]);
+  if (name === TOOL_NAMES.overview) return JSON.stringify([name, id]);
+  return undefined;
+}
+
+/**
+ * When an earlier call's result already holds all that `call` would return, and is still in the
+ * conversation in full: a short result that says so, in place of running the call again. A result
+ * that was cut to the room it had, or replaced by a stand-in, or failed, is not pointed to: the call
+ * is run, and may get more. A read of lines inside a read that is shown in full is pointed to.
+ */
+export function alreadyShown(call: { name: string; args: Record<string, unknown> }, earlier: { call: { name: string; args: Record<string, unknown> }; result: ToolResult }): ToolResult | undefined {
+  const { result } = earlier;
+  if (earlier.call.name !== call.name || earlier.call.args.document_id !== call.args.document_id) return undefined;
+  if (result.dropped === true || result.already_shown === true || typeof result.error === "string" || result.truncated === true) return undefined;
+  // A list that `fit` cut to the room it had, a read whose text was cut, or a search that ran out of
+  // time ("the total is a lower bound"; a later question has time of its own): a call made now may get more.
+  if (typeof result.note === "string" && (result.note.startsWith("Showing ") || result.note.startsWith("The scan stopped early"))) return undefined;
+  if (result.text_cut === true) return undefined;
+  const document = typeof result.document === "string" ? { document: result.document } : {};
+  if (call.name === TOOL_NAMES.read) {
+    const shown = typeof result.lines === "string" ? /^(\d+)-(\d+)$/.exec(result.lines) : null;
+    const total = result.total_lines;
+    if (!shown || typeof total !== "number") return undefined;
+    const [first, last] = [Number(shown[1]), Number(shown[2])];
+    const [start, end] = requestedLines(call.args);
+    const from = Math.min(start, total);
+    const to = Math.min(end, total);
+    if (from < first || to > last) return undefined;
+    return {
+      ...document,
+      lines: `${from}-${to}`,
+      already_shown: true,
+      note: `Not run: lines ${from}-${to} are already shown above in full, in the result that has lines ${first}-${last} of this file, and the file has not changed. Use them. To see more, read other lines.`,
+    };
+  }
+  const key = toolCallKey(call.name, call.args);
+  if (key === undefined || key !== toolCallKey(earlier.call.name, earlier.call.args)) return undefined;
+  return {
+    ...document,
+    already_shown: true,
+    note: "Not run: this exact call was answered earlier in this conversation, and its result is still shown above in full. The file has not changed, so it would return the same. Use that result. For more, read other lines, or search with other words or another mode.",
+  };
+}
+
+/**
+ * A hint added to the error of a search that failed twice in a row in the same mode, so that the
+ * model tries another way instead of sending the same kind of call a third time.
+ */
+export function repeatedFailureHint(call: { name: string; args: Record<string, unknown> }): string {
+  return searchMode(call.args.mode) === "regex"
+    ? "Two regex searches in a row failed. Try mode \"exact\" with a plain word or ID from the file, or mode \"keywords\"."
+    : "This search failed twice in a row. Check the arguments against the tool's description, or answer from what you have.";
+}
+
+/**
+ * The tool and mode of a search, to tell whether two failures in a row were of the same kind.
+ * Undefined for the other tools: their errors say what to do (a whole-file read that is not made
+ * again, a page that does not exist), and a hint would only blur that.
+ */
+export function failureKind(call: { name: string; args: Record<string, unknown> }): string | undefined {
+  return call.name === TOOL_NAMES.search ? `${call.name}|${searchMode(call.args.mode)}` : undefined;
+}
+
 /**
  * What a finished tool call found, as a suffix for its `describe()` label, for a steps list:
  * "Search app.log (exact) for “timeout”" + " — 12 matching lines".
@@ -264,7 +351,13 @@ export function createDocumentTools(options: {
   async function documentFor(args: Record<string, unknown>): Promise<DocumentSource> {
     const id = text(args.document_id, "document_id");
     // Scope check: a model can only reach files attached to this conversation.
-    if (!allowed.has(id)) throw new Error(`Unknown document_id ${id}. Use an ID from a file card.`);
+    if (!allowed.has(id)) {
+      // The IDs it may use, with their file names, so that the next call is right.
+      const usable = [...allowed].slice(0, 20).map((known) => `${known}${names.has(known) ? ` (${JSON.stringify(names.get(known))})` : ""}`);
+      throw new Error(usable.length === 0
+        ? `Unknown document_id ${id}. No attached file is read with this tool in this conversation.`
+        : `Unknown document_id ${id}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
+    }
     const document = await options.load(id);
     if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
     names.set(id, document.meta.name);
@@ -350,6 +443,8 @@ export function createDocumentTools(options: {
         ...(pages ? { pages } : {}),
         total_lines: total,
         text: fits(body) ? body : sliceWhole(body, Math.floor((limit - 500) / 2)),
+        // One line longer than the room: its text was cut, so the lines are not all shown.
+        ...(fits(body) ? {} : { text_cut: true }),
         ...(to < total ? { next_start_line: to + 1 } : { note: "End of file." }),
       };
     },
@@ -409,6 +504,7 @@ export function createDocumentTools(options: {
           onProgress: options.onProgress,
           signal: options.signal,
           ...(options.retry ? { retry: options.retry } : {}),
+          ...(typeof limits.maxRequests === "number" && Number.isFinite(limits.maxRequests) ? { maxRequests: limits.maxRequests } : {}),
         });
       } catch (error) {
         // Parts were sent and none could be read: that read is counted, since another would most

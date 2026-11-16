@@ -1,7 +1,7 @@
 // Any Chat Completions endpoint as a model of `askWithFiles`: OpenAI, Azure OpenAI, DeepSeek,
 // LiteLLM, vLLM, Ollama, OpenRouter, Gemini's OpenAI layer. No SDK: the caller gives the URL.
 import { randomUUID } from "node:crypto";
-import { base64, parseArguments, readArguments, readJson, resolveHeaderSource, resolveSecret, unreachableReason, type HeaderSource, type SecretSource } from "../http.js";
+import { base64, idleWatch, parseArguments, readArguments, readJson, resolveHeaderSource, resolveSecret, unreachableReason, type HeaderSource, type IdleWatch, type SecretSource } from "../http.js";
 import { ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
@@ -14,7 +14,7 @@ export class OpenAiRequestError extends ModelRequestError {
   readonly param?: string;
   /** The server's own word for the error (`error.code`): "unsupported_parameter". */
   readonly code?: string;
-  constructor(message: string, status: number, options: { retryAfterMs?: number; cause?: unknown; param?: string; code?: string } = {}) {
+  constructor(message: string, status: number, options: ConstructorParameters<typeof ModelRequestError>[2] & { param?: string } = {}) {
     super(message, status, options);
     this.name = "OpenAiRequestError";
     if (options.param) this.param = options.param;
@@ -77,6 +77,19 @@ export type OpenAiCompatibleOptions = {
   tokenScale?: number | undefined;
   /** Milliseconds a part read may take. Defaults to 180,000. */
   timeoutMs?: number | undefined;
+  /**
+   * The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count:
+   * a model that thinks sends nothing until it has thought, and a reply that is not streamed comes
+   * whole at the end. A request that gets nothing for that long is aborted and sent again, once.
+   * Defaults to 600,000. 0 waits without end.
+   */
+  firstByteTimeoutMs?: number | undefined;
+  /**
+   * The longest wait, in milliseconds, between two pieces of a chat reply once it has started to
+   * arrive (keep-alives count). A request that gets nothing for that long is aborted and sent
+   * again, once, unless text of it was shown. Defaults to 300,000. 0 waits without end.
+   */
+  idleTimeoutMs?: number | undefined;
   /** Names the model in usage totals. Defaults to `model`. */
   id?: string | undefined;
   fetch?: typeof fetch | undefined;
@@ -332,13 +345,13 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
     };
   };
 
-  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean): Promise<Response> => {
+  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => OpenAiRequestError = unreachable, headers?: Record<string, string>): Promise<Response> => {
     let response: Response;
     try {
-      response = await fetchImpl(url, { method: "POST", headers: await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      response = await fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
     } catch (error) {
       if (stopped()) throw error;
-      throw new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error });
+      throw lost(error);
     }
     if (!response.ok) throw await failure(response);
     return response;
@@ -366,13 +379,17 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         if (maxTokensField === sent) maxTokensField = other;
         response = await post(body(other), signal ? AbortSignal.any([signal, timeout]) : timeout, stopped);
       }
-      const data = await readJson<Json>(response, stopped, (error) => new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error }));
+      const data = await readJson<Json>(response, stopped, unreachable);
       const used = usageOf(data.usage);
       onUsage?.(used);
       const choice = data.choices?.[0];
+      // DeepSeek stops a reply when its servers run short: that is the server's failure, sent again.
+      if (choice?.finish_reason === "insufficient_system_resource") throw interrupted();
       return {
         text: contentText(choice?.message?.content),
         cutOff: choice?.finish_reason === "length",
+        // Stopped by the content filter before its end: what it wrote is not all there is.
+        stopped: choice?.finish_reason === "content_filter",
         ...(typeof choice?.finish_reason === "string" ? { reason: choice.finish_reason } : {}),
         thoughts: used.thoughtTokens ?? 0,
       };
@@ -394,7 +411,24 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
 
     async send(request: ModelRequest, hooks: SendHooks = {}): Promise<ModelReply> {
       const stream = Boolean(hooks.onText) && options.stream !== false;
-      const response = await post(bodyOf(request, stream), hooks.signal, () => Boolean(hooks.signal?.aborted));
+      // A key or token is fetched before the watch starts: the time that takes is not the model's.
+      const headers = await headersNow();
+      const watch = idleWatch(hooks.signal, { firstByteTimeoutMs: options.firstByteTimeoutMs, idleTimeoutMs: options.idleTimeoutMs });
+      // A request the watch aborted got nothing back for the whole wait: that is no failed connection.
+      const lost = (error: unknown) => (watch.expired ? silent(watch.waitedMs) : unreachable(error));
+      try {
+        // The headers are no piece of the reply: a server may send them at once and then think.
+        const response = await post(bodyOf(request, stream), watch.signal, () => Boolean(hooks.signal?.aborted), lost, headers);
+        return await readReply(response, stream, hooks, watch, lost);
+      } finally {
+        watch.stop();
+      }
+    },
+  };
+
+  /** The reply of a request that was answered: streamed, or in one piece. */
+  async function readReply(response: Response, stream: boolean, hooks: SendHooks, watch: IdleWatch, lost: (error: unknown) => OpenAiRequestError): Promise<ModelReply> {
+    {
       let message: Json;
       let finish: unknown;
       let usage: Json | undefined;
@@ -405,8 +439,9 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         let refusal = "";
         const details: Json[] = [];
         const toolCalls: Json[] = [];
+        let ended = false;
         try {
-          for await (const chunk of parseSseJson<Json>(response.body)) {
+          for await (const chunk of parseSseJson<Json>(response.body, { onData: watch.pulse, onDone: () => { ended = true; }, signal: watch.signal })) {
             const failed = (Array.isArray(chunk) ? chunk[0] : chunk)?.error;
             if (failed) throw new OpenAiRequestError(typeof failed === "string" ? failed : String(failed.message ?? "The model reported an error."), streamErrorStatus(failed));
             if (chunk.usage) usage = chunk.usage as Json;
@@ -438,9 +473,13 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
           }
         } catch (error) {
           if (hooks.signal?.aborted || error instanceof OpenAiRequestError) throw error;
-          // The connection went while the answer was on its way.
-          throw new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error });
+          // The connection went while the answer was on its way, or nothing came for the whole wait.
+          throw lost(error);
         }
+        // A stream ends with a reason for its end, and with "[DONE]". One that closed with neither
+        // was cut off on its way (a proxy, a dropped connection): it is not a whole reply, and is
+        // sent again like a connection that failed, unless text of it was shown.
+        if (finish === undefined && !ended) throw new OpenAiRequestError("The model's reply ended before it was complete.", 0);
         const calls = toolCalls.filter(Boolean);
         message = {
           role: "assistant",
@@ -458,15 +497,20 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         }
       } else {
         // In one piece: no streaming was asked for, or the server answered without it.
-        const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), (error) => new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error }));
+        const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), lost, watch);
         const choice = data.choices?.[0] as Json | undefined;
         message = (choice?.message ?? { role: "assistant", content: null }) as Json;
         finish = choice?.finish_reason;
         usage = data.usage as Json | undefined;
+        // The whole reply is in hand: one that the server stopped is sent again before any of it is shown.
+        if (finish === "insufficient_system_resource") throw interrupted();
         // A refusal is what the model has to say to the user, in a field of its own.
         text = contentText(message.content) || (typeof message.refusal === "string" ? message.refusal : "");
         if (text) hooks.onText?.(text);
       }
+      // DeepSeek stops a reply when its servers run short: what came of it is not the model's whole
+      // turn. That is the server's failure, sent again unless text of it was shown.
+      if (finish === "insufficient_system_resource") throw interrupted();
       // Cut off at the output limit with a call half-written: the call is answered, not run.
       const cutOff = finish === "length" ? "This call was cut off at the output limit before its arguments were complete, and was not run. Send it again." : undefined;
       const calls: ToolCall[] = (Array.isArray(message.tool_calls) ? message.tool_calls as Json[] : [])
@@ -481,14 +525,39 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
           const problem = read.problem ?? cutOff;
           return { ...(typeof call.id === "string" && call.id ? { id: call.id } : {}), name: call.function.name as string, args: read.args, ...(problem ? { problem } : {}) };
         });
+      const kind = finishOfOpenAi(finish);
       return {
         text,
         calls,
         raw: message,
         ...(typeof finish === "string" ? { finishReason: finish } : {}),
+        ...(kind ? { finish: kind } : {}),
         ...(finish === "content_filter" && !text && calls.length === 0 ? { blockReason: "content_filter" } : {}),
         ...(usage ? { usage: usageOf(usage), providerUsage: usage } : {}),
       };
-    },
-  };
+    }
+  }
+}
+
+/** A request that got no answer: the reason, without the stack of the HTTP client. */
+function unreachable(error: unknown): OpenAiRequestError {
+  return new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error });
+}
+
+/** A request that got nothing back for the whole wait of its `IdleWatch`. */
+function silent(waitMs: number): OpenAiRequestError {
+  return new OpenAiRequestError(`The model sent nothing for ${Math.round(waitMs / 1_000)} s.`, 0, { kind: "timeout" });
+}
+
+/** A reply the server stopped because it ran short (DeepSeek's `insufficient_system_resource`). */
+function interrupted(): OpenAiRequestError {
+  return new OpenAiRequestError("The model's server stopped the reply: it ran short of resources.", 503);
+}
+
+/** `finish_reason` in the terms of `ModelReply.finish`. Undefined for a reason it does not know. */
+function finishOfOpenAi(reason: unknown): ModelReply["finish"] {
+  if (reason === "stop" || reason === "tool_calls" || reason === "function_call") return "complete";
+  if (reason === "length") return "cut";
+  if (reason === "content_filter") return "filtered";
+  return undefined;
 }

@@ -5,7 +5,7 @@ import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { readJson } from "../http.js";
 import { retryAfterMs } from "../retry.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
-import { GeminiRequestError, unreachable } from "./errors.js";
+import { finishOfGemini, geminiFailure, unreachable } from "./errors.js";
 
 /** Gemini accepts this package's JSON Schema subset as-is. */
 export function toGeminiTools(declarations: ToolDeclaration[]): { functionDeclarations: ToolDeclaration[] } {
@@ -140,10 +140,7 @@ export function createGeminiGenerateText(options: {
       const data: Data = response.ok
         ? await readJson<Data>(response, () => Boolean(signal?.aborted) || timeout.aborted, unreachable)
         : await response.json().catch(() => null) as Data;
-      if (!response.ok) {
-        const wait = retryAfterMs(response.headers, data);
-        throw new GeminiRequestError(data?.error?.message ?? `The model returned HTTP ${response.status}.`, response.status, wait === undefined ? {} : { retryAfterMs: wait });
-      }
+      if (!response.ok) throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`);
       onUsage?.(usageOfGemini(data?.usageMetadata));
       const candidate = data?.candidates?.[0];
       const text = (candidate?.content?.parts ?? [])
@@ -154,6 +151,8 @@ export function createGeminiGenerateText(options: {
       return {
         text,
         cutOff: candidate?.finishReason === "MAX_TOKENS",
+        // Stopped by the safety filters before its end: what it wrote is not all there is.
+        stopped: finishOfGemini(candidate?.finishReason) === "filtered",
         ...(candidate?.finishReason ? { reason: candidate.finishReason } : {}),
         thoughts: typeof thoughts === "number" ? thoughts : 0,
       };

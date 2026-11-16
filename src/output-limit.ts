@@ -31,6 +31,11 @@ export type LimitedReply = {
   text: string;
   /** True when the model stopped because it reached the output limit. */
   cutOff: boolean;
+  /**
+   * True when the provider stopped the reply before its end for another reason (its safety
+   * filters): what it wrote is kept, and said to be incomplete, as a reply cut off at the limit is.
+   */
+  stopped?: boolean;
   /** Why it stopped, in the provider's word, for the message when there is no text. */
   reason?: string;
   /** Tokens the model spent thinking, when the provider says. */
@@ -90,8 +95,9 @@ export async function completeWithinLimit(model: string, maxOutputTokens: number
       }
     }
     if (!reply.text.trim()) throw new Error(`The model returned no text${reply.reason ? ` (${reply.reason})` : ""}.`);
-    // The text stops mid-list when the output limit is reached. Say so instead of passing it off as complete.
-    if (reply.cutOff) options.onTruncated?.();
+    // The text stops mid-list when the output limit is reached, or when a filter stopped it. Say so
+    // instead of passing it off as complete.
+    if (reply.cutOff || reply.stopped) options.onTruncated?.();
     return reply.text;
   } finally {
     learned();

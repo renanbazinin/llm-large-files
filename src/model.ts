@@ -78,7 +78,15 @@ export type ModelReply = {
   calls: ToolCall[];
   /** This turn in the provider's own form, to send back unchanged with the tool results. */
   raw?: unknown;
+  /** Why the reply ended, in the provider's own word ("STOP", "length", "end_turn"). */
   finishReason?: string;
+  /**
+   * How the reply ended, in terms every adapter maps its own to: "complete"; "cut" at the output
+   * limit; "filtered" by the provider's safety filters; "malformed_call", a tool call the model
+   * tried to make that could not be read (Gemini's MALFORMED_FUNCTION_CALL). Unset when the
+   * adapter does not know the reason.
+   */
+  finish?: "complete" | "cut" | "filtered" | "malformed_call";
   /** Why the provider refused the prompt, when it did. Nothing more is asked after it. */
   blockReason?: string;
   usage?: Partial<ModelUsage>;
@@ -152,18 +160,169 @@ export interface ModelAdapter {
 }
 
 /**
+ * What went wrong with a model request, as far as the error says:
+ * - "context_overflow": the request was larger than the model takes (its context window, or the
+ *   size of the body). A smaller request can work.
+ * - "quota": a quota that does not come back soon (a daily cap, no credit left). Sending again
+ *   does not help.
+ * - "rate_limit": too many requests or tokens for now (HTTP 429). Sending again later helps.
+ * - "timeout": nothing came from the model for longer than the adapter waits (`firstByteTimeoutMs`,
+ *   `idleTimeoutMs`; status 0), or the provider or a gateway said the request timed out (HTTP 408).
+ * - "unreachable": no answer at all: the connection failed.
+ * - "server": the provider failed on its side (HTTP 5xx).
+ * - "auth": the key or token was refused (HTTP 401, 403).
+ * - "invalid": the provider refused the request as it was (another HTTP 4xx).
+ */
+export type ModelErrorKind = "context_overflow" | "quota" | "rate_limit" | "timeout" | "unreachable" | "server" | "auth" | "invalid";
+
+/** How an error was told apart, with the numbers of an overflow when the message gives them. */
+export type ModelErrorClass = {
+  kind: ModelErrorKind;
+  /** The most input tokens the model takes, as the provider counts them. */
+  limitTokens?: number;
+  /**
+   * The tokens of the refused request that the provider counted against the window: its input,
+   * and for some providers (OpenRouter, vLLM) the output it would have taken too.
+   */
+  requestedTokens?: number;
+};
+
+/** Wording of a request larger than the model takes, across providers. */
+const OVERFLOW_WORDING = [
+  /context[_ ]length[_ ]exceeded/i,
+  /maximum context length/i,
+  /prompt is too long/i,
+  /input token count\b.{0,40}\bexceeds/i,
+  // Vertex AI: "Unable to submit request because the input token count is N but model only supports up to M."
+  /input token count is [\d,]+ but/i,
+  /model only supports up to/i,
+  /exceeds? the maximum number of tokens/i,
+  /maximum context (?:size|window)/i,
+  /too large for (?:the )?model with [\d,]+ maximum context/i,
+  /exceeds? (?:the )?(?:available |model'?s? )?context (?:size|window|length)/i,
+  /request payload size exceeds/i,
+  /reduce the length of the messages/i,
+  /input tokens? exceeds?/i,
+  /request_too_large/i,
+  // Claude 3.7 to 4.1: "input length and `max_tokens` exceed context limit: 188240 + 21333 > 200000".
+  /exceed context limit/i,
+];
+/** Wording of throttling, which can share words with an overflow ("too many tokens, please wait"). */
+const THROTTLE_WORDING = /rate.?limit|too many requests|please (?:wait|try again later)|per (?:minute|second|day)\b|\b[TR]PM\b|throttl/i;
+
+const LIMIT_WORDING = [
+  /maximum context length is ([\d,]+)/i,
+  // The Gemini API puts the number in parentheses; Vertex AI (November 2026) does not:
+  // "The input token count exceeds the maximum number of tokens allowed 1048576."
+  /maximum number of tokens allowed \(?([\d,]+)/i,
+  /> ?([\d,]+) maximum/i,
+  /with ([\d,]+) maximum context/i,
+  /configured limit of ([\d,]+) tokens/i,
+  /supports up to ([\d,]+)/i,
+  /context limit: [\d,]+ \+ [\d,]+ > ([\d,]+)/i,
+];
+const REQUESTED_WORDING = [
+  /input token count \(([\d,]+)\)/i,
+  /input token count is ([\d,]+)/i,
+  /context limit: ([\d,]+) \+/i,
+  /\(([\d,]+) in the messages/i,
+  /resulted in ([\d,]+) tokens/i,
+  /too long: ([\d,]+) tokens/i,
+  /prompt contains ([\d,]+) tokens/i,
+  /requested (?:about )?([\d,]+) tokens/i,
+];
+
+function firstNumber(message: string, patterns: RegExp[]): number | undefined {
+  for (const pattern of patterns) {
+    const found = pattern.exec(message)?.[1];
+    if (!found) continue;
+    const value = Number(found.replace(/,/g, ""));
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return undefined;
+}
+
+/** True when a Gemini error says a quota per day ran out: `google.rpc.QuotaFailure` with a "PerDay" quota. */
+function dailyQuota(details: unknown): boolean {
+  if (!Array.isArray(details)) return false;
+  return details.some((detail) => {
+    const violations = (detail as { violations?: unknown } | null)?.violations;
+    return Array.isArray(violations) && violations.some((violation) => {
+      const id = (violation as { quotaId?: unknown; quotaMetric?: unknown } | null);
+      return /per.?day/i.test(`${String(id?.quotaId ?? "")} ${String(id?.quotaMetric ?? "")}`);
+    });
+  });
+}
+
+/** True when a Gemini error names an API key that is not valid (it comes as HTTP 400). */
+const keyRefused = (details: unknown): boolean => Array.isArray(details) && details.some((detail) => (detail as { reason?: unknown } | null)?.reason === "API_KEY_INVALID");
+
+/**
+ * Tells what kind of failure an HTTP status and an error message are (see `ModelErrorKind`).
+ * `code` is the provider's own word, when it gives one (OpenAI's `error.code`, Claude's
+ * `error.type`, Gemini's `error.status`); `details` is a Gemini error's `details`. A quota is told
+ * only from those: Gemini says "You exceeded your current quota" of a limit per minute too, which
+ * a wait mends.
+ */
+export function classifyModelError(status: number, message: string, signals: { code?: string | undefined; details?: unknown } = {}): ModelErrorClass {
+  const { code, details } = signals;
+  if (status === 0) return { kind: "unreachable" };
+  if (code === "insufficient_quota" || (status === 429 && dailyQuota(details))) return { kind: "quota" };
+  const throttled = THROTTLE_WORDING.test(message);
+  const overflow = !throttled && status !== 429 && status < 500 && (
+    status === 413 || code === "context_length_exceeded" || code === "request_too_large" || OVERFLOW_WORDING.some((pattern) => pattern.test(message))
+  );
+  if (overflow) {
+    const limitTokens = firstNumber(message, LIMIT_WORDING);
+    const requestedTokens = firstNumber(message, REQUESTED_WORDING);
+    return { kind: "context_overflow", ...(limitTokens ? { limitTokens } : {}), ...(requestedTokens ? { requestedTokens } : {}) };
+  }
+  if (status === 429) return { kind: "rate_limit" };
+  if (status === 408) return { kind: "timeout" };
+  if (status >= 500) return { kind: "server" };
+  if (status === 401 || status === 403 || keyRefused(details)) return { kind: "auth" };
+  return { kind: "invalid" };
+}
+
+/**
  * A model request that failed: the provider answered with an HTTP error, or could not be reached
- * (`status` 0). `retryAfterMs` is the wait the provider asked for, when it named one.
+ * (`status` 0). `retryAfterMs` is the wait the provider asked for, when it named one. `kind` says
+ * what went wrong (see `ModelErrorKind`); for a request larger than the model takes,
+ * `limitTokens` and `requestedTokens` are the provider's numbers, when its message gives them.
  */
 export class ModelRequestError extends Error {
   readonly status: number;
   readonly retryAfterMs?: number;
-  constructor(message: string, status: number, options: { retryAfterMs?: number; cause?: unknown } = {}) {
+  readonly kind: ModelErrorKind;
+  readonly limitTokens?: number;
+  readonly requestedTokens?: number;
+  constructor(message: string, status: number, options: {
+    retryAfterMs?: number;
+    cause?: unknown;
+    /** The kind, when the adapter knows it (a timeout). Otherwise it is told from the status and the message. */
+    kind?: ModelErrorKind;
+    /** The provider's own word for the error, used to tell its kind. */
+    code?: string | undefined;
+    /** The `details` of a Gemini error, used to tell its kind. */
+    details?: unknown;
+  } = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "ModelRequestError";
     this.status = status;
     if (options.retryAfterMs !== undefined) this.retryAfterMs = options.retryAfterMs;
+    const found = classifyModelError(status, message, { code: options.code, details: options.details });
+    this.kind = options.kind ?? found.kind;
+    if (this.kind === "context_overflow") {
+      if (found.limitTokens) this.limitTokens = found.limitTokens;
+      if (found.requestedTokens) this.requestedTokens = found.requestedTokens;
+    }
   }
+}
+
+/** The kind of a model error, when it has one: a `ModelRequestError`'s, or that of an error with the same field. */
+export function errorKindOf(error: unknown): ModelErrorKind | undefined {
+  const kind = (error as { kind?: unknown } | null)?.kind;
+  return typeof kind === "string" ? kind as ModelErrorKind : undefined;
 }
 
 /** Some document IDs were never uploaded, have expired, or belong to another owner. */

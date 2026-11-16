@@ -187,6 +187,12 @@ export type ToolCallLimits = {
    * says where to go on.
    */
   maxResultCharacters?: number;
+  /**
+   * The most model requests a whole-file read (`analyze_whole_document`) may make: what the
+   * question has left of `limits.requests`. A part the model refuses as too large is read as two
+   * halves only while that and `maxMapChunks` allow it.
+   */
+  maxRequests?: number;
 };
 /** The name of `ToolCallLimits` before 0.5.0. */
 export type ToolFileLimits = ToolCallLimits;

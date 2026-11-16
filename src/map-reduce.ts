@@ -1,4 +1,5 @@
 import { safeErrorMessage } from "./errors.js";
+import { errorKindOf } from "./model.js";
 import { withRetry, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes } from "./text.js";
 import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
@@ -171,6 +172,11 @@ export async function analyzeWholeDocument(options: {
   concurrency?: number;
   /** How a model request that failed is sent again. See `RetryOptions`. */
   retry?: RetryOptions;
+  /**
+   * The most model requests this read may make, when the question has a ceiling. A part read as two
+   * halves takes one more than planned: it is halved only while this allows it.
+   */
+  maxRequests?: number;
 }): Promise<WholeDocumentResult> {
   const { document, task, generate, budget, onProgress, signal, retry } = options;
   const name = document.meta.name;
@@ -184,10 +190,22 @@ export async function analyzeWholeDocument(options: {
   /** Parts whose text was read and sent to the model: with none, no model request was made. */
   let sent = 0;
   let truncatedParts = 0;
-  const notes = await pool(parts.length, options.concurrency ?? 4, async (index) => {
-    const { from, to } = parts[index]!;
-    let text: string;
-    let read = true;
+  type Note = { from: number; to: number; text: string; read: boolean };
+  /**
+   * Parts that may be read as two halves. Each takes one request more than planned, and makes one
+   * part more: the parts stay within `maxMapChunks`, and the requests (the parts, a merge, the
+   * answer) within `maxRequests`.
+   */
+  let halvings = Math.max(0, Math.min(
+    budget.maxMapChunks - parts.length,
+    options.maxRequests === undefined ? Number.POSITIVE_INFINITY : options.maxRequests - parts.length - 2,
+  ));
+  /**
+   * The notes on one part. A part the model refuses as larger than it takes (its window is smaller
+   * than the budget says) is read as two halves instead, once: a half that is still too large is
+   * reported as a part that could not be read.
+   */
+  const readPart = async (from: number, to: number, where: string, halved: boolean): Promise<Note[]> => {
     try {
       const part = numberLines(await document.readLines(from, to), from);
       sent++;
@@ -196,7 +214,7 @@ export async function analyzeWholeDocument(options: {
         prompt: [
           `Task: ${task}`,
           "",
-          `Document: ${name}, part ${index + 1} of ${parts.length}, lines ${from}-${to}.`,
+          `Document: ${name}, ${where}, lines ${from}-${to}.`,
           `Write concise notes on everything in this part that is relevant to the task. Keep exact names, numbers, and quotes that matter. Cite line numbers like (L123). If nothing in this part is relevant, reply exactly: ${NOTHING}`,
           "",
           "<part>",
@@ -205,38 +223,50 @@ export async function analyzeWholeDocument(options: {
         ].join("\n"),
         maxOutputTokens: PART_OUTPUT_TOKENS,
       }, signal, retry);
-      text = reply.text;
+      let text = reply.text;
       if (reply.truncated) {
         truncatedParts++;
-        text += "\n[These notes were cut off at the output limit. This part has more relevant content than is listed here.]";
+        text += "\n[These notes were cut off before their end, at the output limit or by the provider. This part has more relevant content than is listed here.]";
       }
+      return [{ from, to, text, read: true }];
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (!halved && to > from && errorKindOf(error) === "context_overflow" && halvings > 0) {
+        halvings--;
+        const middle = Math.floor((from + to) / 2);
+        return [
+          ...await readPart(from, middle, `${where}, first half`, true),
+          ...await readPart(middle + 1, to, `${where}, second half`, true),
+        ];
+      }
       failed++;
-      read = false;
       const reason = safeErrorMessage(error);
       if (!firstFailure) {
         firstFailure = reason;
         firstError = error;
       }
-      text = `[This part could not be read: ${reason}]`;
+      return [{ from, to, text: `[This part could not be read: ${reason}]`, read: false }];
     }
+  };
+  const notes = (await pool(parts.length, options.concurrency ?? 4, async (index) => {
+    const { from, to } = parts[index]!;
+    const read = await readPart(from, to, `part ${index + 1} of ${parts.length}`, false);
     done++;
     onProgress?.({ kind: "map", message: `Reading ${name}: part ${done} of ${parts.length}`, done, total: parts.length });
-    return { from, to, text, read };
-  }, signal);
+    return read;
+  }, signal)).flat();
 
   // Nothing was read at all: an answer written from here would be invented. When not one part
   // could even be read from the store, no model request was made: that is the store's failure,
   // and the read can be asked for again.
-  if (failed === parts.length) throw sent === 0 && firstError !== undefined ? firstError : new NothingReadError(name, firstFailure);
+  if (failed === notes.length) throw sent === 0 && firstError !== undefined ? firstError : new NothingReadError(name, firstFailure);
 
   const relevant = notes.filter((note) => !saysNothingRelevant(note.text));
   const relevantParts = relevant.filter((note) => note.read).length;
   if (relevantParts === 0) {
     return {
-      answer: `No part of ${name} contained anything relevant to: ${task}${failed ? ` (${failed} of ${parts.length} parts could not be read.)` : ""}`,
-      parts: parts.length,
+      answer: `No part of ${name} contained anything relevant to: ${task}${failed ? ` (${failed} of ${notes.length} parts could not be read.)` : ""}`,
+      parts: notes.length,
       relevantParts: 0,
       failedParts: failed,
       truncatedParts,
@@ -300,7 +330,7 @@ export async function analyzeWholeDocument(options: {
 
   onProgress?.({ kind: "reduce", message: `Writing the answer from ${relevantParts} relevant parts of ${name}`, done: 0, total: 1 });
   const cutShort = truncatedParts + truncatedMerges;
-  const counts = { parts: parts.length, relevantParts, failedParts: failed, truncatedParts, truncatedMerges };
+  const counts = { parts: notes.length, relevantParts, failedParts: failed, truncatedParts, truncatedMerges };
   let final: { text: string; truncated: boolean };
   try {
     final = await ask(generate, {
@@ -308,7 +338,7 @@ export async function analyzeWholeDocument(options: {
       prompt: [
         `Task: ${task}`,
         "",
-        `These notes cover all ${parts.length} parts of ${name}${failed ? ` (${failed} part(s) could not be read)` : ""}. Parts with nothing relevant are omitted.`,
+        `These notes cover all ${notes.length} parts of ${name}${failed ? ` (${failed} part(s) could not be read)` : ""}. Parts with nothing relevant are omitted.`,
         ...(cutShort ? [`Some notes were cut off at the output limit (they say so), so the notes are incomplete. Say in the answer that it is incomplete.`] : []),
         "Write one complete answer to the task from them. Keep line citations. Point out contradictions or gaps.",
         "",

@@ -245,14 +245,16 @@ describe("askGemini with an explorer model", () => {
     const replies = [
       call("search_document", { document_id: meta.id, query: "deadlock", mode: "exact" }),
       { candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL", content: { parts: [] } }] },
+      // The explorer is asked once more, with a note that its call could not be read: malformed again.
+      { candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL", content: { parts: [] } }] },
       say("20 deadlocks (app.log L250).", { finishReason: "STOP" }),
     ];
     const gemini = fakeGemini(replies);
     const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], messages: question("How many deadlocks?") });
-    expect(gemini.sent.map((request) => request.url)).toEqual([EXPLORER_URL, EXPLORER_URL, endpoint.url]);
-    expect(result).toMatchObject({ text: "20 deadlocks (app.log L250).", answered: true, turns: 3, finishReason: "STOP" });
+    expect(gemini.sent.map((request) => request.url)).toEqual([EXPLORER_URL, EXPLORER_URL, EXPLORER_URL, endpoint.url]);
+    expect(result).toMatchObject({ text: "20 deadlocks (app.log L250).", answered: true, turns: 4, finishReason: "STOP" });
 
-    replies[2] = { candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [] } }] };
+    replies[3] = { candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [] } }] };
     const empty = await askGemini({ files, endpoint, fetch: fakeGemini(replies).fetch, documentIds: [meta.id], messages: question("How many deadlocks?") });
     expect(empty).toMatchObject({ text: "", answered: false, finishReason: "MAX_TOKENS" });
   });

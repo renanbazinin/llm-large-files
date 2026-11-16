@@ -215,6 +215,7 @@ describe("Claude through the Messages API", () => {
     const reply = await model.send(request("?"), { onText: (delta) => deltas.push(delta) });
     expect(deltas).toEqual(["Looking", " at it."]);
     expect(reply).toEqual({
+      finish: "complete",
       text: "Looking at it.",
       calls: [{ id: "toolu_7", name: "read_document", args: { document_id: "doc_1", start_line: 96, end_line: 98 } }],
       raw: [thinking, text("Looking at it."), call],

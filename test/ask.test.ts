@@ -463,10 +463,18 @@ describe("the edges of the loop", () => {
     expect(once.requests.map((request) => request.toolChoice)).toEqual(["none"]);
     expect(textOf(once.requests[0]!.messages.at(-1))).toBe(FINAL_ANSWER_WITHOUT_TOOLS);
     expect(result).toMatchObject({ text: "From the card alone.", answered: true });
-    // A first reply with no text and no call: the next request asks for an answer, not for one from tools.
-    const empty = fakeModel([says(""), says("Answered.")]);
-    await askWithFiles({ files, model: empty, documentIds: [meta.id], messages: question("?") });
-    expect(textOf(empty.requests[1]!.messages.at(-1))).toBe(FINAL_ANSWER_WITHOUT_TOOLS);
+    // A first reply with no text and no call is asked for once more, with a note at the end of the
+    // question. When that is empty too, the next request asks for an answer, not for one from tools.
+    const empty = fakeModel([says(""), says(""), says("Answered.")]);
+    const again = await askWithFiles({ files, model: empty, documentIds: [meta.id], messages: question("?") });
+    expect(empty.requests[1]!.toolChoice).toBe("auto");
+    expect(empty.requests[1]!.messages.at(-1)!.role).toBe("user");
+    expect(textOf(empty.requests[1]!.messages.at(-1))).toMatch(/\?\s*Your last reply was empty\./);
+    expect(textOf(empty.requests[2]!.messages.at(-1))).toBe(FINAL_ANSWER_WITHOUT_TOOLS);
+    // The note was not kept: the question is as it was asked.
+    expect(JSON.stringify(empty.requests[2]!.messages)).not.toContain("Your last reply was empty");
+    expect(again).toMatchObject({ text: "Answered.", answered: true, turns: 3 });
+    expect(again.steps).toEqual(["The model's first reply was empty: it was asked again"]);
   });
 
   it("answers a call of a tool that does not exist, and goes on", async () => {

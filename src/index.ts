@@ -5,11 +5,13 @@ export { createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, is
 export type { AccessOptions, IngestInput, LargeFiles, LargeFilesOptions, PrepareOptions, ToolOptions } from "./library.js";
 export { DEFAULT_BUDGET, resolveBudget } from "./budget.js";
 export type { ModelLimits } from "./budget.js";
-export { askWithFiles, EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS } from "./ask.js";
+export { askWithFiles, EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "./ask.js";
 export type { AskLimits, AskOptions, AskResult } from "./ask.js";
-export { DocumentsNotFoundError, ModelRequestError, UsageMeter } from "./model.js";
+export { classifyModelError, DocumentsNotFoundError, errorKindOf, ModelRequestError, UsageMeter } from "./model.js";
 export type {
   ChatMessage,
+  ModelErrorClass,
+  ModelErrorKind,
   ChatTurn,
   ModelAdapter,
   ModelCapabilities,
@@ -31,6 +33,9 @@ export type { Evidence, NumberRange } from "./evidence.js";
 export { isRetryableStatus, retryAfterMs, withRetry } from "./retry.js";
 export type { RetryOptions } from "./retry.js";
 export { parseSseJson } from "./sse.js";
+export type { SseHooks } from "./sse.js";
+export { DEFAULT_FIRST_BYTE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./http.js";
+export type { IdleWaits } from "./http.js";
 export { DocumentStoreError } from "./errors.js";
 export { FileDocumentStore, MemoryDocumentStore, DOCUMENT_ID_PATTERN } from "./stores.js";
 export { createPdfExtractor, defaultExtractors, detectFormat } from "./extract.js";
