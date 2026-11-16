@@ -1,9 +1,10 @@
 // Gemini (Generate Content REST) as a model of `askWithFiles`.
 import type { ChatMessage, ModelAdapter, ModelMessage, ModelReply, ModelRequest, ModelTextMessage, ModelToolRound, SendHooks, ToolCall, ToolTurn } from "../model.js";
 import { retryAfterMs } from "../retry.js";
+import { idleWatch, readJson, type IdleWatch } from "../http.js";
 import { parseSseJson } from "../sse.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
-import { GeminiRequestError, unreachable } from "./errors.js";
+import { finishOfGemini, geminiFailure, GeminiRequestError, silent, unreachable } from "./errors.js";
 import { createGeminiGenerateText, geminiFunctionResponseTurns, usageOfGemini, type GeminiToolFilePlacement } from "./generate.js";
 
 export type GeminiPart = Record<string, unknown>;
@@ -32,6 +33,19 @@ export type GeminiModelOptions = {
   pageTokens?: number | undefined;
   /** Names the model in usage totals. Defaults to the model in the URL. */
   id?: string | undefined;
+  /**
+   * The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count:
+   * a model that thinks sends nothing until it has thought, and a reply that is not streamed comes
+   * whole at the end. A request that gets nothing for that long is aborted and sent again, once.
+   * Defaults to 600,000. 0 waits without end.
+   */
+  firstByteTimeoutMs?: number | undefined;
+  /**
+   * The longest wait, in milliseconds, between two pieces of a chat reply once it has started to
+   * arrive (keep-alives count). A request that gets nothing for that long is aborted and sent
+   * again, once, unless text of it was shown. Defaults to 300,000. 0 waits without end.
+   */
+  idleTimeoutMs?: number | undefined;
   fetch?: typeof fetch | undefined;
 };
 
@@ -150,69 +164,90 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
       const stream = Boolean(hooks.onText && endpoint.streamUrl);
       // Headers are asked for with each request: an access token may have been renewed since the last.
       const headers = await resolveHeaders(endpoint);
-      let response: Response;
+      const watch = idleWatch(hooks.signal, { firstByteTimeoutMs: options.firstByteTimeoutMs, idleTimeoutMs: options.idleTimeoutMs });
+      // A request the watch aborted got nothing back for the whole wait: that is no failed connection.
+      const lost = (error: unknown) => (watch.expired ? silent(watch.waitedMs) : unreachable(error));
       try {
-        response = await fetchImpl(stream ? endpoint.streamUrl! : endpoint.url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(bodyOf(request)),
-          signal: hooks.signal,
-        });
-      } catch (error) {
-        if (hooks.signal?.aborted) throw error;
-        throw unreachable(error);
-      }
-      if (!response.ok) {
-        const data = await response.json().catch(() => null) as { error?: { message?: string } } | null;
-        const wait = retryAfterMs(response.headers, data);
-        throw new GeminiRequestError(data?.error?.message ?? `Gemini returned HTTP ${response.status}.`, response.status, wait === undefined ? {} : { retryAfterMs: wait });
-      }
-      const parts: GeminiPart[] = [];
-      const calls: ToolCall[] = [];
-      let text = "";
-      let finishReason: string | undefined;
-      let blockReason: string | undefined;
-      let usage: Record<string, unknown> | undefined;
-      const take = (chunk: Chunk) => {
-        if (chunk.error?.message) throw new GeminiRequestError(chunk.error.message, typeof chunk.error.code === "number" ? chunk.error.code : response.status);
-        if (chunk.promptFeedback?.blockReason) blockReason = chunk.promptFeedback.blockReason;
-        const candidate = chunk.candidates?.[0];
-        for (const part of candidate?.content?.parts ?? []) {
-          // Keep every part unchanged: Gemini 3 requires its thought signatures back.
-          parts.push(part);
-          if (typeof part.text === "string" && part.text && part.thought !== true) {
-            text += part.text;
-            hooks.onText?.(part.text);
-          }
-          const call = part.functionCall as { name?: unknown; args?: unknown; id?: unknown } | undefined;
-          if (call && typeof call.name === "string") {
-            const args = call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args as Record<string, unknown> : {};
-            calls.push({ name: call.name, args, ...(typeof call.id === "string" ? { id: call.id } : {}) });
-          }
-        }
-        finishReason = candidate?.finishReason ?? finishReason;
-        usage = chunk.usageMetadata ?? usage;
-      };
-      if (stream) {
-        if (!response.body) throw new GeminiRequestError("Gemini returned an empty stream.", response.status);
+        let response: Response;
         try {
-          for await (const chunk of parseSseJson<Chunk>(response.body)) take(chunk);
+          response = await fetchImpl(stream ? endpoint.streamUrl! : endpoint.url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(bodyOf(request)),
+            signal: watch.signal,
+          });
         } catch (error) {
-          if (hooks.signal?.aborted || error instanceof GeminiRequestError) throw error;
-          // The connection went while the answer was on its way.
-          throw unreachable(error);
+          if (hooks.signal?.aborted) throw error;
+          throw lost(error);
         }
-      } else {
-        take(await response.json() as Chunk);
+        // The headers are no piece of the reply: a server may send them at once and then think.
+        if (!response.ok) {
+          const data = await response.json().catch(() => null);
+          throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `Gemini returned HTTP ${response.status}.`);
+        }
+        return await readReply(response, stream, hooks, watch, lost);
+      } finally {
+        watch.stop();
       }
-      return {
-        text,
-        calls,
-        raw: { role: "model", parts } satisfies GeminiContent,
-        ...(finishReason ? { finishReason } : {}),
-        ...(blockReason ? { blockReason } : {}),
-        ...(usage ? { usage: usageOfGemini(usage), providerUsage: usage } : {}),
-      };
     },
   };
+
+
+  /** The reply of a request that was answered: streamed, or in one piece. */
+  async function readReply(response: Response, stream: boolean, hooks: SendHooks, watch: IdleWatch, lost: (error: unknown) => GeminiRequestError): Promise<ModelReply> {
+    const parts: GeminiPart[] = [];
+    const calls: ToolCall[] = [];
+    let text = "";
+    let finishReason: string | undefined;
+    let blockReason: string | undefined;
+    let usage: Record<string, unknown> | undefined;
+    const take = (chunk: Chunk) => {
+      if (chunk.error?.message) {
+        throw geminiFailure(typeof chunk.error.code === "number" ? chunk.error.code : response.status, chunk, undefined, chunk.error.message);
+      }
+      if (chunk.promptFeedback?.blockReason) blockReason = chunk.promptFeedback.blockReason;
+      const candidate = chunk.candidates?.[0];
+      for (const part of candidate?.content?.parts ?? []) {
+        // Keep every part unchanged: Gemini 3 requires its thought signatures back.
+        parts.push(part);
+        if (typeof part.text === "string" && part.text && part.thought !== true) {
+          text += part.text;
+          hooks.onText?.(part.text);
+        }
+        const call = part.functionCall as { name?: unknown; args?: unknown; id?: unknown } | undefined;
+        if (call && typeof call.name === "string") {
+          const args = call.args && typeof call.args === "object" && !Array.isArray(call.args) ? call.args as Record<string, unknown> : {};
+          calls.push({ name: call.name, args, ...(typeof call.id === "string" ? { id: call.id } : {}) });
+        }
+      }
+      finishReason = candidate?.finishReason ?? finishReason;
+      usage = chunk.usageMetadata ?? usage;
+    };
+    if (stream) {
+      if (!response.body) throw new GeminiRequestError("Gemini returned an empty stream.", response.status);
+      try {
+        for await (const chunk of parseSseJson<Chunk>(response.body, { onData: watch.pulse, signal: watch.signal })) take(chunk);
+      } catch (error) {
+        if (hooks.signal?.aborted || error instanceof GeminiRequestError) throw error;
+        // The connection went while the answer was on its way, or nothing came for the whole wait.
+        throw lost(error);
+      }
+      // Every reply Gemini streams ends with a chunk that says why it ended. A stream that closed
+      // without one was cut off on its way (a proxy, a dropped connection): it is not a whole
+      // reply, and is sent again like a connection that failed, unless text of it was shown.
+      if (finishReason === undefined && blockReason === undefined) throw new GeminiRequestError("Gemini's reply ended before it was complete.", 0);
+    } else {
+      take(await readJson<Chunk>(response, () => Boolean(hooks.signal?.aborted), lost, watch));
+    }
+    const finish = finishOfGemini(finishReason);
+    return {
+      text,
+      calls,
+      raw: { role: "model", parts } satisfies GeminiContent,
+      ...(finishReason ? { finishReason } : {}),
+      ...(finish ? { finish } : {}),
+      ...(blockReason ? { blockReason } : {}),
+      ...(usage ? { usage: usageOfGemini(usage), providerUsage: usage } : {}),
+    };
+  }
 }

@@ -87,6 +87,10 @@ export type RetryNotice = { error: unknown; attempt: number; delayMs: number };
  * - An error with a retryable status (see `isRetryableStatus`) is retried after a wait that doubles
  *   each time, with jitter, or after the wait the provider asked for.
  * - An error with another status is not retried.
+ * - An error of kind "quota" (a daily cap, no credit left) is not retried: a wait does not mend it.
+ * - An error of kind "timeout" with status 0 (nothing came from the model for the adapter's whole
+ *   wait) is retried once: another such wait is long, and a model that went silent twice will most
+ *   likely do so again. A timeout the provider reports (HTTP 408) is retried like any other.
  * - An error without a status is retried once, at once, when `unknownErrors` is "once"; otherwise not.
  * Nothing is retried after the signal aborted, or once `canRetry` says no.
  */
@@ -104,11 +108,18 @@ export async function withRetry<T>(run: () => Promise<T>, options: {
   const wait = options.retry?.sleep ?? sleep;
   const random = options.retry?.random ?? Math.random;
   let unknownRetried = false;
+  let timeoutRetried = false;
   for (let attempt = 0; ; attempt++) {
     try {
       return await run();
     } catch (error) {
       if (options.signal?.aborted || options.canRetry?.() === false) throw error;
+      const kind = (error as { kind?: unknown } | null)?.kind;
+      if (kind === "quota") throw error;
+      if (kind === "timeout" && statusOf(error) === 0) {
+        if (timeoutRetried || retries === 0) throw error;
+        timeoutRetried = true;
+      }
       const status = statusOf(error);
       if (status === undefined) {
         if (options.unknownErrors !== "once" || unknownRetried || retries === 0) throw error;

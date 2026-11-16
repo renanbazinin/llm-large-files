@@ -213,3 +213,26 @@ describe("createGeminiGenerateText since 0.5.0", () => {
     expect(headers).toBe(3);
   });
 });
+
+describe("gemini(), since the review of 0.5.0", () => {
+  it("sends a request again when the connection failed while the body of the reply arrived", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "note.txt", bytes: utf8("The total is 42.\n") });
+    const broken = () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("{\"candidates\":[{\"con"));
+        controller.error(new TypeError("terminated"));
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const api = fakeGemini([broken, say("42.")]);
+    const { retry } = quickRetry();
+    const model = gemini({ url: "https://gemini.test/v1beta/models/gemini-test:generateContent", headers: {} }, { fetch: api.fetch });
+    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("Total?"), retry });
+    expect(api.sent).toHaveLength(2);
+    expect(result).toMatchObject({ text: "42.", answered: true });
+    // The same for a part read, which is tried again on its own.
+    const part = fakeGemini([broken, say("Notes (L1).")]);
+    const generate = createGeminiGenerateText({ url: "https://gemini.test/v1beta/models/gemini-part:generateContent", headers: {}, fetchImpl: part.fetch });
+    await expect(generate({ system: "s", prompt: "p", maxOutputTokens: 100 })).rejects.toMatchObject({ status: 0 });
+  });
+});

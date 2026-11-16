@@ -4,6 +4,180 @@ All notable changes to this package are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [semantic versioning](https://semver.org).
 
+## [Unreleased]
+
+Fixes from a review of 0.5.0, and what the loop took from other agent harnesses (DeepSeek
+Harness, Codex, Gemini CLI, OpenCode, SWE-agent): waits on a model that went silent, the kind of
+every error and a way back from a request too large for the model, a second try after an empty or
+broken turn, and no second run of a call whose result is still shown. Nothing to change in your
+code, unless you compare the IDs that `anthropicToolTurns` and `openAiToolTurns` give calls that
+came without one (see **Changed**).
+
+### Added
+
+- **Waits on a model that went silent.** A chat request had no limit: a provider that stopped
+  answering held the request, and the user, until the application's own timeout. Each adapter now
+  aborts a request that gets nothing for `firstByteTimeoutMs` (600 s) before the first piece of
+  its reply, or for `idleTimeoutMs` (300 s) between two pieces, and sends it again once. Headers do
+  not count as a piece: Gemini without its thoughts, and OpenAI's reasoning models, send nothing
+  while they think. Keep-alives count (DeepSeek's blank lines, Claude's pings). A reply that keeps
+  arriving has no limit. Options of `gemini()`, `askGemini`, `openAiCompatible()` and
+  `anthropic()`; 0 waits without end. The body of a reply is read a piece at a time to see them,
+  from the global `fetch` or from node-fetch.
+- **What went wrong, in `ModelRequestError.kind`**: `"context_overflow"`, `"quota"`,
+  `"rate_limit"`, `"timeout"`, `"unreachable"`, `"server"`, `"auth"`, `"invalid"`, told from the
+  status, the message and the provider's own code (Gemini's `error.status` and `details`, OpenAI's
+  `code`, Claude's `type`). For a request too large for the model, `.limitTokens` and
+  `.requestedTokens` are the provider's numbers when its message gives them. The wording of Gemini,
+  Vertex AI (checked live: "The input token count exceeds the maximum number of tokens allowed
+  1048576."), OpenAI, Claude, vLLM, Mistral and llama.cpp is known; throttling that shares words
+  with it ("tokens per min") is not taken for it. `classifyModelError` and `errorKindOf` are
+  exported.
+- **A request too large for the model is made smaller and sent again**, instead of failing the
+  question: the loop takes the provider's count and window for the rest of the question, replaces
+  older results with stand-ins (the latest round too), and sends it again, at most twice a question.
+  When the first requests of a question are too large before any tool ran (a window smaller than
+  the budget assumed, a local server's `max_model_len`), the documents are planned again for the
+  window the provider named, once, as for a model that declares it. What the first try paid for,
+  and the tool turns it took, are counted. Claude's conversation is not rewritten, so for it only
+  the second plan applies.
+- **`partialResultOf(error)`**: what a question that failed had found and paid for, as an
+  `AskResult` with `answered: false`: its steps, evidence, tool rounds and usage. The error itself
+  is thrown as before.
+- **`ModelReply.finish`**: how a reply ended, in terms every adapter maps its own to: `"complete"`,
+  `"cut"`, `"filtered"`, `"malformed_call"`.
+- `ToolCallLimits.maxRequests`: the requests a whole-file read may make. The loop passes what the
+  question has left of `limits.requests`.
+- `DEFAULT_FIRST_BYTE_TIMEOUT_MS`, `DEFAULT_IDLE_TIMEOUT_MS`; `parseSseJson` takes
+  `{ onData, onDone, signal }`; types `ModelErrorKind`, `ModelErrorClass`, `IdleWaits`, `SseHooks`.
+
+### Fixed
+
+The tool loop:
+
+- **The calls of a turn share the room that is left.** Each call was given its whole cap
+  (`toolResultCharacters`, or at least 40,000 characters for a whole-file read) in call order,
+  though most results are far smaller. When the room ran short, the first calls took it all and the
+  next ones were answered "no room left, answer now", which ended the question: on a model whose
+  conversation may only grow (Claude), four searches of about 300 characters each, after four rounds
+  of reads on a window of 64,000, ran three and forced the answer. The room is now shared evenly, a
+  call with a smaller cap leaving the rest to the others, and only calls that cannot each get 1,500
+  characters are refused. The answer of a whole-file read, which cannot be asked for again, is not
+  cut to a share: once the other results of the turn are in, it gets all the room they left. The
+  room is also no longer counted for calls that are refused anyway.
+- **Whole-file reads in one turn are counted together against `limits.requests` and
+  `limits.inputTokens`.** Each was checked alone against what was left, so two reads that each fit
+  ran together and passed the ceiling (16 requests against a ceiling of 11 in a probe). A second
+  read of a document that the tool refuses anyway takes nothing from the reads of the others.
+- **The provider's count of a request is read by the scale of the model that gave it.** It was read
+  by the largest `tokenScale` of the question, so the count of an explorer with a smaller scale
+  could not raise the estimate: with a Gemini explorer and Claude answering, on text that cost 30%
+  more than estimated, the request for the answer came to 66,000 tokens of Claude's window of
+  60,000. A whole-file read is also priced in the tokens of the model that reads it.
+- **Part reads of a `generateText` that does not call `onUsage` count toward `limits.requests`.**
+  They were left out of the totals.
+- **The request for an answer after no tool ran no longer says "using only what the tools returned
+  above"**: when the first reply was empty, or `limits.toolTurns` left no turn for tools, it is
+  `FINAL_ANSWER_WITHOUT_TOOLS`, as it was already for an explorer that called no tool.
+- **Text that is cut is no longer cut in half of a character outside the basic plane** (an emoji),
+  which JSON writes as `\ud83d` and Claude's API refuses: results cut to their room, the lines a
+  search shows, the stand-ins of dropped results, the first lines of a file's card, and the log
+  templates of documents ingested from now on.
+
+Whole-file reads:
+
+- **A read whose last step failed returned an error**, and the notes of every part, paid for, were
+  lost. The notes are now the answer, with `notes_only: true` and a note that says so.
+- **A model that asked again after a read failed was told to "use the answer of that read"**, which
+  there was not. A read that could read no part is still not tried again for the question, and the
+  refusal now says that it failed and why. A read that failed before any model request (a store
+  that could not be read, while counting the parts or reading them) is no longer counted, so the
+  call can be made again, as its message says. Its count is given back without taking that of
+  another read of the same document in the same turn.
+- **The answer of a read in little room is cut at its end**, as much of it as fits, and the other
+  fields of the result (`parts_read`, the notes on what is incomplete) are kept. It was cut as
+  JSON, which left `{ truncated, partial }` and dropped them.
+
+The adapters:
+
+- **A connection that failed while the body of a reply arrived is sent again**, as one that failed
+  before the reply is, in all three adapters. A chat reply that was not streamed (on an
+  OpenAI-compatible endpoint or Gemini, an explorer's or any without `onText`; on Claude, with
+  `stream: false` or from a gateway that answers without a stream) was tried once; a part read was
+  tried twice, and is now sent again like any connection that failed. A chat reply whose body came
+  whole but is not JSON is not sent again (a part read tries it once more, as it does any failure
+  that gives no reason).
+- OpenAI-compatible: **an error inside a stream is taken for the server's** (OpenAI's own is
+  `{ type: "server_error", code: null }`), and sent again when no text of it was shown. It was taken
+  for HTTP 200, and never sent again.
+- OpenAI-compatible: **a streamed reply keeps its `refusal`, and OpenRouter's `reasoning` and
+  `reasoning_details`**, as a reply in one piece does. A refusal was lost, so the question was not
+  answered; the reasoning details, which hold the thought signature of a Gemini 3 model behind
+  OpenRouter, were not sent back with the turn.
+- OpenAI-compatible: **a call whose arguments are not JSON, or are empty, goes back with `"{}"`.**
+  It went back as written, and vLLM before 0.29 refuses a conversation with such a call (HTTP 400).
+- OpenAI-compatible: **the output limit of a part read is named `max_completion_tokens` on every
+  host of Azure OpenAI**: `*.openai.azure.com`, and the `/openai/` paths of
+  `*.cognitiveservices.azure.com` and `*.services.ai.azure.com`. Reasoning deployments refused the
+  `max_tokens` sent there. When `maxTokensField` is not set, a server that refuses the name it was
+  sent (HTTP 400 with `param` naming it, or a message that refuses it) is sent the other, which is
+  kept for the adapter. An error that only mentions a name ("max_tokens or model output limit was
+  reached") changes nothing, and part reads refused together learn the other name once.
+  `OpenAiRequestError` now has the `param` and `code` of the error.
+- OpenAI-compatible: **two user turns in a row are sent as one.** DeepSeek's reasoner and the chat
+  templates of Mistral and Gemma models refuse them; the loop sends them when it asks for the answer
+  after no tool ran.
+- Claude: **a stream that ended without its last event is not taken for a whole reply.** A gateway
+  that ended it early made a cut answer count as answered; it is now sent again like a connection
+  that failed. A call whose block was never closed is answered, not run with no arguments.
+- Claude: **a text block that a stream left empty is not sent back** ("text content blocks must be
+  non-empty"), unless a thinking block follows it in the turn.
+- Claude: **calls of other providers and of earlier questions get IDs the API takes**, each once in
+  a request: Kimi's `functions.search:0` becomes `functions_search_0`, and the second of two stored
+  rounds numbered alike is given a suffix.
+
+Replies cut off on their way:
+
+- **A stream that closes without saying why it ended is not taken for a whole reply**: Gemini's
+  last chunk has a `finishReason`, and an OpenAI-compatible stream a `finish_reason` or `[DONE]`. A
+  proxy or a dropped connection that ended it early made a cut answer, or a cut turn of tool calls,
+  count as whole. It is sent again when none of it was shown, as Claude's already was.
+- **DeepSeek's `insufficient_system_resource`** is the server's failure (HTTP 503), sent again. It
+  was taken for a whole reply.
+- **A streamed reply through a `fetch` whose body is a Node stream** (node-fetch) failed with
+  "stream.getReader is not a function". Bodies of either kind are read.
+
+### Changed
+
+- **The tool guide sends counting and listing to exact search.** It sent "every occurrence" to
+  `analyze_whole_document`, which our own live test showed missing items (492 of 1,200; 91 of
+  120), while `search_document` in exact or regex mode gives an exact `total_matching_lines`. The
+  whole-file read is now for what needs meaning: a summary, a timeline, items judged one by one.
+  The system instruction of a question with tools changes, so the provider's cache misses it once.
+- **A turn whose tool call could not be read** (Gemini's `MALFORMED_FUNCTION_CALL`), **or a first
+  reply with nothing in it, is asked for once more** with a short note, at most twice a question.
+  The answer was written from the cards alone and looked like any other. The second try takes a
+  tool turn; the note is not kept in the conversation, except when the model that explores is
+  Claude, and the answering model never gets it. An explorer is told to reply DONE.
+- **A call whose result is still in the conversation in full is not run again**: the same search,
+  the same read, a read of lines inside one that is shown, here or in the tool rounds of an earlier
+  question. It is answered with a pointer to that result, and its step says "already shown above".
+  A result cut to its room, replaced by a stand-in, or from a search that stopped early is not
+  pointed to, and a pointer whose result is later replaced becomes a stand-in too. Live on Vertex
+  AI, a follow-up that repeated its first search got the pointer and answered from the result.
+- **Two searches in a row that failed in the same mode** get a hint to try another mode. An unknown
+  `document_id` is answered with the IDs and names the model may use.
+- **A quota that does not come back soon is not sent again** (OpenAI's `insufficient_quota`, a
+  Gemini quota per day): three more tries could not help. Gemini's quota per minute is waited for
+  as before.
+- **A part of a whole-file read that the model refuses as too large is read as two halves**, while
+  `maxMapChunks` and the requests the question has left allow it. A part the provider's filter
+  stopped (Gemini `SAFETY`, `content_filter`, Claude `refusal` or `model_context_window_exceeded`)
+  is said to be incomplete, as one cut off at the output limit is.
+- `anthropicToolTurns` and `openAiToolTurns` give a call that came without an ID a random one
+  (`toolu_…`, `call_…`). They numbered them from 1 each time, so the stored rounds of two questions
+  had the same IDs, which the Messages API refuses.
+
 ## [0.5.0] - 2026-11-13
 
 One tool loop for every model. What `askGemini` did (plan the documents, offer the tools, run the

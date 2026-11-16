@@ -1,6 +1,6 @@
 import { createContext, Script, type Context } from "node:vm";
 import { PASSAGE_CHARACTERS, PASSAGE_MAX_LINES, positionOf } from "./text-index.js";
-import { foldCase, LineIndex } from "./text.js";
+import { foldCase, LineIndex, sliceWhole } from "./text.js";
 import type { DocumentMeta, StoredDocument } from "./types.js";
 
 const MAX_OCCURRENCES_PER_TERM = 200_000;
@@ -243,8 +243,12 @@ export type GrepOptions = {
 
 function clip(line: string, column: number): string {
   if (line.length <= SHOWN_LINE_CHARACTERS) return line;
-  const start = Math.max(0, Math.min(column - SHOWN_LINE_CHARACTERS / 2, line.length - SHOWN_LINE_CHARACTERS));
-  return `${start > 0 ? "…" : ""}${line.slice(start, start + SHOWN_LINE_CHARACTERS)}${start + SHOWN_LINE_CHARACTERS < line.length ? "…" : ""}`;
+  let start = Math.max(0, Math.min(column - SHOWN_LINE_CHARACTERS / 2, line.length - SHOWN_LINE_CHARACTERS));
+  // Never inside a character outside the basic plane (an emoji): half of one is refused by Claude's API.
+  const code = line.charCodeAt(start);
+  if (start > 0 && code >= 0xdc00 && code <= 0xdfff) start++;
+  const end = start + SHOWN_LINE_CHARACTERS;
+  return `${start > 0 ? "…" : ""}${sliceWhole(line, end).slice(start)}${end < line.length ? "…" : ""}`;
 }
 
 const RUN_SCAN = new Script("scan()");

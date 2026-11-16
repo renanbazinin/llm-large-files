@@ -46,6 +46,16 @@ const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
 const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 
 /**
+ * The first `end` UTF-16 units of `text`, one fewer when the last of them would be the first half
+ * of a character outside the basic plane (an emoji). Half of one is not text: JSON writes it as
+ * `\ud83d`, and an API that checks its input (Claude's) refuses the request.
+ */
+export function sliceWhole(text: string, end: number): string {
+  const at = Math.max(0, Math.min(text.length, Math.trunc(end)));
+  return at > 0 && at < text.length && isHighSurrogate(text.charCodeAt(at - 1)) ? text.slice(0, at - 1) : text.slice(0, at);
+}
+
+/**
  * Splits lines longer than `limit`, preferring a break after whitespace or punctuation near the
  * end of each piece. Minified JSON or a PDF paragraph becomes many addressable lines.
  */

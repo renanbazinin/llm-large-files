@@ -79,7 +79,12 @@ no path and no host; `error.cause` is what the store threw, for your log.
 the tool's own cap: the result is cut to it and says where to go on.
 
 A second `analyze_whole_document` of the same document by one tool set answers with an error that
-tells the model to use the first answer (`maxWholeDocumentReads`).
+tells the model to use the first answer (`maxWholeDocumentReads`). When the first read failed (no
+part could be read), the error says so instead. A read that failed before any model request (too
+many parts, a store that could not be read) is not counted. When the last step of a read, which
+writes one answer from the notes of the parts, fails, the notes are the answer, with
+`notes_only: true`. An answer too long for `maxResultCharacters` is cut at its end and says so
+(`answer_shortened`).
 
 | Tool | Arguments | Returns |
 |---|---|---|
@@ -118,7 +123,16 @@ carry page numbers: `page` on each matching line, `pages` on a passage and on a 
   your own.
 - `withRetry(run, { retry?, signal?, canRetry?, onRetry? })`, `isRetryableStatus(status)`,
   `retryAfterMs(headers, body?)`: the retry rule of the loop, for an adapter or a loop of your own.
-- `parseSseJson(stream)`: async iterator over the JSON events of a `text/event-stream` body.
+  An error of kind `"quota"` is not sent again, and one of kind `"timeout"` with status 0 (the
+  adapter's own wait ran out) is sent again once.
+- `classifyModelError(status, message, { code?, details? })`: the kind of a failure
+  (`ModelErrorKind`), and for a request larger than the model takes, the window and the count the
+  provider named. `errorKindOf(error)` reads `error.kind`.
+- `partialResultOf(error)`: what a question that failed had found and paid for (see below).
+- `parseSseJson(stream, { onData?, onDone?, signal? })`: async iterator over the JSON events of a
+  `text/event-stream` body, a web stream or a Node stream.
+- `DEFAULT_FIRST_BYTE_TIMEOUT_MS` (600,000), `DEFAULT_IDLE_TIMEOUT_MS` (300,000): the waits of the
+  adapters.
 - `createPdfExtractor({ tables?: boolean, pictures?: boolean })`: the built-in PDF extractor with
   an option changed. `tables: false` gives the text in pdf.js order, without rebuilt tables
   (see [PDF tables](configuration.md#pdf-tables)). `pictures: false` leaves out the line that marks
@@ -165,7 +179,7 @@ limits of the request, and ends with a request that must be answered in text.
 | `system` | System instruction; the tool guide is appended when needed. |
 | `owner` | Only documents with this owner (or no owner) are used. |
 | `documentPlacement` | `"first"` (default): document text and cards go at the start of the first user turn and stay there, so follow-up questions reuse the provider's prompt cache. `"last"`: appended to the latest user turn. |
-| `limits` | `toolTurns` (12): the most chat requests for one question, counting the answer. `callsPerTurn` (8): the most tool calls of one turn that are run. `wholeDocumentReads` (1): how often each document may be read whole. `inputTokens`, `requests` (none): ceilings for the whole question, part reads included. |
+| `limits` | `toolTurns` (12): the most chat requests for one question, counting the answer and a second try after an empty or broken turn. `callsPerTurn` (8): the most tool calls of one turn that are run. `wholeDocumentReads` (1): how often each document may be read whole. `inputTokens`, `requests` (none): ceilings for the whole question, part reads included. |
 | `retry` | `{ retries = 3, baseDelayMs = 500, maxDelayMs = 60_000 }`. See [Limits and retries](configuration.md#limits-and-retries). |
 | `budget` | Budget fields for this question, in place of the library's. |
 | `wholeDocumentAnalysis` | Default `true`. Set `false` to withhold the costly whole-file tool. |
@@ -215,6 +229,31 @@ and `Error` when the last message isn't the user's. `status` is 0 for a connecti
 Each adapter throws its own subclass: `GeminiRequestError`, `OpenAiRequestError`,
 `AnthropicRequestError`.
 
+A `ModelRequestError` says what went wrong in `.kind`:
+
+| `kind` | | What the loop does |
+|---|---|---|
+| `"context_overflow"` | The request was larger than the model takes. `.limitTokens` and `.requestedTokens` are the provider's numbers, when its message gives them. | Shortens older tool results and sends it again, at most twice a question. When the first requests were too large before any tool ran, plans the documents again for the window the provider named, once. Throws when neither helps. |
+| `"quota"` | A quota that does not come back soon: OpenAI's `insufficient_quota`, a Gemini quota per day. | Throws at once. |
+| `"rate_limit"` | HTTP 429 otherwise. | Waits and sends it again. |
+| `"timeout"` | Nothing came from the model for the adapter's wait (status 0), or HTTP 408. | Sends it again: once when it was the adapter's wait. |
+| `"unreachable"`, `"server"` | A connection that failed, HTTP 5xx. | Waits and sends it again. |
+| `"auth"`, `"invalid"` | HTTP 401/403 or an API key that is not valid; another 4xx. | Throws. |
+
+What a question that failed had found until then is not lost: `partialResultOf(error)` gives an
+`AskResult` with `answered: false`, its `steps`, `evidence`, `toolTurns` and `usage`, so that you
+can keep the tool rounds with the conversation and count what was paid for:
+
+```ts
+try {
+  return await askWithFiles({ ... });
+} catch (error) {
+  const partial = partialResultOf(error);
+  if (partial) await saveUsage(sessionId, partial.usage);
+  throw error;
+}
+```
+
 ### Keeping what a question read
 
 `toolTurns` are the tool rounds of the question, with each result as the model had it. Store them
@@ -262,8 +301,13 @@ const model: ModelAdapter = {
   `calls`.
 - `toolChoice: "none"` means the model must answer in text. The tools are still in `tools`, for a
   provider that wants them declared next to earlier calls.
-- Throw `ModelRequestError(message, status, { retryAfterMs })` for an HTTP error, with status 0
-  for a connection that failed. The loop retries the ones worth retrying.
+- Throw `ModelRequestError(message, status, { retryAfterMs, code?, details?, kind? })` for an HTTP
+  error, with status 0 for a connection that failed. The kind is told from the status, the
+  message, and the provider's `code` (or a Gemini error's `details`); give `kind: "timeout"` when
+  your own wait ran out. The loop retries the ones worth retrying.
+- Set `finish` on the reply when you know how it ended: `"complete"`, `"cut"` (the output limit),
+  `"filtered"`, or `"malformed_call"` (a tool call that could not be read: the loop asks once more).
+  A stream that closed without saying why it ended was cut off on its way: throw status 0.
 - Give a call whose arguments did not parse a `problem`: the loop answers it with that message and
   does not run it.
 - `capabilities.toolFiles` says where a file from a tool goes (`"inside"` the result, `"beside"`
@@ -285,6 +329,7 @@ adapter of its own.
 | `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. |
 | `contextTokens`, `maxRequestBytes` | The model's window and the largest request, when the budget of a question should follow them. |
 | `pageTokens` | Tokens billed for one PDF page. Default 530. |
+| `firstByteTimeoutMs`, `idleTimeoutMs` | The longest wait for the first piece of a chat reply (600 s; headers do not count, a model that thinks sends nothing until it has), and between two pieces once it has started (300 s; keep-alives count). A request that gets nothing for that long is aborted and sent again, once. 0 waits without end. |
 | `id`, `fetch` | The name in usage totals (default: the model in the URL), and a custom fetch. |
 
 ```ts
@@ -319,6 +364,7 @@ when it names one. It takes Gemini `contents` as well as `messages`.
 | `toolFilePlacement` | `"inside"` (default): the pages go in the function response itself, which Gemini 3 models read. `"beside"`: in a user turn of their own after the function responses, for Gemini 2.5, which does not see a file inside a function response. See [Where the pages go](configuration.md#where-the-pages-go-toolfileplacement). |
 | `analysisConfig` | `(maxOutputTokens) => generationConfig` for whole-file part reads. The explorer model reads the parts when there is one, so write it for that model. Without it a part is asked for with `{ maxOutputTokens, temperature: 0.2 }`. A model that thinks counts its thoughts in that limit: a reply that it cut off that way is asked for again with 32,768, and later parts start there. |
 | `onText`, `onActivity`, `onStep` | Streaming answer text, transient status, completed steps. |
+| `firstByteTimeoutMs`, `idleTimeoutMs` | The longest wait for the first piece of a chat reply (600 s; headers do not count, a model that thinks sends nothing until it has), and between two pieces once it has started (300 s; keep-alives count). A request that gets nothing for that long is aborted and sent again, once. 0 waits without end. |
 | `fetch`, `signal` | Custom fetch (proxies, tests) and cancellation. |
 
 Returns what `askWithFiles` returns. **`usage` is the total of the question since 0.5.0**; Gemini's
@@ -356,9 +402,9 @@ reads whole files in parts, so that `model` only writes the answer. Left out, em
   responses followed by a `user` turn that holds the files.
 - `FINAL_ANSWER_REQUEST`, `FINAL_ANSWER_AFTER_PAGES`: the messages `askGemini` adds when the model
   must stop using tools. The second is used when `view_pages` was the only tool.
-- `FINAL_ANSWER_WITHOUT_TOOLS`, `EXPLORER_INSTRUCTION`: the two texts `askGemini` adds for an
-  explorer model. The first asks the answering model for the answer when the explorer called no
-  tool. The second is the line in the explorer's system instruction that says what its part is.
+- `FINAL_ANSWER_WITHOUT_TOOLS`, `EXPLORER_INSTRUCTION`: the first asks for the answer when no tool
+  ran: an explorer model called none, the first reply was empty, or no turn was left for tools.
+  The second is the line in an explorer model's system instruction that says what its part is.
 - `parseSseJson(stream)`: async iterator over a Generate Content SSE stream.
 
 ## `llm-large-files/openai`
@@ -376,15 +422,16 @@ Gemini's OpenAI layer.
 | `apiKey`, `headers` | `Authorization: Bearer …`, and more headers. A function is called for each request. |
 | `body` | More fields for every chat request: `temperature`, `reasoning_effort`, `max_completion_tokens`. |
 | `analysisBody` | `(maxOutputTokens) => fields` for whole-file part reads. |
-| `maxTokensField` | The name of the output limit in a part read. Default `max_completion_tokens` for api.openai.com and Azure OpenAI, `max_tokens` elsewhere. |
+| `maxTokensField` | The name of the output limit in a part read. Default `max_completion_tokens` for api.openai.com and Azure OpenAI (`*.openai.azure.com`, and the `/openai/` paths of `*.cognitiveservices.azure.com` and `*.services.ai.azure.com`), `max_tokens` elsewhere. Left out, a server that refuses the name it was sent (HTTP 400 naming it) is sent the other from then on. |
 | `answerWithoutTools` | `"tool_choice"` (default): the request for the answer keeps the tools and sends `tool_choice: "none"`. `"omit"`: it leaves them out, for a server that does not know `tool_choice`. |
 | `pdfInput` | Default `false`. Send the pages of `view_pages` as a `file` part in a user message after the tool results. For a model that reads PDF input: many servers behind this API do not (Gemini's layer answers HTTP 400). Not run against OpenAI itself. |
 | `stream`, `systemRole` | `false` for a server without streaming; `"developer"` for one that wants the newer role name. |
 | `contextTokens`, `maxRequestBytes`, `tokenScale`, `pageTokens` | What the model takes, when the budget should follow it. |
+| `firstByteTimeoutMs`, `idleTimeoutMs` | The longest wait for the first piece of a chat reply (600 s; headers do not count, a model that thinks sends nothing until it has), and between two pieces once it has started (300 s; keep-alives count). A request that gets nothing for that long is aborted and sent again, once. 0 waits without end. |
 | `id`, `timeoutMs`, `fetch` | The name in usage totals, the time a part read may take (180 s), a custom fetch. |
 
 The model's own message goes back to it as it came (a server may want its `reasoning_content` or a
-signature again). `fromOpenAiMessages(history)` returns `{ system, messages }` for a history kept
+signature again), except that a call whose arguments are not a JSON object goes back with `"{}"`. `fromOpenAiMessages(history)` returns `{ system, messages }` for a history kept
 as Chat Completions messages, and `openAiToolTurns(toolTurns)` gives stored rounds in that form.
 
 ## `llm-large-files/anthropic`
@@ -407,12 +454,13 @@ the request and response shapes of its documentation.
 | `toolFilePlacement` | `"inside"` (default): pages go into the tool result as a document block. `"beside"`: after the tool results. `"none"`: `view_pages` is not offered. |
 | `stream` | Default `true`: chat requests are streamed, which keeps a long reply from timing out. |
 | `contextTokens`, `maxRequestBytes`, `pageTokens`, `tokenScale` | Defaults: none, 32 MB, 3,500, and 1.35 (a guess for the current tokenizer, corrected during a question by the count the API reports). |
-| `id`, `timeoutMs`, `fetch` | As above. |
+| `firstByteTimeoutMs`, `idleTimeoutMs`, `id`, `timeoutMs`, `fetch` | As above. Claude's pings count as pieces of a reply. |
 
 What the adapter takes care of:
 
-- The model's turn goes back exactly as it came, thinking blocks included, and the conversation is
-  never rewritten: Claude checks its thinking blocks against the conversation they were written
+- The model's turn goes back as it came, thinking blocks included (a text block that the stream
+  left empty after the last thinking block is left out: the API refuses it), and earlier turns are
+  never shortened: Claude checks its thinking blocks against the conversation they were written
   in. So old tool results are not shortened for Claude. When the room runs out, the next request is
   the answer. For long conversations, turn on the API's own clearing of old tool results with
   `body: { context_management: … }` and its beta in `betas`.

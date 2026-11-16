@@ -1,9 +1,10 @@
 import { safeErrorMessage } from "./errors.js";
-import { analyzeWholeDocument, TooManyPartsError } from "./map-reduce.js";
+import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
 import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource } from "./search.js";
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
+import { sliceWhole } from "./text.js";
 import type { Budget, GenerateText, ProgressListener, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
@@ -20,7 +21,7 @@ const MIN_FILE_BYTES = 1_024;
 /** The answer of a whole-document read may be this long, when the cap on tool results is lower. */
 const ANALYSIS_RESULT_CHARACTERS = 40_000;
 /** A result is never cut below this, whatever room a caller names: less holds no line of a file. */
-const LEAST_RESULT_CHARACTERS = 600;
+export const LEAST_RESULT_CHARACTERS = 600;
 /**
  * How many times one document is read whole by the tools of one tool set (one question, in
  * `askWithFiles`), unless `maxWholeDocumentReads` says otherwise. One read of a large file is
@@ -75,7 +76,7 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
   },
   analyze: {
     name: TOOL_NAMES.analyze,
-    description: "Read an entire large file in parts and answer a task that needs all of it, such as a full summary, a timeline, or every occurrence of something. Slow and costly: prefer search_document and read_document for specific questions.",
+    description: "Read an entire large file in parts and answer a task that needs all of it, such as a full summary, a timeline, or items that must be judged by meaning. To count or list lines that contain a word, an ID or a pattern, use search_document in exact or regex mode instead: its count is exact, and this can miss items. Slow and costly: prefer search_document and read_document for specific questions.",
     parameters: {
       type: "object",
       properties: {
@@ -142,9 +143,120 @@ function fit(result: ToolResult, listKey: string | null, limit: number): ToolRes
   let cut: ToolResult;
   do {
     size = Math.floor(size * 0.85);
-    cut = { truncated: true, partial: serialized.slice(0, size), note: "Result cut to the size limit. Ask for a smaller range." };
+    cut = { truncated: true, partial: sliceWhole(serialized, size), note: "Result cut to the size limit. Ask for a smaller range." };
   } while (JSON.stringify(cut).length > limit && size > 100);
   return cut;
+}
+
+/**
+ * The result of a whole-document read within `limit` characters: its answer is cut at the end,
+ * and says so, rather than the result being cut as JSON, which loses what the other fields say.
+ */
+export function fitAnswer(result: ToolResult, limit: number): ToolResult {
+  if (JSON.stringify(result).length <= limit || typeof result.answer !== "string") return fit(result, null, limit);
+  const answer = result.answer;
+  const cutAt = (keep: number): ToolResult => ({
+    ...result,
+    answer: `${sliceWhole(answer, keep)}…`,
+    answer_shortened: "The rest of this answer did not fit in the room left in this conversation.",
+  });
+  // The longest start of the answer that fits. Escapes (quotes, line breaks) make the JSON longer
+  // than the text by as much as the text holds of them, so it is found by halving, not worked out.
+  let low = 0;
+  let high = answer.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (JSON.stringify(cutAt(middle)).length <= limit) low = middle;
+    else high = middle - 1;
+  }
+  return fit(cutAt(low), null, limit);
+}
+
+const searchMode = (mode: unknown): "keywords" | "exact" | "regex" => (mode === "exact" || mode === "regex" ? mode : "keywords");
+
+/** The lines a `read_document` call asks for, as its handler reads them, before the end of the file is known. */
+function requestedLines(args: Record<string, unknown>): [number, number] {
+  const start = integer(args.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
+  return [start, integer(args.end_line, start + DEFAULT_READ_LINES - 1, start, start + MAX_READ_LINES - 1)];
+}
+
+/**
+ * A call's arguments as its tool reads them, with the defaults filled in: two calls with the same
+ * key get the same result from a file that has not changed. Undefined for a tool whose calls are
+ * not compared (a whole-file read has a count of its own; a look at pages returns a file).
+ */
+export function toolCallKey(name: string, args: Record<string, unknown>): string | undefined {
+  const id = typeof args.document_id === "string" && args.document_id ? args.document_id : undefined;
+  if (!id) return undefined;
+  if (name === TOOL_NAMES.search) {
+    if (typeof args.query !== "string" || !args.query.trim()) return undefined;
+    const mode = searchMode(args.mode);
+    return JSON.stringify(mode === "keywords"
+      ? [name, id, args.query, mode, integer(args.max_results, 5, 1, 10)]
+      : [name, id, args.query, mode, integer(args.max_results, 20, 1, 50), integer(args.context_lines, 0, 0, 5), args.case_sensitive === true]);
+  }
+  if (name === TOOL_NAMES.read) return JSON.stringify([name, id, ...requestedLines(args)]);
+  if (name === TOOL_NAMES.overview) return JSON.stringify([name, id]);
+  return undefined;
+}
+
+/**
+ * When an earlier call's result already holds all that `call` would return, and is still in the
+ * conversation in full: a short result that says so, in place of running the call again. A result
+ * that was cut to the room it had, or replaced by a stand-in, or failed, is not pointed to: the call
+ * is run, and may get more. A read of lines inside a read that is shown in full is pointed to.
+ */
+export function alreadyShown(call: { name: string; args: Record<string, unknown> }, earlier: { call: { name: string; args: Record<string, unknown> }; result: ToolResult }): ToolResult | undefined {
+  const { result } = earlier;
+  if (earlier.call.name !== call.name || earlier.call.args.document_id !== call.args.document_id) return undefined;
+  if (result.dropped === true || result.already_shown === true || typeof result.error === "string" || result.truncated === true) return undefined;
+  // A list that `fit` cut to the room it had, a read whose text was cut, or a search that ran out of
+  // time ("the total is a lower bound"; a later question has time of its own): a call made now may get more.
+  if (typeof result.note === "string" && (result.note.startsWith("Showing ") || result.note.startsWith("The scan stopped early"))) return undefined;
+  if (result.text_cut === true) return undefined;
+  const document = typeof result.document === "string" ? { document: result.document } : {};
+  if (call.name === TOOL_NAMES.read) {
+    const shown = typeof result.lines === "string" ? /^(\d+)-(\d+)$/.exec(result.lines) : null;
+    const total = result.total_lines;
+    if (!shown || typeof total !== "number") return undefined;
+    const [first, last] = [Number(shown[1]), Number(shown[2])];
+    const [start, end] = requestedLines(call.args);
+    const from = Math.min(start, total);
+    const to = Math.min(end, total);
+    if (from < first || to > last) return undefined;
+    return {
+      ...document,
+      lines: `${from}-${to}`,
+      already_shown: true,
+      note: `Not run: lines ${from}-${to} are already shown above in full, in the result that has lines ${first}-${last} of this file, and the file has not changed. Use them. To see more, read other lines.`,
+    };
+  }
+  const key = toolCallKey(call.name, call.args);
+  if (key === undefined || key !== toolCallKey(earlier.call.name, earlier.call.args)) return undefined;
+  return {
+    ...document,
+    already_shown: true,
+    note: "Not run: this exact call was answered earlier in this conversation, and its result is still shown above in full. The file has not changed, so it would return the same. Use that result. For more, read other lines, or search with other words or another mode.",
+  };
+}
+
+/**
+ * A hint added to the error of a search that failed twice in a row in the same mode, so that the
+ * model tries another way instead of sending the same kind of call a third time.
+ */
+export function repeatedFailureHint(call: { name: string; args: Record<string, unknown> }): string {
+  return searchMode(call.args.mode) === "regex"
+    ? "Two regex searches in a row failed. Try mode \"exact\" with a plain word or ID from the file, or mode \"keywords\"."
+    : "This search failed twice in a row. Check the arguments against the tool's description, or answer from what you have.";
+}
+
+/**
+ * The tool and mode of a search, to tell whether two failures in a row were of the same kind.
+ * Undefined for the other tools: their errors say what to do (a whole-file read that is not made
+ * again, a page that does not exist), and a hint would only blur that.
+ */
+export function failureKind(call: { name: string; args: Record<string, unknown> }): string | undefined {
+  return call.name === TOOL_NAMES.search ? `${call.name}|${searchMode(call.args.mode)}` : undefined;
 }
 
 /**
@@ -156,7 +268,7 @@ export function toolResultSummary(label: string, result: ToolResult): string {
   if (typeof result.total_matching_lines === "number") return ` — ${result.total_matching_lines.toLocaleString("en-US")} matching lines`;
   if (Array.isArray(result.passages)) return ` — ${result.passages.length} passages`;
   if (typeof result.parts_read === "number") {
-    const incomplete = result.notes_cut_short || result.answer_cut_short ? ", incomplete" : "";
+    const incomplete = result.notes_only ? ", notes only" : result.notes_cut_short || result.answer_cut_short ? ", incomplete" : "";
     return ` — ${result.parts_read} parts, ${String(result.parts_with_relevant_content ?? 0)} relevant${incomplete}`;
   }
   // A read reports its range only when it was cut short of what was asked.
@@ -231,13 +343,21 @@ export function createDocumentTools(options: {
   const maxWholeReads = Math.max(0, Math.trunc(options.maxWholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS));
   /** Whole-document reads started, by document. */
   const wholeReads = new Map<string, number>();
+  /** Why the last whole-document read of a document failed, when no part of it could be read. */
+  const failedWholeReads = new Map<string, string>();
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
   async function documentFor(args: Record<string, unknown>): Promise<DocumentSource> {
     const id = text(args.document_id, "document_id");
     // Scope check: a model can only reach files attached to this conversation.
-    if (!allowed.has(id)) throw new Error(`Unknown document_id ${id}. Use an ID from a file card.`);
+    if (!allowed.has(id)) {
+      // The IDs it may use, with their file names, so that the next call is right.
+      const usable = [...allowed].slice(0, 20).map((known) => `${known}${names.has(known) ? ` (${JSON.stringify(names.get(known))})` : ""}`);
+      throw new Error(usable.length === 0
+        ? `Unknown document_id ${id}. No attached file is read with this tool in this conversation.`
+        : `Unknown document_id ${id}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
+    }
     const document = await options.load(id);
     if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
     names.set(id, document.meta.name);
@@ -322,7 +442,9 @@ export function createDocumentTools(options: {
         lines: `${start}-${to}`,
         ...(pages ? { pages } : {}),
         total_lines: total,
-        text: fits(body) ? body : body.slice(0, Math.floor((limit - 500) / 2)),
+        text: fits(body) ? body : sliceWhole(body, Math.floor((limit - 500) / 2)),
+        // One line longer than the room: its text was cut, so the lines are not all shown.
+        ...(fits(body) ? {} : { text_cut: true }),
         ...(to < total ? { next_start_line: to + 1 } : { note: "End of file." }),
       };
     },
@@ -363,9 +485,13 @@ export function createDocumentTools(options: {
       const id = document.meta.id;
       const reads = wholeReads.get(id) ?? 0;
       if (reads >= maxWholeReads) {
+        const failure = failedWholeReads.get(id);
         throw new Error(maxWholeReads === 0
           ? `Whole-file reads are turned off for this question. Use search_document and read_document on ${document.meta.name}.`
-          : `${document.meta.name} was already read whole for this question${maxWholeReads > 1 ? ` ${maxWholeReads} times` : ""}, and is not read whole again. Use the answer of that read, or search_document and read_document for the details.`);
+          : failure !== undefined
+            // There is no answer to use: saying "use the answer of that read" would invite one made up.
+            ? `The whole-file read of ${document.meta.name} failed earlier in this question (${failure}), and is not tried again. Use search_document and read_document.`
+            : `${document.meta.name} was already read whole for this question${maxWholeReads > 1 ? ` ${maxWholeReads} times` : ""}, and is not read whole again. Use the answer of that read, or search_document and read_document for the details.`);
       }
       wholeReads.set(id, reads + 1);
       let result;
@@ -378,23 +504,33 @@ export function createDocumentTools(options: {
           onProgress: options.onProgress,
           signal: options.signal,
           ...(options.retry ? { retry: options.retry } : {}),
+          ...(typeof limits.maxRequests === "number" && Number.isFinite(limits.maxRequests) ? { maxRequests: limits.maxRequests } : {}),
         });
       } catch (error) {
-        // Refused before any model call: that was no read.
-        if (error instanceof TooManyPartsError) wholeReads.set(id, reads);
+        // Parts were sent and none could be read: that read is counted, since another would most
+        // likely fail the same way. Anything else (too many parts, a store that could not be read)
+        // failed before any model request: that was no read. Its count is given back, not set to
+        // what it was when the read started, which would take back the count of another read of
+        // the same document running in this turn.
+        if (error instanceof NothingReadError) failedWholeReads.set(id, error.reason);
+        else wholeReads.set(id, Math.max(0, (wholeReads.get(id) ?? 1) - 1));
         throw error;
       }
+      failedWholeReads.delete(id);
       const notesCutShort = result.truncatedParts + result.truncatedMerges;
-      return fit({
+      return fitAnswer({
         document: document.meta.name,
         parts_read: result.parts,
         parts_with_relevant_content: result.relevantParts,
         ...(result.failedParts ? { parts_that_failed: result.failedParts } : {}),
         ...(notesCutShort ? { notes_cut_short: notesCutShort } : {}),
         ...(result.answerTruncated ? { answer_cut_short: true } : {}),
-        ...(notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
+        ...(result.answerFailed !== undefined ? { notes_only: true } : {}),
+        ...(result.answerFailed !== undefined
+          ? { note: `The last step of this read, which writes one answer from the notes of the parts, failed (${result.answerFailed}). The answer is those notes: answer from them.${notesCutShort ? " Some of them were cut off at the output limit, so they are incomplete: tell the user." : ""}` }
+          : notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
         answer: result.answer,
-      }, null, limitOf(limits, Math.max(cap, ANALYSIS_RESULT_CHARACTERS)));
+      }, limitOf(limits, Math.max(cap, ANALYSIS_RESULT_CHARACTERS)));
     },
   };
 

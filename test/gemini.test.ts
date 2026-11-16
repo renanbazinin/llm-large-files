@@ -83,7 +83,8 @@ describe("askGemini", () => {
     const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body)));
       if (bodies.length === 1) {
-        return sse([{ candidates: [{ content: { parts: [
+        // Gemini ends every streamed reply with a chunk that says why it ended, a turn of calls too.
+        return sse([{ candidates: [{ finishReason: "STOP", content: { parts: [
           { text: "Checking." },
           { functionCall: { name: "search_document", args: { document_id: meta.id, query: "deadlock", mode: "exact" } }, thoughtSignature: "sig" },
         ] } }] }]);
@@ -144,6 +145,8 @@ describe("askGemini", () => {
     const replies = [
       { candidates: [{ content: { parts: [{ text: "Let me search the log." }, { functionCall: { name: "search_document", args: { document_id: meta.id, query: "deadlock", mode: "exact" } } }] } }] },
       { candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL", content: { parts: [] } }] },
+      // Asked once more, with a note that its call could not be read: malformed again.
+      { candidates: [{ finishReason: "MALFORMED_FUNCTION_CALL", content: { parts: [] } }] },
       text("20 deadlocks (app.log L250).", { finishReason: "STOP" }),
     ];
     const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -151,13 +154,17 @@ describe("askGemini", () => {
       return Response.json(replies[bodies.length - 1]);
     });
     const result = await askGemini({ files, endpoint, fetch, documentIds: [meta.id], messages: [{ role: "user", text: "How many deadlocks?" }] });
-    expect(fetch).toHaveBeenCalledTimes(3);
-    expect(bodies[2]!.tools).toBeUndefined();
-    expect(result).toMatchObject({ text: "Let me search the log.\n\n20 deadlocks (app.log L250).", answered: true, turns: 3, finishReason: "STOP" });
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(bodies[2]!.tools).toBeDefined();
+    expect(bodies[2]!.contents.at(-1)).toEqual({ role: "user", parts: [{ text: expect.stringMatching(/^Your last reply tried to call a tool, but the call could not be read/) }] });
+    // The note is not kept in the conversation.
+    expect(JSON.stringify(bodies[3]!.contents)).not.toContain("could not be read");
+    expect(bodies[3]!.tools).toBeUndefined();
+    expect(result).toMatchObject({ text: "Let me search the log.\n\n20 deadlocks (app.log L250).", answered: true, turns: 4, finishReason: "STOP" });
 
     // If even the tool-free request comes back empty, the result says there is no answer.
     bodies.length = 0;
-    replies[2] = { candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: "internal reasoning", thought: true } as never] } }] } as never;
+    replies[3] = { candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: "internal reasoning", thought: true } as never] } }] } as never;
     const empty = await askGemini({ files, endpoint, fetch, documentIds: [meta.id], messages: [{ role: "user", text: "How many deadlocks?" }] });
     expect(empty).toMatchObject({ text: "Let me search the log.", answered: false, finishReason: "MAX_TOKENS" });
   });

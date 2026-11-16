@@ -8,7 +8,7 @@ import type { GeminiEndpoint } from "./endpoints.js";
 import type { GeminiToolFilePlacement } from "./generate.js";
 
 export { DocumentsNotFoundError } from "../model.js";
-export { EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS } from "../ask.js";
+export { EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "../ask.js";
 export type { ChatTurn } from "../model.js";
 export type { GeminiContent, GeminiPart } from "./adapter.js";
 export { GeminiRequestError } from "./errors.js";
@@ -79,6 +79,16 @@ export type AskGeminiOptions = {
    * The parts are read by the explorer model when there is one, so write it for that model.
    */
   analysisConfig?: (maxOutputTokens: number) => Record<string, unknown>;
+  /**
+   * The longest wait, in milliseconds, for the first piece of a chat reply (see
+   * `GeminiModelOptions`). Defaults to 600,000. 0 waits without end.
+   */
+  firstByteTimeoutMs?: number;
+  /**
+   * The longest wait, in milliseconds, between two pieces of a chat reply once it has started to
+   * arrive. Defaults to 300,000. 0 waits without end.
+   */
+  idleTimeoutMs?: number;
   /** Answer text as it streams. Streaming is used when this is set and the endpoint has `streamUrl`. */
   onText?: (delta: string) => void;
   /** Short-lived status, such as "Searching app.log for “timeout”…". */
@@ -102,7 +112,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   const { endpoint } = options;
   // A second model for the requests that use tools. The answering model's own URL is not one.
   const explorerUrl = endpoint.explorerUrl && endpoint.explorerUrl !== endpoint.url ? endpoint.explorerUrl : undefined;
-  const shared = { toolFilePlacement: options.toolFilePlacement, analysisConfig: options.analysisConfig, fetch: options.fetch };
+  const shared = { toolFilePlacement: options.toolFilePlacement, analysisConfig: options.analysisConfig, firstByteTimeoutMs: options.firstByteTimeoutMs, idleTimeoutMs: options.idleTimeoutMs, fetch: options.fetch };
   const model = gemini(endpoint, { ...shared, generationConfig: options.generationConfig });
   // The explorer is called with the same headers, in one piece, with its own settings when it has any.
   const explorer = explorerUrl

@@ -2,7 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createLargeFiles, FileDocumentStore, MemoryDocumentStore, type GenerateText } from "llm-large-files";
+import { createLargeFiles, DocumentStoreError, FileDocumentStore, MemoryDocumentStore, resolveBudget, type GenerateText } from "llm-large-files";
+import { SearchableDocument, type DocumentSource } from "../src/search.js";
+import { createDocumentTools } from "../src/tools.js";
 import { createGeminiGenerateText, THINKING_OUTPUT_TOKENS } from "llm-large-files/gemini";
 import { saysNothingRelevant } from "../src/map-reduce.js";
 import { estimateParts } from "../src/plan.js";
@@ -187,6 +189,85 @@ describe("a merge of notes that fails", () => {
   });
 });
 
+describe("a last step of a whole-document read that fails", () => {
+  it("returns the notes of the parts, which were paid for, and says that it is notes only", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
+    let parts = 0;
+    const generate: GenerateText = async ({ system, prompt }) => {
+      if (system.startsWith("You write a complete answer")) throw Object.assign(new Error("The request is too large."), { status: 400 });
+      parts++;
+      return `The ledger moved (L${/lines (\d+)-/.exec(prompt)![1]}).`;
+    };
+    const tools = files.tools([meta], { generate, retry: { retries: 0 } });
+    const result = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Where did the ledger go?" });
+    expect(result.error).toBeUndefined();
+    expect(result).toMatchObject({ parts_read: parts, parts_with_relevant_content: parts, notes_only: true });
+    expect(result.note).toBe("The last step of this read, which writes one answer from the notes of the parts, failed (The request is too large.). The answer is those notes: answer from them.");
+    expect(String(result.answer).match(/### Lines \d+-\d+\nThe ledger moved \(L\d+\)\./g)).toHaveLength(parts);
+  });
+});
+
+describe("a whole-document read that could read no part", () => {
+  it("is not tried again for the question, and a later call is told that it failed, not that it has an answer", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
+    let requests = 0;
+    const generate: GenerateText = async () => {
+      requests++;
+      throw Object.assign(new Error("quota exceeded"), { status: 429 });
+    };
+    const tools = files.tools([meta], { generate, retry: { retries: 0 } });
+    const first = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize" });
+    expect(first.error).toBe("Could not read any part of novel.txt: quota exceeded");
+    const sent = requests;
+    const again = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize it all" });
+    expect(again.error).toBe("The whole-file read of novel.txt failed earlier in this question (quota exceeded), and is not tried again. Use search_document and read_document.");
+    expect(requests).toBe(sent);
+  });
+
+  it("is not counted when it failed before any model request, so the call can be made again", async () => {
+    // A store read by range whose second read (the first piece of the scan that counts the parts,
+    // after the index was built from the first) fails once.
+    const store = new MemoryDocumentStore();
+    let reads = 0;
+    Object.assign(store, {
+      readTextRange: async (id: string, start: number, end: number) => {
+        if (++reads === 2) throw Object.assign(new Error("EIO: i/o error, read '/srv/docs/x.txt'"), { code: "EIO", syscall: "read" });
+        const stored = await store.get(id);
+        return stored && new TextEncoder().encode(stored.text).slice(start, end);
+      },
+    });
+    const files = createLargeFiles({ store, budget: { mapChunkTokens: 3_000 }, wholeDocumentBytes: 0 });
+    const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
+    let requests = 0;
+    const generate: GenerateText = async () => {
+      requests++;
+      return "The ledger moved (L1).";
+    };
+    const tools = files.tools([meta], { generate });
+    const first = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize" });
+    expect(first.error).toBe("The document store could not be read (EIO). Try again.");
+    expect(requests).toBe(0);
+    const again = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize" });
+    expect(again.error).toBeUndefined();
+    expect(again.answer).toBe("The ledger moved (L1).");
+  });
+});
+
+describe("the answer of a whole-document read in little room", () => {
+  it("is cut at its end, and the other fields of the result are kept", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
+    const generate: GenerateText = async ({ system }) => (system.startsWith("You write a complete answer") ? `The ledger "moved" (L1).\n${"It was heavy. ".repeat(400)}` : "The ledger moved (L1).");
+    const tools = files.tools([meta], { generate });
+    const { result } = await tools.executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "Where?" }, { maxResultCharacters: 1_500 });
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(1_500);
+    expect(result).toMatchObject({ document: "novel.txt", parts_with_relevant_content: expect.any(Number), answer_shortened: expect.any(String) });
+    expect(String(result.answer)).toMatch(/^The ledger "moved" \(L1\)\.\nIt was heavy\. [\s\S]*…$/);
+  });
+});
+
 describe("a file too large for a whole-document read", () => {
   const budget = { inlineTokens: 10, mapChunkTokens: 1_000, maxMapChunks: 3 };
   const generate: GenerateText = async () => "notes";
@@ -240,5 +321,93 @@ describe("get_document_overview of a document read by range", () => {
     expect(overview.parts_for_whole_document_analysis).toBe(estimateParts(meta, files.budget));
     // The first and the last lines, not the whole text.
     expect(read).toBeLessThan(meta.textBytes / 4);
+  });
+});
+
+describe("the bookkeeping of whole-document reads, since the review of 0.5.0", () => {
+  const eio = () => new DocumentStoreError(Object.assign(new Error("EIO: i/o error, read '/srv/docs/x.txt'"), { code: "EIO", syscall: "read" }));
+  async function realSource() {
+    const store = new MemoryDocumentStore();
+    const files = createLargeFiles({ store, budget: { mapChunkTokens: 3_000 } });
+    const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
+    return { meta, inner: new SearchableDocument((await store.get(meta.id))!) };
+  }
+  /** A source read by range: `chunks` feeds the scan that counts the parts, `readLines` the parts. */
+  function wrap(inner: SearchableDocument, hooks: { chunks?: () => void; readLines?: () => void }): DocumentSource {
+    return {
+      meta: inner.meta,
+      lineCount: inner.lineCount,
+      characters: inner.characters,
+      passageStarts: inner.passageStarts,
+      memoryBytes: inner.memoryBytes,
+      pageOfLine: (line) => inner.pageOfLine(line),
+      pagesOfLines: (from, to) => inner.pagesOfLines(from, to),
+      readLines: async (from, to) => {
+        hooks.readLines?.();
+        return inner.readLines(from, to);
+      },
+      readText: () => inner.readText(),
+      async *chunks() {
+        hooks.chunks?.();
+        yield* inner.chunks();
+      },
+    };
+  }
+
+  it("does not count a read in which no part could be read from the store: no model request was made", async () => {
+    const { meta, inner } = await realSource();
+    let down = true;
+    const source = wrap(inner, { readLines: () => { if (down) throw eio(); } });
+    let requests = 0;
+    const generate: GenerateText = async () => {
+      requests++;
+      return "notes (L1)";
+    };
+    const tools = createDocumentTools({ load: async () => source, documentIds: [meta.id], budget: resolveBudget({ mapChunkTokens: 3_000 }), generate, retry: { retries: 0 } });
+    const first = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize" });
+    expect(first.error).toBe("The document store could not be read (EIO). Try again.");
+    expect(requests).toBe(0);
+    down = false;
+    const again = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize" });
+    expect(again.error).toBeUndefined();
+    expect(requests).toBeGreaterThan(0);
+  });
+
+  it("gives back the count of a read that failed before any model request, not the count of another read of the turn", async () => {
+    const { meta, inner } = await realSource();
+    let scans = 0;
+    const source = wrap(inner, { chunks: () => { if (++scans === 1) throw eio(); } });
+    let finals = 0;
+    const generate: GenerateText = async ({ system }) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (system.startsWith("You write a complete answer")) finals++;
+      return "The ledger moved (L1).";
+    };
+    const tools = createDocumentTools({ load: async () => source, documentIds: [meta.id], budget: resolveBudget({ mapChunkTokens: 3_000 }), generate, maxWholeDocumentReads: 2 });
+    const read = (task: string) => tools.execute("analyze_whole_document", { document_id: meta.id, task });
+    const first = await Promise.all([read("A"), read("B")]);
+    expect(first.map((result) => result.error === undefined)).toEqual([false, true]);
+    const second = await Promise.all([read("C"), read("D")]);
+    expect(second.filter((result) => result.error === undefined)).toHaveLength(1);
+    expect(finals).toBe(2);
+  });
+
+  it("cuts an answer full of quotes and line breaks to the room, keeping as much of it as fits, and never half of a character", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
+    const answers = [`${"\"quoted\" line\n".repeat(4_000)}`, `${"Found 😀 here (L1). ".repeat(3_000)}`];
+    for (const answer of answers) {
+      const generate: GenerateText = async ({ system }) => (system.startsWith("You write a complete answer") ? answer : "The ledger moved (L1).");
+      const tools = files.tools([meta], { generate, maxWholeDocumentReads: 100 });
+      for (const limit of [1_500, 1_501, 1_502, 1_503, 5_000]) {
+        const { result } = await tools.executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "Where?" }, { maxResultCharacters: limit });
+        const json = JSON.stringify(result);
+        expect(json.length).toBeLessThanOrEqual(limit);
+        // Most of the room holds the answer: it is cut by the size it takes as JSON, not by a guess.
+        expect(json.length).toBeGreaterThan(limit - 40);
+        expect(String(result.answer)).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
+        expect(result.answer_shortened).toBeDefined();
+      }
+    }
   });
 });

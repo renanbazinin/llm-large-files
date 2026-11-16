@@ -54,9 +54,9 @@ What one question may do, in `limits` of `askWithFiles` and `askGemini`:
 
 | Limit | Default | |
 |---|---|---|
-| `toolTurns` | 12 | Chat requests for one question, counting the answer. |
+| `toolTurns` | 12 | Chat requests for one question, counting the answer and a second try after an empty or broken turn. |
 | `callsPerTurn` | 8 | Tool calls of one model turn that are run. The others are answered "send it again if you still need it". |
-| `wholeDocumentReads` | 1 | How often each document may be read whole. One read is up to `maxMapChunks` requests. 0 refuses them all. |
+| `wholeDocumentReads` | 1 | How often each document may be read whole. One read is up to `maxMapChunks` parts. 0 refuses them all. |
 | `inputTokens` | none | Once the question has used this many input tokens, over all its requests, the next request is the answer. A whole-file read that would pass it is refused with the numbers. |
 | `requests` | none | The same, for the number of requests: the chat's and the part reads' together. |
 
@@ -68,11 +68,26 @@ A request that failed is sent again when another try can help: HTTP 408, 409, 42
 connection that failed. It waits 0.25 to 0.5 seconds, then twice and four times that, or as long as
 the provider asks (`Retry-After`, or the `retryDelay` of Gemini's `RetryInfo`). It is not sent
 again once text of the reply was shown, after you stopped the question, or when the provider asks
-for a longer wait than `maxDelayMs`. The part reads of a whole-file read follow the same rule.
+for a longer wait than `maxDelayMs`. A quota that does not come back soon (OpenAI's
+`insufficient_quota`, a Gemini quota per day) is not sent again at all. The part reads of a
+whole-file read follow the same rule.
 
 ```ts
 retry: { retries: 3, baseDelayMs: 500, maxDelayMs: 60_000 }  // the defaults; retries: 0 turns it off
 ```
+
+Each adapter also watches a request for silence. A request that gets nothing for
+`firstByteTimeoutMs` (600 s) before the first piece of its reply, or for `idleTimeoutMs` (300 s)
+between two pieces, is aborted and sent again, once. Headers do not count as a piece: a model that
+thinks (Gemini without its thoughts, OpenAI's reasoning models) sends nothing until it has
+thought. Keep-alives do (DeepSeek's blank lines, Claude's pings). There is no limit on the time of a
+reply that keeps arriving. Without these waits, a provider that stops answering would hold the
+request, and your user, until your own timeout.
+
+A stream that closes without saying why it ended (Gemini's `finishReason`, or an OpenAI-compatible
+server's `finish_reason` and `[DONE]`) was cut off on its way, by a proxy or a dropped connection.
+It is not taken for a whole reply: it is sent again when none of it was shown, and reported
+otherwise.
 
 ### Room in the request
 
@@ -80,15 +95,31 @@ Every tool result stays in the conversation until the question is answered, and 
 each later request. The loop counts the request as it grows, by the library's estimate and, once
 the provider has answered, by the provider's own count:
 
-- Before the calls of a turn run, each is given the room that is left, up to
-  `toolResultCharacters`. A result is cut to its room and says where to go on.
+- Before the calls of a turn run, the room that is left is shared among them: each gets an even
+  share, up to its cap (`toolResultCharacters`), and what a call with a smaller cap does not need
+  goes to the others. A result is cut to its share and says where to go on. The answer of a
+  whole-file read, which cannot be asked for again, is not cut to a share: once the other results of
+  the turn are in, it gets all the room they left (up to the larger of `toolResultCharacters` and
+  40,000 characters).
 - When the room runs short, the results of all but the last three tool rounds are replaced by
   stand-ins: `{ document, dropped: true, lines: "1-212", note: "… Read them again with
   read_document if you need them." }`. `steps` then holds "Older tool results were shortened to
   make room in the request". Claude's conversation is never rewritten, so this step is skipped for
   it.
-- A call that still finds no room is answered "no room left, answer now", and the next request is
-  the answer.
+- A call that still cannot get 1,500 characters is answered "no room left, answer now" (the last
+  calls of the turn first), and the next request is the answer.
+- A call whose result is still in the conversation in full is not run again: the same search, the
+  same read, or a read of lines inside one that is shown. It is answered with a pointer, "Not run:
+  this exact call was answered earlier in this conversation…", and its step says "already shown
+  above". A result that was cut to its room, replaced by a stand-in, or that stopped early, is not
+  pointed to: the call runs. When a result is later replaced by a stand-in, the pointers to it are
+  too.
+- When the provider refuses a request as larger than the model takes (the window is smaller than
+  the budget assumed, or the estimate was low), the loop takes the provider's numbers for the rest
+  of the question, shortens older results, the latest round too, and sends it again: at most twice
+  a question, and never for Claude, whose conversation is not rewritten. When that happens to the
+  first requests of a question, before any tool ran, the documents are planned again for the
+  window the provider named, as for a model that declares it. `steps` says so in each case.
 
 Text tools may fill the window up to half of `reservedTokens`; the other half is the answer's.
 

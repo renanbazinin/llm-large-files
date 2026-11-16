@@ -5,6 +5,7 @@ import type { LargeFiles } from "./library.js";
 import { Limiter } from "./limiter.js";
 import {
   DocumentsNotFoundError,
+  errorKindOf,
   UsageMeter,
   type ChatMessage,
   type ModelAdapter,
@@ -21,14 +22,27 @@ import {
 import { estimateParts, REQUEST_BYTES_MARGIN } from "./plan.js";
 import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes } from "./text.js";
-import { MAX_WHOLE_DOCUMENT_READS, TOOL_NAMES, toolResultSummary } from "./tools.js";
+import {
+  alreadyShown,
+  failureKind,
+  fitAnswer,
+  LEAST_RESULT_CHARACTERS,
+  MAX_WHOLE_DOCUMENT_READS,
+  repeatedFailureHint,
+  TOOL_NAMES,
+  toolCallKey,
+  toolResultSummary,
+} from "./tools.js";
 import type { Budget, DocumentPlan, GenerateText, ToolCallLimits, ToolOutput, ToolResult } from "./types.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find.";
 /** The same, when the only tool was `view_pages`: the text of the files is in the prompt, not in tool results. */
 export const FINAL_ANSWER_AFTER_PAGES = "Stop using tools now. Answer my question from the text of the files and the pages you looked at. Say plainly what you could not see or find.";
-/** Sent to the answering model when an explorer model used no tool, so there is no tool result to answer from. */
+/**
+ * Sent when no tool ran (an explorer model called none, the first reply was empty, or no turn was
+ * left for tools), so there is no tool result to answer from.
+ */
 export const FINAL_ANSWER_WITHOUT_TOOLS = "Answer my question now, from what is in this conversation. No tools are available for this reply: if the answer needs a part of a file that is not shown here, say so plainly.";
 /**
  * Added to the system instruction of an explorer model's requests: it gathers what the answer
@@ -177,6 +191,8 @@ const NO_ROOM = "Not run: there is no room left in this conversation for another
 type Size = { tokens: number; bytes: number };
 
 const count = (value: number) => Math.max(0, Math.round(value)).toLocaleString("en-US");
+/** How many of a model's tokens one token of the library's estimate comes to. */
+const scaleOf = (adapter: ModelAdapter): number => (adapter.capabilities.tokenScale && adapter.capabilities.tokenScale > 0 ? adapter.capabilities.tokenScale : 1);
 const isRound = (message: ModelMessage): message is ModelToolRound => message.role === "tools";
 
 /** How many pages a `view_pages` result showed: its `pages` is "12" or "12-14". */
@@ -280,13 +296,103 @@ class RequestMeter {
   observe(estimated: number, counted: number | undefined): void {
     if (estimated > 0 && typeof counted === "number" && counted > 0) this.factor = Math.min(2, Math.max(1, counted / estimated));
   }
+
+  /**
+   * Takes note of a request the provider refused as too large: it counted `counted` tokens (in the
+   * library's tokens by the model's scale) of one estimated at `estimated`, or, when it did not say,
+   * a quarter more than the estimate. Unlike `observe`, nothing caps it at twice the estimate: the
+   * refusal is the provider's word that the estimate was too low.
+   */
+  overflowed(estimated: number, counted: number | undefined): void {
+    const ratio = estimated > 0 && typeof counted === "number" && counted > 0 ? counted / estimated : this.factor * 1.25;
+    this.factor = Math.min(8, Math.max(this.factor, ratio));
+  }
+}
+
+/**
+ * Shares `room` characters among tool calls whose results may be up to `caps` characters. A call
+ * gets no more than its cap, and the others split what it leaves. Calls that cannot each get
+ * `LEAST_ROOM_CHARACTERS` (or their cap, when it is smaller) are not run, the last ones first:
+ * their share is undefined.
+ */
+export function shareRoom(caps: number[], room: number): Array<number | undefined> {
+  const least = (cap: number) => Math.min(cap, LEAST_ROOM_CHARACTERS);
+  let count = caps.length;
+  let needed = caps.reduce((sum, cap) => sum + least(cap), 0);
+  while (count > 0 && needed > room) needed -= least(caps[--count]!);
+  const shares: Array<number | undefined> = caps.map(() => undefined);
+  // The smallest caps first: each call takes its cap or an even share of what is left, whichever is less.
+  const order = caps.slice(0, count).map((cap, index) => ({ cap, index })).sort((left, right) => left.cap - right.cap);
+  let left = Math.max(0, Math.floor(room));
+  order.forEach(({ cap, index }, position) => {
+    const share = Math.min(cap, Math.floor(left / (order.length - position)));
+    shares[index] = share;
+    left -= share;
+  });
+  return shares;
 }
 
 function retryMessage({ error, delayMs }: RetryNotice): string {
   const status = statusOf(error);
   const seconds = delayMs >= 1_000 ? ` in ${Math.round(delayMs / 1_000)} s` : "";
-  return `${status ? `The model did not answer (HTTP ${status})` : "The model could not be reached"}. Trying again${seconds}…`;
+  const what = errorKindOf(error) === "timeout" && status === 0 ? "The model sent nothing for too long"
+    : status ? `The model did not answer (HTTP ${status})` : "The model could not be reached";
+  return `${what}. Trying again${seconds}…`;
 }
+
+/** What the question had found when it failed: see `partialResultOf`. */
+const partialResults = new WeakMap<object, AskResult>();
+
+/**
+ * What a question that failed had done before it failed: its tool steps, evidence, tool rounds and
+ * usage, with `answered: false`. `askWithFiles` throws the provider's error as it came (a
+ * `ModelRequestError` that was not worth sending again, or still failed after the retries); this
+ * gives what was found and paid for until then, so that an application can keep the tool rounds
+ * with the conversation and count the usage. Undefined for an error that did not come from a
+ * question under way (a document that is missing, a budget that does not work).
+ */
+export function partialResultOf(error: unknown): AskResult | undefined {
+  return error !== null && typeof error === "object" ? partialResults.get(error) : undefined;
+}
+
+/**
+ * What a question that is planned again carries over from its first try: what it paid for and the
+ * steps it showed, so that the totals, the ceilings of `limits` and the steps of the result count
+ * them, and the window the documents are planned for now.
+ */
+type Carried = {
+  usage: UsageMeter;
+  steps: string[];
+  turns: number;
+  /** Chat requests of the first try that were answered: each took a tool turn of the question. */
+  answered: number;
+  nudges: number;
+  recoveries: number;
+  contextTokens: number;
+  step: string;
+};
+
+/**
+ * Thrown inside a question whose first requests were too large for the model before any tool ran,
+ * when nothing can be shortened: the documents are planned again for a smaller window. Never
+ * leaves `askWithFiles`.
+ */
+class Replan extends Error {
+  constructor(readonly carried: Carried, readonly overflow: unknown, readonly partial: AskResult) {
+    super("replan");
+  }
+}
+
+/** Sent, once, after a tool turn whose call could not be read. Not kept in the conversation. */
+const MALFORMED_CALL_NUDGE = "Your last reply tried to call a tool, but the call could not be read. Call the tools again, with arguments that match their declarations, or answer if you already have enough.";
+const MALFORMED_EXPLORER_NUDGE = "Your last reply tried to call a tool, but the call could not be read. Call the tools again, with arguments that match their declarations, or reply DONE if the results above already hold what the answer needs.";
+/** Sent, once, after a first reply that was empty. Not kept in the conversation. */
+const EMPTY_REPLY_NUDGE = "Your last reply was empty. Use the tools to read the files the question is about, or answer the question.";
+const EMPTY_EXPLORER_NUDGE = "Your last reply was empty. Call the tools to gather what the answer needs from the files, then reply DONE.";
+/** The most such second tries in one question. */
+const MOST_NUDGES = 2;
+/** The most requests sent again, smaller, after the provider refused one as too large. */
+const MOST_OVERFLOW_RECOVERIES = 2;
 
 /**
  * Answers a chat turn about large documents with any model that has an adapter.
@@ -295,20 +401,45 @@ function retryMessage({ error, delayMs }: RetryNotice): string {
  * an answer. With an `explorer`, that model runs the tool loop and `model` writes the answer.
  */
 export async function askWithFiles(options: AskOptions): Promise<AskResult> {
+  try {
+    return await ask(options, undefined);
+  } catch (error) {
+    if (!(error instanceof Replan)) throw error;
+    // The first requests were too large for the model, and nothing in them could be shortened: the
+    // documents are planned again for the window the provider named, or a smaller one. Once. The
+    // window is a limit of the model's, as one it declares: the application's budget is fitted to it.
+    try {
+      return await ask(options, error.carried);
+    } catch (again) {
+      // Failed before it sent anything (a budget of the application's that cannot work with the
+      // smaller window): the provider's error, with what the first try found, is the one to report.
+      if (partialResultOf(again) === undefined && (again as { status?: unknown } | null)?.status === undefined) {
+        if (error.overflow !== null && typeof error.overflow === "object") partialResults.set(error.overflow, error.partial);
+        throw error.overflow;
+      }
+      throw again;
+    }
+  }
+}
+
+async function ask(options: AskOptions, carried: Carried | undefined): Promise<AskResult> {
   const { files, model, signal } = options;
   // A second model for the requests that use tools. The answering model itself is not one.
   const explorer = options.explorer && options.explorer !== model ? options.explorer : undefined;
   const toolModel = explorer ?? model;
   const models = explorer ? [model, explorer] : [model];
   const limits = options.limits ?? {};
-  const usage = new UsageMeter();
+  // A question planned again goes on counting what its first try paid for.
+  const usage = carried?.usage ?? new UsageMeter();
 
   // The budget is counted in the library's estimate of tokens. A model whose tokenizer counts
   // more of them for the same text has, in those terms, a smaller window.
-  const scale = Math.max(...models.map((adapter) => (adapter.capabilities.tokenScale && adapter.capabilities.tokenScale > 0 ? adapter.capabilities.tokenScale : 1)));
+  const scale = Math.max(...models.map(scaleOf));
   const declared = (pick: (adapter: ModelAdapter) => number | undefined): number[] => models.map(pick).filter((value): value is number => typeof value === "number" && value > 0);
   const own = files.budgetFor(options.budget);
-  const windowTokens = Math.floor(Math.min(own.contextTokens, ...declared((adapter) => adapter.capabilities.contextTokens)) / scale);
+  // The window in the models' own tokens, and in the library's.
+  const modelWindow = Math.min(own.contextTokens, carried?.contextTokens ?? Number.POSITIVE_INFINITY, ...declared((adapter) => adapter.capabilities.contextTokens));
+  const windowTokens = Math.floor(modelWindow / scale);
   // A reply that is counted against the window: that part of it is not there for the prompt.
   const replyTokens = Math.ceil(Math.max(0, ...declared((adapter) => adapter.capabilities.outputTokens)) / scale);
   const requestBytesLimit = declared((adapter) => adapter.capabilities.maxRequestBytes);
@@ -355,7 +486,7 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
   }
 
   let text = "";
-  let turns = 0;
+  let turns = carried?.turns ?? 0;
   let finishReason: string | undefined;
   let blockReason: string | undefined;
   let lastUsage: Record<string, unknown> | undefined;
@@ -369,6 +500,9 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
     steps.push(line);
     options.onStep?.(line);
   };
+  // What a first try that was planned again showed is part of this question; then why it was planned again.
+  steps.push(...carried?.steps ?? []);
+  if (carried) step(carried.step);
 
   // A model turn in its provider's own form goes back only to the adapter it came from. Any other
   // model gets the tool calls alone: a thought signature belongs to the model that wrote it, and
@@ -383,15 +517,27 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
     }
     return known;
   };
-  const viewFor = (adapter: ModelAdapter, list: ModelMessage[] = messages): ModelMessage[] => list.map((message) => (
-    isRound(message) && message.raw !== undefined && rawOwner.get(message) !== adapter ? callsOnly(message) : message
-  ));
+  /**
+   * Turns that hold a note for the model that explores, kept in the conversation because that model
+   * may not have it rewritten (see `notedMessages`), with the turn as it was before the note, or
+   * undefined for a turn that is only the note. The other model never gets them.
+   */
+  const notes = new Map<ModelMessage, ModelMessage | undefined>();
+  const viewFor = (adapter: ModelAdapter, list: ModelMessage[] = messages): ModelMessage[] => list.flatMap((message): ModelMessage[] => {
+    if (adapter !== toolModel && notes.has(message)) {
+      const before = notes.get(message);
+      return before ? [before] : [];
+    }
+    return [isRound(message) && message.raw !== undefined && rawOwner.get(message) !== adapter ? callsOnly(message) : message];
+  });
 
   /**
    * One model request of the chat. Text is passed on as it arrives when it is `shown`: an
    * explorer's words are not, because the answer comes from the other model. A request that
    * failed is sent again by the rule of `retry`, unless text of it was already shown.
    */
+  /** Chat requests of the question that were answered, those of a first try included: each took a tool turn. */
+  let answeredRequests = carried?.answered ?? 0;
   const request = async (adapter: ModelAdapter, body: ModelRequest, shown: boolean): Promise<ModelReply> => {
     turns++;
     let separated = text.length === 0;
@@ -417,8 +563,12 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
     });
     // Text the adapter did not pass on as it came (no streaming was asked for, or it cannot).
     if (shown && reply.text.length > got.length && reply.text.startsWith(got)) write(reply.text.slice(got.length));
+    answeredRequests++;
     usage.add(adapter.id, reply.usage);
-    meter.observe(estimated, typeof reply.usage?.inputTokens === "number" ? reply.usage.inputTokens / scale : undefined);
+    // The count of the model that answered, in the library's tokens by that model's own scale: how
+    // much more than its scale says the text costs it, which the other model will see too. By the
+    // larger scale of the two, a count of the model with the smaller one was taken for no more.
+    meter.observe(estimated, typeof reply.usage?.inputTokens === "number" ? reply.usage.inputTokens / scaleOf(adapter) : undefined);
     if (reply.blockReason) blockReason = reply.blockReason;
     finishReason = reply.finishReason ?? finishReason;
     lastUsage = reply.providerUsage ?? lastUsage;
@@ -450,39 +600,6 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
     ...(lastUsage ? { lastUsage } : {}),
   });
 
-  // Tools are needed for a file that is too large to send whole, and for a PDF whose pages can be
-  // looked at: that one may have its whole text in the prompt and still hide a chart from the model.
-  const { searchable } = prepared.plan;
-  const { viewable } = prepared;
-  if (searchable.length === 0 && viewable.length === 0) return result(wrote(await request(model, { system, messages }, true)));
-
-  // Reading a whole file in parts is exploring too: the explorer model's work, when there is one.
-  const partReader = options.wholeDocumentAnalysis === false ? undefined : toolModel.generateText;
-  const generate: GenerateText | undefined = partReader && ((part) => partReader({
-    ...part,
-    onUsage: (used) => {
-      usage.add(toolModel.id, used);
-      part.onUsage?.(used);
-    },
-  }));
-  const tools = files.tools(searchable, {
-    ...(generate ? { generate } : {}),
-    onProgress: (event) => options.onActivity?.(`${event.message}…`),
-    ...(signal ? { signal } : {}),
-    ...(viewable.length > 0 ? { viewPages: viewable } : {}),
-    maxWholeDocumentReads: limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS,
-    ...(options.retry ? { retry: options.retry } : {}),
-    budget,
-  });
-  const declarations = tools.declarations;
-  // The requests that use the tools are the chat's own, or an explorer model's: the same
-  // conversation, and a line that says what its part is.
-  const toolSystem = explorer ? `${system}\n\n${EXPLORER_INSTRUCTION}` : system;
-  const sentTools = JSON.stringify(declarations);
-  meter.fixed.tokens += estimateTokens(sentTools) + (explorer ? estimateTokens(EXPLORER_INSTRUCTION) : 0);
-  meter.fixed.bytes += Buffer.byteLength(sentTools) + (explorer ? EXPLORER_INSTRUCTION.length : 0);
-  if (searchable.length > 0) options.onActivity?.(`Too large to read at once: ${searchable.map((meta) => meta.name).join(", ")}. Searching instead…`);
-
   // Pages the model looks at stay in the request until the question is answered, so they are
   // counted twice: as bytes against the request limit, and as tokens against half of what the
   // budget keeps free for tool results and the answer.
@@ -490,8 +607,9 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
   const bytesKeptFree = Math.max(REQUEST_BYTES_MARGIN, Math.floor(maxRequestBytes / 10));
   let pagesLeft = Math.floor(reservedTokens / 2 / pageTokens);
   // The results of the text tools may fill the context window up to half of what is kept free (the
-  // other half is the answer's), and the request up to a small margin.
-  const tokenLimit = budget.contextTokens - Math.floor(reservedTokens / 2);
+  // other half is the answer's), and the request up to a small margin. A provider that refuses a
+  // request as too large, and names its window, makes it smaller.
+  let tokenLimit = budget.contextTokens - Math.floor(reservedTokens / 2);
   const byteLimit = maxRequestBytes - Math.max(32_768, Math.floor(maxRequestBytes / 50));
   /** Characters of tool results that still fit, with a model turn that is about to be answered. */
   const room = (pending: ModelToolRound): number => {
@@ -521,155 +639,513 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
       messages[index] = smaller;
       changed = true;
     }
+    if (changed) unpoint();
     return changed;
   };
 
-  const maxTurns = Math.max(1, Math.trunc(limits.toolTurns ?? DEFAULT_TOOL_TURNS));
-  const maxCalls = Math.max(1, Math.trunc(limits.callsPerTurn ?? DEFAULT_CALLS_PER_TURN));
-  /** True once the question has used what it may: no more tools run. One request is kept for the answer. */
-  const spent = (): boolean => (
-    (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
-    || (limits.requests !== undefined && usage.totals.requests >= limits.requests - 1)
-  );
-  /** A whole-file read is many requests at once: one that would pass a ceiling of the question is not started. */
-  const tooCostly = (call: ToolCall): string | undefined => {
-    if (call.name !== TOOL_NAMES.analyze) return undefined;
-    const meta = searchable.find((document) => document.id === call.args.document_id);
-    if (!meta) return undefined;
-    if (limits.inputTokens !== undefined) {
-      const cost = Math.ceil(meta.estimatedTokens * scale);
-      const left = limits.inputTokens - usage.totals.inputTokens;
-      if (cost > left) return `Not run: reading all of ${meta.name} takes about ${count(cost)} input tokens, and ${count(left)} are left of the ${count(limits.inputTokens)} this question may use. Use search_document and read_document.`;
+  /**
+   * A pointer ("already shown above") whose result is no longer in the conversation in full (it was
+   * shortened to make room, here or in an earlier question) is made a stand-in that says so: the
+   * model must not be told to use what it no longer has. Every round is looked at, the kept ones too.
+   */
+  function unpoint(): void {
+    // What the answers before the one looked at hold, as they are now, found once in one pass:
+    // the calls whose result is shown in full, by key, and the reads shown in full, by document.
+    const shownKeys = new Set<string>();
+    const shownReads = new Map<unknown, ToolAnswer[]>();
+    messages.forEach((message, index) => {
+      if (!isRound(message)) return;
+      let touched = false;
+      /** The answers of this round so far that are not stand-ins, by key: a call made twice in a turn points to the first. */
+      const inRound = new Map<string, ToolAnswer>();
+      const answers: ToolAnswer[] = [];
+      for (const answer of message.answers) {
+        const key = toolCallKey(answer.call.name, answer.call.args);
+        let now = answer;
+        if (answer.result.already_shown === true) {
+          const held = (key !== undefined && (inRound.has(key) || (answer.call.name !== TOOL_NAMES.read && shownKeys.has(key))))
+            || (answer.call.name === TOOL_NAMES.read && (shownReads.get(answer.call.args.document_id) ?? []).some((read) => alreadyShown(answer.call, read) !== undefined));
+          if (!held) {
+            touched = true;
+            now = {
+              call: answer.call,
+              result: {
+                ...(typeof answer.result.document === "string" ? { document: answer.result.document } : {}),
+                dropped: true,
+                note: "Not run then: it repeated an earlier call whose result was later dropped from the conversation to make room. Call it again if you need it.",
+              },
+            };
+          }
+        } else if (key !== undefined && alreadyShown(answer.call, answer) !== undefined) {
+          // A result in full: what a later pointer may point to.
+          if (answer.call.name === TOOL_NAMES.read) {
+            const reads = shownReads.get(answer.call.args.document_id) ?? [];
+            reads.push(answer);
+            shownReads.set(answer.call.args.document_id, reads);
+          } else {
+            shownKeys.add(key);
+          }
+        }
+        if (key !== undefined && now.result.dropped !== true) inRound.set(key, now);
+        answers.push(now);
+      }
+      if (!touched) return;
+      const smaller: ModelToolRound = { ...message, answers };
+      const owner = rawOwner.get(message);
+      if (owner) rawOwner.set(smaller, owner);
+      messages[index] = smaller;
+    });
+  }
+  // Rounds of earlier questions are stored as the model last had them: a pointer may have lost its result there.
+  unpoint();
+
+  /** Calls answered in this question, refused ones included: none means that no tool ran. */
+  let callsAnswered = 0;
+  let recoveries = carried?.recoveries ?? 0;
+  let nudges = carried?.nudges ?? 0;
+  /**
+   * After the provider refused `sent` as larger than the model takes: the meter learns what the
+   * provider counted, the window it named, and old tool results are shortened until the request
+   * fits by the meter's new count. True when anything was shortened, so that sending it again can
+   * work. A model whose conversation may only grow (Claude) has nothing shortened.
+   */
+  const makeRoom = (adapter: ModelAdapter, sent: ModelRequest, error: unknown): boolean => {
+    const refused = error as { limitTokens?: number; requestedTokens?: number };
+    const own = scaleOf(adapter);
+    meter.overflowed(meter.estimate(sent.messages).tokens, refused.requestedTokens !== undefined ? refused.requestedTokens / own : undefined);
+    if (refused.limitTokens !== undefined) {
+      tokenLimit = Math.min(tokenLimit, Math.floor(refused.limitTokens / own) - replyTokens - Math.floor(reservedTokens / 2));
     }
-    if (limits.requests !== undefined) {
-      // The parts, a merge of their notes, the answer of the read, and the answer of the question.
-      const cost = estimateParts(meta, budget) + 3;
-      const left = limits.requests - usage.totals.requests;
-      if (cost > left) return `Not run: reading all of ${meta.name} takes about ${count(cost)} model requests, and ${count(left)} are left of the ${count(limits.requests)} this question may make. Use search_document and read_document.`;
+    if (!canShrink) return false;
+    let changed = false;
+    for (const keep of [...ROUNDS_KEPT, 0]) {
+      if (changed && meter.current(messages).tokens <= tokenLimit) break;
+      if (shrink(keep)) changed = true;
     }
-    return undefined;
+    return changed;
+  };
+  /**
+   * The window to plan the documents for again, in the models' tokens, after the first request was
+   * refused as too large: the one the provider named, made smaller by how much more than the
+   * estimate it counted. Without its numbers, seven tenths of the window the budget assumed.
+   */
+  const smallerWindow = (adapter: ModelAdapter, sent: ModelRequest, error: unknown): { contextTokens: number; step: string } => {
+    const refused = error as { limitTokens?: number; requestedTokens?: number };
+    const estimated = meter.estimate(sent.messages).tokens;
+    const ratio = refused.requestedTokens !== undefined && estimated > 0 ? refused.requestedTokens / scaleOf(adapter) / estimated : undefined;
+    const limit = refused.limitTokens;
+    let contextTokens = Math.floor((limit ?? modelWindow * 0.7) / Math.max(1, ratio ?? (limit !== undefined ? 1.25 : 1)));
+    if (contextTokens >= modelWindow) contextTokens = Math.floor(modelWindow * 0.7);
+    return {
+      contextTokens,
+      step: limit !== undefined
+        ? `The first request was larger than the model's window of ${count(limit)} tokens: the files were planned again to fit it`
+        : "The first request was larger than the model takes: the files were planned again for a smaller window",
+    };
+  };
+  /**
+   * `request`, for a request the provider may refuse as larger than the model takes. Then room is
+   * made, and it is sent once more, at most twice in a question. When nothing can be made smaller
+   * and nothing has happened yet in this question, the documents are planned again for a smaller
+   * window (`Replan`). `build` makes the request from the conversation as it is then.
+   */
+  const send = async (adapter: ModelAdapter, build: () => ModelRequest, shown: boolean): Promise<ModelReply> => {
+    for (let again = false; ; again = true) {
+      const body = build();
+      try {
+        return await request(adapter, body, shown);
+      } catch (error) {
+        if (errorKindOf(error) !== "context_overflow" || signal?.aborted) throw error;
+        if (!again && recoveries < MOST_OVERFLOW_RECOVERIES && makeRoom(adapter, body, error)) {
+          recoveries++;
+          step("The request was larger than the model takes: older tool results were shortened, and it was sent again");
+          continue;
+        }
+        if (carried === undefined && callsAnswered === 0 && !text) {
+          const smaller = smallerWindow(adapter, body, error);
+          throw new Replan({ usage, steps: [...steps], turns, answered: answeredRequests, nudges, recoveries, contextTokens: smaller.contextTokens, step: smaller.step }, error, result(false));
+        }
+        throw error;
+      }
+    }
+  };
+  /** The conversation with a note at its end: in the last user turn, or in one of its own after a tool round. */
+  const withNote = (list: ModelMessage[], note: string): ModelMessage[] => {
+    const last = list.at(-1);
+    if (last && !isRound(last) && last.role === "user") return [...list.slice(0, -1), { role: "user", parts: [...last.parts, { text: note }] }];
+    return [...list, { role: "user", parts: [{ text: note }] }];
+  };
+  /**
+   * The tool request with a note at its end. The note is not kept in the conversation, so that the
+   * start of the later requests is the one the provider's cache holds. A model that explores whose
+   * conversation may only grow (Claude ties its thinking to the turns it was written after) keeps
+   * it: what it thinks next follows the note. The answering model, when it is another, never gets it.
+   */
+  const notedMessages = (note: string): (() => ModelMessage[]) => {
+    if (!toolModel.capabilities.appendOnly) return () => withNote(viewFor(toolModel), note);
+    const last = messages.at(-1);
+    if (last && !isRound(last) && last.role === "user") {
+      const noted: ModelMessage = { role: "user", parts: [...last.parts, { text: note }] };
+      notes.set(noted, notes.has(last) ? notes.get(last) : last);
+      messages[messages.length - 1] = noted;
+    } else {
+      const noted: ModelMessage = { role: "user", parts: [{ text: note }] };
+      notes.set(noted, undefined);
+      messages.push(noted);
+    }
+    return () => viewFor(toolModel);
   };
 
-  let answered = false;
-  let outOfRoom = false;
-  // Tools run in at most maxTurns - 1 requests. The last request is the one below that must be
-  // answered in text, so a model that never stops calling tools does not cost a request whose
-  // calls are thrown away.
-  for (let round = 1; round < maxTurns && !outOfRoom && !spent(); round++) {
-    const reply = await request(toolModel, { system: toolSystem, messages: viewFor(toolModel), tools: declarations, toolChoice: "auto" }, !explorer);
-    if (reply.calls.length === 0) {
-      // Text from this turn is the answer. A remark made earlier, before a tool call, is not.
-      // Neither is anything an explorer model writes: the answer is asked for below.
-      answered = wrote(reply) && !explorer;
-      break;
-    }
-    const pending: ModelToolRound = { role: "tools", calls: reply.calls, answers: [], ...(reply.raw !== undefined ? { raw: reply.raw } : {}) };
-    if (reply.raw !== undefined) rawOwner.set(pending, toolModel);
-    // Every call must be answered, but not every call is run: a turn of sixty reads would build
-    // a request that no model accepts, and a file can ask a model for exactly that.
-    const run = reply.calls.slice(0, maxCalls);
-    const most = (call: ToolCall) => tools.resultCharacters(call.name);
-    const needed = run.reduce((sum, call) => sum + (call.name === TOOL_NAMES.view ? 0 : most(call)), 0);
-    let left = room(pending);
-    let dropped = false;
-    for (const keep of canShrink ? ROUNDS_KEPT : []) {
-      if (left >= needed) break;
-      if (shrink(keep)) {
-        dropped = true;
-        left = room(pending);
-      }
-    }
-    if (dropped) step("Older tool results were shortened to make room in the request");
+  try {
+    // Tools are needed for a file that is too large to send whole, and for a PDF whose pages can be
+    // looked at: that one may have its whole text in the prompt and still hide a chart from the model.
+    const { searchable } = prepared.plan;
+    const { viewable } = prepared;
+    if (searchable.length === 0 && viewable.length === 0) return result(wrote(await send(model, () => ({ system, messages }), true)));
 
-    type Planned = { call: ToolCall; label: string; refusal?: string; limits?: ToolCallLimits };
-    const planned = run.map((call): Planned => {
-      const label = tools.has(call.name) ? tools.describe(call.name, call.args) : call.name;
-      // A call that did not arrive whole is not run: the model is told, and can send it again.
-      if (call.problem) return { call, label, refusal: call.problem };
-      // A look at pages returns a file and a few words: the file has its own room, worked out when it runs.
-      if (call.name === TOOL_NAMES.view) return { call, label };
-      const refusal = tooCostly(call);
-      if (refusal) return { call, label, refusal };
-      const cap = most(call);
-      if (left < Math.min(cap, LEAST_ROOM_CHARACTERS)) {
-        outOfRoom = true;
-        return { call, label, refusal: NO_ROOM };
-      }
-      const allowed = Math.min(cap, left);
-      left -= allowed;
-      return { call, label, ...(allowed < cap ? { limits: { maxResultCharacters: allowed } } : {}) };
+    // Reading a whole file in parts is exploring too: the explorer model's work, when there is one.
+    const partReader = options.wholeDocumentAnalysis === false ? undefined : toolModel.generateText;
+    const generate: GenerateText | undefined = partReader && (async (part) => {
+      let reported = false;
+      const text = await partReader({
+        ...part,
+        onUsage: (used) => {
+          reported = true;
+          usage.add(toolModel.id, used);
+          part.onUsage?.(used);
+        },
+      });
+      // A part reader that does not report its usage (`onUsage` is optional) still made a request,
+      // and `limits.requests` counts it.
+      if (!reported) usage.add(toolModel.id, undefined);
+      return text;
     });
+    const tools = files.tools(searchable, {
+      ...(generate ? { generate } : {}),
+      onProgress: (event) => options.onActivity?.(`${event.message}…`),
+      ...(signal ? { signal } : {}),
+      ...(viewable.length > 0 ? { viewPages: viewable } : {}),
+      maxWholeDocumentReads: limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS,
+      ...(options.retry ? { retry: options.retry } : {}),
+      budget,
+    });
+    const declarations = tools.declarations;
+    // The requests that use the tools are the chat's own, or an explorer model's: the same
+    // conversation, and a line that says what its part is.
+    const toolSystem = explorer ? `${system}\n\n${EXPLORER_INSTRUCTION}` : system;
+    const sentTools = JSON.stringify(declarations);
+    meter.fixed.tokens += estimateTokens(sentTools) + (explorer ? estimateTokens(EXPLORER_INSTRUCTION) : 0);
+    meter.fixed.bytes += Buffer.byteLength(sentTools) + (explorer ? EXPLORER_INSTRUCTION.length : 0);
+    if (searchable.length > 0) options.onActivity?.(`Too large to read at once: ${searchable.map((meta) => meta.name).join(", ")}. Searching instead…`);
 
-    // The calls of a turn run together, a few at a time. Looks at pages take their turns, one
-    // after another: each is given the room the ones before it left.
-    const together = new Limiter(CALLS_AT_ONCE);
-    let looks: Promise<unknown> = Promise.resolve();
-    // The size of the request as it stands, worked out when the first look at pages in this turn needs it.
-    let requestBytes: number | undefined;
-    const outputs = planned.map(({ call, label, refusal, limits: callLimits }): Promise<ToolOutput> => {
-      if (refusal) return Promise.resolve({ result: { error: refusal }, files: [] });
-      if (call.name === TOOL_NAMES.view) {
-        const look = looks.then(async () => {
-          signal?.throwIfAborted();
-          options.onActivity?.(`${label}…`);
-          if (requestBytes === undefined) {
-            const waiting: ModelRequest = { system: toolSystem, messages: [...viewFor(toolModel), pending], tools: declarations, toolChoice: "auto" };
-            requestBytes = toolModel.requestBytes?.(waiting) ?? meter.estimate(waiting.messages).bytes;
-          }
-          // Base64 turns three bytes into four characters.
-          const output = await tools.executeWithFiles(call.name, call.args, { maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4), maxPages: pagesLeft });
-          for (const file of output.files) requestBytes += Math.ceil(file.bytes.length / 3) * 4 + 512;
-          if (output.files.length > 0) pagesLeft -= pagesShown(output.result);
-          return output;
-        });
-        looks = look.catch(() => undefined);
-        return look;
+    const maxTurns = Math.max(1, Math.trunc(limits.toolTurns ?? DEFAULT_TOOL_TURNS));
+    const maxCalls = Math.max(1, Math.trunc(limits.callsPerTurn ?? DEFAULT_CALLS_PER_TURN));
+    /** True once the question has used what it may: no more tools run. One request is kept for the answer. */
+    const spent = (): boolean => (
+      (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
+      || (limits.requests !== undefined && usage.totals.requests >= limits.requests - 1)
+    );
+    /**
+     * A whole-file read is many requests at once: one that would pass a ceiling of the question is
+     * not started. `reserved` is what the reads already let through in this turn will take: they run
+     * together, and the totals do not show them yet.
+     */
+    const tooCostly = (call: ToolCall, reserved: { inputTokens: number; requests: number; reads: Map<string, number> }): { refusal?: string; own?: number } => {
+      if (call.name !== TOOL_NAMES.analyze) return {};
+      const meta = searchable.find((document) => document.id === call.args.document_id);
+      if (!meta) return {};
+      // A read of a document read whole as often as it may be is refused by the tool, at no cost: it
+      // takes nothing from the reads of other documents.
+      const before = evidence.filter((shown) => shown.whole && shown.documentId === meta.id).length + (reserved.reads.get(meta.id) ?? 0);
+      if (before >= (limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS)) return {};
+      // The parts are read by the model that explores, in its own tokens.
+      const tokens = Math.ceil(meta.estimatedTokens * scaleOf(toolModel));
+      // The parts, a merge of their notes, the answer of the read, and the answer of the question.
+      const requests = estimateParts(meta, budget) + 3;
+      if (limits.inputTokens !== undefined) {
+        const left = Math.max(0, limits.inputTokens - usage.totals.inputTokens - reserved.inputTokens);
+        if (tokens > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} are left of the ${count(limits.inputTokens)} this question may use. Use search_document and read_document.` };
       }
-      return together.acquire(signal).then(async (release) => {
-        try {
-          options.onActivity?.(`${label}…`);
-          return await tools.executeWithFiles(call.name, call.args, callLimits);
-        } finally {
-          release();
+      if (limits.requests !== undefined) {
+        const left = Math.max(0, limits.requests - usage.totals.requests - reserved.requests);
+        if (requests > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(requests)} model requests, and ${count(left)} are left of the ${count(limits.requests)} this question may make. Use search_document and read_document.` };
+      }
+      reserved.inputTokens += tokens;
+      // The answer of the question is one request, whatever number of reads come before it.
+      reserved.requests += requests - 1;
+      reserved.reads.set(meta.id, (reserved.reads.get(meta.id) ?? 0) + 1);
+      // The read's own requests: its parts, a merge of their notes, and its answer.
+      return { own: requests - 1 };
+    };
+    /**
+     * A pointer for a call whose result is already in the conversation, in full: an earlier result
+     * (of this question or of one before it) holds what this one would return. The files do not
+     * change, so running it again would only take room.
+     */
+    const shownBefore = (call: ToolCall): ToolResult | undefined => {
+      for (let at = messages.length - 1; at >= 0; at--) {
+        const message = messages[at]!;
+        if (!isRound(message)) continue;
+        for (const answer of message.answers) {
+          const pointer = alreadyShown(call, answer);
+          if (pointer) return pointer;
+        }
+      }
+      return undefined;
+    };
+    /** The tool and mode of the calls that failed last, and how many failed in a row. */
+    let failing: { kind: string; count: number } | undefined;
+
+    let answered = false;
+    let outOfRoom = false;
+    // Tools run in at most maxTurns - 1 requests. The last request is the one below that must be
+    // answered in text, so a model that never stops calling tools does not cost a request whose
+    // calls are thrown away.
+    for (let round = 1 + (carried?.answered ?? 0); round < maxTurns && !outOfRoom && !spent(); round++) {
+      const toolRequest = (): ModelRequest => ({ system: toolSystem, messages: viewFor(toolModel), tools: declarations, toolChoice: "auto" });
+      let reply = await send(toolModel, () => toolRequest(), !explorer);
+      // A turn whose tool call could not be read, or a first reply with nothing in it, is asked
+      // for once more, with a note that says what was wrong: the answer would otherwise be written
+      // from the cards alone, and look like any other. The note is not kept in the conversation.
+      // It is a request of the chat like any other: it takes a tool turn, and the last turn is still the answer's.
+      if (reply.calls.length === 0 && nudges < MOST_NUDGES && round + 1 < maxTurns && !reply.blockReason && !spent()) {
+        const malformed = reply.finish === "malformed_call";
+        const empty = !reply.text.trim() && callsAnswered === 0 && reply.finish !== "cut" && reply.finish !== "filtered";
+        if (malformed || empty) {
+          nudges++;
+          round++;
+          step(malformed ? "The model's tool call could not be read: it was asked to send it again" : "The model's first reply was empty: it was asked again");
+          const note = malformed ? (explorer ? MALFORMED_EXPLORER_NUDGE : MALFORMED_CALL_NUDGE) : explorer ? EMPTY_EXPLORER_NUDGE : EMPTY_REPLY_NUDGE;
+          const withIt = notedMessages(note);
+          reply = await send(toolModel, () => ({ system: toolSystem, messages: withIt(), tools: declarations, toolChoice: "auto" }), !explorer);
+        }
+      }
+      if (reply.calls.length === 0) {
+        // Text from this turn is the answer. A remark made earlier, before a tool call, is not.
+        // Neither is anything an explorer model writes: the answer is asked for below.
+        answered = wrote(reply) && !explorer;
+        break;
+      }
+      const pending: ModelToolRound = { role: "tools", calls: reply.calls, answers: [], ...(reply.raw !== undefined ? { raw: reply.raw } : {}) };
+      if (reply.raw !== undefined) rawOwner.set(pending, toolModel);
+      // Every call must be answered, but not every call is run: a turn of sixty reads would build
+      // a request that no model accepts, and a file can ask a model for exactly that.
+      const run = reply.calls.slice(0, maxCalls);
+      const most = (call: ToolCall) => tools.resultCharacters(call.name);
+
+      /**
+       * `late`: a whole-file read, whose answer is fitted to the room once the other results of the
+       * turn are in. `pointer`: the result of a call whose result is already in the conversation;
+       * `earlier` when that is the result of an earlier turn, which room may still be made from.
+       */
+      type Planned = { call: ToolCall; label: string; refusal?: string; pointer?: ToolResult; earlier?: boolean; twinOf?: number; own?: number; limits?: ToolCallLimits; late?: boolean };
+      const reserved = { inputTokens: 0, requests: 0, reads: new Map<string, number>() };
+      /** The first call of this turn with each key: the same call made again in the turn is not run twice. */
+      const seen = new Map<string, number>();
+      const planned = run.map((call, index): Planned => {
+        const label = tools.has(call.name) ? tools.describe(call.name, call.args) : call.name;
+        // A call that did not arrive whole is not run: the model is told, and can send it again.
+        if (call.problem) return { call, label, refusal: call.problem };
+        // A look at pages returns a file and a few words: the file has its own room, worked out when it runs.
+        if (call.name === TOOL_NAMES.view) return { call, label };
+        const key = toolCallKey(call.name, call.args);
+        if (key !== undefined) {
+          const twin = seen.get(key);
+          if (twin !== undefined) return { call, label, twinOf: twin, pointer: { already_shown: true, note: `Not run: call ${twin + 1} of this turn is the same call, and its result is next to this one. Use it.` } };
+          seen.set(key, index);
+        }
+        const pointer = shownBefore(call);
+        if (pointer) return { call, label, pointer, earlier: true };
+        const cost = tooCostly(call, reserved);
+        if (cost.refusal) return { call, label, refusal: cost.refusal };
+        return { call, label, ...(cost.own !== undefined ? { own: cost.own } : {}) };
+      });
+      // The requests each whole-file read of the turn may make, once all of them are reserved: its
+      // own, and an even share of what the question has left over them (a part read as two halves
+      // takes one more). Together they never pass limits.requests.
+      const reads = planned.filter((plan) => plan.own !== undefined);
+      if (limits.requests !== undefined && reads.length > 0) {
+        const slack = Math.max(0, limits.requests - usage.totals.requests - 1 - reserved.requests);
+        for (const plan of reads) plan.limits = { ...plan.limits, maxRequests: plan.own! + Math.floor(slack / reads.length) };
+      }
+      // The calls that return text, and the most they may return: a call that is refused, or
+      // answered with a pointer to what is already shown, needs no room.
+      const sized = planned.filter((plan) => !plan.refusal && !plan.pointer && plan.call.name !== TOOL_NAMES.view);
+      const needed = sized.reduce((sum, plan) => sum + most(plan.call), 0);
+      let left = room(pending);
+      let dropped = false;
+      for (const keep of canShrink ? ROUNDS_KEPT : []) {
+        if (left >= needed) break;
+        if (shrink(keep)) {
+          dropped = true;
+          left = room(pending);
+        }
+      }
+      if (dropped) {
+        step("Older tool results were shortened to make room in the request");
+        // A result that was shortened is no longer shown in full: a call that pointed to it is run after all.
+        for (const plan of planned) {
+          if (!plan.earlier) continue;
+          const pointer = shownBefore(plan.call);
+          if (pointer) {
+            plan.pointer = pointer;
+          } else {
+            delete plan.pointer;
+            delete plan.earlier;
+          }
+        }
+      }
+      const runsNow = planned.filter((plan) => !plan.refusal && !plan.pointer && plan.call.name !== TOOL_NAMES.view);
+
+      // The room is shared by those calls. A result is most often far smaller than its cap, so a call
+      // that was given its whole cap first could leave none for the next ones, and a turn of small
+      // searches ended the question.
+      const shares = shareRoom(runsNow.map((plan) => most(plan.call)), left);
+      runsNow.forEach((plan, index) => {
+        const share = shares[index];
+        const cap = most(plan.call);
+        if (share === undefined) {
+          outOfRoom = true;
+          plan.refusal = NO_ROOM;
+        } else if (plan.call.name === TOOL_NAMES.analyze) {
+          // The answer of a whole-file read cannot be asked for again. It is not cut to an even share
+          // up front: it gets all the room the other results of the turn leave, once they are in.
+          plan.late = true;
+        } else if (share < cap) {
+          plan.limits = { ...plan.limits, maxResultCharacters: share };
         }
       });
-    });
-    // One that fails (the question was stopped) is reported below, in call order; the others must not go unheard.
-    for (const output of outputs) output.catch(() => undefined);
+      // A call made twice in the turn whose first was refused (no room, or not whole) is refused the
+      // same way: there is no result next to it to use.
+      for (const plan of planned) {
+        const source = plan.twinOf === undefined ? undefined : planned[plan.twinOf];
+        if (source?.refusal) {
+          plan.refusal = source.refusal;
+          delete plan.pointer;
+        }
+      }
 
-    const turnsLeft = outOfRoom ? 0 : maxTurns - round - 1;
-    const answers: ToolAnswer[] = [];
-    for (const [index, { call, label }] of planned.entries()) {
-      const output = await outputs[index]!;
-      step(`${label}${toolResultSummary(label, output.result)}`);
-      const shown = evidenceOf(call, output.result);
-      if (shown) evidence.push(shown);
-      answers.push({ call, result: { ...output.result, tool_turns_left: turnsLeft }, files: output.files });
-    }
-    for (const call of reply.calls.slice(maxCalls)) {
-      answers.push({ call, result: { error: `Not run: one turn runs at most ${maxCalls} tool calls. Send this call again if you still need it.`, tool_turns_left: turnsLeft }, files: [] });
-    }
-    if (reply.calls.length > maxCalls) step(`${reply.calls.length - maxCalls} more tool calls in this turn were not run (at most ${maxCalls} a turn)`);
-    const done: ModelToolRound = { ...pending, answers };
-    if (reply.raw !== undefined) rawOwner.set(done, toolModel);
-    messages.push(done);
-  }
+      // The calls of a turn run together, a few at a time. Looks at pages take their turns, one
+      // after another: each is given the room the ones before it left.
+      const together = new Limiter(CALLS_AT_ONCE);
+      let looks: Promise<unknown> = Promise.resolve();
+      // The size of the request as it stands, worked out when the first look at pages in this turn needs it.
+      let requestBytes: number | undefined;
+      const outputs = planned.map(({ call, label, refusal, pointer, limits: callLimits }): Promise<ToolOutput> => {
+        if (refusal) return Promise.resolve({ result: { error: refusal }, files: [] });
+        if (pointer) return Promise.resolve({ result: pointer, files: [] });
+        if (call.name === TOOL_NAMES.view) {
+          const look = looks.then(async () => {
+            signal?.throwIfAborted();
+            options.onActivity?.(`${label}…`);
+            if (requestBytes === undefined) {
+              const waiting: ModelRequest = { system: toolSystem, messages: [...viewFor(toolModel), pending], tools: declarations, toolChoice: "auto" };
+              requestBytes = toolModel.requestBytes?.(waiting) ?? meter.estimate(waiting.messages).bytes;
+            }
+            // Base64 turns three bytes into four characters.
+            const output = await tools.executeWithFiles(call.name, call.args, { maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4), maxPages: pagesLeft });
+            for (const file of output.files) requestBytes += Math.ceil(file.bytes.length / 3) * 4 + 512;
+            if (output.files.length > 0) pagesLeft -= pagesShown(output.result);
+            return output;
+          });
+          looks = look.catch(() => undefined);
+          return look;
+        }
+        return together.acquire(signal).then(async (release) => {
+          try {
+            options.onActivity?.(`${label}…`);
+            return await tools.executeWithFiles(call.name, call.args, callLimits);
+          } finally {
+            release();
+          }
+        });
+      });
+      // One that fails (the question was stopped) is reported below, in call order; the others must not go unheard.
+      for (const output of outputs) output.catch(() => undefined);
 
-  // Out of tool turns or of room, or the last turn had no text (cut off, or a malformed tool call):
-  // ask once more, for an answer in text. A blocked prompt would only be blocked again.
-  // With an explorer model this request is always made: it is the one the answering model gets.
-  if (!answered && !blockReason) {
-    options.onActivity?.("Writing the answer…");
-    let closing = searchable.length > 0 ? FINAL_ANSWER_REQUEST : FINAL_ANSWER_AFTER_PAGES;
-    // The answering model gets the explorer's calls and what they returned, and nothing else of it.
-    if (explorer && steps.length === 0) closing = FINAL_ANSWER_WITHOUT_TOOLS;
-    const reply = await request(model, {
-      system,
-      messages: [...viewFor(model), { role: "user", parts: [{ text: closing }] }],
-      tools: declarations,
-      toolChoice: "none",
-    }, true);
-    answered = wrote(reply);
+      /**
+       * The room of each whole-file read of the turn: what the other results left, shared among the
+       * reads, the smaller answers first. Worked out when the first of them is reached, by which time
+       * the other calls, which are quick, have most often returned.
+       */
+      let lateRoom: Map<number, number> | undefined;
+      const roomOfReads = async (): Promise<Map<number, number>> => {
+        const sizes = await Promise.all(outputs.map(async (output) => JSON.stringify((await output).result).length));
+        const reads = planned.flatMap((plan, index) => (plan.late ? [index] : []));
+        let free = left - sizes.reduce((sum, size, index) => sum + (planned[index]!.late ? 0 : size), 0);
+        const shares = new Map<number, number>();
+        [...reads].sort((first, second) => sizes[first]! - sizes[second]!).forEach((index, position) => {
+          const share = Math.min(sizes[index]!, Math.floor(free / (reads.length - position)));
+          shares.set(index, share);
+          free -= share;
+        });
+        return shares;
+      };
+
+      const turnsLeft = outOfRoom ? 0 : maxTurns - round - 1;
+      const answers: ToolAnswer[] = [];
+      for (const [index, { call, label, late, refusal, pointer }] of planned.entries()) {
+        let output = await outputs[index]!;
+        callsAnswered++;
+        if (late) {
+          lateRoom ??= await roomOfReads();
+          const share = lateRoom.get(index)!;
+          if (JSON.stringify(output.result).length > share) output = { ...output, result: fitAnswer(output.result, Math.max(LEAST_RESULT_CHARACTERS, share)) };
+        }
+        if (pointer) {
+          step(`${label} — already shown above`);
+          answers.push({ call, result: { ...output.result, tool_turns_left: turnsLeft }, files: [] });
+          continue;
+        }
+        // Two searches in a row that failed in the same mode: the second says to try another way.
+        if (!refusal) {
+          const kind = failureKind(call);
+          if (kind === undefined) {
+            failing = undefined;
+          } else if (typeof output.result.error === "string") {
+            failing = failing?.kind === kind ? { kind, count: failing.count + 1 } : { kind, count: 1 };
+            if (failing.count >= 2) output = { ...output, result: { ...output.result, error: `${output.result.error} ${repeatedFailureHint(call)}` } };
+          } else {
+            failing = undefined;
+          }
+        }
+        step(`${label}${toolResultSummary(label, output.result)}`);
+        const shown = evidenceOf(call, output.result);
+        if (shown) evidence.push(shown);
+        answers.push({ call, result: { ...output.result, tool_turns_left: turnsLeft }, files: output.files });
+      }
+      for (const call of reply.calls.slice(maxCalls)) {
+        callsAnswered++;
+        answers.push({ call, result: { error: `Not run: one turn runs at most ${maxCalls} tool calls. Send this call again if you still need it.`, tool_turns_left: turnsLeft }, files: [] });
+      }
+      if (reply.calls.length > maxCalls) step(`${reply.calls.length - maxCalls} more tool calls in this turn were not run (at most ${maxCalls} a turn)`);
+      const done: ModelToolRound = { ...pending, answers };
+      if (reply.raw !== undefined) rawOwner.set(done, toolModel);
+      messages.push(done);
+    }
+
+    // Out of tool turns or of room, or the last turn had no text (cut off, or a malformed tool call):
+    // ask once more, for an answer in text. A blocked prompt would only be blocked again.
+    // With an explorer model this request is always made: it is the one the answering model gets.
+    if (!answered && !blockReason) {
+      options.onActivity?.("Writing the answer…");
+      let closing = searchable.length > 0 ? FINAL_ANSWER_REQUEST : FINAL_ANSWER_AFTER_PAGES;
+      // No tool ran (the explorer needed none, the first reply was empty, or no turn was left for
+      // tools): there is no tool result to answer from. The answering model gets the explorer's
+      // calls and what they returned, and nothing else of it.
+      if (callsAnswered === 0) closing = FINAL_ANSWER_WITHOUT_TOOLS;
+      const reply = await send(model, () => ({
+        system,
+        messages: [...viewFor(model), { role: "user", parts: [{ text: closing }] }],
+        tools: declarations,
+        toolChoice: "none",
+      }), true);
+      answered = wrote(reply);
+    }
+    return result(answered);
+  } catch (error) {
+    // What the question found and paid for until it failed, for the application to keep.
+    if (!(error instanceof Replan) && error !== null && typeof error === "object") partialResults.set(error, result(false));
+    throw error;
   }
-  return result(answered);
 }

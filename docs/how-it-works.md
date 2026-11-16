@@ -95,7 +95,8 @@ slide deck: little text, a picture on every page.
    counting the line-number prefixes.
 2. Read the parts four at a time. Each part either takes notes with line citations or replies
    `NOTHING RELEVANT`. A failed part is retried once; if it fails again, it's reported in the answer
-   rather than failing the whole read.
+   rather than failing the whole read. A part the model refuses as larger than it takes is read as
+   two halves, while `maxMapChunks` and the requests the question has left allow it.
 3. If the notes are still too large, merge them in batches (or pairs) for up to 8 rounds.
 4. Write one answer from the notes, flagging contradictions and parts that couldn't be read.
 
@@ -108,7 +109,10 @@ the tool result says the answer is incomplete and points the model to exact sear
 for "list every…" tasks: in a live test with 1,200 matching lines, 492 came back, flagged as
 incomplete. Even without reaching a cap the model can skip items (91 of 120 in the same test), so
 for a complete list or an exact count, `search_document` in exact or regex mode is the reliable
-tool: it reports `total_matching_lines`.
+tool: it reports `total_matching_lines`. The tool guide says so, and keeps the whole-file read for
+what needs meaning: a summary, a timeline, items that must be judged one by one. Live on Vertex AI
+(November 2026), `gemini-3.1-flash-lite` asked "how many ERROR lines say the payment gateway timed
+out" answered with one exact search: 40, the right count, with the first and last lines.
 
 Jobs needing more than `maxMapChunks` parts are refused, with advice to narrow the question first.
 
@@ -119,20 +123,38 @@ and reads the reply back; everything else happens once, in the core:
 
 - **Retries.** A request that failed with HTTP 408, 409, 429 or 5xx, or that got no answer, is sent
   again after a wait that doubles, or after the wait the provider asks for. Not after text of the
-  reply was shown, and not after a refusal such as 400 or 401. The part reads of a whole-file read
-  follow the same rule.
+  reply was shown, not after a refusal such as 400 or 401, and not for a quota that does not come
+  back soon. The part reads of a whole-file read follow the same rule. Every error says its
+  `kind`, and a question that fails leaves what it found to `partialResultOf(error)`.
+- **Silence.** A request that gets nothing for 600 s before its reply starts, or for 300 s between
+  two pieces of it, is aborted and sent again once. A stream that closes without saying why it
+  ended is not taken for a whole reply.
+- **A request too large for the model** is made smaller and sent again: older results become
+  stand-ins, or, before any tool ran, the documents are planned again for the window the provider
+  named.
 - **Calls of one turn run together**, four at a time, and are answered in the order they were made.
   Looks at pages run one after another, because each is given the room the one before it left.
   Regex searches do too: they share the time of the tool set. At most eight calls of a turn run.
-- **Room.** The loop counts the request as it grows. Each call gets the room that is left, old
-  results are shortened to stand-ins when it runs short, and a call that finds none ends the tools:
-  the next request is the answer. See [Room in the request](configuration.md#room-in-the-request).
+- **Room.** The loop counts the request as it grows. The calls of a turn share the room that is
+  left, old results are shortened to stand-ins when it runs short, and a call that finds none ends
+  the tools: the next request is the answer. See [Room in the request](configuration.md#room-in-the-request).
 - **One whole-file read** of each document for a question. A model that asks again, with the task
-  put another way, is told to use the answer it has.
+  put another way, is told to use the answer it has. A read that could read no part is not tried
+  again either, and a model that asks again is told that it failed. One refused before any model
+  request (too many parts, a store that could not be read) is not counted. When the last step,
+  which writes one answer from the notes, fails, the notes of the parts are the answer
+  (`notes_only: true`): they were paid for.
 - **Usage** is summed over every request, the part reads included, for each model.
 - **Evidence** is read from the tool calls: for each, the document and the lines or pages shown.
 - **A call that did not arrive whole** (arguments that are not JSON, or cut off at the output
-  limit) is answered with what was wrong, and not run.
+  limit) is answered with what was wrong, and not run. A turn whose call could not be read at all
+  (Gemini's `MALFORMED_FUNCTION_CALL`), or a first reply with nothing in it, is asked for once more
+  with a short note, at most twice a question; without it the answer would be written from the
+  cards alone. The note is not kept in the conversation, except when the model that explores is
+  Claude; the answering model never gets it.
+- **A call answered already** (the same search or read, while its result is still shown in full)
+  is answered with a pointer to that result instead of running again. Two searches in a row that
+  failed in the same mode get a hint to try another one.
 - **The end.** When the turns or the room run out, or the model's last turn has no text, one more
   request must be answered in text. For Gemini it declares no tools; for an OpenAI-compatible
   endpoint and for Claude it keeps them and sets the tool choice to none.
@@ -141,7 +163,7 @@ What differs between providers is in the adapters:
 
 | | Gemini | OpenAI-compatible | Claude |
 |---|---|---|---|
-| The model's turn goes back | unchanged: thought signatures | unchanged: `reasoning_content`, signatures | unchanged: thinking blocks |
+| The model's turn goes back | unchanged: thought signatures | unchanged (`reasoning_content`, signatures), but arguments that are not JSON become `"{}"` | unchanged (thinking blocks), but an empty text block after them is left out |
 | The request for the answer | no tools declared | `tool_choice: "none"`, tools kept | `tool_choice: none`, tools kept |
 | Pages of `view_pages` | inside the function response | a `file` part after the results, opt-in | a document block in the tool result |
 | Old results shortened for room | yes | yes | no: the conversation may only grow |
@@ -193,7 +215,8 @@ One model does all of the above unless the endpoint names an explorer
   after the results, the calls belong to an earlier turn, and the request is accepted without
   signatures. The message is the "answer now" one from above.
 - An explorer that calls no tool leaves nothing to answer from but the conversation, so the
-  message then says that instead (`FINAL_ANSWER_WITHOUT_TOOLS`).
+  message then says that instead (`FINAL_ANSWER_WITHOUT_TOOLS`). So does the request of one model
+  that ran no tool: its first reply was empty, or no turn was left for tools.
 
 ## Live results
 

@@ -1,3 +1,4 @@
+import { sliceWhole } from "./text.js";
 import type { Budget, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.js";
 
 /** Bytes kept free for document cards, the tool declarations, and JSON framing. */
@@ -121,7 +122,7 @@ export function renderCard(meta: DocumentMeta, head: string, viewable = false, r
     out.push(`Outline (${Math.min(meta.outline.length, CARD_OUTLINE_ENTRIES)} of ${meta.outline.length} headings):`);
     out.push(...outlineLines(meta.outline.slice(0, CARD_OUTLINE_ENTRIES)).map((line) => `  ${line}`));
   }
-  out.push(`First lines:`, head.split("\n").map((line) => `  ${line.slice(0, 300)}`).join("\n"));
+  out.push(`First lines:`, head.split("\n").map((line) => `  ${sliceWhole(line, 300)}`).join("\n"));
   out.push(`--- End large attached file: ${meta.name} ---`);
   return out.join("\n");
 }
@@ -141,9 +142,10 @@ export function documentToolsInstruction(searchable: DocumentMeta[], viewable: D
       `Some attached files are too large for your context: ${searchable.map((meta) => named(meta)).join("; ")}.`,
       "You see only a summary card for each. Read them through the tools:",
       "- search_document finds lines (exact or regex) or the most relevant passages (keywords).",
+      "- To count or list what can be matched as text (a word, an ID, an error code, a log level, a pattern), use search_document in exact or regex mode: its total_matching_lines is exact.",
       "- read_document reads a line range. Read around search hits before you rely on them.",
       "- get_document_overview returns the outline, log profile, and the start and end of a file.",
-      ...(wholeReads ? ["- analyze_whole_document reads the entire file in parts. Use it only when the task needs all of it (a full summary, every occurrence, a timeline). It is slow and costly."] : []),
+      ...(wholeReads ? ["- analyze_whole_document reads the entire file in parts. Use it only when the task needs all of the file and cannot be done by matching text: a full summary, a timeline, or items that must be judged by meaning. It is slow and costly, and it can miss items of a long list."] : []),
       "You have a limited number of tool turns. Call several tools in the same turn when the searches do not depend on each other, and answer as soon as you have enough evidence.",
       "Base your answer on text you actually read. Cite line numbers like (app.log L1203). If the tools did not find something, say so rather than guessing.",
     );

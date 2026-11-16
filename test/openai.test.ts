@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { askWithFiles, createLargeFiles, FINAL_ANSWER_REQUEST, MemoryDocumentStore, ModelRequestError, type ModelRequest, type ToolTurn } from "llm-large-files";
 import { fromOpenAiMessages, openAiCompatible, openAiToolTurns, OpenAiRequestError } from "llm-large-files/openai";
 import { THINKING_OUTPUT_TOKENS } from "llm-large-files/gemini";
+import { streamErrorStatus } from "../src/openai/adapter.js";
 import { numberedPdf } from "./pdf-fixtures.js";
 import { fakeModel, calls as modelCalls, says, serviceLog, utf8 } from "./fake-model.js";
 
@@ -292,13 +293,17 @@ describe("an OpenAI-compatible endpoint", () => {
       { name: "search_document", args: { document_id: "doc_1", query: "x" }, result: { error: "Unknown document_id doc_1." } },
     ] }];
     const native = openAiToolTurns(turns);
+    // A call without an ID is given one of its own, the same in its result, and another each time.
+    const given = (native[0]!.tool_calls as Json[])[1]!.id as string;
+    expect(given).toMatch(/^call_[0-9a-f]{24}$/);
+    expect((openAiToolTurns(turns)[0]!.tool_calls as Json[])[1]!.id).not.toBe(given);
     expect(native).toEqual([
       { role: "assistant", content: null, tool_calls: [
         { id: "call_a", type: "function", function: { name: "read_document", arguments: "{\"document_id\":\"doc_1\",\"start_line\":1}" } },
-        { id: "call_1_2", type: "function", function: { name: "search_document", arguments: "{\"document_id\":\"doc_1\",\"query\":\"x\"}" } },
+        { id: given, type: "function", function: { name: "search_document", arguments: "{\"document_id\":\"doc_1\",\"query\":\"x\"}" } },
       ] },
       { role: "tool", tool_call_id: "call_a", content: "{\"lines\":\"1-2\",\"text\":\"1| a\\n2| b\"}" },
-      { role: "tool", tool_call_id: "call_1_2", content: "{\"error\":\"Unknown document_id doc_1.\"}" },
+      { role: "tool", tool_call_id: given, content: "{\"error\":\"Unknown document_id doc_1.\"}" },
     ]);
     const history = [
       { role: "system", content: "Be brief." },
@@ -311,9 +316,170 @@ describe("an OpenAI-compatible endpoint", () => {
     expect(system).toBe("Be brief.");
     expect(messages).toEqual([
       { role: "user", parts: [{ text: "What is in the picture and the file?" }, { native: { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } } }] },
-      { role: "tools", calls: [{ ...turns[0]!.calls[0] }, { id: "call_1_2", ...turns[0]!.calls[1] }] },
+      { role: "tools", calls: [{ ...turns[0]!.calls[0] }, { id: given, ...turns[0]!.calls[1] }] },
       { role: "assistant", parts: [{ text: "Two lines." }] },
       { role: "user", parts: [{ text: "And then?" }] },
     ]);
+  });
+});
+
+describe("an OpenAI-compatible endpoint, since the review of 0.5.0", () => {
+  const quick = { random: () => 1, sleep: async () => undefined };
+  /** A reply whose headers came, and whose body broke off on its way. */
+  const brokenBody = () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode("{\"choices\":[{\"mess"));
+      controller.error(new TypeError("terminated"));
+    },
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+  const smallNote = async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "note.txt", bytes: utf8("The meeting moved to Tuesday.\n") });
+    return { files, meta };
+  };
+
+  it("sends a request again when the connection failed while the body of the reply arrived", async () => {
+    const { files, meta } = await smallNote();
+    const endpoint = fakeEndpoint([brokenBody, reply({ content: "Tuesday." })]);
+    const model = openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: endpoint.fetch });
+    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("When?"), retry: quick });
+    expect(endpoint.sent).toHaveLength(2);
+    expect(result).toMatchObject({ text: "Tuesday.", answered: true });
+    // A body that came whole but is not JSON is not a connection that failed: it is not sent again.
+    const html = fakeEndpoint([new Response("<html>Bad gateway</html>", { status: 200 })]);
+    await expect(askWithFiles({ files, model: openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: html.fetch }), documentIds: [meta.id], messages: question("When?"), retry: quick })).rejects.toBeInstanceOf(SyntaxError);
+    expect(html.sent).toHaveLength(1);
+  });
+
+  it("takes an error inside a stream for the server's failure, and sends the request again when nothing was shown", async () => {
+    expect(streamErrorStatus({ message: "The server had an error.", type: "server_error", param: null, code: null })).toBe(500);
+    expect(streamErrorStatus({ type: "rate_limit_exceeded" })).toBe(429);
+    expect(streamErrorStatus({ code: "503" })).toBe(503);
+    expect(streamErrorStatus({ code: 429 })).toBe(429);
+    expect(streamErrorStatus({ type: "invalid_request_error" })).toBe(400);
+    expect(streamErrorStatus({ code: 200 })).toBe(500);
+    expect(streamErrorStatus("boom")).toBe(500);
+    const { files, meta } = await smallNote();
+    const endpoint = fakeEndpoint([
+      sse([{ error: { message: "The server had an error while processing your request.", type: "server_error", param: null, code: null } }]),
+      sse([{ choices: [{ index: 0, delta: { content: "Tues" } }] }, { choices: [{ index: 0, delta: { content: "day." }, finish_reason: "stop" }] }, "[DONE]"]),
+    ]);
+    const shown: string[] = [];
+    const model = openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: endpoint.fetch });
+    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("When?"), retry: quick, onText: (delta) => shown.push(delta) });
+    expect(endpoint.sent).toHaveLength(2);
+    expect(result.text).toBe("Tuesday.");
+    expect(shown.join("")).toBe("Tuesday.");
+  });
+
+  it("keeps a refusal and OpenRouter's reasoning of a streamed reply, as a reply in one piece has them", async () => {
+    const refusing = fakeEndpoint([sse([
+      { choices: [{ index: 0, delta: { role: "assistant", content: null, refusal: "I can't help " } }] },
+      { choices: [{ index: 0, delta: { refusal: "with that." }, finish_reason: "stop" }] },
+    ])]);
+    const shown: string[] = [];
+    const refusal = await openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: refusing.fetch }).send(request("?"), { onText: (delta) => shown.push(delta) });
+    expect(refusal.text).toBe("I can't help with that.");
+    expect(shown.join("")).toBe("I can't help with that.");
+    expect(refusal.raw).toMatchObject({ refusal: "I can't help with that." });
+
+    const thinking = fakeEndpoint([sse([
+      { choices: [{ index: 0, delta: { reasoning: "Look", reasoning_details: [{ type: "reasoning.text", text: "Look", index: 0, format: "google-gemini-v1" }] } }] },
+      { choices: [{ index: 0, delta: { reasoning: " it up.", reasoning_details: [{ type: "reasoning.text", text: " it up.", index: 0, signature: null }] } }] },
+      { choices: [{ index: 0, delta: { reasoning_details: [{ type: "reasoning.encrypted", data: "c2lnbmF0dXJl", id: "tool_1", index: 1, format: "google-gemini-v1" }], tool_calls: [{ index: 0, id: "tool_1", type: "function", function: { name: "read_document", arguments: "{\"document_id\":\"d\",\"start_line\":1}" } }] }, finish_reason: "tool_calls" }] },
+    ])]);
+    const turn = await openAiCompatible({ model: "m", baseUrl: "https://openrouter.ai/api/v1", fetch: thinking.fetch }).send(request("?"), { onText: () => undefined });
+    expect(turn.calls).toEqual([{ id: "tool_1", name: "read_document", args: { document_id: "d", start_line: 1 } }]);
+    expect(turn.raw).toMatchObject({
+      reasoning: "Look it up.",
+      reasoning_details: [
+        { type: "reasoning.text", text: "Look it up.", index: 0, format: "google-gemini-v1" },
+        { type: "reasoning.encrypted", data: "c2lnbmF0dXJl", id: "tool_1", index: 1, format: "google-gemini-v1" },
+      ],
+    });
+  });
+
+  it("sends a call whose arguments were not JSON back with none, and answers it with what was wrong", async () => {
+    const { files, meta } = await largeLog();
+    const endpoint = fakeEndpoint([
+      reply({ content: null, tool_calls: [toolCall("call_1", "read_document", "{\"document_id\": \"do")] }, "tool_calls"),
+      reply({ content: "I could not read it." }),
+    ]);
+    await askWithFiles({ files, model: openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: endpoint.fetch }), documentIds: [meta.id], messages: question("?") });
+    const sent = endpoint.sent[1]!.body.messages as Json[];
+    const asked = sent.find((message) => message.role === "assistant")!;
+    expect(asked.tool_calls[0].function.arguments).toBe("{}");
+    expect(JSON.parse(sent.find((message) => message.role === "tool")!.content).error).toMatch(/^The arguments of this call were not a JSON object, and it was not run: \{"document_id": "do\. Send the call again\./);
+  });
+
+  it("names the output limit of a part read as Azure OpenAI wants it, on each of its hosts, and as a server that refuses the other asks", async () => {
+    for (const [url, field] of [
+      ["https://acme.cognitiveservices.azure.com/openai/deployments/gpt/chat/completions?api-version=2026-06-01", "max_completion_tokens"],
+      ["https://acme.services.ai.azure.com/openai/v1/chat/completions", "max_completion_tokens"],
+      // The same host's model inference API serves other models, which know only max_tokens.
+      ["https://acme.services.ai.azure.com/models/chat/completions", "max_tokens"],
+    ] as const) {
+      const endpoint = fakeEndpoint([reply({ content: "notes" })]);
+      await openAiCompatible({ model: `azure-${field}-${url.length}`, url, fetch: endpoint.fetch }).generateText!({ system: "s", prompt: "p", maxOutputTokens: 100 });
+      expect(Object.keys(endpoint.sent[0]!.body), url).toContain(field);
+    }
+    // A gateway in front of a reasoning model: it refuses max_tokens and names the other.
+    const refuse = new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.", type: "invalid_request_error", param: "max_tokens", code: "unsupported_parameter" } }), { status: 400 });
+    const gateway = fakeEndpoint([refuse, reply({ content: "first notes" }), reply({ content: "second notes" })]);
+    const model = openAiCompatible({ model: "reasoner-behind-gateway", baseUrl: "https://gateway.example/v1", fetch: gateway.fetch });
+    expect(await model.generateText!({ system: "s", prompt: "p", maxOutputTokens: 100 })).toBe("first notes");
+    expect(await model.generateText!({ system: "s", prompt: "p", maxOutputTokens: 100 })).toBe("second notes");
+    expect(gateway.sent.map((sent) => Object.keys(sent.body).find((key) => key.startsWith("max_")))).toEqual(["max_tokens", "max_completion_tokens", "max_completion_tokens"]);
+    // A limit that is too large is not a name that is refused.
+    const tooLarge = new Response(JSON.stringify({ error: { message: "'max_tokens' or 'max_completion_tokens' is too large: 100. This model's maximum context length is 64 tokens." } }), { status: 400 });
+    const small = fakeEndpoint([tooLarge]);
+    await expect(openAiCompatible({ model: "tiny", baseUrl: "https://small.example/v1", fetch: small.fetch }).generateText!({ system: "s", prompt: "p", maxOutputTokens: 100 })).rejects.toMatchObject({ status: 400 });
+    expect(small.sent).toHaveLength(1);
+  });
+
+  it("makes two user turns in a row one, for servers that refuse them", async () => {
+    const endpoint = fakeEndpoint([reply({ content: "ok" })]);
+    await openAiCompatible({ model: "deepseek-reasoner", baseUrl: "https://api.deepseek.com/v1", fetch: endpoint.fetch }).send({
+      system: "",
+      messages: [{ role: "user", parts: [{ text: "How many errors?" }] }, { role: "user", parts: [{ text: "Answer now." }] }],
+    });
+    expect(endpoint.sent[0]!.body.messages).toEqual([{ role: "user", content: "How many errors?\n\nAnswer now." }]);
+  });
+});
+
+describe("the name of the output limit of a part read, as the final review of the fixes found it", () => {
+  const refusal = () => new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.", type: "invalid_request_error", param: "max_tokens", code: "unsupported_parameter" } }), { status: 400 });
+
+  it("is learned once by part reads that are refused together, and none of them is refused twice", async () => {
+    // A server that refuses max_tokens, and answers the other name after a moment.
+    const gateway = fakeEndpoint([(sent) => ("max_tokens" in sent.body ? refusal() : reply({ content: "notes" }))]);
+    const read = () => ({ system: "s", prompt: "p", maxOutputTokens: 100 });
+    // Another adapter of the same URL and model answered first: these four are sent together.
+    await openAiCompatible({ model: "racer", baseUrl: "https://race.example/v1", maxTokensField: "max_completion_tokens", fetch: gateway.fetch }).generateText!(read());
+    const model = openAiCompatible({ model: "racer", baseUrl: "https://race.example/v1", fetch: gateway.fetch });
+    const results = await Promise.allSettled([1, 2, 3, 4].map(() => model.generateText!(read())));
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "fulfilled", "fulfilled", "fulfilled"]);
+    expect(await model.generateText!(read())).toBe("notes");
+    expect(Object.keys(gateway.sent.at(-1)!.body)).toContain("max_completion_tokens");
+  });
+
+  it("is not changed by an error that mentions a name without refusing it", async () => {
+    const outOfRoom = new Response(JSON.stringify({ error: { message: "Could not finish the message because max_tokens or model output limit was reached. Please try again with a higher max_tokens.", type: "invalid_request_error" } }), { status: 400 });
+    const azure = fakeEndpoint([outOfRoom, reply({ content: "notes" })]);
+    const model = openAiCompatible({ model: "gpt-5-azure", url: "https://acme.openai.azure.com/openai/v1/chat/completions", fetch: azure.fetch });
+    await expect(model.generateText!({ system: "s", prompt: "p", maxOutputTokens: 100 })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/^Could not finish the message/) });
+    expect(azure.sent).toHaveLength(1);
+    await model.generateText!({ system: "s", prompt: "p", maxOutputTokens: 100 });
+    expect(Object.keys(azure.sent[1]!.body)).toContain("max_completion_tokens");
+  });
+
+  it("sends a call whose arguments came empty back with \"{}\"", async () => {
+    const endpoint = fakeEndpoint([sse([
+      { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "get_document_overview", arguments: "" } }] } }] },
+      { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+    ])]);
+    const turn = await openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: endpoint.fetch }).send(request("?"), { onText: () => undefined });
+    expect(turn.calls).toEqual([{ id: "call_1", name: "get_document_overview", args: {} }]);
+    expect((turn.raw as Json).tool_calls[0].function.arguments).toBe("{}");
   });
 });

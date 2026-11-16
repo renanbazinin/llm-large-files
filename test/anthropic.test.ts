@@ -215,6 +215,7 @@ describe("Claude through the Messages API", () => {
     const reply = await model.send(request("?"), { onText: (delta) => deltas.push(delta) });
     expect(deltas).toEqual(["Looking", " at it."]);
     expect(reply).toEqual({
+      finish: "complete",
       text: "Looking at it.",
       calls: [{ id: "toolu_7", name: "read_document", args: { document_id: "doc_1", start_line: 96, end_line: 98 } }],
       raw: [thinking, text("Looking at it."), call],
@@ -320,11 +321,16 @@ describe("Claude through the Messages API", () => {
       { name: "search_document", args: { document_id: "doc_1", query: "x" }, result: { error: "Unknown document_id doc_1." } },
     ] }];
     const native = anthropicToolTurns(turns);
+    // A call without an ID is given one of its own, the same in its result, and another each time:
+    // the rounds of two questions kept alike must not share one.
+    const given = (native[0]!.content as Json[])[1]!.id as string;
+    expect(given).toMatch(/^toolu_[0-9a-f]{24}$/);
+    expect((anthropicToolTurns(turns)[0]!.content as Json[])[1]!.id).not.toBe(given);
     expect(native).toEqual([
-      { role: "assistant", content: [{ type: "tool_use", id: "toolu_a", name: "read_document", input: { document_id: "doc_1", start_line: 1 } }, { type: "tool_use", id: "toolu_1_2", name: "search_document", input: { document_id: "doc_1", query: "x" } }] },
+      { role: "assistant", content: [{ type: "tool_use", id: "toolu_a", name: "read_document", input: { document_id: "doc_1", start_line: 1 } }, { type: "tool_use", id: given, name: "search_document", input: { document_id: "doc_1", query: "x" } }] },
       { role: "user", content: [
         { type: "tool_result", tool_use_id: "toolu_a", content: "{\"lines\":\"1-2\",\"text\":\"1| a\\n2| b\"}" },
-        { type: "tool_result", tool_use_id: "toolu_1_2", content: "{\"error\":\"Unknown document_id doc_1.\"}", is_error: true },
+        { type: "tool_result", tool_use_id: given, content: "{\"error\":\"Unknown document_id doc_1.\"}", is_error: true },
       ] },
     ]);
     const image = { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } };
@@ -337,9 +343,87 @@ describe("Claude through the Messages API", () => {
     ]);
     expect(messages).toEqual([
       { role: "user", parts: [{ native: image }, { text: "What is in the picture and the file?" }] },
-      { role: "tools", calls: [{ ...turns[0]!.calls[0] }, { id: "toolu_1_2", ...turns[0]!.calls[1] }] },
+      { role: "tools", calls: [{ ...turns[0]!.calls[0] }, { id: given, ...turns[0]!.calls[1] }] },
       { role: "assistant", parts: [{ text: "Two lines." }] },
       { role: "user", parts: [{ text: "And then?" }] },
     ]);
+  });
+});
+
+describe("Claude through the Messages API, since the review of 0.5.0", () => {
+  const quick = { random: () => 1, sleep: async () => undefined };
+  const smallNote = async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "note.txt", bytes: utf8("The total is 42.\n") });
+    return { files, meta };
+  };
+  /** A stream that a gateway ended as if it were whole, before Claude's last events. */
+  const cutShort = (content: Json[]) => sse(streamOf(content).filter((event) => event.type !== "message_delta" && event.type !== "message_stop"));
+
+  it("does not take a stream that ended before its last event for a whole reply, and sends the request again", async () => {
+    const { files, meta } = await smallNote();
+    const api = fakeApi([cutShort([text("The total is 4")]), message([text("The total is 42.")])]);
+    const result = await askWithFiles({ files, model: anthropic({ model: "claude-test", apiKey: "k", fetch: api.fetch }), documentIds: [meta.id], messages: question("Total?"), retry: quick });
+    expect(api.sent).toHaveLength(2);
+    expect(result).toMatchObject({ text: "The total is 42.", answered: true });
+    await expect(anthropic({ model: "claude-test", apiKey: "k", fetch: fakeApi([cutShort([text("The total is 4")])]).fetch }).send(request("?"))).rejects.toMatchObject({ status: 0, message: "Claude's reply ended before it was complete." });
+  });
+
+  it("does not run a call whose block was never closed", async () => {
+    const events = streamOf([toolUse("toolu_1", "read_document", { document_id: "doc_1", start_line: 1 })], "tool_use").filter((event) => event.type !== "content_block_stop");
+    const reply = await anthropic({ model: "claude-test", apiKey: "k", fetch: fakeApi([sse(events)]).fetch }).send(request("?"));
+    expect(reply.calls).toEqual([{ id: "toolu_1", name: "read_document", args: {}, problem: "This call did not arrive whole, and was not run. Send it again." }]);
+  });
+
+  it("does not send back a text block that a stream left empty, unless a thinking block follows it", async () => {
+    const events: Json[] = [
+      { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", content: [], usage: { input_tokens: 10, output_tokens: 1 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Read it." } },
+      { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } },
+      { type: "content_block_stop", index: 1 },
+      { type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "toolu_1", name: "read_document", input: {} } },
+      { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: "{\"document_id\":\"doc_1\",\"start_line\":1}" } },
+      { type: "content_block_stop", index: 2 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 20 } },
+      { type: "message_stop" },
+    ];
+    const reply = await anthropic({ model: "claude-test", apiKey: "k", fetch: fakeApi([sse(events)]).fetch }).send(request("?"));
+    expect((reply.raw as Json[]).map((block) => block.type)).toEqual(["thinking", "tool_use"]);
+    expect(reply.calls).toEqual([{ id: "toolu_1", name: "read_document", args: { document_id: "doc_1", start_line: 1 } }]);
+    // Before a thinking block, the empty block is part of what the thinking is checked against: it stays.
+    const before = [events[0]!, ...events.slice(5, 7).map((event) => ({ ...event, index: 0 })), ...events.slice(1, 5).map((event) => ({ ...event, index: 1 })), ...events.slice(10)];
+    const kept = await anthropic({ model: "claude-test", apiKey: "k", fetch: fakeApi([sse(before)]).fetch }).send(request("?"));
+    expect((kept.raw as Json[]).map((block) => block.type)).toEqual(["text", "thinking"]);
+  });
+
+  it("gives calls of other providers and of earlier questions IDs the API takes, each once in a request", async () => {
+    const api = fakeApi([message([text("ok")])]);
+    const round = (id: string, from: number) => ({ role: "tools" as const, calls: [{ id, name: "read_document", args: { document_id: "doc_1", start_line: from } }], answers: [] as Array<{ call: Json; result: Json }> });
+    // Kimi's IDs, and two stored questions whose rounds were numbered alike.
+    const rounds = [round("functions.read_document:0", 1), round("toolu_1_1", 5), round("toolu_1_1", 9)];
+    for (const each of rounds) each.answers = [{ call: each.calls[0]!, result: { lines: "1-2" } }];
+    await anthropic({ model: "claude-test", apiKey: "k", fetch: api.fetch, stream: false }).send({ system: "", messages: [{ role: "user", parts: [{ text: "Read it." }] }, ...rounds as never[], { role: "user", parts: [{ text: "And?" }] }] });
+    const sent = api.sent[0]!.body.messages as Json[];
+    const uses = sent.flatMap((message) => (Array.isArray(message.content) ? message.content : [])).filter((block: Json) => block.type === "tool_use").map((block: Json) => block.id);
+    const results = sent.flatMap((message) => (Array.isArray(message.content) ? message.content : [])).filter((block: Json) => block.type === "tool_result").map((block: Json) => block.tool_use_id);
+    expect(uses).toEqual(["functions_read_document_0", "toolu_1_1", "toolu_1_1_2"]);
+    expect(results).toEqual(uses);
+  });
+
+  it("sends a request again when the connection failed while the body of the reply arrived", async () => {
+    const { files, meta } = await smallNote();
+    const broken = () => new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("{\"content\":[{\"ty"));
+        controller.error(new TypeError("terminated"));
+      },
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+    const api = fakeApi([broken, message([text("42.")])]);
+    const result = await askWithFiles({ files, model: anthropic({ model: "claude-test", apiKey: "k", stream: false, fetch: api.fetch }), documentIds: [meta.id], messages: question("Total?"), retry: quick });
+    expect(api.sent).toHaveLength(2);
+    expect(result.text).toBe("42.");
   });
 });

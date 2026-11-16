@@ -1,3 +1,5 @@
+import { safeErrorMessage } from "./errors.js";
+import { errorKindOf } from "./model.js";
 import { withRetry, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes } from "./text.js";
 import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
@@ -19,7 +21,20 @@ export type WholeDocumentResult = {
   truncatedMerges: number;
   /** The final answer stopped at the output limit. */
   answerTruncated: boolean;
+  /**
+   * Why the last step, which writes one answer from the notes, failed. `answer` is then the notes
+   * themselves: every part was paid for, and they hold what was found, with line citations.
+   */
+  answerFailed?: string;
 };
+
+/** A whole-document read in which no part could be read: nothing was learned, and nothing is returned. */
+export class NothingReadError extends Error {
+  constructor(name: string, readonly reason: string) {
+    super(`Could not read any part of ${name}: ${reason}`);
+    this.name = "NothingReadError";
+  }
+}
 
 type Parts = Array<{ from: number; to: number }>;
 
@@ -157,6 +172,11 @@ export async function analyzeWholeDocument(options: {
   concurrency?: number;
   /** How a model request that failed is sent again. See `RetryOptions`. */
   retry?: RetryOptions;
+  /**
+   * The most model requests this read may make, when the question has a ceiling. A part read as two
+   * halves takes one more than planned: it is halved only while this allows it.
+   */
+  maxRequests?: number;
 }): Promise<WholeDocumentResult> {
   const { document, task, generate, budget, onProgress, signal, retry } = options;
   const name = document.meta.name;
@@ -166,19 +186,35 @@ export async function analyzeWholeDocument(options: {
   let done = 0;
   let failed = 0;
   let firstFailure = "";
+  let firstError: unknown;
+  /** Parts whose text was read and sent to the model: with none, no model request was made. */
+  let sent = 0;
   let truncatedParts = 0;
-  const notes = await pool(parts.length, options.concurrency ?? 4, async (index) => {
-    const { from, to } = parts[index]!;
-    let text: string;
-    let read = true;
+  type Note = { from: number; to: number; text: string; read: boolean };
+  /**
+   * Parts that may be read as two halves. Each takes one request more than planned, and makes one
+   * part more: the parts stay within `maxMapChunks`, and the requests (the parts, a merge, the
+   * answer) within `maxRequests`.
+   */
+  let halvings = Math.max(0, Math.min(
+    budget.maxMapChunks - parts.length,
+    options.maxRequests === undefined ? Number.POSITIVE_INFINITY : options.maxRequests - parts.length - 2,
+  ));
+  /**
+   * The notes on one part. A part the model refuses as larger than it takes (its window is smaller
+   * than the budget says) is read as two halves instead, once: a half that is still too large is
+   * reported as a part that could not be read.
+   */
+  const readPart = async (from: number, to: number, where: string, halved: boolean): Promise<Note[]> => {
     try {
       const part = numberLines(await document.readLines(from, to), from);
+      sent++;
       const reply = await ask(generate, {
         system: "You read one part of a larger document and take notes for a later step that combines the notes from every part.",
         prompt: [
           `Task: ${task}`,
           "",
-          `Document: ${name}, part ${index + 1} of ${parts.length}, lines ${from}-${to}.`,
+          `Document: ${name}, ${where}, lines ${from}-${to}.`,
           `Write concise notes on everything in this part that is relevant to the task. Keep exact names, numbers, and quotes that matter. Cite line numbers like (L123). If nothing in this part is relevant, reply exactly: ${NOTHING}`,
           "",
           "<part>",
@@ -187,33 +223,50 @@ export async function analyzeWholeDocument(options: {
         ].join("\n"),
         maxOutputTokens: PART_OUTPUT_TOKENS,
       }, signal, retry);
-      text = reply.text;
+      let text = reply.text;
       if (reply.truncated) {
         truncatedParts++;
-        text += "\n[These notes were cut off at the output limit. This part has more relevant content than is listed here.]";
+        text += "\n[These notes were cut off before their end, at the output limit or by the provider. This part has more relevant content than is listed here.]";
       }
+      return [{ from, to, text, read: true }];
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (!halved && to > from && errorKindOf(error) === "context_overflow" && halvings > 0) {
+        halvings--;
+        const middle = Math.floor((from + to) / 2);
+        return [
+          ...await readPart(from, middle, `${where}, first half`, true),
+          ...await readPart(middle + 1, to, `${where}, second half`, true),
+        ];
+      }
       failed++;
-      read = false;
-      const reason = error instanceof Error ? error.message : String(error);
-      firstFailure ||= reason;
-      text = `[This part could not be read: ${reason}]`;
+      const reason = safeErrorMessage(error);
+      if (!firstFailure) {
+        firstFailure = reason;
+        firstError = error;
+      }
+      return [{ from, to, text: `[This part could not be read: ${reason}]`, read: false }];
     }
+  };
+  const notes = (await pool(parts.length, options.concurrency ?? 4, async (index) => {
+    const { from, to } = parts[index]!;
+    const read = await readPart(from, to, `part ${index + 1} of ${parts.length}`, false);
     done++;
     onProgress?.({ kind: "map", message: `Reading ${name}: part ${done} of ${parts.length}`, done, total: parts.length });
-    return { from, to, text, read };
-  }, signal);
+    return read;
+  }, signal)).flat();
 
-  // Nothing was read at all: an answer written from here would be invented.
-  if (failed === parts.length) throw new Error(`Could not read any part of ${name}: ${firstFailure}`);
+  // Nothing was read at all: an answer written from here would be invented. When not one part
+  // could even be read from the store, no model request was made: that is the store's failure,
+  // and the read can be asked for again.
+  if (failed === notes.length) throw sent === 0 && firstError !== undefined ? firstError : new NothingReadError(name, firstFailure);
 
   const relevant = notes.filter((note) => !saysNothingRelevant(note.text));
   const relevantParts = relevant.filter((note) => note.read).length;
   if (relevantParts === 0) {
     return {
-      answer: `No part of ${name} contained anything relevant to: ${task}${failed ? ` (${failed} of ${parts.length} parts could not be read.)` : ""}`,
-      parts: parts.length,
+      answer: `No part of ${name} contained anything relevant to: ${task}${failed ? ` (${failed} of ${notes.length} parts could not be read.)` : ""}`,
+      parts: notes.length,
       relevantParts: 0,
       failedParts: failed,
       truncatedParts,
@@ -277,26 +330,26 @@ export async function analyzeWholeDocument(options: {
 
   onProgress?.({ kind: "reduce", message: `Writing the answer from ${relevantParts} relevant parts of ${name}`, done: 0, total: 1 });
   const cutShort = truncatedParts + truncatedMerges;
-  const final = await ask(generate, {
-    system: "You write a complete answer from notes taken across every part of a document.",
-    prompt: [
-      `Task: ${task}`,
-      "",
-      `These notes cover all ${parts.length} parts of ${name}${failed ? ` (${failed} part(s) could not be read)` : ""}. Parts with nothing relevant are omitted.`,
-      ...(cutShort ? [`Some notes were cut off at the output limit (they say so), so the notes are incomplete. Say in the answer that it is incomplete.`] : []),
-      "Write one complete answer to the task from them. Keep line citations. Point out contradictions or gaps.",
-      "",
-      layer.join("\n\n"),
-    ].join("\n"),
-    maxOutputTokens: FINAL_OUTPUT_TOKENS,
-  }, signal, retry);
-  return {
-    answer: final.text,
-    parts: parts.length,
-    relevantParts,
-    failedParts: failed,
-    truncatedParts,
-    truncatedMerges,
-    answerTruncated: final.truncated,
-  };
+  const counts = { parts: notes.length, relevantParts, failedParts: failed, truncatedParts, truncatedMerges };
+  let final: { text: string; truncated: boolean };
+  try {
+    final = await ask(generate, {
+      system: "You write a complete answer from notes taken across every part of a document.",
+      prompt: [
+        `Task: ${task}`,
+        "",
+        `These notes cover all ${notes.length} parts of ${name}${failed ? ` (${failed} part(s) could not be read)` : ""}. Parts with nothing relevant are omitted.`,
+        ...(cutShort ? [`Some notes were cut off at the output limit (they say so), so the notes are incomplete. Say in the answer that it is incomplete.`] : []),
+        "Write one complete answer to the task from them. Keep line citations. Point out contradictions or gaps.",
+        "",
+        layer.join("\n\n"),
+      ].join("\n"),
+      maxOutputTokens: FINAL_OUTPUT_TOKENS,
+    }, signal, retry);
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    // The notes of every part were paid for and hold what was found: they are the answer, rather than an error.
+    return { answer: layer.join("\n\n"), ...counts, answerTruncated: false, answerFailed: safeErrorMessage(error) };
+  }
+  return { answer: final.text, ...counts, answerTruncated: final.truncated };
 }
