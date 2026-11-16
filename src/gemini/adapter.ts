@@ -1,6 +1,7 @@
 // Gemini (Generate Content REST) as a model of `askWithFiles`.
 import type { ChatMessage, ModelAdapter, ModelMessage, ModelReply, ModelRequest, ModelTextMessage, ModelToolRound, SendHooks, ToolCall, ToolTurn } from "../model.js";
 import { retryAfterMs } from "../retry.js";
+import { readJson } from "../http.js";
 import { parseSseJson } from "../sse.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
 import { GeminiRequestError, unreachable } from "./errors.js";
@@ -203,7 +204,7 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
           throw unreachable(error);
         }
       } else {
-        take(await response.json() as Chunk);
+        take(await readJson<Chunk>(response, () => Boolean(hooks.signal?.aborted), unreachable));
       }
       return {
         text,

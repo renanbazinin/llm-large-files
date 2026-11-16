@@ -1,6 +1,7 @@
 // What the tools showed a model, as data: the trail an application can keep with an answer, and
 // the short stand-in a tool result leaves behind when the request runs out of room.
 import type { ToolCall } from "./model.js";
+import { sliceWhole } from "./text.js";
 import { TOOL_NAMES } from "./tools.js";
 import type { ToolResult } from "./types.js";
 
@@ -133,7 +134,7 @@ export function stubResult(call: ToolCall, result: ToolResult, hadFiles = false)
       return {
         ...base,
         ...(typeof result.mode === "string" ? { mode: result.mode } : {}),
-        ...(typeof call.args.query === "string" ? { query: call.args.query.slice(0, 200) } : {}),
+        ...(typeof call.args.query === "string" ? { query: sliceWhole(call.args.query, 200) } : {}),
         ...(typeof result.total_matching_lines === "number" ? { total_matching_lines: result.total_matching_lines } : {}),
         ...(lines && lines.length > 0 ? { lines_shown: lines } : {}),
         note: "The results of this search were shown to you earlier and were dropped from the conversation to make room. Read the lines listed here with read_document, or search again, if you need them.",
@@ -143,7 +144,7 @@ export function stubResult(call: ToolCall, result: ToolResult, hadFiles = false)
       return {
         ...base,
         ...(typeof result.parts_read === "number" ? { parts_read: result.parts_read } : {}),
-        answer: answer.length > KEPT_ANSWER_CHARACTERS ? `${answer.slice(0, KEPT_ANSWER_CHARACTERS)}…` : answer,
+        answer: answer.length > KEPT_ANSWER_CHARACTERS ? `${sliceWhole(answer, KEPT_ANSWER_CHARACTERS)}…` : answer,
         note: "This is the start of the answer of the whole-file read. The rest was dropped from the conversation to make room.",
       };
     }

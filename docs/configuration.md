@@ -80,15 +80,19 @@ Every tool result stays in the conversation until the question is answered, and 
 each later request. The loop counts the request as it grows, by the library's estimate and, once
 the provider has answered, by the provider's own count:
 
-- Before the calls of a turn run, each is given the room that is left, up to
-  `toolResultCharacters`. A result is cut to its room and says where to go on.
+- Before the calls of a turn run, the room that is left is shared among them: each gets an even
+  share, up to its cap (`toolResultCharacters`), and what a call with a smaller cap does not need
+  goes to the others. A result is cut to its share and says where to go on. The answer of a
+  whole-file read, which cannot be asked for again, is not cut to a share: once the other results of
+  the turn are in, it gets all the room they left (up to the larger of `toolResultCharacters` and
+  40,000 characters).
 - When the room runs short, the results of all but the last three tool rounds are replaced by
   stand-ins: `{ document, dropped: true, lines: "1-212", note: "… Read them again with
   read_document if you need them." }`. `steps` then holds "Older tool results were shortened to
   make room in the request". Claude's conversation is never rewritten, so this step is skipped for
   it.
-- A call that still finds no room is answered "no room left, answer now", and the next request is
-  the answer.
+- A call that still cannot get 1,500 characters is answered "no room left, answer now" (the last
+  calls of the turn first), and the next request is the answer.
 
 Text tools may fill the window up to half of `reservedTokens`; the other half is the answer's.
 

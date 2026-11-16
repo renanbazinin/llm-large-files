@@ -124,11 +124,15 @@ and reads the reply back; everything else happens once, in the core:
 - **Calls of one turn run together**, four at a time, and are answered in the order they were made.
   Looks at pages run one after another, because each is given the room the one before it left.
   Regex searches do too: they share the time of the tool set. At most eight calls of a turn run.
-- **Room.** The loop counts the request as it grows. Each call gets the room that is left, old
-  results are shortened to stand-ins when it runs short, and a call that finds none ends the tools:
-  the next request is the answer. See [Room in the request](configuration.md#room-in-the-request).
+- **Room.** The loop counts the request as it grows. The calls of a turn share the room that is
+  left, old results are shortened to stand-ins when it runs short, and a call that finds none ends
+  the tools: the next request is the answer. See [Room in the request](configuration.md#room-in-the-request).
 - **One whole-file read** of each document for a question. A model that asks again, with the task
-  put another way, is told to use the answer it has.
+  put another way, is told to use the answer it has. A read that could read no part is not tried
+  again either, and a model that asks again is told that it failed. One refused before any model
+  request (too many parts, a store that could not be read) is not counted. When the last step,
+  which writes one answer from the notes, fails, the notes of the parts are the answer
+  (`notes_only: true`): they were paid for.
 - **Usage** is summed over every request, the part reads included, for each model.
 - **Evidence** is read from the tool calls: for each, the document and the lines or pages shown.
 - **A call that did not arrive whole** (arguments that are not JSON, or cut off at the output
@@ -141,7 +145,7 @@ What differs between providers is in the adapters:
 
 | | Gemini | OpenAI-compatible | Claude |
 |---|---|---|---|
-| The model's turn goes back | unchanged: thought signatures | unchanged: `reasoning_content`, signatures | unchanged: thinking blocks |
+| The model's turn goes back | unchanged: thought signatures | unchanged (`reasoning_content`, signatures), but arguments that are not JSON become `"{}"` | unchanged (thinking blocks), but an empty text block after them is left out |
 | The request for the answer | no tools declared | `tool_choice: "none"`, tools kept | `tool_choice: none`, tools kept |
 | Pages of `view_pages` | inside the function response | a `file` part after the results, opt-in | a document block in the tool result |
 | Old results shortened for room | yes | yes | no: the conversation may only grow |
@@ -193,7 +197,8 @@ One model does all of the above unless the endpoint names an explorer
   after the results, the calls belong to an earlier turn, and the request is accepted without
   signatures. The message is the "answer now" one from above.
 - An explorer that calls no tool leaves nothing to answer from but the conversation, so the
-  message then says that instead (`FINAL_ANSWER_WITHOUT_TOOLS`).
+  message then says that instead (`FINAL_ANSWER_WITHOUT_TOOLS`). So does the request of one model
+  that ran no tool: its first reply was empty, or no turn was left for tools.
 
 ## Live results
 

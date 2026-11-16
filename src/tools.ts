@@ -1,9 +1,10 @@
 import { safeErrorMessage } from "./errors.js";
-import { analyzeWholeDocument, TooManyPartsError } from "./map-reduce.js";
+import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
 import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource } from "./search.js";
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
+import { sliceWhole } from "./text.js";
 import type { Budget, GenerateText, ProgressListener, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
@@ -20,7 +21,7 @@ const MIN_FILE_BYTES = 1_024;
 /** The answer of a whole-document read may be this long, when the cap on tool results is lower. */
 const ANALYSIS_RESULT_CHARACTERS = 40_000;
 /** A result is never cut below this, whatever room a caller names: less holds no line of a file. */
-const LEAST_RESULT_CHARACTERS = 600;
+export const LEAST_RESULT_CHARACTERS = 600;
 /**
  * How many times one document is read whole by the tools of one tool set (one question, in
  * `askWithFiles`), unless `maxWholeDocumentReads` says otherwise. One read of a large file is
@@ -142,9 +143,33 @@ function fit(result: ToolResult, listKey: string | null, limit: number): ToolRes
   let cut: ToolResult;
   do {
     size = Math.floor(size * 0.85);
-    cut = { truncated: true, partial: serialized.slice(0, size), note: "Result cut to the size limit. Ask for a smaller range." };
+    cut = { truncated: true, partial: sliceWhole(serialized, size), note: "Result cut to the size limit. Ask for a smaller range." };
   } while (JSON.stringify(cut).length > limit && size > 100);
   return cut;
+}
+
+/**
+ * The result of a whole-document read within `limit` characters: its answer is cut at the end,
+ * and says so, rather than the result being cut as JSON, which loses what the other fields say.
+ */
+export function fitAnswer(result: ToolResult, limit: number): ToolResult {
+  if (JSON.stringify(result).length <= limit || typeof result.answer !== "string") return fit(result, null, limit);
+  const answer = result.answer;
+  const cutAt = (keep: number): ToolResult => ({
+    ...result,
+    answer: `${sliceWhole(answer, keep)}…`,
+    answer_shortened: "The rest of this answer did not fit in the room left in this conversation.",
+  });
+  // The longest start of the answer that fits. Escapes (quotes, line breaks) make the JSON longer
+  // than the text by as much as the text holds of them, so it is found by halving, not worked out.
+  let low = 0;
+  let high = answer.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (JSON.stringify(cutAt(middle)).length <= limit) low = middle;
+    else high = middle - 1;
+  }
+  return fit(cutAt(low), null, limit);
 }
 
 /**
@@ -156,7 +181,7 @@ export function toolResultSummary(label: string, result: ToolResult): string {
   if (typeof result.total_matching_lines === "number") return ` — ${result.total_matching_lines.toLocaleString("en-US")} matching lines`;
   if (Array.isArray(result.passages)) return ` — ${result.passages.length} passages`;
   if (typeof result.parts_read === "number") {
-    const incomplete = result.notes_cut_short || result.answer_cut_short ? ", incomplete" : "";
+    const incomplete = result.notes_only ? ", notes only" : result.notes_cut_short || result.answer_cut_short ? ", incomplete" : "";
     return ` — ${result.parts_read} parts, ${String(result.parts_with_relevant_content ?? 0)} relevant${incomplete}`;
   }
   // A read reports its range only when it was cut short of what was asked.
@@ -231,6 +256,8 @@ export function createDocumentTools(options: {
   const maxWholeReads = Math.max(0, Math.trunc(options.maxWholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS));
   /** Whole-document reads started, by document. */
   const wholeReads = new Map<string, number>();
+  /** Why the last whole-document read of a document failed, when no part of it could be read. */
+  const failedWholeReads = new Map<string, string>();
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
@@ -322,7 +349,7 @@ export function createDocumentTools(options: {
         lines: `${start}-${to}`,
         ...(pages ? { pages } : {}),
         total_lines: total,
-        text: fits(body) ? body : body.slice(0, Math.floor((limit - 500) / 2)),
+        text: fits(body) ? body : sliceWhole(body, Math.floor((limit - 500) / 2)),
         ...(to < total ? { next_start_line: to + 1 } : { note: "End of file." }),
       };
     },
@@ -363,9 +390,13 @@ export function createDocumentTools(options: {
       const id = document.meta.id;
       const reads = wholeReads.get(id) ?? 0;
       if (reads >= maxWholeReads) {
+        const failure = failedWholeReads.get(id);
         throw new Error(maxWholeReads === 0
           ? `Whole-file reads are turned off for this question. Use search_document and read_document on ${document.meta.name}.`
-          : `${document.meta.name} was already read whole for this question${maxWholeReads > 1 ? ` ${maxWholeReads} times` : ""}, and is not read whole again. Use the answer of that read, or search_document and read_document for the details.`);
+          : failure !== undefined
+            // There is no answer to use: saying "use the answer of that read" would invite one made up.
+            ? `The whole-file read of ${document.meta.name} failed earlier in this question (${failure}), and is not tried again. Use search_document and read_document.`
+            : `${document.meta.name} was already read whole for this question${maxWholeReads > 1 ? ` ${maxWholeReads} times` : ""}, and is not read whole again. Use the answer of that read, or search_document and read_document for the details.`);
       }
       wholeReads.set(id, reads + 1);
       let result;
@@ -380,21 +411,30 @@ export function createDocumentTools(options: {
           ...(options.retry ? { retry: options.retry } : {}),
         });
       } catch (error) {
-        // Refused before any model call: that was no read.
-        if (error instanceof TooManyPartsError) wholeReads.set(id, reads);
+        // Parts were sent and none could be read: that read is counted, since another would most
+        // likely fail the same way. Anything else (too many parts, a store that could not be read)
+        // failed before any model request: that was no read. Its count is given back, not set to
+        // what it was when the read started, which would take back the count of another read of
+        // the same document running in this turn.
+        if (error instanceof NothingReadError) failedWholeReads.set(id, error.reason);
+        else wholeReads.set(id, Math.max(0, (wholeReads.get(id) ?? 1) - 1));
         throw error;
       }
+      failedWholeReads.delete(id);
       const notesCutShort = result.truncatedParts + result.truncatedMerges;
-      return fit({
+      return fitAnswer({
         document: document.meta.name,
         parts_read: result.parts,
         parts_with_relevant_content: result.relevantParts,
         ...(result.failedParts ? { parts_that_failed: result.failedParts } : {}),
         ...(notesCutShort ? { notes_cut_short: notesCutShort } : {}),
         ...(result.answerTruncated ? { answer_cut_short: true } : {}),
-        ...(notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
+        ...(result.answerFailed !== undefined ? { notes_only: true } : {}),
+        ...(result.answerFailed !== undefined
+          ? { note: `The last step of this read, which writes one answer from the notes of the parts, failed (${result.answerFailed}). The answer is those notes: answer from them.${notesCutShort ? " Some of them were cut off at the output limit, so they are incomplete: tell the user." : ""}` }
+          : notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
         answer: result.answer,
-      }, null, limitOf(limits, Math.max(cap, ANALYSIS_RESULT_CHARACTERS)));
+      }, limitOf(limits, Math.max(cap, ANALYSIS_RESULT_CHARACTERS)));
     },
   };
 

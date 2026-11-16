@@ -2,6 +2,7 @@
 // auth headers, so this works with the Gemini API, Vertex AI, or an enterprise gateway.
 import type { ToolAnswer, ToolCall } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
+import { readJson } from "../http.js";
 import { retryAfterMs } from "../retry.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
 import { GeminiRequestError, unreachable } from "./errors.js";
@@ -129,11 +130,16 @@ export function createGeminiGenerateText(options: {
         if (signal?.aborted || timeout.aborted) throw error;
         throw unreachable(error);
       }
-      const data = await response.json().catch(() => null) as {
+      type Data = {
         error?: { message?: string };
         candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: unknown; thought?: boolean }> } }>;
         usageMetadata?: Record<string, unknown>;
       } | null;
+      // An error may have no JSON body. A reply must: one whose body could not be read is a
+      // connection that failed, and is sent again.
+      const data: Data = response.ok
+        ? await readJson<Data>(response, () => Boolean(signal?.aborted) || timeout.aborted, unreachable)
+        : await response.json().catch(() => null) as Data;
       if (!response.ok) {
         const wait = retryAfterMs(response.headers, data);
         throw new GeminiRequestError(data?.error?.message ?? `The model returned HTTP ${response.status}.`, response.status, wait === undefined ? {} : { retryAfterMs: wait });

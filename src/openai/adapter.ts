@@ -1,6 +1,7 @@
 // Any Chat Completions endpoint as a model of `askWithFiles`: OpenAI, Azure OpenAI, DeepSeek,
 // LiteLLM, vLLM, Ollama, OpenRouter, Gemini's OpenAI layer. No SDK: the caller gives the URL.
-import { base64, parseArguments, readArguments, resolveHeaderSource, resolveSecret, unreachableReason, type HeaderSource, type SecretSource } from "../http.js";
+import { randomUUID } from "node:crypto";
+import { base64, parseArguments, readArguments, readJson, resolveHeaderSource, resolveSecret, unreachableReason, type HeaderSource, type SecretSource } from "../http.js";
 import { ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
@@ -9,9 +10,15 @@ import type { GenerateText, GenerateUsage, ToolDeclaration, ToolResult } from ".
 
 /** The endpoint answered with an HTTP error, or could not be reached (`status` 0). */
 export class OpenAiRequestError extends ModelRequestError {
-  constructor(message: string, status: number, options: { retryAfterMs?: number; cause?: unknown } = {}) {
+  /** The request field the error is about, when the server named it (`error.param`): "max_tokens". */
+  readonly param?: string;
+  /** The server's own word for the error (`error.code`): "unsupported_parameter". */
+  readonly code?: string;
+  constructor(message: string, status: number, options: { retryAfterMs?: number; cause?: unknown; param?: string; code?: string } = {}) {
     super(message, status, options);
     this.name = "OpenAiRequestError";
+    if (options.param) this.param = options.param;
+    if (options.code) this.code = options.code;
   }
 }
 
@@ -38,8 +45,10 @@ export type OpenAiCompatibleOptions = {
   analysisBody?: ((maxOutputTokens: number) => Record<string, unknown>) | undefined;
   /**
    * The name of the output limit in a part read. `max_completion_tokens` for api.openai.com and
-   * Azure OpenAI, whose newer models refuse the other; `max_tokens` anywhere else, where it is the
-   * one every server knows.
+   * Azure OpenAI (`*.openai.azure.com`, and the `/openai/` paths of `*.cognitiveservices.azure.com`
+   * and `*.services.ai.azure.com`), whose newer models refuse the other; `max_tokens` anywhere
+   * else, where it is the one every server knows. Left out, a server that refuses the one sent
+   * (HTTP 400 naming it) is sent the other, which is then kept for this adapter.
    */
   maxTokensField?: "max_tokens" | "max_completion_tokens" | undefined;
   /** "system" (the default), or "developer" for an endpoint that wants the newer name. */
@@ -93,13 +102,83 @@ function usageOf(usage: Json | undefined): GenerateUsage {
   };
 }
 
+/** The status of an error event in a stream that began with 200: from its code, or from its type. */
+const STATUS_OF_ERROR: Record<string, number> = {
+  server_error: 500, api_error: 500, internal_error: 500, internal_server_error: 500, service_unavailable: 503,
+  rate_limit_exceeded: 429, rate_limit_error: 429, tokens_exceeded: 429, timeout: 408, invalid_request_error: 400,
+};
+
+/**
+ * The HTTP status of an error that arrived inside a stream. The response itself was 200, which says
+ * nothing of the error: OpenAI's own is `{ type: "server_error", code: null }`. A failure the server
+ * did not name is its own, 500, and is sent again like one (when no text of it was shown).
+ */
+export function streamErrorStatus(failed: unknown): number {
+  if (failed && typeof failed === "object") {
+    const { code, type } = failed as { code?: unknown; type?: unknown };
+    const numeric = typeof code === "number" ? code : typeof code === "string" && /^\d{3}$/.test(code) ? Number(code) : Number.NaN;
+    if (numeric >= 400 && numeric <= 599) return numeric;
+    for (const word of [type, code]) if (typeof word === "string" && STATUS_OF_ERROR[word] !== undefined) return STATUS_OF_ERROR[word]!;
+  }
+  return 500;
+}
+
+/**
+ * Whether a server refused the name of the output limit (`max_tokens` or `max_completion_tokens`),
+ * rather than its number: "Unsupported parameter: 'max_tokens' ... Use 'max_completion_tokens'
+ * instead", "Unrecognized request argument supplied: max_completion_tokens". Not "max_tokens is
+ * too large", which can name the other field too.
+ */
+function refusesField(error: unknown, field: string): boolean {
+  if (!(error instanceof OpenAiRequestError) || error.status !== 400) return false;
+  // A server that names the field it refuses says it plainly.
+  if (error.param !== undefined) return error.param === field && (error.code === "unsupported_parameter" || REFUSED.test(error.message));
+  const message = error.message;
+  if (/too large|too many|maximum|at most|exceed|must be (less|at most|<)/i.test(message) || !REFUSED.test(message)) return false;
+  // "Unsupported parameter: 'max_tokens' ... Use 'max_completion_tokens' instead" names both: the
+  // one it refuses comes first. Azure's "Could not finish the message because max_tokens or model
+  // output limit was reached" refuses nothing.
+  const named = /max_completion_tokens|max_tokens/.exec(message)?.[0];
+  return named === field;
+}
+
+/** Words of a server that refuses a field of the request, rather than its value. */
+const REFUSED = /unsupported|unrecognized|not supported|unknown (parameter|field|argument)|not permitted|not allowed|extra (inputs|fields)/i;
+
+/**
+ * Adds a piece of OpenRouter's streamed `reasoning_details` to those of the turn. Pieces of one
+ * detail share its `index` and type: their text is joined, and their other fields (a signature, an
+ * ID, the encrypted data) are kept. The details stay in the order they came, and are not changed
+ * otherwise: they go back to the model as they were written.
+ */
+function addReasoningDetail(details: Json[], detail: unknown): void {
+  if (!detail || typeof detail !== "object") return;
+  const piece = detail as Json;
+  const same = typeof piece.index === "number" ? details.find((known) => known.index === piece.index && known.type === piece.type) : undefined;
+  if (!same) {
+    details.push({ ...piece });
+    return;
+  }
+  for (const [key, value] of Object.entries(piece)) {
+    if (value === null || value === undefined) continue;
+    if ((key === "text" || key === "summary") && typeof value === "string" && typeof same[key] === "string") same[key] += value;
+    else same[key] = value;
+  }
+}
+
 /** The error of a response that is not OK. Gemini's layer wraps its error in an array. */
 async function failure(response: Response): Promise<OpenAiRequestError> {
   const data = await response.json().catch(() => null) as Json | Json[] | null;
   const body = Array.isArray(data) ? data[0] : data;
   const message = typeof body?.error === "string" ? body.error : body?.error?.message;
   const wait = retryAfterMs(response.headers, body);
-  return new OpenAiRequestError(typeof message === "string" && message ? message : `The model returned HTTP ${response.status}.`, response.status, wait === undefined ? {} : { retryAfterMs: wait });
+  const param = typeof body?.error?.param === "string" ? body.error.param as string : undefined;
+  const code = typeof body?.error?.code === "string" ? body.error.code as string : undefined;
+  return new OpenAiRequestError(typeof message === "string" && message ? message : `The model returned HTTP ${response.status}.`, response.status, {
+    ...(wait === undefined ? {} : { retryAfterMs: wait }),
+    ...(param ? { param } : {}),
+    ...(code ? { code } : {}),
+  });
 }
 
 const textOf = (message: ModelTextMessage): string => message.parts.map((part) => part.text ?? "").filter(Boolean).join("\n\n");
@@ -108,6 +187,30 @@ const textOf = (message: ModelTextMessage): string => message.parts.map((part) =
 function textMessage(message: ModelTextMessage): OpenAiMessage {
   if (message.parts.every((part) => part.native === undefined)) return { role: message.role, content: textOf(message) };
   return { role: message.role, content: message.parts.map((part) => (part.native !== undefined ? part.native : { type: "text", text: part.text })) };
+}
+
+/**
+ * Turns of the user that follow each other, made one. The loop can send the question and the
+ * request for an answer after it with no turn between them, and some servers (DeepSeek's reasoner,
+ * the chat templates of Mistral and Gemma models) refuse two user turns in a row.
+ */
+function joinUserTurns(messages: OpenAiMessage[]): OpenAiMessage[] {
+  const parts = (content: unknown): unknown[] => (typeof content === "string" ? (content ? [{ type: "text", text: content }] : []) : Array.isArray(content) ? content : []);
+  const out: OpenAiMessage[] = [];
+  for (const message of messages) {
+    const last = out.at(-1);
+    if (last?.role !== "user" || message.role !== "user") {
+      out.push(message);
+      continue;
+    }
+    out[out.length - 1] = {
+      role: "user",
+      content: typeof last.content === "string" && typeof message.content === "string"
+        ? [last.content, message.content].filter(Boolean).join("\n\n")
+        : [...parts(last.content), ...parts(message.content)],
+    };
+  }
+  return out;
 }
 
 /** The messages of one tool round. `number` makes the IDs of calls that came without one. */
@@ -172,7 +275,9 @@ export function fromOpenAiMessages(history: OpenAiMessage[]): { system: string; 
  */
 export function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[] {
   return turns.flatMap((turn, index) => {
-    const answers = turn.calls.map(({ result, ...call }) => ({ call, result }));
+    // A call that came without an ID is given one that no round of another question has: these
+    // messages are kept, and sent again next to those of later questions.
+    const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: `call_${randomUUID().replaceAll("-", "").slice(0, 24)}` }, result }));
     return roundMessages({ role: "tools", calls: answers.map((answer) => answer.call), answers }, index + 1, false);
   });
 }
@@ -181,14 +286,18 @@ export function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[] {
 export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter {
   const fetchImpl = options.fetch ?? fetch;
   const url = options.url ?? `${(options.baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, "")}/chat/completions`;
-  const official = /(^|\.)openai\.com$|\.openai\.azure\.com$/.test((() => {
+  const { hostname, pathname } = (() => {
     try {
-      return new URL(url).hostname;
+      return new URL(url);
     } catch {
-      return "";
+      return { hostname: "", pathname: "" };
     }
-  })());
-  const maxTokensField = options.maxTokensField ?? (official ? "max_completion_tokens" : "max_tokens");
+  })();
+  // Azure OpenAI answers on three kinds of host. On the two it shares with other models, only its `/openai/` paths are OpenAI's.
+  const official = /(^|\.)openai\.com$|\.openai\.azure\.com$/.test(hostname)
+    || (/\.(cognitiveservices\.azure\.com|services\.ai\.azure\.com)$/.test(hostname) && pathname.includes("/openai/"));
+  /** The name of the output limit in a part read: changed once when the server refuses it and no name was given. */
+  let maxTokensField = options.maxTokensField ?? (official ? "max_completion_tokens" : "max_tokens");
   const systemRole = options.systemRole ?? "system";
   const pdfInput = options.pdfInput === true;
 
@@ -200,7 +309,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
   const built = new WeakMap<ModelToolRound, { number: number; messages: OpenAiMessage[] }>();
   const toMessages = (messages: ModelMessage[]): OpenAiMessage[] => {
     let rounds = 0;
-    return messages.flatMap((message) => {
+    return joinUserTurns(messages.flatMap((message) => {
       if (message.role !== "tools") return [textMessage(message)];
       const number = ++rounds;
       let known = built.get(message);
@@ -209,7 +318,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         built.set(message, known);
       }
       return known.messages;
-    });
+    }));
   };
   const bodyOf = (request: ModelRequest, stream: boolean): Json => {
     const mustAnswer = request.toolChoice === "none";
@@ -238,13 +347,26 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
   const generateText: GenerateText = ({ system, prompt, maxOutputTokens, signal, onTruncated, onUsage }) => {
     const send = async (limit: number): Promise<LimitedReply> => {
       const timeout = AbortSignal.timeout(options.timeoutMs ?? 180_000);
-      const response = await post({
+      const stopped = () => Boolean(signal?.aborted) || timeout.aborted;
+      const body = (field: string): Json => ({
         model: options.model,
         messages: [{ role: systemRole, content: system }, { role: "user", content: prompt }],
-        [maxTokensField]: limit,
+        [field]: limit,
         ...options.analysisBody?.(limit),
-      }, signal ? AbortSignal.any([signal, timeout]) : timeout, () => Boolean(signal?.aborted) || timeout.aborted);
-      const data = await response.json() as Json;
+      });
+      let response: Response;
+      // The name this request is sent with: part reads run together, and another may learn the other name meanwhile.
+      const sent = maxTokensField;
+      try {
+        response = await post(body(sent), signal ? AbortSignal.any([signal, timeout]) : timeout, stopped);
+      } catch (error) {
+        // A server that knows only the other name of the output limit: it is sent that one, now and from now on.
+        if (options.maxTokensField !== undefined || !refusesField(error, sent)) throw error;
+        const other = sent === "max_tokens" ? "max_completion_tokens" : "max_tokens";
+        if (maxTokensField === sent) maxTokensField = other;
+        response = await post(body(other), signal ? AbortSignal.any([signal, timeout]) : timeout, stopped);
+      }
+      const data = await readJson<Json>(response, stopped, (error) => new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error }));
       const used = usageOf(data.usage);
       onUsage?.(used);
       const choice = data.choices?.[0];
@@ -279,11 +401,14 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       let text = "";
       if (stream && response.body && (response.headers.get("content-type") ?? "").includes("text/event-stream")) {
         let reasoning = "";
+        let reasoningText = "";
+        let refusal = "";
+        const details: Json[] = [];
         const toolCalls: Json[] = [];
         try {
           for await (const chunk of parseSseJson<Json>(response.body)) {
             const failed = (Array.isArray(chunk) ? chunk[0] : chunk)?.error;
-            if (failed) throw new OpenAiRequestError(typeof failed === "string" ? failed : String(failed.message ?? "The model reported an error."), typeof failed.code === "number" ? failed.code : response.status);
+            if (failed) throw new OpenAiRequestError(typeof failed === "string" ? failed : String(failed.message ?? "The model reported an error."), streamErrorStatus(failed));
             if (chunk.usage) usage = chunk.usage as Json;
             const choice = chunk.choices?.[0] as Json | undefined;
             if (!choice) continue;
@@ -294,6 +419,11 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
               hooks.onText?.(piece);
             }
             if (typeof delta.reasoning_content === "string") reasoning += delta.reasoning_content;
+            // What a non-streamed reply holds in fields of its own: a refusal, and the reasoning of
+            // OpenRouter, whose details (a thought signature among them) must go back with the turn.
+            if (typeof delta.refusal === "string") refusal += delta.refusal;
+            if (typeof delta.reasoning === "string") reasoningText += delta.reasoning;
+            if (Array.isArray(delta.reasoning_details)) for (const detail of delta.reasoning_details as unknown[]) addReasoningDetail(details, detail);
             for (const part of (Array.isArray(delta.tool_calls) ? delta.tool_calls : []) as Json[]) {
               // A call arrives in pieces under its index: first its ID and name, then its arguments, a few characters at a time.
               const at = typeof part.index === "number" ? part.index : part.id || toolCalls.length === 0 ? toolCalls.length : toolCalls.length - 1;
@@ -312,10 +442,23 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
           throw new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error });
         }
         const calls = toolCalls.filter(Boolean);
-        message = { role: "assistant", content: text || null, ...(reasoning ? { reasoning_content: reasoning } : {}), ...(calls.length > 0 ? { tool_calls: calls } : {}) };
+        message = {
+          role: "assistant",
+          content: text || null,
+          ...(refusal ? { refusal } : {}),
+          ...(reasoning ? { reasoning_content: reasoning } : {}),
+          ...(reasoningText ? { reasoning: reasoningText } : {}),
+          ...(details.length > 0 ? { reasoning_details: details } : {}),
+          ...(calls.length > 0 ? { tool_calls: calls } : {}),
+        };
+        // A refusal is what the model has to say to the user, as it is without streaming.
+        if (!text && refusal) {
+          text = refusal;
+          hooks.onText?.(refusal);
+        }
       } else {
         // In one piece: no streaming was asked for, or the server answered without it.
-        const data = await response.json() as Json;
+        const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), (error) => new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error }));
         const choice = data.choices?.[0] as Json | undefined;
         message = (choice?.message ?? { role: "assistant", content: null }) as Json;
         finish = choice?.finish_reason;
@@ -329,8 +472,14 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       const calls: ToolCall[] = (Array.isArray(message.tool_calls) ? message.tool_calls as Json[] : [])
         .filter((call) => typeof call?.function?.name === "string" && call.function.name)
         .map((call) => {
-          const { args, problem = cutOff } = readArguments(call.function.arguments);
-          return { ...(typeof call.id === "string" && call.id ? { id: call.id } : {}), name: call.function.name as string, args, ...(problem ? { problem } : {}) };
+          const read = readArguments(call.function.arguments);
+          // Arguments that are not a JSON object go back as none, and so do arguments that are
+          // empty: a server that reads every call of the conversation (vLLM before 0.29) refuses
+          // the next request when one is not JSON.
+          const written = call.function.arguments;
+          if (read.problem || typeof written !== "string" || !written.trim()) call.function = { ...call.function, arguments: read.problem ? "{}" : JSON.stringify(read.args) };
+          const problem = read.problem ?? cutOff;
+          return { ...(typeof call.id === "string" && call.id ? { id: call.id } : {}), name: call.function.name as string, args: read.args, ...(problem ? { problem } : {}) };
         });
       return {
         text,

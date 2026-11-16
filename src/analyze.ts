@@ -1,3 +1,4 @@
+import { sliceWhole } from "./text.js";
 import type { DocumentFormat, LogIssue, LogProfile, OutlineEntry } from "./types.js";
 
 const MAX_OUTLINE_ENTRIES = 400;
@@ -49,7 +50,7 @@ export function buildOutline(lines: string[], format: DocumentFormat): OutlineEn
 
 /** Replaces the variable parts of a log message so repeated failures group together. */
 export function logTemplate(line: string): string {
-  return line
+  const template = line
     .replace(TIMESTAMP, "")
     .replace(/^\W*\d{2}:\d{2}:\d{2}(?:[.,]\d+)?/, "")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "<id>")
@@ -58,8 +59,8 @@ export function logTemplate(line: string): string {
     .replace(/"[^"]{0,200}"|'[^']{0,200}'/g, "<s>")
     .replace(/\d+(?:\.\d+)?/g, "<n>")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 180);
+    .trim();
+  return sliceWhole(template, 180);
 }
 
 export function buildLogProfile(lines: string[]): LogProfile {

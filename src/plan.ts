@@ -1,3 +1,4 @@
+import { sliceWhole } from "./text.js";
 import type { Budget, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.js";
 
 /** Bytes kept free for document cards, the tool declarations, and JSON framing. */
@@ -121,7 +122,7 @@ export function renderCard(meta: DocumentMeta, head: string, viewable = false, r
     out.push(`Outline (${Math.min(meta.outline.length, CARD_OUTLINE_ENTRIES)} of ${meta.outline.length} headings):`);
     out.push(...outlineLines(meta.outline.slice(0, CARD_OUTLINE_ENTRIES)).map((line) => `  ${line}`));
   }
-  out.push(`First lines:`, head.split("\n").map((line) => `  ${line.slice(0, 300)}`).join("\n"));
+  out.push(`First lines:`, head.split("\n").map((line) => `  ${sliceWhole(line, 300)}`).join("\n"));
   out.push(`--- End large attached file: ${meta.name} ---`);
   return out.join("\n");
 }

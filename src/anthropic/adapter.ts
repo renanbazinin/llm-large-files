@@ -1,6 +1,7 @@
 // Claude (the Messages API) as a model of `askWithFiles`. No SDK, like the other adapters: the
 // caller gives a key or a token, and may give the URL of a gateway that speaks the same API.
-import { base64, resolveHeaderSource, resolveSecret, unreachableReason, type HeaderSource, type SecretSource } from "../http.js";
+import { randomUUID } from "node:crypto";
+import { base64, readJson, resolveHeaderSource, resolveSecret, unreachableReason, type HeaderSource, type SecretSource } from "../http.js";
 import { ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
@@ -106,11 +107,20 @@ const STATUS_OF_TYPE: Record<string, number> = { overloaded_error: 529, rate_lim
 /** Blocks of a model that declined part-way must not go back: only what came after the last switch to another model does. */
 const INTERNAL_BEFORE_FALLBACK = new Set(["thinking", "redacted_thinking", "tool_use", "server_tool_use"]);
 
+const isThinking = (block: Block | undefined) => block?.type === "thinking" || block?.type === "redacted_thinking";
+
 /** The content of a reply as it goes back in the next request. */
 function echoable(content: Block[]): Block[] {
   const boundary = content.map((block) => block?.type).lastIndexOf("fallback");
-  if (boundary < 0) return content;
-  return content.filter((block, index) => index >= boundary || !INTERNAL_BEFORE_FALLBACK.has(block?.type));
+  const kept = boundary < 0 ? content : content.filter((block, index) => index >= boundary || !INTERNAL_BEFORE_FALLBACK.has(block?.type));
+  // A text block that a stream opened and closed with nothing in it is refused when it is sent back
+  // ("text content blocks must be non-empty"). One before a thinking block is left: the thinking
+  // is checked against what comes before it in its turn.
+  let lastThinking = -1;
+  kept.forEach((block, index) => {
+    if (isThinking(block)) lastThinking = index;
+  });
+  return kept.filter((block, index) => !(index > lastThinking && block?.type === "text" && !block.text && !(Array.isArray(block.citations) && block.citations.length > 0)));
 }
 
 function usageOf(usage: Json | undefined): GenerateUsage {
@@ -146,9 +156,33 @@ const toolResultOf = (id: string, result: ToolResult, documents: Block[]): Block
   ...(typeof result.error === "string" ? { is_error: true } : {}),
 });
 
-/** The two messages of one tool round. `number` makes the IDs of calls that came without one. */
-function roundMessages(round: ModelToolRound, number: number, files: "inside" | "beside" | "none"): AnthropicMessage[] {
-  const idOf = (call: ToolCall, index: number) => call.id ?? `toolu_${number}_${index + 1}`;
+/**
+ * The IDs of the calls of a round, as the API takes them: of the characters `[A-Za-z0-9_-]` only,
+ * and each once in a request. A call that came without one, or from another provider (Kimi's
+ * "functions.search:0"), or that has the ID of a call of an earlier round (two questions whose
+ * stored rounds were numbered alike), is given one that fits. `used` holds the IDs taken so far
+ * in the request. The IDs of Claude's own turns are its own, and are kept as they are.
+ */
+function callIds(round: ModelToolRound, number: number, used: Set<string>): string[] {
+  if (round.raw !== undefined) {
+    for (const block of Array.isArray(round.raw) ? round.raw as Block[] : []) {
+      if (block?.type === "tool_use" && typeof block.id === "string") used.add(block.id);
+    }
+    return round.calls.map((call, index) => call.id ?? `toolu_${number}_${index + 1}`);
+  }
+  return round.calls.map((call, index) => {
+    const base = (call.id ?? "").replace(/[^A-Za-z0-9_-]/g, "_") || `toolu_${number}_${index + 1}`;
+    let id = base;
+    for (let again = 2; used.has(id); again++) id = `${base}_${again}`;
+    used.add(id);
+    return id;
+  });
+}
+
+/** The two messages of one tool round, with the IDs `callIds` gave its calls. */
+function roundMessages(round: ModelToolRound, ids: string[], files: "inside" | "beside" | "none"): AnthropicMessage[] {
+  const byCall = new Map(round.calls.map((call, index) => [call, ids[index]!]));
+  const idOf = (call: ToolCall, index: number) => byCall.get(call) ?? ids[index] ?? call.id ?? `toolu_${index + 1}`;
   // Its own turn goes back exactly as it came: Claude checks its thinking blocks against the conversation they were written in.
   const asked: AnthropicMessage = {
     role: "assistant",
@@ -225,9 +259,13 @@ export function fromAnthropicMessages(history: AnthropicMessage[]): ChatMessage[
  * an application that keeps its history in that form: put them between the question and its answer.
  */
 export function anthropicToolTurns(turns: ToolTurn[]): AnthropicMessage[] {
+  const used = new Set<string>();
   return turns.flatMap((turn, index) => {
-    const answers = turn.calls.map(({ result, ...call }) => ({ call, result }));
-    return roundMessages({ role: "tools", calls: answers.map((answer) => answer.call), answers }, index + 1, "none");
+    // A call that came without an ID is given one that no round of another question has: these
+    // messages are kept, and sent again next to those of later questions.
+    const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: `toolu_${randomUUID().replaceAll("-", "").slice(0, 24)}` }, result }));
+    const round: ModelToolRound = { role: "tools", calls: answers.map((answer) => answer.call), answers };
+    return roundMessages(round, callIds(round, index + 1, used), "none");
   });
 }
 
@@ -261,18 +299,20 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
     };
   };
 
-  const built = new WeakMap<ModelToolRound, { number: number; messages: AnthropicMessage[] }>();
+  const built = new WeakMap<ModelToolRound, { key: string; messages: AnthropicMessage[] }>();
   const toMessages = (messages: ModelMessage[]): AnthropicMessage[] => {
     let rounds = 0;
+    const used = new Set<string>();
     return joined(messages.flatMap((message): AnthropicMessage[] => {
       if (message.role !== "tools") {
         // The API refuses an empty text block.
         return [{ role: message.role, content: message.parts.flatMap((part): Block[] => (part.native !== undefined ? [part.native as Block] : part.text ? [{ type: "text", text: part.text }] : [])) }];
       }
-      const number = ++rounds;
+      const ids = callIds(message, ++rounds, used);
+      const key = ids.join(" ");
       let known = built.get(message);
-      if (!known || known.number !== number) {
-        known = { number, messages: roundMessages(message, number, files) };
+      if (!known || known.key !== key) {
+        known = { key, messages: roundMessages(message, ids, files) };
         built.set(message, known);
       }
       return known.messages;
@@ -347,7 +387,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
         messages: [{ role: "user", content: prompt }],
         ...options.analysisBody?.(limit),
       }, signal ? AbortSignal.any([signal, timeout]) : timeout, () => Boolean(signal?.aborted) || timeout.aborted);
-      const data = await response.json() as Json;
+      const data = await readJson<Json>(response, () => Boolean(signal?.aborted) || timeout.aborted, (error) => new AnthropicRequestError(`Claude could not be reached${unreachableReason(error)}.`, 0, { cause: error }));
       onUsage?.(usageOf(data.usage as Json | undefined));
       const content: Block[] = Array.isArray(data.content) ? data.content : [];
       return {
@@ -381,7 +421,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       const problems = new Map<number, string>();
       if (!(streaming && response.body && (response.headers.get("content-type") ?? "").includes("text/event-stream"))) {
         // In one piece: streaming is off, or the gateway answered without it.
-        const data = await response.json() as Json;
+        const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), (error) => new AnthropicRequestError(`Claude could not be reached${unreachableReason(error)}.`, 0, { cause: error }));
         const content: Block[] = Array.isArray(data.content) ? data.content : [];
         const text = content.map((block) => (block?.type === "text" && typeof block.text === "string" ? block.text : "")).join("");
         if (text) hooks.onText?.(text);
@@ -389,6 +429,8 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       }
       const content: Block[] = [];
       const inputs = new Map<number, string>();
+      /** Blocks whose stop event came: a call whose block was never closed did not arrive whole. */
+      const closed = new Set<number>();
       let text = "";
       let stopReason: unknown;
       let stopDetails: Json | undefined;
@@ -420,6 +462,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
               (block.citations ??= []).push(delta.citation);
             }
           } else if (event.type === "content_block_stop" && typeof event.index === "number") {
+            closed.add(event.index);
             const written = inputs.get(event.index);
             const block = content[event.index];
             if (block?.type === "tool_use" && written !== undefined && written.trim()) {
@@ -444,6 +487,13 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
         // The connection went while the answer was on its way.
         throw new AnthropicRequestError(`Claude could not be reached${unreachableReason(error)}.`, 0, { cause: error });
       }
+      // Every reply ends with the reason it stopped. A stream that closed without one was cut short
+      // (a gateway that ended it as if it were whole): its text is not the answer, and it is sent
+      // again like a connection that failed, when none of it was shown.
+      if (stopReason === undefined) throw new AnthropicRequestError("Claude's reply ended before it was complete.", 0);
+      content.forEach((block, index) => {
+        if ((block?.type === "tool_use" || block?.type === "server_tool_use") && !closed.has(index)) problems.set(index, "This call did not arrive whole, and was not run. Send it again.");
+      });
       const blocks = content.filter(Boolean);
       // The problems were noted by the place of the block in the stream: the same place, with no gaps, in what is kept.
       const placed = new Map<number, string>();

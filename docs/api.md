@@ -79,7 +79,12 @@ no path and no host; `error.cause` is what the store threw, for your log.
 the tool's own cap: the result is cut to it and says where to go on.
 
 A second `analyze_whole_document` of the same document by one tool set answers with an error that
-tells the model to use the first answer (`maxWholeDocumentReads`).
+tells the model to use the first answer (`maxWholeDocumentReads`). When the first read failed (no
+part could be read), the error says so instead. A read that failed before any model request (too
+many parts, a store that could not be read) is not counted. When the last step of a read, which
+writes one answer from the notes of the parts, fails, the notes are the answer, with
+`notes_only: true`. An answer too long for `maxResultCharacters` is cut at its end and says so
+(`answer_shortened`).
 
 | Tool | Arguments | Returns |
 |---|---|---|
@@ -356,9 +361,9 @@ reads whole files in parts, so that `model` only writes the answer. Left out, em
   responses followed by a `user` turn that holds the files.
 - `FINAL_ANSWER_REQUEST`, `FINAL_ANSWER_AFTER_PAGES`: the messages `askGemini` adds when the model
   must stop using tools. The second is used when `view_pages` was the only tool.
-- `FINAL_ANSWER_WITHOUT_TOOLS`, `EXPLORER_INSTRUCTION`: the two texts `askGemini` adds for an
-  explorer model. The first asks the answering model for the answer when the explorer called no
-  tool. The second is the line in the explorer's system instruction that says what its part is.
+- `FINAL_ANSWER_WITHOUT_TOOLS`, `EXPLORER_INSTRUCTION`: the first asks for the answer when no tool
+  ran: an explorer model called none, the first reply was empty, or no turn was left for tools.
+  The second is the line in an explorer model's system instruction that says what its part is.
 - `parseSseJson(stream)`: async iterator over a Generate Content SSE stream.
 
 ## `llm-large-files/openai`
@@ -376,7 +381,7 @@ Gemini's OpenAI layer.
 | `apiKey`, `headers` | `Authorization: Bearer …`, and more headers. A function is called for each request. |
 | `body` | More fields for every chat request: `temperature`, `reasoning_effort`, `max_completion_tokens`. |
 | `analysisBody` | `(maxOutputTokens) => fields` for whole-file part reads. |
-| `maxTokensField` | The name of the output limit in a part read. Default `max_completion_tokens` for api.openai.com and Azure OpenAI, `max_tokens` elsewhere. |
+| `maxTokensField` | The name of the output limit in a part read. Default `max_completion_tokens` for api.openai.com and Azure OpenAI (`*.openai.azure.com`, and the `/openai/` paths of `*.cognitiveservices.azure.com` and `*.services.ai.azure.com`), `max_tokens` elsewhere. Left out, a server that refuses the name it was sent (HTTP 400 naming it) is sent the other from then on. |
 | `answerWithoutTools` | `"tool_choice"` (default): the request for the answer keeps the tools and sends `tool_choice: "none"`. `"omit"`: it leaves them out, for a server that does not know `tool_choice`. |
 | `pdfInput` | Default `false`. Send the pages of `view_pages` as a `file` part in a user message after the tool results. For a model that reads PDF input: many servers behind this API do not (Gemini's layer answers HTTP 400). Not run against OpenAI itself. |
 | `stream`, `systemRole` | `false` for a server without streaming; `"developer"` for one that wants the newer role name. |
@@ -384,7 +389,7 @@ Gemini's OpenAI layer.
 | `id`, `timeoutMs`, `fetch` | The name in usage totals, the time a part read may take (180 s), a custom fetch. |
 
 The model's own message goes back to it as it came (a server may want its `reasoning_content` or a
-signature again). `fromOpenAiMessages(history)` returns `{ system, messages }` for a history kept
+signature again), except that a call whose arguments are not a JSON object goes back with `"{}"`. `fromOpenAiMessages(history)` returns `{ system, messages }` for a history kept
 as Chat Completions messages, and `openAiToolTurns(toolTurns)` gives stored rounds in that form.
 
 ## `llm-large-files/anthropic`
@@ -411,8 +416,9 @@ the request and response shapes of its documentation.
 
 What the adapter takes care of:
 
-- The model's turn goes back exactly as it came, thinking blocks included, and the conversation is
-  never rewritten: Claude checks its thinking blocks against the conversation they were written
+- The model's turn goes back as it came, thinking blocks included (a text block that the stream
+  left empty after the last thinking block is left out: the API refuses it), and earlier turns are
+  never shortened: Claude checks its thinking blocks against the conversation they were written
   in. So old tool results are not shortened for Claude. When the room runs out, the next request is
   the answer. For long conversations, turn on the API's own clearing of old tool results with
   `body: { context_management: … }` and its beta in `betas`.

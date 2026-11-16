@@ -6,11 +6,14 @@ import {
   FINAL_ANSWER_REQUEST,
   FINAL_ANSWER_WITHOUT_TOOLS,
   MemoryDocumentStore,
+  estimateTokens,
   type GenerateText,
   type ModelMessage,
   type ModelToolRound,
   type RetryOptions,
 } from "llm-large-files";
+import { shareRoom } from "../src/ask.js";
+import { estimateParts } from "../src/plan.js";
 import { calls, fakeModel, httpError, says, serviceLog, utf8 } from "./fake-model.js";
 
 const question = (text: string) => [{ role: "user" as const, text }];
@@ -367,6 +370,38 @@ describe("the room a request has for tool results", () => {
     expect(result.steps.some((step) => step.includes("failed: Not run: there is no room left"))).toBe(true);
   });
 
+  it("is shared by the calls of a turn: a call takes its cap or an even share, and only calls that cannot get enough are refused", () => {
+    expect(shareRoom([24_000, 3_840, 3_840], 10_000)).toEqual([3_334, 3_333, 3_333]);
+    expect(shareRoom([24_000, 1_000, 3_840], 30_000)).toEqual([24_000, 1_000, 3_840]);
+    // Three calls need 1,500 each to be worth running: two can, the last one is refused.
+    expect(shareRoom([24_000, 24_000, 24_000], 3_500)).toEqual([1_750, 1_750, undefined]);
+    expect(shareRoom([24_000], 1_000)).toEqual([undefined]);
+    expect(shareRoom([24_000, 3_840], -5_000)).toEqual([undefined, undefined]);
+    expect(shareRoom([], 10_000)).toEqual([]);
+  });
+
+  it("does not end a question for small searches that came after large reads, on a model whose conversation may only grow", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
+    const read = (from: number) => ({ name: "read_document", args: { document_id: meta.id, start_line: from, end_line: from + 599 } });
+    const search = (query: string) => ({ name: "search_document", args: { document_id: meta.id, query, mode: "exact", max_results: 2 } });
+    let turn = 0;
+    const model = fakeModel([(request) => {
+      turn++;
+      if (request.toolChoice === "none") return says("Forced to answer.");
+      if (turn <= 4) return calls([read(turn * 1_000), read(turn * 1_000 + 600)]);
+      if (turn === 5) return calls([search("worker-1"), search("worker-2"), search("worker-3"), search("worker-4")]);
+      return says("Answered from all four searches.");
+    }], { contextTokens: 64_000, appendOnly: true });
+    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") });
+    const searches = roundsOf(model.requests.at(-1)!.messages).at(-1)!.answers.map((answer) => answer.result);
+    // Each search returned a few hundred characters: the four of them fit, though four whole caps would not have.
+    expect(searches.map((answer) => answer.error)).toEqual([undefined, undefined, undefined, undefined]);
+    expect(searches.map((answer) => answer.total_matching_lines)).toEqual([2_500, 2_500, 2_500, 2_500]);
+    expect(model.requests.map((request) => request.toolChoice)).toEqual(["auto", "auto", "auto", "auto", "auto", "auto"]);
+    expect(result).toMatchObject({ text: "Answered from all four searches.", answered: true });
+  });
+
   it("follows the window and the reply size a model declares, and the scale of its tokens", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     const small = await files.ingest({ name: "note.txt", bytes: utf8("The meeting moved to Tuesday.\n") });
@@ -418,6 +453,20 @@ describe("the edges of the loop", () => {
     } finally {
       process.off("unhandledRejection", listen);
     }
+  });
+
+  it("does not ask for an answer from tool results when no tool ran", async () => {
+    const { files, meta } = await largeLog();
+    // One request in all: no turn is left for tools, so the only request is the answer.
+    const once = fakeModel([says("From the card alone.")]);
+    const result = await askWithFiles({ files, model: once, documentIds: [meta.id], messages: question("?"), limits: { toolTurns: 1 } });
+    expect(once.requests.map((request) => request.toolChoice)).toEqual(["none"]);
+    expect(textOf(once.requests[0]!.messages.at(-1))).toBe(FINAL_ANSWER_WITHOUT_TOOLS);
+    expect(result).toMatchObject({ text: "From the card alone.", answered: true });
+    // A first reply with no text and no call: the next request asks for an answer, not for one from tools.
+    const empty = fakeModel([says(""), says("Answered.")]);
+    await askWithFiles({ files, model: empty, documentIds: [meta.id], messages: question("?") });
+    expect(textOf(empty.requests[1]!.messages.at(-1))).toBe(FINAL_ANSWER_WITHOUT_TOOLS);
   });
 
   it("answers a call of a tool that does not exist, and goes on", async () => {
@@ -548,5 +597,145 @@ describe("what a question read", () => {
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") });
     expect(model.requests).toHaveLength(1);
     expect(result).toMatchObject({ answered: false, blockReason: "refusal: cyber", finishReason: "refusal", turns: 1 });
+  });
+});
+
+describe("the ceilings of a question, for the calls of one turn together", () => {
+  const twoLogs = async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
+    const first = await files.ingest({ name: "first.log", bytes: utf8(serviceLog(3_000)) });
+    const second = await files.ingest({ name: "second.log", bytes: utf8(serviceLog(3_000)) });
+    return { files, first, second };
+  };
+  const whole = (id: string) => ({ name: "analyze_whole_document", args: { document_id: id, task: "List every error." } });
+
+  it("count the whole-file reads let through before them in the same turn", async () => {
+    const { files, first, second } = await twoLogs();
+    let parts = 0;
+    const generateText: GenerateText = async ({ onUsage }) => {
+      parts++;
+      onUsage?.({ inputTokens: 1_000, outputTokens: 10 });
+      return "Errors at (L97).";
+    };
+    const model = fakeModel([calls([whole(first.id), whole(second.id)], { usage: { inputTokens: 100 } }), says("Done.")], { generateText });
+    // Room for one read of the two, by the reckoning of a read's cost: its parts, a merge, its answer, and the answer of the question.
+    const requests = estimateParts(first, files.budgetFor()) + 3 + 2;
+    const result = await askWithFiles({ files, model, documentIds: [first.id, second.id], messages: question("Errors?"), limits: { requests } });
+    const answers = roundsOf(model.requests[1]!.messages)[0]!.answers.map((answer) => answer.result);
+    expect(answers[0]!.error).toBeUndefined();
+    expect(answers[1]!.error).toMatch(/^Not run: reading all of second\.log takes about [\d,]+ model requests, and [\d,]+ are left of the [\d,]+ this question may make\./);
+    expect(result.usage.requests).toBeLessThanOrEqual(requests);
+
+    // The same for input tokens: each part reports what the estimate says of its prompt.
+    const counted: GenerateText = async ({ prompt, onUsage }) => {
+      onUsage?.({ inputTokens: estimateTokens(prompt) });
+      return "Errors at (L97).";
+    };
+    const tokens = fakeModel([calls([whole(first.id), whole(second.id)], { usage: { inputTokens: 100 } }), says("Done.")], { generateText: counted });
+    const inputTokens = Math.ceil(first.estimatedTokens * 1.5) + 100;
+    await askWithFiles({ files, model: tokens, documentIds: [first.id, second.id], messages: question("Errors?"), limits: { inputTokens } });
+    const refused = roundsOf(tokens.requests[1]!.messages)[0]!.answers.map((answer) => answer.result.error);
+    expect(refused[0]).toBeUndefined();
+    expect(refused[1]).toMatch(/^Not run: reading all of second\.log takes about [\d,]+ input tokens/);
+  });
+
+  it("count the part reads of a model that does not report their usage", async () => {
+    const { files, first } = await twoLogs();
+    let parts = 0;
+    const generateText: GenerateText = async () => {
+      parts++;
+      return "Errors at (L97).";
+    };
+    const model = fakeModel([calls([whole(first.id)]), says("Done.")], { generateText });
+    const result = await askWithFiles({ files, model, documentIds: [first.id], messages: question("Errors?") });
+    expect(parts).toBeGreaterThan(2);
+    expect(result.usage.requests).toBe(2 + parts);
+  });
+});
+
+describe("the count a provider gives of a request", () => {
+  // The text costs every model 30% more than its declared scale says, and each reports so.
+  const SKEW = 1.3;
+  const WINDOW = 60_000;
+  const sizeOf = (request: { system: string; messages: unknown; tools?: unknown }) => estimateTokens(request.system) + estimateTokens(JSON.stringify(request.messages)) + estimateTokens(JSON.stringify(request.tools ?? []));
+
+  it("is read by the scale of the model that gave it, so the answering model's window holds", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
+    let next = 1;
+    const reads = () => Array.from({ length: 3 }, () => {
+      const call = { name: "read_document", args: { document_id: meta.id, start_line: next, end_line: next + 599 } };
+      next += 600;
+      return call;
+    });
+    // An explorer whose tokens are the library's, and a Claude-like model that answers.
+    const explorer = fakeModel([(request) => calls(reads(), { usage: { inputTokens: Math.round(SKEW * sizeOf(request)) } })], { id: "explorer", tokenScale: 1, appendOnly: true });
+    const model = fakeModel([says("answer")], { id: "answerer", tokenScale: 1.35, contextTokens: WINDOW, appendOnly: true });
+    await askWithFiles({ files, model, explorer, documentIds: [meta.id], messages: question("?") });
+    // What the answering model counts of the last request: within its window.
+    expect(Math.round(SKEW * 1.35 * sizeOf(model.requests.at(-1)!))).toBeLessThanOrEqual(WINDOW);
+  });
+});
+
+describe("the answer of a whole-file read in a turn with other calls", () => {
+  it("gets the room the other results leave once they are in, not an even share of it", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const big = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
+    const small = await files.ingest({ name: "jobs.log", bytes: utf8(serviceLog(3_000)) });
+    const answer = `The jobs failed at (L97), (L194) and (L291).${" Each failure followed a timeout of the worker.".repeat(160)}`;
+    const generateText: GenerateText = async ({ system }) => (system.startsWith("You write a complete answer") ? answer : "A failure (L97).");
+    const read = (from: number) => ({ name: "read_document", args: { document_id: big.id, start_line: from, end_line: from + 599 } });
+    const search = (query: string) => ({ name: "search_document", args: { document_id: big.id, query, mode: "exact", max_results: 2 } });
+    let turn = 0;
+    const model = fakeModel([(request) => {
+      turn++;
+      if (request.toolChoice === "none") return says("Forced.");
+      if (turn <= 4) return calls([read(turn * 1_000), read(turn * 1_000 + 600)]);
+      if (turn === 5) return calls([{ name: "analyze_whole_document", args: { document_id: small.id, task: "Why did the jobs fail?" } }, search("worker-1"), search("worker-2"), search("worker-3")]);
+      return says("Answered.");
+    }], { contextTokens: 64_000, appendOnly: true, generateText });
+    const result = await askWithFiles({ files, model, documentIds: [big.id, small.id], messages: question("Why?") });
+    const [whole, ...searches] = roundsOf(model.requests.at(-1)!.messages).at(-1)!.answers.map((each) => each.result);
+    expect(searches.map((each) => each.error)).toEqual([undefined, undefined, undefined]);
+    // Four calls in about 12,000 characters of room: an even share would have cut the answer to a quarter of it.
+    expect(whole).toMatchObject({ document: "jobs.log", answer });
+    expect(whole!.answer_shortened).toBeUndefined();
+    expect(result).toMatchObject({ text: "Answered.", answered: true });
+  });
+});
+
+describe("a second whole-file read of a document in one turn", () => {
+  it("takes nothing from the ceiling for the reads of other documents: the tool refuses it at no cost", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
+    const first = await files.ingest({ name: "first.log", bytes: utf8(serviceLog(3_000)) });
+    const second = await files.ingest({ name: "second.log", bytes: utf8(serviceLog(3_000)) });
+    const generateText: GenerateText = async ({ onUsage }) => {
+      onUsage?.({ inputTokens: 1_000, outputTokens: 10 });
+      return "Errors at (L97).";
+    };
+    const whole = (id: string, task: string) => ({ name: "analyze_whole_document", args: { document_id: id, task } });
+    const model = fakeModel([calls([whole(first.id, "List every error."), whole(first.id, "Count the errors."), whole(second.id, "List every error.")]), says("Done.")], { generateText });
+    // Room for exactly two reads.
+    const requests = 2 * (estimateParts(first, files.budgetFor()) + 2) + 1 + 1;
+    await askWithFiles({ files, model, documentIds: [first.id, second.id], messages: question("Errors?"), limits: { requests } });
+    const answers = roundsOf(model.requests[1]!.messages)[0]!.answers.map((answer) => answer.result);
+    expect(answers[0]!.error).toBeUndefined();
+    expect(answers[1]!.error).toMatch(/^first\.log was already read whole for this question/);
+    expect(answers[2]!.error).toBeUndefined();
+  });
+});
+
+describe("the lines a search shows of a long line", () => {
+  it("are never cut in half of a character outside the basic plane", async () => {
+    for (const pad of ["", "x"]) {
+      const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+      // Three characters between the emoji and the match: the window around it starts in the middle of one.
+      const line = `${pad}${"😀".repeat(300)}ab NEEDLE${"😀".repeat(300)}`;
+      const meta = await files.ingest({ name: "chat.log", bytes: utf8(`${line}\n${"filler line\n".repeat(50)}`) });
+      const result = await files.tools([meta]).execute("search_document", { document_id: meta.id, query: "NEEDLE", mode: "exact" });
+      const shown = (result.matches as Array<{ text: string }>)[0]!.text;
+      expect(shown).toContain("NEEDLE");
+      expect(shown).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
+    }
   });
 });

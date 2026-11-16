@@ -31,6 +31,24 @@ export function unreachableReason(error: unknown): string {
 }
 
 /**
+ * The body of a response that is not streamed, as JSON. A connection that fails while the body
+ * arrives is `unreachable(error)`, a request that got no answer, which is sent again like one that
+ * failed before the headers. A body that came whole but is not JSON (a gateway's HTML page) throws
+ * its `SyntaxError` as it is, with no status: a chat request is not sent again for it, and a part
+ * read is tried once more, as for any failure that gives no reason.
+ */
+export async function readJson<T>(response: Response, stopped: () => boolean, unreachable: (error: unknown) => Error): Promise<T> {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (error) {
+    if (stopped()) throw error;
+    throw unreachable(error);
+  }
+  return JSON.parse(text) as T;
+}
+
+/**
  * Arguments of a tool call that arrived as JSON text, and, when the text is not a JSON object,
  * why the call cannot be run: a model that is told so sends the call again.
  */
