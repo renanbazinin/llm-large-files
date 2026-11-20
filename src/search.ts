@@ -1,4 +1,5 @@
 import { createContext, Script, type Context } from "node:vm";
+import { pause } from "./pause.js";
 import { PASSAGE_CHARACTERS, PASSAGE_MAX_LINES, positionOf } from "./text-index.js";
 import { foldCase, LineIndex, sliceWhole } from "./text.js";
 import type { DocumentMeta, StoredDocument } from "./types.js";
@@ -70,8 +71,7 @@ export interface DocumentSource {
  */
 export type ScanFeed = (chunk: TextChunk) => boolean | void | "again";
 
-/** Lets other work on the server run (an answer streaming to another user) before going on. */
-export const pause = () => new Promise<void>((resolve) => setImmediate(resolve));
+export { pause };
 
 /** Feeds a document's text, a piece at a time, to `feed` until it returns true or the text ends. */
 export async function scanSource(source: DocumentSource, feed: ScanFeed, signal?: AbortSignal): Promise<void> {

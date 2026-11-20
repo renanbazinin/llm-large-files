@@ -24,8 +24,23 @@ export type PageCut = {
   pageCount: number;
 };
 
-/** Objects parsed between two pauses that let other work on the server run. */
-const OBJECTS_PER_TICK = 4_000;
+/**
+ * Objects parsed between two pauses that let other work on the server run. pdf-lib counts objects,
+ * not time: 4,000 objects of a large file took 0.5 to 0.8 s, so a file of 4,006 objects never paused.
+ */
+export const OBJECTS_PER_TICK = 500;
+/** Pauses while one file is parsed, at most. Each is a timer: about 15 ms on Windows, 1 ms elsewhere. */
+const MOST_TICKS = 100;
+const MOST_OBJECTS_PER_TICK = 4_000;
+
+/**
+ * The `parseSpeed` for pdf-lib: `OBJECTS_PER_TICK`, or more for a file that declares so many
+ * objects that pausing that often would add seconds of waiting (300 pauses of 15 ms for 150,000).
+ */
+export function objectsPerTick(bytes: Uint8Array): number {
+  const objects = declaredObjectCount(bytes) ?? 0;
+  return Math.min(MOST_OBJECTS_PER_TICK, Math.max(OBJECTS_PER_TICK, Math.ceil(objects / MOST_TICKS)));
+}
 /** Memory one parsed object takes, measured on files of 300,000 objects (1.0 to 1.6 KB). */
 const BYTES_PER_OBJECT = 1_700;
 /** At 13 microseconds an object, a file past this takes over 13 seconds to parse. */
@@ -287,7 +302,7 @@ export async function cutPdfPages(original: Uint8Array, from: number, to: number
   let pages: PDFPage[];
   try {
     // An empty password opens the many PDFs that are encrypted only to restrict printing or copying.
-    source = await library.PDFDocument.load(original, { updateMetadata: false, parseSpeed: OBJECTS_PER_TICK, password: "" });
+    source = await library.PDFDocument.load(original, { updateMetadata: false, parseSpeed: objectsPerTick(original), password: "" });
     pages = source.getPages();
   } catch (error) {
     const needsPassword = /password/i.test(error instanceof Error ? error.message : String(error));

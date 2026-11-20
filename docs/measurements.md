@@ -336,6 +336,51 @@ MB, and about 220 MB with `cacheBytes` at 1 GB, which keeps the decoded pieces. 
 event loop for about 0.8 to 1.5 seconds (25 MB) and 3 to 5 seconds (95 MB). Linux was not
 measured. [Deployment](./guides/deployment.md) turns these into sizing advice.
 
+**Ingest of large and hostile files (0.6.1, November 2026, Node 24 on Windows).** Each file was
+ingested into a `MemoryDocumentStore` in a fresh process, with the parsers loaded first, 0.6.0 and
+0.6.1 in turn, on a machine that ran other work too. A stall is the longest gap between two beats
+of a 5 ms timer; memory is the resident set at the beats, so for 0.6.0, whose ingests let no beat
+in, it is not given.
+
+| File | 0.6.0 | 0.6.1 |
+|---|---|---|
+| A log of 99 MB, 1,160,000 lines (3 runs each) | 1.9 to 2.0 s, all of it one stall | 1.9 s; longest stall 31 to 34 ms; 415 to 433 MB |
+| A PDF of 2,000 pages, 30 lines each, 3.5 MB (3 runs each) | 4.6 to 4.9 s; longest stall 4.4 to 4.5 s | 4.9 to 5.0 s; longest stall 0.16 s |
+| A DOCX of 1.5 MB holding 120 MB of empty paragraphs, heap of 512 MB (2 runs each) | Out of memory: the process stopped | Refused ("did not contain any text") in 3.0 to 3.2 s, at 115 MB |
+| A DOCX of 3 MB that unpacks to 1,000 MB of XML, heap of 512 MB (2 runs each) | Out of memory: the process stopped | Refused at 1,000,000 paragraphs in 0.85 to 0.91 s, at 165 MB |
+| PDFs of 3 KB and 6 KB whose page tree lists one dense page 150 and 600 times | 107 MB of text stored; 205 s held with a heap of 1.5 GB, and out of memory with 512 MB (review of 0.6.0) | Refused in 0.23 s |
+
+The review of 0.6.0, on files of its own, measured stalls of 3.5 s for a 100 MB log and 8.3 s for
+a 2,000-page PDF.
+
+Hostile files, each in a fresh process with heaps of 256 and 512 MB, 0.6.1 only (2 runs each, the
+parsers not loaded first):
+
+| File | 0.6.1 |
+|---|---|
+| PDFs of 23 KB and 95 KB whose 140 and 600 distinct pages all paint one dense content stream | Refused at 16 MB of text ("draws more than 16 MB of text, over 100 times its size") in 5.5 to 6.0 s, at 210 MB; longest stall 0.34 to 0.59 s. Without that limit, the first was stored with 99.5 MB of text after 35 to 40 s, at 430 MB. |
+| The DOCX of 1.5 MB holding 120 MB of empty paragraphs, with JSZip loaded first | Stalls of 0.2 to 0.25 s, one after the other, for 3 s: JSZip unpacks a piece of the file in one block, and a piece packed this tight is several MB of XML. A DOCX of 4 MB written the usual way, with 32 MB of XML, never held the event loop for 30 ms. |
+| A PDF of 650 KB whose one page paints forms inside forms | Read: 9 KB of text in 24 to 26 s, nearly all of it one stall of about 25 s, at 510 MB. pdf.js reads a page in one block, and neither `ingestTimeoutMs` nor a signal stops it within the page. |
+| A PDF of 160 KB of three such pages | Read in 17 s, with one stall of 11 s. |
+
+These last two are why [Deployment](./guides/deployment.md#uploads-and-ingest) ingests files you
+do not trust in a process of their own.
+
+**Heap limits of workers and child processes (0.6.1, Node 24 on Windows).** The heap limit a
+thread sees (`v8.getHeapStatistics().heap_size_limit`), with `resourceLimits:
+{ maxOldGenerationSizeMb: 512 }` on a worker or `--max-old-space-size=512` on a forked child:
+
+| The parent runs with | Worker | Forked child |
+|---|---|---|
+| No heap flag | 704 MB | 704 MB |
+| `--max-old-space-size=1024`, on the command line or in `NODE_OPTIONS` | 1,216 MB, the parent's | 704 MB |
+
+`execArgv: []` or a cleared `NODE_OPTIONS` on the worker left it at 1,216 MB. In the review of
+0.6.0, a worker of 512 MB with no heap flag on the parent ran out of memory on a hostile DOCX and
+stopped the whole process. With the recipe of [Deployment](./guides/deployment.md#uploads-and-ingest),
+a child forked with a heap of 48 MB ran out of memory on the 2,000-page PDF and stopped alone: the
+upload was answered with an error, and the next one was ingested.
+
 [Security](./security.md) explains the limits that came of these measurements.
 
 ## Faults reproduced before a fix
@@ -352,6 +397,12 @@ named.
 - **0.6.0.** On a model whose conversation may only grow (Claude), four searches of about 300
   characters each, after four rounds of reads on a window of 64,000, ran three and forced the
   answer.
+- **0.6.1.** A DOCX of 1.5 MB holding 120 MB of empty paragraphs ran a server with a heap of 512
+  MB out of memory, and stopped it.
+- **0.6.1.** A PDF of 3 KB whose page tree listed one dense page 150 times was stored with 107 MB
+  of text. One of 6 KB with 600 listings held the event loop for 205 s.
+- **0.6.1.** `files.tools()`, handed a `DocumentMeta` built from an ID with no owner or another
+  one, read the text of a document that had an owner, and showed the pages of its PDF.
 
 ## Checks of 0.5.0
 

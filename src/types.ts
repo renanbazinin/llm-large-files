@@ -121,6 +121,20 @@ export type ExtractInput = {
    * always was. An extractor of your own may ignore it.
    */
   scannedPages?: number;
+  /**
+   * Aborted when the ingest's time is up (`ingestTimeoutMs`) or the caller gave up
+   * (`IngestInput.signal`). The built-in extractors stop between pages and pieces; its `reason`
+   * is the error to throw. An extractor of your own should stop too: `ingest` stops waiting for it
+   * either way, but cannot stop the work it does.
+   */
+  signal?: AbortSignal;
+  /**
+   * The most text to keep from this file, in UTF-8 bytes (`maxTextBytes`). The built-in extractors
+   * refuse a file as soon as its text grows past it. `ingest` refuses any larger result.
+   */
+  maxTextBytes?: number;
+  /** The most pages to read from one PDF (`maxPdfPages`). The built-in PDF extractor refuses more. */
+  maxPages?: number;
 };
 
 export type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>;

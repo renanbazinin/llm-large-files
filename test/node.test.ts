@@ -144,4 +144,38 @@ describe("createDocumentHandlers", () => {
     expect(empty.status).toBe(422);
     expect(await empty.json()).toEqual({ error: "blank.txt did not contain any text." });
   });
+
+  it("stops reading an upload when the client goes away", async () => {
+    let started!: () => void;
+    const reading = new Promise<void>((resolve) => (started = resolve));
+    let stoppedWith: unknown;
+    // An extractor that reads until it is told to stop.
+    const files = createLargeFiles({
+      store: new MemoryDocumentStore(),
+      extractors: {
+        text: (_bytes, input) => new Promise((_resolve, reject) => {
+          started();
+          input?.signal?.addEventListener("abort", () => {
+            stoppedWith = input.signal!.reason;
+            reject(input.signal!.reason);
+          }, { once: true });
+        }),
+      },
+    });
+    const documents = createDocumentHandlers(files);
+    server = createServer((request, response) => void documents.upload(request, response));
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const client = new AbortController();
+    const upload = fetch(`http://127.0.0.1:${(server!.address() as AddressInfo).port}/`, {
+      method: "POST",
+      headers: { "X-File-Name": "a.txt" },
+      body: "notes",
+      signal: client.signal,
+    }).catch((error: unknown) => error);
+    await reading;
+    client.abort();
+    await upload;
+    await expect.poll(() => stoppedWith).toBeInstanceOf(Error);
+    expect((stoppedWith as Error).message).toMatch(/client closed the connection/);
+  });
 });

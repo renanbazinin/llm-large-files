@@ -179,9 +179,15 @@ describe("extraction", () => {
     const shapes = ["<w:p>".repeat(200_000), `<w:p><w:r>${"<w:t>".repeat(200_000)}</w:r></w:p>`, `<w:p a="${"<w:p>".repeat(100_000)}`];
     for (const xml of shapes) {
       const started = performance.now();
-      officeXmlParagraphs(xml, "w");
+      try {
+        officeXmlParagraphs(xml, "w");
+      } catch (error) {
+        // Paragraphs opened inside each other without end are refused as soon as they pass 32.
+        expect(String(error)).toMatch(/nests paragraphs more than 32 deep/);
+      }
       expect(performance.now() - started).toBeLessThan(1_000);
     }
+    expect(() => officeXmlParagraphs("<w:p>".repeat(200_000), "w")).toThrow(/nests paragraphs more than 32 deep/);
     // A ">" inside a quoted value does not end the tag.
     expect(officeXmlParagraphs("<w:p><w:r w:x=\"a>b\"><w:t>Text</w:t></w:r></w:p>", "w")).toEqual(["Text"]);
   });

@@ -10,7 +10,8 @@
  * Needs the optional dependency "@cantoo/pdf-lib". Without it, no page is marked.
  */
 import type { PDFContext, PDFDict, PDFObject } from "@cantoo/pdf-lib";
-import { decodeContent, loadPdfLibrary, tooManyObjects } from "./pdf-pages.js";
+import { fairPause } from "./pause.js";
+import { decodeContent, loadPdfLibrary, objectsPerTick, tooManyObjects } from "./pdf-pages.js";
 
 type PdfLibrary = typeof import("@cantoo/pdf-lib");
 /** `[x0, y0, x1, y1]` with x0 <= x1 and y0 <= y1. */
@@ -32,6 +33,8 @@ export type PageGeometry = {
 const MAX_OBJECTS = 150_000;
 /** Time for everything after the file is read into objects. Past it, no page is marked. */
 const TIME_LIMIT_MS = 5_000;
+/** Work on pages between two pauses for other requests. */
+const PAGES_SLICE_MS = 12;
 /** A content stream past this size (compressed) is not text or a table: it is a drawing. */
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
 /** Images must cover this share of the page together. A logo covers about 1%, a small figure 4%. */
@@ -326,22 +329,32 @@ function showsPicture(graphics: Graphics, geometry: PageGeometry, furniture: Rea
  * For each page, whether it shows a picture (images that cover a real share of the page, other
  * than one repeated on many pages) or a drawing (shapes filled in several colours, outside the
  * tables). Undefined when that could not be worked out: the library is not installed, the file has
- * too many objects or took too long, or it does not have the pages the text was extracted from.
- * It never throws.
+ * too many objects or took too long, it does not have the pages the text was extracted from, or
+ * `signal` was aborted (the caller then stops). It never throws.
  */
-export async function findPicturePages(bytes: Uint8Array, pages: readonly PageGeometry[]): Promise<boolean[] | undefined> {
+export async function findPicturePages(bytes: Uint8Array, pages: readonly PageGeometry[], signal?: AbortSignal): Promise<boolean[] | undefined> {
   try {
-    if (tooManyObjects(bytes, MAX_OBJECTS) !== undefined) return undefined;
+    if (signal?.aborted || tooManyObjects(bytes, MAX_OBJECTS) !== undefined) return undefined;
     const library = await loadPdfLibrary();
     const { PDFArray, PDFDocument, PDFRawStream } = library;
-    const document = await PDFDocument.load(bytes, { updateMetadata: false, parseSpeed: 4_000, password: "" });
+    const document = await PDFDocument.load(bytes, { updateMetadata: false, parseSpeed: objectsPerTick(bytes), password: "" });
+    if (signal?.aborted) return undefined;
     const leaves = document.getPages();
     if (leaves.length !== pages.length) return undefined;
     const { context } = document;
     const reading: Reading = { library, context, forms: new Map(), kept: 0, deadline: performance.now() + TIME_LIMIT_MS };
     const graphics: Graphics[] = [];
+    let sliceStart = performance.now();
     for (const leaf of leaves) {
       if (performance.now() > reading.deadline) return undefined;
+      // Other requests get a turn every few pages. The time spent waiting for them is not counted.
+      if (performance.now() - sliceStart > PAGES_SLICE_MS) {
+        const before = performance.now();
+        await fairPause();
+        if (signal?.aborted) return undefined;
+        reading.deadline += performance.now() - before;
+        sliceStart = performance.now();
+      }
       const found: Graphics = { images: [], shapes: [], tooLarge: false, read: 0 };
       graphics.push(found);
       try {

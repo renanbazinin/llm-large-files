@@ -158,8 +158,10 @@ What it does, in order:
    - otherwise it reads the request stream. Past the limit it stops keeping the bytes, drains the
      rest so that the client can read the answer, and answers `413`. A stream that another
      middleware has already read gives no bytes, and the upload is answered `422` as an empty file.
-4. Ingests it: `files.ingest({ name, bytes, mimeType, owner })`, `mimeType` and `owner` only when
-   there are any.
+4. Ingests it: `files.ingest({ name, bytes, mimeType, owner, signal })`, `mimeType` and `owner`
+   only when there are any. The `signal` aborts when the client closes the connection before the
+   answer is sent: the ingest stops between two pages or pieces, and nothing is stored. The
+   answer then goes to no one.
 5. Answers `201` with the document's summary.
 
 The responses:
@@ -170,7 +172,7 @@ The responses:
 | `400` | `{ "error": "Name the file with an X-File-Name header or a ?name= query parameter." }` | No name. |
 | `400` | `{ "error": "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream." }` | `request.body` is an object with fields. |
 | `413` | `{ "error": "The file is larger than the 100 MB upload limit." }`, with your `maxUploadBytes` in its place (`512 KB`, `1000 B`) | `Content-Length`, the bytes read, or the `Buffer` in `request.body` are over `maxUploadBytes`. |
-| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", a PDF with no text layer, and a PDF, DOCX or PPTX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf"."). An extractor of your own that throws an `Error` gives its message here too. |
+| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", a PDF with no text layer, and a PDF, DOCX or PPTX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf"."). A file past the limits of `createLargeFiles`: more text than `maxTextBytes`, more pages than `maxPdfPages`, longer to read than `ingestTimeoutMs` ("report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that."), or built to exhaust the server ([every message](../guides/pdfs.md#what-is-refused)). An extractor of your own that throws an `Error` gives its message here too. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, an extractor or the store threw an error with that `status` or `statusCode`. |
 | `500` | `{ "error": "Upload failed (ENOSPC)." }` | The store failed with a Node system error, one with a `code` and a `syscall`. Only the code is passed on. |
 | `500` | `{ "error": "Upload failed." }` | `getOwner` threw an error without a status, or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of either kind that has a `code` and a `syscall` is answered as in the row above, with its code. |
@@ -183,7 +185,7 @@ that error unchanged, and the handler knows it by a mark that `ingest` keeps. Th
 export the mark, so two paths answer such an error `422` with the store's message, as a file that
 cannot be read:
 
-- an `ingest` of your own that throws a new error in place of the store's, such as `ingestInWorker`
+- an `ingest` of your own that throws a new error in place of the store's, such as `ingestInProcess`
   in [deployment](../guides/deployment.md#uploads-and-ingest);
 - a route of your own around `files.ingest`, such as the one in
   [web app](../guides/web-app.md#filesingest-and-its-errors) with its `ingestFailure` helper.

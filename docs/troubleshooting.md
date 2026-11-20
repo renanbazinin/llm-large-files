@@ -231,6 +231,16 @@ The common ones:
 | `report.txt is empty.` | A file of 0 bytes. |
 | `report.docx did not contain any text.` | Nothing left once read: a DOCX of pictures, a file of blank lines. |
 | `This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.` | A scan, while PDFs are not kept. |
+| `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` | A PDF of more than `maxPdfPages` pages (5,000 by default). Refused before any page is read. |
+| `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | A PDF whose text passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB). |
+| `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | The same, from the text extractor or one of your own: a UTF-16 file can grow by half in UTF-8. |
+| `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.` | A DOCX or PPTX of more than 32 million characters of text, about 10,000 dense pages. With `maxTextBytes` below that: `This DOCX holds more than 10 MB of text, more than is kept from one file.` |
+| `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` | The ingest took longer than `ingestTimeoutMs` (2 minutes by default). See [below](#an-upload-fails-took-too-long-to-read). |
+| `This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.` | A PDF whose page tree lists one page several times. No PDF writer does this: a file of 3 KB built this way held 107 MB of text. |
+| `This PDF draws more than 16 MB of text, over 100 times its size. A file that grows that much is not read: it may be built to exhaust the server.` | A PDF whose pages draw more than 100 times its size in text, past the first 16 MB: forms painted inside forms, many times over. Real PDFs hold less text than their size. |
+| `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX of more than 1,000,000 paragraphs with text. |
+| `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX with paragraphs inside paragraphs, more than 32 deep. |
+| `This DOCX has 30,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX whose ZIP directory lists more than 20,000 parts. |
 
 **Fix.** Most messages say what the user can do. For a scanned PDF, keep PDFs
 (`keepOriginals: ["pdf"]`): a scan of up to `scannedPdfPages` (30) pages is then accepted, and the
@@ -238,7 +248,36 @@ model reads it by looking at its pages. A longer scan needs OCR. To accept a for
 refuses, such as XLSX, convert it to text or CSV before `files.ingest`, or give a `text` extractor
 of your own that reads it: every file of a format the library does not know goes to that one.
 
-See [PDFs and other formats](./guides/pdfs.md), which lists every refusal.
+For a file past a limit, the user splits it and attaches the part the question is about. If your
+users need larger files, raise `maxPdfPages` or `maxTextBytes` in `createLargeFiles`: the numbers
+in the messages are yours. The last four messages are for files built to exhaust a server, not
+written by Word, PowerPoint or a PDF printer: keep the limits. A file from a real program that
+meets one is written the usual way once it is opened there and saved again, or printed to a new
+PDF.
+
+See [PDFs and other formats](./guides/pdfs.md#what-is-refused), which lists every refusal.
+
+### An upload fails: "took too long to read"
+
+The whole message: `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.`
+The number is your `ingestTimeoutMs`: in milliseconds below a second ("500 ms"), in seconds
+below 2 minutes ("45 s"), in minutes from there ("2 min").
+
+**Cause.** One `ingest` (extracting the text, its line index and its profile) took longer than
+`ingestTimeoutMs`, 120,000 ms by default. Most often: a PDF with many pages that are slow to read;
+an extractor of your own that waits on a slow service, such as OCR of a long scan; or a server
+busy with other ingests, which each take their share of the same process. Nothing is stored.
+
+**Fix.** For a file that is slow to read, the user splits it, or saves it as plain text. For OCR or
+another slow extractor of your own, raise `ingestTimeoutMs` (0 sets no limit), run the ingest in a
+background job ([Web app](./guides/web-app.md#long-ingests-in-the-background)), and pass
+`input.signal` on to the service it calls, so that the request stops at the limit too. Bound the
+ingests that run at once on one server ([Deployment](./guides/deployment.md#uploads-and-ingest)).
+If you ingest in a process or a worker with a timer of its own, set that timer above
+`ingestTimeoutMs`, so that the user gets this message and not yours.
+
+See [`LargeFilesOptions`](./reference/library.md#largefilesoptions) and
+[Custom extractors](./guides/pdfs.md#custom-extractors).
 
 ## Questions and answers
 
@@ -274,6 +313,26 @@ document's `expiresAt` says when it goes.
 
 See [Storage](./guides/storage.md) and
 [`DocumentsNotFoundError`](./reference/ask.md#documentsnotfounderror).
+
+### In your own loop, a tool answers "doc_… is no longer available on the server" for a document that is there
+
+The whole result: `{ "error": "doc_… is no longer available on the server. Ask the user to attach the file again." }`,
+from `read_document`, `search_document`, `get_document_overview`, `analyze_whole_document` or
+`view_pages`.
+
+**Cause.** Besides a document that expired or was deleted after the question was planned: since
+0.6.1, `files.tools()` compares the owner stored with each document with the `owner` of the
+`DocumentMeta` it was handed, and answers a mismatch as a document that is gone. Your loop passes
+metadata that it built itself (from an ID, from its own database, from a `DocumentSummary`, which
+has no owner) or that another owner's call returned. A document stored without an owner is not
+checked.
+
+**Fix.** Pass `tools()` the metadata that `prepare(ids, base, { owner })` returned
+(`prepared.plan.searchable`, `prepared.viewable`), or `getMeta(id, { owner })`, with the owner of
+the user who asks. `askWithFiles` and `askGemini` do this for you.
+
+See [`files.tools`](./reference/library.md#filestoolsdocuments-options) and
+[Security](./security.md#tool-scoping).
 
 ### The answer says it found nothing, or ignores part of the file
 
@@ -724,13 +783,17 @@ See [Errors and reliability](./guides/errors-and-reliability.md) and [Web app](.
 - A document larger than `wholeDocumentBytes` (2 MB) is read by range only when the store has
   `readTextRange`, as `FileDocumentStore` does. With a store of your own without it, and with
   `MemoryDocumentStore`, every document is loaded whole.
-- An upload is held in memory whole while it is read and extracted.
+- An upload is held in memory whole while it is read and extracted, with several copies of its
+  text, and the parsers of PDF, DOCX and PPTX take memory of their own while they read, in the
+  same heap as everything else.
 
 **Fix.** Give a store of your own `readTextRange` (and `putIndex` and `getIndex`, so that no pass
 over the text is needed first). Lower `cacheBytes` and `maxConcurrentScans` to fit the memory of
-the server, and `maxUploadBytes` to the files you expect.
+the server, and `maxUploadBytes` and `maxTextBytes` to the files you expect. To keep a file that
+needs too much memory from stopping the server, ingest in a process of its own with its own heap
+limit: a worker thread does not keep it apart.
 
-See [Storage](./guides/storage.md) and [Deployment](./guides/deployment.md).
+See [Storage](./guides/storage.md) and [Deployment](./guides/deployment.md#uploads-and-ingest).
 
 ### Other requests are slow while a question searches
 
@@ -800,14 +863,14 @@ handler answers it `500` with `{ "error": "Upload failed." }` when it has no `st
 is your database's own and may name its host, so it is not sent, and the handlers log nothing.
 
 Two paths answer it `422` with your database's message instead, as a file that cannot be read: an
-`ingest` of your own that throws a new error in its place, as `ingestInWorker` in
+`ingest` of your own that throws a new error in its place, as `ingestInProcess` in
 [Deployment](./guides/deployment.md#uploads-and-ingest) does, and a route of your own, as in
 [Web app](./guides/web-app.md#filesingest-and-its-errors). Every case is in the
 [node reference](./reference/node.md#uploadrequest-response).
 
 **Fix.** In a store of your own, log a write that fails, and throw an error with a `status` (a
 `503`, say) whose message is fit for a user. An `ingest` of your own must copy that status, and a
-system error's `code` and `syscall`, onto the error it throws, as `ingestInWorker` in
+system error's `code` and `syscall`, onto the error it throws, as `ingestInProcess` in
 [Deployment](./guides/deployment.md#uploads-and-ingest) does.
 
 See [Storage](./guides/storage.md) and [`llm-large-files/node` reference](./reference/node.md).

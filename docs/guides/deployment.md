@@ -98,7 +98,7 @@ The built-in stores:
 | Searches of documents read by range | A few MB each: `scanChunkBytes` (1 MB) of text read, decoded and lowercased, and the next piece read ahead | `maxConcurrentScans` (4) per `LargeFiles`. The others wait, and those waiting for the same file share one pass over it |
 | Decoded pieces of a document read by range | Up to its whole decoded text | Kept within `cacheBytes`, and only for a document whose decoded text takes at most a quarter of it |
 | An upload | The body, buffered whole | `maxUploadBytes`, 100 MB by default |
-| An ingest | Several copies of the text at once (below) | One at a time, or a worker (below) |
+| An ingest | Several copies of the text at once (below), and what the parsers of PDF, DOCX and PPTX take while they read | `maxTextBytes` bounds the text (100 MB by default). One at a time, or in a process of its own (below) |
 | A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects) | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold |
 | A question in flight | Its conversation, and each request it builds: up to `maxRequestBytes` (10 MB by default) of JSON, the pages it was shown included as base64 | The budget ([Costs and limits](./costs-and-limits.md)) |
 
@@ -106,23 +106,36 @@ Measured peaks are in [Measurements](../measurements.md#the-server): an ingest o
 takes about five to seven times the log above the uploaded bytes, and eight searches at once take
 little more than one.
 
-Other formats were not measured. PDF text is extracted by pdf.js, which reads the whole file, and
-with `@cantoo/pdf-lib` installed the file is parsed a second time to mark the pages that show a
-picture (given up for a file that declares more than 150,000 objects, or when finding the pictures
-takes more than 5 seconds once the file is parsed). The peak memory of `view_pages` on real files
-is in [measurements](../measurements.md).
+Other formats were not measured for memory. PDF text is extracted by pdf.js, which reads the whole
+file, and with `@cantoo/pdf-lib` installed the file is parsed a second time to mark the pages that
+show a picture (given up for a file that declares more than 150,000 objects, or when finding the
+pictures takes more than 5 seconds once the file is parsed). A PDF of more than `maxPdfPages`
+(5,000) pages, and a file of more than `maxTextBytes` of text, are refused
+([Security](../security.md#uploads)). The peak memory of `view_pages` on real files is in
+[measurements](../measurements.md).
 
 Set the heap limit of Node yourself: about three quarters of the memory of the container when
-everything runs on the main thread (`NODE_OPTIONS=--max-old-space-size=1536` for 2 GB), less when
-workers have heaps of their own. Upload bodies and files read from the store are `Buffer`s, which
-live outside the heap and need the rest. The check that refuses a PDF too large to cut pages from
-compares it with the free heap, so a heap set to fit the container makes that check right.
+everything runs in one process (`NODE_OPTIONS=--max-old-space-size=1536` for 2 GB), less when
+ingest runs in a process of its own. Each heap can also take up to about 190 MB of young
+generation above its `--max-old-space-size`: on Node 24, `v8.getHeapStatistics().heap_size_limit`
+is 1,216 MB for 1,024, and 704 MB for 512. Upload bodies and files read from the store are
+`Buffer`s, which live outside the heap and need the rest. The check that refuses a PDF too large to
+cut pages from compares it with the free heap, so a heap set to fit the container makes that check
+right.
+
+A worker thread does not get a heap limit of its own when the process has one: a
+`--max-old-space-size` on the command line or in `NODE_OPTIONS` replaces the
+`resourceLimits.maxOldGenerationSizeMb` of every worker. With `--max-old-space-size=1024`, a worker
+given 512 MB had the process's limit, 1,216 MB, and setting `execArgv: []` or `env` on the worker
+did not change it. A forked process does get its own: one forked with
+`execArgv: ["--max-old-space-size=512"]` had 704 MB, with `NODE_OPTIONS=--max-old-space-size=1024`
+in the environment it inherits or without it.
 
 A starting point for a container of 2 GB, to check under your own load:
 
 ```ts
 // large-files.ts: created once per process and imported by every route.
-// Run with NODE_OPTIONS=--max-old-space-size=1024: ingests run in a worker of their own (below).
+// Run with NODE_OPTIONS=--max-old-space-size=1024: ingests run in a process of their own (below).
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 
 export const files = createLargeFiles({
@@ -137,8 +150,8 @@ export const files = createLargeFiles({
 | Where 2 GB go | |
 |---|---|
 | The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF |
-| One ingest at a time, in a worker of 512 MB | An ingest of a 95 MB log fitted in a worker of 256 MB |
-| Outside the heaps | The upload being read (up to 100 MB), files read from the store, Node itself |
+| One ingest at a time, in a process with a heap of 512 MB | An ingest of a 95 MB log fitted in a heap of 256 MB. A process takes about 50 MB more for Node itself |
+| Outside the heaps | The upload being read (up to 100 MB) and its copy sent to the ingest process, files read from the store, Node itself |
 
 Raise `cacheBytes` to spend memory on speed: at 1 GB, the decoded pieces of an ASCII log of up to
 about 125 MB are kept between searches. Lower `maxUploadBytes` if large uploads are not needed:
@@ -151,60 +164,90 @@ body whose `Content-Length` is over `maxUploadBytes` before reading it, and stop
 grows past it (HTTP 413). Node's own `server.requestTimeout` (300,000 ms by default) ends an upload
 that takes longer than five minutes to arrive: raise it for users on slow links.
 
-An ingest runs on the main thread, and most of it does not let other work in. An ingest of a 95 MB
-log held the event loop for 3 to 5 seconds ([measured](../measurements.md#the-server)): every
-answer streaming on that server stops for that long. Two ways to keep that off the chat, and one to
-bound it:
+An ingest runs in your server's process, a slice at a time. It pauses for other requests about
+every 12 ms of its work, so an answer streaming on the same server waits a fraction of a second,
+not seconds: the longest stall measured was 34 ms for a 99 MB log and 0.16 s for a 2,000-page
+PDF, where 0.6.0 held the server for 2.0 s and 4.5 s ([measured](../measurements.md#the-server)).
+One page of a PDF that is slow to read still holds the server for as long as it takes: a page
+built to paint forms inside forms held it for 25 s. It has limits too: `maxTextBytes` (the text kept from
+one file, 100 MB by default), `maxPdfPages` (5,000) and `ingestTimeoutMs` (2 minutes) refuse a file
+that would cost more ([Security](../security.md#uploads)).
+
+The first PDF a process reads also loads the PDF parsers, in one block that no pause can split:
+about 0.25 s for `@cantoo/pdf-lib` and 0.05 s for pdf.js, measured on Node 24. Load them when the
+server starts, before it takes requests:
+
+```ts
+// Before the server listens: the first upload of a PDF then does not hold it while they load.
+await import("@cantoo/pdf-lib");
+await (await import("unpdf")).getResolvedPDFJS();
+```
+
+What it does not do is keep its memory apart. The text and its copies, and what pdf.js,
+`@cantoo/pdf-lib` and JSZip take while they read, are in your server's heap, with the cache and the
+questions in flight. A file that needs more than the heap has left stops the whole process, and
+every answer streaming on it. A step under way, such as one slow page of a PDF, also runs to its
+end after the time limit. Three ways to bound that:
 
 - **Accept one or two ingests at a time** per server, and answer the others with 503 (the sample
-  below does it): this bounds memory and keeps stalls from adding up, but each ingest still stalls
-  the server.
-- **Ingest in a worker thread**, with a memory limit and a time limit: below.
+  below does it): this bounds memory and keeps stalls from adding up.
+- **Ingest in a process of its own**, with a heap limit and a time limit: below. A process that
+  runs out of memory stops alone, and the upload is answered with an error.
 - **Ingest in a service of its own.** All the state is in the store, so an upload service with its
   own `createLargeFiles` and `createDocumentHandlers`, on servers sized for uploads, can write the
   documents that the chat servers read. Give it the options that apply at ingest, the same as the
-  chat servers would have: `ttlMs`, `maxUploadBytes`, `extractors`, `keepOriginals` and
-  `scannedPdfPages`. The chat servers need the options that apply to reading: `cacheBytes`,
-  `cacheSize`, `wholeDocumentBytes`, `scanChunkBytes`, `maxConcurrentScans` and `budget`.
+  chat servers would have: `ttlMs`, `maxUploadBytes`, `maxTextBytes`, `maxPdfPages`,
+  `ingestTimeoutMs`, `extractors`, `keepOriginals` and `scannedPdfPages`. The chat servers need the
+  options that apply to reading: `cacheBytes`, `cacheSize`, `wholeDocumentBytes`, `scanChunkBytes`,
+  `maxConcurrentScans` and `budget`.
 
-A worker that runs one ingest, with the options of `large-files.ts` above:
+**Not a worker thread.** Until 0.6.1, this guide ran each ingest in a worker thread
+(`ingestInWorker`) with `resourceLimits: { maxOldGenerationSizeMb: 512 }`. That keeps the event
+loop free, but it does not bound memory. The process's heap flag replaces the worker's limit (see
+[Memory on each server](#memory-on-each-server)): under the `NODE_OPTIONS` of `large-files.ts`
+above, that worker had 1,216 MB, not 512. And a worker that runs out of memory can take the whole
+process down with it: in the review of 0.6.0, a worker of 512 MB, with no heap flag on the process,
+did so on a hostile DOCX. A child process stops alone.
+
+A process that runs one ingest, with the options of `large-files.ts` above:
 
 ```ts
-// ingest-worker.ts: one ingest, in a worker thread of its own.
-import { parentPort, workerData } from "node:worker_threads";
+// ingest-process.ts: one ingest, in a process of its own, forked by documents.ts below.
 import type { IngestInput } from "llm-large-files";
 import { files } from "./large-files.js"; // the same options as the chat routes
 
-try {
-  parentPort!.postMessage({ meta: await files.ingest(workerData as IngestInput) });
-} catch (error) {
-  const { code, syscall, status, statusCode } = (error ?? {}) as { code?: unknown; syscall?: unknown; status?: unknown; statusCode?: unknown };
-  const httpStatus = typeof status === "number" ? status : typeof statusCode === "number" ? statusCode : undefined;
-  parentPort!.postMessage({
-    failed: error instanceof Error ? {
-      message: error.message,
-      // What createDocumentHandlers answers by: a status (a 503 from your store or an OCR service),
-      // or the code and syscall of a failure of the store (500). Without either, a 422 with this
-      // message, even for an error of your store (below).
-      ...(httpStatus !== undefined ? { status: httpStatus } : {}),
-      ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : {}),
-    } : {
-      // Not an Error: its code and syscall when it has both, or else a 500 with no message.
-      // createDocumentHandlers answers it as it does without this worker: with the code, or with
-      // { "error": "Upload failed." }.
-      message: "",
-      ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : { status: 500 }),
-    },
-  });
-}
+process.once("message", async (message) => {
+  try {
+    process.send!({ meta: await files.ingest(message as IngestInput) });
+  } catch (error) {
+    const { code, syscall, status, statusCode } = (error ?? {}) as { code?: unknown; syscall?: unknown; status?: unknown; statusCode?: unknown };
+    const httpStatus = typeof status === "number" ? status : typeof statusCode === "number" ? statusCode : undefined;
+    process.send!({
+      failed: error instanceof Error ? {
+        message: error.message,
+        // What createDocumentHandlers answers by: a status (a 503 from your store or an OCR service),
+        // or the code and syscall of a failure of the store (500). Without either, a 422 with this
+        // message, even for an error of your store (below).
+        ...(httpStatus !== undefined ? { status: httpStatus } : {}),
+        ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : {}),
+      } : {
+        // Not an Error: its code and syscall when it has both, or else a 500 with no message.
+        // createDocumentHandlers answers it as it does without this process: with the code, or with
+        // { "error": "Upload failed." }.
+        message: "",
+        ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : { status: 500 }),
+      },
+    });
+  }
+});
 ```
 
-The upload routes, with `ingest` replaced by one that starts the worker. `createDocumentHandlers`
+The upload routes, with `ingest` replaced by one that forks that process. `createDocumentHandlers`
 takes any `LargeFiles`, so the rest stays as it is:
 
 ```ts
-// documents.ts: the upload routes. Each ingest runs in a worker, one at a time on this server.
-import { Worker } from "node:worker_threads";
+// documents.ts: the upload routes. Each ingest runs in a process of its own, one at a time on this server.
+import { fork } from "node:child_process";
 import type { DocumentMeta, IngestInput } from "llm-large-files";
 import { createDocumentHandlers } from "llm-large-files/node";
 import { files } from "./large-files.js";
@@ -213,53 +256,84 @@ import { userIdOf } from "./auth.js"; // your sign-in
 const INGESTS_AT_ONCE = 1;
 let running = 0;
 
-type WorkerReply = { meta?: DocumentMeta; failed?: { message: string; code?: string; syscall?: string; status?: number } };
+type IngestReply = { meta?: DocumentMeta; failed?: { message: string; code?: string; syscall?: string; status?: number } };
 
-function ingestInWorker(input: IngestInput): Promise<DocumentMeta> {
+function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
+  if (input.signal?.aborted) return Promise.reject(input.signal.reason);
   if (running >= INGESTS_AT_ONCE) {
     // An error with a status is answered with that status and its message.
     return Promise.reject(Object.assign(new Error("The server is reading other files. Try again in a minute."), { status: 503 }));
   }
   running++;
   return new Promise<DocumentMeta>((resolve, reject) => {
-    const worker = new Worker(new URL("./ingest-worker.js", import.meta.url), {
-      workerData: input, // the bytes are copied into the worker
-      resourceLimits: { maxOldGenerationSizeMb: 512 },
+    const child = fork(new URL("./ingest-process.js", import.meta.url), {
+      // A heap of its own. This flag wins over a --max-old-space-size in NODE_OPTIONS, which the
+      // child inherits.
+      execArgv: ["--max-old-space-size=512"],
+      serialization: "advanced", // the bytes go as they are, not as JSON
     });
-    const timer = setTimeout(() => void worker.terminate(), 120_000);
-    let reply: WorkerReply | undefined;
-    let crash: unknown;
-    worker.once("message", (message: WorkerReply) => { reply = message; });
-    // Past its memory limit (ERR_WORKER_OUT_OF_MEMORY), or crashed: this server goes on.
-    worker.once("error", (error) => { crash = error; });
-    // The slot is free once the worker is gone, and only then is the upload answered: a user who
+    let reply: IngestReply | undefined;
+    let timedOut = false;
+    let settled = false;
+    // Above ingestTimeoutMs (120 s by default), so that the library's own message comes first. This
+    // ends a step that cannot be stopped, such as one slow page of a PDF.
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, 150_000);
+    // The upload handler aborts the signal when the client goes away: nobody waits for this file.
+    const stop = () => child.kill();
+    input.signal?.addEventListener("abort", stop, { once: true });
+    // The slot is free once the process is gone, and only then is the upload answered: a user who
     // sends the next file as soon as this one is answered does not find the slot still taken.
-    worker.once("exit", () => {
+    const settle = () => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      input.signal?.removeEventListener("abort", stop);
       running--;
       if (reply?.meta) resolve(reply.meta);
+      else if (input.signal?.aborted) reject(input.signal.reason);
       // With a status, that status and message (a 503 from your store or an OCR service); with a
       // code and a syscall, a failure of the store (500); otherwise a file that cannot be read
       // (422), even when the error came from your store (below).
       else if (reply?.failed) reject(Object.assign(new Error(reply.failed.message), reply.failed));
-      else if (crash) reject(new Error(`${input.name} could not be read on this server.`, { cause: crash }));
-      else reject(new Error(`${input.name} took too long to read.`));
+      else if (timedOut) reject(new Error(`${input.name} took too long to read.`));
+      // Out of memory, or crashed: that process is gone, and this server goes on.
+      else reject(new Error(`${input.name} could not be read on this server.`));
+    };
+    child.once("message", (message) => {
+      reply = message as IngestReply;
+      child.kill(); // its work is done: the file is stored, or refused
     });
+    child.once("exit", settle);
+    child.once("error", () => {
+      child.kill();
+      settle();
+    });
+    // The bytes are copied to the process. A signal cannot be sent: the process has its own
+    // ingestTimeoutMs, and is killed when this one aborts.
+    const { signal: _signal, ...message } = input;
+    child.send(message);
   });
 }
 
-export const documents = createDocumentHandlers({ ...files, ingest: ingestInWorker }, { getOwner: userIdOf });
+export const documents = createDocumentHandlers({ ...files, ingest: ingestInProcess }, { getOwner: userIdOf });
 ```
 
-The error that `ingestInWorker` rebuilds from the worker's reply is a new `Error`, so
+Checked on Node 24: with `NODE_OPTIONS=--max-old-space-size=1024` on the server and a heap of 48 MB
+for the child, a 2,000-page PDF ran the child out of memory; the upload was answered "book.pdf
+could not be read on this server.", and the next upload was ingested.
+
+The error that `ingestInProcess` rebuilds from the process's reply is a new `Error`, so
 `createDocumentHandlers` cannot tell a store that failed to write from a file that cannot be read.
 Given `files` itself, it answers a store's error that has no status, and no `code` and `syscall`,
-with 500 `{ "error": "Upload failed." }`. Through this worker, it answers that error 422 with the
+with 500 `{ "error": "Upload failed." }`. Through this process, it answers that error 422 with the
 store's own message, which may name a database host. Give your store's errors a status and a
-message of your own, as [Storage](./storage.md#errors) shows: the worker passes the status on. A
-thrown value that is not an `Error` gets the same answer with the worker as without it.
+message of your own, as [Storage](./storage.md#errors) shows: the process passes the status on. A
+thrown value that is not an `Error` gets the same answer with the process as without it.
 
-A worker stopped by its limit or its timeout may leave the files of a document that was never
+A process stopped by its limit or its timeout may leave the files of a document that was never
 finished. `FileDocumentStore` removes them at the first sweep after they are an hour old. One
 stopped after its document was stored leaves a whole document whose ID nobody got: it expires
 like any other.
@@ -268,7 +342,7 @@ like any other.
 
 `view_pages` runs on the chat server, not where the file was ingested. Each look reads the whole
 original from the store and parses it with `@cantoo/pdf-lib`, which cannot be stopped once it has
-started; it pauses every 4,000 objects so other requests get a turn. Its memory and its limits are
+started; it pauses every 500 objects so other requests get a turn. Its memory and its limits are
 in the table above. The check that refuses a file too large compares it with the free heap, so set
 the heap limit (above). What the model is told when pages cannot be shown, and the rest of
 `view_pages`, are in [PDFs and other formats](./pdfs.md); without `keepOriginals` nothing is kept

@@ -35,6 +35,194 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.6.1 — not released yet
+
+Uploads built to hurt the server are refused, and a large upload no longer holds the server while
+it is read. Ingest now pauses for other requests between the pages of a PDF and between slices of
+its own work, and limits the text, the pages and the time one file may take. `files.tools()`
+checks the owner of each document it reads. These are fixes from a review of how 0.6.0 handles
+hostile files.
+
+### Upgrading: what you need to change
+
+Code written for 0.6.0 compiles with 0.6.1 as it is. Every change to the public types is an
+addition: three options of `createLargeFiles`, `IngestInput.signal`, three fields of
+`ExtractInput`, and two constants.
+
+Some behavior is different. Check each point against your app:
+
+- **Uploads past the new limits are refused.** `files.ingest` throws, and
+  `createDocumentHandlers` answers 422 with the message:
+  - a PDF of more than `maxPdfPages` pages (5,000 by default), before any page is read:
+    `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.`
+  - a file whose text takes more than `maxTextBytes` in UTF-8 (by default `maxUploadBytes`,
+    100 MB): `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.`,
+    or for a text file `notes.txt holds more than 100 MB of text, …` with the same end. A file's
+    text can be larger than the file: a UTF-16 file of Chinese or Japanese text grows by half in
+    UTF-8, and a small PDF can draw far more text than its size.
+  - a DOCX or PPTX of more than 32 million characters of text (about 10,000 dense pages), whatever
+    `maxTextBytes` allows:
+    `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.`
+  - a PDF that draws more than 100 times its size in text, past the first 16 MB:
+    `This PDF draws more than 16 MB of text, over 100 times its size. A file that grows that much is not read: it may be built to exhaust the server.`
+    A page that paints a form inside a form, many times over, draws the text of the innermost one
+    each time. Real PDFs hold less text than their size.
+  - files that no program writes, built to exhaust the server: a PDF whose page tree lists one
+    page more than once, and a DOCX or PPTX with paragraphs nested more than 32 deep, more than
+    1,000,000 paragraphs with text, or more than 20,000 parts.
+
+  **What to do:** nothing, unless your users upload PDFs of more than 5,000 pages, or files with
+  more than 100 MB of text: then raise `maxPdfPages` or `maxTextBytes`. Every message is in
+  [PDFs and other formats](docs/guides/pdfs.md#what-is-refused).
+- **An ingest that takes more than 2 minutes throws.** `ingestTimeoutMs` (120,000 by default)
+  bounds the extraction, the line index and the log profile, not the store's writes. Past it,
+  `ingest` throws
+  `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.`,
+  stores nothing, and `createDocumentHandlers` answers 422 with that message. An extractor of your
+  own that calls a slow service, such as OCR of a long scan, can take longer than that.
+  **What to do:** for such an extractor, raise `ingestTimeoutMs`, or set it to 0 for no limit, and
+  pass `input.signal` on to the work it does (`fetch(url, { signal: input.signal })`): at the limit
+  `ingest` stops waiting for the extractor, but only the extractor can stop its own work. If you
+  ingest in a worker or a process with a timer of its own, set that timer above
+  `ingestTimeoutMs`, so that the user gets the library's message.
+- **If you copied the ingest worker of the 0.6.0 deployment guide, its memory limit did not
+  hold.** A `--max-old-space-size` of the process, on the command line or in `NODE_OPTIONS` (as
+  that guide set it), replaces a worker's `resourceLimits.maxOldGenerationSizeMb`: the worker given
+  512 MB had 1,216 MB. And a worker that runs out of memory can stop the whole process.
+  **What to do:** ingest untrusted uploads in a child process with its own
+  `--max-old-space-size`, as [Deployment](docs/guides/deployment.md#uploads-and-ingest) now shows
+  (`ingestInProcess`, which replaces `ingestInWorker`), or in a service of its own.
+- **`files.tools()` answers a document whose owner does not match as no longer available.** Each
+  tool call now compares the owner stored with the document with the `owner` of the `DocumentMeta`
+  that `tools()` was handed. When they differ, the call answers the model
+  `doc_… is no longer available on the server. Ask the user to attach the file again.`, and
+  `view_pages` shows no page. A document stored without an owner is open to any metadata, as
+  before. The metadata that `prepare(ids, base, { owner })` and `getMeta(id, { owner })` return
+  carries the stored owner, so `askWithFiles`, `askGemini`, and a loop of your own written as the
+  docs show, work as before.
+  **What to do:** nothing, unless your loop builds `DocumentMeta` objects itself, from IDs or from
+  your own database (a `DocumentSummary` has no owner). Take them from `prepare` or `getMeta` with
+  the caller's owner. See [Security](docs/security.md#tool-scoping).
+- **`view_pages` and picture marks pause more often.** `@cantoo/pdf-lib` now parses 500 objects
+  between two pauses for other requests, not 4,000: in 0.6.0, 4,000 objects of a large file took
+  0.5 to 0.8 s, and a file of fewer than about 4,000 objects never paused. A file of more than
+  50,000 objects parses more between two pauses (up to 4,000), so that it pauses about 100 times
+  at most: each pause is a timer, about 15 ms on Windows. The work is the same; on a busy server,
+  a look at pages waits more often for the other requests.
+  **What to do:** nothing.
+- **One page of a PDF still holds the server while pdf.js reads it.** Between two pages, the PDF
+  extractor lets other requests run and looks at the time limit and the signal. Within a page it
+  cannot: pdf.js gives no way to stop a page, and does all of it without letting a timer run. A
+  page built to paint forms inside forms can take far longer than a page of text: in the review,
+  the one page of a 650 KB file built that way held the event loop for 25 s, and one page of a
+  160 KB file for 11 s. Neither `ingestTimeoutMs` nor `IngestInput.signal` cuts such a page
+  short. Likewise, a DOCX or PPTX
+  packed hundreds of times tighter than documents are holds it for about 0.2 s at a time while
+  JSZip unpacks a piece; a 4 MB DOCX written the usual way, with 32 MB of XML, never held it for
+  30 ms.
+  **What to do:** if your users can upload files you do not trust, ingest them in a child process
+  of their own, as [Deployment](docs/guides/deployment.md#uploads-and-ingest) shows, so that only
+  that process waits.
+
+### New: what you can add
+
+- **`maxTextBytes`**: the most text kept from one file, in UTF-8 bytes. Defaults to
+  `maxUploadBytes`. The PDF, DOCX and PPTX extractors refuse a file as soon as its text passes it
+  (a PDF page by page), and `ingest` refuses a larger text from any other extractor, yours
+  included. See [`LargeFilesOptions`](docs/reference/library.md#largefilesoptions).
+- **`maxPdfPages`**: the most pages read from one PDF. Defaults to `DEFAULT_MAX_PDF_PAGES`, 5,000.
+  A PDF with more is refused before any page is read.
+- **`ingestTimeoutMs`**: the most time one `ingest` may take. Defaults to
+  `DEFAULT_INGEST_TIMEOUT_MS`, 120,000 (2 minutes); 0 sets no limit, and so does a value past
+  what a timer can wait (2,147,483,647 ms, 24.8 days).
+- **`IngestInput.signal`**: stops an ingest, for example when the uploader goes away. `ingest`
+  throws the signal's `reason` and stores nothing. The PDF, DOCX and PPTX extractors stop between
+  pages and pieces. `createDocumentHandlers` passes one that aborts when the client closes the
+  connection. See [`IngestInput`](docs/reference/library.md#ingestinput).
+- **`ExtractInput.signal`, `ExtractInput.maxTextBytes` and `ExtractInput.maxPages`**: the signal
+  of the ingest (aborted at `ingestTimeoutMs` or by `IngestInput.signal`) and the two limits, for
+  an extractor of your own to honour. See
+  [Custom extractors](docs/guides/pdfs.md#custom-extractors).
+- **`DEFAULT_MAX_PDF_PAGES`** (5,000) and **`DEFAULT_INGEST_TIMEOUT_MS`** (120,000): the defaults
+  above, exported. See [the library reference](docs/reference/library.md#default_max_pdf_pages).
+
+```ts
+import type { ServerResponse } from "node:http";
+import { createLargeFiles, FileDocumentStore, type DocumentMeta } from "llm-large-files";
+
+const files = createLargeFiles({
+  store: new FileDocumentStore("./data/large-files"),
+  maxTextBytes: 50 * 1024 * 1024, // keep at most 50 MB of text from one file
+  maxPdfPages: 2_000,             // refuse a longer PDF before reading a page of it
+  ingestTimeoutMs: 60_000,        // give up on a file after one minute
+});
+
+// In an upload route of your own: stop reading the file when the uploader goes away.
+async function ingestUpload(response: ServerResponse, name: string, bytes: Uint8Array, owner: string): Promise<DocumentMeta> {
+  const uploaderLeft = new AbortController();
+  response.on("close", () => uploaderLeft.abort(new Error("The upload was cancelled.")));
+  return files.ingest({ name, bytes, owner, signal: uploaderLeft.signal });
+}
+```
+
+### Changed: what works differently
+
+Besides the points under **Upgrading**:
+
+- **Ingest lets other requests run while it reads a file.** Each step works in slices of about
+  12 ms, with a pause for other requests between two slices: the PDF extractor between pages, the
+  DOCX and PPTX extractors as they unpack, and then `ingest` as it cleans the text, measures it,
+  and builds the outline, the log profile and the line index. Ingests that run at once take turns,
+  one slice each. Picture marks pause every 12 ms between pages, and their limit of 5 s counts only
+  the work, not the pauses.
+- **`createDocumentHandlers` stops reading an upload when the client goes away.** Its upload
+  handler passes `IngestInput.signal`, aborted when the connection closes before the answer is
+  sent: nothing is stored.
+- **DOCX and PPTX take memory by their text, not by their XML.** Each paragraph becomes one string
+  when it closes, and an empty paragraph is dropped. Text is counted as it reads, not as the XML
+  writes it (`&amp;` is one character). An Office file whose ZIP directory lists more than 20,000
+  parts (a ZIP64 directory included) is refused before JSZip reads it.
+- **`ingest` stops waiting for an extractor** when the ingest's signal aborts (`ingestTimeoutMs`,
+  or `IngestInput.signal`), whether or not the extractor looks at the signal.
+- **A text without a line over 2,000 characters is not split and joined again** at ingest, a
+  text that needs no cleaning is not copied, and a text file is taken for a log from its first 200
+  non-empty lines without going through the rest. An ingest of a 99 MB log takes 1.9 s, as with
+  0.6.0, now in slices. The stored text, outline, profile and index are the same as 0.6.0 made.
+
+### Fixed
+
+Uploads you do not trust:
+
+- **A DOCX of 1.5 MB no longer stops a server with a heap of 512 MB.** It held 120 MB of empty
+  paragraphs, each of which 0.6.0 kept until the end of the file: the process ran out of memory
+  and stopped, and every answer streaming on it with it. The same file is now refused
+  ("padded.docx did not contain any text.") in 3.0 to 3.2 s, with the process at 115 MB. A DOCX
+  of 3 MB that unpacks to 1,000 MB of XML, which stopped the same server, is refused at its
+  millionth paragraph in 0.9 s, at 165 MB.
+- **A PDF of 3 KB no longer stores 107 MB of text.** Its page tree listed one dense page 150
+  times, and each listing gave the text of the page again. A page tree that lists a page twice is
+  now refused, in under 0.3 s.
+- **A PDF of 6 KB no longer freezes the server for 205 s.** The same kind of file, with 600
+  listings, held the event loop for 205 s with a heap of 1.5 GB, and ran a heap of 512 MB out of
+  memory. It is refused in under 0.3 s.
+- **A PDF of 23 KB no longer stores 99.5 MB of text.** Its 140 pages all paint one dense content
+  stream. It is now refused at 16 MB of text, in under 6 s.
+- **A large upload no longer holds the server while it is read.** In the review, a 100 MB log held
+  the event loop for 3.5 s, and a 2,000-page PDF for 8.3 s: every answer streaming on that server
+  stopped for that long. Measured again on one machine (Node 24, Windows), 0.6.0 and 0.6.1 in
+  turn, three times each, the longest gap of a 5 ms timer during the ingest of a 99 MB log went
+  from 1.9 to 2.0 s down to 31 to 34 ms, and of a 2,000-page PDF from 4.4 to 4.5 s down to 0.16 s.
+  The log took 1.9 s to ingest either way; the PDF 4.9 to 5.0 s, against 4.6 to 4.9 s.
+- **An ingest has a time limit.** In 0.6.0 nothing bounded it: a file that is slow to read held
+  its upload, and its share of the server, for as long as it took (see **Upgrading**).
+
+Access:
+
+- **`files.tools()` checks the owner of each document it reads.** In 0.6.0, a loop of your own
+  that built a `DocumentMeta` from an ID a client sent could read the text of another owner's
+  document through the tools, and show the pages of its PDF: `tools()` checked only that the
+  document was still there. It was so in every version before.
+
 ## 0.6.0 — not released yet
 
 Questions fail less often, and when one fails, you can tell why and keep what it found. Every

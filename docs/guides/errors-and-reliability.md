@@ -518,7 +518,7 @@ with 422 and the error's message, and a Node system error of the store (one with
 without a `status` (or `statusCode`) from 400 to 599, is answered 500 "Upload failed.", without its
 message, and so is a thrown value that is not an `Error`. The handlers log nothing: log the error in
 your store before you throw it. Two paths still answer a store's error 422 with its message, which
-may name a host: an `ingest` of your own that throws a new error in its place, as `ingestInWorker`
+may name a host: an `ingest` of your own that throws a new error in its place, as `ingestInProcess`
 in [Deployment](./deployment.md#uploads-and-ingest) does, and a route of your own, as in
 [Web app](./web-app.md#filesingest-and-its-errors). So a custom store should throw an error with a
 `status` and a message fit for the user (both are sent as they are): every path keeps that status.

@@ -693,8 +693,10 @@ refusing a whole-file read that would pass a ceiling of the question before it s
 
    Pass `tools()` only metadata that came back for this user: `prepared.plan.searchable` and
    `prepared.viewable` from `prepare(ids, base, { owner })`, or `getMeta(id, { owner })`. The tool
-   set takes no owner: the model can reach every document it is given. Metadata built from IDs the
-   client sent skips the check of ownership.
+   set takes no owner option: the model can reach every document it is given, and each call
+   compares the owner stored with the document with the `owner` of the metadata it was handed.
+   Metadata built from IDs the client sent, without the stored owner, reads nothing of a document
+   that has one: each call answers `doc_… is no longer available on the server. …`.
 4. **Offer** `tools.declarations` in your provider's form. Gemini takes them as
    `functionDeclarations` (`toGeminiTools`), the OpenAI-compatible adapter sends each as
    `{ type: "function", function: declaration }`, and the Claude adapter as

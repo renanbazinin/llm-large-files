@@ -201,7 +201,7 @@ A store of your own that fails while it writes an upload can throw an error with
 message. A Node system error, with `code` and `syscall`, is answered `500` with its code. Any other
 error it throws is answered `500` "Upload failed.", without its message, which may name your hosts.
 The handlers log nothing: log the error in your store before you throw it. Behind an `ingest` of
-your own that throws a new error in the store's place, as `ingestInWorker` in
+your own that throws a new error in the store's place, as `ingestInProcess` in
 [Deployment](./deployment.md#uploads-and-ingest) does, the handler answers `422` with that error's
 message, the store's own, unless the error keeps a status, or a code and a syscall. See
 [Storage](./storage.md#errors).
@@ -227,15 +227,18 @@ input, an [`IngestInput`](../reference/library.md#ingestinput):
 | `mimeType` | Optional. Used for the format when the extension says nothing. |
 | `bytes` | The file, as a `Uint8Array`. A Node `Buffer` is one. |
 | `owner` | Optional. The user (or tenant, or chat session) the document belongs to. Every later call must pass the same. |
+| `signal` | Optional. Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws its `reason`, and nothing is stored. |
 
 Answer the browser with `toDocumentSummary(meta)`, not with `meta`: the summary holds the fields that
 are safe to return to a browser, while `meta` also holds the owner, the outline and the log profile.
 
 `ingest` throws a plain `Error`, with a message written for the user, when it cannot take the file:
 the cases of the `422` above (an empty, binary or compressed file, no text, a missing optional
-dependency), and a file larger than `maxUploadBytes` ("app.log is larger than the 100 MB upload
-limit."). A store that fails while it writes throws its own error, as it came. This helper tells
-them apart by the rule `createDocumentHandlers` uses, with two differences, given below the code:
+dependency, a file past `maxTextBytes` or `maxPdfPages`, one that took longer than
+`ingestTimeoutMs`), and a file larger than `maxUploadBytes` ("app.log is larger than the 100 MB
+upload limit."). [PDFs and other formats](./pdfs.md#what-is-refused) lists every message. A store
+that fails while it writes throws its own error, as it came. This helper tells them apart by the
+rule `createDocumentHandlers` uses, with two differences, given below the code:
 
 ```ts
 // ingest-failure.ts
@@ -435,7 +438,8 @@ route on the Node runtime; edge runtimes, such as the Next.js Edge runtime, are 
 
 `ingest` runs while the upload request waits: extraction, profiling, the line index, the store's
 writes. That takes seconds for most files. For work that can take minutes, such as OCR of a long
-scan ([PDFs](./pdfs.md)), answer at once and ingest afterwards. The library has no jobs of its own;
+scan ([PDFs](./pdfs.md)), answer at once and ingest afterwards, and raise `ingestTimeoutMs`
+(2 minutes by default) above what that work takes. The library has no jobs of its own;
 this sketch keeps them in memory, on one server:
 
 ```ts

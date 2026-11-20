@@ -221,6 +221,7 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 | **Models** | Gemini and Vertex AI, any OpenAI-compatible endpoint, Claude, or an adapter of your own. Two models of different providers can share a question |
 | **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and input tokens |
 | **Privacy** | Documents can belong to an `owner`; other users can't plan, read, or delete them |
+| **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused; ingest pauses for other requests between pages and slices. Parsing still shares your server's heap: see [Security](docs/security.md#uploads) |
 | **Storage** | In memory, on disk with expiry, or your own store (Redis, S3, a database) |
 
 ## Live results

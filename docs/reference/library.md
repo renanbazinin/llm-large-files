@@ -7,7 +7,8 @@ an application or write a store, an extractor or a loop of their own.
 
 ```ts
 import {
-  createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, NEVER_EXPIRES, isDocumentId, toDocumentSummary,
+  createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_INGEST_TIMEOUT_MS,
+  NEVER_EXPIRES, isDocumentId, toDocumentSummary,
   DEFAULT_BUDGET, resolveBudget,
   MemoryDocumentStore, FileDocumentStore, DOCUMENT_ID_PATTERN, DocumentStoreError,
   createPdfExtractor, defaultExtractors, detectFormat,
@@ -30,6 +31,7 @@ Contents:
   [`AccessOptions`](#accessoptions), [`PrepareOptions`](#prepareoptions), [`ToolOptions`](#tooloptions),
   [`PreparedContext`](#preparedcontext), [`DocumentPlan`](#documentplan),
   [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
+  [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms),
   [`NEVER_EXPIRES`](#never_expires), [`isDocumentId(value)`](#isdocumentidvalue),
   [`toDocumentSummary(meta)`](#todocumentsummarymeta)
 - [The budget](#the-budget): [`Budget`](#budget), [`DEFAULT_BUDGET`](#default_budget),
@@ -88,6 +90,9 @@ type LargeFilesOptions = {
   budget?: Partial<Budget>;
   ttlMs?: number;
   maxUploadBytes?: number;
+  maxTextBytes?: number;
+  maxPdfPages?: number;
+  ingestTimeoutMs?: number;
   extractors?: Partial<Record<DocumentFormat, Extractor>>;
   keepOriginals?: DocumentFormat[];
   scannedPdfPages?: number;
@@ -106,6 +111,9 @@ type LargeFilesOptions = {
 | `budget` | `Partial<Budget>` | [`DEFAULT_BUDGET`](#default_budget) | The limits of your model connection. Fields you leave out follow `contextTokens` (see [`Budget`](#budget)): for a model with a smaller window, setting `contextTokens` is enough. |
 | `ttlMs` | `number` | 72 hours (259,200,000) | How long a document is kept after it is ingested. `expiresAt` is set at ingest, and the library never extends it. `Infinity`, or any time that would end at or after the end of year 9999, keeps documents until they are deleted: `expiresAt` is then [`NEVER_EXPIRES`](#never_expires). |
 | `maxUploadBytes` | `number` | 100 MB (104,857,600) | The largest file `ingest` accepts. The upload handler of [`llm-large-files/node`](./node.md) reads no more than this. |
+| `maxTextBytes` | `number` | `maxUploadBytes` | The most text kept from one file, in UTF-8 bytes. A file's text can be larger than the file: a PDF of 3 KB built for it drew 107 MB. The PDF, DOCX and PPTX extractors refuse a file as soon as its text passes this (a PDF page by page, and also past 100 times its size after the first 16 MB; a DOCX or PPTX also past 32 million characters, whatever this allows), and `ingest` refuses a larger text from any other extractor, the text extractor and yours included. Your extractor receives it as `ExtractInput.maxTextBytes`. At least 1. |
+| `maxPdfPages` | `number` | [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), 5,000 | The most pages read from one PDF. A PDF with more is refused before any page is read. Your PDF extractor receives it as `ExtractInput.maxPages`. At least 1. |
+| `ingestTimeoutMs` | `number` | [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms), 120,000 (2 minutes) | The most time one `ingest` may take to extract the text, build its line index and profile it, in milliseconds. The store's writes are not counted. Past it, `ingest` throws `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.`, and stores nothing. 0 sets no limit, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days). Your extractor receives the limit as `ExtractInput.signal`. Within one page of a PDF the limit is not looked at: see [security](../security.md#uploads). |
 | `extractors` | `Partial<Record<DocumentFormat, Extractor>>` | the built-ins, [`defaultExtractors`](#defaultextractors) | An [`Extractor`](#extractor) per format, used in place of the built-in one. The formats are fixed ([`DocumentFormat`](#documentformat)): you can replace the extractor of a format, not add a format. |
 | `keepOriginals` | `DocumentFormat[]` | `[]` | Formats whose uploaded file is kept in the store next to its text, for example `["pdf"]`, which `view_pages` needs. Takes effect only with a store that has `putOriginal`. A kept file takes as much space as the upload until its document expires or is deleted. |
 | `scannedPdfPages` | `number` | 30 | The most pages a PDF without any text (a scan) may have and still be accepted, so that its pages can be shown to the model. It applies only when `"pdf"` is in `keepOriginals` and the store has `putOriginal`. Otherwise, and with 0, such a PDF is refused. Your own PDF extractor receives it as `ExtractInput.scannedPages`. |
@@ -118,8 +126,9 @@ type LargeFilesOptions = {
 
 Guides: [storage](../guides/storage.md) for the store, owners and retention,
 [costs and limits](../guides/costs-and-limits.md) for the budget, [PDFs](../guides/pdfs.md) for
-`keepOriginals`, `scannedPdfPages` and `extractors`, and [deployment](../guides/deployment.md) for
-the memory settings.
+`keepOriginals`, `scannedPdfPages`, `extractors` and the files the limits refuse,
+[security](../security.md#uploads) for `maxTextBytes`, `maxPdfPages` and `ingestTimeoutMs`, and
+[deployment](../guides/deployment.md) for the memory settings.
 
 ### `LargeFiles`
 
@@ -155,7 +164,9 @@ new document's [`DocumentMeta`](#documentmeta).
 
 1. The name is cleaned (see [`IngestInput`](#ingestinput)), and the format is picked by
    [`detectFormat(name, mimeType)`](#detectformatname-mimetype).
-2. The extractor of that format turns the bytes into text.
+2. The extractor of that format turns the bytes into text. It receives the limits `maxTextBytes`
+   and `maxPdfPages` and the ingest's signal ([`ExtractInput`](#extractinput)). A text longer
+   than `maxTextBytes` is refused, whichever extractor made it.
 3. The text is normalized: a byte-order mark is removed, line endings become `\n`, and terminal
    escape sequences and control characters other than tab and newline are removed. Lines longer
    than 2,000 characters are split, so every line can be read by number (`wrappedLines` counts them).
@@ -165,11 +176,22 @@ new document's [`DocumentMeta`](#documentmeta).
 5. The store is written: the original file (when it is kept), then the line index (when the store
    has `putIndex`), then `put` last.
 
+Steps 2 to 4 work in slices of about 12 ms, with a pause for other requests between two slices:
+between the pages of a PDF, as a DOCX or PPTX is unpacked, and while the text is normalized,
+measured, outlined, profiled and indexed. Ingests that run at once take turns, one slice each.
+They run under one signal, aborted by `IngestInput.signal` or after `ingestTimeoutMs` (2 minutes
+by default). When it aborts, `ingest` stops waiting for the extractor, throws, and writes nothing
+to the store. The writes of step 5 are not under the signal. One page of a PDF is read without a
+pause, and the signal is looked at only between pages.
+
 | It throws | When |
 |---|---|
 | `Error("<name> is empty.")` | The file has no bytes. |
 | `Error("<name> is larger than the 100 MB upload limit.")` | The file is larger than `maxUploadBytes`. The message gives your limit. |
-| The extractor's `Error` | The extractor refused the file: a binary or compressed file, a PDF without text, a missing optional dependency, a possible zip bomb. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
+| The extractor's `Error` | The extractor refused the file: a binary or compressed file, a PDF without text, a missing optional dependency, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
+| `Error("<name> holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.")` | The text an extractor returned is larger than `maxTextBytes`. The message gives your limit. |
+| `Error("<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.")` | The ingest took longer than `ingestTimeoutMs`. The message gives your limit: "500 ms" below a second, "45 s" below 2 minutes, "2 min" from there. |
+| `signal.reason` | `IngestInput.signal` was aborted, before or during the ingest. |
 | `Error("<name> did not contain any text.")` | The extracted text is blank. |
 | The store's own error | A write failed. `ingest` first calls `store.delete(id)` to remove what was written (an error of that call is ignored), then throws the store's error unchanged. It is not a `DocumentStoreError`. |
 
@@ -283,8 +305,13 @@ answers with an error that lists the IDs it may use. Pass `prepared.plan.searcha
 set for each question: the time budget of regex searches and the count of whole-document reads
 belong to the tool set.
 
-It does not check owners. Pass documents that you got from `prepare` or `getMeta` with the
-caller's owner.
+It takes the owner from the metadata it is handed. Each call that reads a document's text or the
+pages of its PDF compares the owner stored with the document with the `owner` of the
+`DocumentMeta` given for that ID, and answers a document whose owners differ as it answers one
+that is gone: `doc_… is no longer available on the server. Ask the user to attach the file again.`
+So metadata built from an ID alone, or with another owner, reads nothing of a document that has an
+owner. A document stored without an owner is read whatever the metadata says. Pass documents that
+you got from `prepare` or `getMeta` with the caller's owner: they carry the stored owner.
 
 It declares `search_document`, `read_document` and `get_document_overview`;
 `analyze_whole_document` when `generate` is given and at least one document is small enough to be
@@ -322,7 +349,7 @@ The upload limit in effect: `options.maxUploadBytes`, or 104,857,600 (100 MB).
 ### `IngestInput`
 
 ```ts
-type IngestInput = { name: string; mimeType?: string; bytes: Uint8Array; owner?: string };
+type IngestInput = { name: string; mimeType?: string; bytes: Uint8Array; owner?: string; signal?: AbortSignal };
 ```
 
 The argument of [`files.ingest`](#filesingestinput).
@@ -333,6 +360,7 @@ The argument of [`files.ingest`](#filesingestinput).
 | `mimeType` | `string` | `"application/octet-stream"` | The MIME type, trimmed. Blank counts as absent. Used when the extension names no format. |
 | `bytes` | `Uint8Array` | required | The file. A Node `Buffer` is one. Empty, or larger than `maxUploadBytes`, is refused. |
 | `owner` | `string` | none | The user or tenant the document belongs to. Every later call must pass the same owner. Without one, anyone who has the ID can use the document. |
+| `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX and PPTX extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written changes nothing. `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
 
 Guide: [web app](../guides/web-app.md).
 
@@ -457,6 +485,22 @@ declare const DEFAULT_WHOLE_DOCUMENT_BYTES: number; // 2_097_152 (2 MB)
 ```
 
 The default of `LargeFilesOptions.wholeDocumentBytes`.
+
+### `DEFAULT_MAX_PDF_PAGES`
+
+```ts
+declare const DEFAULT_MAX_PDF_PAGES = 5000;
+```
+
+The default of `LargeFilesOptions.maxPdfPages`.
+
+### `DEFAULT_INGEST_TIMEOUT_MS`
+
+```ts
+declare const DEFAULT_INGEST_TIMEOUT_MS = 120000; // 2 minutes
+```
+
+The default of `LargeFilesOptions.ingestTimeoutMs`.
 
 ### `NEVER_EXPIRES`
 
@@ -816,7 +860,15 @@ Guide: [PDFs](../guides/pdfs.md), for OCR and other PDF extractors.
 ### `ExtractInput`
 
 ```ts
-type ExtractInput = { name: string; mimeType: string; format: DocumentFormat; scannedPages?: number };
+type ExtractInput = {
+  name: string;
+  mimeType: string;
+  format: DocumentFormat;
+  scannedPages?: number;
+  signal?: AbortSignal;
+  maxTextBytes?: number;
+  maxPages?: number;
+};
 ```
 
 | Field | Type | What it holds |
@@ -825,6 +877,9 @@ type ExtractInput = { name: string; mimeType: string; format: DocumentFormat; sc
 | `mimeType` | `string` | The MIME type, `"application/octet-stream"` when none was given. |
 | `format` | [`DocumentFormat`](#documentformat) | The format from `detectFormat`. A text file that turns out to be a log is still `"text"` here: logs are recognized after extraction. |
 | `scannedPages` | `number \| undefined` | Set for a PDF when one without any text may be accepted: `"pdf"` is in `keepOriginals`, the store has `putOriginal`, and `scannedPdfPages` is above 0. It is the most pages such a PDF may have. Unset, a PDF without text is to be refused. An extractor of your own may ignore it. |
+| `signal` | `AbortSignal \| undefined` | The signal of the ingest: aborted after `ingestTimeoutMs`, or when `IngestInput.signal` aborts. Its `reason` is the error to throw. The PDF, DOCX and PPTX extractors stop between pages and pieces; the text extractor decodes in one step. `ingest` sets it, and stops waiting for your extractor when it aborts, but cannot stop the work your extractor does: pass it on (to `fetch`, for example), or check it between steps with `signal.throwIfAborted()`. |
+| `maxTextBytes` | `number \| undefined` | `LargeFilesOptions.maxTextBytes`: the most text to keep, in UTF-8 bytes. `ingest` sets it, and refuses a larger text from any extractor once it returns. An extractor that refuses as soon as its text grows past it spares the memory. |
+| `maxPages` | `number \| undefined` | `LargeFilesOptions.maxPdfPages`: the most pages to read from one PDF. `ingest` sets it for every format; only the built-in PDF extractor uses it. `ingest` does not check it for you. |
 
 ### `ExtractedText`
 
@@ -865,8 +920,18 @@ The messages they refuse a file with, which `ingest` throws:
 - `This DOCX does not contain word/document.xml.` and `This PPTX does not contain any slides.`
 - `This DOCX unpacks to more than <n> MB, over 100 times its size. A file that grows that much is not read: it may be a zip bomb. Save it as text or PDF, and attach that.` (past the first 16 MB; `PPTX` for a presentation)
 - `This DOCX unpacks to more than 128 MB of XML, more than is read from one file. Save it as text or PDF, and attach that.`
+- `This PDF has <n> pages, more than the <m> read from one file. Split it, and attach the part you need.` (`maxPdfPages`, before any page is read)
+- `This PDF holds more than <n> MB of text, more than is kept from one file. Split it, and attach the part you need.` (`maxTextBytes`, counted page by page; `KB` below 1 MB, `B` below 1 KB)
+- `This PDF draws more than <n> MB of text, over 100 times its size. A file that grows that much is not read: it may be built to exhaust the server.` (text past 100 times the size of the file, after the first 16 MB, when that comes before `maxTextBytes`)
+- `This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.`
+- `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.` (from one Office file, whatever `maxTextBytes` allows)
+- `This DOCX holds more than <n> MB of text, more than is kept from one file. Split it, and attach the part you need.` (when `maxTextBytes` is below 32 million)
+- `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` (paragraphs with text)
+- `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.`
+- `This DOCX has <n> parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` (more than 20,000 parts in its ZIP directory, before JSZip reads it; the count of a ZIP64 directory is read from its ZIP64 record, and `over 65,000` is said when the directory says it has more than its field holds and has no such record)
 
-A PDF or an Office file that is damaged fails with the error of pdf.js or JSZip.
+The Office messages say `PPTX` for a presentation. A PDF or an Office file that is damaged fails
+with the error of pdf.js or JSZip.
 
 ### createPdfExtractor(options?)
 

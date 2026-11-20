@@ -138,6 +138,13 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         const bytes = await readBody(request, files.maxUploadBytes);
         const contentType = header(request, "content-type");
         const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
+        // A client that goes away before the answer stops the reading of its file: nobody would
+        // get the document, and the server has other work.
+        const gone = new AbortController();
+        const onClose = () => {
+          if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
+        };
+        response.once("close", onClose);
         let meta;
         try {
           meta = await files.ingest({
@@ -145,6 +152,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
             bytes,
             ...(mimeType ? { mimeType } : {}),
             ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
+            signal: gone.signal,
           });
         } catch (error) {
           // A file that cannot be read is the client's 422, with the reason. An error with a status
@@ -154,6 +162,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           if (statusOf(error) !== undefined || systemErrorCode(error) !== undefined) throw error;
           if (isStoreWriteFailure(error) || !(error instanceof Error)) throw error;
           throw new HttpError(422, error.message);
+        } finally {
+          response.off("close", onClose);
         }
         send(response, 201, toDocumentSummary(meta));
       } catch (error) {

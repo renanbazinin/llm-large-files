@@ -122,6 +122,7 @@ await files.delete(meta.id, { owner: "user-42" });   // true
 | `files.getOriginal(id, access)` | `access.owner` | `undefined` |
 | `files.delete(id, access)` | `access.owner` | `false`, and nothing is removed |
 | `files.prepare(ids, base, options)` | `options.owner` | Listed in `missing`, and never read |
+| `files.tools(documents, options)` | the `owner` of each `DocumentMeta` in `documents` (and in `viewPages`) | Each call that reads it answers `doc_… is no longer available on the server. Ask the user to attach the file again.` |
 | `askWithFiles(options)`, `askGemini(options)` | `options.owner` | `DocumentsNotFoundError`, before any model request |
 | `createDocumentHandlers(files, options)` | `options.getOwner(request)` | 404 "This file is no longer available." on GET; `{ "deleted": false }` on DELETE |
 
@@ -135,8 +136,10 @@ await files.delete(meta.id, { owner: "user-42" });   // true
   a status ([Web app](./web-app.md)).
 - The owner cannot be changed after ingest. Use a stable, opaque ID, not an email address that may
   change.
-- `files.tools(documents)` takes no owner: it trusts the metadata it is given. In a loop of your
-  own, pass it only metadata from `prepare(ids, base, { owner })` or `getMeta(id, { owner })`
+- `files.tools(documents)` takes no owner option: it compares the owner stored with each document
+  with the `owner` of the metadata it is given, and answers a mismatch as a document that is gone
+  (`doc_… is no longer available on the server. …`). In a loop of your own, pass it only metadata
+  from `prepare(ids, base, { owner })` or `getMeta(id, { owner })`
   ([Your own adapter and loop](./own-adapter-and-loop.md)). `askWithFiles` does this for you.
 
 ### Choosing the owner string

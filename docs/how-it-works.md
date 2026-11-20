@@ -26,7 +26,7 @@ question ─► plan the documents for the room left in the request, smallest fi
 
 ## Ingest
 
-`files.ingest({ name, bytes, mimeType?, owner? })` does five things, in order.
+`files.ingest({ name, bytes, mimeType?, owner?, signal? })` does five things, in order.
 
 1. **Check.** The name is cleaned to one printable line: the last path segment, without control
    characters, line breaks or text-direction overrides, 255 characters at most. An empty file, or
@@ -47,8 +47,15 @@ question ─► plan the documents for the room left in the request, smallest fi
    - **PPTX**: a `## Slide N` heading for each slide, and the slide count as the document's
      `pages`. **DOCX**: the body, then the endnotes, footers, footnotes and headers (the other
      parts in the order of their names).
+   - **Limits.** A PDF of more than `maxPdfPages` (5,000) pages is refused before its pages are
+     read, and one whose page tree lists a page twice as soon as it does. The text is counted as
+     it is read, a PDF page by page and a DOCX or PPTX paragraph by paragraph, and the file is
+     refused once it passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB); a PDF also past
+     100 times its size in text (after the first 16 MB); a DOCX or PPTX also past 32 million
+     characters of text, 1,000,000 paragraphs with text, paragraphs nested 32 deep, or 20,000
+     parts. The text of any other extractor, yours included, is checked when it returns.
 
-   Formats, tables, the picture line and your own extractors:
+   Formats, tables, the picture line, the refusals and your own extractors:
    [PDFs and other formats](./guides/pdfs.md).
 3. **Normalize.** Strip a BOM, turn every line ending into `\n`, remove terminal escape sequences
    (colour codes, window titles, character-set selection) and control characters other than tab
@@ -81,6 +88,15 @@ question ─► plan the documents for the room left in the request, smallest fi
    has `putOriginal`), the line index (when the store has `putIndex`), then the text and its
    metadata (`put`). A document exists once its metadata does; if a write fails, what was written
    is deleted. The ID is `doc_` and 32 hex characters, and `expiresAt` is `ttlMs` (72 hours) later.
+
+Steps 2 to 4 share the server with other requests. Each works in slices of about 12 ms, with a
+pause between two slices: the PDF extractor and the picture marks between pages, the DOCX and PPTX
+extractors as they unpack, and then the normalizing, the measures, the outline, the log profile
+and the line index. Ingests that run at once take turns, one slice each. They run under one
+signal, aborted by the caller's `signal` or after `ingestTimeoutMs` (2 minutes): `ingest` then
+throws, and nothing is stored. A step under way when it aborts, such as one page of pdf.js, runs
+to its end in the background, and holds the server while it runs: pdf.js reads a page without a
+pause. [Security](./security.md#uploads) has the limits and the stalls measured.
 
 The **line index** holds, for each line, where it starts in the UTF-8 bytes and in the string, which
 lines start a passage for keyword search (about 1,500 characters or 40 lines), and which lines are

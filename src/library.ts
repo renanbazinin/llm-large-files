@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { buildLogProfile, buildOutline, looksLikeLog } from "./analyze.js";
+import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
 import { DocumentStoreError, noteStoreWriteFailure } from "./errors.js";
 import { detectFormat, extractText } from "./extract.js";
 import { Limiter } from "./limiter.js";
+import { TimeSlicer } from "./pause.js";
 import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline, type WholeRead } from "./plan.js";
 import { openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
-import { buildTextIndex, canSerialize, serializeTextIndex } from "./text-index.js";
-import { estimateTokens, normalizeText, textSizes, wrapLongLines } from "./text.js";
+import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
+import { measureText, prepareText } from "./text.js";
 import type { RetryOptions } from "./retry.js";
 import { createDocumentTools } from "./tools.js";
 import type {
@@ -44,6 +45,23 @@ export type LargeFilesOptions = {
   ttlMs?: number;
   /** Largest accepted upload. Defaults to 100 MB. */
   maxUploadBytes?: number;
+  /**
+   * The most text kept from one file, in UTF-8 bytes. Defaults to `maxUploadBytes`. A small PDF can
+   * draw far more text than its own size (a 3 KB file built for it held 107 MB), so this is checked
+   * as the text is extracted: the built-in extractors refuse a file as soon as its text passes it,
+   * and `ingest` refuses a larger result from an extractor of your own.
+   */
+  maxTextBytes?: number;
+  /** The most pages read from one PDF. Defaults to 5,000. A PDF with more is refused before any page is read. */
+  maxPdfPages?: number;
+  /**
+   * The most time one `ingest` may take, in milliseconds: extracting the text, indexing it and
+   * profiling a log. Defaults to 120,000 (2 minutes). Past it, `ingest` throws an error that says
+   * the file took too long to read. 0 sets no limit, and so does a time past what a timer can wait
+   * (2,147,483,647 ms, 24.8 days). One page of a PDF is not cut short: the limit is looked at
+   * between pages.
+   */
+  ingestTimeoutMs?: number;
   /** Override or add text extractors per format. */
   extractors?: Partial<Record<DocumentFormat, Extractor>>;
   /**
@@ -97,6 +115,11 @@ export type IngestInput = {
   bytes: Uint8Array;
   /** The user (or tenant) the document belongs to. Later calls must pass the same owner. */
   owner?: string;
+  /**
+   * Stops the ingest when aborted (the uploader went away): it throws `signal.reason`, and nothing
+   * is stored. The built-in extractors stop between pages and pieces.
+   */
+  signal?: AbortSignal;
 };
 
 /** Access options. When a document has an owner, only that owner can use it. */
@@ -245,6 +268,58 @@ function allowed(meta: DocumentMeta, access: AccessOptions | undefined): boolean
 
 /** Default for `cacheBytes`. */
 export const DEFAULT_CACHE_BYTES = 256 * 1024 * 1024;
+/** The refusal of a file whose text is larger than `maxTextBytes`. */
+const tooMuchText = (name: string, maxTextBytes: number) =>
+  new Error(`${name} holds more than ${formatBytes(maxTextBytes)} of text, more than is kept from one file. Split it, and attach the part you need.`);
+
+/** Default for `maxPdfPages`. */
+export const DEFAULT_MAX_PDF_PAGES = 5_000;
+/** Default for `ingestTimeoutMs`: 2 minutes. */
+export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
+/** The longest a Node.js timer waits: a longer one fires at once. A limit past it is no limit. */
+const LONGEST_TIMER_MS = 2 ** 31 - 1;
+
+/** A time limit in the words of a message: "500 ms", "45 s", "2 min". */
+function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${Math.max(1, Math.round(ms))} ms`;
+  if (ms < 120_000) return `${Number((ms / 1_000).toFixed(1))} s`;
+  return `${Number((ms / 60_000).toFixed(1))} min`;
+}
+
+/**
+ * The signal one ingest runs under: aborted when the caller's is, or when `timeoutMs` has passed
+ * (with an error that says the file took too long). `dispose` stops the timer.
+ */
+function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; dispose(): void } {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(caller!.reason);
+  if (caller?.aborted) controller.abort(caller.reason);
+  else caller?.addEventListener("abort", onAbort, { once: true });
+  const timer = timeoutMs > 0 && timeoutMs <= LONGEST_TIMER_MS
+    ? setTimeout(() => controller.abort(new Error(`${name} took too long to read (more than ${formatDuration(timeoutMs)}). Split it, or save it as plain text, and attach that.`)), timeoutMs)
+    : undefined;
+  return {
+    signal: controller.signal,
+    dispose() {
+      clearTimeout(timer);
+      caller?.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
+/**
+ * `work`, or the signal's reason as soon as it is aborted: an extractor of your own that does not
+ * look at the signal is no longer waited for (though the work it does cannot be stopped).
+ */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 /** Default for `wholeDocumentBytes`. */
 export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
 
@@ -257,6 +332,10 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   );
   const ttlMs = options.ttlMs ?? 72 * 60 * 60 * 1000;
   const maxUploadBytes = options.maxUploadBytes ?? 100 * 1024 * 1024;
+  const given = (value: number | undefined, fallback: number) => (typeof value === "number" && !Number.isNaN(value) ? value : fallback);
+  const maxTextBytes = Math.max(1, given(options.maxTextBytes, maxUploadBytes));
+  const maxPdfPages = Math.max(1, Math.trunc(given(options.maxPdfPages, DEFAULT_MAX_PDF_PAGES)));
+  const ingestTimeoutMs = given(options.ingestTimeoutMs, DEFAULT_INGEST_TIMEOUT_MS);
   const now = options.now ?? (() => new Date());
   const { store } = options;
   const cacheBytes = Math.max(0, options.cacheBytes ?? DEFAULT_CACHE_BYTES);
@@ -390,21 +469,55 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
       }
       let format = detectFormat(name, mimeType);
-      const extracted = await extractText(input.bytes, {
-        name,
-        mimeType,
-        format,
-        // A scan is worth storing only if its pages can be shown later: that needs the file itself.
-        ...(format === "pdf" && keeps(format) && scannedPdfPages > 0 ? { scannedPages: scannedPdfPages } : {}),
-      }, options.extractors);
-      const { text, wrapped } = wrapLongLines(normalizeText(extracted.text));
-      if (!text.trim()) throw new Error(`${name} did not contain any text.`);
-      const lines = text.split("\n");
-      if (text.endsWith("\n")) lines.pop();
-      if (format === "text" && looksLikeLog(lines)) format = "log";
+      const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
+      // Each long step works in slices, with pauses for other requests: one large upload no longer
+      // holds the whole server while it is read.
+      const slicer = new TimeSlicer(signal);
+      let pages: number | undefined;
+      let text: string;
+      let wrapped: number;
+      let lines: string[];
+      let measured: Awaited<ReturnType<typeof measureText>>;
+      let outline: DocumentMeta["outline"];
+      let logProfile: DocumentMeta["logProfile"];
+      let index: Awaited<ReturnType<typeof buildTextIndexInSlices>> | undefined;
+      try {
+        signal.throwIfAborted();
+        // In a function of its own, so that the text as extracted is let go once it is prepared:
+        // the steps after it hold only the prepared text.
+        const read = async () => {
+          const extracted = await untilAborted(extractText(input.bytes, {
+            name,
+            mimeType,
+            format,
+            // A scan is worth storing only if its pages can be shown later: that needs the file itself.
+            ...(format === "pdf" && keeps(format) && scannedPdfPages > 0 ? { scannedPages: scannedPdfPages } : {}),
+            signal,
+            maxTextBytes,
+            maxPages: maxPdfPages,
+          }, options.extractors), signal);
+          // A character is at least one byte: a text this long is too large whatever it holds.
+          if (extracted.text.length > maxTextBytes) throw tooMuchText(name, maxTextBytes);
+          await slicer.pauseNow();
+          return { pages: extracted.pages, ...await prepareText(extracted.text, slicer) };
+        };
+        ({ pages, text, wrapped, lines } = await read());
+        if (!text.trim()) throw new Error(`${name} did not contain any text.`);
+        if (format === "text" && looksLikeLog(lines)) format = "log";
+        measured = await measureText(text, slicer);
+        if (measured.utf8 > maxTextBytes) throw tooMuchText(name, maxTextBytes);
+        outline = await buildOutlineInSlices(lines, format, slicer);
+        logProfile = format === "log" ? await buildLogProfileInSlices(lines, slicer) : undefined;
+        // The line index, so that the text can be read by range: a few bytes a line, built from the
+        // UTF-8 bytes the store writes. Kept by any store that can keep it, even one this library
+        // then loads whole, so that switching to reading by range finds it ready.
+        index = typeof store.putIndex === "function" ? await buildTextIndexInSlices(text, slicer) : undefined;
+        signal.throwIfAborted();
+      } finally {
+        dispose();
+      }
       const created = now();
       const expires = created.getTime() + ttlMs;
-      const sizes = textSizes(text);
       const keepOriginal = keeps(format);
       const meta: DocumentMeta = {
         id: `doc_${randomUUID().replaceAll("-", "")}`,
@@ -413,24 +526,20 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         mimeType,
         format,
         bytes: input.bytes.byteLength,
-        textBytes: sizes.utf8,
-        jsonBytes: sizes.json,
+        textBytes: measured.utf8,
+        jsonBytes: measured.json,
         characters: text.length,
         lines: lines.length,
-        estimatedTokens: estimateTokens(text),
+        estimatedTokens: measured.tokens,
         wrappedLines: wrapped,
-        ...(extracted.pages ? { pages: extracted.pages } : {}),
+        ...(pages ? { pages } : {}),
         ...(keepOriginal ? { originalKept: true } : {}),
-        outline: buildOutline(lines, format),
-        ...(format === "log" ? { logProfile: buildLogProfile(lines) } : {}),
+        outline,
+        ...(logProfile ? { logProfile } : {}),
         createdAt: created.toISOString(),
         // Never, for a time to live without end (or one that runs past what a date can hold).
         expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
       };
-      // The line index, so that the text can be read by range: a few bytes a line, built from the
-      // UTF-8 bytes the store writes. Kept by any store that can keep it, even one this library
-      // then loads whole, so that switching to reading by range finds it ready.
-      const index = typeof store.putIndex === "function" ? buildTextIndex(text) : undefined;
       const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters
         ? serializeTextIndex(index)
         : undefined;
@@ -513,12 +622,26 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       const budget = budgetFor(overrides);
       const viewable = (loadOriginal ? (viewPages === true ? documents : viewPages || []) : [])
         .filter((meta) => meta.format === "pdf" && meta.originalKept);
+      // The owner each document was handed in with. The store's owner is checked against it on
+      // every call, so metadata built from an ID alone cannot read another owner's document: such
+      // a document is answered as no longer available, as `getMeta` reports it missing.
+      const handedOwner = new Map<string, string | undefined>([...documents, ...viewable].map((meta) => [meta.id, meta.owner]));
+      const mayUse = (meta: DocumentMeta) => meta.owner === undefined || (handedOwner.has(meta.id) && meta.owner === handedOwner.get(meta.id));
+      // The metadata the store holds now, not that of a copy kept in memory.
+      const checkedLoad = async (id: string) => {
+        const meta = await currentMeta(id);
+        return meta && mayUse(meta) ? load(id, meta) : undefined;
+      };
+      const checkedOriginal = loadOriginal && (async (id: string) => {
+        const meta = await currentMeta(id);
+        return meta && mayUse(meta) ? loadOriginal(id) : undefined;
+      });
       return createDocumentTools({
-        load,
+        load: checkedLoad,
         documentIds: documents.map((meta) => meta.id),
         names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, meta.name])),
         budget,
-        ...(loadOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal } : {}),
+        ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal } : {}),
         // `analyze_whole_document` is declared only when it can read at least one of the documents.
         wholeReads: documents.some((meta) => canBeReadWhole(meta, budget)),
         ...rest,

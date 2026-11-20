@@ -92,10 +92,17 @@ that only its text was kept, any other is an unknown `document_id`.
 `askWithFiles` and `askGemini` make one tool set per question, from the plan that `prepare` made
 with the question's owner. You have nothing to do.
 
-**`files.tools()` takes no owner and checks none.** It trusts the metadata it is given, and checks
-only that each document is still in the store and has not expired. In a tool loop of your own, give
-it only metadata that `prepare(ids, base, { owner })` or `getMeta(id, { owner })` returned, never
-objects built from IDs a client sent:
+**`files.tools()` checks owners through the metadata it is given.** It has no owner option. On
+every call that reads a document's text or the pages of its PDF, it checks that the document is
+still in the store and has not expired, and compares the owner stored with the document with the
+`owner` of the `DocumentMeta` you passed for that ID. When they differ, the call answers
+`doc_… is no longer available on the server. Ask the user to attach the file again.`, as for a
+document that is gone, and `view_pages` shows no page. So metadata built from an ID a client sent,
+with no owner or another one, reads nothing of a document that has an owner. The check compares
+strings: metadata that carries the stored owner reads the document, wherever it came from, and a
+document stored without an owner is open to any metadata. (Before 0.6.1, `tools()` checked no
+owner.) In a tool loop of your own, give it only metadata that `prepare(ids, base, { owner })` or
+`getMeta(id, { owner })` returned, never objects built from IDs a client sent:
 
 ```ts
 import { DocumentsNotFoundError } from "llm-large-files";
@@ -281,10 +288,14 @@ What bounds them:
   Picture marks skip a file past 150,000 objects: it is ingested with no page marked. Both checks
   trust what the file declares: a file that declares fewer objects than it has, or none, is read.
 - **Time.** Reading cannot be interrupted once it has started, not even by the question's `signal`.
-  It pauses every 4,000 objects so other requests get a turn, but a crafted file can still hold the
-  process for seconds ([Measurements](./measurements.md)). `view_pages` has no time limit. Picture
-  marks stop after 5 seconds of work once the file is read, and then no page is marked; the reading
-  itself has no limit.
+  It pauses every 500 objects so other requests get a turn, or every few thousand for a file of
+  more than 50,000 objects, so that it pauses about 100 times at most. (Until 0.6.1 it paused every
+  4,000, and 4,000 objects of a large file took 0.5 to 0.8 s.) `view_pages` has no time limit.
+  Picture marks pause every 12 ms or so between pages, and stop after 5 seconds of work once the
+  file is read (the pauses do not count): then no page is marked. At ingest, picture marks also
+  stop between two pages when `ingestTimeoutMs` (2 minutes) passes or `IngestInput.signal` aborts;
+  a reading of the file already under way goes on in the background until it ends
+  ([Uploads](#uploads)).
 - **Errors** are caught. `view_pages` tells the model why the pages cannot be shown, and the model
   answers from the text. Picture marks that fail leave every page unmarked.
 
@@ -304,9 +315,26 @@ const files = createLargeFiles({
 });
 ```
 
-For uploads you do not trust, run ingest and the questions in a worker thread or a separate
-process, with a memory limit and a timeout ([Deployment](./guides/deployment.md)). The parsers of
-PDF text and of DOCX and PPTX files then run there too ([Uploads](#uploads)).
+For uploads you do not trust, parse them in a process of their own, with a memory limit and a
+timeout: run ingest there, and the questions too if you keep PDFs for `view_pages`. The parsers of
+PDF text and of DOCX and PPTX files then run there as well ([Uploads](#uploads)). The limits of the library bound
+what a file can make it keep, but not the memory a parser takes for its own work, and in your
+server that memory is the server's heap. Choose the isolation with care:
+
+- **A child process contains running out of memory.** A process started with `child_process.fork`,
+  or a service of its own, with its own `--max-old-space-size`, stops alone, and your server goes
+  on.
+- **A worker thread does not reliably contain it.** In the review of 0.6.0, a worker given
+  `resourceLimits: { maxOldGenerationSizeMb: 512 }` ran out of memory on a hostile DOCX and took
+  the whole process down with it.
+- **A heap flag of the process silently replaces a worker's limit.** With `--max-old-space-size`
+  on the command line or in `NODE_OPTIONS`, every worker gets the process's heap limit in place of
+  its `resourceLimits.maxOldGenerationSizeMb`. With `--max-old-space-size=1024`, a worker given 512
+  MB had a heap limit of 1,216 MB, the process's, where it has 704 MB without the flag (Node 24,
+  `v8.getHeapStatistics().heap_size_limit`). Clearing `execArgv` or `NODE_OPTIONS` for the worker
+  does not change it.
+
+[Deployment](./guides/deployment.md#uploads-and-ingest) has the recipes.
 
 ## Uploads
 
@@ -317,18 +345,58 @@ PDF text and of DOCX and PPTX files then run there too ([Uploads](#uploads)).
   too. `files.ingest` checks the bytes you give it, which are already in memory.
 - **Memory.** The handlers buffer the whole upload, up to `maxUploadBytes`, before reading its
   text, and an ingest then holds several copies of the text at once (several times the size of the
-  file), on the main thread. Cap concurrent uploads in front (a reverse proxy, a rate limiter), or
-  ingest in a worker: [Deployment](./guides/deployment.md) has measurements and a worker.
+  text), in your server's heap. Cap concurrent uploads in front (a reverse proxy, a rate limiter),
+  or ingest in a process of its own: [Deployment](./guides/deployment.md) has measurements and
+  recipes.
+- **Text.** A small file can hold far more text than its size: a PDF of 3 KB whose page tree
+  listed one dense page 150 times drew 107 MB of text in 0.6.0. `maxTextBytes` (by default
+  `maxUploadBytes`, 100 MB) bounds the text kept from one file, in UTF-8 bytes. The PDF extractor
+  counts it page by page, and DOCX and PPTX as they are unpacked; each refuses the file as soon as
+  it passes. The text of any other extractor is checked when it returns. A PDF whose page tree
+  lists one page more than once is refused before its text grows: "This PDF lists the same page
+  more than once. A file built that way can hold far more text than its size, so it is not read.
+  Print it to a new PDF, and attach that." A PDF whose pages paint forms inside forms draws the
+  text of the innermost one each time it is painted: past the first 16 MB, a PDF that draws more
+  than 100 times its size in text is refused as it is read ("This PDF draws more than 16 MB of
+  text, over 100 times its size. …"), whatever `maxTextBytes` allows.
+- **Pages.** A PDF of more than `maxPdfPages` pages (5,000 by default) is refused before any page
+  is read.
+- **Time.** One ingest may take `ingestTimeoutMs` (2 minutes by default) to extract, index and
+  profile the text. Past it, `ingest` throws "report.pdf took too long to read (more than 2 min).
+  …", and nothing is stored. `IngestInput.signal` stops it sooner, when your route knows that the
+  uploader left; the upload handler of `createDocumentHandlers` aborts it when the client closes
+  the connection. The PDF, DOCX and PPTX extractors stop between two pages or two pieces. At the
+  limit, `ingest` stops waiting, but a step already under way (one page of pdf.js, JSZip reading
+  the directory of a ZIP, a parse of `@cantoo/pdf-lib`, an extractor of your own that does not
+  look at `ExtractInput.signal`) runs on to its end in the background.
+- **Stalls.** Ingest pauses for other requests about every 12 ms of its work: between the pages of
+  a PDF, as a DOCX or PPTX is unpacked, and in every step after extraction. In a measurement on
+  one machine, the longest stall of the event loop was 31 to 34 ms for a 99 MB log and 0.16 s for
+  a 2,000-page PDF, against 1.9 to 2.0 s and 4.4 to 4.5 s with 0.6.0
+  ([Measurements](./measurements.md#the-server)). Two kinds of file still hold the server, and
+  neither the time limit nor a signal cuts them short: a PDF page that is slow to read holds it
+  for as long as that page takes (a page built to paint forms inside forms held it for 25 s), and
+  a DOCX or PPTX packed hundreds of times tighter than documents are holds it for about 0.2 s at a
+  time while JSZip unpacks a piece. Ingest files you do not trust in a process of their own
+  ([Deployment](./guides/deployment.md#uploads-and-ingest)).
 - **Parsers.** PDF text is read with `unpdf` (pdf.js), pages and pictures with `@cantoo/pdf-lib`,
   and DOCX and PPTX are unpacked with `jszip`. They are optional dependencies, and they run on
   untrusted input in your process. Keep them updated, and for high-risk deployments move extraction
-  to a worker or a sandbox.
+  to a process of its own or a sandbox ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)
+  says why a worker thread is not enough).
 - **Zip bombs.** A DOCX or PPTX is unpacked a piece at a time, and refused as it grows past 100
   times its size (after the first 16 MB) or past 128 MB of XML: "This DOCX unpacks to more than
   16 MB, over 100 times its size. A file that grows that much is not read: it may be a zip bomb. Save
   it as text or PDF, and attach that." Only the parts that hold text are unpacked (in a DOCX the
   document, its headers, footers, footnotes and endnotes; in a PPTX the slides, not their speaker
-  notes). Pictures and fonts stay packed.
+  notes). Pictures and fonts stay packed. What is kept in memory is bounded by the text, not by the
+  XML: each paragraph becomes one string when it closes, and an empty one is dropped. A file is
+  refused with more than 32 million characters of text (or `maxTextBytes`, when that is smaller), more than
+  1,000,000 paragraphs with text, paragraphs nested more than 32 deep, or more than 20,000 parts in
+  its ZIP directory. The parts are counted from the end of the file before JSZip reads them: JSZip
+  keeps the header of every part in memory, and 300,000 empty parts took over 500 MB. In 0.6.0, a
+  DOCX of 1.5 MB that held 120 MB of empty paragraphs ran a heap of 512 MB out of memory and
+  stopped the server; it is now refused with the process at 115 MB.
 - **Binary files are refused**, with a message for the user: "This file looks binary, not text…".
   Compressed ones (`.gz`, `.zip`) get a message that says to decompress first.
 - **Scanned PDFs** (no text at all) are refused, unless PDF originals are kept (`keepOriginals`
@@ -459,7 +527,7 @@ are passed on as they came, and the upload handler answers a write error that ha
 SDK's error with `statusCode`, is answered with that status and its own message, which can name a
 host. Two paths answer a store's write error 422 with its own message, so a database driver's host
 can reach the browser through them: an `ingest` of your own that throws a new error in place of the
-store's, as `ingestInWorker` in [Deployment](./guides/deployment.md#uploads-and-ingest) does, and a
+store's, as `ingestInProcess` in [Deployment](./guides/deployment.md#uploads-and-ingest) does, and a
 route of your own, as in [Web app](./guides/web-app.md#filesingest-and-its-errors). Give your
 store's write errors a status and a message of your own, and log the cause yourself, since the
 handlers log nothing: see [Storage](./guides/storage.md#errors) and the
@@ -503,8 +571,11 @@ What you log is your choice, and some of what the library hands you holds user d
   ([What a question can cost](#what-a-question-can-cost)).
 - Cap concurrent uploads, and set the limit of any body parser in front of the handlers
   ([Uploads](#uploads)).
-- For untrusted uploads, run ingest and the questions in a worker or a separate process with a
-  memory limit, and keep `unpdf`, `@cantoo/pdf-lib` and `jszip` updated.
+- Keep the limits on one file (`maxTextBytes`, `maxPdfPages`, `ingestTimeoutMs`) as low as your
+  users allow ([Uploads](#uploads)).
+- For untrusted uploads, parse them in a process of their own with a memory limit, not in a worker
+  thread ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)), and keep
+  `unpdf`, `@cantoo/pdf-lib` and `jszip` updated.
 - Render answers as untrusted text.
 - Check what your model provider keeps, and where it processes the data
   ([What is sent to model providers](#what-is-sent-to-model-providers)).

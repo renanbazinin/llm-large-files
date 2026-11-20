@@ -1,3 +1,5 @@
+import type { TimeSlicer } from "./pause.js";
+
 /** Lines longer than this are split so line-based tools always return bounded output. */
 export const MAX_LINE_CHARACTERS = 2_000;
 
@@ -16,7 +18,12 @@ const ANSI_ESCAPE = /\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)
  * other than tab and newline.
  */
 export function normalizeText(raw: string): string {
-  let text = raw.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+  return normalizeLines(raw.replace(/^﻿/, ""));
+}
+
+/** `normalizeText` without the BOM: the same on a whole text as on pieces of it cut after line breaks. */
+function normalizeLines(raw: string): string {
+  let text = raw.replace(/\r\n?/g, "\n");
   // Remove whole sequences first. Dropping only the ESC byte would leave "[31mERROR[0m" behind.
   if (text.includes("\x1b")) text = text.replace(ANSI_ESCAPE, "");
   // eslint-disable-next-line no-control-regex
@@ -60,6 +67,16 @@ export function sliceWhole(text: string, end: number): string {
  * end of each piece. Minified JSON or a PDF paragraph becomes many addressable lines.
  */
 export function wrapLongLines(text: string, limit = MAX_LINE_CHARACTERS): { text: string; wrapped: number } {
+  // Most files have no long line: then the text is used as it is, without splitting and joining it.
+  let longest = 0;
+  let start = 0;
+  for (let end = text.indexOf("\n"); ; end = text.indexOf("\n", start)) {
+    const stop = end === -1 ? text.length : end;
+    if (stop - start > longest) longest = stop - start;
+    if (end === -1 || longest > limit) break;
+    start = end + 1;
+  }
+  if (longest <= limit) return { text, wrapped: 0 };
   let wrapped = 0;
   const lines = text.split("\n");
   const out: string[] = [];
@@ -123,13 +140,20 @@ const SYMBOL = 1; // Dashes, quotes, arrows, box drawing, and anything unclassif
  * of random letters in a single case with no digits (about 70% of the real count).
  */
 export function estimateTokens(text: string): number {
-  let tokens = 0;
+  return Math.ceil(tokensIn(text, 0, text.length, 0));
+}
+
+/**
+ * The tokens of `text` from `from` to `to`, added to `tokens`. Every count starts again after a line
+ * break, so a text cut after line breaks gives, piece by piece, the sum it gives whole.
+ */
+function tokensIn(text: string, from: number, to: number, tokens: number): number {
   // The current run of ASCII letters: its length since the last case change, and its casing.
   let piece = 0;
   let capitalsInARow = 0;
   let previousWasLower = false;
   let previous = 0; // 1 = space, 2 = ASCII punctuation, 0 = anything else
-  for (let index = 0; index < text.length; index++) {
+  for (let index = from; index < to; index++) {
     const code = text.charCodeAt(index);
     if ((code >= 97 && code <= 122) || (code >= 65 && code <= 90)) {
       const capital = code <= 90;
@@ -186,7 +210,7 @@ export function estimateTokens(text: string): number {
     else if (code < 0xff00) tokens += OTHER_SCRIPT;
     else tokens += KANA;
   }
-  return Math.ceil(tokens);
+  return tokens;
 }
 
 /**
@@ -197,9 +221,15 @@ export function estimateTokens(text: string): number {
  * quarter or more, a novel by a hundredth.
  */
 export function textSizes(text: string): { utf8: number; json: number } {
+  const { utf8, escapes } = sizesIn(text, 0, text.length);
+  return { utf8, json: utf8 + escapes + 2 };
+}
+
+/** UTF-8 bytes and JSON escapes of `text` from `from` to `to`, which must not split a surrogate pair. */
+function sizesIn(text: string, from: number, to: number): { utf8: number; escapes: number } {
   let utf8 = 0;
   let escapes = 0;
-  for (let index = 0; index < text.length; index++) {
+  for (let index = from; index < to; index++) {
     const code = text.charCodeAt(index);
     if (code < 0x80) {
       utf8 += 1;
@@ -207,7 +237,7 @@ export function textSizes(text: string): { utf8: number; json: number } {
       else if (code < 0x20) escapes += code === 0x0a || code === 0x09 || code === 0x0d || code === 0x08 || code === 0x0c ? 1 : 5;
     } else if (code < 0x800) {
       utf8 += 2;
-    } else if (isHighSurrogate(code) && isLowSurrogate(text.charCodeAt(index + 1))) {
+    } else if (isHighSurrogate(code) && index + 1 < to && isLowSurrogate(text.charCodeAt(index + 1))) {
       utf8 += 4;
       index++;
     } else {
@@ -216,7 +246,75 @@ export function textSizes(text: string): { utf8: number; json: number } {
       if (code >= 0xd800 && code <= 0xdfff) escapes += 3;
     }
   }
-  return { utf8, json: utf8 + escapes + 2 };
+  return { utf8, escapes };
+}
+
+/** Characters worked on between two looks at the clock while ingesting. */
+const SLICE_CHARACTERS = 1 << 18;
+
+/**
+ * The text cut into slices of about 256K characters, each ending after a line break (the last
+ * one at the end of the text), as `[from, to)` offsets.
+ */
+function* lineSlices(text: string): Generator<[number, number]> {
+  for (let from = 0; from < text.length;) {
+    let to = Math.min(text.length, from + SLICE_CHARACTERS);
+    if (to < text.length) {
+      const newline = text.indexOf("\n", to - 1);
+      to = newline === -1 ? text.length : newline + 1;
+    }
+    yield [from, to];
+    from = to;
+  }
+}
+
+/**
+ * `estimateTokens` and `textSizes` of a text, the same numbers, worked out a slice at a time so
+ * that other requests get a turn while a large upload is measured. Slices end after a line break.
+ */
+export async function measureText(text: string, slicer: TimeSlicer): Promise<{ tokens: number; utf8: number; json: number }> {
+  let tokens = 0;
+  let utf8 = 0;
+  let escapes = 0;
+  for (const [from, to] of lineSlices(text)) {
+    tokens = tokensIn(text, from, to, tokens);
+    const sizes = sizesIn(text, from, to);
+    utf8 += sizes.utf8;
+    escapes += sizes.escapes;
+    await slicer.maybePause();
+  }
+  return { tokens: Math.ceil(tokens), utf8, json: utf8 + escapes + 2 };
+}
+
+/**
+ * What ingest makes of extracted text, a slice at a time: `normalizeText`, then `wrapLongLines`,
+ * then the lines (a line break at the very end does not start another line). The same results as
+ * doing each in one go: no step of `normalizeText` reaches across a line break.
+ */
+export async function prepareText(raw: string, slicer: TimeSlicer): Promise<{ text: string; wrapped: number; lines: string[] }> {
+  const body = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const parts: string[] = [];
+  // A clean text (most logs) comes back as it is: joining its slices would copy all of it.
+  let changed = false;
+  for (const [from, to] of lineSlices(body)) {
+    const slice = body.slice(from, to);
+    const normalized = normalizeLines(slice);
+    if (normalized !== slice) changed = true;
+    parts.push(normalized);
+    await slicer.maybePause();
+  }
+  const { text, wrapped } = wrapLongLines(!changed ? body : parts.length === 1 ? parts[0]! : parts.join(""));
+  parts.length = 0;
+  await slicer.maybePause();
+  const lines: string[] = [];
+  for (const [from, to] of lineSlices(text)) {
+    const piece = text.slice(from, to).split("\n");
+    // A slice that ends with a line break splits into one empty string too many.
+    if (text.charCodeAt(to - 1) === 10) piece.pop();
+    for (const line of piece) lines.push(line);
+    await slicer.maybePause();
+  }
+  return { text, wrapped, lines };
 }
 
 /** UTF-8 byte length without allocating an encoded copy. */

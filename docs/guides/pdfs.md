@@ -73,6 +73,17 @@ maps these messages itself.
 | Any other binary file: images, legacy `.doc` and `.xls` | `This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.` |
 | A file that holds no text once read | `report.docx did not contain any text.` |
 | A DOCX or PPTX that unpacks to more than 100 times its size (past the first 16 MB), or to more than 128 MB of XML | `This DOCX unpacks to more than …`, which ends `Save it as text or PDF, and attach that.` |
+| A PDF of more than `maxPdfPages` pages (5,000 by default), before any page is read | `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` |
+| A PDF whose text passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB), counted page by page | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
+| A PDF whose page tree lists one page more than once | `This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.` |
+| A PDF whose pages draw more than 100 times its size in text (past the first 16 MB), by painting forms inside forms | `This PDF draws more than 16 MB of text, over 100 times its size. A file that grows that much is not read: it may be built to exhaust the server.` |
+| A DOCX or PPTX of more than 32 million characters of text | `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.` |
+| A DOCX or PPTX whose text passes `maxTextBytes`, when that is below 32 million | `This DOCX holds more than 10 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
+| A DOCX or PPTX of more than 1,000,000 paragraphs with text | `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX with paragraphs nested more than 32 deep | `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX whose ZIP directory lists more than 20,000 parts | `This DOCX has 30,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` |
+| A file of any format whose text, from an extractor of your own or the text extractor, passes `maxTextBytes` | `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
+| A file that takes longer than `ingestTimeoutMs` to read (2 minutes by default) | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` |
 | A PDF without text on any page | See [Scanned PDFs](#scanned-pdfs). |
 | A PDF that needs a password to open | `No password given`, the message of pdf.js. |
 | A damaged PDF | The message of pdf.js, such as `Invalid PDF structure.` |
@@ -84,6 +95,28 @@ maps these messages itself.
 
 A missing dependency is your server's fault, but it reaches the user as a 422, a file that cannot be
 read. Install the dependencies wherever the upload route runs.
+
+The numbers in the messages are your limits: `maxPdfPages`, `maxTextBytes` and `ingestTimeoutMs`
+of `createLargeFiles` ([`LargeFilesOptions`](../reference/library.md#largefilesoptions)). A size
+below 1 MB is given in KB, and below 1 KB in B; a time below a second in ms, below 2 minutes in s,
+and from there in min. An Office message says `PPTX` for a presentation. An Office file is
+refused past 32 million characters of text even when `maxTextBytes` is larger. The count of parts
+says `over 65,000` when the ZIP directory says it has more than its field can hold and gives no
+ZIP64 count.
+
+What the user can do:
+
+- **A long PDF, or one with a lot of text:** split it (by chapters, by year), and attach the part
+  the question is about. If such files are expected, raise `maxPdfPages` or `maxTextBytes`; the
+  text is then searched as any other.
+- **A file that took too long:** split it, or save it again as plain text (or, for a PDF, print it
+  to a new PDF), and attach that. A server that is busy reads slower: if files that should pass
+  are refused, raise `ingestTimeoutMs`, and check how many ingests run at once
+  ([Deployment](./deployment.md#uploads-and-ingest)).
+- **A PDF that lists a page more than once, or an Office file that nests, repeats or splits its
+  content past what a program writes:** these are built to exhaust a server, not written by Word,
+  PowerPoint or a PDF printer. If one comes from a real program, opening it there and saving it
+  again, or printing it to a new PDF, writes it the usual way.
 
 ## PDF text
 
@@ -184,6 +217,7 @@ The options of this page, and where each is explained:
 |---|---|---|
 | `keepOriginals` (`createLargeFiles`) | `[]`: no file kept | List `"pdf"` to keep the uploaded file, which `view_pages` and scanned PDFs need ([above](#pictures-in-pdfs)). |
 | `scannedPdfPages` (`createLargeFiles`) | 30 | The most pages a PDF without text may have to be accepted, when PDFs are kept. 0 refuses every one ([Scanned PDFs](#scanned-pdfs)). |
+| `maxPdfPages`, `maxTextBytes`, `ingestTimeoutMs` (`createLargeFiles`) | 5,000 pages; `maxUploadBytes`; 120,000 ms | The most pages, text and time one file may take at ingest ([What is refused](#what-is-refused)). |
 | `tables`, `pictures` (`createPdfExtractor`) | `true` | Rebuild tables; write the line that marks a page with a picture ([PDF tables](#pdf-tables), [The line that marks a page](#the-line-that-marks-a-page)). |
 | `viewPages` (`askGemini`, `askWithFiles`) | `true` | Offer `view_pages` for the PDFs whose file is kept ([Limits and cost](#limits-and-cost)). |
 | `toolFilePlacement` (`gemini()`, `askGemini`, `anthropic()`) | `"inside"` | Where the pages go in the request ([Where the pages go](#where-the-pages-go-toolfileplacement)). |
@@ -314,7 +348,7 @@ Pages that cannot be shown get an error result, and the model answers from the t
 | A page past the end | `report.pdf has 40 pages. There is no page 41.` |
 
 What a look costs the server: the whole file is read into memory for every call. At the peak that
-is about twice the size of the file, plus 1 to 1.6 KB for each object in it. Reading pauses every 4,000 objects so other
+is about twice the size of the file, plus 1 to 1.6 KB for each object in it. Reading pauses every 500 objects so other
 requests get a turn, but it cannot be stopped once it has started. Peak memory for real files is in
 [measurements](../measurements.md); [Deployment](./deployment.md) sizes servers for it.
 
@@ -504,6 +538,19 @@ Pass yours in `extractors`, by format. The other formats keep the built-in extra
 `defaultExtractors` holds, one per format ([`Extractor`](../reference/library.md#extractor),
 [`defaultExtractors`](../reference/library.md#defaultextractors)).
 
+`input` also carries the limits of the ingest, for your extractor to honour
+([`ExtractInput`](../reference/library.md#extractinput)):
+
+| Field | What it is | What to do with it |
+|---|---|---|
+| `signal` | Aborted after `ingestTimeoutMs` (2 minutes by default), or when the caller's `IngestInput.signal` aborts. Its `reason` is the error to throw. | Pass it to the work you start (`fetch(url, { signal: input.signal })`), and call `input.signal?.throwIfAborted()` between long steps. When it aborts, `ingest` stops waiting for your extractor and throws; work that does not look at the signal goes on in the background until it ends. |
+| `maxTextBytes` | `maxTextBytes` of `createLargeFiles`: the most text kept from one file, in UTF-8 bytes. | Refuse the file as soon as your text passes it, with a message for the user. `ingest` refuses a larger text when you return it, but by then it is all in memory. |
+| `maxPages` | `maxPdfPages` of `createLargeFiles`: the most pages read from one PDF. | In a PDF extractor, refuse a file with more pages before you read them. `ingest` does not check it for you. |
+
+The built-in PDF, DOCX and PPTX extractors honour all three (the text extractor decodes in one
+step, and its text is checked when it returns), so an extractor that wraps one, as the OCR example
+below does, gets them by passing `input` on.
+
 The eight formats are fixed: you can replace the extractor of a format, not add a format. A file of
 another kind, such as HTML or XLSX, is detected as `text`, so it goes to the `text` extractor: check
 the name or the MIME type there ([Other formats](#other-formats)).
@@ -556,11 +603,12 @@ Textract or Tesseract can stand behind it.
 import { createLargeFiles, createPdfExtractor, FileDocumentStore, type Extractor } from "llm-large-files";
 
 /** The text of each page of a PDF, in page order, from your OCR service. */
-async function recognizePages(pdf: Uint8Array): Promise<string[]> {
+async function recognizePages(pdf: Uint8Array, signal: AbortSignal | undefined): Promise<string[]> {
   const response = await fetch(process.env.OCR_URL!, {
     method: "POST",
     headers: { "Content-Type": "application/pdf" },
     body: Buffer.from(pdf),
+    signal, // the ingest's time limit stops the request too
   });
   if (!response.ok) throw new Error(`The OCR service answered ${response.status}.`);
   const { pages } = (await response.json()) as { pages: string[] };
@@ -580,8 +628,10 @@ const pdfWithOcr: Extractor = async (bytes, input) => {
 
   let recognized: string[];
   try {
-    recognized = await recognizePages(bytes);
+    recognized = await recognizePages(bytes, input.signal);
   } catch (error) {
+    // Stopped by the ingest's time limit or its caller: throw what stopped it.
+    input.signal?.throwIfAborted();
     // With a status, the upload answers 503 and this message, not 422 and the service's own error.
     throw Object.assign(new Error("Text recognition is not available. Try again later.", { cause: error }), { status: 503 });
   }
@@ -612,8 +662,9 @@ since the model can still look at it to check a stamp or a signature. Only PDFs 
 text go to the OCR service, and only those pages change. A scan of any length is accepted once OCR
 found text in it.
 
-OCR runs inside `files.ingest`, so the upload waits for it. For long scans, run ingest in a
-background job and tell the user when the file is ready ([Web app](./web-app.md)).
+OCR runs inside `files.ingest`, so the upload waits for it, and it counts toward `ingestTimeoutMs`
+(2 minutes by default). For long scans, raise `ingestTimeoutMs` (0 sets no limit), run ingest in a
+background job, and tell the user when the file is ready ([Web app](./web-app.md)).
 
 ### Other formats
 
