@@ -1048,12 +1048,11 @@ type OutlineEntry = { line: number; level: number; title: string };
 One heading of a document's outline. The headings are found in the text: Markdown headings (the
 slides of a PPTX are `## Slide N`), lines that start with "Chapter", "Part", "Book", "Section" or
 "Appendix" (or the Hebrew words for chapter, part and appendix), numbered headings such as `2.1 Results`, and short lines in capitals; all but the
-Markdown ones only after a blank line. When there are more than 400, at most 400 are kept, taken at
-even steps across the document; when at least 20 of them are top-level headings (of the shallowest
-level found), only those are used. With 400 top-level headings or more, that gives 400 spread across
-the document. With 20 to 399, version 0.6.0 gets the steps wrong: the outline holds as many entries
-as there are top-level headings, but it takes them from the first ones only, some more than once
-(with 100, the first 25, four times each; with 300, the first 225).
+Markdown ones only after a blank line. When there are more than 400, the outline keeps only the
+top-level headings (of the shallowest level found) when there are at least 20 of them, and all the
+headings otherwise. With 20 to 400 top-level headings, each one is kept once, in order. Otherwise
+(more than 400 top-level headings, or fewer than 20) the outline has 400 entries, in order, taken
+at even steps across the document from the top-level headings or from all of them.
 
 | Field | Type | What it holds |
 |---|---|---|

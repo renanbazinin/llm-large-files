@@ -368,6 +368,14 @@ Replies cut off on their way:
 - **A streamed reply through a `fetch` whose body is a Node stream** (node-fetch) failed with
   "stream.getReader is not a function". Both kinds of body are read.
 
+Ingest:
+
+- **An outline of 20 to 399 top-level headings keeps each of them once, in order.** In a document
+  of more than 400 headings, such an outline took its entries from the first headings only, some
+  more than once: with 20 top-level headings, the first one 20 times; with 100, the first 25, four
+  times each; with 300, the first 225. It was so in 0.5.0 and every version before. This applies
+  to documents ingested from now on: ingest a document again to rebuild its outline.
+
 ## Before 0.6.0
 
 Versions 0.1.0 to 0.5.0 are recorded in the

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { buildLogProfile, buildOutline, logTemplate, looksLikeLog } from "../src/analyze.js";
 import { decodeText, detectFormat, extractText, officeXmlParagraphs } from "../src/extract.js";
 import { estimateTokens, foldCase, LineIndex, normalizeText, utf8Bytes, wrapLongLines } from "../src/text.js";
+import type { OutlineEntry } from "../src/types.js";
 
 function minimalPdf(text: string): Uint8Array {
   const stream = `BT /F1 24 Tf 72 720 Td (${text}) Tj ET`;
@@ -266,5 +267,62 @@ describe("analysis", () => {
     expect(outline).toHaveLength(400);
     expect(outline[0]).toMatchObject({ line: 1, title: "ITEM NUMBER 0" });
     expect(outline.at(-1)!.line).toBeGreaterThan(500_000);
+  });
+
+  /** A Markdown document of `chapters` top-level headings, each followed by `sections` second-level ones. */
+  function markdownBook(chapters: number, sections: number): string[] {
+    const lines: string[] = [];
+    for (let chapter = 1; chapter <= chapters; chapter++) {
+      lines.push(`# Chapter ${chapter}`, "Some text.");
+      for (let section = 1; section <= sections; section++) lines.push(`## Section ${chapter}.${section}`, "More text.");
+    }
+    return lines;
+  }
+
+  /** The document's headings of the given levels, as buildOutline writes them. */
+  function headings(lines: string[], levels: number[]): OutlineEntry[] {
+    return lines.flatMap((line, index) => {
+      const level = /^(#+) /.exec(line)?.[1]!.length;
+      return level !== undefined && levels.includes(level) ? [{ line: index + 1, level, title: line.slice(level + 1) }] : [];
+    });
+  }
+
+  /**
+   * The outline is the whole pool when it has 400 entries or fewer. Otherwise it is 400 of them,
+   * taken at even steps from the first to the last stretch: in order, and each one once.
+   */
+  function expectOutlineOf(outline: OutlineEntry[], pool: OutlineEntry[]): void {
+    expect(new Set(outline.map((entry) => entry.line)).size).toBe(outline.length);
+    if (pool.length <= 400) {
+      expect(outline).toEqual(pool);
+      return;
+    }
+    expect(outline).toHaveLength(400);
+    const positions = outline.map((entry) => pool.findIndex((candidate) => candidate.line === entry.line));
+    positions.forEach((position, index) => expect(outline[index]).toEqual(pool[position]));
+    const step = pool.length / 400;
+    expect(positions[0]).toBe(0);
+    for (let index = 1; index < positions.length; index++) {
+      const gap = positions[index]! - positions[index - 1]!;
+      expect(gap).toBeGreaterThanOrEqual(Math.floor(step));
+      expect(gap).toBeLessThanOrEqual(Math.ceil(step));
+    }
+    expect(positions.at(-1)).toBeGreaterThanOrEqual(pool.length - Math.ceil(step));
+  }
+
+  it.each([20, 100, 300, 399, 400, 1_000])("builds the outline of more than 400 headings, %i of them top-level, from the top-level ones, each once and in order", (chapters) => {
+    const lines = markdownBook(chapters, Math.ceil(401 / chapters));
+    expect(headings(lines, [1, 2]).length).toBeGreaterThan(400);
+    expectOutlineOf(buildOutline(lines, "markdown"), headings(lines, [1]));
+  });
+
+  it("samples all the headings evenly when fewer than 20 of more than 400 are top-level", () => {
+    const lines = markdownBook(19, 30);
+    const all = headings(lines, [1, 2]);
+    expect(all).toHaveLength(589);
+    const outline = buildOutline(lines, "markdown");
+    expectOutlineOf(outline, all);
+    expect(outline.some((entry) => entry.level === 1)).toBe(true);
+    expect(outline.some((entry) => entry.level === 2)).toBe(true);
   });
 });
