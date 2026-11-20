@@ -176,7 +176,8 @@ export type ToolOutput = { result: ToolResult; files: ToolFile[] };
 export type ToolCallLimits = {
   /**
    * The most bytes the files of this call may have together. Give the room left in your request,
-   * times 3/4 when files are sent as base64. Defaults to about a third of `maxRequestBytes`.
+   * times 3/4 when files are sent as base64. Defaults to 3/8 of `maxRequestBytes` less 262,144
+   * (the 256 KB the library keeps free in a request).
    */
   maxFileBytes?: number;
   /** The most pages this call may show. Lower it as the pages already shown use up your token budget. */
@@ -236,7 +237,8 @@ export type GenerateText = (request: {
   onTruncated?: () => void;
   /**
    * Call this once for every request that was answered, with the tokens it used, so that the cost
-   * of a whole-document read is counted. Optional: without it those requests are not in the totals.
+   * of a whole-document read is counted. Optional: without it, `askWithFiles` still counts each
+   * answered request (in `usage.requests` and against `limits.requests`), but not its tokens.
    */
   onUsage?: (usage: GenerateUsage) => void;
 }) => Promise<string>;

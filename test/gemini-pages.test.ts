@@ -1,7 +1,7 @@
 import { getDocumentProxy } from "unpdf";
 import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
-import { askGemini, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, geminiApi, geminiFunctionResponses, geminiFunctionResponseTurns } from "llm-large-files/gemini";
+import { askGemini, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, geminiApi, geminiFunctionResponses, geminiFunctionResponseTurns, type GeminiContent } from "llm-large-files/gemini";
 import { numberedPdf, pdfWithPictures, utf8 } from "./pdf-fixtures.js";
 
 const endpoint = geminiApi({ apiKey: "test-key", model: "gemini-test" });
@@ -376,6 +376,13 @@ describe("geminiFunctionResponses", () => {
       ],
     } }]);
     expect(result).toEqual({ pages: "1", file: "pages-1.pdf" });
+  });
+
+  it("gives turns that go into Gemini contents as they are, without a cast", () => {
+    const contents: GeminiContent[] = [{ role: "model", parts: [{ functionCall: { name: "view_pages", args: {} } }] }];
+    const calls = [{ call: { name: "view_pages", args: {} }, result: { file: "pages-1.pdf" }, files: [file] }];
+    contents.push(geminiFunctionResponses(calls), ...geminiFunctionResponseTurns(calls, { files: "beside" }));
+    expect(contents.map((turn) => turn.role)).toEqual(["model", "user", "user", "user"]);
   });
 
   it("puts files inside the function responses unless asked otherwise", () => {

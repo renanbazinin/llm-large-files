@@ -297,7 +297,7 @@ const looked = result.evidence.filter((item) => item.tool === "view_pages");
 ```
 
 A cut holds the pages asked for and little else. Copied the simple way, a contents page brings
-along every page it links to. Here every other page is emptied before copying, and a page that
+along every page it links to. Here every other page is set to null before copying, and a page that
 shares one list of images with the whole file (FPDF, TCPDF and jsPDF write PDFs that way) gets a
 list of its own. Hidden layers stay hidden, rotated pages and links are kept, and a PDF encrypted
 only to restrict printing or copying opens without a password. The cut is not encrypted.
@@ -519,8 +519,9 @@ An error you throw is the answer to the upload. `createDocumentHandlers` answers
 message, unless the error has a `status` (or `statusCode`) from 400 to 599: then it answers that
 status, with your message. A status of 413 is answered with the upload-limit message instead of
 yours. An error with a Node system `code` and `syscall` (from `fs` or a socket) is answered 500,
-`Upload failed (ENOENT).`, without its message. Write messages a user can read, and give a status when the fault is on
-your side, such as an OCR service that is down.
+`Upload failed (ENOENT).`, without its message. A value that is not an `Error`, such as a thrown
+string, is answered 500 too: `Upload failed.` Write messages a user can read, and give a status
+when the fault is on your side, such as an OCR service that is down.
 
 ### Rules for a PDF extractor
 

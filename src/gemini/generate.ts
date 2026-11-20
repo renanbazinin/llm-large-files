@@ -38,14 +38,20 @@ export function usageOfGemini(usage: Record<string, unknown> | undefined): Gener
   };
 }
 
-type UserTurn = { role: "user"; parts: unknown[] };
+/** One part of a Gemini turn, as the REST API takes it: `{ text }`, `{ functionCall }`, `{ inlineData }`… */
+export type GeminiPart = Record<string, unknown>;
+/** One turn of Gemini's `contents`. */
+export type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
+
+/** A `user` turn: a `GeminiContent` that can go in `contents` as it is. */
+type UserTurn = GeminiContent & { role: "user" };
 
 const base64 = (bytes: Uint8Array) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
 
 /** One function response, with `files` inside it. */
-function functionResponse(call: GeminiFunctionCall, result: ToolResult, files: ToolFile[]): unknown {
+function functionResponse(call: GeminiFunctionCall, result: ToolResult, files: ToolFile[]): GeminiPart {
   let response = result;
-  const parts: unknown[] = [];
+  const parts: GeminiPart[] = [];
   if (files.length > 0) {
     // The result names its file ("file": "pages-2-3.pdf"); that becomes the reference Gemini resolves.
     response = { ...result };

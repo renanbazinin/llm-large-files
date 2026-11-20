@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { buildLogProfile, buildOutline, looksLikeLog } from "./analyze.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
-import { DocumentStoreError } from "./errors.js";
+import { DocumentStoreError, noteStoreWriteFailure } from "./errors.js";
 import { detectFormat, extractText } from "./extract.js";
 import { Limiter } from "./limiter.js";
-import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline } from "./plan.js";
+import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline, type WholeRead } from "./plan.js";
 import { openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
@@ -114,6 +114,13 @@ export type PrepareOptions = AccessOptions & {
    * tell the model about `view_pages`. Without it, the result is that of 0.2.0.
    */
   viewPages?: boolean;
+  /**
+   * Say whether your tool set offers `analyze_whole_document`: pass false when you call `tools()`
+   * without `generate`, and the instruction and the cards do not name it. Defaults to true.
+   * `askWithFiles` passes false for a model without `generateText`, and for
+   * `wholeDocumentAnalysis: false`.
+   */
+  wholeDocumentAnalysis?: boolean;
 };
 
 export type ToolOptions = {
@@ -159,7 +166,11 @@ export interface LargeFiles {
    */
   budgetFor(overrides?: Partial<Budget>, limits?: ModelLimits): Budget;
   readonly maxUploadBytes: number;
-  /** Extracts, normalizes, profiles, and stores a file. Throws a user-readable Error on bad input. */
+  /**
+   * Extracts, normalizes, profiles, and stores a file. Throws a user-readable Error on bad input.
+   * A store that fails to write throws its own error, as it is: log it, and do not show its
+   * message to a user, as it may name a path, a host or a bucket.
+   */
   ingest(input: IngestInput): Promise<DocumentMeta>;
   getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
   /** The uploaded file itself, when it was kept (see `keepOriginals`). Treat the bytes as read-only. */
@@ -342,14 +353,14 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
    * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
    * by now. A copy found to disagree with the store is opened again once.
    */
-  async function block(id: string, meta: DocumentMeta, whole: boolean, viewable: boolean, readableWhole: boolean): Promise<string | undefined> {
+  async function block(id: string, meta: DocumentMeta, whole: boolean, viewable: boolean, wholeRead: WholeRead): Promise<string | undefined> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const document = await load(id, attempt === 0 ? meta : undefined);
       if (!document) return undefined;
       try {
         return whole
           ? renderInline(document.meta, await document.readText())
-          : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, readableWhole);
+          : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead);
       } catch (error) {
         if (!document.broken) {
           // Deleted between the look-up and the read: the same as missing.
@@ -432,6 +443,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         // Do not leave a file of up to the upload limit, or a part of one, behind for a document
         // that does not exist.
         await store.delete(meta.id).catch(() => undefined);
+        noteStoreWriteFailure(error);
         throw error;
       }
       return meta;
@@ -456,6 +468,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
     async prepare(ids, base, access) {
       const budget = budgetFor(access?.budget);
+      const analysis = access?.wholeDocumentAnalysis !== false;
       const unique = [...new Set(ids)];
       let documents: DocumentMeta[] = [];
       const missing: string[] = [];
@@ -479,13 +492,15 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const blocks = new Map<string, string>();
         const gone: string[] = [];
         for (const meta of documents) {
-          const text = await block(meta.id, meta, inline.has(meta.id), shown.has(meta.id), canBeReadWhole(meta, budget));
+          const wholeRead = !analysis ? "not_offered" : canBeReadWhole(meta, budget) ? "offered" : "too_large";
+          const text = await block(meta.id, meta, inline.has(meta.id), shown.has(meta.id), wholeRead);
           if (text === undefined) gone.push(meta.id);
           else blocks.set(meta.id, text);
         }
         if (gone.length === 0) {
-          // A whole-document read is named only when one of the files is small enough for it.
-          const wholeReads = plan.searchable.some((meta) => canBeReadWhole(meta, budget));
+          // A whole-document read is named only when the tools have it, and one of the files is
+          // small enough for it.
+          const wholeReads = analysis && plan.searchable.some((meta) => canBeReadWhole(meta, budget));
           return { plan, blocks, instruction: documentToolsInstruction(plan.searchable, viewable, wholeReads), missing, viewable };
         }
         missing.push(...gone);

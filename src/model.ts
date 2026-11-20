@@ -143,7 +143,12 @@ export interface ModelAdapter {
   /** Names the model in usage totals and messages: "gemini-3.8-flash". */
   readonly id: string;
   readonly capabilities: ModelCapabilities;
-  /** How many tokens a text is for this model. Defaults to the library's estimate. */
+  /**
+   * @deprecated Never called. The loop counts every request in the library's estimate
+   * (`estimateTokens`), as the documents were counted when they were uploaded, and turns that into
+   * this model's tokens with `capabilities.tokenScale`: set `tokenScale` instead. Kept so that
+   * adapters that declare it still compile; it may be removed in a later version.
+   */
   estimateTokens?(text: string): number;
   /**
    * One chat request. Throw a `ModelRequestError` for an HTTP error or a connection that failed:

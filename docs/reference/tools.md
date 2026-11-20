@@ -77,7 +77,9 @@ Through `files.tools(documents, options)` (a loop of your own, see [`ToolSet`](#
   file is read with this tool.
 - `analyze_whole_document` is declared when `options.generate` is given and at least one of
   `documents` is estimated within `maxMapChunks` parts (5% leeway). With `generate` and no such
-  document it is not declared, but a call of it is still answered, with the reason.
+  document it is not declared, but a call of it is still answered, with the reason. Without
+  `generate`, pass `wholeDocumentAnalysis: false` to `prepare`: the tool guide then does not name
+  it, and the cards do not offer a whole-file read.
 - `view_pages` is declared when `options.viewPages` names at least one PDF whose `originalKept` is
   true and the store has `getOriginal`: `true` means every PDF in `documents`, and a list (such as
   `prepared.viewable`) means exactly those.
@@ -417,7 +419,9 @@ your own adds it to its system prompt). In short, it tells the model:
 - to read around search hits before relying on them;
 - to use `analyze_whole_document` only when the task needs all of the file and cannot be done by
   matching text (a full summary, a timeline, items judged by meaning), and that it is slow, costly,
-  and can miss items of a long list. This line is left out when no searchable file can be read
+  and can miss items of a long list. This line is left out when `prepare` gets
+  `wholeDocumentAnalysis: false` (`askWithFiles` passes it when its own `wholeDocumentAnalysis` is
+  `false` or the model that explores has no `generateText`), or when no searchable file can be read
   whole;
 - that its tool turns are limited: call several tools in one turn when they do not depend on each
   other, and answer as soon as it has enough evidence;
@@ -603,7 +607,13 @@ import type { ToolAnswer, ToolCall } from "llm-large-files";
 const documentIds = ["doc_0123456789abcdef0123456789abcdef"];
 // The size of everything else in the request: system prompt, messages.
 const base = { tokens: 2_000, bytes: 8_000 };
-const prepared = await files.prepare(documentIds, base, { owner: "user-42", viewPages: true });
+const prepared = await files.prepare(documentIds, base, {
+  owner: "user-42",
+  viewPages: true,
+  // The tool set below has no generate. This keeps the instruction from naming
+  // analyze_whole_document, and the cards from offering a whole-file read.
+  wholeDocumentAnalysis: false,
+});
 // A document that is gone (expired, or another owner's) is left out of the plan: say so, as askWithFiles does.
 if (prepared.missing.length > 0) throw new DocumentsNotFoundError(prepared.missing);
 const tools = files.tools(prepared.plan.searchable, { viewPages: prepared.viewable });

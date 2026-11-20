@@ -514,11 +514,15 @@ recognise.
 A store that fails while it writes throws its own error, as it came: its message may name a path or
 a host, so log it and show a general message. `createDocumentHandlers` answers a file it cannot take
 with 422 and the error's message, and a Node system error of the store (one with a `code` and a
-`syscall`) with 500 and only its code ("Upload failed (ENOSPC)."). Any other store error without a
-`status` is also answered 422 with its own message, so a database driver's message reaches the
-browser. A custom store should therefore throw an error with a `status` and a message fit for the
-user (both are sent as they are), or a system error with a `code` and `syscall`. See
-[Web app](./web-app.md) and [the node reference](../reference/node.md).
+`syscall`) with 500 and only its code ("Upload failed (ENOSPC)."). Any other store error, one
+without a `status` (or `statusCode`) from 400 to 599, is answered 500 "Upload failed.", without its
+message, and so is a thrown value that is not an `Error`. The handlers log nothing: log the error in
+your store before you throw it. Two paths still answer a store's error 422 with its message, which
+may name a host: an `ingest` of your own that throws a new error in its place, as `ingestInWorker`
+in [Deployment](./deployment.md#uploads-and-ingest) does, and a route of your own, as in
+[Web app](./web-app.md#filesingest-and-its-errors). So a custom store should throw an error with a
+`status` and a message fit for the user (both are sent as they are): every path keeps that status.
+See [the node reference](../reference/node.md#uploadrequest-response).
 
 Every read of the store goes through the library: `prepare`, `getMeta`, `getOriginal`, the tools.
 What the store throws there becomes a `DocumentStoreError`, which does not mean the document is
@@ -616,7 +620,7 @@ throws them: see [Testing](./testing.md).
 
 - [Errors, retries and streams](../reference/errors-and-retries.md): `ModelRequestError`,
   `ModelErrorKind`, `classifyModelError`, `errorKindOf`, `withRetry`, `RetryOptions`,
-  `isRetryableStatus`, `retryAfterMs`, the default waits.
+  `RetryNotice`, `isRetryableStatus`, `retryAfterMs`, the default waits.
 - [The tool loop](../reference/ask.md): `askWithFiles`, `AskResult`, `partialResultOf`,
   `DocumentsNotFoundError`.
 - [The library](../reference/library.md): `DocumentStoreError`, `ingest`, `prepare`.

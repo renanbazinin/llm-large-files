@@ -446,10 +446,14 @@ What the library does with what you throw depends on the call:
   what was written, ignores any error of that, and throws your error as it came. Through the `upload`
   handler of `createDocumentHandlers`, an error with a `status` (or `statusCode`) from 400 to 599 is
   answered with that status and its message (a 413 with "The file is larger than the … upload
-  limit.", and an empty message with "Upload failed."). A Node system error (a string `code` and `syscall`) is
-  answered 500 "Upload failed (CODE).". Any other error is answered 422 with its own message, as for
-  a file that cannot be read: a database driver's error would reach the browser with its host name.
-  Give your write errors a status and a message of your own, as the example below does.
+  limit.", and an empty message with "Upload failed."). A Node system error (a string `code` and
+  `syscall`) is answered 500 "Upload failed (CODE).". Any other error, or a thrown value that is not
+  an `Error`, is answered 500 "Upload failed.", without its message, which may name a database host.
+  The handlers log nothing: log your error in the store before you throw. Two paths cannot tell
+  your error from a file that cannot be read, and answer it 422 with its message, host and all: an
+  `ingest` of your own that throws a new error in place of yours, and a route of your own. See the
+  [node reference](../reference/node.md#uploadrequest-response). Give your write errors a status and
+  a message of your own, as the example below does: every path keeps that status.
 - **`delete` and `sweep`**: your error comes out of `files.delete` and `files.sweep` as it came. The
   DELETE handler answers it 500 without its message, unless it has a status.
 - **`putIndex` on a later read**: an error is ignored. The index is used from memory, and built again
@@ -508,6 +512,7 @@ export type DocumentRecord = {
 
 /** A write that failed: a 503 from createDocumentHandlers, with a message that names no host. */
 function notStored(cause: unknown): Error {
+  console.error("document store write failed", cause); // the handlers log nothing
   return Object.assign(new Error("The file could not be stored. Try again.", { cause }), { status: 503 });
 }
 
@@ -614,9 +619,10 @@ export const files = createLargeFiles({
 });
 ```
 
-- Reads let their errors through: the library turns them into a `DocumentStoreError`. Writes turn
-  theirs into an error with status 503 and a message of their own, so an upload that meets a database
-  that is down is answered 503, not 422 with the driver's message.
+- Reads let their errors through: the library turns them into a `DocumentStoreError`. Writes log
+  theirs, then turn them into an error with status 503 and a message of their own, so an upload that
+  meets a database that is down is answered 503 "The file could not be stored. Try again.", not 500
+  "Upload failed.".
 - `delete` removes the record first. If removing an object fails after that, the document is gone
   and the object stays behind. A lifecycle rule on the bucket that removes objects under the prefix
   some time after `ttlMs` cleans those up, when `ttlMs` is finite.

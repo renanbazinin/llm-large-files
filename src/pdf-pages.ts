@@ -5,7 +5,7 @@
  * Copying pages the way a PDF library offers it is not enough. A link to another page takes that
  * page's content along, and a resource dictionary that pages share takes along every image it
  * lists: the contents page of a report came out at 89% of its file. So, before copying:
- * - every page that is not wanted is replaced by an empty one, so a reference to it costs nothing;
+ * - every page that is not wanted is set to null, so a reference to it costs nothing;
  * - a wanted page gets its own resource dictionary, without the images it does not paint.
  */
 import { getHeapStatistics } from "node:v8";

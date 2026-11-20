@@ -31,7 +31,7 @@ An adapter is one object. The loop uses these members:
 | `send(request, hooks?)` | Yes | Every chat request: each tool turn, and the answer. |
 | `generateText` | No | The part reads of `analyze_whole_document`. Without it on the model that explores, that tool is not offered. |
 | `requestBytes(request)` | No | The size of a request body, so that the pages of `view_pages` get exactly the room that is left. Without it, the loop estimates. |
-| `estimateTokens(text)` | No | Declared on the interface, but nothing in this version calls it. |
+| `estimateTokens(text)` | No | Deprecated, and never called. Set `capabilities.tokenScale` instead: see [`requestBytes` and `estimateTokens`](#requestbytes-and-estimatetokens). |
 
 One adapter object serves every question at once, so keep nothing of one request on it. The loop
 tells models apart by object, not by `id`: `explorer` set to the same object as `model` is one
@@ -208,9 +208,10 @@ left of `maxRequestBytes` after that request and a margin of a tenth of it (at l
 times 3/4 for base64. Without `requestBytes`, the loop uses its estimate of the request. The size
 of the body without streaming is close enough.
 
-`estimateTokens(text)` is on the interface, but nothing in this version calls it. Every size is the
-library's estimate (`estimateTokens` from `llm-large-files`) scaled by `capabilities.tokenScale`:
-set that for a tokenizer that counts differently.
+`estimateTokens(text)` is deprecated: the loop never calls it, and a later version may remove it.
+Every size is the library's estimate (`estimateTokens` from `llm-large-files`) scaled by
+`capabilities.tokenScale`: set that for a tokenizer that counts differently, and leave the
+`estimateTokens` member out of your adapter. An adapter that still declares it compiles as before.
 
 ## A complete adapter
 
@@ -662,10 +663,13 @@ refusing a whole-file read that would pass a ceiling of the question before it s
 
 ### The steps
 
-1. **Plan.** `files.prepare(documentIds, base, { owner, viewPages, budget })`. `base` is the size
-   of the rest of the request, `{ tokens, bytes }`: the system prompt and the conversation, with a
-   margin for what frames them (`askWithFiles` adds 2,000 tokens and 8,000 bytes). The documents
-   are fitted into what the budget leaves. The result is a `PreparedContext`:
+1. **Plan.** `files.prepare(documentIds, base, { owner, viewPages, wholeDocumentAnalysis, budget })`.
+   `base` is the size of the rest of the request, `{ tokens, bytes }`: the system prompt and the
+   conversation, with a margin for what frames them (`askWithFiles` adds 2,000 tokens and 8,000
+   bytes). The documents are fitted into what the budget leaves. Pass `wholeDocumentAnalysis: false`
+   when your tools will have no `generate` (step 3): the instruction then leaves out
+   `analyze_whole_document`, and the cards do not offer a whole-file read. The result is a
+   `PreparedContext`:
    - `missing`: IDs that were never uploaded, were deleted, have expired, or belong to another
      owner. Stop and ask for them again. `askWithFiles` throws `DocumentsNotFoundError` here.
    - `blocks`: for each document, its whole text or its card. Put them at the start of the first
@@ -679,11 +683,12 @@ refusing a whole-file read that would pass a ceiling of the question before it s
 2. **No tools needed?** When `plan.searchable` and `viewable` are both empty, every document is in
    the prompt: send one request without tools.
 3. **Tools.** `files.tools(prepared.plan.searchable, options)` gives a `ToolSet`. The options that
-   matter here: `generate` (a `GenerateText`, which turns on `analyze_whole_document`),
-   `viewPages` (pass `prepared.viewable`, and only when your loop sends files to the model),
-   `signal`, `onProgress` (progress of whole-file reads), `maxWholeDocumentReads` (1 by default),
-   `regexBudgetMs` (6,000), `retry` and `budget`. Make one tool set for each question: the count of
-   whole-file reads and the time for regex searches belong to it. The full list is in the
+   matter here: `generate` (a `GenerateText`, which turns on `analyze_whole_document`; without it,
+   plan with `wholeDocumentAnalysis: false` in step 1), `viewPages` (pass `prepared.viewable`, and
+   only when your loop sends files to the model), `signal`, `onProgress` (progress of whole-file
+   reads), `maxWholeDocumentReads` (1 by default), `regexBudgetMs` (6,000), `retry` and `budget`.
+   Make one tool set for each question: the count of whole-file reads and the time for regex
+   searches belong to it. The full list is in the
    [library reference](../reference/library.md#tooloptions).
 
    Pass `tools()` only metadata that came back for this user: `prepared.plan.searchable` and
@@ -771,7 +776,6 @@ const MAX_TURNS = 8; // model requests of the chat, the answer's included
 const MAX_CALLS = 8; // tool calls run in one turn
 const MAX_REQUESTS = 40; // every model request of the question, part reads included
 
-type Turn = { role: "user" | "model"; parts: unknown[] };
 type GenerateResponse = { candidates?: Array<{ content?: GeminiContent }>; usageMetadata?: Record<string, unknown> };
 
 /** One generateContent request. Its errors carry the status and kind that withRetry reads. */
@@ -811,7 +815,7 @@ export async function ask(question: string, documentIds: string[], owner: string
 
   // 2. Whole texts and cards at the start of the question, the guide to the tools in the system prompt.
   const blocks = [...new Set(documentIds)].flatMap((id) => prepared.blocks.get(id) ?? []);
-  const contents: Turn[] = [{ role: "user", parts: [...blocks.map((text) => ({ text })), { text: question }] }];
+  const contents: GeminiContent[] = [{ role: "user", parts: [...blocks.map((text) => ({ text })), { text: question }] }];
   const systemInstruction = { parts: [{ text: [system, prepared.instruction].filter(Boolean).join("\n\n") }] };
 
   // 3. One tool set for this question: the documents that are searched, and the PDFs whose pages can be shown.
@@ -894,7 +898,7 @@ export async function ask(question: string, documentIds: string[], owner: string
   whole-file read within it only where the read has a choice (see the next section). To refuse a
   costly read first, as `askWithFiles` does, run `get_document_overview` on the document: its
   `parts_for_whole_document_analysis` is the number of parts, worked out from the document's size.
-  Or leave `generate` out.
+  Or leave `generate` out, and pass `wholeDocumentAnalysis: false` to `prepare`.
 - **To stream the answer**, post the last request to `endpoint.streamUrl` and read it with
   [`parseSseJson`](#parsessejson).
 - **For a conversation**, keep `contents` with the chat, and see [Conversations](./conversations.md)

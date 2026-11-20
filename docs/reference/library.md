@@ -176,9 +176,14 @@ new document's [`DocumentMeta`](#documentmeta).
 The errors of the file and the store's error are all plain `Error`s, with no class to tell them
 apart. The upload handler of [`llm-large-files/node`](./node.md) takes an error that carries an
 HTTP `status` or `statusCode` (400 to 599), or a Node system error (`code` and `syscall`), for the
-store's: it answers with that status, or with 500 and the code. It answers any other error with 422
-and its message. A store that throws other errors needs a rule of your own. See
-[errors and reliability](../guides/errors-and-reliability.md).
+store's: it answers with that status, or with 500 and the code. `ingest` also keeps a mark of each
+error a store throws while it writes. The handler answers a marked error without a status or a
+code, and a thrown value that is not an `Error`, with 500 `{ "error": "Upload failed." }`, without
+its message. It answers any other `Error` with 422 and its message, as a file that cannot be read.
+The package does not export the mark: behind an `ingest` of your own that throws a new error, or in
+a route of your own, a store's error is answered as a file that cannot be read (see
+[the upload handler](./node.md#uploadrequest-response)). Give your store's write errors a `status`
+and a message of your own. See [errors and reliability](../guides/errors-and-reliability.md).
 
 Guides: [web app](../guides/web-app.md) for uploads, [PDFs](../guides/pdfs.md) for what PDF
 extraction writes.
@@ -232,7 +237,7 @@ model reads through the tools.
 |---|---|---|
 | `ids` | `string[]` | The document IDs of the request. A repeated ID counts once. |
 | `base` | `{ tokens: number; bytes: number }` | The size of everything else in the request: messages, system prompt, other files. `estimateTokens` and `jsonBytes` measure text the way the plan does. |
-| `options` | [`PrepareOptions`](#prepareoptions) | The owner, a budget for this request, and whether your loop can show pages. |
+| `options` | [`PrepareOptions`](#prepareoptions) | The owner, a budget for this request, whether your loop can show pages, and whether your tools have `analyze_whole_document`. |
 
 Documents are taken smallest first, by `estimatedTokens`. Each one goes in whole when, with the
 ones already taken, it still fits both the token room,
@@ -350,7 +355,11 @@ own data. See [storage](../guides/storage.md) and [security](../security.md).
 ### `PrepareOptions`
 
 ```ts
-type PrepareOptions = AccessOptions & { budget?: Partial<Budget>; viewPages?: boolean };
+type PrepareOptions = AccessOptions & {
+  budget?: Partial<Budget>;
+  viewPages?: boolean;
+  wholeDocumentAnalysis?: boolean;
+};
 ```
 
 The options of [`files.prepare`](#filesprepareids-base-options).
@@ -360,6 +369,7 @@ The options of [`files.prepare`](#filesprepareids-base-options).
 | `owner` | `string` | none | As in [`AccessOptions`](#accessoptions). Another owner's documents are listed in `missing` and are not read. |
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for this request, as in `LargeFilesOptions.budget`. `askWithFiles` passes the budget fitted to its model. |
 | `viewPages` | `boolean` | `false` | Says that your loop can pass files to the model. `viewable` then lists the PDFs whose original is kept (with a store that has `getOriginal`), and the instruction and the cards tell the model about `view_pages`. Without it, `viewable` is empty and nothing mentions `view_pages`. |
+| `wholeDocumentAnalysis` | `boolean` | `true` | Says whether your tool set has `analyze_whole_document`. Pass `false` when you call `tools` without `generate`: the instruction then does not name it, and the cards do not offer a whole-file read or say that a file is too large for one. Each says `This file is NOT in your context. Use the document tools to search it and to read line ranges.` `askWithFiles` passes `false` when the model that explores has no `generateText`, and when its own `wholeDocumentAnalysis` is `false`. |
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
@@ -382,7 +392,7 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `generate` | [`GenerateText`](./ask.md#generatetext) | none | A plain text completion. It enables `analyze_whole_document`, which reads a whole file in parts. The tool is declared only when at least one of the documents is small enough: about `maxMapChunks` parts or fewer. |
+| `generate` | [`GenerateText`](./ask.md#generatetext) | none | A plain text completion. It enables `analyze_whole_document`, which reads a whole file in parts. The tool is declared only when at least one of the documents is small enough: about `maxMapChunks` parts or fewer. Without `generate`, pass `wholeDocumentAnalysis: false` to `prepare`, so that the instruction does not name the tool and the cards do not offer a whole-file read. |
 | `onProgress` | [`ProgressListener`](#progresslistener) | none | Progress of whole-document reads, for status messages. |
 | `signal` | `AbortSignal` | none | Stops searches and whole-document reads. Once it has aborted, a call that fails throws instead of answering `{ error }`. |
 | `regexBudgetMs` | `number` | [`REGEX_BUDGET_MS`](./tools.md#regex_budget_ms), 6,000 | The most time, in milliseconds, that the regex searches of this tool set may take together. Past it, a regex search answers with an error that tells the model to search another way. One search stops after 3,000 ms on its own. |
@@ -411,7 +421,7 @@ What [`files.prepare`](#filesprepareids-base-options) returns.
 |---|---|---|
 | `plan` | [`DocumentPlan`](#documentplan) | Which documents go in whole and which are searched. |
 | `blocks` | `Map<string, string>` | The prompt text of each document, by ID. For a document sent whole, its text between `--- Attached file: <name> (<format>, <lines> lines) ---` and `--- End attached file: <name> ---`. For a searchable one, a card: its `document_id`, size, log profile, outline (up to 40 headings) and first 25 lines. |
-| `instruction` | `string` | The guide to the tools, for the system prompt, when a document is searchable or viewable; `""` otherwise. It names `analyze_whole_document` when a searchable file is small enough for it: give `generate` to `tools`, or a call of it is answered as an unknown tool. |
+| `instruction` | `string` | The guide to the tools, for the system prompt, when a document is searchable or viewable; `""` otherwise. It names `analyze_whole_document` when a searchable file is small enough for it and `prepare` was not given `wholeDocumentAnalysis: false`. Then give `generate` to `tools`, or a call of it is answered as an unknown tool. |
 | `missing` | `string[]` | The IDs that were not found: never uploaded, not a document ID, deleted, expired, or another owner's. |
 | `viewable` | `DocumentMeta[]` | The PDFs whose pages `view_pages` can show, whether their text is in the prompt or searched. Empty unless `prepare` was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`. |
 

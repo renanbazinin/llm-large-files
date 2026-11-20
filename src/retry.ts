@@ -1,6 +1,9 @@
 // One rule for sending a model request again, used by the chat loop and by whole-file part reads.
 
-/** How a model request that failed is sent again. */
+/**
+ * How a model request that failed is sent again. A field that is not a finite number (NaN,
+ * Infinity) counts as not set: its default applies.
+ */
 export type RetryOptions = {
   /** How many times a failed request is sent again. Defaults to 3. 0 turns it off. */
   retries?: number;
@@ -80,7 +83,21 @@ export function retryAfterMs(headers: Headers | undefined, body?: unknown, now: 
   return undefined;
 }
 
-export type RetryNotice = { error: unknown; attempt: number; delayMs: number };
+/** A value of the options, or its default when the value is not a finite number. */
+const finiteOr = (value: number | undefined, fallback: number): number => (typeof value === "number" && Number.isFinite(value) ? value : fallback);
+
+/** What `withRetry` tells `onRetry` before it sends a request again. */
+export type RetryNotice = {
+  /** The error of the attempt that failed. */
+  error: unknown;
+  /**
+   * The number of the retry to come, 1 for the first. It counts every retry made so far, the one
+   * of an error without a status (`unknownErrors: "once"`, which is not told) included.
+   */
+  attempt: number;
+  /** How long it waits, in milliseconds, before it sends the request again. */
+  delayMs: number;
+};
 
 /**
  * Runs a model request, and runs it again when it failed in a way that another try can mend.
@@ -102,9 +119,10 @@ export async function withRetry<T>(run: () => Promise<T>, options: {
   onRetry?: (notice: RetryNotice) => void;
   unknownErrors?: "once" | "never";
 } = {}): Promise<T> {
-  const retries = Math.max(0, Math.trunc(options.retry?.retries ?? DEFAULT_RETRIES));
-  const base = Math.max(0, options.retry?.baseDelayMs ?? DEFAULT_BASE_DELAY_MS);
-  const longest = Math.max(0, options.retry?.maxDelayMs ?? DEFAULT_MAX_DELAY_MS);
+  // NaN would never compare true (`attempt >= NaN`), and a request would be sent again without end.
+  const retries = Math.max(0, Math.trunc(finiteOr(options.retry?.retries, DEFAULT_RETRIES)));
+  const base = Math.max(0, finiteOr(options.retry?.baseDelayMs, DEFAULT_BASE_DELAY_MS));
+  const longest = Math.max(0, finiteOr(options.retry?.maxDelayMs, DEFAULT_MAX_DELAY_MS));
   const wait = options.retry?.sleep ?? sleep;
   const random = options.retry?.random ?? Math.random;
   let unknownRetried = false;

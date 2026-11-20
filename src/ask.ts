@@ -119,7 +119,11 @@ export type AskOptions = {
    * what the adapters say of their models (`capabilities.contextTokens`, `maxRequestBytes`).
    */
   budget?: Partial<Budget>;
-  /** Offer `analyze_whole_document`, which reads a whole file in many model calls. Defaults to true. */
+  /**
+   * Offer `analyze_whole_document`, which reads a whole file in many model calls. Defaults to true.
+   * It is offered only when the model that uses the tools (`explorer`, or else `model`) has
+   * `generateText`.
+   */
   wholeDocumentAnalysis?: boolean;
   /**
    * Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`), so the model can
@@ -460,6 +464,8 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
   const prepared = await files.prepare(options.documentIds, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
     viewPages: options.viewPages !== false && canShowFiles,
+    // The guide and the cards name `analyze_whole_document` only when the tools will have it.
+    wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof toolModel.generateText === "function",
     budget,
   });
   if (prepared.missing.length) throw new DocumentsNotFoundError(prepared.missing);

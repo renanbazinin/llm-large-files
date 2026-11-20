@@ -181,12 +181,19 @@ try {
   const { code, syscall, status, statusCode } = (error ?? {}) as { code?: unknown; syscall?: unknown; status?: unknown; statusCode?: unknown };
   const httpStatus = typeof status === "number" ? status : typeof statusCode === "number" ? statusCode : undefined;
   parentPort!.postMessage({
-    failed: {
-      message: error instanceof Error ? error.message : String(error),
+    failed: error instanceof Error ? {
+      message: error.message,
       // What createDocumentHandlers answers by: a status (a 503 from your store or an OCR service),
-      // or the code and syscall of a failure of the store (500). Without either, a 422.
+      // or the code and syscall of a failure of the store (500). Without either, a 422 with this
+      // message, even for an error of your store (below).
       ...(httpStatus !== undefined ? { status: httpStatus } : {}),
       ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : {}),
+    } : {
+      // Not an Error: its code and syscall when it has both, or else a 500 with no message.
+      // createDocumentHandlers answers it as it does without this worker: with the code, or with
+      // { "error": "Upload failed." }.
+      message: "",
+      ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : { status: 500 }),
     },
   });
 }
@@ -232,7 +239,8 @@ function ingestInWorker(input: IngestInput): Promise<DocumentMeta> {
       running--;
       if (reply?.meta) resolve(reply.meta);
       // With a status, that status and message (a 503 from your store or an OCR service); with a
-      // code and a syscall, a failure of the store (500); otherwise a file that cannot be read (422).
+      // code and a syscall, a failure of the store (500); otherwise a file that cannot be read
+      // (422), even when the error came from your store (below).
       else if (reply?.failed) reject(Object.assign(new Error(reply.failed.message), reply.failed));
       else if (crash) reject(new Error(`${input.name} could not be read on this server.`, { cause: crash }));
       else reject(new Error(`${input.name} took too long to read.`));
@@ -242,6 +250,14 @@ function ingestInWorker(input: IngestInput): Promise<DocumentMeta> {
 
 export const documents = createDocumentHandlers({ ...files, ingest: ingestInWorker }, { getOwner: userIdOf });
 ```
+
+The error that `ingestInWorker` rebuilds from the worker's reply is a new `Error`, so
+`createDocumentHandlers` cannot tell a store that failed to write from a file that cannot be read.
+Given `files` itself, it answers a store's error that has no status, and no `code` and `syscall`,
+with 500 `{ "error": "Upload failed." }`. Through this worker, it answers that error 422 with the
+store's own message, which may name a database host. Give your store's errors a status and a
+message of your own, as [Storage](./storage.md#errors) shows: the worker passes the status on. A
+thrown value that is not an `Error` gets the same answer with the worker as without it.
 
 A worker stopped by its limit or its timeout may leave the files of a document that was never
 finished. `FileDocumentStore` removes them at the first sweep after they are an hour old. One
