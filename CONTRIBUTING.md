@@ -73,7 +73,15 @@ Add a test for every change in behavior. No test calls a real model:
 - **Tests of the Node handlers** serve `createDocumentHandlers` on a local HTTP server on
   127.0.0.1.
 - **PDFs** for the tests are written by hand in `test/pdf-fixtures.ts`, or kept in
-  `test/fixtures/pdf/`.
+  `test/fixtures/pdf/`. A test file that reads PDFs imports `./load-pdf-libraries.js` first. Each
+  test file runs in a process of its own, and the library loads pdf.js and pdf-lib on first use:
+  this import loads them while the file is collected, where no timeout applies, and not inside the
+  first test's 5 s. Leave it out of a file that mocks them as not installed
+  (`test/view-pages-library.test.ts`).
+- **A slow test** gets a `timeout` of its own, with a comment that says how long it takes in a
+  usual run and on a busy machine. When a test could reach the library's own time limits on a busy
+  machine (the regex limits read `performance.now()`), stop that clock with
+  `vi.useFakeTimers({ toFake: ["performance"] })`, as `test/volume.test.ts` does.
 
 A test of the loop, from start to answer:
 

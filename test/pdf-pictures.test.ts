@@ -1,3 +1,4 @@
+import "./load-pdf-libraries.js";
 import { readdirSync, readFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import { PDFDocument } from "@cantoo/pdf-lib";

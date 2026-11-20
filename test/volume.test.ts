@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLargeFiles, FileDocumentStore, MemoryDocumentStore, type DocumentMeta, type DocumentStore, type LargeFiles } from "../src/index.js";
 import { Limiter } from "../src/limiter.js";
 import { openRangedDocument, type RangedDocument } from "../src/ranged.js";
@@ -65,8 +65,23 @@ async function transcript(files: LargeFiles, meta: DocumentMeta): Promise<string
 }
 
 describe("reading by range gives what reading the whole text gives", () => {
+  // A regex search stops at time limits it measures with performance.now() (REGEX_TIME_LIMIT_MS,
+  // REGEX_BUDGET_MS). Read in pieces of one line, it runs one timed slice per line, and each slice
+  // starts a watchdog thread: 0.14 ms on an idle machine, tens of milliseconds on a busy one. The
+  // limits were then reached and the transcripts differed for a reason this test is not about.
+  // A clock that stands still keeps the limits out of it; timers stay real.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   for (const [kind, text] of Object.entries(TEXTS)) {
-    it(`for a text of kind "${kind}", in pieces of any size`, async () => {
+    // Each text is read through a file store in pieces of 1, 97, 4,096 and 1 MiB bytes: thousands
+    // of reads that each wait for the thread pool, and as many timed regex slices. A third of a
+    // second on an idle machine, 3 to 4 s in a usual run, up to 48 s on a busy machine.
+    it(`for a text of kind "${kind}", in pieces of any size`, { timeout: 120_000 }, async () => {
       const budget = { inlineTokens: 5, mapChunkTokens: 2_000, maxMapChunks: 100 };
       const memory = createLargeFiles({ store: new MemoryDocumentStore(), budget });
       const expected = await transcript(memory, await memory.ingest({ name: `${kind}.txt`, bytes: bytes(text) }));
