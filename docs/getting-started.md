@@ -1,308 +1,473 @@
-# Integration guide
+# Getting started
 
-This guide adds large-file support to an existing chatbot backend in four steps. The examples use
-Express and Gemini, with notes for other setups.
+This page takes you from `npm install` to a first answer about a file, then through the steps of
+adding the library to an app. Each step is short and links to the guide that explains it.
 
-## 1. Install
+## Install
 
 ```bash
 npm install llm-large-files
-npm install jszip unpdf        # optional: DOCX/PPTX and PDF support
-npm install @cantoo/pdf-lib    # optional: let the model look at pages of a PDF (pictures, charts)
 ```
 
-## 2. Create the library once
+The library needs Node.js 20.19 or later. It is an ES module, and its TypeScript types come with
+it. From CommonJS code, `require("llm-large-files")` works on the Node versions that load ES
+modules with `require()` by default: 20.19 and later in Node 20, 22.12 and later, and 23 and later.
+On Node 21 and on 22.0 to 22.11, load it with `import("llm-large-files")`.
+
+Text, Markdown, logs, JSON and CSV need nothing more. Three optional packages add the rest:
+
+```bash
+npm install jszip unpdf @cantoo/pdf-lib
+```
+
+| Package | What it enables |
+| --- | --- |
+| `jszip` | DOCX and PPTX files. |
+| `unpdf` | PDF files: their text, with tables rebuilt as rows. |
+| `@cantoo/pdf-lib` | The model can look at the pages of a PDF (`view_pages`, with `keepOriginals`). The text of a PDF also marks the pages that show a picture. |
+
+Without the package a format needs, its upload fails with an error that names the package, such
+as `Reading PDF files needs the optional dependency "unpdf".` Install `@cantoo/pdf-lib` before you
+turn on `keepOriginals`: without it, every look at a page fails. The details are in
+[PDFs](./guides/pdfs.md).
+
+The Vertex AI samples on this page also use Google's auth library, which is not a dependency of
+this package:
+
+```bash
+npm install google-auth-library
+```
+
+## Quickstart
+
+This script ingests one file and asks one question about it, with Gemini on Vertex AI. You need a
+Google Cloud project with Vertex AI turned on, and Application Default Credentials (on your own
+machine, `gcloud auth application-default login`).
 
 ```ts
-// large-files.ts
-import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+// quickstart.mts
+import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
+import { GoogleAuth } from "google-auth-library";
+import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
+import { askGemini, vertexAi } from "llm-large-files/gemini";
 
-export const files = createLargeFiles({
-  store: new FileDocumentStore(process.env.LARGE_FILES_DIR ?? "./data/large-files"),
-  // Your connector's real limits. Anything left out uses the defaults in docs/configuration.md.
-  budget: { contextTokens: 1_000_000, maxRequestBytes: 10_000_000 },
-  ttlMs: 72 * 60 * 60 * 1000,      // keep uploads for 3 days
-  maxUploadBytes: 100 * 1024 * 1024,
-  // Optional: keep uploaded PDFs, so the model can look at their pages (see "Pictures" below).
-  // keepOriginals: ["pdf"],
+const [path, question] = process.argv.slice(2);
+if (!path || !question) throw new Error('Usage: node quickstart.mts <file> "<question>"');
+
+// 1. The library. This one keeps documents in memory, for as long as the process runs.
+const files = createLargeFiles({ store: new MemoryDocumentStore() });
+
+// 2. Ingest the file: its text is extracted, measured and stored.
+const doc = await files.ingest({ name: basename(path), bytes: await readFile(path) });
+console.log(`${doc.name}: ${doc.format}, ${doc.lines} lines, about ${doc.estimatedTokens} tokens\n`);
+
+// 3. Ask. The access token comes from Application Default Credentials.
+const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
+const endpoint = vertexAi({
+  project: process.env.GOOGLE_CLOUD_PROJECT!,
+  location: "global", // the default; or "us", "eu", or a region such as "europe-west4"
+  model: "gemini-3.8-flash",
+  accessToken: async () => (await auth.getAccessToken())!,
 });
 
-// Reclaim disk space from expired uploads (expired files are already ignored on read).
-setInterval(() => void files.sweep(), 60 * 60 * 1000).unref();
+const result = await askGemini({
+  files,
+  endpoint,
+  documentIds: [doc.id],
+  messages: [{ role: "user", text: question }],
+  onText: (delta) => process.stdout.write(delta), // the answer, as it streams
+});
+
+console.log(`\n\n${result.plan.inline.length > 0 ? "Read whole" : "Searched with tools"}, ${result.turns} chat request(s)`);
+for (const step of result.steps) console.log(`- ${step}`);
 ```
 
-Running several server instances? Give them a shared store. Use a shared disk, or implement
-`DocumentStore` over Redis, S3, or your database (see [configuration](configuration.md#stores)).
+Node 22.18 and later in Node 22, and Node 23.6 and later, run TypeScript files directly:
 
-## 3. Accept uploads
+```bash
+GOOGLE_CLOUD_PROJECT=your-project-id node quickstart.mts ./app.log "What failed first, and when?"
+```
+
+In PowerShell, set the variable with `$env:GOOGLE_CLOUD_PROJECT = "your-project-id"`, then run
+`node quickstart.mts ./app.log "What failed first, and when?"`. On older versions of Node, compile
+the file first, with `typescript` and `@types/node` installed:
+`npx tsc --module nodenext --target es2022 quickstart.mts`. Then run `node quickstart.mjs` with
+the same arguments.
+
+What happened:
+
+- `ingest` extracted the text of the file, counted its lines and estimated its tokens, and stored
+  it. The `doc.id` it returned is how you name the document from then on.
+- `askGemini` planned the request. A document that fits the budget goes into the prompt whole: by
+  default up to 200,000 tokens of document text, in a window of 1,000,000 tokens and a request of
+  10 MB. A larger one becomes a short card, and the model gets tools to search it, read lines of
+  it, get an overview of it, and read it whole in parts.
+- When the model used tools, the loop ran its calls and sent it what they returned, until it
+  answered: at most 12 chat requests by default, the last of which must be answered in text.
+  `result.steps` lists what it did, for example
+  `Search app.log (exact) for “timeout” — 12 matching lines`.
+
+The details of the plan and the loop are in [How it works](./how-it-works.md).
+
+The quickstart works the same with other providers. Each sample below replaces its step 3, from
+`const auth` to the end of the `askGemini` call. Put the sample's imports in place of the two
+Vertex AI imports, those of `google-auth-library` and `llm-large-files/gemini`.
+
+### With a Gemini API key
+
+`askGemini` takes the Gemini Developer API with an API key:
+
+```ts
+import { askGemini, geminiApi } from "llm-large-files/gemini";
+
+const result = await askGemini({
+  files,
+  endpoint: geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.8-flash" }),
+  documentIds: [doc.id],
+  messages: [{ role: "user", text: question }],
+  onText: (delta) => process.stdout.write(delta),
+});
+```
+
+### With an OpenAI-compatible model
+
+`askGemini` is `askWithFiles` with a Gemini model. With any other model, call `askWithFiles` and
+pass the model as an adapter. `openAiCompatible()` speaks Chat Completions: OpenAI, Azure OpenAI,
+DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp.
+
+```ts
+import { askWithFiles } from "llm-large-files";
+import { openAiCompatible } from "llm-large-files/openai";
+
+const model = openAiCompatible({
+  baseUrl: "https://api.openai.com/v1", // the default; DeepSeek, OpenRouter, vLLM, Ollama: their own
+  apiKey: process.env.OPENAI_API_KEY!,
+  model: "gpt-5.5",
+  contextTokens: 400_000, // your model's context window: the plan follows it
+});
+
+const result = await askWithFiles({
+  files,
+  model,
+  documentIds: [doc.id],
+  messages: [{ role: "user", text: question }],
+  onText: (delta) => process.stdout.write(delta),
+});
+```
+
+Set `contextTokens` to the window of your model. Without it, the plan assumes the library's
+window, 1,000,000 tokens unless you set another. The recipe for each server is in
+[OpenAI-compatible endpoints](./guides/openai-compatible.md).
+
+### With Claude
+
+```ts
+import { askWithFiles } from "llm-large-files";
+import { anthropic } from "llm-large-files/anthropic";
+
+const model = anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+  model: "claude-opus-5-5",
+  contextTokens: 1_000_000, // your model's context window: the plan follows it
+});
+
+const result = await askWithFiles({
+  files,
+  model,
+  documentIds: [doc.id],
+  messages: [{ role: "user", text: question }],
+  onText: (delta) => process.stdout.write(delta),
+});
+```
+
+Thinking, streaming and gateways for Claude are in [Claude](./guides/anthropic.md).
+
+## Integrate it into your app
+
+The quickstart holds everything in one process for one question. An app creates the library once,
+takes uploads in one request and questions in others, and keeps the conversation between them.
+The samples below use Gemini on Vertex AI. With another provider, use `askWithFiles` as above:
+the options these samples use are the same, with `model` in place of `endpoint`. Model settings
+that `askGemini` takes (`generationConfig`, `toolFilePlacement`, the waits) are options of the
+adapter there.
+
+### 1. Create the library once
+
+Create the library and the endpoint when the server starts, and share them between requests.
+
+```ts
+// large-files.ts: created once, when the server starts, and shared by every request.
+import { GoogleAuth } from "google-auth-library";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { vertexAi } from "llm-large-files/gemini";
+
+export const files = createLargeFiles({
+  // Text extracted from uploads is kept here. Several servers need one shared store.
+  store: new FileDocumentStore(process.env.LARGE_FILES_DIR ?? "./data/large-files"),
+  // The context window of the model that answers (1,000,000 is the default). The rest follows it.
+  budget: { contextTokens: 1_000_000 },
+});
+
+const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
+export const endpoint = vertexAi({
+  project: process.env.GOOGLE_CLOUD_PROJECT!,
+  model: "gemini-3.8-flash",
+  accessToken: async () => (await auth.getAccessToken())!,
+});
+
+// An expired document is ignored at once. This frees the space it took.
+setInterval(() => {
+  files.sweep().catch((error) => console.error("sweep failed", error));
+}, 60 * 60 * 1000).unref();
+```
+
+Documents are kept for 72 hours (`ttlMs`), and uploads are taken up to 100 MB
+(`maxUploadBytes`). To let the model look at the pages of a PDF, add `keepOriginals: ["pdf"]`
+([PDFs](./guides/pdfs.md)). Every option is in the
+[library reference](./reference/library.md#largefilesoptions).
+
+Where the documents live is up to your app: a shared volume for `FileDocumentStore`, or a store of
+your own over your database or object storage, laid out per user and per chat session. See
+[Storage](./guides/storage.md), and [Deployment](./guides/deployment.md) for several servers.
+Vertex AI settings for production (credentials, location, quotas) are in
+[Gemini and Vertex AI](./guides/vertex-and-gemini.md).
+
+### 2. Accept uploads
+
+`createDocumentHandlers` gives you upload, get and delete handlers for any Node HTTP server:
+`node:http`, Express, Fastify (`request.raw`, `reply.raw`), and Next.js API routes on the Node
+runtime (Fastify and Next.js need a step first: see
+[Web app](./guides/web-app.md#mount-them-in-plain-nodehttp)).
 
 ```ts
 import express from "express";
 import { createDocumentHandlers } from "llm-large-files/node";
+import { files } from "./large-files.js";
 
 const app = express();
 const documents = createDocumentHandlers(files, {
-  // Uploads become private to this user. Return undefined to allow anonymous use.
-  getOwner: (req) => (req as any).user?.id,
+  // Uploads become private to this user. undefined: anonymous. currentUserId is your auth.
+  getOwner: (request) => currentUserId(request),
 });
 
-// Mount before express.json(): the body is the raw file, not JSON.
+// Before any body parser: the body of an upload is the raw file.
 app.post("/api/documents", documents.upload);
 app.get("/api/documents/:id", (req, res) => documents.get(req, res, req.params.id));
 app.delete("/api/documents/:id", (req, res) => documents.remove(req, res, req.params.id));
 app.use(express.json());
 ```
 
-The response is a `DocumentSummary`:
+The browser posts the raw file, with its name in an `X-File-Name` header (URI-encoded). The
+response is a `201` with a `DocumentSummary`: `id`, `name`, `format`, `lines`, `estimatedTokens`,
+`expiresAt` and more. Keep the `id` with the chat session. Not on a Node HTTP server, or taking
+multipart forms? Call `files.ingest({ name, mimeType, bytes, owner })` yourself and return
+`toDocumentSummary(meta)`.
 
-```json
-{ "id": "doc_3f9c…", "name": "app.log", "mimeType": "text/plain", "format": "log",
-  "bytes": 5082044, "lines": 60000, "estimatedTokens": 1270511, "expiresAt": "2026-11-09T07:43:14.435Z" }
-```
+The browser side, every status and other servers are in [Web app](./guides/web-app.md); the
+routes in full are in the [node reference](./reference/node.md).
 
-Errors are JSON `{ "error": "…" }`: 400 when there's no file name, 413 when the file is too large,
-422 for an unreadable file (binary, empty, a zip bomb, or a scanned PDF that cannot be shown page by
-page), and 500 when the server fails, as when the store's disk is full. `getOwner` can refuse a
-request by throwing an error with a `status`, such as 401 (see the [API reference](api.md)).
+### 3. Ask with the user's history, and stream the answer
 
-**Other servers.** The handlers take Node's `IncomingMessage` / `ServerResponse`, so they work with
-`node:http`, Express, Koa (`ctx.req`, `ctx.res`), Fastify (`request.raw`, `reply.raw`), and Next.js
-API routes on the Node runtime. Not using Node HTTP? Call `files.ingest({ name, mimeType, bytes, owner })`
-yourself and return `toDocumentSummary(meta)`.
-
-### Browser
+Send the whole conversation on every turn, with all the documents of the session. The plan is made
+again for each question, because the history grows.
 
 ```ts
-async function uploadLargeFile(file: File) {
-  const response = await fetch("/api/documents", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "X-File-Name": encodeURIComponent(file.name),
-      "X-File-Type": file.type,
-    },
-    body: file,
+// chat.ts
+import type { ChatTurn, ToolTurn } from "llm-large-files";
+import { askGemini } from "llm-large-files/gemini";
+import { endpoint, files } from "./large-files.js";
+
+// A chat session as your app stores it: who owns it, its documents, and its turns.
+export type Session = { userId: string; documentIds: string[]; turns: StoredTurn[] };
+export type StoredTurn = { question: string; toolTurns: ToolTurn[]; answer: string };
+
+export async function ask(session: Session, question: string, send: (event: string, data: unknown) => void, signal: AbortSignal) {
+  // The whole history, on every turn, with the tool rounds of each earlier question in its place.
+  const messages: Array<ChatTurn | ToolTurn> = session.turns.flatMap((turn): Array<ChatTurn | ToolTurn> => [
+    { role: "user", text: turn.question },
+    ...turn.toolTurns,
+    { role: "assistant", text: turn.answer },
+  ]);
+  messages.push({ role: "user", text: question });
+
+  const result = await askGemini({
+    files,
+    endpoint,
+    messages,
+    documentIds: session.documentIds, // every document of the session, on every turn
+    owner: session.userId,
+    signal,
+    onText: (delta) => send("text", delta),       // the answer, as it streams
+    onActivity: (text) => send("activity", text), // short-lived: "Search app.log (keywords) for “timeout”…"
+    onStep: (text) => send("step", text),         // done: "Search app.log (exact) for “timeout” — 12 matching lines"
   });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error);
-  return result; // keep result.id with the conversation
+
+  if (!result.answered) {
+    send("error", "No answer came back. Please ask again.");
+    return;
+  }
+  // Keep what the question read with its answer: the next question starts from it.
+  session.turns.push({ question, toolTurns: result.toolTurns, answer: result.text });
+  send("done", {});
 }
 ```
 
-**Which files should go to the server?** Anything your current inline path can't handle. A
-practical rule is text over about 512 KB and PDFs over about 7 MB (base64 makes them about a
-third bigger). Smaller files can keep your existing path. PDFs under your payload limit are better
-sent inline, because Gemini then reads every page with its layout and images. For larger PDFs,
-turn on `keepOriginals` (below) so the model can ask for the pages it needs.
+- The last message must be the user's question. `"model"` is accepted for `"assistant"`.
+- `owner` must be the owner the documents were uploaded with. A document of another owner is
+  treated as missing.
+- `send` stands for your transport: in a web app, a Server-Sent Event. The answer streams when
+  `onText` is set and the endpoint has a stream URL, as `vertexAi()` and `geminiApi()` do.
+- Abort `signal` when the client goes away, so the question stops.
+- `answered` is `false` when the model's last turn had no text: a blocked prompt, a reply cut off,
+  or a tool call that could not be read. Show your own message then.
 
-## 4. Answer questions
+The route, the browser side and cancelling are in [Web app](./guides/web-app.md). To have a
+second, cheaper model search the files while this one writes the answer, add `explorerModel` to
+`vertexAi()`: see [An explorer model](./guides/explorer-model.md).
 
-### With Gemini or Vertex AI: `askGemini`
+### 4. Keep `toolTurns` with the answer
+
+`result.toolTurns` holds the tool calls of the question and what they returned, as plain JSON.
+Store it with the answer, and put it back between the question and the answer, as `ask()` does
+above. The model then sees what it found before, and a follow-up question often needs no new
+search. A call whose result is still in the conversation in full is not run again: the model gets
+a pointer to it, and the step ends with `— already shown above`.
+
+Storing history across servers, keeping it inside the window, and converting history that is in a
+provider's own form are in [Conversations](./guides/conversations.md).
+
+### 5. Handle errors
+
+Before a question fails, the loop sends a failed request again when a wait can mend it, recovers
+from a request too large, and asks once more after an empty or unreadable turn
+([Errors and reliability](./guides/errors-and-reliability.md)). What still fails is thrown:
 
 ```ts
-import { askGemini, DocumentsNotFoundError, geminiApi } from "llm-large-files/gemini";
+import { DocumentsNotFoundError, DocumentStoreError, errorKindOf, partialResultOf } from "llm-large-files";
+import { ask } from "./chat.js";
 
-const endpoint = geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.8-flash" });
+// session, question, send and signal: as in step 3.
+try {
+  await ask(session, question, send, signal);
+} catch (error) {
+  if (!signal.aborted) send("error", messageFor(error)); // after an abort, no one is listening
+  // What a failed question had found and used, or undefined.
+  const partial = partialResultOf(error);
+  if (partial) console.warn(`The failed question used ${partial.usage.inputTokens} input tokens`);
+}
 
-app.post("/api/chat", async (req, res) => {
-  const { messages, documentIds } = req.body; // messages: [{ role: "user" | "model", text }]
-  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
-  const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  const abort = new AbortController();
-  res.on("close", () => abort.abort());
-  try {
-    await askGemini({
-      files, endpoint, messages, documentIds,
-      owner: (req as any).user?.id,
-      system: "You are our support assistant.",
-      generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
-      signal: abort.signal,
-      onText: (text) => send("text", text),            // answer, streamed
-      onActivity: (text) => send("activity", text),    // "Searching app.log for “timeout”…"
-      onStep: (text) => send("step", text),            // "Search app.log … — 12 matching lines"
-    });
-    send("done", {});
-  } catch (error) {
-    send("error", error instanceof DocumentsNotFoundError
-      ? "A file has expired. Please attach it again."
-      : String((error as Error).message));
+function messageFor(error: unknown): string {
+  if (error instanceof DocumentsNotFoundError) return "A file is no longer available. Please attach it again.";
+  if (error instanceof DocumentStoreError) return "Your files could not be read just now. Please try again.";
+  switch (errorKindOf(error)) {
+    case "quota":
+      return "The assistant is not available right now. Please tell support.";
+    case "rate_limit":
+      return "The assistant is busy. Please try again in a minute.";
+    case "auth":
+    case "invalid":
+      return "The assistant is not set up correctly. Please tell support.";
+    case "context_overflow":
+      return "This conversation is too long for the model. Please start a new chat.";
+    case undefined:
+      return "Something went wrong. Please try again.";
+    default:
+      return "The model did not answer. Please try again.";
   }
-  res.end();
-});
+}
 ```
 
-What `askGemini` does each turn:
+- `DocumentsNotFoundError` (`.ids`): a document expired, was deleted, was never uploaded, or
+  belongs to another owner. It is thrown before any model request.
+- `DocumentStoreError`: the store could not be read just now. It does not mean the documents are
+  gone: the same request may work a moment later.
+- `ModelRequestError`: the model failed. `.kind` says how (`quota`, `rate_limit`, `timeout`,
+  `unreachable`, `server`, `auth`, `invalid`, `context_overflow`), and `.status` is the HTTP
+  status, or 0 when no answer came. `errorKindOf(error)` reads the kind of any error that has one.
+- `partialResultOf(error)` gives the steps, `toolTurns` and `usage` of a question that failed
+  under way, so you can still keep and count them.
 
-1. Measures the rest of the request (history, system prompt, other files).
-2. Plans the documents against your budget. Each one goes in whole, or becomes a card plus tools.
-3. Adds each document's text or card at the start of the first user message, where it stays for
-   the whole conversation (so follow-up questions reuse Gemini's prompt cache), and a short tool
-   guide to the system prompt.
-4. Runs the tool loop if needed (up to `limits.toolTurns` requests, default 12). If the model keeps
-   searching, the last request is sent without tools so it has to answer. `result.answered` is
-   `false` in the rare case that there is still no answer (a blocked prompt, or an empty reply).
-5. Sends a request again when the model was busy or could not be reached, keeps the request
-   inside the model's window as tool results add up, and returns what the question used
-   (`result.usage`) and what it read (`result.evidence`).
+What to tell the user for each case, and how to change the retries and the waits, are in
+[Errors and reliability](./guides/errors-and-reliability.md).
 
-`askGemini` is `askWithFiles` with a Gemini model. Everything it does, it does for
-[any other model](#with-another-model-askwithfiles) too.
+### 6. Set limits
 
-**Vertex AI:**
+A question costs what its requests take in. These options bound it:
 
 ```ts
-import { GoogleAuth } from "google-auth-library";
-import { vertexAi } from "llm-large-files/gemini";
+import { askGemini } from "llm-large-files/gemini";
 
-const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
-const endpoint = vertexAi({
-  project: "my-project",
-  location: "global",               // or "us", "eu", "europe-west4", …
-  model: "gemini-3.8-flash",
-  accessToken: async () => (await auth.getAccessToken())!,
+// files, endpoint, messages and session: as in step 3.
+const result = await askGemini({
+  files,
+  endpoint,
+  messages,
+  documentIds: session.documentIds,
+  owner: session.userId,
+  limits: {
+    toolTurns: 8,          // chat requests for one question, the answer included; part reads not counted (default 12)
+    inputTokens: 400_000,  // input tokens for one question, over all its requests (default: none)
+  },
 });
+console.log(result.usage.inputTokens, result.usage.outputTokens, result.usage.requests);
 ```
 
-**An enterprise gateway** that proxies Generate Content:
+- `budget.contextTokens` in `createLargeFiles` is the window the plan fits the request into. With
+  `askWithFiles`, an adapter's `contextTokens` applies too, and the smaller wins.
+- `limits` also takes `callsPerTurn` (default 8), `wholeDocumentReads` (default 1 per document)
+  and `requests` (default: none). See [`AskLimits`](./reference/ask.md#asklimits).
+- `result.usage` is what the question used, in all and for each model: input, cached input, output
+  and thought tokens, and requests. Store it per user or per session to count costs.
 
-```ts
-const endpoint = {
-  url: "https://llm-gateway.corp.example/gemini/models/gemini-3.8-flash:generateContent",
-  streamUrl: "https://llm-gateway.corp.example/gemini/models/gemini-3.8-flash:streamGenerateContent?alt=sse", // optional
-  headers: { Authorization: `Bearer ${process.env.GATEWAY_TOKEN}`, "Content-Type": "application/json" },
-};
-```
-
-Without `streamUrl`, answers arrive in one piece (and `onText` fires once).
-
-**Existing Gemini history.** If your chat already stores Gemini `contents` (with images or inline
-PDFs), pass `contents` instead of `messages`; document text is added at the start of the first user turn.
-
-**A second model for the searching (optional).** The model you name does both halves of the work:
-it searches and reads a large file, and it answers. `explorerModel` gives the first half to another
-model, for example a cheaper one, and `model` then only writes the answer:
-
-```ts
-const endpoint = geminiApi({
-  apiKey: process.env.GEMINI_API_KEY!,
-  model: "gemini-3.8-flash",
-  explorerModel: process.env.GEMINI_EXPLORER_MODEL, // unset or empty: one model does both
-});
-```
-
-`vertexAi()` takes it the same way, and an endpoint of your own takes the explorer's URL as
-`explorerUrl`. What each model gets, and what it costs, is in
-[An explorer model](configuration.md#an-explorer-model).
-
-### Pictures, charts and scans in PDFs
-
-The text of a PDF does not hold its pictures. To let the model look at a page when the text is not
-enough, install `@cantoo/pdf-lib` and keep the uploaded PDFs:
-
-```ts
-export const files = createLargeFiles({
-  store: new FileDocumentStore("./data/large-files"),
-  keepOriginals: ["pdf"],
-});
-```
-
-`askGemini` needs no change. It offers the model a tool, `view_pages`, and sends the pages it asks
-for (up to five a call) as a small PDF. A look shows up among the steps:
-
-```
-✓ Look at report.pdf pages 12-14
-```
-
-With originals kept, a scanned PDF of up to 30 pages is accepted too, and read page by page.
-Kept files take disk space until they expire, which is why this is off by default. The limits, the
-costs and the measurements are in [Pictures in PDFs](configuration.md#pictures-in-pdfs), and what
-to think about before turning it on in [Security](security.md#original-files).
-
-### With another model: `askWithFiles`
-
-The loop is not Gemini's. `askWithFiles` takes the model as an adapter, and two adapters come with
-the package next to Gemini's:
-
-```ts
-import { askWithFiles, DocumentsNotFoundError, ModelRequestError } from "llm-large-files";
-import { openAiCompatible } from "llm-large-files/openai";
-import { anthropic } from "llm-large-files/anthropic";
-
-// Any Chat Completions endpoint: OpenAI, Azure OpenAI, DeepSeek, LiteLLM, vLLM, Ollama, OpenRouter.
-const model = openAiCompatible({
-  baseUrl: "https://api.deepseek.com/v1",
-  apiKey: process.env.DEEPSEEK_API_KEY!,
-  model: "deepseek-v4-pro",
-  contextTokens: 1_000_000,          // the budget of a question follows it
-  body: { temperature: 0.3 },
-});
-
-// Or Claude:
-const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", fallbacks: "default" });
-
-const result = await askWithFiles({
-  files, model, documentIds, messages,
-  owner: req.user?.id,
-  system: "You are our support assistant.",
-  signal: abort.signal,
-  onText: (text) => send("text", text),
-  onActivity: (text) => send("activity", text),
-  onStep: (text) => send("step", text),
-});
-```
-
-`messages` are `{ role: "user" | "assistant", text }`. A turn that holds more than text takes
-parts, with anything but text in the provider's own form:
-`{ role: "user", parts: [{ text: "What is in this picture?" }, { native: { type: "image_url", image_url: { url } } }] }`.
-
-**Two models, of two providers.** `explorer` is a second adapter. It makes the tool calls and
-reads whole files in parts, and `model` writes the answer from what the tools returned:
-
-```ts
-await askWithFiles({ files, model: claude, explorer: model, documentIds, messages });
-```
-
-**Errors.** A model's HTTP error is a `ModelRequestError` with a `status` (0 when the model could
-not be reached). It reaches you after the request was tried again, when another try could have
-helped.
-
-**A model without an adapter** needs one object with a `send` method:
-[your own adapter](api.md#your-own-adapter). `files.prepare()` and `files.tools()` are still there
-for a loop that is all your own; `view_pages` in such a loop is described in
-[Your own loop](configuration.md#your-own-loop).
-
-## Keeping the conversation working
-
-- Send the **full history** each turn when files are attached. The plan is recomputed each time,
-  because the history grows. Stateful APIs that keep history server-side (such as Gemini
-  Interactions with `previous_interaction_id`) don't mix with per-turn planning.
-- Keep the document IDs with the conversation, not with one message. Pass all of them on every turn.
-- Keep **what a question read** with the conversation too. `result.toolTurns` is plain JSON: store
-  it between the question and its answer, and pass it back in `messages` in that place. The model
-  then sees its earlier searches and reads, and a follow-up question often needs no new one. In a
-  live check a follow-up took one request instead of three.
-
-  ```ts
-  const messages = history.flatMap((turn) => [
-    { role: "user", text: turn.question }, ...turn.toolTurns, { role: "assistant", text: turn.answer },
-  ]).concat({ role: "user", text: newQuestion });
-  ```
-
-  If your history is Gemini `contents`, `geminiToolTurns(result.toolTurns)` gives the rounds in
-  that form.
-- `result.evidence` lists, for each tool call, the document and the lines or pages the model was
-  shown. Store it with the answer if you want to show sources, or to check a citation later.
-- Expired documents raise `DocumentsNotFoundError` (with `.ids`). Ask the user to attach them again.
-  A store that could not be read raises `DocumentStoreError` instead: the documents are still
-  there, so retry the request. With `ttlMs: Infinity` documents do not expire at all.
+What costs most, and how to set the budget for each model, are in
+[Costs and limits](./guides/costs-and-limits.md).
 
 ## Run the demo
 
+The repository has two examples that run as they are, with a Gemini API key:
+
 ```bash
-git clone https://github.com/renanbazinin/llm-large-files && cd llm-large-files
-npm install && npm run build
-GEMINI_API_KEY=... node examples/server.ts          # http://localhost:3000
-GEMINI_API_KEY=... node examples/ask-cli.ts big.log "What failed first?"
+git clone https://github.com/renanbazinin/llm-large-files
+cd llm-large-files
+npm install
+npm run build
+GEMINI_API_KEY=... node examples/server.ts      # then open http://localhost:3000
+GEMINI_API_KEY=... node examples/ask-cli.ts ./big.log "What failed first, and when?"
 ```
 
-The examples need Node 22.18+ or 24 to run TypeScript directly.
+- `examples/server.ts` is a chat server in one file, on `node:http`: an upload route
+  (`createDocumentHandlers`), answers streamed as Server-Sent Events, and a small web page. It
+  stores uploads in `.data/large-files` and keeps PDFs, so the model can look at their pages.
+  `GEMINI_MODEL` picks the model (default `gemini-3.8-flash`), and `GEMINI_EXPLORER_MODEL` adds an
+  explorer model. Every upload is anonymous.
+- `examples/ask-cli.ts` asks one question about one file from the command line. Two more
+  arguments are optional: the model, and an explorer model.
+
+Both need a Node that runs TypeScript directly: 22.18 and later in Node 22, or 23.6 and later.
+Build first: the examples import
+the package by name, which resolves to the repository's own `dist/`. `npm install` in the
+repository also installs the optional packages, so every format works. In PowerShell, set the key
+with `$env:GEMINI_API_KEY = "..."` and then run `node examples/server.ts`.
+
+## Next steps
+
+- [Gemini and Vertex AI](./guides/vertex-and-gemini.md): endpoints, access tokens, thinking,
+  gateways, Vertex quotas and errors.
+- [OpenAI-compatible endpoints](./guides/openai-compatible.md) and [Claude](./guides/anthropic.md):
+  the other adapters.
+- [An explorer model](./guides/explorer-model.md): a cheaper model that searches while another
+  answers.
+- [Web app](./guides/web-app.md): uploads, streaming over SSE, cancelling.
+- [Conversations](./guides/conversations.md): history, `toolTurns`, converters.
+- [Storage](./guides/storage.md): your own store, per user and per session.
+- [Deployment](./guides/deployment.md): several servers, memory, proxies and timeouts.
+- [Errors and reliability](./guides/errors-and-reliability.md) and
+  [Costs and limits](./guides/costs-and-limits.md).
+- [PDFs](./guides/pdfs.md): tables, pictures, scans and page views.
+- [Your own adapter and loop](./guides/own-adapter-and-loop.md) and
+  [Testing](./guides/testing.md).
+- [How it works](./how-it-works.md), [Security](./security.md) and
+  [Troubleshooting](./troubleshooting.md).
+- [The documentation index](./README.md), with the reference for every export, and the
+  [changelog](../CHANGELOG.md).
