@@ -62,7 +62,7 @@ subclass sets its own.
 
 | Field | Type | What it holds |
 |---|---|---|
-| `status` | `number` | The HTTP status of the provider's answer. 0 when no answer came: the connection failed, the adapter's wait on a silent model ran out (kind `"timeout"`), or a stream ended before it was complete. For an error event inside a stream whose response was HTTP 200, it is the status the event names or implies (Claude's `overloaded_error` is 529; an OpenAI-compatible error the server does not name is 500): see the adapter's page. |
+| `status` | `number` | The HTTP status of the provider's answer. 0 when no answer came: the connection failed, the adapter's wait on a silent model ran out (kind `"timeout"`), or a stream ended before it was complete. For an error event inside a stream whose response was HTTP 200, it is the status the event names or implies when the adapter knows one (Claude's `overloaded_error` is 529; an OpenAI-compatible error the server does not name is 500). Otherwise it is the response's 200: a Claude error with no `type` or one the adapter does not map, or a Gemini error without a numeric `code`. See the adapter's page. |
 | `kind` | `ModelErrorKind` | What went wrong. The `kind` option when it was given; otherwise `classifyModelError(status, message, { code, details }).kind`. |
 | `retryAfterMs` | `number`, optional | The wait the provider asked for, in milliseconds, when it named one. The adapters read it with [`retryAfterMs()`](#retryaftermsheaders-body-now). Unset otherwise. |
 | `limitTokens` | `number`, optional | Only for kind `"context_overflow"`: the most input tokens the model takes, as the provider counts them, when its message names the number. |
@@ -81,10 +81,11 @@ The constructor options:
 | `details` | `unknown` | none | The `details` array of a Gemini error body, used to tell a quota per day and an API key that is not valid. Not kept. |
 
 `limitTokens` and `requestedTokens` are set only when the kind is `"context_overflow"` and
-`classifyModelError` also reads the status and message as an overflow. A `kind:
+`classifyModelError` also reads the failure (its status, message and code) as an overflow. A `kind:
 "context_overflow"` you give gets no numbers when the classifier would not call the failure an
-overflow: status 429 or 500 and more, throttling wording, or no overflow wording. The constructor
-throws nothing.
+overflow: status 0, 429, or 500 and more; the code `insufficient_quota`; throttling wording; or
+none of status 413, the codes `context_length_exceeded` and `request_too_large`, and overflow
+wording. The constructor throws nothing.
 
 ```ts
 import { ModelRequestError } from "llm-large-files";

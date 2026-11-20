@@ -528,8 +528,9 @@ know about the pair:
 
 - **Each model gets the conversation in its own form.** The explorer's own turns, with their
   reasoning or signatures, go back only to the explorer. The answering model gets the calls and
-  what they returned, built in its form; calls without an ID get one (`call_1_1` for the first
-  call of the first round).
+  what they returned, built in its form. A call that came without an ID goes to Gemini without
+  one. When the OpenAI-compatible model answers (the other way round), such a call is given one:
+  `call_1_1` for the first call of the first round.
 - **The budget fits the smaller window** that the two adapters declare, and the larger
   `tokenScale`. Give each its `contextTokens`.
 - **`view_pages` needs both models to take files**: the OpenAI-compatible one only with `pdfInput`.

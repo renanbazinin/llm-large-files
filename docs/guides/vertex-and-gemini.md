@@ -175,8 +175,11 @@ const result = await askWithFiles({
 What the Gemini adapter does in either case:
 
 - **It streams** a reply when `onText` is given and the endpoint has a `streamUrl`. Otherwise each
-  reply arrives whole, and `onText` gets its text in one piece.
-- **It sends every model turn back unchanged**, because Gemini 3 wants its thought signatures back.
+  reply arrives whole, and `onText` gets its text once the reply is in: one call for each text part.
+- **It sends its own model turns back unchanged** in the later requests of the question, because
+  Gemini 3 wants its thought signatures back. Another model gets them rebuilt from their function
+  calls, without signatures, as stored `toolTurns` always are. With an explorer, that is the
+  answering model.
 - **It never shows thoughts.** Parts that Gemini marks `"thought": true` are not in `text` and not
   passed to `onText`.
 - **The request that must be answered in text declares no tools.** Gemini can ignore
@@ -208,8 +211,8 @@ The first wait is long because of how Gemini answers:
   first piece comes when it starts to write, which on a large request with a high thinking level
   can take minutes.
 - **A reply that is not streamed arrives whole, at the end.** The explorer's requests are never
-  streamed, and neither is any request made without `onText`. For those, this wait covers the whole
-  reply.
+  streamed, and neither is any request made without `onText` or to an endpoint without a
+  `streamUrl`. For those, this wait covers the whole reply.
 
 Any bytes count as a piece, keep-alives included, and a reply that keeps arriving has no limit.
 Set the waits on `gemini()` or `askGemini` (which gives both models the same); 0 waits without end:

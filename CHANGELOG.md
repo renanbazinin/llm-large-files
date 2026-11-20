@@ -60,9 +60,10 @@ Some behavior is different. Check each point against your app:
   fails at once. Headers do not count as a piece, because a model that thinks sends nothing until
   it has thought; keep-alives count. A reply that keeps arriving has no limit. A reply that is not
   streamed comes whole at the end, so it must be written within `firstByteTimeoutMs`: Gemini and
-  OpenAI-compatible requests without `onText` (an explorer's requests among them), and Claude
-  with `stream: false`. Part reads of a whole-file read are not watched this way: they keep their
-  limit of 180 s.
+  OpenAI-compatible requests without `onText` (an explorer's requests among them), Gemini
+  requests to an endpoint without `streamUrl`, and every request of `openAiCompatible()` or
+  `anthropic()` with `stream: false`. Part reads of a whole-file read are not watched this way:
+  they keep their limit of 180 s.
   **What to do:** handle the `"timeout"` kind (see the sample under **New**). With the defaults,
   a model that never answers fails after about 20 minutes (two waits of 600 s). To give up
   sooner, or never, set `firstByteTimeoutMs` and `idleTimeoutMs` on `askGemini`, `gemini()`,
@@ -223,8 +224,8 @@ The samples assume what your app already has: `files` from `createLargeFiles()`,
 
 - **`ModelReply.finish`**: how a reply ended, in terms every adapter maps its own to:
   `"complete"`, `"cut"` (at the output limit, or Claude's full window), `"filtered"` (by the
-  provider's safety filters) or `"malformed_call"` (a tool call that could not be read, Gemini's
-  `MALFORMED_FUNCTION_CALL`). The three adapters set it. See [The tool loop and the adapter contract](docs/reference/ask.md).
+  provider's safety filters) or `"malformed_call"` (a tool call that could not be read: Gemini's
+  `MALFORMED_FUNCTION_CALL` and `UNEXPECTED_TOOL_CALL`). The three adapters set it. See [The tool loop and the adapter contract](docs/reference/ask.md).
 - **`ToolCallLimits.maxRequests`**: the model requests a whole-file read may make. It does not
   stop the read: a part the model refuses as too large is read as two halves only while it allows.
   `askWithFiles` passes the read's own requests and a share of what the question has left of
@@ -254,16 +255,17 @@ Besides the points under **Upgrading**:
   nothing is shortened (its conversation may only grow), so only the second plan applies. See
   [How it works](docs/how-it-works.md).
 - **An empty first reply, or a tool call that could not be read** (Gemini's
-  `MALFORMED_FUNCTION_CALL`), **is asked for once more** with a short note, at most twice a
+  `MALFORMED_FUNCTION_CALL` or `UNEXPECTED_TOOL_CALL`), **is asked for once more** with a short note, at most twice a
   question. Before, the answer was written from the document cards alone, and looked like any
   other. The note is not kept in the conversation, except when the model that explores is Claude,
   and an answering model other than the explorer never gets it.
 - **A call whose result is still in the conversation in full is not run again**: the same search,
   the same read, the same overview, a read of lines inside one that is shown, in this question or
   in the stored tool rounds of an earlier one. The model gets a pointer to that result. A result
-  that was cut to its room, replaced by a stand-in, or from a search that stopped early is not
-  pointed to. Live on Vertex AI, a follow-up that repeated its first search got the pointer and
-  answered from the result.
+  of an earlier turn that failed, was cut to its room, was replaced by a stand-in, or came from a
+  search that stopped early is not pointed to. The same search, read or overview made twice in
+  one turn is not run twice: the second is pointed to the first. Live on Vertex AI, a follow-up
+  that repeated its first search got the pointer and answered from the result.
 - **Two searches in a row that failed in the same mode** get a hint added to the error: after two
   regex searches, to try exact or keywords mode; after two of another mode, to check the arguments
   or answer from what the model has.
@@ -297,7 +299,9 @@ The tool loop:
   room the other results of its turn leave.
 - **Whole-file reads in one turn are counted together** against `limits.requests` and
   `limits.inputTokens`. Each was checked alone, so two reads that each fit passed the ceiling
-  together: 16 requests against a ceiling of 11 in a probe.
+  together: 16 requests against a ceiling of 11 in a probe. The input tokens of a read are now
+  counted by the `tokenScale` of the model that reads its parts, not by the largest scale of the
+  question, which refused reads that fit.
 - **The provider's count of a request is read by the `tokenScale` of the model that gave it**,
   not by the largest scale of the question. With a Gemini explorer and Claude answering, the
   request for the answer came to 66,000 tokens of Claude's window of 60,000.
@@ -319,6 +323,9 @@ Whole-file reads:
   (a store that could not be read) is not counted, so the model can make it again.
 - **A long answer is cut at its end**, with `answer_shortened`, and the other fields
   (`parts_read`, the notes on what is incomplete) are kept. It was cut as JSON, which dropped them.
+- **A part that could not be read from storage no longer shows the model the server's file
+  path.** Its note, and the error of a read that read no part, give only the error code ("The
+  file could not be read from storage (EACCES)"), as the other tools do.
 
 The adapters:
 
@@ -340,10 +347,10 @@ The adapters:
   was sent (HTTP 400 naming it) is sent the other, and the adapter keeps it.
 - **OpenAI-compatible: two user turns in a row are sent as one.** DeepSeek's reasoner and the chat
   templates of Mistral and Gemma models refuse them.
-- **Claude: a stream that ended without its last event is not taken for a whole reply.** A gateway
-  that ended it early made a cut answer count as answered; it is now sent again when none of it
-  was shown. A call whose block was never closed is answered "send it again", not run with no
-  arguments.
+- **Claude: a stream that ended without saying why (no `stop_reason`) is not taken for a whole
+  reply.** A gateway that ended it early made a cut answer count as answered; it is now sent
+  again when none of it was shown. A call whose block was never closed is answered "send it
+  again", not run with no arguments.
 - **Claude: an empty text block is not sent back** ("text content blocks must be non-empty"),
   unless a thinking block follows it in the turn.
 - **Claude: calls of other providers and of earlier questions get IDs the API takes**, each once
@@ -365,6 +372,6 @@ Replies cut off on their way:
 
 Versions 0.1.0 to 0.5.0 are recorded in the
 [full history up to 0.5.0](https://github.com/renanbazinin/llm-large-files/blob/v0.5.0/CHANGELOG.md).
-Each of them is a [tag of the repository](https://github.com/renanbazinin/llm-large-files/tags);
+Each of them but 0.1.0 is a [tag of the repository](https://github.com/renanbazinin/llm-large-files/tags);
 from 0.6.0 on, each release is also on the
 [GitHub releases page](https://github.com/renanbazinin/llm-large-files/releases).

@@ -35,7 +35,7 @@ becomes a card that the model reaches through the tools, as a 50 MB log would. S
 [How it works](../how-it-works.md).
 
 The helper file below has `bytes()` and `appLog(count)`, a log of `count` lines with a failed
-payment on every 50th. From 20 lines on it is over 1,000 estimated tokens. The samples use 400
+payment on every 50th. From 19 lines on it is over 1,000 estimated tokens. The samples use 400
 lines, which hold 8 failed payments.
 
 ## A scripted model
@@ -285,8 +285,9 @@ What these show of the loop:
 - `limits.toolTurns` counts the answer: with 3, tools run in the first two requests, and the third
   has `toolChoice: "none"`. The tools are still listed in it, and the last user turn asks for the
   answer (`FINAL_ANSWER_REQUEST`). See [`AskLimits`](../reference/ask.md#asklimits).
-- The same tool call twice is not run twice: the second gets a pointer to the first result. That is
-  why the reads above move on by ten lines a request.
+- The same search or read twice is not run twice: the second gets a pointer to the first result
+  (in a later turn, it runs again when that result failed or was cut). That is why the reads above
+  move on by ten lines a request.
 - Text the model writes before a tool call is part of `text`, and of what `onText` receives, with
   `"\n\n"` before the next turn's text.
 - In the tool loop (not for a document sent whole), a reply with no text and no tool call before
@@ -709,7 +710,8 @@ A stream that closes without its end is taken for a reply cut off on its way, wi
 "Gemini's reply ended before it was complete.", "The model's reply ended before it was complete."
 (OpenAI-compatible) or "Claude's reply ended before it was complete." The loop then sends the
 request again, as for a connection that failed, unless text of it was shown. When a fake stream
-seems to be sent twice, check its last event.
+seems to be sent twice, check that it ends as the table above says: for Claude, a `message_delta`
+event with `stop_reason`, not only `message_stop`.
 
 All three error classes extend `ModelRequestError`, with the same `status` and `kind`. A
 `Retry-After` header on an error reply is the wait the loop takes before it sends the request

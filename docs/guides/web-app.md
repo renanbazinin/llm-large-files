@@ -291,7 +291,8 @@ function readFormFile(request: IncomingMessage): Promise<FormFile> {
         if (size <= limit) chunks.push(chunk);
       });
       stream.on("end", () => {
-        file = { name: info.filename, mimeType: info.mimeType, bytes: Buffer.concat(chunks) };
+        // filename is undefined when the form sent the part without one.
+        file = { name: info.filename ?? "upload", mimeType: info.mimeType, bytes: Buffer.concat(chunks) };
       });
     });
     form.on("close", () => {
@@ -309,7 +310,7 @@ function readFormFile(request: IncomingMessage): Promise<FormFile> {
  * user's and records the document ID in it.
  */
 export function formUploadRoute(addDocument: (sessionId: string, userId: string, documentId: string) => Promise<void>) {
-  return async (req: Request, res: Response): Promise<void> => {
+  return async (req: Request<{ sessionId: string }>, res: Response): Promise<void> => {
     // Who is asking comes first, so a refused upload is not read.
     const userId = currentUserId(req);
     if (!userId) return void res.status(401).json({ error: "Sign in to attach files." });
@@ -331,7 +332,7 @@ export function formUploadRoute(addDocument: (sessionId: string, userId: string,
     }
 
     try {
-      await addDocument(req.params.sessionId!, userId, meta.id);
+      await addDocument(req.params.sessionId, userId, meta.id);
     } catch (error) {
       // A document that is in no chat is of no use: remove it now rather than when it expires.
       await files.delete(meta.id, { owner: userId }).catch(() => undefined);
@@ -542,7 +543,7 @@ your own: `files.tools(documents, { onProgress })` ([Your own adapter and loop](
 ### When the text streams
 
 `onText` is called whether or not the model streams. When it does not, each reply reaches `onText`
-in one piece once it is in. Whether it streams:
+once it is in: in one piece, or from Gemini, one piece for each text part. Whether it streams:
 
 - **`askGemini` and `gemini()`**: when `onText` is set and the endpoint has a `streamUrl`.
   `vertexAi()` and `geminiApi()` set one; an endpoint of your own for a gateway needs it
@@ -903,10 +904,11 @@ What it does:
   `DELETE /api/documents/:id` to `remove`. `getOwner` returns `undefined`, so every upload is
   anonymous.
 - **The chat route.** `POST /api/chat` takes `{ messages, documentIds }` as JSON: the page keeps the
-  history and the document IDs, and sends all of them with each question. The route writes the
-  event-stream headers, aborts an `AbortController` when the response closes, and calls `askGemini`
-  with `onText`, `onActivity` and `onStep`, each written as an event (`text`, `activity`, `step`).
-  It ends with `done`, or with `error` and a message, unless the client has gone.
+  history and the ID of the last file uploaded (a new upload replaces it), and sends both with each
+  question. The route writes the event-stream headers, aborts an `AbortController` when the
+  response closes, and calls `askGemini` with `onText`, `onActivity` and `onStep`, each written as
+  an event (`text`, `activity`, `step`). It ends with `done`, or with `error` and a message, unless
+  the client has gone.
 - **The page.** A file input uploads with `fetch` (`application/octet-stream`, `X-File-Name`) and
   shows the format, lines and estimated tokens of the summary. A question is posted to `/api/chat`,
   and the response is read with a stream reader that splits it into events at blank lines, as

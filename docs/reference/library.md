@@ -387,7 +387,7 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 | `signal` | `AbortSignal` | none | Stops searches and whole-document reads. Once it has aborted, a call that fails throws instead of answering `{ error }`. |
 | `regexBudgetMs` | `number` | [`REGEX_BUDGET_MS`](./tools.md#regex_budget_ms), 6,000 | The most time, in milliseconds, that the regex searches of this tool set may take together. Past it, a regex search answers with an error that tells the model to search another way. One search stops after 3,000 ms on its own. |
 | `maxWholeDocumentReads` | `number` | [`MAX_WHOLE_DOCUMENT_READS`](./tools.md#max_whole_document_reads), 1 | How many times each document may be read whole by this tool set. A call past it answers with an error that tells the model to use what it has. 0 turns whole reads off. |
-| `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | 3 retries, a first wait of 500 ms that doubles, 60 s at most | How a failed model request of a whole-document read is sent again. An error without an HTTP status is sent again once, at once. |
+| `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | 3 retries, a first wait of 250 to 500 ms (500 ms before the jitter) that doubles, 60 s at most | How a failed model request of a whole-document read is sent again. An error without an HTTP status is sent again once, at once. |
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for these tools: their result cap and part size. Use the budget you planned the request with. |
 | `viewPages` | `boolean \| DocumentMeta[]` | none | Offers `view_pages`, which hands the model real pages of a PDF as a file. `true` offers it for the PDFs among `documents`; a list offers it for exactly those, which may include PDFs whose text is already in the prompt: pass `prepared.viewable`. Only PDFs with `originalKept` count, and only with a store that has `getOriginal`. Turn it on only when your loop runs tools with `executeWithFiles` and sends the files to the model. |
 
@@ -1047,12 +1047,13 @@ type OutlineEntry = { line: number; level: number; title: string };
 
 One heading of a document's outline. The headings are found in the text: Markdown headings (the
 slides of a PPTX are `## Slide N`), lines that start with "Chapter", "Part", "Book", "Section" or
-"Appendix", numbered headings such as `2.1 Results`, and short lines in capitals; all but the
+"Appendix" (or the Hebrew words for chapter, part and appendix), numbered headings such as `2.1 Results`, and short lines in capitals; all but the
 Markdown ones only after a blank line. When there are more than 400, at most 400 are kept, taken at
-even steps across the document; when at least 20 of them are top-level headings, only those are
-used. With 400 top-level headings or more, that gives 400 spread across the document. With 20 to
-399, version 0.6.0 gets the steps wrong: the outline holds as many entries as there are top-level
-headings, but only the first of them, each repeated (with 100, the first 25, four times each).
+even steps across the document; when at least 20 of them are top-level headings (of the shallowest
+level found), only those are used. With 400 top-level headings or more, that gives 400 spread across
+the document. With 20 to 399, version 0.6.0 gets the steps wrong: the outline holds as many entries
+as there are top-level headings, but it takes them from the first ones only, some more than once
+(with 100, the first 25, four times each; with 300, the first 225).
 
 | Field | Type | What it holds |
 |---|---|---|

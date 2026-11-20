@@ -52,12 +52,13 @@ another's documents. It does not stop one user from mixing documents of their ow
 
 ### Requiring a signed-in user in the handlers
 
-`createDocumentHandlers` calls `getOwner` for every request. When it returns `undefined`, the
-request is anonymous: an upload is stored without an owner, and GET and DELETE reach only documents
-that have none. To refuse a request instead, throw an error with a `status` (or `statusCode`)
-between 400 and 599: the handler answers with that status and the error's message. Any other error
-is answered with a 500 that does not repeat its message. `getOwner` runs before the body is read,
-so a refused upload is not buffered.
+`createDocumentHandlers` calls `getOwner` for every request but an upload with no file name (no
+`X-File-Name` header and no `?name=`), which is answered 400 before `getOwner` runs. When
+`getOwner` returns `undefined`, the request is anonymous: an upload is stored without an owner, and
+GET and DELETE reach only documents that have none. To refuse a request instead, throw an error
+with a `status` (or `statusCode`) between 400 and 599: the handler answers with that status and the
+error's message. Any other error is answered with a 500 that does not repeat its message.
+`getOwner` runs before the body is read, so a refused upload is not buffered.
 
 ```ts
 import type { IncomingMessage } from "node:http";
@@ -180,8 +181,10 @@ What a hostile file can still do:
   does not render anything; this is up to your interface.
 - **Reach every model of the question**, an explorer model included.
 - **Stay in the conversation.** The `toolTurns` you store hold the text the tools returned,
-  injected instructions included, and they go back to the model with every later question. A call
-  that repeats one of them is not run again: the model is pointed to the stored result.
+  injected instructions included, and they go back to the model with every later question. A
+  search, read or overview that repeats one of them is not run again: the model is pointed to the
+  stored result, unless that result failed, was cut, came from a search that stopped early or is
+  no longer there in full ([How it works](./how-it-works.md#pointers-to-repeated-calls)).
 
 **Tools that act.** `askWithFiles` takes no tools of your own. To give a model tools that act
 (send an email, change a ticket), write your own loop

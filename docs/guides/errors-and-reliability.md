@@ -29,7 +29,7 @@ sees them:
 - A streamed reply that stops before its end is sent again, when none of it was shown. See
   [A stream cut off](#a-stream-cut-off).
 - A tool that fails (a pattern that does not compile, a store that did not answer, a whole-file
-  read whose parts failed) returns its error to the model, which tries another way. Nothing is
+  read whose parts all failed) returns its error to the model, which tries another way. Nothing is
   thrown. See [Failures inside tools](#failures-inside-tools).
 
 What is left for you: catch what the question throws, show your own words for it, keep what a
@@ -209,9 +209,10 @@ pieces, keep-alives counted; 0 waits without end
 They are options of `gemini()`, `askGemini`, `openAiCompatible()` and `anthropic()`. The first wait
 is long because a model that thinks sends nothing while it does (Gemini without its thoughts,
 OpenAI's reasoning models), and a reply that is not streamed arrives whole at the end: on Gemini and
-OpenAI-compatible endpoints an explorer's, or any request without `onText`; on Claude only with
-`stream: false` or from a gateway that answers without a stream. A reply that keeps arriving has no
-time limit.
+OpenAI-compatible endpoints any request without `onText` (an explorer's among them); on Gemini also
+any request to an endpoint without a `streamUrl`; on OpenAI-compatible endpoints also any with
+`stream: false` or from a gateway that answers without a stream; on Claude only with `stream: false`
+or from a gateway that answers without a stream. A reply that keeps arriving has no time limit.
 
 When a wait runs out, the adapter aborts the request and throws its error, with status 0 and kind
 `timeout`: "Gemini sent nothing for 600 s.", "The model sent nothing for 600 s." (OpenAI-compatible)
@@ -305,21 +306,22 @@ How the client side cancels a streamed answer is in [Web app](./web-app.md).
 When the provider refuses a request as larger than the model takes (kind `context_overflow`), the
 loop does not give up at once:
 
-1. It takes the provider's count and window for the rest of the question, replaces older tool
-   results with stand-ins, and sends the request again, at most twice in a question. The step says
-   "The request was larger than the model takes: older tool results were shortened, and it was sent
-   again".
-2. When shortening does not help (there are no older tool results to shorten, a model of the
-   question may only grow its conversation, such as Claude, or the request sent again shorter was
-   refused again), and no tool call of this question was answered and no text shown yet, it plans
+1. It takes the provider's count and window for the rest of the question, replaces tool results
+   with stand-ins (those of all but the last three tool rounds, then all but the last two, then all
+   but the last one, then all of them, as far as needed), and sends the request again, at most
+   twice in a question. The step says "The request was larger than the model takes: older tool
+   results were shortened, and it was sent again".
+2. When shortening does not help (nothing is left to shorten, a model of the question may only grow
+   its conversation, such as Claude, or the request sent again shorter was refused again), and no
+   tool call of this question was answered and no text shown yet, it plans
    the documents again for a smaller window and starts over, once. A document that was sent whole
    may now be searched instead. The step says "The first request was larger than the model's
    window of 131,072 tokens: the files were planned again to fit it", or "…for a smaller window".
    What the first try used counts in `usage` and against `limits`.
 3. Otherwise it throws the error, with `partialResultOf`.
 
-How many rounds are kept and how the smaller window is worked out from the provider's numbers is
-in [How it works](../how-it-works.md#a-request-too-large-for-the-model).
+How the smaller window is worked out from the provider's numbers is in
+[How it works](../how-it-works.md#a-request-too-large-for-the-model).
 
 A part of a whole-file read that the model refuses as too large is read as two halves, inside the
 tool. It does not throw.
@@ -406,9 +408,14 @@ whose parts all failed. The question goes on, and can still be answered. A faile
 - not in `evidence`, which lists only what was shown.
 
 A whole-file read that worked in part says so in its result (`parts_that_failed`, `notes_only`,
-`notes_cut_short`) and in its step (", notes only", ", incomplete"). Most failed calls are the
-model's own mistakes, which it mends in its next turn. To see trouble on your side, such as a store
-that fails often, log them:
+`notes_cut_short`, `answer_cut_short`). Its step ends in ", notes only" when the answer is only the
+notes of the parts, and otherwise in ", incomplete" when notes or the answer were cut short. A read
+that only lost parts has no such mark: its step ends in " — 12 parts, 3 relevant" as a complete
+read's does, the failed parts among the 12. Look for `parts_that_failed` in its result in
+`toolTurns`.
+
+Most failed calls are the model's own mistakes, which it mends in its next turn. To see trouble on
+your side, such as a store that fails often, log them:
 
 ```ts
 // result: what askWithFiles or askGemini returned.

@@ -283,7 +283,7 @@ The description the model sees:
 | `log_profile` | [`LogProfile`](./library.md#logprofile), optional | For a log: the count of each level, the first and last timestamps, and up to 15 problems (WARN, ERROR and FATAL message shapes: `template`, `level`, `count`, `firstLine`), FATAL first, then ERROR, then WARN, the most frequent first within each. |
 | `first_lines` | string | The first 30 lines, numbered. |
 | `last_lines` | string | The last 20 lines, numbered; `""` when the file has 30 lines or fewer. |
-| `outline` | string[] | One entry a heading: `"L12 Title"`, with two more spaces before the title for each level below the shallowest heading (`"L40   Install"`). It is the outline stored at ingest: at most 400 headings. A longer one is taken at even steps across the file, from its top-level headings alone when there are 20 or more of them; with 20 to 399 top-level headings, 0.6.0 repeats the first of them instead (see [`OutlineEntry`](./library.md#outlineentry)). Cut from its end to fit the cap. |
+| `outline` | string[] | One entry a heading: `"L12 Title"`, with two more spaces before the title for each level below the shallowest heading (`"L40   Install"`). It is the outline stored at ingest: at most 400 headings. A longer one is taken at even steps across the file, from its top-level headings alone when there are 20 or more of them; with 20 to 399 top-level headings, 0.6.0 gets the steps wrong: the outline has as many entries as there are top-level headings, but takes them from the first ones only, some more than once (with 100, the first 25, four times each; see [`OutlineEntry`](./library.md#outlineentry)). Cut from its end to fit the cap. |
 
 ## `analyze_whole_document`
 
@@ -451,9 +451,12 @@ of this unless you write it.
   - For a read inside an earlier read: `{ "document": "app.log", "lines": "150-200", "already_shown": true, "note": "Not run: lines 150-200 are already shown above in full, in the result that has lines 100-299 of this file, and the file has not changed. Use them. To see more, read other lines." }`
   - For the same call twice in one turn: `{ "already_shown": true, "note": "Not run: call 1 of this turn is the same call, and its result is next to this one. Use it." }`
 
-  A result that failed, was cut (`truncated`, `text_cut`, a "Showing …" note), came from a search
-  that stopped early, or is itself a pointer or a stand-in is never pointed to: the call runs, and
-  may get more. Whole-file reads and looks at pages are never pointed to.
+  A result of an earlier turn that failed, was cut (`truncated`, `text_cut`, a "Showing …" note),
+  came from a search that stopped early, or is itself a pointer or a stand-in is never pointed to:
+  the call runs, and may get more. The same call made twice in one turn gets the pointer to the
+  first whatever the first returns (an error, a cut result, a pointer); only when the first is
+  refused for lack of room is the second refused the same way. Whole-file reads and looks at pages
+  are never pointed to.
 - **Stand-ins.** When the request runs short of room, the results of older tool rounds are replaced
   by the short stand-ins of [`stubResult`](./ask.md#stubresultcall-result-hadfiles), with
   `"dropped": true`; when and how is in [How it works](../how-it-works.md), and nothing is replaced
@@ -469,8 +472,11 @@ of this unless you write it.
   the tool's description, or answer from what you have." A call of another tool, or a search that
   works, starts the count again.
 - **A share of the room.** Before the calls of a turn run, the room left in the request is shared
-  among them, and each gets its share as `maxResultCharacters` (how, in
-  [How it works](../how-it-works.md)).
+  among those that run and return text, and each gets its share as `maxResultCharacters`. A
+  whole-file read is the exception: its answer is not cut up front; once the other results of the
+  turn are in, it is cut to the room they left. A look at pages is not in the share: it gets
+  `maxFileBytes` and `maxPages` instead (see [`ToolCallLimits`](#toolcalllimits)). How the room
+  is shared is in [How it works](../how-it-works.md#room-in-the-request).
 - **Calls that are not run**, each answered with an `error`:
   - past `limits.callsPerTurn` (8): "Not run: one turn runs at most 8 tool calls. Send this call
     again if you still need it.";

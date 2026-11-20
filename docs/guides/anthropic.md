@@ -135,10 +135,11 @@ const claude = anthropic({
 Which `thinking` and `output_config` values a model takes is the API's business: see Anthropic's
 documentation for your model. What the library does with thinking is the same for every model:
 
-- **It goes back unchanged.** A turn of Claude's, thinking blocks included, is sent back as it came
-  in the later requests of the question, except for what the API would refuse: an empty text block
-  that a stream left after the last thinking block is left out, and a call whose input was not
-  valid JSON goes back with `{}`.
+- **It goes back unchanged to Claude.** A turn of Claude's, thinking blocks included, is sent back
+  as it came in Claude's later requests of the question, except for what the API would refuse: an
+  empty text block that a stream left after the last thinking block is left out, and a call whose
+  input was not valid JSON goes back with `{}`. Another model of the question (the answering
+  model, when Claude explores) gets the turn rebuilt from its tool calls, without thinking blocks.
 - **It is not shown.** `onText` and `result.text` carry text blocks only.
 - **It is not stored.** `result.toolTurns` hold the calls and their results, and
   `fromAnthropicMessages` leaves thinking blocks out: they belong to the question they were
@@ -387,11 +388,14 @@ API's own word for the error in `type`. Its fields, and every case the adapter t
 [`AnthropicRequestError`](../reference/anthropic.md#anthropicrequesterror). Which errors inside a
 stream are sent again: [A stream cut off](./errors-and-reliability.md#a-stream-cut-off).
 
-Three failures are not an `AnthropicRequestError`, and have no status or kind: an error thrown by
-your `apiKey`, `authToken` or `headers` function, as it was thrown (a chat request is not sent
-again for it); a gateway's HTTP 200 whose body is not JSON (an HTML error page), which throws the
+Three failures of a chat request are not an `AnthropicRequestError`, and have no status or kind:
+an error thrown by your `apiKey`, `authToken` or `headers` function, as it was thrown and not sent
+again; a gateway's HTTP 200 whose body is not JSON (an HTML error page), which throws the
 `SyntaxError` of reading it and is not sent again; and the abort of your own `signal`, thrown as it
-came.
+came. A part read of a whole-file read differs in two of them. An error of your `apiKey`,
+`authToken` or `headers` function becomes an `AnthropicRequestError` with `status` 0 and
+`kind: "unreachable"` ("Claude could not be reached (…)."), and the part read is sent again, as
+after a connection that failed. A part read whose body is not JSON is sent again once, at once.
 
 ```ts
 import { askWithFiles, partialResultOf } from "llm-large-files";

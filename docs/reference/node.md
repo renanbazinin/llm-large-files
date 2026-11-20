@@ -88,7 +88,7 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none: every request is anonymous | The owner of this request, usually the signed-in user's ID. Called once per request, before an upload's body is read, so a refused upload is never buffered. |
+| `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none: every request is anonymous | The owner of this request, usually the signed-in user's ID. Called at most once per request. In `upload` it runs after the name is read and before the body: an upload without a name is answered `400` without calling it, and a refused upload is never buffered. |
 
 What `getOwner` returns decides what each handler does:
 

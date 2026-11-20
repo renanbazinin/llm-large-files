@@ -21,7 +21,7 @@ They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.
 
 | Format | Detected by | Needs | What the text holds |
 |---|---|---|---|
-| `text` | Anything not below | | The file decoded as UTF-8, or UTF-16 with or without a byte-order mark. |
+| `text` | Anything not below | | The file decoded as UTF-8, or as UTF-16 with a byte-order mark. Without the mark, only little-endian UTF-16 of mostly ASCII text is recognised. |
 | `log` | `.log`, `.out`, `.err`; or a `text` file in which at least 40% of the first 200 non-empty lines (5 at least) start with a timestamp or a level | | As `text`, plus a log profile: levels, time range, most frequent errors. |
 | `markdown` | `.md`, `.markdown`, `text/markdown` | | As `text`. Its `#` headings form the outline. |
 | `json` | `.json`, `.jsonl`, `.ndjson`, `application/json` | | As `text`. Minified JSON becomes lines of at most 2,000 characters. |
@@ -236,7 +236,7 @@ The pages are found from the structure of the file, without decoding any image, 
 - `@cantoo/pdf-lib` is not installed;
 - you turn it off with `createPdfExtractor({ pictures: false })`;
 - the file declares more than 150,000 objects (reading it would take over two seconds), or more
-  than the free memory can hold;
+  than about 60% of the free heap can hold;
 - finding the pictures, once the file is read, took more than five seconds;
 - `@cantoo/pdf-lib` cannot read the file;
 - `@cantoo/pdf-lib` counts other pages than the text extractor did.

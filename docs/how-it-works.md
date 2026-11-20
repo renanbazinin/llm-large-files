@@ -299,10 +299,11 @@ rules every tool follows, are in the [tools reference](./reference/tools.md).
   build or keep up to date, it works in any language, and "timeout" also matches "timeouts". In
   `exact` and `regex` modes it returns the matching lines (with the lines around each when
   `context_lines` asks for them; none by default), and
-  `total_matching_lines` counts every match in the file, so a count from it is exact (unless the
-  scan stopped early, which the result says). A regex scan runs in short time slices with other work
-  in between, under a time limit of its own and a budget the regex searches of a question share, so
-  a pattern that backtracks without end returns partial results instead of holding the process.
+  `total_matching_lines` counts every matching line in the file, not only those shown; a line with
+  several matches counts once. That count is exact unless the scan stopped early, which the result
+  says. A regex scan runs in short time slices with other work in between, under a time limit of
+  its own and a budget the regex searches of a question share, so a pattern that backtracks without
+  end returns partial results instead of holding the process.
 - **`read_document`** returns a numbered line range, read through the line index, and says where to
   go on.
 - **`get_document_overview`** returns more than the card: the whole log profile, the whole outline,
@@ -321,8 +322,9 @@ can try another way. What the scope means for prompt injection and owners:
 [Security](./security.md).
 
 Every result is capped at `toolResultCharacters` (the answer of a whole-file read at the larger of
-that and 40,000 characters). In the loop it is cut further, to its share of the room left in the
-request, never below 600 characters ([Room in the request](#room-in-the-request)). A list loses
+that and 40,000 characters). In the loop it is cut further, never below 600 characters: to its
+share of the room left in the request or, for the answer of a whole-file read, to the room the
+other results of its turn left ([Room in the request](#room-in-the-request)). A list loses
 entries from its end, a read loses lines, and the result says what was cut and where to go on.
 
 ## Looking at pages
@@ -358,12 +360,12 @@ brings along everything it refers to:
 - **Page extras** that can hold a lot and are not needed to show the page (editor data, article
   threads, actions, a thumbnail) are dropped.
 
-The cut needs `@cantoo/pdf-lib`. A file that declares over a million objects, or more than the free
-memory of the process can hold, is refused before it is read. An empty password is tried, which
-opens the many files encrypted only against printing or copying. When the library counts other
-pages than the text extractor did, the pages are not shown: a wrong page is worse than none. Pages
-are left off the end until the cut fits; the result then says how many were shown and where to go
-on.
+The cut needs `@cantoo/pdf-lib`. A file that declares over a million objects, or more objects than
+60% of the free heap can hold at 1,700 bytes an object, is refused before it is read. An empty
+password is tried, which opens the many files encrypted only against printing or copying. When the
+library counts other pages than the text extractor did, the pages are not shown: a wrong page is
+worse than none. Pages are left off the end until the cut fits; the result then says how many were
+shown and where to go on.
 
 The pages are counted against the request twice. As **bytes**: base64 makes them a third larger, and
 they stay in the request until the question is answered, so the room for the next look shrinks.
@@ -534,12 +536,14 @@ so it would return the same and only take room. It is answered with a pointer, a
   same call, and its result is next to this one. Use it.";
 - results in the tool rounds of earlier questions, passed back in `messages`.
 
-A result that was cut to its room (a list that says "Showing…", a read with `text_cut`), replaced
-by a stand-in, that failed, or from a search that stopped early is not pointed to: the call runs,
-and may get more. Whole-file reads and looks at pages are never pointed to. When a result is later
-replaced by a stand-in, the pointers to it become stand-ins too, which say that the call was not
-run then and can be made again; a call of the current turn that would have pointed to it runs
-instead.
+A result of an earlier turn that was cut to its room (a list that says "Showing…", a read with
+`text_cut`), replaced by a stand-in, that failed, or from a search that stopped early is not
+pointed to: the call runs, and may get more. When a call is made twice in one turn, the second gets
+the pointer whatever the first returns, even an error or a cut result. Only when the first is
+refused for lack of room is the second refused the same way. Whole-file reads and looks at pages
+are never pointed to. When a result is later replaced by a stand-in, the pointers to it become
+stand-ins too, which say that the call was not run then and can be made again; a call of the
+current turn that would have pointed to it runs instead.
 
 ### Empty or broken turns
 
@@ -611,13 +615,15 @@ end the question:
   and is an error otherwise.
 - **Part reads** of a whole-file read follow the same rule, and an error with no status is tried once
   more at once. They have no silence waits: each request has a limit of 180 s instead (`timeoutMs`
-  of `openAiCompatible()` and `anthropic()`; fixed for `gemini()`).
+  of `openAiCompatible()` and `anthropic()`; fixed for `gemini()`). An error your token or header
+  function throws in a part read has no status with `gemini()`; with `openAiCompatible()` and
+  `anthropic()` it is a failed connection (status 0), sent again like one.
 - **An HTTP error or a failed connection** is a `ModelRequestError` (`GeminiRequestError`,
   `OpenAiRequestError`, `AnthropicRequestError`) with a `status` and a `kind`:
   `context_overflow`, `quota`, `rate_limit`, `timeout`, `unreachable`, `server`, `auth` or
   `invalid` ([`ModelErrorKind`](./reference/errors-and-retries.md#modelerrorkind)). Other errors
-  have no kind: `DocumentsNotFoundError`, `DocumentStoreError`, an error your own token function
-  throws, a reply body that is not JSON, an abort.
+  have no kind: `DocumentsNotFoundError`, `DocumentStoreError`, an error your own token or header
+  function throws in a chat request, a reply body that is not JSON, an abort.
 - **What a failed question found.** A question that fails once under way leaves its steps,
   evidence, tool rounds and usage to `partialResultOf(error)`, with `answered: false`. It is
   undefined for an error raised before the question was under way: a missing document, a budget
