@@ -100,8 +100,10 @@ objects built from IDs a client sent:
 ```ts
 import { DocumentsNotFoundError } from "llm-large-files";
 
-// Your own loop: `base` is the size of the rest of your request.
-const prepared = await files.prepare(documentIds, base, { owner });
+// Your own loop: `base` is the size of the rest of your request. The tools below have no
+// `generate`: `wholeDocumentAnalysis: false` keeps the instruction from naming
+// `analyze_whole_document`, and the cards from offering a whole-file read.
+const prepared = await files.prepare(documentIds, base, { owner, wholeDocumentAnalysis: false });
 if (prepared.missing.length > 0) throw new DocumentsNotFoundError(prepared.missing);
 const tools = files.tools(prepared.plan.searchable);
 ```
@@ -452,11 +454,16 @@ Waits, retries and deadlines are explained in
 A store's own errors can name paths and hosts. Reads reach users and models only as
 `DocumentStoreError`, whose message names neither, with the original error as its `cause`. Writes
 are passed on as they came, and the upload handler answers a write error that has neither a
-`status` nor a Node system error's `code` and `syscall` with 422 and the error's own message: a
-database driver's message, with its host, can reach the browser that way. Give your store's write
-errors a status and a message of your own, and log the cause yourself, since the handlers log
-nothing: see [Storage](./guides/storage.md#errors) and the
-[node reference](./reference/node.md#how-errors-are-answered). What to show a user is in
+`status` (or `statusCode`) from 400 to 599 nor a Node system error's `code` and `syscall` with 500
+"Upload failed.", without the error's own message. A write error with such a status, such as an
+SDK's error with `statusCode`, is answered with that status and its own message, which can name a
+host. Two paths answer a store's write error 422 with its own message, so a database driver's host
+can reach the browser through them: an `ingest` of your own that throws a new error in place of the
+store's, as `ingestInWorker` in [Deployment](./guides/deployment.md#uploads-and-ingest) does, and a
+route of your own, as in [Web app](./guides/web-app.md#filesingest-and-its-errors). Give your
+store's write errors a status and a message of your own, and log the cause yourself, since the
+handlers log nothing: see [Storage](./guides/storage.md#errors) and the
+[node reference](./reference/node.md#uploadrequest-response). What to show a user is in
 [Errors and reliability](./guides/errors-and-reliability.md).
 
 ## What the library logs

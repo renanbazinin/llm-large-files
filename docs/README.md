@@ -88,9 +88,10 @@ console.log(first.text, second.steps, second.usage);
 // 3. Your own loop: the plan, the cards and the tools, for a loop you already have.
 // The second argument is the size of the rest of your request: system prompt and messages.
 const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 });
-// The instruction and the cards offer analyze_whole_document whenever a file can be read whole.
-// The tool exists only when you pass `generate` (here the Gemini adapter's own); without it, a
-// call of it gets "Unknown tool analyze_whole_document.".
+// By default, the instruction and the cards offer analyze_whole_document for a file that can be
+// read whole. The tool exists only when you pass `generate` (here the Gemini adapter's own).
+// Without it, pass { wholeDocumentAnalysis: false } as prepare's third argument, so that the
+// instruction and the cards do not offer the tool.
 const tools = files.tools(context.plan.searchable, { generate: model.generateText });
 // Put context.instruction in your system prompt and context.blocks (a text for each document) in
 // the user turn, offer tools.declarations to your model, and run each call with tools.execute().
@@ -195,8 +196,9 @@ Each term links to the page that explains it. The defaults and limits are on tho
   and their notes are merged into one answer. A file that would need more than `maxMapChunks` parts
   is refused. `askWithFiles` offers it only when the adapter that makes the tool calls has
   `generateText` and `wholeDocumentAnalysis` is not `false`; in your own loop, only when you pass
-  `generate` to `files.tools()`. See [tools](./reference/tools.md) and
-  [how it works](./how-it-works.md).
+  `generate` to `files.tools()`. Without `generate`, pass `wholeDocumentAnalysis: false` to
+  `files.prepare()`, so that the instruction does not name it and the cards do not offer it. See
+  [tools](./reference/tools.md) and [how it works](./how-it-works.md).
 
 ## Guides
 

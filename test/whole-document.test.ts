@@ -302,6 +302,31 @@ describe("a file too large for a whole-document read", () => {
   });
 });
 
+describe("a tool set without a whole-document read (no generate)", () => {
+  const budget = { inlineTokens: 10, mapChunkTokens: 1_000, maxMapChunks: 3 };
+
+  it("is not named in the guide or the cards when prepare is told so", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget });
+    const small = await files.ingest({ name: "story.txt", bytes: bytes(book(2)) });
+    const large = await files.ingest({ name: "novel.txt", bytes: bytes(book(12)) });
+    const prepared = await files.prepare([small.id, large.id], { tokens: 0, bytes: 0 }, { wholeDocumentAnalysis: false });
+    expect(prepared.plan.searchable).toHaveLength(2);
+    expect(prepared.instruction).toContain("search_document");
+    expect(prepared.instruction).not.toContain("analyze_whole_document");
+    for (const meta of [small, large]) {
+      expect(prepared.blocks.get(meta.id)).toContain("Use the document tools to search it and to read line ranges.\n");
+      expect(prepared.blocks.get(meta.id)).not.toMatch(/analyze/);
+    }
+    // The tools it stands for: without generate, there is no such tool.
+    expect(files.tools(prepared.plan.searchable).has("analyze_whole_document")).toBe(false);
+    // Nothing changes without the option.
+    const usual = await files.prepare([small.id, large.id], { tokens: 0, bytes: 0 });
+    expect(usual.instruction).toContain("analyze_whole_document");
+    expect(usual.blocks.get(small.id)).toContain("or analyze all of it.");
+    expect(usual.blocks.get(large.id)).toContain("It is too large to be analyzed whole.");
+  });
+});
+
 describe("get_document_overview of a document read by range", () => {
   it("counts the parts from the metadata, without reading the text", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-overview-"));

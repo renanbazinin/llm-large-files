@@ -196,9 +196,15 @@ you can show: `400` for a missing name or a body another middleware already pars
 for a document this owner cannot see, and `get` and `remove` answer `500` when the store cannot be
 read. Every status and body is in the [node reference](../reference/node.md#uploadrequest-response).
 
-A store of your own that fails while it writes an upload should throw an error with a `status` (a
-`503`, say), or a Node system error with `code` and `syscall`. Any other error it throws is answered
-as a file that cannot be read: `422`, with the store's own message. See [Storage](./storage.md).
+A store of your own that fails while it writes an upload can throw an error with a `status` (or
+`statusCode`) from 400 to 599 (a `503`, say): the handler answers with that status and the error's
+message. A Node system error, with `code` and `syscall`, is answered `500` with its code. Any other
+error it throws is answered `500` "Upload failed.", without its message, which may name your hosts.
+The handlers log nothing: log the error in your store before you throw it. Behind an `ingest` of
+your own that throws a new error in the store's place, as `ingestInWorker` in
+[Deployment](./deployment.md#uploads-and-ingest) does, the handler answers `422` with that error's
+message, the store's own, unless the error keeps a status, or a code and a syscall. See
+[Storage](./storage.md#errors).
 
 ## Uploads through your own route
 
@@ -228,16 +234,17 @@ are safe to return to a browser, while `meta` also holds the owner, the outline 
 `ingest` throws a plain `Error`, with a message written for the user, when it cannot take the file:
 the cases of the `422` above (an empty, binary or compressed file, no text, a missing optional
 dependency), and a file larger than `maxUploadBytes` ("app.log is larger than the 100 MB upload
-limit."). A store that fails while it writes throws its own error, as it came. This
-helper tells them apart by the rule `createDocumentHandlers` uses:
+limit."). A store that fails while it writes throws its own error, as it came. This helper tells
+them apart by the rule `createDocumentHandlers` uses, with two differences, given below the code:
 
 ```ts
 // ingest-failure.ts
 /**
  * The status and message for an error of files.ingest, by the rule of createDocumentHandlers: an
  * error with a status (or statusCode) keeps it; a Node system error is the server's 500, which
- * names only its code; anything else is a file that cannot be read, whose message is written for
- * the user.
+ * names only its code; a value that is not an Error is the server's 500 too; anything else is a
+ * file that cannot be read, whose message is written for the user. Unlike the handler, it answers
+ * a store's write error that has no status and no system error code with 422 and its message.
  */
 export function ingestFailure(error: unknown): { status: number; error: string } {
   const { status, statusCode, code, syscall } = (error ?? {}) as { status?: unknown; statusCode?: unknown; code?: unknown; syscall?: unknown };
@@ -246,9 +253,19 @@ export function ingestFailure(error: unknown): { status: number; error: string }
     return { status: value, error: error.message || "Upload failed." };
   }
   if (typeof code === "string" && typeof syscall === "string") return { status: 500, error: `Upload failed (${code}).` };
-  return { status: 422, error: error instanceof Error ? error.message : String(error) };
+  if (!(error instanceof Error)) return { status: 500, error: "Upload failed." };
+  return { status: 422, error: error.message };
 }
 ```
+
+The first difference is a store's write error with no status and no system error code. The
+handler knows it by a mark that `ingest` keeps, and answers it `500` "Upload failed.", without the
+store's message. The package does not export the mark, so this helper answers it `422` with the
+store's own message, and the routes below send that message to the browser: it may name your hosts.
+Give your store's write errors a status and a message of your own ([Storage](./storage.md#errors)),
+and the handler and this helper answer them alike, except for the second difference. That one is a
+status of `413`: the handler answers it with its upload-limit message ("The file is larger than the
+100 MB upload limit."), and this helper with the error's own message.
 
 Check the size before you call `ingest`, and refuse with `413` while you read: `ingest` checks it
 too, but only once the whole file is in memory.

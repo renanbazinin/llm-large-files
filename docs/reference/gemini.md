@@ -586,7 +586,7 @@ Gemini takes the library's JSON Schema subset as it is, so the declarations are 
 ### geminiFunctionResponses(calls)
 
 ```ts
-declare function geminiFunctionResponses(calls: GeminiToolAnswer[]): { role: "user"; parts: unknown[] };
+declare function geminiFunctionResponses(calls: GeminiToolAnswer[]): GeminiContent & { role: "user" };
 ```
 
 The `user` turn that answers a model turn's function calls: one part
@@ -604,7 +604,7 @@ the function responses, use `geminiFunctionResponseTurns()`.
 declare function geminiFunctionResponseTurns(
   calls: GeminiToolAnswer[],
   options?: { files?: GeminiToolFilePlacement },
-): Array<{ role: "user"; parts: unknown[] }>;
+): Array<GeminiContent & { role: "user" }>;
 ```
 
 The turns that answer a model turn's function calls. Add them all to `contents`, in order.
@@ -614,8 +614,8 @@ The turns that answer a model turn's function calls. Add them all to `contents`,
 | `files` | [`GeminiToolFilePlacement`](#geminitoolfileplacement) | `"inside"` | `"inside"`, or any value but `"beside"`: one turn, that of `geminiFunctionResponses()`. `"beside"`: the function responses, without files, in one `user` turn; then, when a call returned files, a second `user` turn in which each file follows a text part "pages-2-3.pdf (returned by view_pages):", as `{ inlineData: { mimeType, data } }`. |
 
 The files get a turn of their own because Vertex AI refuses a turn in which anything follows a
-function response (HTTP 400 for Gemini 3 models, November 2026). The parts are typed `unknown[]`:
-cast the turns to `GeminiContent[]` to add them to a `GeminiContent[]`.
+function response (HTTP 400 for Gemini 3 models, November 2026). Each turn is a `GeminiContent` with
+the role `"user"`, so the turns go into a `GeminiContent[]` as they are.
 
 One tool round of your own loop:
 
@@ -635,7 +635,7 @@ async function answerCalls(tools: ToolSet, contents: GeminiContent[], modelTurn:
     answers.push({ call: { name: call.name, args, ...(call.id ? { id: call.id } : {}) }, result, files });
   }
   // The model turn goes back unchanged: Gemini 3 wants its thought signatures.
-  contents.push(modelTurn, ...(geminiFunctionResponseTurns(answers, { files: "beside" }) as GeminiContent[]));
+  contents.push(modelTurn, ...geminiFunctionResponseTurns(answers, { files: "beside" }));
 }
 ```
 

@@ -170,17 +170,28 @@ The responses:
 | `400` | `{ "error": "Name the file with an X-File-Name header or a ?name= query parameter." }` | No name. |
 | `400` | `{ "error": "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream." }` | `request.body` is an object with fields. |
 | `413` | `{ "error": "The file is larger than the 100 MB upload limit." }`, with your `maxUploadBytes` in its place (`512 KB`, `1000 B`) | `Content-Length`, the bytes read, or the `Buffer` in `request.body` are over `maxUploadBytes`. |
-| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", a PDF with no text layer, and a PDF, DOCX or PPTX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf"."). An extractor of your own that throws gives its message here too. |
-| `422` | `{ "error": <the store's own message> }` | The store failed while it wrote the document with an error that has no `status` and is not a Node system error (a database driver's error, say). See below. |
+| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", a PDF with no text layer, and a PDF, DOCX or PPTX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf"."). An extractor of your own that throws an `Error` gives its message here too. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, an extractor or the store threw an error with that `status` or `statusCode`. |
 | `500` | `{ "error": "Upload failed (ENOSPC)." }` | The store failed with a Node system error, one with a `code` and a `syscall`. Only the code is passed on. |
 | `500` | `{ "error": "Upload failed." }` | `getOwner` threw an error without a status, or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of either kind that has a `code` and a `syscall` is answered as in the row above, with its code. |
+| `500` | `{ "error": "Upload failed." }` | The store failed while it wrote the document, with an error that has no `status` or `statusCode` from 400 to 599 and is not a Node system error (a database driver's error, say). Or `files.ingest` threw a value that is not an `Error` (an extractor of your own that throws a string, say). Such a value with a `code` and a `syscall` gets its code, as in the `ENOSPC` row. The error's own message is not sent. See below. |
 
-A store that fails while it writes is answered as a file that cannot be read when its error has
-neither a `status` nor a Node system error's `code` and `syscall`: `422`, with the store's own
-message, which may name a host. In a store of your own, throw an error with a `status` (a `503`,
-say) and a message without hosts, or wrap the driver's error. [Storage](../guides/storage.md) has
-the rules for a store's errors.
+A store that fails while it writes is answered `500` "Upload failed." when its error has neither a
+`status` (or `statusCode`) from 400 to 599 nor a Node system error's `code` and `syscall`. Its
+message may name a host, so it is not sent, and the handlers log nothing. `files.ingest` throws
+that error unchanged, and the handler knows it by a mark that `ingest` keeps. The package does not
+export the mark, so two paths answer such an error `422` with the store's message, as a file that
+cannot be read:
+
+- an `ingest` of your own that throws a new error in place of the store's, such as `ingestInWorker`
+  in [deployment](../guides/deployment.md#uploads-and-ingest);
+- a route of your own around `files.ingest`, such as the one in
+  [web app](../guides/web-app.md#filesingest-and-its-errors) with its `ingestFailure` helper.
+
+In a store of your own, log the failure and throw an error with a `status` (a `503`, say) and a
+message without hosts: every path keeps that status. An `ingest` of your own must copy the
+`status`, and a system error's `code` and `syscall`, onto the error it throws.
+[Storage](../guides/storage.md) has the rules for a store's errors.
 
 #### get(request, response, id)
 
@@ -221,8 +232,11 @@ The three handlers answer an error by one rule:
 - **Any other error** is the server's trouble: `500`, with what failed and, for a Node system error
   (one with a `code` and a `syscall`), its code: "Upload failed (ENOSPC).". The error's own message
   is never sent, since it can name paths and hosts of your server.
-- **The one exception** is in `upload`: an error from `files.ingest` that has neither a status nor
-  a system error's `code` and `syscall` is a file that cannot be read, `422` with its message.
+- **The one exception** is in `upload`: an `Error` from `files.ingest` that has neither a status nor
+  a system error's `code` and `syscall` is a file that cannot be read, `422` with its message,
+  unless `files.ingest` marked it as an error the store threw while it wrote the document. That
+  one, and a thrown value that is not an `Error`, are answered as any other error. An `ingest` of
+  your own that throws a new error in its place loses the mark ([upload](#uploadrequest-response)).
 
 Guide: [errors and reliability](../guides/errors-and-reliability.md), for the errors of a question
 itself; [web app](../guides/web-app.md), for what to show in the browser.

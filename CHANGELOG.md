@@ -45,8 +45,13 @@ of 0.5.0, in the tool loop, whole-file reads and the three adapters.
 
 ### Upgrading: what you need to change
 
-Code written for 0.5.0 compiles with 0.6.0 as it is. Every change to the public types is an
-addition: new exports, new fields, new optional options, and wider parameter types.
+Code written for 0.5.0 compiles with 0.6.0 as it is, but for one case. The turns of
+`geminiFunctionResponses` and `geminiFunctionResponseTurns` now have `GeminiPart[]` parts, where
+they had `unknown[]` (see **Changed**). Code that adds to those `parts` a string, or a value typed
+`unknown`, `object` or by an interface (another SDK's `Part`), no longer compiles. Add an object
+literal, or `{ ...part }`. Every other change to the public types is an addition: new exports, new
+fields, new optional options, and wider parameter types. One member is marked deprecated:
+`ModelAdapter.estimateTokens` (see **Your own adapter** below).
 
 Some behavior is different. Check each point against your app:
 
@@ -96,9 +101,10 @@ Some behavior is different. Check each point against your app:
   each request: each conversion now gives new IDs. Convert once and store the messages when you
   need the same IDs every time. See [Conversations](docs/guides/conversations.md).
 - **The tool guide changed, so the provider's prompt cache misses once.** The system instruction
-  of a question with tools now sends counting and listing to exact search (see **Changed**). The
-  first request of each conversation after the upgrade misses the cache, so its input costs what
-  it costs without one.
+  of a question with tools now sends counting and listing to exact search (see **Changed**). With
+  `wholeDocumentAnalysis: false`, or a model that explores without `generateText`, the cards
+  change too, and the guide no longer names `analyze_whole_document`. The first request of each
+  conversation after the upgrade misses the cache, so its input costs what it costs without one.
   **What to do:** nothing.
 - **A second try costs a request and a tool turn.** When the model's first reply is empty, or it
   wrote a tool call that could not be read, the loop asks once more, at most twice a question
@@ -122,11 +128,38 @@ Some behavior is different. Check each point against your app:
   smaller (and a part read in halves), `"timeout"` with status 0 is sent again once, and
   `"quota"` is not sent again. In your own loop, `withRetry` follows the same rules: an error of
   kind `"quota"` is thrown at once, and one of kind `"timeout"` with status 0 is sent again once
-  (not at all when `retry.retries` is 0). See
+  (not at all when `retry.retries` is 0). `ModelAdapter.estimateTokens` is now deprecated: the
+  library never called it, and a later version may remove it. An adapter that declares it still
+  compiles; leave it out, and set `capabilities.tokenScale` for a tokenizer that counts
+  differently from the library's estimate. See
   [Your own adapter or loop](docs/guides/own-adapter-and-loop.md).
 - **`parseSseJson` takes hooks and Node streams.** `parseSseJson(stream, hooks?)` also reads the
   body of node-fetch, and takes `{ onData, onDone, signal }`. Calls written for 0.5.0 work as
   before.
+- **An upload whose store fails while it writes is answered 500, not 422.** When `put`,
+  `putOriginal` or `putIndex` throws an error that has no `status` or `statusCode` from 400 to 599
+  and is not a Node system error, `createDocumentHandlers` answers 500
+  `{ "error": "Upload failed." }`. It answered 422 with the error's own message, which may name a
+  database host (see **Fixed**). A thrown value that is not an `Error` also gets 500 "Upload
+  failed.", where it was 422 with the value as text. Errors with a status, Node system errors (an
+  `Error` or not) and files that cannot be read are answered as before.
+  **What to do:** for a more specific answer, throw your store's write errors with a `status` and
+  a message of your own (a 503 that says to try again), and log the cause in your store: the
+  handlers log nothing. Two paths still answer a store's error 422 with its message: an `ingest` of
+  your own that throws a new error in its place, as `ingestInWorker` in
+  [Deployment](docs/guides/deployment.md#uploads-and-ingest) does, and a route of your own, as in
+  [Web app](docs/guides/web-app.md#filesingest-and-its-errors). A status on the error avoids it.
+  See the [node reference](docs/reference/node.md#uploadrequest-response).
+- **A retry option that is not a finite number takes its default.** `retries`, `baseDelayMs` and
+  `maxDelayMs` (of the `retry` option and of `withRetry`) count as not set when they are `NaN`,
+  `Infinity`, `-Infinity` or not a number at all, such as a string from an environment variable.
+  They are then 3, 500 and 60,000. In 0.5.0, `retries: Infinity` sent a failing request again
+  without end, `-Infinity` counted as 0, and a string counted as the number in it. For `NaN`, see
+  **Fixed**.
+  **What to do:** nothing, unless you set one of them to `Infinity`, `-Infinity` or a string. Pass
+  a finite number: `retries: 0` to turn retries off, a larger `maxDelayMs` to take a long
+  `Retry-After`, and `Number(process.env.RETRIES)` rather than the string. See
+  [`RetryOptions`](docs/reference/errors-and-retries.md#retryoptions).
 
 ### New: what you can add
 
@@ -231,9 +264,18 @@ The samples assume what your app already has: `files` from `createLargeFiles()`,
   `askWithFiles` passes the read's own requests and a share of what the question has left of
   `limits.requests`; in your own loop, pass it to `executeWithFiles`. See
   [Tools](docs/reference/tools.md#toolcalllimits).
+- **`PrepareOptions.wholeDocumentAnalysis`**: whether your tool set has `analyze_whole_document`.
+  Defaults to `true`. In your own loop, pass `wholeDocumentAnalysis: false` to `files.prepare()`
+  when you call `files.tools()` without `generate`: the tool guide then does not name the tool,
+  and the cards do not offer a whole-file read. See
+  [The library and its documents](docs/reference/library.md#prepareoptions).
 - **`SseHooks`**: the second argument of `parseSseJson`: `onData` (bytes arrived, keep-alives
   included), `onDone` (`data: [DONE]` arrived) and `signal`. See
   [Errors, retries and streams](docs/reference/errors-and-retries.md).
+- **`RetryNotice`**: the type of what `withRetry` passes to `onRetry`: `error`, `attempt` (the
+  number of the retry to come) and `delayMs` (the wait). 0.5.0 passed the same notice but did not
+  export its type. See
+  [Errors, retries and streams](docs/reference/errors-and-retries.md#retrynotice).
 - **`OpenAiRequestError.param` and `.code`**: the server's `error.param` (`"max_tokens"`) and
   `error.code` (`"unsupported_parameter"`). See [`llm-large-files/openai`](docs/reference/openai.md).
 
@@ -276,6 +318,14 @@ Besides the points under **Upgrading**:
   `search_document` in exact or regex mode gives an exact `total_matching_lines`. The whole-file
   read is now for what needs meaning: a summary, a timeline, items judged one by one. See
   [Tools](docs/reference/tools.md).
+- **In `askWithFiles` and `askGemini`, the tool guide names `analyze_whole_document`, and the
+  cards offer a whole-file read, only when the question has the tool.** With
+  `wholeDocumentAnalysis: false`, or a model that explores without `generateText`, they still
+  offered a whole-file read when a file was small enough for one, and a model that called it was
+  answered "Unknown tool analyze_whole_document.". Each card now says "Use the document tools to
+  search it and to read line ranges.", and the guide leaves the tool's line out. In your own loop,
+  pass `wholeDocumentAnalysis: false` to `files.prepare()` for the same (see **New**). See
+  [Tools](docs/reference/tools.md#which-tools-are-offered).
 - **A part of a whole-file read that the model refuses as too large is read as two halves**,
   while `maxMapChunks` and the requests the question has left allow it.
 - **A part that the provider stopped before its end is said to be incomplete**, as one cut off at
@@ -285,6 +335,10 @@ Besides the points under **Upgrading**:
   whose text was cut to its room), and, on a whole-file read, `notes_only` and
   `answer_shortened` (see **Fixed**). The step of a whole-file read that returned its notes ends
   in ", notes only". See [Tools](docs/reference/tools.md).
+- **`geminiFunctionResponses` returns a `GeminiContent & { role: "user" }`, and
+  `geminiFunctionResponseTurns` an array of them**, which go into a `GeminiContent[]` without a
+  cast. Their parts were typed `unknown[]` (see **Upgrading**). See
+  [`llm-large-files/gemini`](docs/reference/gemini.md#geminifunctionresponsescalls).
 
 ### Fixed
 
@@ -368,6 +422,15 @@ Replies cut off on their way:
 - **A streamed reply through a `fetch` whose body is a Node stream** (node-fetch) failed with
   "stream.getReader is not a function". Both kinds of body are read.
 
+Retries:
+
+- **`retries: NaN` no longer sends a failing request again without end.** A `NaN`, such as
+  `Number(process.env.RETRIES)` with the variable unset, never ran out: in `askWithFiles`,
+  `askGemini`, `files.tools()` and `withRetry`, a request that kept failing with status 0, 408,
+  409, 429 or 5xx was sent again until the signal aborted. A `baseDelayMs` or `maxDelayMs` of
+  `NaN` cut the waits the library works out to about 1 ms, and a `maxDelayMs` of `NaN` took any
+  wait the provider asked for. Each now takes its default. It was so in 0.5.0.
+
 Ingest:
 
 - **An outline of 20 to 399 top-level headings keeps each of them once, in order.** In a document
@@ -375,6 +438,14 @@ Ingest:
   more than once: with 20 top-level headings, the first one 20 times; with 100, the first 25, four
   times each; with 300, the first 225. It was so in 0.5.0 and every version before. This applies
   to documents ingested from now on: ingest a document again to rebuild its outline.
+
+Uploads:
+
+- **The upload handler no longer sends a store's own error message to the browser.** When a
+  store failed to write a document with an error that has no `status` or `statusCode` from 400 to
+  599 and is not a Node system error, `createDocumentHandlers` answered 422 with the store's
+  message, which may name a database host. It now answers 500 "Upload failed." (see
+  **Upgrading**). It was so in 0.5.0 and every version before.
 
 ## Before 0.6.0
 

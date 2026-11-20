@@ -137,7 +137,9 @@ A card holds:
 - The format, size, line count, page count (a PDF's pages, a PPTX's slides) and estimated tokens.
 - A line that says the file is not in the model's context. When a whole-file read would be refused
   (the file is estimated at more than `maxMapChunks` parts, with 5% leeway), it says instead that
-  the file can be searched and read by line ranges, and is too large to be analyzed whole.
+  the file can be searched and read by line ranges, and is too large to be analyzed whole. When
+  `prepare` gets `wholeDocumentAnalysis: false` ([The plan](#how-the-plan-is-made)), it says only
+  that the file can be searched and read by line ranges, whatever its size.
 - For a PDF whose pages can be looked at, a line that sends the model to `view_pages` for pictures,
   charts and layout.
 - For a log: the levels, the time range, and the first 8 of the 15 problems the profile keeps
@@ -154,7 +156,8 @@ instruction, after yours. It names those files (quoted, so a file name that read
 instruction stays a name), says which tool does what, sends counting and listing to exact or regex
 search, keeps the whole-file read for tasks that need meaning (a summary, a timeline, items judged
 one by one), asks the model to call independent tools in the same turn, and to cite line numbers
-like `(app.log L1203)`. The line on `analyze_whole_document` is left out when every searchable file
+like `(app.log L1203)`. The line on `analyze_whole_document` is left out when `prepare` gets
+`wholeDocumentAnalysis: false` ([The plan](#how-the-plan-is-made)), or when every searchable file
 is too large for it. For PDFs whose pages can be looked at, it adds when to use `view_pages`, what
 its page numbers are, and not to describe a picture the model has not looked at.
 
@@ -212,6 +215,10 @@ declarations and the JSON around them.
   back), whether their text is sent whole or searched.
 - Whether a whole-file read is offered for a file is decided from its metadata: about how many parts
   it takes, counting the `12345| ` prefix of every line, at most `maxMapChunks` with 5% leeway.
+  `prepare` with `wholeDocumentAnalysis: false` offers it for no file: the tool guide does not name
+  it, and no card offers it. Pass that when you call `files.tools()` without `generate`, its part
+  reader ([Your own adapter and loop](./guides/own-adapter-and-loop.md)). `askWithFiles` passes it
+  when you set `wholeDocumentAnalysis: false`, and when its exploring model has no `generateText`.
 
 `askWithFiles` puts the texts and cards, in the order of `documentIds`, at the start of the first
 user turn (`documentPlacement: "first"`, the default). They stay there as the conversation grows,

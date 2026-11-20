@@ -31,6 +31,23 @@ export class DocumentStoreError extends Error {
 }
 
 /**
+ * The errors a store threw while `ingest` wrote a document. `ingest` passes them on as they are,
+ * and the upload handler tells them apart from a file that could not be read: their message is
+ * the store's own (a database driver's names its host), not words for a user.
+ */
+const storeWriteFailures = new WeakSet<object>();
+
+/** Takes note that a store threw this error while it wrote a document. */
+export function noteStoreWriteFailure(error: unknown): void {
+  if (typeof error === "object" && error !== null) storeWriteFailures.add(error);
+}
+
+/** Whether a store threw this error while it wrote a document (see `noteStoreWriteFailure`). */
+export function isStoreWriteFailure(error: unknown): boolean {
+  return typeof error === "object" && error !== null && storeWriteFailures.has(error);
+}
+
+/**
  * What to tell a model, or a user, about an error: its message, unless it is a system error, whose
  * message names a path or a host of the server. Of that one only the code is passed on.
  */

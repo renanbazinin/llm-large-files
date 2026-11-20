@@ -424,6 +424,40 @@ describe("the room a request has for tool results", () => {
     const both = await askWithFiles({ files, model: wide, explorer: narrow, documentIds: [small.id], messages: question("?"), budget: { reservedTokens: 4_000 } });
     expect(both.budget).toMatchObject({ contextTokens: 64_000, reservedTokens: 4_000 });
   });
+
+  it("names analyze_whole_document to the model only when its tools will have it", async () => {
+    const { files, meta } = await largeLog(5_000, { mapChunkTokens: 40_000 });
+    const named = async (model: ReturnType<typeof fakeModel>, more: { wholeDocumentAnalysis?: boolean } = {}) => {
+      await askWithFiles({ files, model, documentIds: [meta.id], messages: question("Summarize the log."), ...more });
+      const [sent] = model.requests;
+      expect(sent!.system).toContain("search_document");
+      const tool = sent!.tools!.some((declaration) => declaration.name === "analyze_whole_document");
+      // The guide, the card, and the tools agree.
+      expect(sent!.system.includes("analyze_whole_document")).toBe(tool);
+      expect(textOf(sent!.messages[0]).includes("analyze all of it")).toBe(tool);
+      return tool;
+    };
+    const generateText: GenerateText = async () => "notes";
+    expect(await named(fakeModel([says("ok")]))).toBe(false);
+    expect(await named(fakeModel([says("ok")], { generateText }))).toBe(true);
+    expect(await named(fakeModel([says("ok")], { generateText }), { wholeDocumentAnalysis: false })).toBe(false);
+  });
+
+  it("counts a model's tokens with its tokenScale, and never calls its deprecated estimateTokens", async () => {
+    const { files, meta } = await largeLog();
+    let estimated = 0;
+    const search = { id: "c1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact", max_results: 3 } };
+    const model = Object.assign(fakeModel([calls([search]), says("ok")], { contextTokens: 64_000, tokenScale: 1.6, outputTokens: 12_800 }), {
+      estimateTokens: (text: string) => {
+        estimated++;
+        return text.length;
+      },
+    });
+    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("How many errors?") });
+    expect(result.text).toBe("ok");
+    expect(result.budget.contextTokens).toBe(32_000);
+    expect(estimated).toBe(0);
+  });
 });
 
 describe("the edges of the loop", () => {

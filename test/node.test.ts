@@ -115,4 +115,33 @@ describe("createDocumentHandlers", () => {
     const removal = await fetch(`${base}/${UNKNOWN_ID}`, { method: "DELETE" });
     expect(await removal.json()).toEqual({ error: "The file could not be deleted (EIO)." });
   });
+
+  it("answers a custom store's own error with a 500 that does not repeat its message", async () => {
+    let failing: Error | string | undefined;
+    class CustomStore extends MemoryDocumentStore {
+      override async put(...args: Parameters<MemoryDocumentStore["put"]>): Promise<void> {
+        if (failing !== undefined) throw failing;
+        return super.put(...args);
+      }
+    }
+    const base = await start(1024 * 1024, { store: new CustomStore() });
+    const upload = () => fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "notes" });
+    // A database driver's error, with no status and no system call: its message names the host.
+    for (const thrown of [new Error("connect ECONNREFUSED: topology was destroyed, mongo-prod-1.internal.example:27017"), "mongo-prod-1.internal.example refused"]) {
+      failing = thrown;
+      const failed = await upload();
+      expect(failed.status).toBe(500);
+      expect(await failed.json()).toEqual({ error: "Upload failed." });
+    }
+    // An error the store gave a status, as http-errors does, is answered with that status and its message.
+    failing = Object.assign(new Error("The document database is down. Try again in a minute."), { status: 503 });
+    const refused = await upload();
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toEqual({ error: "The document database is down. Try again in a minute." });
+    // A file that cannot be read is still the client's 422, with the reason.
+    failing = undefined;
+    const empty = await fetch(base, { method: "POST", headers: { "X-File-Name": "blank.txt" }, body: "   \n\n" });
+    expect(empty.status).toBe(422);
+    expect(await empty.json()).toEqual({ error: "blank.txt did not contain any text." });
+  });
 });

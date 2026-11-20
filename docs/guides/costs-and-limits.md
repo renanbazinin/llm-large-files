@@ -123,10 +123,9 @@ const result = await askGemini({
 ```
 
 - **`wholeDocumentAnalysis: false`** leaves `analyze_whole_document` out of the tools of every
-  request: the question makes no part reads. A model without `generateText` has no whole-file reads
-  either. The tool guide and the cards are written before the question looks at this setting, so
-  they still mention whole-file reads; a model that calls the tool anyway is answered "Unknown tool
-  analyze_whole_document."
+  request: the question makes no part reads. A model that explores without `generateText` (the
+  explorer when there is one, otherwise `model`) has no whole-file reads either. In both cases the
+  tool guide and the cards do not mention whole-file reads.
 - **`limits.wholeDocumentReads: 0`** keeps the tool and refuses every call of it: "Whole-file reads
   are turned off for this question. Use search_document and read_document on app.log." Each refused
   call still takes a place in a turn. Prefer `wholeDocumentAnalysis: false`.

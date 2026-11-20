@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { isStoreWriteFailure } from "../errors.js";
 import { toDocumentSummary, type LargeFiles } from "../library.js";
 import { formatBytes } from "../plan.js";
 
@@ -17,10 +18,15 @@ export type DocumentHandlerOptions = {
 
 /**
  * The handlers answer every request themselves, errors included, and never reject: they can be
- * called without a `catch`, from `node:http` or from Express 4.
+ * called without a `catch`, from `node:http`, from Express 4 (which does not catch a rejected
+ * promise) or from Express 5.
  */
 export type DocumentHandlers = {
-  /** POST: the body is the raw file. Name it with an `X-File-Name` header (URI-encoded) or `?name=`. */
+  /**
+   * POST: the body is the raw file. Name it with an `X-File-Name` header (URI-encoded) or `?name=`.
+   * A file that cannot be read is answered with a 422 and the reason. A store that fails while it
+   * writes is answered with a 500 that does not repeat its message, unless its error has a status.
+   */
   upload(request: IncomingMessage, response: ServerResponse): Promise<void>;
   /** GET: the document's summary, or 404. */
   get(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
@@ -141,9 +147,13 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
             ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
           });
         } catch (error) {
-          // A file that cannot be read is the client's 422. A store that fails is the server's 500.
+          // A file that cannot be read is the client's 422, with the reason. An error with a status
+          // keeps it, and a system error is the server's 500 with its code. A store that failed in
+          // another way is the server's 500 too, without its message: that is the store's own, and
+          // may name a database host. So is a value that is not an Error, whoever threw it.
           if (statusOf(error) !== undefined || systemErrorCode(error) !== undefined) throw error;
-          throw new HttpError(422, error instanceof Error ? error.message : String(error));
+          if (isStoreWriteFailure(error) || !(error instanceof Error)) throw error;
+          throw new HttpError(422, error.message);
         }
         send(response, 201, toDocumentSummary(meta));
       } catch (error) {

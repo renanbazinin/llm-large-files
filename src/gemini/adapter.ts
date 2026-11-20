@@ -5,10 +5,9 @@ import { idleWatch, readJson, type IdleWatch } from "../http.js";
 import { parseSseJson } from "../sse.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
 import { finishOfGemini, geminiFailure, GeminiRequestError, silent, unreachable } from "./errors.js";
-import { createGeminiGenerateText, geminiFunctionResponseTurns, usageOfGemini, type GeminiToolFilePlacement } from "./generate.js";
+import { createGeminiGenerateText, geminiFunctionResponseTurns, usageOfGemini, type GeminiContent, type GeminiPart, type GeminiToolFilePlacement } from "./generate.js";
 
-export type GeminiPart = Record<string, unknown>;
-export type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
+export type { GeminiContent, GeminiPart };
 
 /** What Gemini bills for one PDF page it is shown (measured: 520 to 532). */
 export const GEMINI_PAGE_TOKENS = 530;
@@ -107,7 +106,7 @@ export function fromGeminiContents(contents: GeminiContent[]): ChatMessage[] {
 export function geminiToolTurns(turns: ToolTurn[]): GeminiContent[] {
   return turns.flatMap((turn) => {
     const answers = turn.calls.map(({ result, ...call }) => ({ call, result }));
-    return [callsTurn(answers.map((answer) => answer.call)), ...geminiFunctionResponseTurns(answers) as GeminiContent[]];
+    return [callsTurn(answers.map((answer) => answer.call)), ...geminiFunctionResponseTurns(answers)];
   });
 }
 
@@ -126,7 +125,7 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
     if (!turns) {
       // Its own turn goes back unchanged: Gemini 3 requires its thought signatures.
       const asked = round.raw !== undefined ? round.raw as GeminiContent : callsTurn(round.calls);
-      turns = [asked, ...(round.answers.length > 0 ? geminiFunctionResponseTurns(round.answers, { files: placement }) as GeminiContent[] : [])];
+      turns = [asked, ...(round.answers.length > 0 ? geminiFunctionResponseTurns(round.answers, { files: placement }) : [])];
       built.set(round, turns);
     }
     return turns;

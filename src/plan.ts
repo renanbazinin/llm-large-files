@@ -93,19 +93,29 @@ export function renderInline(meta: DocumentMeta, text: string): string {
 export const CARD_LINES = CARD_HEAD_LINES;
 
 /**
+ * What a card says of a whole-document read: that it can have one ("offered"), that the file is
+ * too large for one ("too_large"), or nothing, when the tools have none ("not_offered").
+ */
+export type WholeRead = "offered" | "too_large" | "not_offered";
+
+/** The line of a card that says how to read the file. */
+const HOW_TO_READ: Record<WholeRead, string> = {
+  offered: "This file is NOT in your context. Use the document tools to search it, read line ranges, or analyze all of it.",
+  too_large: "This file is NOT in your context. Use the document tools to search it and to read line ranges. It is too large to be analyzed whole.",
+  not_offered: "This file is NOT in your context. Use the document tools to search it and to read line ranges.",
+};
+
+/**
  * A compact stand-in for a document that is too large for the prompt. `head` is its first
  * `CARD_LINES` lines, numbered. `viewable` adds a line saying that its pages can be looked at
- * with `view_pages`. `readableWhole` is false for a file that a whole-document read would refuse:
- * the card then does not offer one.
+ * with `view_pages`. `wholeRead` says whether the card offers a whole-document read.
  */
-export function renderCard(meta: DocumentMeta, head: string, viewable = false, readableWhole = true): string {
+export function renderCard(meta: DocumentMeta, head: string, viewable = false, wholeRead: WholeRead = "offered"): string {
   const out = [
     `--- Large attached file: ${meta.name} ---`,
     `document_id: ${meta.id}`,
     `${meta.format} · ${formatBytes(meta.bytes)} · ${meta.lines.toLocaleString("en-US")} lines${meta.pages ? ` · ${meta.pages} pages` : ""} · about ${formatCount(meta.estimatedTokens)} tokens`,
-    readableWhole
-      ? "This file is NOT in your context. Use the document tools to search it, read line ranges, or analyze all of it."
-      : "This file is NOT in your context. Use the document tools to search it and to read line ranges. It is too large to be analyzed whole.",
+    HOW_TO_READ[wholeRead],
     ...(viewable ? ["Its text cannot show pictures. To see a picture, a chart or the layout of a page, look at the page with view_pages."] : []),
   ];
   const profile = meta.logProfile;
@@ -131,7 +141,8 @@ export function renderCard(meta: DocumentMeta, head: string, viewable = false, r
  * The tool guide for the system prompt. `searchable` are the files the model reads through the
  * text tools. `viewable` are the PDFs whose pages it can look at with `view_pages`: some of them
  * may be searchable, and some may have their whole text in the prompt. `wholeReads` is false when
- * every searchable file is too large for `analyze_whole_document`: the guide then leaves it out.
+ * the tools have no `analyze_whole_document`, or every searchable file is too large for it: the
+ * guide then leaves it out.
  */
 export function documentToolsInstruction(searchable: DocumentMeta[], viewable: DocumentMeta[] = [], wholeReads = true): string {
   // File names come from uploads. Quoting keeps a name that reads like an instruction a name.

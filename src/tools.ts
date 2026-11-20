@@ -12,7 +12,7 @@ const MAX_READ_LINES = 600;
 /** The most pages one `view_pages` call shows. A page costs a model about 530 tokens. */
 export const MAX_VIEW_PAGES = 5;
 /**
- * The time the regex searches of one tool set (one question, in `askGemini`) may take together,
+ * The time the regex searches of one tool set (one question, in `askWithFiles`) may take together,
  * unless `regexBudgetMs` says otherwise. An ordinary search of a 60 MB log takes about 0.15 s.
  */
 export const REGEX_BUDGET_MS = 6_000;

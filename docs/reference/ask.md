@@ -169,7 +169,7 @@ The options of `askWithFiles`.
 | `limits` | [`AskLimits`](#asklimits) | `{}` | The limits of this question: tool turns, calls per turn, whole-file reads, ceilings on tokens and requests. |
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | `{ retries: 3, baseDelayMs: 500, maxDelayMs: 60_000 }` | How a failed model request is sent again: chat requests and whole-file part reads. `{ retries: 0 }` turns it off. |
 | `budget` | `Partial<`[`Budget`](./library.md#budget)`>` | the library's | Budget fields for this question, in place of the library's. Fields given nowhere follow the context window. The budget is then fitted to the models either way: `result.budget` shows it. |
-| `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. |
+| `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`. It changes nothing for a library that keeps no originals. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. The adapter streams when it is set and it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
 | `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry ("The model did not answer (HTTP 503). Trying again in 2 s…"), and "Writing the answer…" before the request for the answer. |
@@ -359,6 +359,7 @@ loop's, once, for every provider. The built-in adapters are `gemini()` ([gemini]
 interface ModelAdapter {
   readonly id: string;
   readonly capabilities: ModelCapabilities;
+  /** @deprecated Never called: set capabilities.tokenScale. */
   estimateTokens?(text: string): number;
   send(request: ModelRequest, hooks?: SendHooks): Promise<ModelReply>;
   requestBytes?(request: ModelRequest): number;
@@ -375,7 +376,7 @@ A model provider, as the tool loop sees it.
 | `send(request, hooks?)` | yes | One chat request. Returns a [`ModelReply`](#modelreply). Throw a [`ModelRequestError`](./errors-and-retries.md#modelrequesterror) for an HTTP error, with status 0 for a connection that failed. The loop reads `status`, `kind`, `retryAfterMs`, `limitTokens` and `requestedTokens` from the error, and sends again the ones worth it. |
 | `requestBytes?(request)` | no | The size in bytes of the body `send` would post for `request`. The loop calls it before it shows the pages of a PDF in a turn, with the turn whose calls are being run as a round with no `answers` yet. With it the room for the pages is exact; without it, it is estimated. |
 | `generateText` | no | A plain completion for the parts of a whole-file read: see [`GenerateText`](#generatetext). The one of the model that explores is used. Without it, `analyze_whole_document` is not offered. |
-| `estimateTokens?(text)` | no | Declared for an adapter's own count of tokens. `askWithFiles` does not call it in 0.6.0: it sizes requests with the library's `estimateTokens`, scaled by `tokenScale`. |
+| `estimateTokens?(text)` | no | Deprecated, and never called: `askWithFiles` sizes every request with the library's `estimateTokens`, scaled by `tokenScale`. Set `capabilities.tokenScale` for a model that counts differently. It is kept so that adapters that set it still compile, and a later version may remove it. |
 
 What `send` must do with the request:
 

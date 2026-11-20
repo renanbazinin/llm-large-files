@@ -18,7 +18,7 @@ import {
   retryAfterMs,
   withRetry,
 } from "llm-large-files";
-import type { IdleWaits, ModelErrorClass, ModelErrorKind, RetryOptions, SseHooks } from "llm-large-files";
+import type { IdleWaits, ModelErrorClass, ModelErrorKind, RetryNotice, RetryOptions, SseHooks } from "llm-large-files";
 ```
 
 Contents:
@@ -28,7 +28,8 @@ Contents:
   [`classifyModelError`](#classifymodelerrorstatus-message-signals),
   [`errorKindOf`](#errorkindoferror), [other error classes](#other-error-classes)
 - Retries: [`withRetry`](#withretryrun-options), [`RetryOptions`](#retryoptions),
-  [`isRetryableStatus`](#isretryablestatusstatus), [`retryAfterMs`](#retryaftermsheaders-body-now)
+  [`RetryNotice`](#retrynotice), [`isRetryableStatus`](#isretryablestatusstatus),
+  [`retryAfterMs`](#retryaftermsheaders-body-now)
 - Waits on a reply: [`DEFAULT_FIRST_BYTE_TIMEOUT_MS`](#default_first_byte_timeout_ms),
   [`DEFAULT_IDLE_TIMEOUT_MS`](#default_idle_timeout_ms), [`IdleWaits`](#idlewaits)
 - Streams: [`parseSseJson`](#parsessejsonstream-hooks), [`SseHooks`](#ssehooks)
@@ -292,7 +293,7 @@ declare function withRetry<T>(run: () => Promise<T>, options?: {
   retry?: RetryOptions | undefined;
   signal?: AbortSignal | undefined;
   canRetry?: () => boolean;
-  onRetry?: (notice: { error: unknown; attempt: number; delayMs: number }) => void;
+  onRetry?: (notice: RetryNotice) => void;
   unknownErrors?: "once" | "never";
 }): Promise<T>;
 ```
@@ -308,7 +309,7 @@ as it is: build the request inside it.
 | `retry` | [`RetryOptions`](#retryoptions) | the `RetryOptions` defaults: 3 retries, a base wait of 500 ms before the jitter, at most 60,000 ms | How many times, and how long the waits are. |
 | `signal` | `AbortSignal` | none | Once it has aborted, a failure is thrown as it is. A wait that is under way ends with the signal's reason. |
 | `canRetry` | `() => boolean` | always true | Asked after each failure. `false` throws the error as it is: return `false` once the attempt did something that must not happen twice. `askWithFiles` returns `false` once text of the reply was passed to `onText`. |
-| `onRetry` | `(notice) => void` | none | Called before each wait with the error, `attempt` (the number of the retry to come, counting every retry made so far, the one of `unknownErrors` included: 1 for the first) and `delayMs` (the wait). Not called for the retry of an error without a status, which has no wait. The notice's type is not exported. `askWithFiles` turns it into an `onActivity` line such as "The model did not answer (HTTP 503). Trying again in 2 s…". |
+| `onRetry` | `(notice: RetryNotice) => void` | none | Called before each wait with a [`RetryNotice`](#retrynotice): the error, `attempt` (the number of the retry to come, counting every retry made so far, the one of `unknownErrors` included: 1 for the first) and `delayMs` (the wait). Not called for the retry of an error without a status, which has no wait. `askWithFiles` turns it into an `onActivity` line such as "The model did not answer (HTTP 503). Trying again in 2 s…". |
 | `unknownErrors` | `"once" \| "never"` | `"never"` | An error without a numeric `status` (a `SyntaxError` from a body that is not JSON, a bug in `run`): `"once"` runs it once more at once, without a wait; any other value throws it. The part reads of a whole-file read use `"once"`; the chat requests of the loop do not. |
 
 What happens to an error, checked in this order:
@@ -329,7 +330,8 @@ What happens to an error, checked in this order:
    defaults: 250 to 500 ms, then 500 to 1,000 ms, then 1,000 to 2,000 ms.
 
 Every retry counts towards `retries`, the one after a silent model and the one of `unknownErrors`
-included, so `retries: 0` turns them all off. Each call of `withRetry` has its own count.
+included, so `retries: 0` turns them all off. The one of `unknownErrors` is still made when the
+other retries have used up `retries`. Each call of `withRetry` has its own count.
 
 Returns what `run` resolves to. Throws the last error of `run` as it came, not wrapped; or, when
 the signal aborts during a wait, the signal's reason (with the default `sleep`).
@@ -372,9 +374,9 @@ and `askGemini` it applies to the chat requests and to the part reads of a whole
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `retries` | `number` | 3 | How many times a failed request is sent again: at most 4 tries with the default. Cut to a whole number; 0 or less turns retries off. |
-| `baseDelayMs` | `number` | 500 | The first wait, in milliseconds, before the jitter. Each later wait is twice as long. A negative value counts as 0. |
-| `maxDelayMs` | `number` | 60,000 | The longest wait, in milliseconds. A computed wait is cut to it. When the provider asks for a longer one (`retryAfterMs`), the request is not sent again and the error is thrown at once. A negative value counts as 0. |
+| `retries` | `number` | 3 | How many times a failed request is sent again: at most 4 tries with the default, 5 when `unknownErrors: "once"` also retries an error without a status. A value that is not a finite number (`NaN`, `Infinity`, `-Infinity`, a string) counts as not set: 3. Any other number is cut to a whole number; 0 or less turns retries off. |
+| `baseDelayMs` | `number` | 500 | The first wait, in milliseconds, before the jitter. Each later wait is twice as long. A value that is not a finite number (`NaN`, `Infinity`, `-Infinity`, a string) counts as not set: 500; any other negative number counts as 0. |
+| `maxDelayMs` | `number` | 60,000 | The longest wait, in milliseconds. A computed wait is cut to it. When the provider asks for a longer one (`retryAfterMs`), the request is not sent again and the error is thrown at once. A value that is not a finite number (`NaN`, `Infinity`, `-Infinity`, a string) counts as not set: 60,000; any other negative number counts as 0. To allow longer waits, give a larger finite number, not `Infinity`. |
 | `sleep` | `(ms, signal?) => Promise<void>` | a timer that ends early, with the signal's reason, when the signal aborts | For tests: the wait itself. It gets the `signal` of `withRetry`. |
 | `random` | `() => number` | `Math.random` | For tests: the source of the jitter, a number from 0 up to 1. The wait is multiplied by `0.5 + random() / 2`: `() => 0` gives the shortest waits, `() => 1` the longest. |
 
@@ -394,6 +396,41 @@ console.log(value, tries, waits); // "done" 3 [250, 500]
 ```
 
 Testing an integration without a real model: [Testing](../guides/testing.md).
+
+### `RetryNotice`
+
+```ts
+type RetryNotice = {
+  error: unknown;
+  attempt: number;
+  delayMs: number;
+};
+```
+
+What [`withRetry`](#withretryrun-options) passes to its `onRetry` option before each wait. The retry
+of an error without a status has no wait, and no notice. The type is exported so that you can write
+the handler apart from the call.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `error` | `unknown` | The error of the attempt that failed, as `run` threw it. |
+| `attempt` | `number` | The number of the retry to come, 1 for the first. It counts every retry made so far, the one of `unknownErrors: "once"` included, which has no notice. |
+| `delayMs` | `number` | How long it waits, in milliseconds, before it sends the request again: the error's `retryAfterMs`, or the computed wait (see [`withRetry`](#withretryrun-options)). |
+
+```ts
+import { withRetry, type RetryNotice } from "llm-large-files";
+
+// One handler for the retries of every request of your own.
+const logRetry = ({ attempt, delayMs, error }: RetryNotice): void => {
+  console.warn(`Retry ${attempt} in ${Math.round(delayMs)} ms:`, error);
+};
+
+// post() is the function of the ModelRequestError sample above.
+const title = await withRetry(
+  () => post(`${process.env.MODEL_URL}/generate`, { prompt: "A title for this chat." }),
+  { onRetry: logRetry },
+);
+```
 
 ### isRetryableStatus(status)
 

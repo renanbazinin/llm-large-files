@@ -792,15 +792,23 @@ try again.
 
 See [Storage](./guides/storage.md) and [`DocumentStore`](./reference/library.md#documentstore).
 
-### An upload answers `422` with your store's own message
+### `500`: "Upload failed.", or `422` with your database's message
 
 **Cause.** A store write that fails is thrown as it came, not as a `DocumentStoreError`. The upload
-handler answers `422` (a file that cannot be read) for any error without a `status`, unless it is a
-Node system error with `code` and `syscall`, which gets `500`. Your user then reads your
-database's message.
+handler answers it `500` with `{ "error": "Upload failed." }` when it has no `status` (or
+`statusCode`) from 400 to 599 and is not a Node system error with `code` and `syscall`. Its message
+is your database's own and may name its host, so it is not sent, and the handlers log nothing.
 
-**Fix.** Make a store of your own throw an error with a `status` when a write fails (a `503`,
-say), whose message is fit for a user.
+Two paths answer it `422` with your database's message instead, as a file that cannot be read: an
+`ingest` of your own that throws a new error in its place, as `ingestInWorker` in
+[Deployment](./guides/deployment.md#uploads-and-ingest) does, and a route of your own, as in
+[Web app](./guides/web-app.md#filesingest-and-its-errors). Every case is in the
+[node reference](./reference/node.md#uploadrequest-response).
+
+**Fix.** In a store of your own, log a write that fails, and throw an error with a `status` (a
+`503`, say) whose message is fit for a user. An `ingest` of your own must copy that status, and a
+system error's `code` and `syscall`, onto the error it throws, as `ingestInWorker` in
+[Deployment](./guides/deployment.md#uploads-and-ingest) does.
 
 See [Storage](./guides/storage.md) and [`llm-large-files/node` reference](./reference/node.md).
 

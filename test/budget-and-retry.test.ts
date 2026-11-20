@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLargeFiles, DEFAULT_BUDGET, isRetryableStatus, MemoryDocumentStore, resolveBudget, retryAfterMs, withRetry, type GenerateText } from "llm-large-files";
+import { createLargeFiles, DEFAULT_BUDGET, isRetryableStatus, MemoryDocumentStore, resolveBudget, retryAfterMs, withRetry, type GenerateText, type RetryNotice } from "llm-large-files";
 import { httpError, serviceLog, utf8 } from "./fake-model.js";
 
 describe("a budget", () => {
@@ -190,6 +190,45 @@ describe("withRetry", () => {
       throw httpError(400, "bad request");
     }, { retry, unknownErrors: "once" })).rejects.toThrow("bad request");
     expect(attempts).toBe(1);
+  });
+
+  it("takes a number of the options that is not finite as not set", async () => {
+    // A test that would otherwise not end: past 20 attempts the request fails in a way that is not retried.
+    let attempts = 0;
+    const busy = async () => {
+      attempts++;
+      throw attempts > 20 ? httpError(400, "gave up") : httpError(503);
+    };
+    for (const retries of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      attempts = 0;
+      const { retry, waits } = quick({ retries });
+      await expect(withRetry(busy, { retry })).rejects.toMatchObject({ status: 503 });
+      expect(attempts, String(retries)).toBe(4);
+      expect(waits).toEqual([250, 500, 1_000]);
+    }
+    attempts = 0;
+    const delays = quick({ baseDelayMs: Number.NaN, maxDelayMs: Number.NaN });
+    await expect(withRetry(busy, { retry: delays.retry })).rejects.toMatchObject({ status: 503 });
+    expect(delays.waits).toEqual([250, 500, 1_000]);
+    // A wait the provider asks for that is longer than the default cap (60 s) is not waited for.
+    attempts = 0;
+    const asked = quick({ maxDelayMs: Number.POSITIVE_INFINITY });
+    await expect(withRetry(async () => {
+      attempts++;
+      throw httpError(429, "slow down", 120_000);
+    }, { retry: asked.retry })).rejects.toThrow("slow down");
+    expect(attempts).toBe(1);
+  });
+
+  it("tells onRetry about each retry, in a type the package exports", async () => {
+    const notices: RetryNotice[] = [];
+    let attempts = 0;
+    const { retry } = quick();
+    expect(await withRetry(async () => {
+      if (++attempts < 3) throw httpError(503);
+      return "done";
+    }, { retry, onRetry: (notice) => notices.push(notice) })).toBe("done");
+    expect(notices.map(({ attempt, delayMs }) => ({ attempt, delayMs }))).toEqual([{ attempt: 1, delayMs: 250 }, { attempt: 2, delayMs: 500 }]);
   });
 
   it("stops waiting when the question is stopped", async () => {
