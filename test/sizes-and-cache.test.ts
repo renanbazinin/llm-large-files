@@ -120,7 +120,9 @@ describe("cacheSize", () => {
     expect(cache.bytes).toBeLessThanOrEqual(50);
   });
 
-  it("keeps a document that is read by range open between its searches", async () => {
+  // Six searches that each read the document from disk in pieces of 2 KiB: hundreds of reads that
+  // each wait for the thread pool. Under 1 s in a usual run, over 5 s on a busy machine.
+  it("keeps a document that is read by range open between its searches", { timeout: 20_000 }, async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-cachesize-"));
     let opened = 0;
     class Counting extends FileDocumentStore {

@@ -1,3 +1,4 @@
+import "./load-pdf-libraries.js";
 import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import {

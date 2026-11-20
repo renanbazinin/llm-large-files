@@ -1,3 +1,4 @@
+import "./load-pdf-libraries.js";
 import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, createPdfExtractor, MemoryDocumentStore, type DocumentStore, type StoredDocument } from "llm-large-files";
 import { askGemini, geminiApi } from "llm-large-files/gemini";

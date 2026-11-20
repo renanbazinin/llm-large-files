@@ -1,3 +1,4 @@
+import "./load-pdf-libraries.js";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createPdfExtractor, extractText } from "../src/extract.js";

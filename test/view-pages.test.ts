@@ -1,3 +1,4 @@
+import "./load-pdf-libraries.js";
 import { PDFDocument } from "@cantoo/pdf-lib";
 import { getDocumentProxy } from "unpdf";
 import { describe, expect, it } from "vitest";

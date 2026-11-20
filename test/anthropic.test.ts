@@ -1,3 +1,4 @@
+import "./load-pdf-libraries.js";
 import { describe, expect, it, vi } from "vitest";
 import { askWithFiles, createLargeFiles, FINAL_ANSWER_REQUEST, MemoryDocumentStore, ModelRequestError, type ModelRequest, type ToolTurn } from "llm-large-files";
 import { anthropic, ANTHROPIC_VERSION, anthropicToolTurns, AnthropicRequestError, fromAnthropicMessages } from "llm-large-files/anthropic";

@@ -144,7 +144,8 @@ describe("createLargeFiles", () => {
     await expect(files.ingest({ name: "app.log.gz", bytes: new Uint8Array(gzipSync(bigLog(2_000))) })).rejects.toThrow(/gzip-compressed/);
   });
 
-  it("ingests a file with hundreds of thousands of short upper-case lines", async () => {
+  // Builds and ingests a text of 200,000 lines: about 1 s in a usual run, 3.6 s on a busy machine.
+  it("ingests a file with hundreds of thousands of short upper-case lines", { timeout: 20_000 }, async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "list.txt", bytes: bytes(Array.from({ length: 200_000 }, (_, index) => `ITEM NUMBER ${index}\n`).join("\n")) });
     expect(meta.outline).toHaveLength(400);
