@@ -65,10 +65,11 @@ question ─► plan the documents for the room left in the request, smallest fi
    - Build an **outline**: headings with their line numbers. Markdown headings; after a blank
      line, lines that start with Chapter, Part, Book, Section or Appendix, or the Hebrew words for
      chapter, part and appendix, numbered headings such as `2.1 Scope`, and short lines in
-     capitals. At most 400 entries: past that, 400 taken at even steps over the file, from the
-     top-level headings alone when there are 20 or more of them. With 20 to 399 top-level
-     headings, 0.6.0 gets the steps wrong and repeats the first ones instead (see
-     [`OutlineEntry`](./reference/library.md#outlineentry)). Logs, JSON and CSV get no outline.
+     capitals. At most 400 entries: past that, the top-level headings alone when there are 20
+     to 400 of them, each once and in order; otherwise 400 taken at even steps over the file,
+     from the top-level headings when there are more than 400 of them, or from all the headings
+     when there are fewer than 20 (see [`OutlineEntry`](./reference/library.md#outlineentry)).
+     Logs, JSON and CSV get no outline.
    - For a log, build a **profile**: lines by level (ERR counts as ERROR, WARNING as WARN,
      CRITICAL as FATAL), the first and last timestamp, and the ERROR, FATAL and WARN lines grouped
      by shape. Timestamps are removed, and UUIDs, IP addresses, hex, quoted values and numbers

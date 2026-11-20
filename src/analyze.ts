@@ -38,14 +38,17 @@ export function buildOutline(lines: string[], format: DocumentFormat): OutlineEn
     if (entry) entries.push(entry);
   }
   if (entries.length <= MAX_OUTLINE_ENTRIES) return entries;
-  // Keep the top levels first, then sample evenly so the outline still spans the document.
+  // Keep the top-level headings when there are at least 20 of them. A pool that fits is kept whole;
+  // a larger one is sampled evenly, so the outline still spans the document.
   // A loop, not Math.min(...levels): spreading a few hundred thousand values overflows the stack.
   let minLevel = Number.POSITIVE_INFINITY;
   for (const entry of entries) if (entry.level < minLevel) minLevel = entry.level;
   const top = entries.filter((entry) => entry.level === minLevel);
   const pool = top.length >= 20 ? top : entries;
+  if (pool.length <= MAX_OUTLINE_ENTRIES) return pool;
+  // The step is above 1 here, so each sampled index is greater than the one before it.
   const step = pool.length / MAX_OUTLINE_ENTRIES;
-  return Array.from({ length: Math.min(pool.length, MAX_OUTLINE_ENTRIES) }, (_, index) => pool[Math.floor(index * step)]!);
+  return Array.from({ length: MAX_OUTLINE_ENTRIES }, (_, index) => pool[Math.floor(index * step)]!);
 }
 
 /** Replaces the variable parts of a log message so repeated failures group together. */
