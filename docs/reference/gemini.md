@@ -214,8 +214,9 @@ declare function askGemini(options: AskGeminiOptions): Promise<AskGeminiResult>;
 stream. Documents that fit go into the prompt whole. A document too large for that, or a PDF whose
 pages can be looked at, is reached through tools. When the tool loop ends without an answer in text
 (out of turns or of room, a reply with no text, or always with an explorer), a last request without
-tools asks for it. `answered` is false when there is still no text: a blocked prompt, which gets no
-last request, or an empty or cut-off reply.
+tools asks for it. When that reply has no text (it is empty, or ends with `UNEXPECTED_TOOL_CALL` or
+`MALFORMED_FUNCTION_CALL`), it is asked for once more. `answered` is false when there is still no
+text: a blocked prompt, which gets no last request, or an empty or cut-off reply.
 
 `askGemini` cannot set `contextTokens`, `maxRequestBytes`, `pageTokens` or `id` on its models. Put
 the model's window in the library's budget, or use `askWithFiles` with
@@ -285,7 +286,7 @@ Fields `askGemini` adds:
 | `generationConfig` | `Record<string, unknown>` | none | Sent as `generationConfig` with every chat request of the answering model, and of the explorer unless `explorerGenerationConfig` is set: `temperature`, `maxOutputTokens`, `thinkingConfig` and so on. Not used for part reads. |
 | `explorerGenerationConfig` | `Record<string, unknown>` | `generationConfig` | The same, for the explorer's chat requests, when the two models do not take the same settings. Not used without an explorer. |
 | `toolFilePlacement` | [`GeminiToolFilePlacement`](#geminitoolfileplacement) | `"inside"` | Where the pages of `view_pages` go, for both models. `"beside"` for Gemini 2.5. |
-| `analysisConfig` | `(maxOutputTokens: number) => Record<string, unknown>` | `{ maxOutputTokens, temperature: 0.2 }` | The `generationConfig` of the part reads of a whole-file read, for both models. The explorer reads the parts when there is one, so write it for that model. Put the limit it is given in `maxOutputTokens`: a second try raises it to [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens). |
+| `analysisConfig` | `(maxOutputTokens: number) => Record<string, unknown>` | `{ maxOutputTokens }` | The `generationConfig` of the part reads of a whole-file read, for both models. The explorer reads the parts when there is one, so write it for that model. Put the limit it is given in `maxOutputTokens`: a second try raises it to [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens). The default sends no temperature since 0.6.1 (it was `temperature: 0.2`): Gemini 3.6 and later ignore it, and Google says later models will refuse it. For an older model that should keep it: `(maxOutputTokens) => ({ maxOutputTokens, temperature: 0.2 })`. |
 | `firstByteTimeoutMs` | `number` | `600_000` | The longest wait for the first piece of a chat reply, for both models. See [`GeminiModelOptions`](#geminimodeloptions). 0 waits without end. |
 | `idleTimeoutMs` | `number` | `300_000` | The longest wait between two pieces of a chat reply, for both models. 0 waits without end. |
 | `maxToolTurns` | `number` | 12 | `limits.toolTurns`, under the name it had before 0.5.0. `limits.toolTurns` wins when both are set. |
@@ -349,6 +350,12 @@ What `send` does:
 - A model turn of the question goes back unchanged, thought signatures included, in the later
   requests to the same adapter. Another model of the question gets it rebuilt from its calls, as a
   stored tool round (`toolTurns`) is.
+- A reply to `streamUrl` is read as a stream when its content type is `text/event-stream`, or when
+  it starts like events (`data:`, `event:`, `id:`, `retry:` or a comment). Otherwise it is read in
+  one piece, as one chunk or a list of chunks, as Gemini answers without `?alt=sse`: a gateway that
+  drops `?alt=sse`, or does not stream, is read whole (since 0.6.1; 0.6.0 took it for a cut stream
+  and sent it again). A body that starts with more than 65,536 characters of white space is read in
+  one piece.
 - Parts marked `"thought": true` are not in the reply's `text` and are not passed to `onText`.
 - Gemini's `finishReason` becomes the reply's `finish`: `STOP` is `"complete"`; `MAX_TOKENS` is
   `"cut"`; `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII` and `IMAGE_SAFETY` are
@@ -363,11 +370,13 @@ What `send` does:
 | Gemini answered with an HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "Gemini returned HTTP 503." | The HTTP status | Told from the status, Gemini's `error.status` and `details` |
 | An error object inside the stream | `GeminiRequestError` with its message | Its `code` when that is a number, else the response's | As above |
 | The connection failed, before or while the reply arrived, or an event of the stream was not JSON | `GeminiRequestError`: "Gemini could not be reached (fetch failed)." | 0 | `"unreachable"` |
+| A reply of HTTP 200 whose body is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", new in 0.6.1. When the reply's type is `text/event-stream`, "Gemini's reply ended before it was complete.", as before. Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
 | Nothing arrived for a whole wait | `GeminiRequestError`: "Gemini sent nothing for 600 s." | 0 | `"timeout"` |
 | A stream that closed with no `finishReason` and no `blockReason` | `GeminiRequestError`: "Gemini's reply ended before it was complete." | 0 | `"unreachable"` |
 | A streamed response without a body | `GeminiRequestError`: "Gemini returned an empty stream." | The response's, a 2xx | `"invalid"` (the status is a 2xx); not sent again |
+| A reply whose body is not JSON (a gateway's HTML page), streamed or not | `GeminiRequestError`: "Gemini's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the brackets holding the response's media type (left out when it has none), with the `SyntaxError` as `cause`. Not sent again. Until 0.6.1, the `SyntaxError` itself, and for a streamed request "Gemini's reply ended before it was complete.", sent again. | The response's, 200 | `"invalid"` |
+| An event of the stream longer than 64,000,000 characters | `GeminiRequestError`: "Gemini's reply could not be read: an event of its stream held more than 64,000,000 characters." Not sent again. New in 0.6.1. | The response's, 200 | `"invalid"` |
 | `hooks.signal` aborted | The signal's reason, as it is | none | none |
-| A reply that is not streamed and whose body is not JSON (a gateway's HTML page) | The `SyntaxError` of `JSON.parse`, as it is | none | none |
 
 For an HTTP error, `retryAfterMs` is the wait Gemini asked for: the `retry-after-ms` or
 `Retry-After` header, or the `retryDelay` of a `google.rpc.RetryInfo` in the error's `details`. An
@@ -401,7 +410,7 @@ The options of `gemini()`.
 |---|---|---|---|
 | `generationConfig` | `Record<string, unknown> \| undefined` | none: the field is left out of the body | Sent as `generationConfig` with every chat request: `temperature`, `maxOutputTokens`, `thinkingConfig` and so on. It is sent as it is, not checked. Not used for part reads. |
 | `toolFilePlacement` | [`GeminiToolFilePlacement`](#geminitoolfileplacement) `\| undefined` | `"inside"` | Where the pages of `view_pages` go. `"inside"` puts the PDF in the function response itself, which Gemini 3 models read. `"beside"` sends it in a user turn of its own after the function responses: use it for Gemini 2.5, which does not see a file inside a function response. It is also `capabilities.toolFiles`. |
-| `analysisConfig` | `((maxOutputTokens: number) => Record<string, unknown>) \| undefined` | `{ maxOutputTokens, temperature: 0.2 }` | The `generationConfig` of the part reads of a whole-file read. Put the limit it is given in `maxOutputTokens`: a second try raises it to [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens). |
+| `analysisConfig` | `((maxOutputTokens: number) => Record<string, unknown>) \| undefined` | `{ maxOutputTokens }` | The `generationConfig` of the part reads of a whole-file read. Put the limit it is given in `maxOutputTokens`: a second try raises it to [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens). No temperature by default since 0.6.1 (see `analysisConfig` of [`AskGeminiOptions`](#askgeminioptions)). |
 | `contextTokens` | `number \| undefined` | none | The model's context window in tokens. Set as `capabilities.contextTokens`, it keeps the budget of a question within it. Without it the library's budget holds: 1,000,000 tokens unless you set another. |
 | `maxRequestBytes` | `number \| undefined` | none | The largest request body the model or your gateway takes, in bytes. Set as `capabilities.maxRequestBytes`, it keeps the budget within it. |
 | `pageTokens` | `number \| undefined` | `530` ([`GEMINI_PAGE_TOKENS`](#gemini_page_tokens)) | Tokens billed for one PDF page shown by `view_pages`. |
@@ -452,7 +461,10 @@ declare function geminiToolTurns(turns: ToolTurn[]): GeminiContent[];
 The tool rounds of a question ([`AskResult.toolTurns`](./ask.md#askresult)) as Gemini `contents`:
 for each round, a `model` turn of `functionCall` parts (`{ name, args, id? }`), then a `user` turn
 of `functionResponse` parts, in call order. Put them between the question and its answer, and the
-model sees in a later question what its tools returned in this one.
+model sees in a later question what its tools returned in this one. The results leave out
+`tool_turns_left`, which counted the turns of their own question, as `askWithFiles` does with
+stored rounds (since 0.6.1): a history kept as `contents` gives the same request as one kept as
+`toolTurns`. Contents that 0.6.0 converted keep the field.
 
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
@@ -514,7 +526,7 @@ completion a whole-file read uses for each part. `gemini()` builds one on its en
 | `url` | `string` | required | The `...:generateContent` URL. What is learned about the model's output limit is kept under it. |
 | `headers` | `Record<string, string>` or a function that returns them | required | A function is called before every request: a whole-file read can outlast an access token. |
 | `fetchImpl` | `typeof fetch` | the global `fetch` | Your own `fetch`. |
-| `generationConfig` | `(maxOutputTokens: number) => Record<string, unknown>` | `{ maxOutputTokens, temperature: 0.2 }` | The `generationConfig` of each request, from its output limit. |
+| `generationConfig` | `(maxOutputTokens: number) => Record<string, unknown>` | `{ maxOutputTokens }` | The `generationConfig` of each request, from its output limit. Until 0.6.1 the default also sent `temperature: 0.2`. |
 | `timeoutMs` | `number` | `180_000` | The longest time one request may take, its whole body included. A second try at a larger limit gets its own. |
 
 Each request posts `contents: [{ role: "user", parts: [{ text: prompt }] }]`, the system
@@ -527,18 +539,27 @@ When a reply stops at `MAX_TOKENS` with no text, or with half the limit or more 
 and the limit was below [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens), the request is sent
 once more with that limit, and later requests to the same `url` start there. If that second request
 fails, the first reply's text is kept when it had some, and the error is thrown when it had none. A
-model or gateway that refused the larger limit with HTTP 400 is not asked for it again. The first
-request to a `url` goes alone: requests to it that arrive meanwhile wait for what it learns.
+model or gateway that refused the larger limit with HTTP 400 is not asked for it again. A refusal
+of the request as too large (kind `"context_overflow"`: for the model's window at HTTP 400, or for
+the tokens a minute the provider allows at HTTP 429 or 413) is not taken for that since 0.6.1: it
+turns the larger limit off only when the window or allowance it names is 32,768 tokens or less.
+Otherwise what was learned is forgotten, and a later part may still get the larger limit. The
+first request to a `url` goes alone: requests to it that arrive meanwhile wait for what it learns.
 
 | Case | Error |
 |---|---|
 | An HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "The model returned HTTP 503.", with `status`, `kind` and `retryAfterMs` |
 | The connection failed, or the body could not be read | `GeminiRequestError`: "Gemini could not be reached (…).", `status` 0 |
+| A body of HTTP 200 that is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", `status` 0 |
+| A body that is not JSON | `GeminiRequestError`: "Gemini's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the response's `status`, kind `"invalid"`, the `SyntaxError` as `cause`. Until 0.6.1, the `SyntaxError` itself. |
 | `timeoutMs` passed, or `signal` aborted | The abort error, as it is, with no status |
 | A reply with no text | `Error`: "The model returned no text." or, with its `finishReason`, "The model returned no text (SAFETY)." |
-| A body that is not JSON | The `SyntaxError` of `JSON.parse`, as it is |
 
-A whole-file read tries a part once more after an error with no status.
+A whole-file read tries a part once more after an error with no status. It tells the model why a
+part failed by the error's kind and status, never by Gemini's message: "The model took too long to
+answer." for a request past `timeoutMs`, "The model returned no text (SAFETY)." for a reply with no
+text, the reason only when it is a plain word (see
+[`analyze_whole_document`](./tools.md#analyze_whole_document)).
 
 `gemini()` gives its part reads no way to change the 180 s. To change it, replace the adapter's
 `generateText`:
@@ -707,12 +728,15 @@ declare class GeminiRequestError extends ModelRequestError {
 ```
 
 A Gemini request that failed: Gemini answered with an HTTP error, or `status` is 0 because Gemini
-could not be reached, sent nothing for a whole wait, or ended a stream before it was complete.
+could not be reached, sent nothing for a whole wait, or ended a stream before it was complete. A
+reply of HTTP 200 that could not be read (not JSON, or an event too long) keeps its 200, with kind
+`"invalid"`.
 `gemini()` throws it for chat requests, and its part reader (`generateText`) for part reads.
 `askGemini` and `askWithFiles` throw it for a chat request that failed and was not worth another
 try, or still failed after the retries. A part read that fails is not thrown: the part counts as
 unread, and when no part could be read the tool call returns
-`{ error: "Could not read any part of app.log: …" }` to the model. Its `name` is
+`{ error: "Could not read any part of app.log: …" }` to the model, with the kind and status of the
+failure, not Gemini's message ("The model was busy (HTTP 429)."). Its `name` is
 `"GeminiRequestError"`.
 
 Its fields are those of [`ModelRequestError`](./errors-and-retries.md#modelrequesterror): `status`,
@@ -721,7 +745,9 @@ message gives them. Gemini's `error.status` (such as `"RESOURCE_EXHAUSTED"`) and
 passed in as `code` and `details` to tell the `kind`, and are not kept on the error:
 
 - HTTP 429 whose `details` name a quota per day (`google.rpc.QuotaFailure`) is `"quota"`, which is
-  not retried. Another 429 is `"rate_limit"`.
+  not retried. So, since 0.6.1, is a 429 whose message alone names a quota per day, as Vertex AI's
+  "Quota exceeded for aiplatform.googleapis.com/generate_content_requests_per_day_per_project_per_base_model …"
+  does. Another 429 is `"rate_limit"`.
 - HTTP 400 whose `details` give the reason `API_KEY_INVALID` is `"auth"`.
 - A message such as Vertex AI's "Unable to submit request because the input token count is N but
   model only supports up to M." is `"context_overflow"`, with `requestedTokens` N and

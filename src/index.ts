@@ -32,7 +32,7 @@ export { evidenceOf, mergeRanges, stubResult } from "./evidence.js";
 export type { Evidence, NumberRange } from "./evidence.js";
 export { isRetryableStatus, retryAfterMs, withRetry } from "./retry.js";
 export type { RetryNotice, RetryOptions } from "./retry.js";
-export { parseSseJson } from "./sse.js";
+export { parseSseJson, SseEventTooLongError } from "./sse.js";
 export type { SseHooks } from "./sse.js";
 export { DEFAULT_FIRST_BYTE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./http.js";
 export type { IdleWaits } from "./http.js";

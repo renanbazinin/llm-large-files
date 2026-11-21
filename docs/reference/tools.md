@@ -37,7 +37,7 @@ the [loop reference](./ask.md).
 
 | Tool | What it does |
 |---|---|
-| `search_document` | Finds lines that contain a text or match a regex, with an exact count, or the passages that match keywords best. |
+| `search_document` | Finds lines that contain a text or match a regex, with an exact count, the first of them and the last one; or the passages that match keywords best. |
 | `read_document` | Reads a range of lines, numbered, up to 600 a call. |
 | `get_document_overview` | The outline, the log profile, the first 30 and last 20 lines, and what a whole-file read would take. |
 | `analyze_whole_document` | Reads the whole file in parts with other model calls (map-reduce) and answers a task that needs all of it. |
@@ -95,9 +95,12 @@ number of 1 or more. A `mode` other than `"exact"` or `"regex"` is `"keywords"`,
 
 **Scope.** A call reaches only the documents its tool set was made for. A `document_id` outside
 them is refused with the IDs the model may use, so that the next call is right (`view_pages`
-refuses it with the reason instead, see [its errors](#view_pages)). The tool set does
-not check owners: make it from documents you looked up with the user's `owner`, as `prepare` and
-`askWithFiles` do (see [Security](../security.md)).
+refuses it with the reason instead, see [its errors](#view_pages)). The tool set does not know who
+asks: it compares the owner stored with each document with the `owner` of the metadata it was
+given, and answers a document whose stored owner is set and differs as one that is gone. A
+document stored without an owner is read whatever the metadata holds: as everywhere, it is open to
+anyone who has its ID. Make it from documents you looked up with the user's `owner`, as `prepare`
+and `askWithFiles` do (see [Security](../security.md#tool-scoping)).
 
 **Errors.** A call that fails returns `{ "error": "..." }` for the model to read, and the loop goes
 on. It never names a server path: a Node system error becomes "The file could not be read from
@@ -111,7 +114,7 @@ storage (EIO). Try the call again.", and a store that could not be read gives th
 | `Unknown document_id ID. Use one of: doc_… ("app.log"), ….` | `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`: the ID is not one of the tool set's documents. Up to 20 usable IDs are listed, each with its file name, and `…` when there are more. |
 | `Unknown document_id ID. No attached file is read with this tool in this conversation.` | `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`: the tool set has no document for these tools. |
 | `ID is no longer available on the server. Ask the user to attach the file again.` | The document was deleted or expired after the request was planned. |
-| `Unknown tool NAME.` | The name is not a tool of this tool set. |
+| `Unknown tool “NAME”.` | The name is not a tool of this tool set. The name is cut at 64 characters, never in the middle of a character. Until 0.6.1: `Unknown tool NAME.`, with the whole name. |
 
 **Size.** One result is at most `toolResultCharacters` characters of JSON (a field of
 [`Budget`](./library.md#budget): 24,000 with the default budget, less for a model with a small
@@ -122,7 +125,13 @@ lower the cap of one call with [`ToolCallLimits.maxResultCharacters`](#toolcalll
 
 - A list (the matches or passages of a search, the outline of an overview) loses entries from its
   end, keeping at least one, and its `note` becomes "Showing K of N results to stay within the size
-  limit. Narrow the query or read specific lines." This replaces any other note.
+  limit. Narrow the query or read specific lines." The note of a search that stopped early is kept
+  before it: "The scan stopped early; the total is a lower bound, and the last match in the file is
+  not known. Showing K of N results to stay within the size limit. Narrow the query or read
+  specific lines."
+- An exact or regex search that read the whole file and has 2 matches or more is cut its own way:
+  it loses matches from the end of the first ones, and keeps the last one (see
+  [`search_document`](#search_document)).
 - When even one entry is too large, the result becomes
   `{ "truncated": true, "partial": "<the start of the result as JSON text>", "note": "Result cut to the size limit. Ask for a smaller range." }`.
 - `read_document` shortens its range instead, and `analyze_whole_document` cuts the end of its
@@ -139,15 +148,20 @@ fields.
 The description the model sees:
 
 > Search a large attached file. mode "keywords" returns the most relevant passages for a question;
-> "exact" returns every line containing the text; "regex" returns lines matching a JavaScript
-> regular expression. Results include line numbers to read further with read_document.
+> "exact" finds the lines that contain the text; "regex" finds the lines that match a JavaScript
+> regular expression. For exact and regex, total_matching_lines counts every matching line, and the
+> result shows the first max_results of them and the last one. Results include line numbers to read
+> further with read_document.
+
+Until 0.6.1 it said that `exact` "returns every line containing the text", while the result showed
+the first lines only: a model asked when something last happened named the last line it was shown.
 
 | Argument | Type | Required | Default and limits | Meaning |
 |---|---|---|---|---|
 | `document_id` | string | yes | | The `document_id` from the file's card. |
 | `query` | string | yes | Not blank (`query is required.`) | Keywords, exact text, or a regex, by `mode`. |
 | `mode` | `"keywords"` \| `"exact"` \| `"regex"` | no | `"keywords"` | How to search. |
-| `max_results` | integer | no | keywords: 5, from 1 to 10. exact and regex: 20, from 1 to 50 | Passages, or matching lines, returned. It does not limit the count. |
+| `max_results` | integer | no | keywords: 5, from 1 to 10. exact and regex: 20, from 1 to 50 | Passages, or matching lines, returned. It does not limit the count. exact and regex also show the last matching line after them, when it is not among them. |
 | `context_lines` | integer | no | 0, from 0 to 5 | exact and regex: lines shown before and after each match. |
 | `case_sensitive` | boolean | no | `false` | exact and regex: match case. Keywords never do. |
 
@@ -192,28 +206,53 @@ Results of `exact` and `regex`:
 | `document` | string | The file name. |
 | `mode` | `"exact"` \| `"regex"` | The mode that ran. |
 | `total_matching_lines` | number | Every matching line in the file, not only those shown. This is the number to count with. |
-| `note` | string, optional | "The scan stopped early; the total is a lower bound." when the scan stopped (1,000,000 lines, or a regex limit), or the size-limit note. |
-| `matches` | array | The first `max_results` matching lines, in file order. |
+| `note` | string, optional | When more lines match than are shown: "N of the M matching lines are shown: the first K and the last (line L). To see the ones in between, narrow the search." ("the first and the last" when K is 1). When the scan stopped (1,000,000 lines, or a regex limit): "The scan stopped early; the total is a lower bound, and the last match in the file is not known." Or a size-limit note (below). Absent when every match is shown. |
+| `matches` | array | The first `max_results` matching lines, in file order, then the last matching line of the file when it is not among them. A scan that stopped early shows no last line, since it did not reach the end. |
 | `matches[].line` | number | The line number. |
 | `matches[].page` | number, optional | The page of the line, for a PDF whose pages can be shown. |
 | `matches[].text` | string | The line. A line longer than 400 characters is cut to 400 around the match, with `…` where it was cut. |
 | `matches[].before`, `matches[].after` | string[], optional | With `context_lines` above 0: the lines around the match, as `"1202\| text"`, each cut to 400 characters. |
+
+A search with `max_results: 1` and `context_lines: 1`:
 
 ```json
 {
   "document": "app.log",
   "mode": "exact",
   "total_matching_lines": 51,
+  "note": "2 of the 51 matching lines are shown: the first and the last (line 4987). To see the ones in between, narrow the search.",
   "matches": [
     {
       "line": 1203,
       "text": "2026-05-01 12:00:03 ERROR payment-service: timeout after 1203ms calling ledger",
       "before": ["1202| 2026-05-01 12:00:02 INFO request 1202 ok"],
       "after": ["1204| 2026-05-01 12:00:04 INFO request 1204 ok"]
+    },
+    {
+      "line": 4987,
+      "text": "2026-05-01 13:22:47 ERROR payment-service: timeout after 4987ms calling ledger",
+      "before": ["4986| 2026-05-01 13:22:46 INFO request 4986 ok"],
+      "after": ["4988| 2026-05-01 13:22:48 INFO request 4988 ok"]
     }
   ]
 }
 ```
+
+When the result is too large for its room, an exact or regex search that read the whole file and
+has 2 matches or more loses matches from the end of the first ones, and keeps the last one. Its
+note is then one of:
+
+- "Showing N of the M matching lines to stay within the size limit: the first K and the last (line
+  L). Narrow the query or read specific lines." (N is K + 1; "the first and the last" when K is 1);
+- "Showing 1 of the M matching lines to stay within the size limit: the last (line L). Narrow the
+  query or read specific lines.", when only the last one fits;
+- "Showing 1 of the M matching lines: the last (line L). Narrow the search.", when the last one
+  fits only with this shorter note.
+
+When not even that fits, the result is cut as text, as any other (see
+[Size](#rules-for-every-tool)), and its `partial` holds the note before the match. A note that starts with
+"Showing " marks a result that was cut: a call made again runs again. A result with the note "N of
+the M matching lines are shown" is whole, and a call made again gets a pointer to it.
 
 Results of `keywords`:
 
@@ -343,6 +382,34 @@ Errors:
 | `Could not read any part of NAME: REASON` | Every part failed at the model. | yes |
 | The store's error | No part could be read from the store. Nothing was sent. | no |
 
+REASON, in these errors, in the notes of a part that could not be read, and in the note of
+`notes_only`, says why a model request failed. Since 0.6.1 it is built from the error's kind, its
+HTTP status or its connection code, never from its message, which can name a project, a host, a
+key or a URL. It is one of:
+
+| REASON | For an error |
+|---|---|
+| `The request was larger than the model takes (HTTP 400).` | of kind `context_overflow` |
+| `The model's quota has run out (HTTP 429).` | of kind `quota` |
+| `The model was busy (HTTP 429).` | of kind `rate_limit` |
+| `The model took too long to answer.` | of kind `timeout`; named `TimeoutError`, on the error or its cause (an `AbortSignal.timeout`, or a built-in part reader past its `timeoutMs`); or with undici's code `UND_ERR_HEADERS_TIMEOUT` or `UND_ERR_BODY_TIMEOUT` |
+| `The model could not be reached.` | of kind `unreachable`; or whose code, or that of a cause up to 3 levels down, is that of a connection that failed: `ECONNREFUSED`, `ECONNRESET`, `ECONNABORTED`, `ENOTFOUND`, `EAI_AGAIN`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`, `ENETDOWN`, `EPIPE`, `UND_ERR_CONNECT_TIMEOUT`, `UND_ERR_SOCKET`, `UND_ERR_CLOSED`, `UND_ERR_DESTROYED` |
+| `The model failed on its side (HTTP 503).` | of kind `server` |
+| `The model refused the key or token it was sent (HTTP 401).` | of kind `auth` |
+| `The model refused the request (HTTP 400).` | of kind `invalid` |
+| `The model's reply could not be read (HTTP 200).` | of kind `invalid` with a status from 200 to 299: a reply that was not JSON, or a streamed event too long |
+| `The model returned no text (SAFETY).` or `The model returned no text.` | the error a built-in part reader throws for a reply with no text. The provider's reason is given only when it is a plain word (letters and `_`, up to 40). |
+| `The model request failed.` | any other: a plain `Error` or a string thrown by a `generate` of your own, an error whose fields throw when read. `The model request failed (HTTP 302).` for a status from 100 to 399. |
+
+The status in brackets is there when the error has one: its `status`, else `statusCode`, else
+`response.status`, as the errors of provider SDKs, got and axios carry it, when that is a whole
+number from 100 to 599, or 0 (which is not shown). An error with a status and no `kind` has its kind
+told from the status and its message, as [`classifyModelError`](./errors-and-retries.md#classifymodelerrorstatus-message-signals)
+does. A failure to read a part's lines from the store is told as every tool tells a store's error
+([Rules for every tool](#rules-for-every-tool)):
+`[This part could not be read: The document store could not be read (EIO). Try again.]`. Until
+0.6.1, REASON was the error's own message.
+
 ## `view_pages`
 
 The description the model sees:
@@ -446,6 +513,9 @@ of this unless you write it.
 - **`tool_turns_left`.** Every result the loop sends has this field when it is first sent: the tool
   turns left after this one, or 0 when the request has no room left. A stand-in that later
   replaces the result, and the stand-in kept in `toolTurns` for a look at pages, do not have it.
+  `toolTurns` keep it, but the rounds of an earlier question passed back in `messages` are sent
+  without it, since it counted the turns of their own question (since 0.6.1). `geminiToolTurns`,
+  `openAiToolTurns` and `anthropicToolTurns` leave it out too.
 - **A call made again.** A call whose result is still in the conversation in full (the same
   search with the same arguments as the tool reads them, the same overview, the same read, or a
   read of lines inside a read shown in full), in this question or in the tool rounds of an earlier
@@ -455,20 +525,34 @@ of this unless you write it.
   - For a read inside an earlier read: `{ "document": "app.log", "lines": "150-200", "already_shown": true, "note": "Not run: lines 150-200 are already shown above in full, in the result that has lines 100-299 of this file, and the file has not changed. Use them. To see more, read other lines." }`
   - For the same call twice in one turn: `{ "already_shown": true, "note": "Not run: call 1 of this turn is the same call, and its result is next to this one. Use it." }`
 
-  A result of an earlier turn that failed, was cut (`truncated`, `text_cut`, a "Showing …" note),
-  came from a search that stopped early, or is itself a pointer or a stand-in is never pointed to:
-  the call runs, and may get more. The same call made twice in one turn gets the pointer to the
-  first whatever the first returns (an error, a cut result, a pointer); only when the first is
-  refused for lack of room is the second refused the same way. Whole-file reads and looks at pages
-  are never pointed to.
+  A result of an earlier turn that failed, was cut (`truncated`, `text_cut`, a note that starts
+  "Showing "), came from a search that stopped early, or is itself a pointer or a stand-in is never
+  pointed to: the call runs, and may get more. A search whose note only says how many of its
+  matches are shown ("21 of the 442 matching lines are shown: …") was not cut, and is pointed to.
+  The same call made twice in one turn gets the pointer to the first whatever the first returns (an
+  error, a cut result, a pointer); only when the first is refused for lack of room is the second
+  refused the same way. Whole-file reads and looks at pages are never pointed to.
+
+  Since 0.6.1 some calls also run again:
+  - every call, with a model that declares
+    [`clearsToolResults`](./ask.md#modelcapabilities) (Claude with `clear_tool_uses` or compaction
+    in its `body`), which may no longer have the earlier result; the same call twice in one turn
+    runs twice too;
+  - a read of one line from the tool rounds of an earlier question: 0.5.0 cut the text of such a
+    read without saying so (no `text_cut`), and the stored rounds do not tell which version wrote
+    them;
+  - an exact or regex search that 0.6.0 stored: fewer `matches` than `total_matching_lines`, and
+    no note. Run now, it shows the last match too.
 - **Stand-ins.** When the request runs short of room, the results of older tool rounds are replaced
   by the short stand-ins of [`stubResult`](./ask.md#stubresultcall-result-hadfiles), with
   `"dropped": true`; when and how is in [How it works](../how-it-works.md), and nothing is replaced
   when any model of the question is append-only (Claude). A pointer whose result was replaced
   becomes
   `{ "document": "app.log", "dropped": true, "note": "Not run then: it repeated an earlier call whose result was later dropped from the conversation to make room. Call it again if you need it." }`.
-  In `toolTurns`, the result of a look at pages is kept as its stand-in, since the file is not
-  kept.
+  So does every pointer of a stored round when a model of the question declares
+  `clearsToolResults`, a pointer to a read of one line made in an earlier question than the
+  pointer, and a pointer that 0.6.0 stored to a search it stored. In `toolTurns`, the result of a
+  look at pages is kept as its stand-in, since the file is not kept.
 - **A hint after two failed searches.** When two `search_document` calls in a row fail in the
   same mode, the error of the second (and of any after it) ends with a hint. For `regex`: "Two
   regex searches in a row failed. Try mode "exact" with a plain word or ID from the file, or mode
@@ -487,7 +571,8 @@ of this unless you write it.
   - when there is not enough room left for the call: "Not run: there is no room left in this
     conversation for another tool result. Answer now, from what the tools returned so far.";
   - a call whose arguments did not arrive whole (`ToolCall.problem`, set by the adapter), such as
-    "The arguments of this call were not valid JSON, and it was not run: … Send the call again.";
+    "The arguments of this call were not valid JSON, and it was not run: … Send the call again.",
+    which quotes up to 300 characters of the arguments, never cut in the middle of a character;
   - a whole-file read that would pass `limits.inputTokens` or `limits.requests`: "Not run: reading
     all of NAME takes about N input tokens, and M are left of the L this question may use. Use
     search_document and read_document." (or "model requests ... this question may make").
@@ -495,7 +580,13 @@ of this unless you write it.
   Each call up to `callsPerTurn` ends with a step, in `onStep` and `steps`: the label and
   [toolResultSummary(label, result)](#toolresultsummarylabel-result), or the label and
   " — already shown above" for a pointer. The calls past it share one step: "N more tool calls in
-  this turn were not run (at most 8 a turn)". See [Web app](../guides/web-app.md) for showing them.
+  this turn were not run (at most 8 a turn)", or "1 more tool call in this turn was not run (at
+  most 8 a turn)" for one. A call of a tool that does not exist has the label `Call “NAME”`, the
+  name cut at 64 characters, and the step `Call “do_magic” — failed: Unknown tool “do_magic”.`;
+  until 0.6.1 the label was the name itself. Labels and steps are one line of plain text: a line
+  break or a control character the model sent becomes a space, the invisible characters that file
+  text loses are dropped, and `](` becomes `] (` (see [`AskResult`](./ask.md#askresult)). See
+  [Web app](../guides/web-app.md) for showing them.
 
 The regex time of a question is always [`REGEX_BUDGET_MS`](#regex_budget_ms) in `askWithFiles`: it
 has no option for it.
@@ -548,10 +639,10 @@ throws.
 
 | The result has | The suffix |
 |---|---|
-| `error` | ` — failed:` and the error, as in ` — failed: Unknown tool do_magic.` |
-| `total_matching_lines` (exact, regex) | ` — 1,203 matching lines` (numbers in en-US form) |
-| `passages` (keywords) | ` — 5 passages` |
-| `parts_read` (whole-file read) | ` — 9 parts, 3 relevant`, then `, notes only` with `notes_only`, or `, incomplete` with `notes_cut_short` or `answer_cut_short` |
+| `error` | ` — failed:` and the error, as in ` — failed: Unknown tool “do_magic”.` |
+| `total_matching_lines` (exact, regex) | ` — 1,203 matching lines` (numbers in en-US form), ` — 1 matching line` for one |
+| `passages` (keywords) | ` — 5 passages`, ` — 1 passage` for one |
+| `parts_read` (whole-file read) | ` — 9 parts, 3 relevant` (` — 1 part, 1 relevant` for one), then `, notes only` with `notes_only`, or `, incomplete` with `notes_cut_short` or `answer_cut_short` |
 | `lines` and `total_lines` (read) | ` — got 1200-1342` when the label does not end with the lines shown, else `""` |
 | `pages` and `total_pages` (view_pages) | ` — got page 2` or ` — got pages 2-3` when the label does not end with the pages shown, else `""` |
 | anything else (an overview, a cut result) | `""` |
@@ -564,7 +655,8 @@ const step = label + toolResultSummary(label, { document: "app.log", mode: "exac
 // "Search app.log (exact) for “timeout” — 1,203 matching lines"
 ```
 
-`askWithFiles` makes its steps this way. See [Web app](../guides/web-app.md).
+Until 0.6.1 a count of one was plural too (` — 1 matching lines`). `askWithFiles` makes its steps
+this way, and then makes each one line of plain text. See [Web app](../guides/web-app.md).
 
 ### `ToolSet`
 
@@ -590,7 +682,7 @@ type ToolSet = {
 | `has(name)` | `true` for each declared tool. Also `true` for `analyze_whole_document` when `generate` was given and the text tools are declared, even if it is not declared because no document is small enough: a call then gets the reason. Use it to tell the calls of this tool set from others. |
 | `execute(name, args)` | Runs a call and returns its JSON result, within the tool's own cap. Failures come back as `{ error }`, as listed above. `view_pages` answers with an error here: it returns a file. |
 | `executeWithFiles(name, args, limits?)` | Runs any call with [`ToolCallLimits`](#toolcalllimits), and returns the result with the files it produced (`files` is empty for every tool but `view_pages`). Use it in a loop that can send files to the model. |
-| `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters), `Read app.log lines 1200-1260` (`-1260` only when `end_line` is a number not below `start_line`), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A file not yet known is "the file"; an unknown tool is its name. |
+| `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters), `Read app.log lines 1200-1260` (`-1260` only when `end_line` is a number not below `start_line`), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A cut never splits an emoji. A file not yet known is "the file"; an unknown tool is its name, as it came (`askWithFiles` labels it `Call “NAME”` instead). The line quotes the model's words as they are: show it as plain text, or clean it as `askWithFiles` does its steps. |
 | `resultCharacters(name)` | The most characters of a result of this tool: the larger of `toolResultCharacters` and 40,000 for `analyze_whole_document`, 600 for `view_pages` (its file is counted in bytes), and `toolResultCharacters` for any other name. What a loop sets aside in its request before it runs a call. |
 
 `execute` and `executeWithFiles` throw only when the tool set's `signal` was aborted: the error
@@ -779,5 +871,9 @@ public API, like the documented exports and the HTTP responses of `llm-large-fil
 a breaking change, and the [changelog](../../CHANGELOG.md) names it. While the version is `0.x`, a
 minor version (0.7.0) may make breaking changes. Descriptions, notes, error texts and the tool
 guide are written for the model and have changed between versions: 0.6.0 changed the guide, so
-the provider's prompt cache misses once after upgrading to it. Do not parse them; test for result
-fields instead.
+the provider's prompt cache misses once after upgrading to it. 0.6.1 changed the description of
+`search_document`, and the frame of every file sent whole
+([`PreparedContext`](./library.md#preparedcontext)), so it misses once again: the first request of
+each conversation after the upgrade reads nothing from the cache where the tools come first
+(Claude, OpenAI-compatible endpoints), and only the system instruction on Gemini. Do not parse
+them; test for result fields instead.

@@ -49,7 +49,7 @@ export async function ask(userId: string, documentIds: string[], question: strin
     documentIds,
     messages: [{ role: "user", text: question }],
     limits: {
-      toolTurns: 8,           // at most 8 chat requests, the answer included
+      toolTurns: 8,           // at most 8 chat requests, the answer included, plus one when the answer comes back without text
       callsPerTurn: 6,        // at most 6 tool calls run in one turn
       wholeDocumentReads: 1,  // each document is read whole once at most (the default)
       inputTokens: 1_500_000, // no more tools once the question has used this many input tokens
@@ -63,7 +63,7 @@ export async function ask(userId: string, documentIds: string[], question: strin
 
 | Limit | Default | What it counts | When it is reached |
 |---|---|---|---|
-| `toolTurns` | 12 | Chat requests of the question: the answer and the second tries after an empty or broken turn included. | The last request must be answered in text (`toolChoice: "none"`; Gemini gets no tools declared, the other adapters keep them listed). |
+| `toolTurns` | 12 | Chat requests of the question: the answer and the second tries after an empty or broken turn included. The second try of the answer itself, when it came back without text, can be one request past it. | The last request must be answered in text (`toolChoice: "none"`; Gemini gets no tools declared, the other adapters keep them listed). |
 | `callsPerTurn` | 8 | Tool calls of one model turn that are run. | Each call past it is answered "Not run: one turn runs at most 8 tool calls. Send this call again if you still need it." |
 | `wholeDocumentReads` | 1 | Whole-file reads of each document. | A read past it is answered with an error that tells the model to use the answer it already has. 0 refuses every read. |
 | `inputTokens` | none | Input tokens of the question: every chat request and part read, of every model. | No more tools run: the next request is the answer. A whole-file read that would pass it is refused before it starts. |
@@ -77,8 +77,17 @@ Say plainly what you could not find." When no tool ran (for example with `toolTu
 to look at, it ends with `FINAL_ANSWER_AFTER_PAGES`. `answered` is true when the reply has text and
 was not refused.
 
+- **The answer is asked for once more when it comes back without text**: empty, or with a tool call
+  the model was told not to make. The note "Your last reply had no text. No tool can be called in
+  this reply: write the answer now, in text, from what is above." goes at the end of that one
+  request. It is one of the two second tries a question may make, and it can be one request past
+  `toolTurns`. It is not made after a refusal, a filter or a reply cut off at the output limit with
+  nothing in it, nor once `requests` or `inputTokens` is reached: those two are never passed by
+  it. With `toolTurns: 8`, a question makes at most 9 answered chat requests; to cap them exactly,
+  set `requests`.
 - Each tool result carries `tool_turns_left`, so the model can see its turns run out and stop
-  searching in time.
+  searching in time. The results of an earlier question, passed back in `messages`, are sent
+  without it ([Conversations](./conversations.md#what-toolturns-holds)).
 - A model that answers in text before a limit is reached ends the question there.
 - The result does not say that a limit ended the question, and `steps` has no line for it. When
   `result.turns` reaches `toolTurns`, the model was most likely still calling tools when its turns
@@ -654,8 +663,9 @@ reports it in `cachedInputTokens`. The library keeps the start of the requests o
   of the input of a follow-up question was cached with `"first"`, against 0% with `"last"`
   ([measurements](../measurements.md)).
 - **Notes are not kept.** The note sent after an empty or broken turn, which asks the model to try
-  again, is in that one request only. (When the model that makes the tool calls has a conversation
-  that may only grow, such as Claude, it keeps the note.)
+  again, is in that one request only, and so is the note of the answer's second try. (When the
+  model that makes the tool calls has a conversation that may only grow, such as Claude, it keeps
+  the note of a broken tool turn.)
 - **The request for the answer adds its line at the end.**
 
 What you keep the same:
@@ -676,6 +686,18 @@ What the library changes:
 - Within a question, when room runs short, older tool results are replaced by short stand-ins. The
   request changes from the first round replaced. A model whose conversation may only grow (Claude)
   has nothing replaced.
+- The tool rounds of an earlier question are sent without their `tool_turns_left`. So the first
+  request of a follow-up question differs from the requests of the question before it from that
+  question's first tool round on, and the cache misses from there, once in each follow-up
+  question: those rounds are billed at the full price in that request (with Claude's
+  `cache_control`, as a cache write). The rounds of older questions were already sent without it,
+  and still match. The documents and cards before them are still read from the cache.
+- An upgrade that changes the library's prompts misses the cache once in each conversation. 0.6.1
+  changed the description of `search_document` and the frame lines of a file sent whole: the first
+  request after the upgrade shares nothing cached with what 0.6.0 sent on Claude and
+  OpenAI-compatible endpoints, where the tools come first, and only the system instruction on
+  Gemini. From then on the frame of a document is the same in every request
+  ([Deployment](./deployment.md#servers-of-two-versions)).
 
 The adapters:
 

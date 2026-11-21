@@ -1,3 +1,4 @@
+import { notJsonMessage } from "../http.js";
 import { ModelRequestError } from "../model.js";
 
 /** Gemini answered with an HTTP error, or could not be reached (`status` 0). */
@@ -12,6 +13,11 @@ export class GeminiRequestError extends ModelRequestError {
 export function unreachable(error: unknown): GeminiRequestError {
   const reason = error instanceof Error && error.message ? ` (${error.message})` : "";
   return new GeminiRequestError(`Gemini could not be reached${reason}.`, 0, { cause: error });
+}
+
+/** A body that came with a status of success but is no JSON (a gateway's page): it is not sent again. */
+export function notJson(response: Response, error: unknown): GeminiRequestError {
+  return new GeminiRequestError(notJsonMessage("Gemini's", response), response.status, { kind: "invalid", cause: error });
 }
 
 /** A request that got nothing back for the whole wait of its `IdleWatch`. */

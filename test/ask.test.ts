@@ -45,7 +45,7 @@ describe("askWithFiles", () => {
     expect(request!.system).toBe("Be brief.");
     // The document first, the question last, in the one user turn.
     expect(request!.messages).toHaveLength(1);
-    expect(textOf(request!.messages[0])).toMatch(/^--- Attached file: notes\.md[\s\S]*The code word is heron\.[\s\S]*What is the code word\?$/);
+    expect(textOf(request!.messages[0])).toMatch(/^--- Attached file \[mark [0-9a-f]{8}\]: "notes\.md"[\s\S]*The code word is heron\.[\s\S]*What is the code word\?$/);
     expect(result).toMatchObject({ text: "Heron.", answered: true, steps: [], evidence: [], toolTurns: [], turns: 1, finishReason: "stop", lastUsage: { prompt: 40 } });
     expect(result.usage).toEqual({ requests: 1, inputTokens: 40, cachedInputTokens: 0, outputTokens: 3, thoughtTokens: 0, byModel: { "fake-model": { requests: 1, inputTokens: 40, cachedInputTokens: 0, outputTokens: 3, thoughtTokens: 0 } } });
     expect(deltas.join("")).toBe("Heron.");
@@ -156,7 +156,8 @@ describe("a model request that fails", () => {
       stop.abort(new Error("stopped by the user"));
       return httpError(503);
     }]);
-    await expect(askWithFiles({ files, model: stopped, documentIds: [meta.id], messages: question("?"), retry: quickRetry().retry, signal: stop.signal })).rejects.toMatchObject({ status: 503 });
+    // The signal's reason wins, as on every other way a question is stopped.
+    await expect(askWithFiles({ files, model: stopped, documentIds: [meta.id], messages: question("?"), retry: quickRetry().retry, signal: stop.signal })).rejects.toThrow("stopped by the user");
     expect(stopped.requests).toHaveLength(1);
   });
 });
@@ -515,8 +516,8 @@ describe("the edges of the loop", () => {
     const { files, meta } = await largeLog();
     const model = fakeModel([calls([{ id: "x", name: "do_magic", args: { document_id: meta.id } }]), says("No magic here.")]);
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") });
-    expect(roundsOf(model.requests[1]!.messages)[0]!.answers[0]!.result).toEqual({ error: "Unknown tool do_magic.", tool_turns_left: 10 });
-    expect(result).toMatchObject({ text: "No magic here.", answered: true, steps: ["do_magic — failed: Unknown tool do_magic."], evidence: [] });
+    expect(roundsOf(model.requests[1]!.messages)[0]!.answers[0]!.result).toEqual({ error: "Unknown tool “do_magic”.", tool_turns_left: 10 });
+    expect(result).toMatchObject({ text: "No magic here.", answered: true, steps: ["Call “do_magic” — failed: Unknown tool “do_magic”."], evidence: [] });
   });
 
   it("shortens the rounds of earlier questions before those of this one", async () => {
@@ -572,7 +573,8 @@ describe("what a question read", () => {
     ]);
     const first = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("Where is the first error?") });
     expect(first.evidence).toEqual([
-      { tool: "search_document", documentId: meta.id, document: "app.log", lines: [[2, 4], [10, 12]], query: "worker-3] req=", mode: "exact", totalMatchingLines: 625 },
+      // The first two matches, and the last one of the file.
+      { tool: "search_document", documentId: meta.id, document: "app.log", lines: [[2, 4], [10, 12], [4_994, 4_996]], query: "worker-3] req=", mode: "exact", totalMatchingLines: 625 },
       { tool: "search_document", documentId: meta.id, document: "app.log", lines: expect.any(Array), query: "orders 4999 took", mode: "keywords" },
       { tool: "read_document", documentId: meta.id, document: "app.log", lines: [[95, 99]] },
       { tool: "get_document_overview", documentId: meta.id, document: "app.log", lines: [[1, 30], [4_981, 5_000]] },
@@ -597,7 +599,9 @@ describe("what a question read", () => {
     // No provider's own form: any model can be given them.
     expect(earlier!.raw).toBeUndefined();
     expect(earlier!.calls).toEqual([{ id: "r", name: "read_document", args: { document_id: meta.id, start_line: 95, end_line: 99 } }, { id: "o", name: "get_document_overview", args: { document_id: meta.id } }]);
-    expect(earlier!.answers[0]!.result).toEqual(first.toolTurns[1]!.calls[0]!.result);
+    // As stored, but for the tool turns its own question had left.
+    const { tool_turns_left: _left, ...stored } = first.toolTurns[1]!.calls[0]!.result;
+    expect(earlier!.answers[0]!.result).toEqual(stored);
     // The card of the file is still at the start of the first user turn.
     expect(textOf(sent[0])).toMatch(/^--- Large attached file: app\.log ---/);
   });

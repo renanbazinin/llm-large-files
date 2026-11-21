@@ -55,7 +55,7 @@ const result = await askGemini({
 `result.steps` lists the tool calls in order, such as
 `Search app.log (exact) for “failover” — 12 matching lines`, with the loop's own notices among
 them (`Older tool results were shortened to make room in the request`). Show it under the answer so
-users can see where the answer came from.
+users can see where the answer came from, as plain text: the steps quote what the model sent.
 
 Using the **Gemini API** with a key, or an **enterprise gateway**? Swap the endpoint:
 
@@ -109,9 +109,9 @@ connection, HTTP 408, 409, 429 or 5xx), never for a quota that ran out or once t
 the built-in adapters, a model silent for 10 minutes before its reply (`firstByteTimeoutMs`) or 5
 minutes inside it (`idleTimeoutMs`) is cut off and asked once more. A request the provider refuses
 as too large is made smaller, or the files are planned again for a window a little smaller than the
-one it names. An empty first reply or an unreadable tool call is asked for again, a repeated call
-gets a pointer to the result already shown, and by default each file is read whole at most once a
-question.
+one it names. An empty first reply, an unreadable tool call, or an answer that comes back without
+text is asked for again, a repeated call gets a pointer to the result already shown, and by default
+each file is read whole at most once a question.
 
 A question that fails throws `DocumentsNotFoundError` for a file that expired, was deleted, or
 belongs to another `owner`, `DocumentStoreError` when the store cannot be read, or a
@@ -152,11 +152,26 @@ const summary = await response.json(); // 201: { id, name, format, lines, estima
 ```
 
 When the user asks, pass the upload's `id` in `documentIds` and the same user as `owner`: a document
-that has an owner is missing for anyone else. Streaming the answer and its progress to the browser,
-and cancelling, are in the [web app guide](docs/guides/web-app.md). There's also a
+that has an owner is missing for anyone else. This `getOwner` returns `undefined` for an anonymous
+upload. Never return an empty string: it would be one owner shared by every caller without a user,
+and the upload is answered 500. Streaming the answer and its progress to the browser, and
+cancelling, are in the [web app guide](docs/guides/web-app.md). There's also a
 [one-file demo server](examples/server.ts) and a [command-line script](examples/ask-cli.ts): from a
 clone of this repository, run `npm install` and `npm run build`, then run them with Node 22.18 or a
 later 22.x, or Node 23.6 or later.
+
+**Uploads you do not trust.** These handlers read each upload in your server's process. Ingest
+limits the text, the pages and the time of one file, refuses the zip bombs and the PDFs built to
+hold a server that its checks recognize, and pauses for other requests between pages and slices of
+its work. It does not refuse every file built to hurt a server. While a file is read, it takes
+memory from your server's heap. Some steps run in one block, and no other request is answered
+meanwhile. pdf.js reads one page of a PDF in one block: up to about 1.5 s for a page of a small
+file that passes the page check, longer in a large file. `@cantoo/pdf-lib` reads one object of a
+PDF in one block: about 0.1 to 0.2 s for each MB of a crafted array of numbers, which can take many
+times the file's size in heap (400 to 930 MB for a file of 32 MB). If your users can upload files you do not
+trust, ingest them in a child process with its own heap limit and timer, as
+[Deployment](docs/guides/deployment.md#uploads-and-ingest) shows. What is refused, and what still
+holds the server: [Security](docs/security.md#uploads).
 
 ## Pictures, charts and scans in PDFs
 
@@ -164,7 +179,7 @@ A large PDF goes to the model as text, and text cannot show a chart. Keep the up
 the model gets a tool, `view_pages`, that hands it the pages it asks for as a small PDF:
 
 ```bash
-npm install unpdf @cantoo/pdf-lib
+npm install unpdf @cantoo/pdf-lib  # Node 24; for Node 20 and 22, see Requirements
 ```
 
 ```ts
@@ -213,7 +228,7 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 
 | | |
 |---|---|
-| **Formats** | Text, Markdown, logs (UTF-8 and UTF-16), JSON/JSONL, CSV/TSV, DOCX, PPTX, PDF (text layer, with tables rebuilt so empty cells stay empty; pages with a picture are marked, and the model can look at the pages themselves; scans of up to 30 pages when PDFs are kept) |
+| **Formats** | Text, Markdown, logs (UTF-8 and UTF-16, and Hebrew, Arabic, Cyrillic, Japanese and Western European text in its older encoding), JSON/JSONL, CSV/TSV, DOCX, PPTX, PDF (text layer, with tables rebuilt so empty cells stay empty; pages with a picture are marked, and the model can look at the pages themselves; scans of up to 30 pages when PDFs are kept) |
 | **Logs** | Detected automatically; the card shows level counts, the time range, and the most frequent errors grouped by shape (`timeout after <n>ms to <ip>`) |
 | **Books and documents** | An outline of headings with line numbers, including Markdown, "Chapter 12", numbered sections, and Hebrew chapter titles |
 | **Limits** | One budget covers tokens *and* request bytes, so files fit both your context window and your connector's payload limit. It assumes 1M tokens and 10 MB: set `budget.contextTokens` for your model's window (an adapter's `contextTokens` can only make it smaller) |
@@ -221,7 +236,7 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 | **Models** | Gemini and Vertex AI, any OpenAI-compatible endpoint, Claude, or an adapter of your own. Two models of different providers can share a question |
 | **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and input tokens |
 | **Privacy** | Documents can belong to an `owner`; other users can't plan, read, or delete them |
-| **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused; ingest pauses for other requests between pages and slices. Parsing still shares your server's heap: see [Security](docs/security.md#uploads) |
+| **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused when the checks recognize them; ingest pauses for other requests between pages and slices. Not every hostile file is refused, parsing shares your server's heap, and some steps hold the server for a while: ingest untrusted uploads in a process of their own ([Security](docs/security.md#uploads)) |
 | **Storage** | In memory, on disk with expiry, or your own store (Redis, S3, a database) |
 
 ## Live results
@@ -277,8 +292,15 @@ PDF, and refuse a page built to hold the server before it is read, install `@can
 three are optional:
 
 ```bash
-npm install jszip unpdf @cantoo/pdf-lib
+npm install jszip unpdf @cantoo/pdf-lib        # Node 24 and later
+npm install jszip unpdf@1 @cantoo/pdf-lib      # Node 22
+npm install jszip unpdf@1.7.0 @cantoo/pdf-lib  # Node 20
 ```
+
+On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24. On Node 20,
+unpdf 1.9 and later cannot load pdf.js, and on Node 20 and 22 the pdf.js of unpdf 1.5.0 to 1.6.0
+would stop the whole process. Such an unpdf is refused at the first PDF, with a message that says
+what to install.
 
 ## License
 

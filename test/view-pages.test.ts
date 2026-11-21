@@ -121,7 +121,7 @@ describe("view_pages: when it is declared", () => {
     // The same one level down: a list of PDFs to show is worth nothing without a way to load them.
     const direct = createDocumentTools({ load: async () => undefined, documentIds: [meta.id], viewableIds: [meta.id], budget: files.budget });
     expect(names(direct)).toEqual(TEXT_TOOLS);
-    expect(await direct.executeWithFiles("view_pages", { document_id: meta.id, from_page: 1 })).toEqual({ result: { error: "Unknown tool view_pages." }, files: [] });
+    expect(await direct.executeWithFiles("view_pages", { document_id: meta.id, from_page: 1 })).toEqual({ result: { error: "Unknown tool “view_pages”." }, files: [] });
   });
 });
 
@@ -315,7 +315,7 @@ describe("view_pages: when pages cannot be shown", () => {
     // The other tools return the same through either method, and no files.
     const read = await tools.execute("read_document", { document_id: meta.id, start_line: 1 });
     expect(await tools.executeWithFiles("read_document", { document_id: meta.id, start_line: 1 })).toEqual({ result: read, files: [] });
-    expect(await tools.executeWithFiles("nope", {})).toEqual({ result: { error: "Unknown tool nope." }, files: [] });
+    expect(await tools.executeWithFiles("nope", {})).toEqual({ result: { error: "Unknown tool “nope”." }, files: [] });
   });
 
   it("says so when the original file is gone, damaged, or has too many objects", async () => {

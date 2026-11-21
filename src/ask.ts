@@ -1,11 +1,14 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
+import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
 import { Limiter } from "./limiter.js";
 import {
   DocumentsNotFoundError,
   errorKindOf,
+  laterResult,
+  rateAllowanceOf,
   UsageMeter,
   type ChatMessage,
   type ModelAdapter,
@@ -21,7 +24,7 @@ import {
 } from "./model.js";
 import { estimateParts, REQUEST_BYTES_MARGIN } from "./plan.js";
 import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retry.js";
-import { estimateTokens, jsonBytes } from "./text.js";
+import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
 import {
   alreadyShown,
   failureKind,
@@ -29,9 +32,11 @@ import {
   LEAST_RESULT_CHARACTERS,
   MAX_WHOLE_DOCUMENT_READS,
   repeatedFailureHint,
+  stepLine,
   TOOL_NAMES,
   toolCallKey,
   toolResultSummary,
+  unknownToolName,
 } from "./tools.js";
 import type { Budget, DocumentPlan, GenerateText, ToolCallLimits, ToolOutput, ToolResult } from "./types.js";
 
@@ -56,7 +61,8 @@ export type AskLimits = {
    * The most model requests of the chat for one question, counting the answer. Tools can run in
    * all but the last: if the model is still calling tools then, the last request must be answered
    * in text. Defaults to 12. With an explorer model the answer is always a request of its own, so
-   * the explorer has one less than this.
+   * the explorer has one less than this. An answer that comes back without text is asked for once
+   * more, and that request can be one past this.
    */
   toolTurns?: number;
   /**
@@ -205,11 +211,18 @@ function pagesShown(result: ToolResult): number {
   return Number.isFinite(first) ? (Number.isFinite(last) ? last! - first! + 1 : 1) : 0;
 }
 
+/**
+ * A result of a tool round of an earlier question, as it is sent again: without its
+ * `tool_turns_left`, which counted the turns of that question, not of this one, and with no half of a
+ * character in it (0.5.0 cut some search windows inside an emoji, and Claude's API refuses them).
+ */
+const carriedResult = (result: ToolResult): ToolResult => wellFormedJson(laterResult(result));
+
 /** The conversation as the loop keeps it: copies, so that nothing of the caller's is changed. */
 function toMessages(given: ChatMessage[]): ModelMessage[] {
   const messages = given.map((message): ModelMessage => {
     if (message.role === "tools") {
-      const answers = message.calls.map(({ result, ...call }) => ({ call, result }));
+      const answers = message.calls.map(({ result, ...call }) => ({ call, result: carriedResult(result) }));
       return { role: "tools", calls: answers.map((answer) => answer.call), answers };
     }
     const role = message.role === "user" ? "user" : "assistant";
@@ -340,6 +353,8 @@ function retryMessage({ error, delayMs }: RetryNotice): string {
   const status = statusOf(error);
   const seconds = delayMs >= 1_000 ? ` in ${Math.round(delayMs / 1_000)} s` : "";
   const what = errorKindOf(error) === "timeout" && status === 0 ? "The model sent nothing for too long"
+    // The model was reached, and its reply began to arrive.
+    : isCutReply(error) ? "The model's reply was cut off on its way"
     : status ? `The model did not answer (HTTP ${status})` : "The model could not be reached";
   return `${what}. Trying again${seconds}…`;
 }
@@ -393,7 +408,12 @@ const MALFORMED_EXPLORER_NUDGE = "Your last reply tried to call a tool, but the 
 /** Sent, once, after a first reply that was empty. Not kept in the conversation. */
 const EMPTY_REPLY_NUDGE = "Your last reply was empty. Use the tools to read the files the question is about, or answer the question.";
 const EMPTY_EXPLORER_NUDGE = "Your last reply was empty. Call the tools to gather what the answer needs from the files, then reply DONE.";
-/** The most such second tries in one question. */
+/**
+ * Sent, once, after a reply to the answer's request that had no text: it was empty, or held a tool
+ * call that the model was told not to make. Not kept in the conversation.
+ */
+const ANSWER_AGAIN_NOTE = "Your last reply had no text. No tool can be called in this reply: write the answer now, in text, from what is above.";
+/** The most such second tries in one question, the answer's included. */
 const MOST_NUDGES = 2;
 /** The most requests sent again, smaller, after the provider refused one as too large. */
 const MOST_OVERFLOW_RECOVERIES = 2;
@@ -456,6 +476,9 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
   const canShowFiles = models.every((adapter) => adapter.capabilities.toolFiles !== "none");
   // Every model must be able to take a conversation whose earlier turns were made shorter.
   const canShrink = models.every((adapter) => !adapter.capabilities.appendOnly);
+  // A call made again is answered with a pointer to its earlier result only while that result stays
+  // in the conversation: a provider that clears old tool results on its side may have removed it.
+  const canPoint = models.every((adapter) => !adapter.capabilities.clearsToolResults);
 
   const messages = toMessages(options.messages);
   const meter = new RequestMeter(pageTokens);
@@ -502,9 +525,11 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     text += delta;
     options.onText?.(delta);
   };
+  // A step can quote what the model sent: it is made one line of plain text before anyone sees it.
   const step = (line: string) => {
-    steps.push(line);
-    options.onStep?.(line);
+    const plain = stepLine(line);
+    steps.push(plain);
+    options.onStep?.(plain);
   };
   // What a first try that was planned again showed is part of this question; then why it was planned again.
   steps.push(...carried?.steps ?? []);
@@ -549,7 +574,8 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     let separated = text.length === 0;
     let got = "";
     const write = (delta: string) => {
-      if (!delta) return;
+      // Nothing more is shown once the question was stopped, by an adapter that goes on regardless.
+      if (!delta || signal?.aborted) return;
       if (!separated) {
         emit("\n\n");
         separated = true;
@@ -558,10 +584,19 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
       emit(delta);
     };
     const estimated = meter.estimate(body.messages).tokens;
-    const reply = await withRetry(() => adapter.send(body, {
-      ...(signal ? { signal } : {}),
-      ...(shown && options.onText ? { onText: write } : {}),
-    }), {
+    const reply = await withRetry(() => {
+      // Nothing is sent once the question was stopped.
+      signal?.throwIfAborted();
+      const sending = adapter.send(body, {
+        ...(signal ? { signal } : {}),
+        ...(shown && options.onText ? { onText: write } : {}),
+      });
+      // The question stops when the signal aborts, whether the adapter does or not: one that does
+      // not look at it would hold the question, and the user, until its request ends, if it ever
+      // does. That holds when the signal aborted while the adapter was called (its onText ran the
+      // caller's code): `until` then ends at once with the signal's reason.
+      return until(sending, signal);
+    }, {
       retry: options.retry,
       signal,
       canRetry: () => got.length === 0,
@@ -653,14 +688,22 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
    * A pointer ("already shown above") whose result is no longer in the conversation in full (it was
    * shortened to make room, here or in an earlier question) is made a stand-in that says so: the
    * model must not be told to use what it no longer has. Every round is looked at, the kept ones too.
+   * With a provider that clears old tool results on its side, every pointer is. So is a pointer to a
+   * read of one line made in an earlier question than the pointer: 0.5.0 cut such reads without
+   * saying so, and `shownBefore` does not point to them either.
    */
   function unpoint(): void {
     // What the answers before the one looked at hold, as they are now, found once in one pass:
-    // the calls whose result is shown in full, by key, and the reads shown in full, by document.
+    // the calls whose result is shown in full, by key, and the reads shown in full, by document,
+    // with the question each was made in (stored questions are told apart by their user turns).
     const shownKeys = new Set<string>();
-    const shownReads = new Map<unknown, ToolAnswer[]>();
+    const shownReads = new Map<unknown, Array<{ answer: ToolAnswer; index: number; question: number }>>();
+    let question = 0;
     messages.forEach((message, index) => {
-      if (!isRound(message)) return;
+      if (!isRound(message)) {
+        if (message.role === "user") question++;
+        return;
+      }
       let touched = false;
       /** The answers of this round so far that are not stand-ins, by key: a call made twice in a turn points to the first. */
       const inRound = new Map<string, ToolAnswer>();
@@ -669,8 +712,9 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
         const key = toolCallKey(answer.call.name, answer.call.args);
         let now = answer;
         if (answer.result.already_shown === true) {
-          const held = (key !== undefined && (inRound.has(key) || (answer.call.name !== TOOL_NAMES.read && shownKeys.has(key))))
-            || (answer.call.name === TOOL_NAMES.read && (shownReads.get(answer.call.args.document_id) ?? []).some((read) => alreadyShown(answer.call, read) !== undefined));
+          const held = canPoint && ((key !== undefined && (inRound.has(key) || (answer.call.name !== TOOL_NAMES.read && shownKeys.has(key))))
+            || (answer.call.name === TOOL_NAMES.read && (shownReads.get(answer.call.args.document_id) ?? [])
+              .some((read) => alreadyShown(answer.call, read.answer, read.index < asked && read.question !== question) !== undefined)));
           if (!held) {
             touched = true;
             now = {
@@ -686,7 +730,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
           // A result in full: what a later pointer may point to.
           if (answer.call.name === TOOL_NAMES.read) {
             const reads = shownReads.get(answer.call.args.document_id) ?? [];
-            reads.push(answer);
+            reads.push({ answer, index, question });
             shownReads.set(answer.call.args.document_id, reads);
           } else {
             shownKeys.add(key);
@@ -742,11 +786,17 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     const limit = refused.limitTokens;
     let contextTokens = Math.floor((limit ?? modelWindow * 0.7) / Math.max(1, ratio ?? (limit !== undefined ? 1.25 : 1)));
     if (contextTokens >= modelWindow) contextTokens = Math.floor(modelWindow * 0.7);
+    // The limit may be the tokens a minute of the provider allows (OpenAI's TPM), not the window.
+    const period = rateAllowanceOf(error);
     return {
       contextTokens,
       step: limit !== undefined
-        ? `The first request was larger than the model's window of ${count(limit)} tokens: the files were planned again to fit it`
-        : "The first request was larger than the model takes: the files were planned again for a smaller window",
+        ? period
+          ? `The first request was larger than the ${count(limit)} tokens a ${period} that the provider allows: the files were planned again to fit it`
+          : `The first request was larger than the model's window of ${count(limit)} tokens: the files were planned again to fit it`
+        : period
+          ? `The first request was larger than the provider allows in a ${period}: the files were planned again for a smaller request`
+          : "The first request was larger than the model takes: the files were planned again for a smaller window",
     };
   };
   /**
@@ -764,7 +814,10 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
         if (errorKindOf(error) !== "context_overflow" || signal?.aborted) throw error;
         if (!again && recoveries < MOST_OVERFLOW_RECOVERIES && makeRoom(adapter, body, error)) {
           recoveries++;
-          step("The request was larger than the model takes: older tool results were shortened, and it was sent again");
+          const period = rateAllowanceOf(error);
+          step(period
+            ? `The request was larger than the provider allows in a ${period}: older tool results were shortened, and it was sent again`
+            : "The request was larger than the model takes: older tool results were shortened, and it was sent again");
           continue;
         }
         if (carried === undefined && callsAnswered === 0 && !text) {
@@ -889,11 +942,13 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
      * change, so running it again would only take room.
      */
     const shownBefore = (call: ToolCall): ToolResult | undefined => {
+      if (!canPoint) return undefined;
       for (let at = messages.length - 1; at >= 0; at--) {
         const message = messages[at]!;
         if (!isRound(message)) continue;
+        // The rounds before `asked` are those of earlier questions, which an older version may have written.
         for (const answer of message.answers) {
-          const pointer = alreadyShown(call, answer);
+          const pointer = alreadyShown(call, answer, at < asked);
           if (pointer) return pointer;
         }
       }
@@ -949,13 +1004,14 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
       /** The first call of this turn with each key: the same call made again in the turn is not run twice. */
       const seen = new Map<string, number>();
       const planned = run.map((call, index): Planned => {
-        const label = tools.has(call.name) ? tools.describe(call.name, call.args) : call.name;
+        // An unknown tool's name is quoted and cut: no step starts with what the model chose, at any length.
+        const label = stepLine(tools.has(call.name) ? tools.describe(call.name, call.args) : `Call ${unknownToolName(call.name)}`);
         // A call that did not arrive whole is not run: the model is told, and can send it again.
         if (call.problem) return { call, label, refusal: call.problem };
         // A look at pages returns a file and a few words: the file has its own room, worked out when it runs.
         if (call.name === TOOL_NAMES.view) return { call, label };
         const key = toolCallKey(call.name, call.args);
-        if (key !== undefined) {
+        if (key !== undefined && canPoint) {
           const twin = seen.get(key);
           if (twin !== undefined) return { call, label, twinOf: twin, pointer: { already_shown: true, note: `Not run: call ${twin + 1} of this turn is the same call, and its result is next to this one. Use it.` } };
           seen.set(key, index);
@@ -1124,7 +1180,8 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
         callsAnswered++;
         answers.push({ call, result: { error: `Not run: one turn runs at most ${maxCalls} tool calls. Send this call again if you still need it.`, tool_turns_left: turnsLeft }, files: [] });
       }
-      if (reply.calls.length > maxCalls) step(`${reply.calls.length - maxCalls} more tool calls in this turn were not run (at most ${maxCalls} a turn)`);
+      const notRun = reply.calls.length - maxCalls;
+      if (notRun > 0) step(`${notRun} more tool ${notRun === 1 ? "call in this turn was" : "calls in this turn were"} not run (at most ${maxCalls} a turn)`);
       const done: ModelToolRound = { ...pending, answers };
       if (reply.raw !== undefined) rawOwner.set(done, toolModel);
       messages.push(done);
@@ -1140,18 +1197,34 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
       // tools): there is no tool result to answer from. The answering model gets the explorer's
       // calls and what they returned, and nothing else of it.
       if (callsAnswered === 0) closing = FINAL_ANSWER_WITHOUT_TOOLS;
-      const reply = await send(model, () => ({
+      const answerRequest = (note?: string) => (): ModelRequest => ({
         system,
-        messages: [...viewFor(model), { role: "user", parts: [{ text: closing }] }],
+        messages: [...viewFor(model), { role: "user", parts: [{ text: closing }, ...(note ? [{ text: note }] : [])] }],
         tools: declarations,
         toolChoice: "none",
-      }), true);
+      });
+      let reply = await send(model, answerRequest(), true);
+      // A reply with no text (empty, or a tool call the model was told not to make, or one that
+      // could not be read) is asked for once more, with a note that is not kept: otherwise the
+      // question ends with nothing to show. Not after a refusal or a filter, which would come again,
+      // nor a reply cut off at the output limit with nothing in it, nor once a ceiling of `limits`
+      // is reached. It is one of the second tries of the question, and may be one request past
+      // `limits.toolTurns`, which counts the answer's first request.
+      const calledInstead = reply.calls.length > 0 || reply.finish === "malformed_call";
+      const ceilingReached = (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
+        || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
+      if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES && !ceilingReached) {
+        nudges++;
+        step(calledInstead ? "The model called a tool instead of answering: it was asked again for the answer" : "The model's answer was empty: it was asked again");
+        reply = await send(model, answerRequest(ANSWER_AGAIN_NOTE), true);
+      }
       answered = wrote(reply);
     }
     return result(answered);
   } catch (error) {
-    // What the question found and paid for until it failed, for the application to keep.
-    if (!(error instanceof Replan) && error !== null && typeof error === "object") partialResults.set(error, result(false));
+    // What the question found and paid for until it failed, for the application to keep. The usage is
+    // a copy: a part reader that went on after the question was stopped may still report its own.
+    if (!(error instanceof Replan) && error !== null && typeof error === "object") partialResults.set(error, { ...result(false), usage: structuredClone(usage.totals) });
     throw error;
   }
 }

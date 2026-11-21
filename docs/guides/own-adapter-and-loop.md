@@ -52,6 +52,10 @@ defaults and what each changes are there. For an adapter of your own:
 - Set `appendOnly` only when the provider ties reasoning to earlier turns, as Claude ties its
   thinking blocks. It costs room: in a question the model takes part in, old tool results are
   never shortened to make room.
+- Set `clearsToolResults` when your provider may clear old tool results from the conversation on
+  its side, before the model reads it, as Claude's context editing does. A call the model makes
+  again is then run again, instead of answered with a pointer to a result it may no longer have,
+  and the pointers in stored rounds become stand-ins that say to call again.
 
 ### What `send` receives
 
@@ -68,6 +72,7 @@ defaults and what each changes are there. For an adapter of your own:
   - `{ role: "tools", calls, answers, raw? }`: one round of tool use. `calls` are the model's calls
     in order, and `answers` holds one `{ call, result, files? }` for each, in the same order. Send
     each `result` as JSON text: it is a plain object, and the loop adds `tool_turns_left` to it.
+    The results of a round stored from an earlier question come without `tool_turns_left`.
     `files` are the pages of a `view_pages` call, one PDF (`application/pdf`), and come only when
     `toolFiles` is not `"none"`.
 - `raw` on a round is the model's turn as your `send` returned it: send it back unchanged. The loop
@@ -96,7 +101,11 @@ defaults and what each changes are there. For an adapter of your own:
 - Once a piece was passed, a failure of this request is not sent again: the user has seen it. A
   failure before the first piece is.
 - `hooks.signal` aborts when the question is cancelled. Pass it to `fetch`, and when it has
-  aborted, throw what `fetch` threw as it is. Nothing is sent again after an abort.
+  aborted, throw what `fetch` threw as it is. Nothing is sent again after an abort. The loop does
+  not wait for `send` (or `generateText`) once the signal has aborted: the question throws the
+  signal's reason at once, and a reply that arrives later is dropped and not counted in `usage`.
+  Abort your own request all the same, so that the connection is freed and the provider stops
+  billing it.
 - The loop always passes `hooks`, but the type says it may be left out: write
   `send(request, hooks = {})`.
 
@@ -133,7 +142,10 @@ Two kinds of reply are asked for once more, with a note that says what was wrong
 ran, unless it was `"cut"` or `"filtered"`. A question makes at most two such second tries, each
 takes a tool turn, and none is made when only the turn for the answer is left. Any other reply
 without text, and the last tool turn, lead to one more request, with `toolChoice: "none"`, that
-asks for the answer.
+asks for the answer. When the reply to that request has no text either, or holds calls (which
+`"none"` forbids), it is asked for once more, with a note that is not kept, unless it was
+`"filtered"`, blocked, or `"cut"` with nothing in it. That try is one of the two, and may be one
+request past `limits.toolTurns`.
 
 ### Errors to throw
 
@@ -145,7 +157,7 @@ Throw a `ModelRequestError` for every request that failed:
 | `message` | The provider's message. The kind is read from it, and so are `limitTokens` and `requestedTokens` for a request too large. It is the provider's wording: log it, and do not show it to users. |
 | `status` | The HTTP status. `0` for a request that got no answer: the connection failed, or a stream closed before it said how it ended. |
 | `retryAfterMs` | The wait the provider asked for. `retryAfterMs(response.headers, body)` reads `retry-after-ms`, `Retry-After`, and the `RetryInfo` of a Gemini error body. |
-| `code` | The provider's own word for the error (OpenAI's `error.code`, Claude's `error.type`, Gemini's `error.status`). `"insufficient_quota"` makes it a `"quota"`. `"context_length_exceeded"` and `"request_too_large"` make it a `"context_overflow"` for a status below 500 other than 429, whose message does not speak of rate limits. With status 0 the code is not read: the kind is `"unreachable"` unless you give `kind`. |
+| `code` | The provider's own word for the error (OpenAI's `error.code`, Claude's `error.type`, Gemini's `error.status`). `"insufficient_quota"` makes it a `"quota"`, as do HTTP 402 and a message that only a quota writes (no credit left, a spending cap, a quota per day). `"context_length_exceeded"` and `"request_too_large"` make it a `"context_overflow"` for a status below 500 other than 429, whose message does not speak of rate limits. A 429 or 413 that says "Request too large for … on tokens per min" (OpenAI's and Groq's TPM) is a `"context_overflow"` too, with its numbers. With status 0 the code is not read: the kind is `"unreachable"` unless you give `kind`. |
 | `details` | The `details` of a Gemini error: a daily quota and an API key that is not valid are told from them. |
 | `kind` | The kind, when you know it better than the classifier: `"timeout"` with status 0 when your own wait for a silent model ran out, or `"context_overflow"` for a gateway's wording that the classifier does not know. Give that one with the 4xx status the gateway sent, such as 400 (a 413 is read as one without it), and see [Wrapping an adapter](#wrapping-an-adapter). |
 | `cause` | The error underneath, for your logs. |
@@ -162,12 +174,19 @@ you can call to see how a message is read. The kinds and what to show for each a
 - **Not sent again**: kind `"quota"`, any other status, and an error without a status (a plain
   `Error` ends the question). Nothing is sent again once text of the request was passed to
   `onText`, or after the signal aborted.
-- **Made smaller**: kind `"context_overflow"`. Older tool results are shortened and the request is
-  sent again, at most twice in a question, and never for an `appendOnly` model. When nothing could
-  be shortened, or the shortened request was refused again, and no tool has run yet and no text was
+- **Made smaller**: kind `"context_overflow"`. It is never sent again as it is, whatever its status:
+  only a smaller request can pass. Older tool results are shortened and the request is sent again,
+  at most twice in a question, and never for an `appendOnly` model. When nothing could be
+  shortened, or the shortened request was refused again, and no tool has run yet and no text was
   shown, the documents are planned again, once, for the window the provider named (`limitTokens`)
-  or a smaller one. Otherwise the error is thrown. An error of this kind whose status is one of
-  those sent again (0, 408, 409, 429, 5xx) is first sent again as it is.
+  or a smaller one. Otherwise the error is thrown. So set this kind only on an error that a wait
+  would not mend.
+
+A body of HTTP 200 that is not JSON (a gateway's page in the model's place) is best thrown as
+`new ModelRequestError(message, response.status, { kind: "invalid", cause })`, as the package's
+adapters do: it is not sent again, and a whole-file read tells the model "The model's reply could
+not be read (HTTP 200).". An empty body of HTTP 200 is a reply cut off on its way: the package's
+adapters throw it with status 0, which is sent again.
 
 The error that ends a question reaches your code as it is, and `partialResultOf(error)` gives what
 the question found and paid for until then. The adapters of the package throw subclasses
@@ -194,6 +213,11 @@ returns the text of the reply.
   error without a status is tried once more at once. A part that still fails is reported as one
   that could not be read; one refused as too large (`"context_overflow"`) may be read as two
   halves. Up to four requests of one read run at once.
+- The model is told why a part failed by the error's kind, its HTTP status (`status`,
+  `statusCode` or `response.status`, as a provider's SDK sets them) or the code of a connection
+  that failed, never by its message, which may name a host or a key. A plain `Error` without them
+  is told as "The model request failed.". So give your errors a `kind` or a `status`
+  ([Failures inside tools](./errors-and-reliability.md#failures-inside-tools)).
 - A model that thinks counts its thoughts in `maxOutputTokens`, and can spend all of it on them.
   The adapters of the package send such a request again with `THINKING_OUTPUT_TOKENS` (32,768,
   exported by `llm-large-files/gemini`). For a model of yours that thinks, send at least that.
@@ -229,6 +253,7 @@ import {
   ModelRequestError,
   parseSseJson,
   retryAfterMs,
+  SseEventTooLongError,
   type GenerateText,
   type ModelAdapter,
   type ModelMessage,
@@ -417,6 +442,8 @@ export function exampleAi(options: ExampleAiOptions): ModelAdapter {
         }
       } catch (error) {
         if (hooks.signal?.aborted || error instanceof ModelRequestError) throw error;
+        // An event too long to hold would come again: not sent again (status 200, kind "invalid").
+        if (error instanceof SseEventTooLongError) throw new ModelRequestError(error.message, response.status, { kind: "invalid", cause: error });
         throw new ModelRequestError("The connection to Example AI failed during the reply.", 0, { cause: error });
       }
       // No end event: the stream was cut off on its way. Sent again like a lost connection, unless text was shown.
@@ -463,7 +490,12 @@ What this adapter leaves out, and the adapters of the package do:
 - **A call cut off at the output limit** is run when its arguments still parse. The OpenAI-compatible
   adapter gives every call of a reply that ended at the limit a `problem` instead.
 - **A body that is not JSON** throws a `SyntaxError`, which has no status: a chat request is not
-  sent again, and a part read is tried once more.
+  sent again, a part read is tried once more, and the model is told "The model request failed.".
+  The adapters of the package throw kind `"invalid"` with the response's status for it, which is
+  not sent again, and kind `"unreachable"` with status 0, which is, for an empty body.
+- **A part read with no text** throws a plain `Error`, and the model is told "The model request
+  failed.", not its message. The package's part readers say "The model returned no text
+  (SAFETY).", with the provider's reason.
 - **`pageTokens: 1_000`** is a placeholder: give what your provider bills for one PDF page.
 - **A model that thinks**: `generateText` sends `maxOutputTokens` as it is.
 
@@ -610,7 +642,7 @@ export function withGatewayErrors(inner: ModelAdapter): ModelAdapter {
         return await inner.send(request, hooks);
       } catch (error) {
         if (error instanceof ModelRequestError && error.kind === "invalid" && TOO_LARGE.test(error.message)) {
-          // Keep the gateway's 4xx status: an error with status 0, 408, 409, 429 or 5xx is sent again before the loop makes room.
+          // Keep the gateway's status. With this kind the error is never sent again as it is: the loop makes room.
           throw new ModelRequestError(error.message, error.status, { kind: "context_overflow", cause: error });
         }
         throw error;
@@ -653,8 +685,14 @@ a request, and `files.tools()` gives the tools to offer and runs their calls. No
 - **Retries**, with [`withRetry`](#withretry) and errors that carry a status.
 - **Usage.** `UsageMeter` sums it by model: `meter.add(modelId, usage)`, then `meter.totals`.
 - **Steps and evidence.** `tools.describe(name, args)` labels a call ("Search app.log (exact) for
-  “timeout”"), `toolResultSummary(label, result)` adds what it found ("— 12 matching lines"), and
-  `evidenceOf(call, result)` gives the lines or pages it showed.
+  “timeout”"), `toolResultSummary(label, result)` adds what it found ("— 12 matching lines", "— 1
+  matching line"), and `evidenceOf(call, result)` gives the lines or pages it showed. A label
+  quotes the model's words: `askWithFiles` makes its steps one line of plain text (no line breaks,
+  no text-direction controls, `](` written `] (`), and a loop of your own should show them as plain
+  text too, never as markdown or HTML.
+- **Rounds of an earlier question.** `askWithFiles` sends their results without
+  `tool_turns_left`, a count that was of their own question's turns. Leave it out too when you send
+  stored rounds again.
 
 Some of what `askWithFiles` does has no public form, and is not there in a loop of your own: when
 to shorten old tool results, recovering from a request too large, the second try after an empty
@@ -708,7 +746,10 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    aborted. `files` is empty for every tool but `view_pages`, whose pages come as one PDF
    (`{ name, mimeType: "application/pdf", bytes }`): send it with the result, in your provider's
    form. `tools.execute(name, args)` is the same without files and without limits, and answers
-   `view_pages` with an error, because it has nowhere to put the pages.
+   `view_pages` with an error, because it has nowhere to put the pages. An unknown tool is
+   answered `Unknown tool “do_magic”.`, its name quoted and cut at 64 characters. A whole-file read
+   whose model requests failed tells the model why by the kind and status of the error, never by
+   its words ([Failures inside tools](./errors-and-reliability.md#failures-inside-tools)).
 
    To offer tools of your own as well, declare them next to `tools.declarations`, with names other
    than the library's (`TOOL_NAMES`), and send a call to `tools.executeWithFiles` only when
@@ -943,6 +984,15 @@ matter:
   of its text was shown.
 - `signal`: when it aborts, the reader stops waiting and throws the signal's reason. Join the
   caller's signal and your own wait in it, as below.
+- `maxEventLength`: the most characters one event may hold, 64,000,000 by default (`Infinity`
+  for no limit). A longer event ends the stream with an error named `SseEventTooLongError`, "An
+  event of the stream held more than 64,000,000 characters.", rather than fill the server's
+  memory. The class is exported, with the limit in its `limit`. The package's adapters throw it as
+  kind `"invalid"` with the reply's status, which is not sent again, as the example above does: the
+  same event would come again.
+
+A line may end with a line feed, a CRLF or a CR alone. Leaving the loop early cancels a web
+stream's reader, or calls an async iterable's `return()`, without waiting for either to settle.
 
 What it parses and what it throws are in the
 [reference](../reference/errors-and-retries.md#parsessejsonstream-hooks).

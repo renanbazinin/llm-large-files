@@ -6,4 +6,4 @@ export { geminiApi, vertexAi, vertexHost } from "./endpoints.js";
 export type { GeminiEndpoint } from "./endpoints.js";
 export { createGeminiGenerateText, geminiFunctionResponses, geminiFunctionResponseTurns, THINKING_OUTPUT_TOKENS, toGeminiTools, usageOfGemini } from "./generate.js";
 export type { GeminiFunctionCall, GeminiToolAnswer, GeminiToolFilePlacement } from "./generate.js";
-export { parseSseJson } from "./sse.js";
+export { parseSseJson, SseEventTooLongError } from "./sse.js";

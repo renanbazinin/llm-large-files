@@ -28,9 +28,12 @@ question ─► plan the documents for the room left in the request, smallest fi
 
 `files.ingest({ name, bytes, mimeType?, owner?, signal? })` does five things, in order.
 
-1. **Check.** The name is cleaned to one printable line: the last path segment, without control
-   characters, line breaks or text-direction overrides, 255 characters at most. An empty file, or
-   one over `maxUploadBytes` (100 MB by default), is refused.
+1. **Check.** An owner that is empty, spaces only or `null` is refused
+   ([Security](./security.md#ownership)). The name is cleaned to one printable line: the last path
+   segment, without control characters, line breaks, text-direction controls or most other
+   characters that show nothing (variation selectors, joiners and Hangul fillers are kept), 255
+   characters at most, never cut in the middle of a character. An empty file, or one over
+   `maxUploadBytes` (100 MB by default), is refused.
 2. **Extract** text by format, with the built-in extractors or your own (`extractors`). The format
    comes from the extension, then the MIME type, and is `text` otherwise.
    - **PDF** (needs the optional `unpdf`). Each page starts with a `--- Page N ---` line. Tables
@@ -45,8 +48,18 @@ question ─► plan the documents for the room left in the request, smallest fi
    - **A PDF without any text** (a scan) is refused, unless its original is kept: then one of up
      to `scannedPdfPages` (30) pages is stored, to be read by looking at its pages.
    - **PPTX**: a `## Slide N` heading for each slide, and the slide count as the document's
-     `pages`. **DOCX**: the body, then the endnotes, footers, footnotes and headers (the other
-     parts in the order of their names).
+     `pages`. A slide that the slide show skips is headed
+     `## Slide N (hidden, not shown in the slide show)`, and its text is kept. **DOCX**: the body,
+     then the endnotes, footers, footnotes and headers (the other parts in the order of their
+     names). The text of a run that Word hides comes after the text of its paragraph that shows,
+     each of its lines starting with `[Hidden text, not shown in the document]`, and a long line is
+     cut into pieces, each marked. Text hidden through a style is not told apart
+     ([Security](./security.md#hidden-text-in-word-and-powerpoint)).
+   - **Text, logs, Markdown, JSON and CSV** are read as UTF-8, or as UTF-16 when they start with a
+     byte-order mark or about half of their first bytes are zeros. A file that is not valid UTF-8
+     is read in the older encoding it was saved in, or as UTF-8 with its characters that are not
+     valid counted ([Text encodings](#text-encodings)). A compressed or other binary file is
+     refused.
    - **Limits.** A PDF of more than `maxPdfPages` (5,000) pages is refused before its pages are
      read, and one whose page tree lists a page twice as soon as it does. With `@cantoo/pdf-lib`,
      the same reading of the file that finds the pictures first adds up what each page would make
@@ -62,11 +75,26 @@ question ─► plan the documents for the room left in the request, smallest fi
 
    Formats, tables, the picture line, the refusals and your own extractors:
    [PDFs and other formats](./guides/pdfs.md).
-3. **Normalize.** Strip a BOM, turn every line ending into `\n`, remove terminal escape sequences
-   (colour codes, window titles, character-set selection) and control characters other than tab
-   and newline, and split lines over 2,000 characters, after a space or one of `,;}` near the end
-   of a piece when there is one. Every line-based tool then returns bounded output. A file with no
-   text left is refused: "app.log did not contain any text."
+3. **Normalize.** Strip a BOM, turn every line ending into `\n`, and remove most of what a person
+   does not see in the file:
+   - terminal escape sequences (colour codes, window titles, character-set selection), and control
+     characters other than tab and newline, C1 (U+0080-U+009F) included;
+   - characters that show nothing and that no script needs: tag characters, the zero-width space,
+     the word joiner, the text-direction controls that reorder what a person sees, a byte order
+     mark inside the text, and a soft hyphen that is not at the end of a line. What scripts and
+     emoji need is kept: the marks of right-to-left text, zero-width joiners and non-joiners,
+     variation selectors ([Security](./security.md#characters-that-show-nothing) lists both);
+   - U+0085 (next line), which becomes a line break in a text that has no other one, such as a
+     mainframe file converted to UTF-8, and is removed in any other text. Right after
+     U+0080-U+00FF it is part of a UTF-8 letter read as Latin-1, and is removed there too.
+
+   No line break is added or removed, but for U+0085 in a text with no line feed. A text without
+   these characters is kept as it is, and a line of megabytes is cleaned in pieces of 256K
+   characters. Then lines over 2,000 characters are split, after a space or one of `,;}` near the
+   end of a piece when there is one. A line that lost characters can be split into fewer pieces
+   than 0.6.0 split it, which moves the lines after it. Every line-based tool then returns bounded
+   output. A file with no text left is refused:
+   "app.log did not contain any text."
 4. **Profile.**
    - Count lines and characters, [estimate tokens](#token-estimates), and measure two sizes: the
      UTF-8 bytes, and the bytes the text takes as a string in a JSON request body (`jsonBytes`),
@@ -96,18 +124,76 @@ question ─► plan the documents for the room left in the request, smallest fi
 
 Steps 2 to 4 share the server with other requests. Each works in slices of about 12 ms, with a
 pause between two slices: the PDF extractor and the picture marks between pages, the DOCX and PPTX
-extractors as they unpack, and then the normalizing, the measures, the outline, the log profile
-and the line index. Ingests that run at once take turns, one slice each. They run under one
-signal, aborted by the caller's `signal` or after `ingestTimeoutMs` (2 minutes): `ingest` then
-throws, and nothing is stored. A step under way when it aborts, such as one page of pdf.js, runs
-to its end in the background, and holds the server while it runs: pdf.js reads a page without a
-pause. [Security](./security.md#uploads) has the limits and the stalls measured.
+extractors as they unpack, the text extractor as it decodes a file that is not UTF-8, and then the
+normalizing, the measures, the outline, the log profile and the line index. Ingests that run at
+once take turns, one slice each. They run under one signal, aborted by the caller's `signal` or
+after `ingestTimeoutMs` (2 minutes): `ingest` then throws, and nothing is stored. A step under way
+when it aborts, such as one page of pdf.js, runs to its end in the background, and holds the
+server while it runs: pdf.js reads a page without a pause. [Security](./security.md#uploads) has
+the limits and the stalls measured.
 
 The **line index** holds, for each line, where it starts in the UTF-8 bytes and in the string, which
 lines start a passage for keyword search (about 1,500 characters or 40 lines), and which lines are
 `--- Page N ---` markers. That is a few bytes a line. It is written by any store that keeps one, even
 one the library then loads whole. No term index is built: keyword search counts its terms when it
 runs.
+
+### Text encodings
+
+A text file whose bytes are not all valid UTF-8 is one of two things. It is UTF-8 with a few
+characters that are not valid: a log cut at a byte count, a stray byte, a binary body in a log
+line. Or it was saved in an older encoding: Excel saves a Hebrew CSV in windows-1255. The text
+extractor looks at each line, about a megabyte at a time with a pause in between, and decides:
+
+1. **CESU-8.** When every fault is half of a surrogate pair, as an Oracle export or Java's modified
+   UTF-8 writes an emoji, the pairs are joined and the file is read as UTF-8, emoji included.
+2. **UTF-8, with a count.** A line counts as UTF-8 when it holds at least as many characters of
+   more than one byte as characters that are not valid, as not UTF-8 when it holds more that are
+   not valid, and as ASCII when it holds neither. When at least as many lines count as UTF-8 as
+   count as not, or when at most one line in 200 is not UTF-8 (ASCII lines counted), the file is
+   read as UTF-8. Each character that is not valid becomes U+FFFD, and
+   `meta.replacedCharacters` counts them. A character cut in two by the start or the end of the
+   file counts as UTF-8, and a byte-order mark always means UTF-8.
+3. **An older encoding.** Otherwise the lines that are not UTF-8 and hold letters (a byte of 0xC0 or
+   more), wherever they are in the file, up to 64 KB of them, choose the encoding. It is the first
+   of these in which they read as the words of one script: windows-1255 (Hebrew; ISO-8859-8 too),
+   windows-1256 (Arabic), windows-1251 (Cyrillic), Shift_JIS (Japanese, half-width katakana
+   included) and windows-1252 (Western European; ISO-8859-1 too). Lines of signs alone (– ’ € °)
+   choose only when no line has letters, and Shift_JIS is tried on the first 64 KB of the lines
+   that are not UTF-8. When no line is UTF-8, the whole file is read in that encoding; otherwise
+   each line that is valid UTF-8 is read as UTF-8, and the others in that encoding. A byte that the
+   encoding does not have becomes U+FFFD and is counted. `meta.encoding` names the encoding.
+4. **UTF-8 again.** When no encoding fits, the file is read as UTF-8 with the count, as 0.6.0 read
+   it. No text file is refused for its encoding.
+
+The model is told. The frame of a file sent whole adds `read as windows-1255`, or
+`3 characters not valid UTF-8, shown as �`, after its line count ([The card](#the-card)), and the
+card of a larger one has a line such as
+`This file is not in UTF-8. Its text was read as windows-1255: if its letters look wrong, ask the user to save it as UTF-8.`
+A file that is valid UTF-8, or UTF-16, is read as before, byte for byte.
+
+What it gets wrong, as a rule:
+
+- **Encodings it does not recognize** are read as UTF-8, with U+FFFD and the count: Greek, Turkish,
+  Central European (windows-1250), Icelandic, KOI8-R and KOI8-U, the DOS code pages (437, 850,
+  866), ISO-8859-5 and -6, EUC-JP, Chinese, Korean and Thai. So is a Japanese file of kanji with few
+  or no kana.
+- **A wrong encoding** is chosen for a file of a line or two (Greek capitals as windows-1251,
+  "Dzień dobry." as windows-1252), and for a file of fewer than 200 lines, or of one long line such
+  as minified JSON, whose few stray bytes happen to fit one. Hungarian in windows-1250 is read as
+  windows-1252, with õ and û in place of ő and ű. ISO-8859-15 is read as windows-1252 when it has
+  no œ, with ¤ in place of €; a file with œ in its words (cœur, sœur) is most often read as UTF-8
+  with U+FFFD instead, since its œ would be ½, which does not fit between two letters.
+- **Lines in two encodings.** In a file where at most one line in 200 is not UTF-8, those lines
+  become U+FFFD even when they are in an older encoding. In a file in an older encoding, a line
+  that happens to be valid UTF-8 is read as UTF-8; this is rare, and most likely in a file of
+  half-width katakana alone. A few such lines can make a short file of half-width katakana in
+  Shift_JIS count as UTF-8, and it is then read as UTF-8 with U+FFFD.
+
+What it costs: [Measurements](./measurements.md#the-server). What to tell users who upload such
+files: [PDFs and other formats](./guides/pdfs.md#text-encodings). An editor that opens such a file
+as UTF-8 does not show what the model reads:
+[Security](./security.md#text-files-that-were-not-utf-8).
 
 ### Reading a stored document
 
@@ -129,9 +215,30 @@ Sizing this for many users and servers: [Storage](./guides/storage.md) and
 
 ## The card
 
-A file that is sent whole sits between `--- Attached file: app.log (log, 3,000 lines) ---` and
-`--- End attached file: app.log ---`. A file too large for that is replaced by its card, a few
-kilobytes. This is the card of a 3,000-line log, with its first lines shortened here:
+A file that is sent whole sits between two frame lines:
+
+```text
+--- Attached file [mark 1f0c3a9e]: "app.log" (log, 3,000 lines; it ends only at the line with mark 1f0c3a9e) ---
+2026-11-19T08:00:01.370Z INFO request id=0 handled in 0ms
+…
+--- End attached file [mark 1f0c3a9e] ---
+```
+
+The mark is eight hex digits made from the document ID, which is made after the file's text, so a
+line of the file cannot hold it: a line that copies the end of the frame has no mark or a wrong
+one, and the first frame line tells the model that only the line with the mark ends the file. This
+does not make the model obey, and the mark is not a secret. The name, which the uploader chooses
+with the text, comes after the mark, quoted as JSON, and the closing line holds the mark alone.
+The mark is the same in every request, so a provider's prompt cache can reuse the file from one
+request to the next; after an upgrade from 0.6.0, the first request of each conversation misses
+it once, since the frame lines changed. A file of one line says `1 line`. A text file that was not
+valid UTF-8 adds a note after the line count ([Text encodings](#text-encodings)):
+`, read as windows-1255`, `, read as windows-1255, 1 character not valid in it, shown as �`, or
+`, 3 characters not valid UTF-8, shown as �`. What the mark guards against, and what it does not:
+[Security](./security.md#the-frame-around-a-file).
+
+A file too large to send whole is replaced by its card, a few kilobytes. This is the card of a
+3,000-line log, with its first lines shortened here:
 
 ```text
 --- Large attached file: app.log ---
@@ -163,6 +270,9 @@ A card holds:
   that the file can be searched and read by line ranges, whatever its size.
 - For a PDF whose pages can be looked at, a line that sends the model to `view_pages` for pictures,
   charts and layout.
+- For a text file that was not valid UTF-8, a line that says so: the encoding it was read in, how
+  many characters were not valid, or both
+  (`3 characters of this file were not valid UTF-8, and show as �.`).
 - For a log: the levels, the time range, and the first 8 of the 15 problems the profile keeps
   (FATAL first, then ERROR, then WARN, each by count).
 - The first 40 headings of the outline, and how many there are.
@@ -326,13 +436,18 @@ rules every tool follows, are in the [tools reference](./reference/tools.md).
 - **`search_document`** finds lines. In `keywords` mode (the default) it ranks the passages of the
   line index by BM25, computed when the search runs from substring hits: there is no term index to
   build or keep up to date, it works in any language, and "timeout" also matches "timeouts". In
-  `exact` and `regex` modes it returns the matching lines (with the lines around each when
-  `context_lines` asks for them; none by default), and
+  `exact` and `regex` modes it returns the first `max_results` matching lines and the last one in
+  the file (with the lines around each when `context_lines` asks for them; none by default), and
   `total_matching_lines` counts every matching line in the file, not only those shown; a line with
-  several matches counts once. That count is exact unless the scan stopped early, which the result
-  says. A regex scan runs in short time slices with other work in between, under a time limit of
-  its own and a budget the regex searches of a question share, so a pattern that backtracks without
-  end returns partial results instead of holding the process.
+  several matches counts once. When not all are shown, a note says how many of how many:
+  `21 of the 442 matching lines are shown: the first 20 and the last (line 15269). To see the ones in between, narrow the search.`
+  The last match is there for a question about when something last happened: shown only the first
+  ones and the count, a model named a wrong line as the last
+  ([Measurements](./measurements.md#reading-a-whole-file)). The count is exact unless the scan
+  stopped early, which the result says; then the last match is not known, and not shown. A regex
+  scan runs in short time slices with other work in between, under a time limit of its own and a
+  budget the regex searches of a question share, so a pattern that backtracks without end returns
+  partial results instead of holding the process.
 - **`read_document`** returns a numbered line range, read through the line index, and says where to
   go on.
 - **`get_document_overview`** returns more than the card: the whole log profile, the whole outline,
@@ -354,7 +469,8 @@ Every result is capped at `toolResultCharacters` (the answer of a whole-file rea
 that and 40,000 characters). In the loop it is cut further, never below 600 characters: to its
 share of the room left in the request or, for the answer of a whole-file read, to the room the
 other results of its turn left ([Room in the request](#room-in-the-request)). A list loses
-entries from its end, a read loses lines, and the result says what was cut and where to go on.
+entries from its end (an exact or regex search loses them from the end of its first matches, and
+keeps the last one), a read loses lines, and the result says what was cut and where to go on.
 
 ## Looking at pages
 
@@ -432,6 +548,11 @@ the part reader (`generateText`) of the model that explores.
      the whole read. When no part could be read, the read fails with the reason and is not tried
      again in the question. When none could even be read from the store, no model request was
      made, and the store's error is the result.
+   - The reason of a model request that failed is told by its kind, its HTTP status, the code of a
+     connection that failed or a timeout, never by the error's words, which can name a host or a
+     key: `Could not read any part of app.log: The model refused the key or token it was sent (HTTP 401).`
+     An error with none of these is `The model request failed.`
+     ([Security](./security.md#what-the-library-logs)).
 3. **Reduce.** While the notes of the relevant parts together are larger than `mapChunkTokens`,
    merge them in batches of up to `mapChunkTokens` (in pairs when no two notes fit one batch), four
    at a time, for at most 8 rounds. A merge that fails keeps its notes as they were, and the rounds
@@ -453,14 +574,19 @@ A model that thinks counts its thoughts in that limit. When a reply stops at the
 written, or with half of the limit or more spent on thoughts, each adapter's part reader asks once
 more with 32,768 (`THINKING_OUTPUT_TOKENS`, exported by `llm-large-files/gemini`), and starts there for later requests to that model in
 the process. The first request to a model finds this out while the others wait, so one request is
-wasted, not four. A model that refuses the larger limit (HTTP 400) is not asked for it again.
-Claude's part reader does not report thoughts, so for Claude only a reply cut off with no text
-triggers the second try.
+wasted, not four. A model that refuses the larger limit (HTTP 400) is not asked for it again, but a
+refusal of the request as too large for the model's window with that limit is no such refusal,
+unless the window is 32,768 tokens or less. A request refused as larger than the tokens a minute
+that the provider allows counts the same way, with that allowance for the window. Claude does not
+count its thoughts apart: when a reply has thinking blocks, its part reader takes for thoughts the
+output tokens it billed besides its text.
 
 **Counting is search's job.** Even within its limits a model can skip items of a long list, so for
 a complete list or an exact count, `search_document` in exact or regex mode is the reliable tool: it
 reports `total_matching_lines`. The tool guide says so, and keeps the whole-file read for what
-needs meaning: a summary, a timeline, items that must be judged one by one. The live checks are in
+needs meaning: a summary, a timeline, items that must be judged one by one. A search shows the
+first `max_results` matching lines (50 at most) and the last one, so a list longer than that
+needs narrower searches; a way to page through the rest is planned. The live checks are in
 [Measurements](./measurements.md).
 
 ## The loop (`askWithFiles`)
@@ -478,7 +604,8 @@ A question goes like this:
    `tool_turns_left`, and the round of calls and results joins the conversation, sent again with
    every later request until the question is answered. The rounds come back in
    `result.toolTurns`; passed back in `messages` with the conversation, they let a later question
-   use what this one found ([Conversations](./guides/conversations.md)).
+   use what this one found ([Conversations](./guides/conversations.md)). They are sent then
+   without `tool_turns_left`, which counted the turns of their own question.
 4. Repeat from 2 until the model answers, or until the tool turns, the room or the question's
    ceilings run out. Then one more request [must be answered in text](#the-request-for-the-answer).
 
@@ -509,7 +636,11 @@ A question goes like this:
   requests and an even share of what the question has left.
 - **`tool_turns_left`** in every result tells the model how many tool turns are left after this
   one: 0 when the room ran out. The tool guide asks it to call independent tools in one turn and to
-  answer as soon as it has enough.
+  answer as soon as it has enough. The results of an earlier question, passed back in `messages`,
+  are sent without it, so a model cannot take their 0 for its own. The first request of each
+  follow-up question then differs from the requests of the question before it from that
+  question's first tool round on, and a provider's prompt cache misses from there, once in each
+  follow-up question.
 
 ### Room in the request
 
@@ -574,6 +705,19 @@ are never pointed to. When a result is later replaced by a stand-in, the pointer
 stand-ins too, which say that the call was not run then and can be made again; a call of the
 current turn that would have pointed to it runs instead.
 
+Three more cases run the call again, and turn the pointers stored to its result into the same
+stand-ins:
+
+- **A read of one line in the rounds of an earlier question.** 0.5.0 cut a long line to its room
+  without saying so, and stored reads cannot be told apart. Reads of more lines, and reads of the
+  same question, are pointed to as before.
+- **An exact or regex search that 0.6.0 stored**, with fewer matches than `total_matching_lines`
+  and no note: it holds only the first matches, and a search made now shows the last one too.
+- **Any call, with a model whose provider may clear old tool results on its side**
+  (`capabilities.clearsToolResults`: Claude with `clear_tool_uses` or compaction in
+  `body.context_management`). The model may no longer have the result a pointer names, so no call
+  is answered with a pointer, and the same call made twice in one turn runs twice.
+
 ### Empty or broken turns
 
 - **A call that did not arrive whole** is answered with what was wrong, and not run: arguments that
@@ -592,7 +736,16 @@ current turn that would have pointed to it runs instead.
   provider's cache holds. The exception is an exploring model whose conversation may only grow
   (`appendOnly`: Claude), which keeps it, because what it thinks next follows the note; when that
   model also answers, its later requests, the answer's included, have the note. An answering model
-  other than the explorer never gets it.
+  other than the explorer never gets the explorer's notes.
+- **An answer that comes back without text** (empty, or with a tool call the model was told not to
+  make, such as Gemini's `UNEXPECTED_TOOL_CALL`) is asked for once more, with a note at its end
+  that is not kept: "Your last reply had no text. No tool can be called in this reply: write the
+  answer now, in text, from what is above." It is one of the two second tries of the question, and
+  can be one request past `limits.toolTurns`, but it is not made after a refusal, a filter or a
+  reply cut off at the output limit with nothing in it, nor once `limits.requests` or
+  `limits.inputTokens` is reached. `steps` says "The model's answer was empty: it was asked again"
+  or "The model called a tool instead of answering: it was asked again for the answer". With an
+  explorer, this note goes to the answering model.
 
 Gemini is the one adapter that reports a broken call as a turn of its own (`finish:
 "malformed_call"`). The OpenAI-compatible and Claude adapters mark the call itself, which the
@@ -621,6 +774,12 @@ end the question:
 - **Otherwise** the error is thrown, with `kind: "context_overflow"` and the provider's
   `limitTokens` and `requestedTokens` when its message gives them.
 
+A request larger than the tokens a minute that the provider allows (OpenAI's "Request too large …
+on tokens per min (TPM)", HTTP 429, or Groq's, HTTP 413 or 429) is of the same kind, with that
+allowance for the window: only a smaller request can pass it. Its steps name the allowance, as
+"The first request was larger than the 30,000 tokens a minute that the provider allows: the files
+were planned again to fit it".
+
 ### Retries and waits
 
 - **Retries.** A chat request that failed with HTTP 408, 409, 429 or 5xx, or got no answer (status
@@ -631,9 +790,12 @@ end the question:
   waited for: the error is reported. Meanwhile `onActivity` says "The model did not answer (HTTP
   503). Trying again in 1 s…".
 - **Not sent again**: a refusal such as 400, 401, 403 or 404; a quota that does not come back soon
-  (kind `quota`: OpenAI's `insufficient_quota`, a Gemini quota per day); a request whose reply
-  already showed text; a request after you stopped the question; and, in a chat request, an error
-  with no status.
+  (kind `quota`: OpenAI's `insufficient_quota`, HTTP 402, Claude's credit balance and spending
+  limits, a Gemini quota per day); an error of kind `context_overflow`, whatever its status, which
+  only a smaller request can pass; one that Claude's API marks `x-should-retry: false`; a reply of
+  HTTP 200 that is not JSON, such as a gateway's sign-in page (kind `invalid`); a request whose
+  reply already showed text; a request after you stopped the question; and, in a chat request, an
+  error with no status.
 - **Silence.** Each adapter watches a chat request. One that gets nothing for `firstByteTimeoutMs`
   (600 s) before the first piece of its reply, or for `idleTimeoutMs` (300 s) between two pieces, is
   aborted (kind `timeout`, status 0) and sent again once, unless text of it was shown. Headers do
@@ -641,7 +803,15 @@ end the question:
   reply that keeps arriving has no limit. 0 turns a wait off.
 - **A stream that closes without saying why it ended** was cut off on its way, by a proxy or a
   dropped connection. It is not taken for a whole reply: it is sent again when none of it was shown,
-  and is an error otherwise.
+  and is an error otherwise. So is a reply of HTTP 200 whose body is empty. `onActivity` then says
+  "The model's reply was cut off on its way. Trying again…".
+- **A stream that said it is whole** (`[DONE]`, Claude's `message_stop`) returns its reply, though
+  the server then leaves the connection open, or the connection breaks: its body is read for at
+  most one more second, then cancelled. One event of a stream holds at most 64,000,000 characters;
+  a longer one ends the reply with kind `invalid`, and it is not sent again. A reply asked for as a
+  stream that comes under another content type is read as events or as JSON, as its first
+  characters show; one that starts with more than 65,536 characters of white space is read as
+  JSON, whatever follows.
 - **Part reads** of a whole-file read follow the same rule, and an error with no status is tried once
   more at once. They have no silence waits: each request has a limit of 180 s instead (`timeoutMs`
   of `openAiCompatible()` and `anthropic()`; fixed for `gemini()`). An error your token or header
@@ -650,9 +820,14 @@ end the question:
 - **An HTTP error or a failed connection** is a `ModelRequestError` (`GeminiRequestError`,
   `OpenAiRequestError`, `AnthropicRequestError`) with a `status` and a `kind`:
   `context_overflow`, `quota`, `rate_limit`, `timeout`, `unreachable`, `server`, `auth` or
-  `invalid` ([`ModelErrorKind`](./reference/errors-and-retries.md#modelerrorkind)). Other errors
-  have no kind: `DocumentsNotFoundError`, `DocumentStoreError`, an error your own token or header
-  function throws in a chat request, a reply body that is not JSON, an abort.
+  `invalid` ([`ModelErrorKind`](./reference/errors-and-retries.md#modelerrorkind)). So is a reply
+  of HTTP 200 whose body is not JSON: kind `invalid`, status 200, and the `SyntaxError` as its
+  `cause`. Other errors have no kind: `DocumentsNotFoundError`, `DocumentStoreError`, an error your
+  own token or header function throws in a chat request, an abort.
+- **Stopping.** When the question's `signal` aborts, the question stops at once and throws the
+  signal's reason, even when an adapter or a part reader does not look at the signal. Nothing is
+  sent after that, and text that such an adapter sends later is not shown. A request still running
+  then may be billed by the provider; it is not counted in the usage.
 - **What a failed question found.** A question that fails once under way leaves its steps,
   evidence, tool rounds and usage to `partialResultOf(error)`, with `answered: false`. It is
   undefined for an error raised before the question was under way: a missing document, a budget
@@ -677,8 +852,9 @@ is sent to the answering model, and it must be answered in text:
   prompt), or `FINAL_ANSWER_WITHOUT_TOOLS` when no call was answered at all. For Gemini the request
   declares no tools; for an OpenAI-compatible endpoint and for Claude it keeps them and sets the
   tool choice to none.
-- **Its result.** `answered` is true when the reply has text and the prompt was not blocked. When
-  even this request has no text, or the provider blocked the prompt, `answered` is `false` (with
+- **Its result.** `answered` is true when the reply has text and the prompt was not blocked. A
+  reply with no text is asked for once more ([Empty or broken turns](#empty-or-broken-turns)). When
+  even that has no text, or the provider blocked the prompt, `answered` is `false` (with
   `blockReason`), so your application can show its own message instead of an empty answer.
 
 ### An explorer model
@@ -723,6 +899,10 @@ explorer })`, where the two may be of different providers, or an `askGemini` end
   retries, and "Writing the answer…".
 - `onStep` and `steps`: each finished call with what it found ("Search app.log (exact) for
   “timeout” — 12 matching lines"), and what the loop did to the conversation.
+
+Activity lines and steps are each one line of plain text, cleaned of what file text drops, and a
+call to a tool that does not exist is shown as `Call “<name>”`. They quote the model's words: show
+them as plain text ([Security](./security.md#what-the-library-logs)).
 
 In this sample, `files` and `meta` come from the sample in
 [How the plan is made](#how-the-plan-is-made), and `accessToken` is the function shown in
@@ -779,13 +959,21 @@ The adapters also handle what their providers do differently:
   The output limit of a part read is `max_completion_tokens` on OpenAI and Azure OpenAI hosts and
   `max_tokens` elsewhere, and a server that refuses the name it got is sent the other, which is
   kept. An error inside a stream that began with 200 gets the status its code or type names, or
-  500. DeepSeek's `insufficient_system_resource` is a 503, sent again. A refusal is kept as the
-  reply's text. [OpenAI-compatible endpoints](./guides/openai-compatible.md).
+  500, and keeps its code (`context_length_exceeded`, `insufficient_quota`). An error whose message
+  is at the top of the body (vLLM before its OpenAI-shaped errors, SGLang, FastChat) or in FastAPI's
+  `detail` is read. DeepSeek's `insufficient_system_resource` is a 503, sent again. A tool name sent
+  again with each piece of a stream is taken once. A refusal is kept as the reply's text.
+  [OpenAI-compatible endpoints](./guides/openai-compatible.md).
 - **Claude.** Call IDs of other providers and of stored rounds are rewritten to what the API takes,
   each once in a request. After a server-side fallback, the thinking and tool-use blocks written
   before the switch are left out of the turn that goes back, and the tool calls among them are not
   run. A refusal is reported as `blockReason` (`refusal`, with its category). A failed tool result
-  is marked `is_error`. [Claude](./guides/anthropic.md).
+  is marked `is_error`. An error inside a stream gets the status of its type
+  (`invalid_request_error` 400, `authentication_error` 401, `billing_error` 402,
+  `permission_error` 403, `not_found_error` 404, `request_too_large` 413), and a type it does not
+  know is 500, sent again when none of the reply was shown. With `clear_tool_uses` or compaction in
+  `body.context_management`, the adapter declares `clearsToolResults`
+  ([Pointers to repeated calls](#pointers-to-repeated-calls)). [Claude](./guides/anthropic.md).
 
 ## Gemini (`askGemini`, `gemini()`)
 
@@ -815,14 +1003,15 @@ Gemini's own:
   function responses. They do not share that turn, because Vertex AI refuses a turn in which
   anything follows a function response.
 - **Errors.** `error.status` and `details` tell the kind: a 429 whose `QuotaFailure` names a quota
-  per day is `quota`, not sent again, while a quota per minute is waited for; `API_KEY_INVALID` is
-  `auth`. The `retryDelay` of `RetryInfo` is the wait.
+  per day, or whose message alone does, is `quota`, not sent again, while a quota per minute is
+  waited for; `API_KEY_INVALID` is `auth`. The `retryDelay` of `RetryInfo` is the wait. A streamed
+  reply that comes as one JSON chunk, or a list of them, is read.
 - **Usage.** Input is `promptTokenCount` plus `toolUsePromptTokenCount`, cached input
   `cachedContentTokenCount`, output `candidatesTokenCount` plus `thoughtsTokenCount`.
 - **Part reads** go to the non-streaming URL of the model that explores, with
-  `{ temperature: 0.2, maxOutputTokens }` unless `analysisConfig` says otherwise, and a limit of
-  180 s per request. Headers are asked for with every request, chat or part, so an access token
-  renewed meanwhile is used.
+  `{ maxOutputTokens }`, with no temperature (Gemini 3.6 and later ignore one), unless
+  `analysisConfig` says otherwise, and a limit of 180 s per request. Headers are asked for with
+  every request, chat or part, so an access token renewed meanwhile is used.
 
 Setting up Gemini and Vertex AI, thinking, quotas and gateways:
 [Gemini API and Vertex AI](./guides/vertex-and-gemini.md).

@@ -43,7 +43,7 @@ Each helper is now on the page of its module: text sizes, formats, extractors, b
 
 ### Key types
 
-Now [`DocumentMeta`](./reference/library.md#documentmeta), [`DocumentFormat`](./reference/library.md#documentformat) and [`Extractor`](./reference/library.md#extractor) in the library reference, [`GenerateText`](./reference/ask.md#generatetext) in the tool loop reference, and [`ToolFile`](./reference/tools.md#toolfile) in Tools.
+Now [`DocumentMeta`](./reference/library.md#documentmeta), [`DocumentSummary`](./reference/library.md#documentsummary), [`DocumentFormat`](./reference/library.md#documentformat), [`Extractor`](./reference/library.md#extractor) and [`ExtractedText`](./reference/library.md#extractedtext) in the library reference, [`GenerateText`](./reference/ask.md#generatetext) and [`ModelCapabilities`](./reference/ask.md#modelcapabilities) in the tool loop reference, and [`ToolFile`](./reference/tools.md#toolfile) in Tools.
 
 ## `askWithFiles(options): Promise<AskResult>`
 

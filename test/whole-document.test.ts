@@ -203,7 +203,7 @@ describe("a last step of a whole-document read that fails", () => {
     const result = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Where did the ledger go?" });
     expect(result.error).toBeUndefined();
     expect(result).toMatchObject({ parts_read: parts, parts_with_relevant_content: parts, notes_only: true });
-    expect(result.note).toBe("The last step of this read, which writes one answer from the notes of the parts, failed (The request is too large.). The answer is those notes: answer from them.");
+    expect(result.note).toBe("The last step of this read, which writes one answer from the notes of the parts, failed (The model refused the request (HTTP 400).). The answer is those notes: answer from them.");
     expect(String(result.answer).match(/### Lines \d+-\d+\nThe ledger moved \(L\d+\)\./g)).toHaveLength(parts);
   });
 });
@@ -219,10 +219,10 @@ describe("a whole-document read that could read no part", () => {
     };
     const tools = files.tools([meta], { generate, retry: { retries: 0 } });
     const first = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize" });
-    expect(first.error).toBe("Could not read any part of novel.txt: quota exceeded");
+    expect(first.error).toBe("Could not read any part of novel.txt: The model was busy (HTTP 429).");
     const sent = requests;
     const again = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize it all" });
-    expect(again.error).toBe("The whole-file read of novel.txt failed earlier in this question (quota exceeded), and is not tried again. Use search_document and read_document.");
+    expect(again.error).toBe("The whole-file read of novel.txt failed earlier in this question (The model was busy (HTTP 429).), and is not tried again. Use search_document and read_document.");
     expect(requests).toBe(sent);
   });
 

@@ -9,25 +9,176 @@ export const MAX_LINE_CHARACTERS = 2_000;
  * ("ESC 7", "ESC c"). Coloured logs are full of them. An "ESC ]" whose end is not on its line is
  * not a sequence: only those two characters go. Otherwise one stray "ESC ]", a cut-off window title
  * or two bytes in a logged user agent, would take every line after it.
+ * U+009B, the one-character form of "ESC [", starts a sequence only with a parameter ("\x9b31m"),
+ * and not right after U+0080-U+00FF: there it is the end of a letter of UTF-8 read as Latin-1
+ * ("ś" is C5 9B, so "Coś? Tak" holds "\xc5\x9b? Tak"), and what follows it is text. `INVISIBLE`
+ * removes the U+009B alone then.
  */
 // eslint-disable-next-line no-control-regex
-const ANSI_ESCAPE = /\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)|[ -\/]+[0-~]|[0-~])/g;
+const ANSI_ESCAPE = /\x1b(?:\[[0-?]*[ -\/]*[@-~]|\][^\x07\x1b\n]*(?:\x07|\x1b\\)|[ -\/]+[0-~]|[0-~])|(?<![\x80-\xff])\x9b[0-?]+[ -\/]*[@-~]/g;
 
 /**
- * Strips a BOM, unifies line endings, and removes terminal escape sequences and control characters
- * other than tab and newline.
+ * Characters that show nothing, that no script needs, and that can hide text from a person who
+ * reads the file while a model reads it:
+ * - control characters other than tab and line breaks: C0 (U+0000-U+001F, U+007F) and C1
+ *   (U+0080-U+009F);
+ * - Unicode tag characters (U+E0000-U+E007F). Each spells out one ASCII character, which a model
+ *   reads and a person does not see. The three flags written with them (England, Scotland,
+ *   Wales) are kept;
+ * - the text-direction controls that change the order a person sees: embeddings and overrides
+ *   (U+202A-U+202E) and isolates (U+2066-U+2069). The marks that right-to-left text needs
+ *   (U+200E, U+200F, U+061C) are kept;
+ * - the zero-width space (U+200B), the word joiner and invisible operators (U+2060-U+2064), the
+ *   deprecated format characters (U+206A-U+206F), a byte order mark inside the text (U+FEFF), and
+ *   the soft hyphen (U+00AD), but not one before a line break: there it shows, as a hyphen.
+ * Zero-width joiners and non-joiners (U+200C, U+200D) are kept: emoji and some scripts need them.
+ * Tab, "\n" and "\r" are not among them, so removing them moves no line. U+0085 goes with the other
+ * C1 characters, except where it ends lines (see `NEXT_LINE`).
  */
-export function normalizeText(raw: string): string {
-  return normalizeLines(raw.replace(/^﻿/, ""));
+// eslint-disable-next-line no-control-regex
+const INVISIBLE = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\u200B\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]+|\xAD(?!\n)|\uD83C\uDFF4\uDB40\uDC67\uDB40\uDC62\uDB40(?:\uDC65\uDB40\uDC6E\uDB40\uDC67|\uDC73\uDB40\uDC63\uDB40\uDC74|\uDC77\uDB40\uDC6C\uDB40\uDC73)\uDB40\uDC7F|(?:\uDB40[\uDC00-\uDC7F])+/g;
+/** A flag written with tag characters starts with U+1F3F4, whose first half is this. */
+const FLAG_START = 0xd83c;
+/**
+ * U+0085 (next line) ends each record of a mainframe file converted to UTF-8, which has no other
+ * line break: in such a text it becomes a line break (see `breaksAtNextLine`). Not one right after
+ * U+0080-U+00FF: there it is the last byte of a UTF-8 letter read as Latin-1 ("ą" is C4 85), and a
+ * line break would split the word. `INVISIBLE` removes that one, and those of other texts.
+ */
+const NEXT_LINE = /(?<![\x80-\xFF])\x85/g;
+/** A run of U+0085, to go past it in one step. */
+const NEXT_LINE_RUN = /\x85+/y;
+
+/** `text` without the characters of `INVISIBLE`. */
+export function removeInvisible(text: string): string {
+  return text.replace(INVISIBLE, (found) => (found.charCodeAt(0) === FLAG_START ? found : ""));
 }
 
-/** `normalizeText` without the BOM: the same on a whole text as on pieces of it cut after line breaks. */
-function normalizeLines(raw: string): string {
-  let text = raw.replace(/\r\n?/g, "\n");
+/** A word for a count: "line" for 1, "lines" for any other. */
+export const plural = (count: number, word: string): string => (count === 1 ? word : `${word}s`);
+
+/**
+ * Whether the U+0085 of `text` end lines: only when it has no other line break, one at its very end
+ * aside. A mainframe file converted to UTF-8 has none. In a text that has them, a U+0085 is more
+ * often in a JSON string or a CSV field, or a windows-1252 "…" read as Latin-1, and a line break
+ * there would split a record and move every line after it.
+ */
+export function breaksAtNextLine(text: string): boolean {
+  let end = text.length;
+  if (text.charCodeAt(end - 1) === 10) end--;
+  if (text.charCodeAt(end - 1) === 13) end--;
+  const lineFeed = text.indexOf("\n");
+  if (lineFeed !== -1 && lineFeed < end) return false;
+  const carriageReturn = text.indexOf("\r");
+  return carriageReturn === -1 || carriageReturn >= end;
+}
+
+/** `removeInvisible`, after each U+0085 that ends a line is made a line break, when `nextLines`. */
+function cleanLines(text: string, nextLines: boolean): string {
+  return removeInvisible(nextLines && text.includes("\x85") ? text.replace(NEXT_LINE, "\n") : text);
+}
+
+/**
+ * Strips a BOM, unifies line endings, and removes terminal escape sequences, control characters
+ * other than tab and newline, and the invisible characters of `INVISIBLE`. In a text with no other
+ * line break, a U+0085 becomes one (see `NEXT_LINE`).
+ */
+export function normalizeText(raw: string): string {
+  const text = raw.replace(/^﻿/, "");
+  return normalizeLines(text, breaksAtNextLine(text));
+}
+
+/**
+ * `normalizeText` without the BOM: the same on a whole text as on pieces of it cut after line
+ * breaks, given `breaksAtNextLine` of the whole text as `nextLines`.
+ */
+function normalizeLines(raw: string, nextLines: boolean): string {
+  return cleanLines(withoutEscapes(raw.replace(/\r\n?/g, "\n")), nextLines);
+}
+
+/** `text` without terminal escape sequences. */
+function withoutEscapes(text: string): string {
   // Remove whole sequences first. Dropping only the ESC byte would leave "[31mERROR[0m" behind.
-  if (text.includes("\x1b")) text = text.replace(ANSI_ESCAPE, "");
-  // eslint-disable-next-line no-control-regex
-  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  // U+009B is the one-character form of "ESC [".
+  return text.includes("\x1b") || text.includes("\x9b") ? text.replace(ANSI_ESCAPE, "") : text;
+}
+
+/**
+ * `withoutEscapes`, with a pause after each `piece` characters or so. The sequences are found one
+ * after the other, as `replace` finds them, so the result is the same.
+ */
+async function withoutEscapesInPieces(text: string, slicer: TimeSlicer, piece: number): Promise<string> {
+  if (!text.includes("\x1b") && !text.includes("\x9b")) return text;
+  // A copy of its own: during a pause, another ingest may use `ANSI_ESCAPE`, which moves its lastIndex.
+  const escape = new RegExp(ANSI_ESCAPE.source, "g");
+  const done: string[] = [];
+  let parts: string[] = [];
+  // Where the text after the last sequence starts, and where the last pause was.
+  let kept = 0;
+  let paused = 0;
+  for (let found = escape.exec(text); found !== null; found = escape.exec(text)) {
+    parts.push(text.slice(kept, found.index));
+    kept = escape.lastIndex;
+    if (kept - paused >= piece) {
+      done.push(parts.join(""));
+      parts = [];
+      paused = kept;
+      await slicer.maybePause();
+    }
+  }
+  parts.push(text.slice(kept));
+  done.push(parts.join(""));
+  return done.length === 1 ? done[0]! : done.join("");
+}
+
+/**
+ * `normalizeLines`, a piece of about `piece` characters at a time, with a pause between pieces. A
+ * line with no break for megabytes can hold millions of characters or escape sequences to remove,
+ * which take seconds in one go. The escape sequences are found in order, as in one go, and the
+ * pieces of the last step (`cleanLines`) end where `cutsCleanly` says, so the result is the same.
+ */
+export async function normalizeInPieces(raw: string, slicer: TimeSlicer, nextLines: boolean, piece = SLICE_CHARACTERS): Promise<string> {
+  const text = await withoutEscapesInPieces(raw.replace(/\r\n?/g, "\n"), slicer, piece);
+  const parts: string[] = [];
+  for (let from = 0; from < text.length;) {
+    let to = Math.min(text.length, from + piece);
+    // Where the next piece starts.
+    let next = to;
+    while (to < text.length && !cutsCleanly(text, to)) {
+      if (text.charCodeAt(to) === 0x85) {
+        // A run of U+0085 after U+0080-U+00FF, which no place may cut. `cleanLines` removes all of
+        // it, and gives the same on the text before it and after it alone: the run is left out.
+        NEXT_LINE_RUN.lastIndex = to;
+        NEXT_LINE_RUN.test(text);
+        next = NEXT_LINE_RUN.lastIndex;
+        break;
+      }
+      next = ++to;
+    }
+    parts.push(cleanLines(text.slice(from, to), nextLines));
+    from = next;
+    await slicer.maybePause();
+  }
+  return parts.length === 1 ? parts[0]! : parts.join("");
+}
+
+/**
+ * Whether `cleanLines` gives the same result on `text` cut before `at` as on it whole. It does
+ * unless the cut is between the two halves of a character outside the basic plane, inside a flag,
+ * between a soft hyphen and a line break, or before a U+0085 right after U+0080-U+00FF. Only
+ * these places are kept whole: a rule that never cut after a soft hyphen or half of a pair would
+ * never cut a line of soft hyphens, or of tag characters and emoji in turn, and such a line
+ * would be cleaned in one go again.
+ */
+function cutsCleanly(text: string, at: number): boolean {
+  const before = text.charCodeAt(at - 1);
+  const after = text.charCodeAt(at);
+  if (isHighSurrogate(before) && isLowSurrogate(after)) return false;
+  if (before === 0xad && after === 0x0a) return false;
+  if (after === 0x85 && before >= 0x80 && before <= 0xff) return false;
+  // A flag is 14 units: U+1F3F4, then tag characters, each a pair that starts with U+DB40.
+  if (after === 0xdb40 && text.slice(Math.max(0, at - 12), at).includes("\uD83C\uDFF4")) return false;
+  return true;
 }
 
 /**
@@ -60,6 +211,47 @@ const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 export function sliceWhole(text: string, end: number): string {
   const at = Math.max(0, Math.min(text.length, Math.trunc(end)));
   return at > 0 && at < text.length && isHighSurrogate(text.charCodeAt(at - 1)) ? text.slice(0, at - 1) : text.slice(0, at);
+}
+
+/** Half of a character outside the basic plane, on its own. */
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+
+/**
+ * `text` with each half of a character that is on its own (an emoji cut in two) made a replacement
+ * character, as `String.prototype.toWellFormed` does. 0.5.0 cut some strings that way, and kept them:
+ * log templates in the metadata, and search windows in tool rounds. Claude's API refuses a request
+ * that holds one. Text that is whole comes back as it is.
+ */
+export function wellFormed(text: string): string {
+  return /[\ud800-\udfff]/.test(text) ? text.replace(LONE_SURROGATE, "\ufffd") : text;
+}
+
+/**
+ * A JSON value with `wellFormed` applied to every string in it, keys included. The same value, not
+ * a copy, when nothing in it needed that.
+ */
+export function wellFormedJson<T>(value: T): T {
+  if (typeof value === "string") return wellFormed(value) as T;
+  if (Array.isArray(value)) {
+    let changed = false;
+    const items = value.map((item: unknown) => {
+      const fixed = wellFormedJson(item);
+      if (fixed !== item) changed = true;
+      return fixed;
+    });
+    return (changed ? items : value) as T;
+  }
+  if (value !== null && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    let changed = false;
+    const entries = Object.entries(value).map(([key, item]): [string, unknown] => {
+      const fixedKey = wellFormed(key);
+      const fixed = wellFormedJson(item);
+      if (fixedKey !== key || fixed !== item) changed = true;
+      return [fixedKey, fixed];
+    });
+    return (changed ? Object.fromEntries(entries) : value) as T;
+  }
+  return value;
 }
 
 /**
@@ -289,16 +481,19 @@ export async function measureText(text: string, slicer: TimeSlicer): Promise<{ t
 /**
  * What ingest makes of extracted text, a slice at a time: `normalizeText`, then `wrapLongLines`,
  * then the lines (a line break at the very end does not start another line). The same results as
- * doing each in one go: no step of `normalizeText` reaches across a line break.
+ * doing each in one go: no step of `normalizeText` reaches across a line break, and whether a U+0085
+ * ends lines is decided once, for the whole text. A slice that runs far past its size holds a long
+ * line: it is cleaned in pieces too.
  */
 export async function prepareText(raw: string, slicer: TimeSlicer): Promise<{ text: string; wrapped: number; lines: string[] }> {
   const body = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const nextLines = breaksAtNextLine(body);
   const parts: string[] = [];
   // A clean text (most logs) comes back as it is: joining its slices would copy all of it.
   let changed = false;
   for (const [from, to] of lineSlices(body)) {
     const slice = body.slice(from, to);
-    const normalized = normalizeLines(slice);
+    const normalized = slice.length > 2 * SLICE_CHARACTERS ? await normalizeInPieces(slice, slicer, nextLines) : normalizeLines(slice, nextLines);
     if (normalized !== slice) changed = true;
     parts.push(normalized);
     await slicer.maybePause();

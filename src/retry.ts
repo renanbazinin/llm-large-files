@@ -83,6 +83,17 @@ export function retryAfterMs(headers: Headers | undefined, body?: unknown, now: 
   return undefined;
 }
 
+/** Errors whose provider said not to send the request again: see `noteNoRetry`. */
+const notToRetry = new WeakSet<object>();
+
+/**
+ * Takes note that the provider said not to send this request again (Claude's
+ * `x-should-retry: false`): `withRetry` does not, whatever its status.
+ */
+export function noteNoRetry(error: object): void {
+  notToRetry.add(error);
+}
+
 /** A value of the options, or its default when the value is not a finite number. */
 const finiteOr = (value: number | undefined, fallback: number): number => (typeof value === "number" && Number.isFinite(value) ? value : fallback);
 
@@ -105,6 +116,9 @@ export type RetryNotice = {
  *   each time, with jitter, or after the wait the provider asked for.
  * - An error with another status is not retried.
  * - An error of kind "quota" (a daily cap, no credit left) is not retried: a wait does not mend it.
+ *   Nor is one of kind "context_overflow", whatever its status: only a smaller request can pass
+ *   (OpenAI's request larger than a minute's allowance of tokens comes as HTTP 429). Nor is one
+ *   whose provider said not to try again (Claude's `x-should-retry: false`).
  * - An error of kind "timeout" with status 0 (nothing came from the model for the adapter's whole
  *   wait) is retried once: another such wait is long, and a model that went silent twice will most
  *   likely do so again. A timeout the provider reports (HTTP 408) is retried like any other.
@@ -133,7 +147,8 @@ export async function withRetry<T>(run: () => Promise<T>, options: {
     } catch (error) {
       if (options.signal?.aborted || options.canRetry?.() === false) throw error;
       const kind = (error as { kind?: unknown } | null)?.kind;
-      if (kind === "quota") throw error;
+      if (kind === "quota" || kind === "context_overflow") throw error;
+      if (typeof error === "object" && error !== null && notToRetry.has(error)) throw error;
       if (kind === "timeout" && statusOf(error) === 0) {
         if (timeoutRetried || retries === 0) throw error;
         timeoutRetried = true;

@@ -91,7 +91,8 @@ describe("Claude through the Messages API", () => {
       betas: ["context-management-2025-06-27"], maxTokens: 8_000, cache: "1h", stream: false, contextTokens: 200_000, pageTokens: 2_000, tokenScale: 1.2, toolFilePlacement: "none",
       body: { output_config: { effort: "low" }, context_management: { edits: [{ type: "clear_tool_uses_20250919" }] } }, fetch: gateway.fetch,
     });
-    expect(other.capabilities).toEqual({ contextTokens: 200_000, maxRequestBytes: 32_000_000, toolFiles: "none", pageTokens: 2_000, tokenScale: 1.2, outputTokens: 8_000, appendOnly: true });
+    // With context editing that clears tool results, the loop points to none of them.
+    expect(other.capabilities).toEqual({ contextTokens: 200_000, maxRequestBytes: 32_000_000, toolFiles: "none", pageTokens: 2_000, tokenScale: 1.2, outputTokens: 8_000, appendOnly: true, clearsToolResults: true });
     expect((await other.send(request("Hi"))).text).toBe("ok");
     expect(gateway.sent[0]!.url).toBe("https://llm-gateway.corp.example/anthropic/v1/messages");
     expect(gateway.sent[0]!.headers).toEqual({ "Content-Type": "application/json", "anthropic-version": "2023-06-01", "anthropic-beta": "context-management-2025-06-27", Authorization: "Bearer tok", "X-Team": "search" });

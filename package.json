@@ -94,7 +94,7 @@
   "peerDependencies": {
     "@cantoo/pdf-lib": "^2.11.1",
     "jszip": "^3.10.0",
-    "unpdf": "^1.4.0"
+    "unpdf": "^1.4.0 || ^2.0.0"
   },
   "peerDependenciesMeta": {
     "@cantoo/pdf-lib": {

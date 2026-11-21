@@ -99,7 +99,7 @@ The built-in stores:
 | Decoded pieces of a document read by range | Up to its whole decoded text | Kept within `cacheBytes`, and only for a document whose decoded text takes at most a quarter of it |
 | An upload | The body, buffered whole | `maxUploadBytes`, 100 MB by default |
 | An ingest | Several copies of the text at once (below), and what the parsers of PDF, DOCX and PPTX take while they read | `maxTextBytes` bounds the text (100 MB by default). One at a time, or in a process of its own (below) |
-| A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects) | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold |
+| A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects). A crafted file can take far more: a PDF of 32 MB that is one array of numbers left 400 to 930 MB of used heap while it was parsed, the more the shorter its numbers, and one of 40 MB ran a heap of 256 MB out of memory | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold. A crafted file of few objects passes that check. Ingested in a process of its own (below), with `@cantoo/pdf-lib` installed, a file that needs more than that process's heap fails there and is not stored; one that fits is parsed again by each look |
 | A question in flight | Its conversation, and each request it builds: up to `maxRequestBytes` (10 MB by default) of JSON, the pages it was shown included as base64 | The budget ([Costs and limits](./costs-and-limits.md)) |
 
 Measured peaks are in [Measurements](../measurements.md#the-server): an ingest of a plain-text log
@@ -107,35 +107,58 @@ takes about five to seven times the log above the uploaded bytes, and eight sear
 little more than one.
 
 Other formats were not measured for memory. PDF text is extracted by pdf.js, which reads the whole
-file, and with `@cantoo/pdf-lib` installed the file is parsed a second time to mark the pages that
-show a picture (given up for a file that declares more than 150,000 objects, or when finding the
-pictures takes more than 5 seconds once the file is parsed). A PDF of more than `maxPdfPages`
+file, and with `@cantoo/pdf-lib` installed the file is parsed a second time, before pdf.js reads a
+page, for the page check and to mark the pages that show a picture (not for a file that declares
+more than 150,000 objects; the marks are also given up when finding the pictures takes more than
+5 seconds once the file is parsed). A PDF of more than `maxPdfPages`
 (5,000) pages, and a file of more than `maxTextBytes` of text, are refused
 ([Security](../security.md#uploads)). The peak memory of `view_pages` on real files is in
 [measurements](../measurements.md).
 
 Set the heap limit of Node yourself: about three quarters of the memory of the container when
-everything runs in one process (`NODE_OPTIONS=--max-old-space-size=1536` for 2 GB), less when
-ingest runs in a process of its own. Each heap can also take up to about 190 MB of young
-generation above its `--max-old-space-size`: on Node 24, `v8.getHeapStatistics().heap_size_limit`
-is 1,216 MB for 1,024, and 704 MB for 512. Upload bodies and files read from the store are
-`Buffer`s, which live outside the heap and need the rest. The check that refuses a PDF too large to
-cut pages from compares it with the free heap, so a heap set to fit the container makes that check
-right.
+everything runs in one process, less when ingest runs in a process of its own. The limit is more
+than the flag. `--max-old-space-size` sets the old generation, and Node adds its young generation
+above it: 48 MB on Node 20 and 22, 192 MB on Node 24, and 96 MB on Node 26.
+`v8.getHeapStatistics().heap_size_limit` gives the sum. For three quarters of 2 GB, a limit of
+1,536 MB:
+
+| Node | Flag for a heap limit of 1,536 MB | What `--max-old-space-size=1536` gives |
+|---|---|---|
+| 20 and 22 | `NODE_OPTIONS=--max-old-space-size=1488` | 1,584 MB |
+| 24 | `NODE_OPTIONS=--max-old-space-size=1344` | 1,728 MB, 84% of 2 GB |
+| 26 | `NODE_OPTIONS=--max-old-space-size=1440` | 1,632 MB |
+
+Checked with `heap_size_limit` on Node 20.19, 22.12, 24.19 and 26.13. Upload bodies and files read
+from the store are `Buffer`s, which live outside the heap and need the rest. The check that refuses
+a PDF too large to cut pages from compares it with the free heap, so a heap set to fit the
+container makes that check right.
 
 A worker thread does not get a heap limit of its own when the process has one: a
 `--max-old-space-size` on the command line or in `NODE_OPTIONS` replaces the
 `resourceLimits.maxOldGenerationSizeMb` of every worker. With `--max-old-space-size=1024`, a worker
-given 512 MB had the process's limit, 1,216 MB, and setting `execArgv: []` or `env` on the worker
-did not change it. A forked process does get its own: one forked with
-`execArgv: ["--max-old-space-size=512"]` had 704 MB, with `NODE_OPTIONS=--max-old-space-size=1024`
-in the environment it inherits or without it.
+given 512 MB had the process's limit: 1,072 MB on Node 20 and 22, 1,216 MB on Node 24, 1,120 MB on
+Node 26. Setting `execArgv: []` or `env` on the worker did not change it. A forked process does get
+its own: one forked with `execArgv: ["--max-old-space-size=512"]` had 560 MB on Node 20 and 22,
+704 MB on Node 24 and 608 MB on Node 26, with `NODE_OPTIONS=--max-old-space-size=1024` in the
+environment it inherits or without it.
 
-A starting point for a container of 2 GB, to check under your own load:
+A starting point for a container of 2 GB, to check under your own load. The heaps are heap limits,
+not flags:
+
+| Node | Main heap of 1 GB | Ingest heap of 512 MB |
+|---|---|---|
+| 20 and 22 | `--max-old-space-size=976` | `--max-old-space-size=464` |
+| 24 | `--max-old-space-size=832` | `--max-old-space-size=320` |
+| 26 | `--max-old-space-size=928` | `--max-old-space-size=416` |
+
+The flags 1024 and 512 give heap limits of 1,216 and 704 MB on Node 24: 1,920 MB, which leaves
+about 128 MB of the container for the upload, its copy, files read from the store and two Node
+processes. On Node 20 and 22 they give 1,072 and 560 MB.
 
 ```ts
 // large-files.ts: created once per process and imported by every route.
-// Run with NODE_OPTIONS=--max-old-space-size=1024: ingests run in a process of their own (below).
+// Run with a heap of 1 GB: NODE_OPTIONS=--max-old-space-size=832 on Node 24 (the table above has
+// the others). Ingests run in a process of their own (below).
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 
 export const files = createLargeFiles({
@@ -168,7 +191,10 @@ An ingest runs in your server's process, a slice at a time. It pauses for other 
 every 12 ms of its work, so an answer streaming on the same server waits a fraction of a second,
 not seconds: the longest stall measured was 34 ms for a 99 MB log and 0.16 s for a 2,000-page
 PDF, where 0.6.0 held the server for 2.0 s and 4.5 s ([measured](../measurements.md#the-server)).
-One page of a PDF still holds the server for as long as pdf.js takes to read it. With
+A text file in an older encoding is decoded a megabyte at a time, and a line of megabytes is
+cleaned in pieces of 256K characters: one line of 30 MB with a control character between its
+letters held the server for about 50 ms, where 0.6.0 held it about 1.9 s. One page of a PDF still
+holds the server for as long as pdf.js takes to read it. With
 `@cantoo/pdf-lib` installed, a page that would take long is refused before pdf.js reads any page
 (a page built to paint forms inside forms held the server for 13 s to 2 minutes without that
 check); a page that passes can still take about 1.5 s, more in a large file
@@ -177,8 +203,10 @@ one file, 100 MB by default), `maxPdfPages` (5,000) and `ingestTimeoutMs` (2 min
 that would cost more ([Security](../security.md#uploads)).
 
 The first PDF a process reads also loads the PDF parsers, in one block that no pause can split:
-about 0.25 s for `@cantoo/pdf-lib` and 0.05 s for pdf.js, measured on Node 24. Since 0.6.1 it loads
-`@cantoo/pdf-lib` even with `pictures: false`, for the page check. Load them when the server
+about 0.4 s for `@cantoo/pdf-lib` and 0.05 s for pdf.js, measured on Node 24. Since 0.6.1 it loads
+`@cantoo/pdf-lib` even with `pictures: false`, for the page check. An app that reads PDFs with
+`createPdfExtractor({ pictures: false, checkPages: false })` does not load it at ingest, but then no
+page is checked ([PDFs](./pdfs.md#pages-that-would-hold-the-server)). Load them when the server
 starts, before it takes requests:
 
 ```ts
@@ -186,6 +214,10 @@ starts, before it takes requests:
 await import("@cantoo/pdf-lib");
 await (await import("unpdf")).getResolvedPDFJS();
 ```
+
+`getResolvedPDFJS()` rejects when the `unpdf` installed cannot load pdf.js on this Node (unpdf 1.9
+and later on Node 20), and the server then does not start: install the version for your Node
+([PDFs and other formats](./pdfs.md#formats)).
 
 What it does not do is keep its memory apart. The text and its copies, and what pdf.js,
 `@cantoo/pdf-lib` and JSZip take while they read, are in your server's heap, with the cache and the
@@ -208,8 +240,9 @@ end after the time limit. Three ways to bound that:
 **Not a worker thread.** Until 0.6.1, this guide ran each ingest in a worker thread
 (`ingestInWorker`) with `resourceLimits: { maxOldGenerationSizeMb: 512 }`. That keeps the event
 loop free, but it does not bound memory. The process's heap flag replaces the worker's limit (see
-[Memory on each server](#memory-on-each-server)): under the `NODE_OPTIONS` of `large-files.ts`
-above, that worker had 1,216 MB, not 512. And a worker that runs out of memory can take the whole
+[Memory on each server](#memory-on-each-server)): under `NODE_OPTIONS=--max-old-space-size=1024`,
+as that guide set it, that worker had 1,216 MB on Node 24, not 512. And a worker that runs out of
+memory can take the whole
 process down with it: in the review of 0.6.0, a worker of 512 MB, with no heap flag on the process,
 did so on a hostile DOCX. A child process stops alone.
 
@@ -271,9 +304,10 @@ function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
   running++;
   return new Promise<DocumentMeta>((resolve, reject) => {
     const child = fork(new URL("./ingest-process.js", import.meta.url), {
-      // A heap of its own. This flag wins over a --max-old-space-size in NODE_OPTIONS, which the
-      // child inherits.
-      execArgv: ["--max-old-space-size=512"],
+      // A heap of its own: a limit of 512 MB on Node 24, whose young generation adds 192 MB to the
+      // flag (the table above has the flags of other versions). This flag wins over a
+      // --max-old-space-size in NODE_OPTIONS, which the child inherits.
+      execArgv: ["--max-old-space-size=320"],
       serialization: "advanced", // the bytes go as they are, not as JSON
     });
     let reply: IngestReply | undefined;
@@ -345,12 +379,15 @@ like any other.
 ### Pages of PDFs
 
 `view_pages` runs on the chat server, not where the file was ingested. Each look reads the whole
-original from the store and parses it with `@cantoo/pdf-lib`, which cannot be stopped once it has
-started; it pauses every 500 objects so other requests get a turn. Its memory and its limits are
-in the table above. The check that refuses a file too large compares it with the free heap, so set
-the heap limit (above). What the model is told when pages cannot be shown, and the rest of
-`view_pages`, are in [PDFs and other formats](./pdfs.md); without `keepOriginals` nothing is kept
-and nothing is cut.
+original from the store, parses it with `@cantoo/pdf-lib`, copies the pages and writes the cut. It
+cannot be stopped once it has started, and it pauses after every 12 ms of work so that other
+requests get a turn (after up to 40 ms where a timer is slow, as on Windows). One object of the
+file is parsed in one block: about 0.1 to 0.2 s for each MB of an array of numbers, more when the
+numbers are short, so a crafted PDF of 16 MB held the server 2.5 to 3.5 s on each look. Its memory
+and its limits are in the table above. The check that refuses a file too large compares it with
+the free heap, so set the heap limit (above). What the model is told when pages cannot be shown,
+and the rest of `view_pages`, are in [PDFs and other formats](./pdfs.md); without `keepOriginals`
+nothing is kept and nothing is cut.
 
 ## Sweeping expired documents
 
@@ -499,13 +536,21 @@ same conversations.
   is used, and saved for the other servers. Upgrading from 0.3.x has notes of its own in
   [the 0.4.0 entry of the changelog](https://github.com/renanbazinin/llm-large-files/blob/v0.5.0/CHANGELOG.md#040---2026-11-12).
 - **A document keeps what the version that ingested it extracted**: its text, outline and log
-  profile. A better extractor applies to files uploaded after the upgrade.
+  profile. A better extractor applies to files uploaded after the upgrade. A text file in an older
+  encoding that 0.6.0 stored holds U+FFFD where 0.6.1 reads its letters, and text that 0.6.0
+  stored keeps the characters that show nothing and Word's hidden text unmarked: upload such a file
+  again to get the new reading. A document that 0.6.0 stored with the owner `""` stays readable
+  with that owner until it expires.
 - **Conversations.** `toolTurns` are plain JSON, and their type (`ToolTurn`) has not changed since
-  they appeared in 0.5.0. Both versions read the ones the other stored.
+  they appeared in 0.5.0. Both versions read the ones the other stored. 0.6.1 sends the rounds of
+  an earlier question without their `tool_turns_left`
+  ([Conversations](./conversations.md#what-toolturns-holds)).
 - **Provider caches.** The tool guide in the system instruction and the description of
-  `analyze_whole_document` changed in 0.6.0. Both come at the start of a request, so a request
+  `analyze_whole_document` changed in 0.6.0; the description of `search_document` and the frame
+  lines of a file sent whole changed in 0.6.1. They come at the start of a request, so a request
   sent with the new text cannot reuse what the provider cached of the old: in each conversation
-  whose files are searched, the first request after the upgrade pays the full input price once.
+  whose files are searched or sent whole, the first request after the upgrade pays the full input
+  price once (with Claude's `cache_control`, as a cache write).
   While servers of both versions answer the same conversation in turn, it can miss more often:
   finish the rollout quickly, or keep a conversation on one version while it runs if that cost
   matters. Any upgrade that changes this text has the same effect; the
@@ -513,7 +558,9 @@ same conversations.
 
 ## Node.js, ESM and `require()`
 
-- **Node.js 20.19 or newer** (`engines` in `package.json`). The tests run on Node 20, 22 and 24.
+- **Node.js 20.19 or newer** (`engines` in `package.json`). The tests run on Node 20, 22 and 24,
+  and again with unpdf 1.7.0 on Node 20, the newest 1.x on Node 22 and 24, and the newest 2.x on
+  Node 24. Pick the `unpdf` for your Node ([PDFs and other formats](./pdfs.md#formats)).
 - **The package is ESM only.** It has `"type": "module"` and an `exports` map with `types` and
   `default`; there is no CommonJS build. An ESM application imports it as it is.
 - **A CommonJS application can `require()` it** on Node 20.19 and newer in the 20 line, and on Node
@@ -555,12 +602,15 @@ optional peer dependencies. Add the ones you need to the `dependencies` of your 
 
 | Package | Version | Needed for | Without it |
 |---|---|---|---|
-| `unpdf` | `^1.4.0` | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`) |
+| `unpdf` | `^1.4.0 \|\| ^2.0.0`, in a version that runs on your Node: 1.7.0 on Node 20, a 1.x from 1.6.1 on Node 22, any on Node 24 and later ([PDFs](./pdfs.md#formats)) | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`). A version that does not run on your Node is refused too, with a message that says what to install: `The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` |
 | `jszip` | `^3.10.0` | DOCX and PPTX | The upload is refused: `Reading DOCX and PPTX files needs the optional dependency "jszip".` |
-| `@cantoo/pdf-lib` | `^2.11.1` | `view_pages`, and the marks on PDF pages that show a picture | `view_pages` answers the model `report.pdf: Showing PDF pages needs the optional dependency "@cantoo/pdf-lib".` (with the file's name), and PDFs are ingested without the marks, with no error |
+| `@cantoo/pdf-lib` | `^2.11.1` | `view_pages`, the check of PDF pages that would hold the server, and the marks on PDF pages that show a picture | `view_pages` answers the model `report.pdf: Showing PDF pages needs the optional dependency "@cantoo/pdf-lib".` (with the file's name), and PDFs are ingested without the check and without the marks, with no error |
 
 The last one fails quietly at ingest, so an image without it ingests PDFs differently from your
-machine. Check at startup that the image has what your application uses:
+machine, and lets through the pages the check would refuse. On Node 24 and later,
+`npm install unpdf` installs unpdf 2, which does not run on Node 20: for an image on Node 20 or 22,
+name the version in your `dependencies`. Check at startup that the image has what your application
+uses:
 
 ```ts
 // check-dependencies.ts: run at startup, before the server listens.

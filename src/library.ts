@@ -11,7 +11,7 @@ import { openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type S
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
-import { measureText, prepareText } from "./text.js";
+import { measureText, prepareText, removeInvisible, sliceWhole, wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
 import { createDocumentTools } from "./tools.js";
 import type {
@@ -20,6 +20,7 @@ import type {
   DocumentMeta,
   DocumentStore,
   DocumentSummary,
+  ExtractedText,
   Extractor,
   GenerateText,
   PreparedContext,
@@ -113,7 +114,11 @@ export type IngestInput = {
   name: string;
   mimeType?: string;
   bytes: Uint8Array;
-  /** The user (or tenant) the document belongs to. Later calls must pass the same owner. */
+  /**
+   * The user (or tenant) the document belongs to. Later calls must pass the same owner. An empty
+   * string, or one of spaces only, is refused with a TypeError: it would be one owner shared by
+   * every caller without a user.
+   */
   owner?: string;
   /**
    * Stops the ingest when aborted (the uploader went away): it throws `signal.reason`, and nothing
@@ -225,23 +230,75 @@ export function toDocumentSummary(meta: DocumentMeta): DocumentSummary {
     lines: meta.lines,
     estimatedTokens: meta.estimatedTokens,
     ...(meta.pages ? { pages: meta.pages } : {}),
+    ...(meta.encoding ? { encoding: meta.encoding } : {}),
+    ...(meta.replacedCharacters ? { replacedCharacters: meta.replacedCharacters } : {}),
     expiresAt: meta.expiresAt,
   };
 }
 
+/** An encoding's name as TextDecoder gives it ("windows-1255"): an extractor of your own may name another. */
+const ENCODING_NAME = /^[a-z0-9][a-z0-9._:-]{0,39}$/i;
+
 /**
- * A file name as one printable line: the last path segment, without control characters, line
- * breaks, or text-direction overrides. Names are shown to the model and in UIs, so a name must
- * not be able to start a new line of the prompt or disguise its extension.
+ * Whether the name is an older encoding, as `DocumentMeta.encoding` records: not UTF-8 or UTF-16,
+ * under any of their names ("utf8", "unicode"). The model is told the file is not in UTF-8.
+ */
+function olderEncoding(name: unknown): name is string {
+  if (typeof name !== "string" || !ENCODING_NAME.test(name)) return false;
+  let known: string;
+  try {
+    known = new TextDecoder(name).encoding;
+  } catch {
+    // A name TextDecoder does not know: the extractor read the file itself.
+    return true;
+  }
+  return known !== "utf-8" && known !== "utf-16le" && known !== "utf-16be";
+}
+
+/** How the text of a file was read, as its extractor said, in the fields of `DocumentMeta`. */
+function readingOf(extracted: ExtractedText): Pick<DocumentMeta, "encoding" | "replacedCharacters"> {
+  const { encoding, replacedCharacters } = extracted;
+  return {
+    ...(olderEncoding(encoding) ? { encoding } : {}),
+    ...(typeof replacedCharacters === "number" && Number.isSafeInteger(replacedCharacters) && replacedCharacters > 0 ? { replacedCharacters } : {}),
+  };
+}
+
+/**
+ * A file name as one printable line: the last path segment. Control characters, line and paragraph
+ * separators, and text-direction controls (the marks of right-to-left text included) become a space.
+ * Names are shown to the model and in UIs, so a name must not be able to start a new line of the
+ * prompt, or disguise its extension. Most characters that show nothing are removed (tag characters,
+ * zero-width spaces); the variation selectors and joiners that scripts and emoji need are kept, and
+ * can still carry data a person does not see.
  */
 export function cleanFileName(raw: string): string {
   const base = raw.split(/[\\/]/).at(-1) ?? "";
-  return base
-    // Control characters, line and paragraph separators, and text-direction controls.
-    .replace(/[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 255) || "file";
+  // Control characters, line and paragraph separators, and text-direction controls become a space.
+  const spaced = base.replace(/[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]+/gu, " ");
+  const name = removeInvisible(spaced).replace(/\s+/g, " ").trim();
+  // At most 255 characters, never half of an emoji. A flag cut short loses the tags left of it.
+  return (name.length > 255 ? removeInvisible(sliceWhole(name, 255)) : name) || "file";
+}
+
+/**
+ * Metadata with a whole file name. 0.6.0 and earlier cut a long name at 255 UTF-16 units, at times
+ * inside an emoji, and stored it: half of a character is sent as a replacement character, never on
+ * its own (Claude's API refuses it). Metadata whose name is whole comes back as it is.
+ */
+function wholeName(meta: DocumentMeta): DocumentMeta {
+  const name = wellFormed(meta.name);
+  return name === meta.name ? meta : { ...meta, name };
+}
+
+/**
+ * Refuses an owner that every caller without a user would share: an empty string (what
+ * `user?.id ?? ""` gives), one of spaces only, or null. Undefined is no owner. A number is let
+ * through, as before, for JavaScript code that passes numeric user IDs.
+ */
+export function checkOwner(owner: unknown): void {
+  if (owner === undefined || (typeof owner === "string" && owner.trim() !== "") || (typeof owner === "number" && Number.isFinite(owner))) return;
+  throw new TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.");
 }
 
 /**
@@ -393,7 +450,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       forget(id);
       return undefined;
     }
-    return meta;
+    return wholeName(meta);
   }
 
   /**
@@ -425,7 +482,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       return openRangedDocument(ranged, meta, scan, { ignoreSavedIndex: rebuild });
     }
     const stored = await reading(() => store.get(id));
-    return stored ? new SearchableDocument(stored) : undefined;
+    if (!stored) return undefined;
+    const named = wholeName(stored.meta);
+    return new SearchableDocument(named === stored.meta ? stored : { ...stored, meta: named });
   }
 
   /**
@@ -462,6 +521,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     maxUploadBytes,
 
     async ingest(input) {
+      checkOwner(input.owner);
       const name = cleanFileName(input.name);
       const mimeType = input.mimeType?.trim() || "application/octet-stream";
       if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
@@ -474,6 +534,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       // holds the whole server while it is read.
       const slicer = new TimeSlicer(signal);
       let pages: number | undefined;
+      let reading: ReturnType<typeof readingOf>;
       let text: string;
       let wrapped: number;
       let lines: string[];
@@ -499,9 +560,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
           // A character is at least one byte: a text this long is too large whatever it holds.
           if (extracted.text.length > maxTextBytes) throw tooMuchText(name, maxTextBytes);
           await slicer.pauseNow();
-          return { pages: extracted.pages, ...await prepareText(extracted.text, slicer) };
+          return { pages: extracted.pages, reading: readingOf(extracted), ...await prepareText(extracted.text, slicer) };
         };
-        ({ pages, text, wrapped, lines } = await read());
+        ({ pages, reading, text, wrapped, lines } = await read());
         if (!text.trim()) throw new Error(`${name} did not contain any text.`);
         if (format === "text" && looksLikeLog(lines)) format = "log";
         measured = await measureText(text, slicer);
@@ -533,6 +594,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         estimatedTokens: measured.tokens,
         wrappedLines: wrapped,
         ...(pages ? { pages } : {}),
+        ...reading,
         ...(keepOriginal ? { originalKept: true } : {}),
         outline,
         ...(logProfile ? { logProfile } : {}),
@@ -639,7 +701,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       return createDocumentTools({
         load: checkedLoad,
         documentIds: documents.map((meta) => meta.id),
-        names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, meta.name])),
+        names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, wellFormed(meta.name)])),
         budget,
         ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal } : {}),
         // `analyze_whole_document` is declared only when it can read at least one of the documents.

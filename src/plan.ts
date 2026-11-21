@@ -1,4 +1,4 @@
-import { sliceWhole } from "./text.js";
+import { plural, sliceWhole, wellFormed } from "./text.js";
 import type { Budget, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.js";
 
 /** Bytes kept free for document cards, the tool declarations, and JSON framing. */
@@ -85,8 +85,48 @@ export function outlineLines(outline: OutlineEntry[]): string[] {
   return outline.map((entry) => `L${entry.line} ${"  ".repeat(entry.level - top)}${entry.title}`);
 }
 
+/**
+ * What the model is told of a text file that was not valid UTF-8, or nothing: in which encoding
+ * it was read, so that it can say so when letters look wrong, or why it shows U+FFFD.
+ */
+function readingNote(meta: DocumentMeta, short: boolean): string | undefined {
+  const count = meta.replacedCharacters ?? 0;
+  const characters = `${count.toLocaleString("en-US")} ${count === 1 ? "character" : "characters"}`;
+  const were = count === 1 ? "was" : "were";
+  const show = count === 1 ? "shows" : "show";
+  if (meta.encoding) {
+    if (short) return `read as ${meta.encoding}${count ? `, ${characters} not valid in it, shown as �` : ""}`;
+    const read = `This file is not in UTF-8. Its text was read as ${meta.encoding}: if its letters look wrong, ask the user to save it as UTF-8.`;
+    // Bytes further on that the encoding does not have.
+    return count ? `${read} ${characters} of it ${were} not valid in ${meta.encoding}, and ${show} as �.` : read;
+  }
+  if (!count) return undefined;
+  return short ? `${characters} not valid UTF-8, shown as �` : `${characters} of this file ${were} not valid UTF-8, and ${show} as �.`;
+}
+
+/**
+ * Eight hex digits made from a document ID. The ID is made at random when the file is stored, so
+ * the file's own text cannot know them, and they are the same in every request: a provider's
+ * prompt cache still reuses the file.
+ */
+export function frameMark(id: string): string {
+  // FNV-1a, 32 bits.
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < id.length; index++) hash = Math.imul(hash ^ id.charCodeAt(index), 0x01000193);
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * A file sent whole, between two frame lines. Both carry a mark the file's text cannot hold, and
+ * the first one says that only the line with the mark ends the file: a line of the file such as
+ * "--- End attached file: report.txt ---", in whatever letters, cannot end it early and start a
+ * fake one. The uploader chooses the name with the text, so the mark comes before the name, the
+ * name is quoted, and the last line holds the mark alone: a name cannot name a mark of its own.
+ */
 export function renderInline(meta: DocumentMeta, text: string): string {
-  return `--- Attached file: ${meta.name} (${meta.format}, ${meta.lines.toLocaleString("en-US")} lines) ---\n${text}\n--- End attached file: ${meta.name} ---`;
+  const mark = frameMark(meta.id);
+  const note = readingNote(meta, true);
+  return `--- Attached file [mark ${mark}]: ${JSON.stringify(meta.name)} (${meta.format}, ${meta.lines.toLocaleString("en-US")} ${plural(meta.lines, "line")}${note ? `, ${note}` : ""}; it ends only at the line with mark ${mark}) ---\n${text}\n--- End attached file [mark ${mark}] ---`;
 }
 
 /** How many lines of a file its card shows. */
@@ -111,12 +151,14 @@ const HOW_TO_READ: Record<WholeRead, string> = {
  * with `view_pages`. `wholeRead` says whether the card offers a whole-document read.
  */
 export function renderCard(meta: DocumentMeta, head: string, viewable = false, wholeRead: WholeRead = "offered"): string {
+  const note = readingNote(meta, false);
   const out = [
     `--- Large attached file: ${meta.name} ---`,
     `document_id: ${meta.id}`,
-    `${meta.format} · ${formatBytes(meta.bytes)} · ${meta.lines.toLocaleString("en-US")} lines${meta.pages ? ` · ${meta.pages} pages` : ""} · about ${formatCount(meta.estimatedTokens)} tokens`,
+    `${meta.format} · ${formatBytes(meta.bytes)} · ${meta.lines.toLocaleString("en-US")} ${plural(meta.lines, "line")}${meta.pages ? ` · ${meta.pages} ${plural(meta.pages, "page")}` : ""} · about ${formatCount(meta.estimatedTokens)} tokens`,
     HOW_TO_READ[wholeRead],
     ...(viewable ? ["Its text cannot show pictures. To see a picture, a chart or the layout of a page, look at the page with view_pages."] : []),
+    ...(note ? [note] : []),
   ];
   const profile = meta.logProfile;
   if (profile) {
@@ -125,7 +167,8 @@ export function renderCard(meta: DocumentMeta, head: string, viewable = false, w
     if (profile.firstTimestamp) out.push(`Time range: ${profile.firstTimestamp} → ${profile.lastTimestamp ?? profile.firstTimestamp}`);
     if (profile.topIssues.length) {
       out.push("Most frequent problems (count, first line):");
-      for (const issue of profile.topIssues.slice(0, 8)) out.push(`  [${issue.level} ×${issue.count}, L${issue.firstLine}] ${issue.template}`);
+      // 0.5.0 stored some templates cut inside an emoji: half of a character is not sent.
+      for (const issue of profile.topIssues.slice(0, 8)) out.push(`  [${issue.level} ×${issue.count}, L${issue.firstLine}] ${wellFormed(issue.template)}`);
     }
   }
   if (meta.outline.length) {

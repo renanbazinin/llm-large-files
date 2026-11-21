@@ -1,1 +1,1 @@
-export { parseSseJson } from "../sse.js";
+export { parseSseJson, SseEventTooLongError } from "../sse.js";

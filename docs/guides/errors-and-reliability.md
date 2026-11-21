@@ -21,11 +21,11 @@ sees them:
 - A request that gets nothing from the model for 10 minutes before its reply, or for 5 minutes in
   the middle of it, is aborted and sent again, once. See
   [Waits on a silent model](#waits-on-a-silent-model).
-- A request larger than the model takes is made smaller and sent again, or the documents are
-  planned again for a smaller window. See
+- A request larger than the model takes, or than the tokens the provider allows in a minute, is
+  made smaller and sent again, or the documents are planned again for a smaller request. See
   [A request too large for the model](#a-request-too-large-for-the-model).
-- A first reply with nothing in it, or a tool call that cannot be read, is asked for once more.
-  See [Empty or broken turns](#empty-or-broken-turns).
+- A first reply with nothing in it, a tool call that cannot be read, and an answer that comes back
+  without text are asked for once more. See [Empty or broken turns](#empty-or-broken-turns).
 - A streamed reply that stops before its end is sent again, when none of it was shown. See
   [A stream cut off](#a-stream-cut-off).
 - A tool that fails (a pattern that does not compile, a store that did not answer, a whole-file
@@ -43,10 +43,14 @@ failed question found, check `answered`, and set an overall deadline.
 |---|---|---|---|
 | `DocumentsNotFoundError` | A document ID was never uploaded, has expired, was deleted, or belongs to another `owner`. Thrown before any model request. | `ids`: the IDs that are missing. | No |
 | `DocumentStoreError` | The store could not be read while the question planned its documents: a volume that did not answer, a database that is down. The documents are not gone, and the same question may work a moment later. | `code` (`EIO`, `EMFILE`) and `syscall` when a system error is behind it; `cause`, the error that was caught. | No |
-| `ModelRequestError`: a `GeminiRequestError`, `OpenAiRequestError` or `AnthropicRequestError` | A model request failed in a way that was not worth sending again, or still failed after the retries. | `kind`, `status` (0 when no answer came, or the reply stopped on its way), `retryAfterMs`, `limitTokens`, `requestedTokens`, `cause`. `OpenAiRequestError` adds `param` and `code`; `AnthropicRequestError` adds `type`. | Yes |
+| `ModelRequestError`: a `GeminiRequestError`, `OpenAiRequestError` or `AnthropicRequestError` | A model request failed in a way that was not worth sending again, or still failed after the retries. A reply of HTTP 200 whose body is not JSON (a gateway's page in the model's place) is one too, of kind `invalid`, with status 200 and the `SyntaxError` as `cause`; it is not sent again. A reply of HTTP 200 whose body is empty is of kind `unreachable`, status 0, and is sent again first. | `kind`, `status` (0 when no answer came, or the reply stopped on its way), `retryAfterMs`, `limitTokens`, `requestedTokens`, `cause`. `OpenAiRequestError` adds `param` and `code`; `AnthropicRequestError` adds `type`. | Yes |
 | The reason of your `signal` | You stopped the question, or your deadline ran out. See [An overall deadline](#an-overall-deadline). | Test your signals, not the error. | Yes, for a reason that is an object |
-| `SyntaxError` | A reply that was not streamed arrived whole, with HTTP 200, but its body was not JSON (a gateway's HTML page). It is not sent again. | None: it has no `status` and no `kind`. | Yes |
 | `Error` | A mistake in the call: "The last message must be the user's.", or a budget that cannot work, such as "budget.reservedTokens (…) must be smaller than budget.contextTokens (…): nothing would be left for the conversation." | `message`, for your log. | No |
+
+Until 0.6.1, a reply of HTTP 200 that was not JSON threw a `SyntaxError`, with no `status` and no
+`kind`. Now the `SyntaxError` is the `cause` of the `ModelRequestError`: where you tested
+`error instanceof SyntaxError`, test `error.cause instanceof SyntaxError`. Kind `invalid` alone
+also covers every other request that the provider refused.
 
 Whose words each message is:
 
@@ -58,7 +62,16 @@ Whose words each message is:
 - `ModelRequestError`: the provider's own message, or, when it gave none, the adapter's: "Gemini
   returned HTTP 503.", "The model returned HTTP 503." (OpenAI-compatible, and Gemini's part reads)
   or "Claude returned HTTP 503.". It can name your project, model, region or quota. Log it, and
-  show your own words, chosen by its [`kind`](#the-kind-of-a-model-error).
+  show your own words, chosen by its [`kind`](#the-kind-of-a-model-error). The adapters' own
+  messages, with "Gemini's", "The model's" or "Claude's" first:
+  - a reply of HTTP 200 that is not JSON: "Gemini's reply could not be read: it was not JSON
+    (text/html). A proxy or gateway may have answered in its place." The part in parentheses is the
+    content type of the reply, and is left out when it has none;
+  - a reply of HTTP 200 that is empty: "Gemini could not be reached (the reply was empty).", "The
+    model could not be reached (the reply was empty)." or "Claude could not be reached (the reply
+    was empty).";
+  - a streamed event longer than 64,000,000 characters: "Gemini's reply could not be read: an event
+    of its stream held more than 64,000,000 characters."
 
 ### Telling them apart
 
@@ -81,24 +94,31 @@ error (Gemini's `error.status` and `details`, OpenAI's `error.code`, Claude's `e
 
 | `kind` | Cause | Sent again | What to tell the user |
 |---|---|---|---|
-| `context_overflow` | The request was larger than the model takes: its context window, or the size of the body (HTTP 413). `limitTokens` and `requestedTokens` are the provider's numbers, when its message gives them. | Not by the retry rule. The loop makes the request smaller, at most twice, or plans the documents again, once. It throws when neither helps. | "This chat is too long for the model. Start a new chat, or ask about fewer files." |
-| `quota` | A quota that does not come back soon: OpenAI's `insufficient_quota`, or a Gemini quota per day (HTTP 429 with a `QuotaFailure` whose quota is per day). | Never. | "The assistant is not available right now." Alert whoever runs the account. |
+| `context_overflow` | The request was larger than the model takes: its context window, or the size of the body (HTTP 413). Or larger than the tokens the provider lets through in a minute, which only a smaller request can pass: OpenAI's "Request too large for gpt-4o … on tokens per min (TPM): Limit 30000, Requested 45237" (HTTP 429), and Groq's "… on tokens per minute (TPM): Limit 6000, Requested 6438" (HTTP 413 or 429). `limitTokens` and `requestedTokens` are the provider's numbers, when its message gives them. | Never by the retry rule, whatever its status. The loop makes the request smaller, at most twice, or plans the documents again, once. It throws when neither helps. | "This chat is too long for the model. Start a new chat, or ask about fewer files." |
+| `quota` | A quota that does not come back soon: OpenAI's `insufficient_quota`; HTTP 402 (DeepSeek's "Insufficient Balance", OpenRouter's "Insufficient credits"); Claude's "Your credit balance is too low" and its spending limits ("You have reached your API usage limits", or HTTP 429 with `enforced_spend_limit_reached`); a Gemini quota per day (HTTP 429 with a `QuotaFailure` whose quota is per day, or a Vertex AI quota per day that only the message names). | Never. | "The assistant is not available right now." Alert whoever runs the account. |
 | `rate_limit` | Too many requests or tokens for now: any other HTTP 429, a Gemini quota per minute among them. | Up to `retries` times, after the wait the provider asked for, or a wait that doubles. Not when the provider asks for more than `maxDelayMs`. | "The assistant is busy. Try again in a minute." Use `retryAfterMs` when it is set. |
 | `timeout` | Status 0: nothing came from the model for the adapter's wait (`firstByteTimeoutMs`, `idleTimeoutMs`). Or HTTP 408 from the provider or a gateway. | The adapter's wait: once. HTTP 408: up to `retries` times. | "The model took too long to answer. Try again." |
-| `unreachable` | Status 0: the connection failed, before or during the reply, or a stream ended before its end. | Up to `retries` times. | "The model could not be reached. Try again." |
+| `unreachable` | Status 0: the connection failed, before or during the reply, a stream ended before its end, or a reply of HTTP 200 came empty. | Up to `retries` times. | "The model could not be reached. Try again." |
 | `server` | HTTP 5xx: the provider failed on its side. Claude's 529 (overloaded) and DeepSeek's `insufficient_system_resource` (taken as 503) are among them. | Up to `retries` times. | "The model could not answer just now. Try again." |
 | `auth` | HTTP 401 or 403, or a Gemini API key that is not valid (`API_KEY_INVALID`, which comes as HTTP 400). | Never. | A general error. It is your configuration: an expired token, a wrong key, a missing role. Log it. |
-| `invalid` | Any other HTTP 4xx, or an error a Gemini or Claude reply reported after HTTP 200 without a status of its own (see [A stream cut off](#a-stream-cut-off)): the provider refused the request as it was. | Never, except HTTP 409, which is sent again like a 5xx. | A general error. Log it, with the model and its options. |
+| `invalid` | Any other HTTP 4xx, or an error a Gemini reply reported after HTTP 200 without a status of its own (see [A stream cut off](#a-stream-cut-off)): the provider refused the request as it was. Also a reply of HTTP 200 that is not JSON (a gateway's page), and a streamed event longer than 64,000,000 characters, both with status 200. | Never, except HTTP 409, which is sent again like a 5xx. | A general error. Log it, with the model and its options. |
 
 Nothing is sent again once text of the reply was shown to the user, or after your `signal`
 aborted.
 
 The kind depends on the provider's wording. The wording of Gemini, Vertex AI, OpenAI, Claude, vLLM,
-Mistral and llama.cpp for a request too large is known, and throttling that shares words with it
-("tokens per minute") is not taken for it. A message the classifier does not know is `invalid`, and
-the loop does not recover from it. `classifyModelError(status, message, { code, details })` shows
-how a message is read. An adapter of your own, or a wrapper around a gateway, can set the kind
-itself: `new ModelRequestError(message, 400, { kind: "context_overflow" })`. See
+Mistral and llama.cpp for a request too large is known, and so is that of Text Generation Inference
+and Together ("`inputs` tokens + `max_new_tokens` must be <= 32769. Given: 40000 …"), LM Studio
+("loaded with context length of only 4096 tokens"), Amazon Bedrock ("Input is too long for
+requested model.") and vLLM's newer "your request has 40000 input tokens". An OpenAI-compatible
+server's message is read from `error`, from a `message` at the top of the body (vLLM before its
+OpenAI-shaped errors, SGLang, FastChat) or from FastAPI's `detail`. Throttling that shares words
+with a request too large ("tokens per minute") is not taken for one, except the TPM refusal of a
+single request larger than the minute's allowance. A message the classifier does not know is
+`invalid`, and the loop does not recover from it.
+`classifyModelError(status, message, { code, details })` shows how a message is read. An adapter
+of your own, or a wrapper around a gateway, can set the kind itself:
+`new ModelRequestError(message, 400, { kind: "context_overflow" })`. See
 [Your own adapter and loop](./own-adapter-and-loop.md).
 
 ## Retries
@@ -117,16 +137,21 @@ again by one rule (`withRetry`), each request on its own count:
   `retryDelay` of Gemini's `RetryInfo`, such as "17s"), that wait is used instead. When it asks for
   more than `maxDelayMs`, the request is not sent again: the error is thrown, with `retryAfterMs`
   set.
-- **What is not sent again**: a `quota` error; any other status (400, 401, 403, 404, 413…); a chat
-  request whose error has no status (a body that is not JSON); a request once text of it was shown
-  to the user; anything after your `signal` aborted.
+- **What is not sent again**: a `quota` error; a `context_overflow` error, whatever its status (a
+  TPM refusal comes as HTTP 429: only a smaller request can pass); an error the provider said not
+  to send again (Claude's `x-should-retry: false` header), whatever its status; any other status
+  (400, 401, 403, 404, 413…), among them a reply of HTTP 200 that is not JSON and a streamed event
+  too long to read (kind `invalid`, status 200); a chat request whose error has no status; a
+  request once text of it was shown to the user; anything after your `signal` aborted.
 - **Part reads** of a whole-file read also try once more, at once, an error that has no status,
   their own time limit among them. A part that still fails is reported to the model as a part that
   could not be read, and the question goes on.
 
 While a chat request waits to be sent again, `onActivity` gets a line such as "The model did not
-answer (HTTP 429). Trying again in 17 s…", "The model could not be reached. Trying again…" or "The
-model sent nothing for too long. Trying again…". Show it as a passing status.
+answer (HTTP 429). Trying again in 17 s…", "The model could not be reached. Trying again…" (no
+reply began), "The model's reply was cut off on its way. Trying again…" (a stream that closed
+before its end, a connection that broke once the reply had begun, or a reply of HTTP 200 that came
+empty) or "The model sent nothing for too long. Trying again…". Show it as a passing status.
 
 Set the rule with `retry`, an option of `askWithFiles` and `askGemini` that also applies to part
 reads: `retries` (3; 0 turns retries off, the one after a silent model too), `baseDelayMs` (500)
@@ -151,12 +176,13 @@ const result = await askGemini({
 
 Your app may make model requests of its own next to a question: a title for the chat, a summary for
 a notification. `withRetry` sends them again by the same rule. It reads three fields of what your
-call throws: `status`, a number (0 for no answer); `kind` (`"quota"` is never sent again,
-`"timeout"` with status 0 only once); and `retryAfterMs`. Throw a `ModelRequestError` and the
-error gets its `kind` from the status and the message. Pass the service's error code as `code`
-(or set `kind: "quota"` yourself) so a quota is not sent again: a quota is told only from
-`code: "insufficient_quota"` or Gemini's `details`, and an HTTP 429 without them is a
-`rate_limit`, which is.
+call throws: `status`, a number (0 for no answer); `kind` (`"quota"` and `"context_overflow"` are
+never sent again, `"timeout"` with status 0 only once); and `retryAfterMs`. Throw a
+`ModelRequestError` and the error gets its `kind` from the status and the message. Pass the
+service's error code as `code` (or set `kind: "quota"` yourself) so a quota is not sent again: a
+quota is told from `code: "insufficient_quota"`, Gemini's `details`, HTTP 402, or words that only
+a quota uses (no credit left, a spending cap, a quota per day). An HTTP 429 without them is a
+`rate_limit`, which is sent again.
 
 ```ts
 import { ModelRequestError, retryAfterMs, withRetry } from "llm-large-files";
@@ -290,41 +316,56 @@ export async function ask(response: ServerResponse): Promise<string | undefined>
 ```
 
 When the signal aborts, the request under way stops, the tool calls of the turn stop, and nothing
-more is sent or sent again. The question throws the signal's reason: a `DOMException` named
-"TimeoutError" for `AbortSignal.timeout`, a `DOMException` named "AbortError" for
-`controller.abort()`, and your reason for `controller.abort(reason)`. When the abort comes just as
-a request fails, that request's error may be thrown instead. So test which signal aborted, as
-above, not the error.
+more is sent or sent again, no further part of a whole-file read either. The question stops at
+once, even with an adapter of your own, or a part reader, that does not look at the signal: the
+loop no longer waits for it, and text that such an adapter sends later is not shown. The question
+throws the signal's reason: a `DOMException` named "TimeoutError" for `AbortSignal.timeout`, a
+`DOMException` named "AbortError" for `controller.abort()`, and your reason for
+`controller.abort(reason)`. It does so also when the adapter then fails at once with its own error.
+When the abort comes just after a request failed, that request's error may be thrown instead. So
+test which signal aborted, as above, not the error.
 
 `partialResultOf(error)` works for a stopped question too, when the reason is an object. Abort with
-an `Error`, or with no reason, rather than a string.
+an `Error`, or with no reason, rather than a string. Its `usage` is what was counted when the
+question stopped: a request still running then, in an adapter that did not stop, may be billed by
+the provider, and is not counted.
 
 How the client side cancels a streamed answer is in [Web app](./web-app.md).
 
 ## A request too large for the model
 
 When the provider refuses a request as larger than the model takes (kind `context_overflow`), the
-loop does not give up at once:
+loop does not give up at once. The same holds for a request larger than the tokens the provider
+lets through in a minute (OpenAI's and Groq's TPM, or a day's allowance): that allowance then
+stands for the window.
 
 1. It takes the provider's count and window for the rest of the question, replaces tool results
    with stand-ins (those of all but the last three tool rounds, then all but the last two, then all
    but the last one, then all of them, as far as needed), and sends the request again, at most
    twice in a question. The step says "The request was larger than the model takes: older tool
-   results were shortened, and it was sent again".
+   results were shortened, and it was sent again", or for an allowance, "The request was larger
+   than the provider allows in a minute: older tool results were shortened, and it was sent again".
 2. When shortening does not help (nothing is left to shorten, a model of the question may only grow
    its conversation, such as Claude, or the request sent again shorter was refused again), and no
    tool call of this question was answered and no text shown yet, it plans
    the documents again for a smaller window and starts over, once. A document that was sent whole
    may now be searched instead. The step says "The first request was larger than the model's
    window of 131,072 tokens: the files were planned again to fit it", or "…for a smaller window".
+   For an allowance it says "The first request was larger than the 30,000 tokens a minute that the
+   provider allows: the files were planned again to fit it", or, when the message gives no limit,
+   "The first request was larger than the provider allows in a minute: the files were planned again
+   for a smaller request" ("a day" for an allowance per day).
    What the first try used counts in `usage` and against `limits`.
 3. Otherwise it throws the error, with `partialResultOf`.
 
 How the smaller window is worked out from the provider's numbers is in
 [How it works](../how-it-works.md#a-request-too-large-for-the-model).
 
-A part of a whole-file read that the model refuses as too large is read as two halves, inside the
-tool. It does not throw.
+A part of a whole-file read that the model refuses as too large, for its window or for the minute's
+allowance, is read as two halves, inside the tool. It does not throw. A refusal of a part that asked
+for the larger output limit of a thinking model (32,768 tokens) turns that limit off for the model
+only when the window, or the allowance, is no larger than it; otherwise later parts may still get
+it.
 
 When the error reaches you, one of these is the cause:
 
@@ -337,6 +378,9 @@ When the error reaches you, one of these is the cause:
   maxRequestBytes: 8_000_000 } })`, or in `budget` of `askGemini` for one question. See
   [Costs and limits](./costs-and-limits.md).
 - **The question names too many documents.** Ask about fewer.
+- **The provider lets through fewer tokens a minute than a request needs** (OpenAI's TPM on a low
+  tier, Groq's free tier). `limitTokens` is that allowance. Give the adapter a `contextTokens` below
+  it, or ask the provider for a higher limit.
 - **The provider's wording is not known**, and the error came as `invalid`. See
   [The kind of a model error](#the-kind-of-a-model-error).
 
@@ -357,8 +401,18 @@ Without the second try, the answer would be written from the document cards alon
 other. At most two such second tries are made in a question, and each takes one of
 `limits.toolTurns`. When they are made, and which model keeps the note, is in
 [How it works](../how-it-works.md#empty-or-broken-turns). When the second try is empty too, the
-loop asks for the answer, as it does at the end of every question. When that reply has no text
-either, `answered` is false.
+loop asks for the answer, as it does at the end of every question.
+
+**The answer's second try.** The request for the answer (`toolChoice: "none"`) is asked for once
+more when its reply has no text: when it is empty, or holds a tool call the model was told not to
+make (Gemini's `UNEXPECTED_TOOL_CALL` or `MALFORMED_FUNCTION_CALL`, or calls from an adapter of
+your own). The note at the end of that request is "Your last reply had no text. No tool can be
+called in this reply: write the answer now, in text, from what is above.", and it is not kept. The
+step says "The model's answer was empty: it was asked again", or "The model called a tool instead
+of answering: it was asked again for the answer". It is one of the two second tries of the
+question, and it can be one request past `limits.toolTurns`. It is not made after a refusal, a
+filter, or a reply cut off at the output limit with nothing in it, nor once `limits.requests` or
+`limits.inputTokens` is reached. When its reply has no text either, `answered` is false.
 
 A single call that cannot be run is not a broken turn: arguments that are not a JSON object, a call
 cut off at the output limit, a Claude call whose block never closed. It is answered with an error
@@ -374,15 +428,34 @@ stream that closes without it was cut off on its way, by a proxy or a dropped co
 adapter does not take it for a whole reply: it throws an error with status 0, of kind
 `unreachable`: "Gemini's reply ended before it was complete.", "The model's reply ended before it
 was complete." or "Claude's reply ended before it was complete.". A connection that fails while the
-reply arrives is the same.
+reply arrives is the same, and so is a reply of HTTP 200 whose body is empty.
+
+A stream that said it is whole (`[DONE]` on an OpenAI-compatible stream, `message_stop` on
+Claude's) has its reply, whatever the connection does next. The body is read for one more second
+at most, then cancelled, which closes the connection: a server or gateway that leaves it open does
+not hold the request until `idleTimeoutMs`. A connection that breaks after the end marker loses
+nothing either. Both failed in 0.6.0, with the whole answer already shown.
+
+A reply asked for as a stream is read as one when its content type is `text/event-stream`. Of any
+other type (a gateway that streams under `application/octet-stream`, or under none), it is read by
+its first characters: as events when it starts with `data:` or a comment, as JSON when it starts
+with `{` or `[` (Gemini's chunks in a list, as it sends them without `alt=sse`). A body that starts
+with more than 65,536 characters of white space is read as JSON, whatever follows. A body that is
+neither, such as an HTML page, is a reply that is not JSON: kind `invalid`, status 200, not sent
+again. One event of a stream may hold 64,000,000 characters at most; a longer one ends the reply
+with kind `invalid` and status 200, and is not sent again: it would come again.
 
 An error the provider sends inside a stream that began with HTTP 200 takes the status the error
-names (Gemini's `code`, an OpenAI-compatible server's `code` or `type`, Claude's error `type`), and
-is sent again or not by that status. On an OpenAI-compatible stream, one that names no status the
-adapter knows counts as a 500. On Gemini an error without a `code`, and on Claude an error whose
-type is not `overloaded_error` (529), `rate_limit_error` (429), `api_error` (500) or
-`timeout_error` (408), keeps the stream's 200 and is not sent again. Its kind is `invalid`, or
-`context_overflow` when it says the request was too large (Claude's `request_too_large`).
+names, and is sent again or not by that status:
+
+- On Gemini, its `code`. An error without one keeps the stream's 200, and is not sent again.
+- On an OpenAI-compatible stream, its `code` or `type`: `context_length_exceeded` is 400 (kind
+  `context_overflow`), `insufficient_quota` 429 (kind `quota`), and `code` and `param` stay on the
+  error. One that names no status the adapter knows counts as a 500.
+- On Claude, its `type`: `overloaded_error` 529, `rate_limit_error` 429, `api_error` 500,
+  `timeout_error` 408, `invalid_request_error` 400, `authentication_error` 401, `billing_error`
+  402, `permission_error` 403, `not_found_error` 404, `request_too_large` 413 (kind
+  `context_overflow`). A type the adapter does not know is the server's failure, 500.
 
 What happens next depends on what your user saw:
 
@@ -406,6 +479,29 @@ whose parts all failed. The question goes on, and can still be answered. A faile
 - in `steps`, as a line that ends in " — failed: " and the error;
 - in `toolTurns`, as a call whose `result.error` is a string;
 - not in `evidence`, which lists only what was shown.
+
+A whole-file read tells the model why a model request failed by the error's kind, its HTTP status
+or the code of a connection that failed, never by the error's words: the provider's message, or an
+HTTP client's, can name a project, a host, a masked key, or a URL with a key in it. The same words
+are in its step and in `toolTurns`: "Read all of app.log for “Summarize.” — failed: Could not read
+any part of app.log: The model refused the key or token it was sent (HTTP 401)." The reasons:
+
+| The error | The reason |
+|---|---|
+| A reply with no text, from a part reader of the package | "The model returned no text (SAFETY).", with the provider's reason when it is a plain word, or "The model returned no text." |
+| An error with a `kind` (the package's adapters set one) | By its kind, with " (HTTP n)" when it has a status: "The request was larger than the model takes", "The model's quota has run out", "The model was busy", "The model took too long to answer", "The model could not be reached", "The model failed on its side", "The model refused the key or token it was sent", "The model refused the request". Kind `invalid` with a status of success: "The model's reply could not be read (HTTP 200)." |
+| An error with an HTTP status and no kind (`status`, `statusCode` or `response.status`, as a provider's SDK, got and axios set them) | Its kind is told from its status and message, as `classifyModelError` does, and the reason follows from it: "The model failed on its side (HTTP 503)." |
+| An error whose `code`, or that of its `cause`, is that of a connection that failed (`ECONNREFUSED`, `ENOTFOUND`, undici's `UND_ERR_SOCKET`…) | "The model could not be reached." |
+| An error named `TimeoutError` (an `AbortSignal.timeout`, or a part reader's `timeoutMs`), or undici's `UND_ERR_HEADERS_TIMEOUT` and `UND_ERR_BODY_TIMEOUT` | "The model took too long to answer." |
+| Anything else: a plain `Error` of a `generate` of your own, a thrown string | "The model request failed." ("The model request failed (HTTP 302)." for a status from 100 to 399) |
+
+These reasons go into "Could not read any part of app.log: …", "[This part could not be read: …]",
+the note of a read whose last step failed (`notes_only`), and "The whole-file read of app.log failed
+earlier in this question (…)". A failure to read a part's lines from the store keeps the store's
+own message, which names no path or host: "The document store could not be read (EIO). Try again."
+The provider's words belong in your log: log them in your own `fetch`, adapter or `generate`. To
+give the model a specific reason from a `generate` of your own, throw an error with a `kind` or an
+HTTP `status`.
 
 A whole-file read that worked in part says so in its result (`parts_that_failed`, `notes_only`,
 `notes_cut_short`, `answer_cut_short`). Its step ends in ", notes only" when the answer is only the
@@ -432,7 +528,7 @@ last turn had no text:
   (such as "SAFETY"), "refusal" or "refusal: " and its category for Claude, "content_filter" for an
   OpenAI-compatible reply that was filtered with nothing in it. Nothing more is asked after it.
 - **The last reply ended without text**: cut off at the output limit before its first word, stopped
-  by a filter, or a broken tool call followed by an empty answer.
+  by a filter, or an answer with no text (empty, or a tool call) after its one second try.
 
 `text` may then be empty, hold only a remark the model wrote before a tool call, or the start of a
 reply the provider then refused. Show your own message instead.
@@ -504,7 +600,15 @@ export async function askAndRecord(model: ModelAdapter, sessionId: string) {
 `files.ingest` throws a plain `Error`, with a message written for the user, when it cannot take a
 file: it is empty, larger than `maxUploadBytes` (100 MB by default), has no text, is a gzip or ZIP
 archive, is binary, needs an optional dependency that is not installed (`jszip` for DOCX and PPTX,
-`unpdf` for PDF), or is a PDF without a text layer (see [PDFs](./pdfs.md)). Show its message.
+`unpdf` for PDF) or an `unpdf` that runs on this Node, or is a PDF without a text layer (see
+[PDFs](./pdfs.md)). Show its message. A text file is never refused for its encoding: one that is
+not UTF-8 is read in the encoding it was saved in, or as UTF-8 with the characters that are not
+valid counted ([Text encodings](./pdfs.md#text-encodings)).
+
+It throws a `TypeError` for an owner of `""`, spaces only or `null`: a mistake of your code, not of
+the file. `createDocumentHandlers` answers it 500 `{ "error": "Upload failed (empty owner)." }`, or
+`{ "error": "Upload failed (owner is not a string)." }` for an owner that is neither a string nor a
+finite number, before it reads the upload ([Storage](./storage.md#how-ownership-works)).
 
 A file the parser cannot read (a damaged DOCX, PPTX or PDF) throws the parser's own error (jszip's,
 or pdf.js's `InvalidPDFException`), and an extractor of your own throws its own. Their messages are

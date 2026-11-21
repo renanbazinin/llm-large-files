@@ -18,18 +18,21 @@ release it was recorded for. Before you rely on a number, check it on your own f
   probe that reproduced a fault, and so does this page.
 - **Version** is the release a result was recorded for. 0.1.0 is of 2026-11-06, 0.2.0 and 0.3.0 of
   2026-11-10, 0.3.5 and 0.3.6 of 2026-11-11, 0.4.0 of 2026-11-12, and 0.4.1 and 0.5.0 of
-  2026-11-13. The checks of 0.6.0 are of November 2026. All live results are of November 2026.
+  2026-11-13. The checks of 0.6.0 and 0.6.1 are of November 2026. All live results are of
+  November 2026.
 - Where the record names no model, this page says "model not recorded".
 - What a result led to in the library is explained in the guides. This page links to them and does
-  not repeat them. The [changelog](../CHANGELOG.md) records 0.6.0 and links to the history of 0.1.0
-  to 0.5.0.
+  not repeat them. The [changelog](../CHANGELOG.md) records 0.6.0 and 0.6.1, and links to the
+  history of 0.1.0 to 0.5.0.
+- **Before** in a table of 0.6.1 is the code of 0.6.1 before the change measured, which was never
+  released, unless the table names 0.6.0.
 
 ## What has been run live
 
 | Provider | Live runs on record | Not run live |
 |---|---|---|
 | Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
-| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. 0.6.0: a count, a repeated search, the error of a request too large | |
+| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. 0.6.0: a count, a repeated search, the error of a request too large, and in the review of 0.6.0 a production log of 3 MB | |
 | OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
 | Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation |
 
@@ -110,6 +113,18 @@ lines, answered with one exact search: 40, the right count, with the first and l
 the same on a log of 2,000 lines: one exact search, 20, lines 100 and 2,000, in two requests and
 5,531 input tokens. In that run a model that does not exist was refused as kind `"invalid"`, and
 the request was sent once.
+
+**The last match of a count (the review of 0.6.0, live on Vertex AI, 2026-11-20).**
+`gemini-3.1-flash-lite` was asked how many PAY-5031 errors payments-api logged in a production log
+of 3 MB, and on which lines the first and the last were. An exact search for "PAY-5031" found 884
+lines, and a regex for the lines that payments-api wrote itself found 442. The count was right, and
+so was the first line (11,355), but the model could not tell the last. That question took 11
+requests, 3 of them repeats answered with pointers. Asked in a follow-up to run the search again
+and confirm the count, it named line 12,088 as the last, in 6 requests. It was line 15,269. The
+searches had shown the model their first matching lines and the total, and nothing of where the
+others were. Since 0.6.1 an exact or regex search also shows the last matching line, with a note
+that says how many of how many are shown ([How it works](./how-it-works.md#tools)). This page
+records no live run of 0.6.1 on that log.
 
 **Models that think (0.4.1, live).** Such a model counts its thoughts in `maxOutputTokens`. Asked
 for 4,096 tokens of notes on a part of a log, Gemini 3.8 Flash spent 3,931 of them thinking and
@@ -445,6 +460,138 @@ stopped the whole process. With the recipe of [Deployment](./guides/deployment.m
 a child forked with a heap of 48 MB ran out of memory on the 2,000-page PDF and stopped alone: the
 upload was answered with an error, and the next one was ingested.
 
+**Text files that are not UTF-8 (0.6.1, November 2026, Node 24 on Windows).** 0.6.0 read such a
+file as UTF-8, in one go, with every letter of the older encoding stored as U+FFFD. 0.6.1 looks at
+its lines, chooses an encoding, and decodes in steps of about a megabyte, with pauses in between.
+
+A log of 77 MB in windows-1255, 1,002,740 lines each with a Hebrew name, and the same lines in
+UTF-8 (84 MB), each ingested into a `MemoryDocumentStore` in a fresh process, in turn, nine runs
+each, in two sessions of 2026-11-21, on a machine that ran other work too. The stall is the longest
+gap between two beats of a 5 ms timer, and memory the peak resident set at the beats:
+
+| Log | Ingest | Longest stall | Memory |
+|---|---|---|---|
+| 77 MB in windows-1255 | 2.8 to 4.0 s | 34 to 73 ms | 462 to 485 MB |
+| The same lines in UTF-8, 84 MB | 2.5 to 3.5 s | 63 to 119 ms | 458 to 477 MB |
+
+The second session (six runs each) took about a quarter longer than the first, with stalls up to
+twice as long, under other load on the machine. In both, the windows-1255 log took longer on
+average than its UTF-8 copy, and its stalls were shorter.
+
+The decoder alone, on files of 30 MB, in a fresh process, three times, two passes each (the first
+pass also builds the tables of the encodings):
+
+| File of 30 MB | Before: whole time, longest step | 0.6.1: whole time, longest step |
+|---|---|---|
+| All in windows-1255 | 265 to 293 ms, 27 to 42 ms | 274 to 284 ms, 13 to 14 ms |
+| Rows of ASCII and of windows-1255, and one row of UTF-8 | 215 to 234 ms, 23 to 36 ms, with the UTF-8 row read wrong | 348 to 372 ms, 21 to 22 ms |
+| Lines with accents, of windows-1252 and of UTF-8 in turn, 100 bytes each, with one windows-1252 line more (with as many of each, the file is read as UTF-8) | 203 to 298 ms, 25 to 44 ms, with the UTF-8 lines read wrong | 495 to 532 ms, 9 to 21 ms |
+| One row of UTF-8, then one line of 30 MB in windows-1255 | 247 to 275 ms, 13 to 16 ms | 291 to 320 ms, 17 to 19 ms |
+| Lines of one letter, of windows-1252 and of UTF-8 in turn | 294 to 345 ms, 27 to 45 ms | 2,089 to 2,212 ms, 12 to 21 ms |
+| CESU-8 (emoji as halves of surrogate pairs) | 195 to 266 ms, 16 to 34 ms, read as windows-1252 | 132 to 140 ms, 17 to 22 ms |
+
+"Before" read a file with lines in both encodings whole in the older one. Reading each line in its
+own encoding costs 1.6 times the time on a mixed CSV, about twice on lines that all take turns, and
+7 times on lines of one letter, all of it spread over pauses. A whole ingest of the mixed CSV took
+1,064 to 1,072 ms (two runs). The longest stalls of these whole ingests, 63 to 197 ms before and
+after, came from later steps of the ingest, not from the decoder. Before the pauses between the
+encodings it tries, choosing one held the event loop for 45 to 90 ms in one block the first time a
+process met such a file.
+
+**Cleaning a long line (0.6.1, November 2026, Node 24 on Windows).** Ingest cleans the text a
+slice at a time, but a slice runs on to the next line break, so a text with no line break was
+cleaned in one go. Each file below is one line of 30 MB, ingested into a `MemoryDocumentStore` in a
+fresh process for each run, on a machine that ran other work too: the longest stall, and the peak
+memory of the process. 0.6.0 is given where it was measured; it removed fewer characters, and held
+the event loop for the whole ingest.
+
+| One line of 30 MB | 0.6.0 | Before | 0.6.1 |
+|---|---|---|---|
+| A zero-width space between letters | 357 to 370 ms | 931 to 1,061 ms, 721 to 809 MB | 34 to 52 ms, 195 to 196 MB |
+| A control character between letters | 1,856 to 1,887 ms, 761 MB | 2,014 to 3,428 ms, 1,497 to 1,567 MB | 71 to 76 ms, 248 to 250 MB |
+| Soft hyphens alone | | 792 to 891 ms, 496 to 501 MB | 40 ms, 193 MB |
+| Tag characters and variation selectors in turn | | 634 to 705 ms, 464 to 470 MB | 40 to 51 ms, 220 to 269 MB |
+| `a` and `ESC [0m` in turn | 671 to 726 ms | 455 to 488 ms, 413 MB | 31 to 36 ms, 211 to 217 MB |
+| `a` and `U+009B 1m` in turn | 467 ms | 573 to 656 ms, 427 MB | 42 to 55 ms, 245 to 260 MB |
+
+With a heap of 1 GB, a line of 99 MB with a zero-width space or a control character between its
+letters ran the process out of memory before; 0.6.1 held the event loop for 97 to 118 ms, at 467
+to 476 MB. With `U+009B 1m` in turn, 2.1 to 2.3 s at 1.1 GB before, and 0.11 to 0.13 s at 542 to
+547 MB. The text stored is the same. The rows of escape sequences were measured with the final
+code; the other rows with a first version of it, which cleans those characters the same way, and
+which the final code matched within the spread.
+
+**Hidden text in Word (0.6.1, November 2026, Node 24 on Windows).** A hidden line longer than about
+1,950 characters is cut into marked pieces. Before, the end of the line was looked for again for
+each piece, so the work grew with the square of the line, in one block. Each DOCX ingested into a
+`MemoryDocumentStore` in a fresh process, one run of 0.6.1 each:
+
+| DOCX | Before | 0.6.1 |
+|---|---|---|
+| 16.7 KB, one hidden run of 16 million letters | 11.3 to 14.5 s (four runs), nearly all of it one stall | 0.55 s, longest stall 0.18 s |
+| 348 KB, one hidden run of 16 million characters of words | 11.7 s, one stall of 11.3 s | 0.53 s, longest stall 74 ms |
+| 1.48 MB, one hidden run of 134 million characters, refused for its text | 722 s | 0.75 s, longest stall 0.30 s, the same refusal |
+
+0.6.0, which did not mark hidden text, read the 16.7 KB file in 0.46 to 0.54 s (three runs).
+Marking the 16 million letters alone took 92 ms (10.1 s before). Reading the XML of 200,000 runs,
+formatted, hidden or neither, took the same time before and after, within the spread (0.6 to 0.8 s,
+five rounds).
+
+**Reading a PDF into objects, and looks at pages (0.6.1, November 2026, Node 24 on Windows).**
+`@cantoo/pdf-lib` reads the whole file into objects for the page check and the picture marks at
+ingest, and for each look of `view_pages`. 0.6.1 makes it pause after every 12 ms of work, or up to
+40 ms where a pause itself takes long, as a timer does on Windows. Before, it paused after a count
+of 500 objects (0.6.0: 4,000). The stall is the longest the event loop was held:
+
+| Read into objects | Before: count of 500 | 0.6.1: by time |
+|---|---|---|
+| A file of 4,000 large arrays: longest stall | 164 to 179 ms | 28 to 32 ms |
+| A PDF of 2,000 pages: longest stall | 32 to 106 ms | 19 to 38 ms |
+| A file of 61,000 small objects: whole read | 1.65 to 1.87 s | 0.91 to 0.96 s |
+| A file of large objects: whole read | 1.13 to 1.22 s | 1.35 to 1.43 s |
+
+What `@cantoo/pdf-lib` reads in one step still holds the server. One object takes about 0.1 to
+0.2 s for each MB of an array of numbers, more when the numbers are short: 1.1 to 1.2 s for 8 MB,
+4.1 s for 32 MB, 9 s for 64 MB. A crafted one-page PDF of 16 MB held the server for 2.7 s at
+ingest and 2.5 s on each look. Measured again on a busy machine, one look at 16 MB took 2.1 s with
+numbers such as `1234.5` and 3.5 s with numbers of one digit. A stream whose length the file gives
+by reference takes about 0.03 s for each MB, and a cross-reference table written as text 0.15 s
+for 150,000 objects: the longest stall of a file of 150,000 objects was 168 to 197 ms, 151 ms of
+it that table. Such files also take many times their size in heap, the more the shorter their
+numbers: one array of numbers such as `1234.5` left 173 MB in use at 16 MB and 399 MB at 32 MB,
+and one of one-digit numbers 493 MB and 929 MB. One of 40 MB ran a heap of 256 MB out of memory.
+The count of objects that a file declares does not show this.
+
+A look at pages now also pauses while it copies the pages and writes the cut. Compared with 0.6.0:
+
+| Look at pages | 0.6.0: longest stall, of the whole look | 0.6.1 |
+|---|---|---|
+| Pages 1,800 to 1,802 of a PDF of 2,000 pages, 6.2 MB | 159 to 177 ms, of 163 to 185 ms | 19 to 20 ms, of 0.2 s (19 to 48 ms on a busy machine) |
+| One page that refers to 4,000 large arrays | 0.73 to 0.75 s, of 1.27 to 1.30 s | 39 to 50 ms, of 1.5 to 1.6 s |
+| One page that refers to 20,000 large arrays | 1.87 to 2.02 s, of 3.8 to 3.9 s | 43 to 47 ms, of 4.0 s |
+
+The writer of `@cantoo/pdf-lib` searched its list of objects for each new one, a block that grew
+with the square of their count (0.5 s for 20,000 objects); the cut's own list is now added to at its
+end. 65 cuts of 50 PDFs are the same to the byte as before. Still in one block: the first look of a
+process loads `@cantoo/pdf-lib`, in about 0.4 s (0.37 to 0.39 s for the ES build that `import()`
+loads); a page whose resources list 140,000 pictures
+takes about 0.15 s to drop the ones it does not paint; and a content stream of 7 to 8 MB takes 74
+to 84 ms to read for the pictures it paints.
+
+**Streams of a reply (0.6.1, November 2026, Node 24 on Windows).** `parseSseJson`, which the
+adapters read streamed replies with, scanned an event again with each piece that came. One event of
+1, 4 and 8 MB, in pieces of 16 KB, in memory, took 11 to 15 ms, 201 to 220 ms and 794 to 954 ms
+before, and takes 1 to 2 ms, 5 to 9 ms and 10 to 18 ms with 0.6.1. Now that it is fast, an endpoint
+that never ends an event could fill memory fast: one event holds at most 64,000,000 characters. A
+hostile endpoint on the same machine, read through the adapters' own `fetch`:
+
+| The endpoint sends | Before | 0.6.1 |
+|---|---|---|
+| One event without an end | 513 MB read, failed as `"unreachable"` and sent again: 4 requests, 7.7 s, the process up 894 MB | Failed as `"invalid"` after 62 MB, not sent again: 1 request, 0.36 s, up 165 MB |
+| Data lines without the blank line that ends an event, heap of 1 GB | Out of memory: the process stopped | Failed as `"invalid"` after 62 MB, 0.39 s, up 166 MB |
+
+A reply made of many events has no cap yet.
+
 [Security](./security.md) explains the limits that came of these measurements.
 
 ## Faults reproduced before a fix
@@ -467,6 +614,16 @@ named.
   of text. One of 6 KB with 600 listings held the event loop for 205 s.
 - **0.6.1.** `files.tools()`, handed a `DocumentMeta` built from an ID with no owner or another
   one, read the text of a document that had an owner, and showed the pages of its PDF.
+- **0.6.1.** A Hebrew CSV that Excel saved in windows-1255 was stored as U+FFFD: "ירושלים" was
+  found in none of its 30 rows.
+- **0.6.1.** A line with 44 Unicode tag characters, which spell out an instruction that a person
+  does not see, sent all 44 to the model, in the prompt and in tool results.
+- **0.6.1.** With unpdf 1.5.0 to 1.6.0 on Node 20.19 and 22.12, the first PDF stopped the whole
+  process (`TypeError: Promise.try is not a function`, where nothing could catch it).
+- **0.6.1.** A call to a tool named with 200,000 characters made a step of 400,025 characters, and
+  an error result of 200,047 that went back to the model.
+- **0.6.1.** A question whose adapter never ended its request, and ignored the signal, hung for
+  good after an abort at 300 ms. It now throws the signal's reason at 310 ms.
 
 ## Checks of 0.5.0
 

@@ -19,8 +19,11 @@ export class MemoryDocumentStore implements DocumentStore {
     this.now = options.now ?? (() => new Date());
   }
 
+  // The metadata is copied on the way in and on the way out, as a store that writes it somewhere
+  // does: an app that changes the metadata it was handed (deletes its owner before sending it to a
+  // browser) must not change the document's owner or expiry.
   async put(document: StoredDocument): Promise<void> {
-    this.documents.set(document.meta.id, document);
+    this.documents.set(document.meta.id, { meta: structuredClone(document.meta), text: document.text });
   }
 
   async get(id: string): Promise<StoredDocument | undefined> {
@@ -29,7 +32,7 @@ export class MemoryDocumentStore implements DocumentStore {
       await this.delete(id);
       return undefined;
     }
-    return document;
+    return document && { meta: structuredClone(document.meta), text: document.text };
   }
 
   async getMeta(id: string): Promise<DocumentMeta | undefined> {

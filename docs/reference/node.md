@@ -88,14 +88,16 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none: every request is anonymous | The owner of this request, usually the signed-in user's ID. Called at most once per request. In `upload` it runs after the name is read and before the body: an upload without a name is answered `400` without calling it, and a refused upload is never buffered. |
+| `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none: every request is anonymous | The owner of this request, usually the signed-in user's ID. Called at most once per request. In `upload` it runs after the name is read and before the body: an upload without a name is answered `400` without calling it, and a refused upload is never buffered. An empty owner (`""`, or spaces only) is the server's mistake: the upload is answered `500` `{ "error": "Upload failed (empty owner)." }`, before its body is read. So is an owner from JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`, say): `{ "error": "Upload failed (owner is not a string)." }`. |
 
 What `getOwner` returns decides what each handler does:
 
 | `getOwner` | `upload` | `get` and `remove` |
 |---|---|---|
-| Returns a string | The document is ingested with that `owner`. | They pass `{ owner }`: they find the documents of that owner, and those that have no owner. A document of another owner answers as one that does not exist. |
+| Returns a string that is not empty or only spaces | The document is ingested with that `owner`. | They pass `{ owner }`: they find the documents of that owner, and those that have no owner. A document of another owner answers as one that does not exist. |
 | Returns `undefined`, or there is no `getOwner` | The document has no owner: anyone who has its ID can read it, delete it and ask about it. | They pass no owner: they find only documents that have no owner. |
+| Returns `""`, spaces only, or `null` from JavaScript | Answered `500` `{ "error": "Upload failed (empty owner)." }`, before the body is read, and nothing is logged. Such an owner would be one owner shared by every caller without a user: `user?.id ?? ""` gives it for a user who is not signed in. New in 0.6.1: 0.6.0 stored the document with that owner. | As before: they pass it as `owner`, so documents that 0.6.0 stored with the owner `""` stay readable until they expire. |
+| Returns, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array | Answered `500` `{ "error": "Upload failed (owner is not a string)." }`, before the body is read, and nothing is logged. New in 0.6.1. A finite number is taken as the owner, as before. | They pass it as `owner`, as before. |
 | Throws an `Error` whose `status` (or `statusCode`) is a whole number from 400 to 599, as the `http-errors` package makes them | Answered with that status and `{ "error": <the error's message> }`. | The same. |
 | Throws anything else | Answered `500` without the error's message, which may name your hosts: `{ "error": "Upload failed." }` (with the code of a Node system error: "Upload failed (ECONNREFUSED)."). | `500`: "The file could not be looked up." or "The file could not be deleted.", the same way. |
 
@@ -126,7 +128,8 @@ promise resolves once the response is written; none rejects.
 
 The summary is a [`DocumentSummary`](./library.md#documentsummary), the fields of a document that
 are safe to send to a browser: `id`, `name`, `mimeType`, `format`, `bytes`, `lines`,
-`estimatedTokens`, `pages` (for a PDF or a PPTX) and `expiresAt`. It holds no `owner`.
+`estimatedTokens`, `pages` (for a PDF or a PPTX), `encoding` and `replacedCharacters` (for a text
+file that was not valid UTF-8, since 0.6.1) and `expiresAt`. It holds no `owner`.
 
 #### upload(request, response)
 
@@ -142,22 +145,28 @@ The request:
 | `Content-Type` header | The MIME type when there is no `X-File-Type`, unless it starts with `application/octet-stream`. The value is kept whole, parameters included: a `fetch` with a string body sends `text/plain;charset=UTF-8`, and that is the document's `mimeType`. A type with parameters does not set the format, so name the file with its extension. With neither header, the document's `mimeType` is `application/octet-stream`. Send `application/octet-stream`, which JSON and form parsers leave alone. |
 | `Content-Length` header | Optional. When it is larger than `maxUploadBytes`, the handler answers `413` before it reads anything. |
 
-`files.ingest` then keeps the last path segment of the name, without control characters, up to
-255 characters, and takes the format from the name's extension first, then from the MIME type
+`files.ingest` then keeps the last path segment of the name, without control characters and
+characters that show nothing, up to 255 characters and never cut in the middle of a character, and takes the format
+from the name's extension first, then from the MIME type
 ([`detectFormat`](./library.md#detectformatname-mimetype)).
 
 What it does, in order:
 
 1. Reads the name. Without one, it answers `400`.
-2. Calls `getOwner`.
+2. Calls `getOwner`, and checks what it returned: `""`, spaces only or `null`, or from JavaScript
+   a value that is neither a string nor a finite number, is answered `500` (see
+   [`DocumentHandlerOptions`](#documenthandleroptions)).
 3. Reads the body, up to `files.maxUploadBytes`:
    - a `Uint8Array` or `Buffer` that a framework left in `request.body` (`express.raw()`) is used
      as the file, with the same limit;
    - an object with fields in `request.body` (`express.json()` on a JSON request) is answered
      `400`;
-   - otherwise it reads the request stream. Past the limit it stops keeping the bytes, drains the
-     rest so that the client can read the answer, and answers `413`. A stream that another
-     middleware has already read gives no bytes, and the upload is answered `422` as an empty file.
+   - otherwise it reads the request stream. Past the limit it stops reading, and answers `413`.
+     The rest of the body is not read: a client that sent no `Content-Length` (a chunked upload)
+     and then sends its next request on the same keep-alive connection, as a `node:http` agent
+     does, gets no answer to that request. `fetch`, and a client that sends `Content-Length`, are
+     not affected. A stream that another middleware has already read gives no bytes, and the
+     upload is answered `422` as an empty file.
 4. Ingests it: `files.ingest({ name, bytes, mimeType, owner, signal })`, `mimeType` and `owner`
    only when there are any. The `signal` aborts when the client closes the connection before the
    answer is sent: the ingest stops between two pages or pieces, and nothing is stored. The
@@ -172,8 +181,10 @@ The responses:
 | `400` | `{ "error": "Name the file with an X-File-Name header or a ?name= query parameter." }` | No name. |
 | `400` | `{ "error": "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream." }` | `request.body` is an object with fields. |
 | `413` | `{ "error": "The file is larger than the 100 MB upload limit." }`, with your `maxUploadBytes` in its place (`512 KB`, `1000 B`) | `Content-Length`, the bytes read, or the `Buffer` in `request.body` are over `maxUploadBytes`. |
-| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", a PDF with no text layer, and a PDF, DOCX or PPTX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf"."). A file past the limits of `createLargeFiles`: more text than `maxTextBytes`, more pages than `maxPdfPages`, longer to read than `ingestTimeoutMs` ("report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that."), or built to exhaust the server ([every message](../guides/pdfs.md#what-is-refused)). An extractor of your own that throws an `Error` gives its message here too. |
+| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", a PDF with no text layer, and a PDF, DOCX or PPTX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf".") or, for a PDF, cannot run on this Node ("The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.", see [defaultExtractors](./library.md#defaultextractors)). A text file is never refused for its encoding. A file past the limits of `createLargeFiles`: more text than `maxTextBytes`, more pages than `maxPdfPages`, longer to read than `ingestTimeoutMs` ("report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that."), or built to exhaust the server ([every message](../guides/pdfs.md#what-is-refused)). An extractor of your own that throws an `Error` gives its message here too. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, an extractor or the store threw an error with that `status` or `statusCode`. |
+| `500` | `{ "error": "Upload failed (empty owner)." }` | `getOwner` returned `""`, spaces only or `null`. The body is not read. New in 0.6.1. |
+| `500` | `{ "error": "Upload failed (owner is not a string)." }` | `getOwner` returned, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array. The body is not read. New in 0.6.1. |
 | `500` | `{ "error": "Upload failed (ENOSPC)." }` | The store failed with a Node system error, one with a `code` and a `syscall`. Only the code is passed on. |
 | `500` | `{ "error": "Upload failed." }` | `getOwner` threw an error without a status, or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of either kind that has a `code` and a `syscall` is answered as in the row above, with its code. |
 | `500` | `{ "error": "Upload failed." }` | The store failed while it wrote the document, with an error that has no `status` or `statusCode` from 400 to 599 and is not a Node system error (a database driver's error, say). Or `files.ingest` threw a value that is not an `Error` (an extractor of your own that throws a string, say). Such a value with a `code` and a `syscall` gets its code, as in the `ENOSPC` row. The error's own message is not sent. See below. |

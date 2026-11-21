@@ -116,9 +116,10 @@ Each term links to the page that explains it. The defaults and limits are on tho
   built-in adapters declare a window only when you give them `contextTokens`. See
   [`Budget`](./reference/library.md#budget) and [costs and limits](./guides/costs-and-limits.md).
 - **Card**: what the model sees of a document that is not inline: its name and `document_id`, its
-  format and size, for a log its levels, time range and most frequent problems, the start of its
-  outline, and its first lines, numbered. It tells the model to use the tools for the rest. See
-  [how it works](./how-it-works.md).
+  format and size, for a text file that was not valid UTF-8 the encoding it was read in or how
+  many of its characters were not valid, for a log its levels, time range and most frequent
+  problems, the start of its outline, and its first lines, numbered. It tells the model to use the
+  tools for the rest. See [how it works](./how-it-works.md).
 - **Document**: a file after `files.ingest()`: its extracted text, which the tools read by line
   number, and its metadata (`DocumentMeta`), kept in the store under an ID the library makes
   (`doc_` and 32 hex characters). It expires after `ttlMs`. The uploaded file itself is kept only
@@ -132,7 +133,8 @@ Each term links to the page that explains it. The defaults and limits are on tho
   answering model then gets what the tools returned, not what the explorer wrote, and writes the
   answer in a request of its own. Without one, one model does both. See
   [an explorer model](./guides/explorer-model.md).
-- **Inline**: a document whose whole text goes into the prompt because it fits the budget. By
+- **Inline**: a document whose whole text goes into the prompt because it fits the budget, between
+  two frame lines that carry a mark made from its ID, which the file's own lines cannot copy. By
   default (`documentPlacement: "first"`) it goes at the start of the first user turn, where a
   provider's prompt cache can reuse it on follow-up questions. See [how it works](./how-it-works.md).
 - **Limits**: `AskLimits`, how much work one question may do: chat requests (`toolTurns`), tool
@@ -140,10 +142,11 @@ Each term links to the page that explains it. The defaults and limits are on tho
   and optional ceilings on input tokens (`inputTokens`) and requests (`requests`). The budget is
   about size; the limits are about work, and so about cost. See
   [`AskLimits`](./reference/ask.md#asklimits) and [costs and limits](./guides/costs-and-limits.md).
-- **Owner**: a string you set at ingest, usually the ID of the user or tenant. Every later call
-  for the document must pass the same string; with another one, the document is treated as missing
-  and `askWithFiles` throws `DocumentsNotFoundError`. A document without an owner can be used by
-  anyone who has its ID. The library only compares the strings: chat sessions, and which documents
+- **Owner**: a string you set at ingest, usually the ID of the user or tenant. It must not be
+  empty: `ingest` refuses `""`, a string of spaces and `null`. Every later call for the document
+  must pass the same string; with another one, the document is treated as missing and
+  `askWithFiles` throws `DocumentsNotFoundError`. A document without an owner can be used by anyone
+  who has its ID. The library only compares the strings: chat sessions, and which documents
   belong to one, are your application's to keep. See [storage](./guides/storage.md) and
   [security](./security.md).
 - **Plan**: the split of a question's documents into inline and searchable (`DocumentPlan`, also in
@@ -168,7 +171,8 @@ Each term links to the page that explains it. The defaults and limits are on tho
 - **Steps**: one short line for each tool call, in order, such as
   `Search app.log (exact) for “timeout” — 12 matching lines`, and lines for what the loop itself
   did, such as `Older tool results were shortened to make room in the request`. They arrive live
-  through `onStep`, and all together in `AskResult.steps`. See
+  through `onStep`, and all together in `AskResult.steps`. Each is one line of plain text that can
+  quote the model's words: show it as plain text, never as markdown or HTML. See
   [`AskResult`](./reference/ask.md#askresult) and [web app](./guides/web-app.md).
 - **Store**: a `DocumentStore`, where the text and metadata of documents live and, when the store
   supports it, their original files and line indexes. Built in: `MemoryDocumentStore` and
@@ -254,10 +258,12 @@ import from.
 
 ## Internals and measurements
 
-- [How it works](./how-it-works.md): the internals end to end: ingest, the plan, cards, room in
-  the request, token estimates, the tools, whole-file reads, the loop.
-- [Security](./security.md): owners and scoping, prompt injection, retention, original files,
-  PDFs, uploads, regular expressions, cost, storage errors.
+- [How it works](./how-it-works.md): the internals end to end: ingest, text encodings, the plan,
+  the frame and the cards, room in the request, token estimates, the tools, whole-file reads, the
+  loop.
+- [Security](./security.md): owners and scoping, prompt injection (the frame around a file,
+  characters that show nothing, hidden text, older encodings), retention, original files, PDFs,
+  uploads, regular expressions, cost, storage errors, what the library logs.
 - [Measurements](./measurements.md): every live result and measurement, with its date.
 - [Troubleshooting](./troubleshooting.md): symptom, cause, fix.
 

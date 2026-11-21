@@ -1,11 +1,12 @@
 // Claude (the Messages API) as a model of `askWithFiles`. No SDK, like the other adapters: the
 // caller gives a key or a token, and may give the URL of a gateway that speaks the same API.
 import { randomUUID } from "node:crypto";
-import { base64, idleWatch, readJson, resolveHeaderSource, resolveSecret, unreachableReason, type HeaderSource, type IdleWatch, type SecretSource } from "../http.js";
-import { ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { base64, idleWatch, noteCutReply, notJsonMessage, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, type HeaderSource, type IdleWatch, type SecretSource } from "../http.js";
+import { laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
-import { retryAfterMs } from "../retry.js";
-import { parseSseJson } from "../sse.js";
+import { noteNoRetry, retryAfterMs } from "../retry.js";
+import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
+import { estimateTokens, sliceWhole } from "../text.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolResult } from "../types.js";
 
 /** The API answered with an HTTP error, or could not be reached (`status` 0). `type` is the API's own word: "rate_limit_error". */
@@ -116,7 +117,14 @@ export type AnthropicOptions = {
 type Json = Record<string, any>;
 type Block = Record<string, any>;
 
-const STATUS_OF_TYPE: Record<string, number> = { overloaded_error: 529, rate_limit_error: 429, api_error: 500, timeout_error: 408 };
+/**
+ * The status of an error event in a stream that began with 200, from its type. A type it does not
+ * know is the server's failure, 500, as an OpenAI-compatible stream's is.
+ */
+const STATUS_OF_TYPE: Record<string, number> = {
+  overloaded_error: 529, rate_limit_error: 429, api_error: 500, timeout_error: 408,
+  invalid_request_error: 400, authentication_error: 401, billing_error: 402, permission_error: 403, not_found_error: 404, request_too_large: 413,
+};
 
 /** Blocks of a model that declined part-way must not go back: only what came after the last switch to another model does. */
 const INTERNAL_BEFORE_FALLBACK = new Set(["thinking", "redacted_thinking", "tool_use", "server_tool_use"]);
@@ -156,10 +164,16 @@ async function failure(response: Response): Promise<AnthropicRequestError> {
   const data = await response.json().catch(() => null) as Json | null;
   const wait = retryAfterMs(response.headers, data);
   const type = typeof data?.error?.type === "string" ? data.error.type as string : undefined;
-  return new AnthropicRequestError(typeof data?.error?.message === "string" && data.error.message ? data.error.message : `Claude returned HTTP ${response.status}.`, response.status, {
+  // The spending cap of the organization comes as a rate limit (HTTP 429): no wait mends it.
+  const spent = data?.error?.details?.error_code === "enforced_spend_limit_reached";
+  const error = new AnthropicRequestError(typeof data?.error?.message === "string" && data.error.message ? data.error.message : `Claude returned HTTP ${response.status}.`, response.status, {
     ...(wait === undefined ? {} : { retryAfterMs: wait }),
     ...(type ? { type } : {}),
+    ...(spent ? { kind: "quota" as const } : {}),
   });
+  // The API says when another try cannot help, as its own SDKs read it.
+  if (response.headers.get("x-should-retry") === "false") noteNoRetry(error);
+  return error;
 }
 
 const toolResultOf = (id: string, result: ToolResult, documents: Block[]): Block => ({
@@ -277,10 +291,19 @@ export function anthropicToolTurns(turns: ToolTurn[]): AnthropicMessage[] {
   return turns.flatMap((turn, index) => {
     // A call that came without an ID is given one that no round of another question has: these
     // messages are kept, and sent again next to those of later questions.
-    const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: `toolu_${randomUUID().replaceAll("-", "").slice(0, 24)}` }, result }));
+    const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: `toolu_${randomUUID().replaceAll("-", "").slice(0, 24)}` }, result: laterResult(result) }));
     const round: ModelToolRound = { role: "tools", calls: answers.map((answer) => answer.call), answers };
     return roundMessages(round, callIds(round, index + 1, used), "none");
   });
+}
+
+/**
+ * True when `body` asks Claude to clear old tool results on its side (context editing with
+ * `clear_tool_uses`), or to compact the conversation: a result shown earlier may then be gone.
+ */
+function clearsToolResults(body: Record<string, unknown> | undefined): boolean {
+  const edits = (body?.context_management as { edits?: unknown } | null | undefined)?.edits;
+  return Array.isArray(edits) && edits.some((edit) => /^(?:clear_tool_uses|compact)/.test(String((edit as { type?: unknown } | null)?.type ?? "")));
 }
 
 /** A Claude model for `askWithFiles`. */
@@ -299,6 +322,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
   const streaming = options.stream !== false;
   const eager = options.eagerInputStreaming ?? firstParty;
   const cache = options.cache === false ? undefined : { type: "ephemeral", ...(options.cache === "1h" ? { ttl: "1h" } : {}) };
+  const scale = options.tokenScale ?? 1.35;
   const betas = [...new Set([...(options.betas ?? []), ...(options.fallbacks ? [FALLBACK_BETA] : [])])];
 
   const headersNow = async (): Promise<Record<string, string>> => {
@@ -403,17 +427,21 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
         messages: [{ role: "user", content: prompt }],
         ...options.analysisBody?.(limit),
       }, signal ? AbortSignal.any([signal, timeout]) : timeout, () => Boolean(signal?.aborted) || timeout.aborted);
-      const data = await readJson<Json>(response, () => Boolean(signal?.aborted) || timeout.aborted, unreachable);
-      onUsage?.(usageOf(data.usage as Json | undefined));
+      const data = await readJson<Json>(response, () => Boolean(signal?.aborted) || timeout.aborted, unreachable, undefined, (error) => notJson(response, error));
+      const used = usageOf(data.usage as Json | undefined);
+      onUsage?.(used);
       const content: Block[] = Array.isArray(data.content) ? data.content : [];
+      const text = content.map((block) => (block?.type === "text" && typeof block.text === "string" ? block.text : "")).join("");
       return {
-        text: content.map((block) => (block?.type === "text" && typeof block.text === "string" ? block.text : "")).join(""),
+        text,
         cutOff: data.stop_reason === "max_tokens",
         // Claude stopped before the end, for its safety rules or because its window was full: what
         // it wrote is not all there is. (Not `cutOff`: a larger output limit would not help.)
         stopped: data.stop_reason === "refusal" || data.stop_reason === "model_context_window_exceeded",
         ...(typeof data.stop_reason === "string" ? { reason: data.stop_reason } : {}),
-        thoughts: 0,
+        // Claude does not count its thoughts apart: they are what it wrote besides its text, when it
+        // thought. A reply that thought most of its limit away is then asked for with a larger one.
+        thoughts: content.some(isThinking) ? Math.max(0, (used.outputTokens ?? 0) - Math.ceil(estimateTokens(text) * scale)) : 0,
       };
     };
     return completeWithinLimit(`${url}|${options.model}`, maxOutputTokens, send, { signal, onTruncated });
@@ -426,11 +454,13 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       maxRequestBytes: options.maxRequestBytes ?? 32_000_000,
       toolFiles: files,
       pageTokens: options.pageTokens ?? 3_500,
-      tokenScale: options.tokenScale ?? 1.35,
+      tokenScale: scale,
       outputTokens: maxTokens,
       // Claude checks its thinking blocks against the conversation they were written in: an
       // earlier turn that is rewritten makes the later ones invalid.
       appendOnly: true,
+      // With context editing, Claude may no longer have a result shown earlier: none is pointed to.
+      ...(clearsToolResults(options.body) ? { clearsToolResults: true } : {}),
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request, streaming))),
     generateText,
@@ -452,12 +482,22 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
   };
 
   /** The reply of a request that was answered: streamed, or in one piece. */
-  async function readReply(response: Response, hooks: SendHooks, watch: IdleWatch, lost: (error: unknown) => AnthropicRequestError): Promise<ModelReply> {
+  async function readReply(answer: Response, hooks: SendHooks, watch: IdleWatch, lost: (error: unknown) => AnthropicRequestError): Promise<ModelReply> {
     {
       const problems = new Map<number, string>();
-      if (!(streaming && response.body && (response.headers.get("content-type") ?? "").includes("text/event-stream"))) {
+      let response = answer;
+      let events = false;
+      if (streaming && answer.body) {
+        try {
+          ({ events, response } = await streamedReply(answer, watch));
+        } catch (error) {
+          if (hooks.signal?.aborted) throw error;
+          throw noteCutReply(lost(error));
+        }
+      }
+      if (!(events && response.body)) {
         // In one piece: streaming is off, or the gateway answered without it.
-        const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), lost, watch);
+        const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), lost, watch, (error) => notJson(answer, error));
         const content: Block[] = Array.isArray(data.content) ? data.content : [];
         const text = content.map((block) => (block?.type === "text" && typeof block.text === "string" ? block.text : "")).join("");
         if (text) hooks.onText?.(text);
@@ -471,13 +511,17 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       let stopReason: unknown;
       let stopDetails: Json | undefined;
       let usage: Json | undefined;
+      // `message_stop` ends the reply: a gateway that leaves the connection open after it is not waited for.
+      const end = replyEnd(watch);
       try {
-        for await (const event of parseSseJson<Json>(response.body, { onData: watch.pulse, signal: watch.signal })) {
+        for await (const event of parseSseJson<Json>(response.body, { onData: watch.pulse, signal: end.signal })) {
           if (event.type === "error") {
             const type = typeof event.error?.type === "string" ? event.error.type as string : undefined;
-            throw new AnthropicRequestError(String(event.error?.message ?? "Claude reported an error."), (type && STATUS_OF_TYPE[type]) || response.status, type ? { type } : {});
+            throw new AnthropicRequestError(String(event.error?.message ?? "Claude reported an error."), (type && STATUS_OF_TYPE[type]) || 500, type ? { type } : {});
           }
-          if (event.type === "message_start") {
+          if (event.type === "message_stop") {
+            end.reached();
+          } else if (event.type === "message_start") {
             usage = { ...event.message?.usage };
           } else if (event.type === "content_block_start" && typeof event.index === "number") {
             content[event.index] = { ...event.content_block };
@@ -509,7 +553,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
                 block.input = input;
               } catch {
                 block.input = {};
-                problems.set(event.index, `The arguments of this call were not valid JSON, and it was not run: ${written.slice(0, 300)}. Send the call again.`);
+                problems.set(event.index, `The arguments of this call were not valid JSON, and it was not run: ${sliceWhole(written, 300)}. Send the call again.`);
               }
             }
           } else if (event.type === "message_delta") {
@@ -519,14 +563,23 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
           }
         }
       } catch (error) {
-        if (hooks.signal?.aborted || error instanceof AnthropicRequestError) throw error;
-        // The connection went while the answer was on its way, or nothing came for the whole wait.
-        throw lost(error);
+        // The reply ended with `message_stop`, and the connection then stayed open, or broke rather
+        // than end: what came before it is whole.
+        const whole = end.left(error) || (end.whole && !hooks.signal?.aborted && !(error instanceof AnthropicRequestError));
+        if (!whole) {
+          if (hooks.signal?.aborted || error instanceof AnthropicRequestError) throw error;
+          // An event too long to read would come again: it is not sent again, like a page in the reply's place.
+          if (error instanceof SseEventTooLongError) throw new AnthropicRequestError(eventTooLongMessage("Claude's", error), answer.status, { kind: "invalid", cause: error });
+          // The connection went while the answer was on its way, or nothing came for the whole wait.
+          throw noteCutReply(lost(error));
+        }
+      } finally {
+        end.dispose();
       }
       // Every reply ends with the reason it stopped. A stream that closed without one was cut short
       // (a gateway that ended it as if it were whole): its text is not the answer, and it is sent
       // again like a connection that failed, when none of it was shown.
-      if (stopReason === undefined) throw new AnthropicRequestError("Claude's reply ended before it was complete.", 0);
+      if (stopReason === undefined) throw noteCutReply(new AnthropicRequestError("Claude's reply ended before it was complete.", 0));
       content.forEach((block, index) => {
         if ((block?.type === "tool_use" || block?.type === "server_tool_use") && !closed.has(index)) problems.set(index, "This call did not arrive whole, and was not run. Send it again.");
       });
@@ -537,6 +590,11 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       return replyOf(blocks, stopReason, stopDetails, usage, placed, text);
     }
   }
+}
+
+/** A body that came with a status of success but is no JSON (a gateway's page): it is not sent again. */
+function notJson(response: Response, error: unknown): AnthropicRequestError {
+  return new AnthropicRequestError(notJsonMessage("Claude's", response), response.status, { kind: "invalid", cause: error });
 }
 
 /** A request that got no answer: the reason, without the stack of the HTTP client. */

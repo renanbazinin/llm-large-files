@@ -86,9 +86,19 @@ A chat request carries no output limit and no sampling field unless you put them
 
 **Streaming.** A chat request is streamed when `hooks.onText` is given and `stream` is not `false`.
 Under `askWithFiles` that is the answering model's request when you pass `onText`; an explorer's
-requests are never streamed. Each piece of text goes to `onText` as it arrives. When the server
-answers without `Content-Type: text/event-stream`, the reply is read whole, and `onText` gets its
-text at once.
+requests are never streamed. Each piece of text goes to `onText` as it arrives.
+
+- A reply of type `text/event-stream` is read as events. A reply of another type, or of none, is
+  read by its first characters (since 0.6.1): as events when it starts like them (`data:`,
+  `event:`, `id:`, `retry:` or a comment), as one piece otherwise. A body that starts with more
+  than 65,536 characters of white space is read as one piece. A reply read whole gives `onText`
+  its text at once.
+- `[DONE]` ends the reply. A server that then leaves the connection open is read for one more
+  second at most, and the body is cancelled, which closes the connection; a connection that breaks
+  after `[DONE]` keeps the reply too. In 0.6.0 such a stream failed after `idleTimeoutMs`, or as
+  unreachable, with the whole answer already shown.
+- A server that sends the name of a tool call again with each piece of the call does not make it
+  longer (since 0.6.1; it gave `search_documentsearch_document`). A name sent in pieces is joined.
 
 **The reply** ([`ModelReply`](./ask.md#modelreply)):
 
@@ -120,7 +130,11 @@ off with nothing written, or with half its limit or more spent thinking, while t
 32,768, is asked again with 32,768 output tokens
 ([`THINKING_OUTPUT_TOKENS`](./gemini.md#thinking_output_tokens)), and later part reads to the same
 URL and model start there. A server that refuses that limit with HTTP 400 is not asked for it
-again.
+again. A refusal of the request as too large is not taken for that (since 0.6.1): one for the
+model's window (HTTP 400), or for the tokens a minute the provider allows (OpenAI's 429, Groq's 413
+or 429), turns the larger limit off only when the window or allowance it names is 32,768 tokens or
+less; otherwise a later part may still get it. In 0.6.0 one 400 for the window turned it off for
+every later question on that model, in that process.
 
 **Errors.** `send` throws, and does not send anything again itself:
 [`askWithFiles`](./ask.md#askwithfilesoptions) decides what is retried
@@ -128,21 +142,26 @@ again.
 
 | Case | Error | `status` | `kind` |
 |---|---|---|---|
-| The server answered with an HTTP error | [`OpenAiRequestError`](#openairequesterror) with the body's `error.message` (or `error`, when it is a string; a body wrapped in a list, as the Gemini API's layer sends it, is read too), else "The model returned HTTP {status}." (for example "The model returned HTTP 503."). With `param`, `code` and `retryAfterMs` when the server gave them. | The HTTP status | Told from the status, the message and `code` |
-| An error object inside a stream that began with 200 | `OpenAiRequestError` with its `message`, else "The model reported an error.". No `param` or `code`. | Its `code` when that is a status from 400 to 599; else from its `type` or `code`: `server_error`, `api_error`, `internal_error`, `internal_server_error` 500; `service_unavailable` 503; `rate_limit_exceeded`, `rate_limit_error`, `tokens_exceeded` 429; `timeout` 408; `invalid_request_error` 400; any other 500 | Told from the status and the message |
+| The server answered with an HTTP error | [`OpenAiRequestError`](#openairequesterror) with the body's `error.message` (or `error`, when it is a string; a body wrapped in a list, as the Gemini API's layer sends it, is read too); else, since 0.6.1, a `message` at the top of the body (vLLM before its OpenAI-shaped errors, SGLang, FastChat) or a FastAPI `detail` (a string, or the `msg` of each problem in a list, joined with "; "); else "The model returned HTTP {status}." (for example "The model returned HTTP 503."). With `param`, `code` and `retryAfterMs` when the server gave them, in `error` or at the top of the body. | The HTTP status | Told from the status, the message and `code` |
+| An error object inside a stream that began with 200 | `OpenAiRequestError` with its `message`, else "The model reported an error.", with its `code` and `param` when they are strings (since 0.6.1; 0.6.0 kept neither). | Its `code` when that is a status from 400 to 599; else from its `type` or `code`: `server_error`, `api_error`, `internal_error`, `internal_server_error` 500; `service_unavailable` 503; `rate_limit_exceeded`, `rate_limit_error`, `tokens_exceeded`, `insufficient_quota` 429; `timeout` 408; `invalid_request_error`, `context_length_exceeded` 400; any other 500 | Told from the status, the message and `code`: `context_length_exceeded` is `"context_overflow"`, and `insufficient_quota` `"quota"`, neither sent again |
 | The connection failed, before or while the reply arrived, or an event of the stream was not JSON | `OpenAiRequestError`: "The model could not be reached (fetch failed).", the reason being the HTTP client's message | 0 | `"unreachable"` |
+| A reply of HTTP 200 whose body is empty | `OpenAiRequestError`: "The model could not be reached (the reply was empty).", new in 0.6.1. When the reply's type is `text/event-stream`, "The model's reply ended before it was complete.", as before. Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
 | Nothing arrived for a whole wait (`firstByteTimeoutMs`, `idleTimeoutMs`) | `OpenAiRequestError`: "The model sent nothing for {seconds} s.", the wait that ran out (600 s or 300 s by default) | 0 | `"timeout"` |
 | A stream that closed with no `finish_reason` and no `[DONE]` | `OpenAiRequestError`: "The model's reply ended before it was complete." | 0 | `"unreachable"` |
 | `finish_reason` `"insufficient_system_resource"` (DeepSeek's servers ran short) | `OpenAiRequestError`: "The model's server stopped the reply: it ran short of resources." | 503 | `"server"` |
+| A reply whose body is not JSON (a gateway's HTML page) | `OpenAiRequestError`: "The model's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the brackets holding the response's media type (left out when it has none), with the `SyntaxError` as `cause`. Not sent again. Until 0.6.1, the `SyntaxError` itself. | The response's, 200 | `"invalid"` |
+| An event of the stream longer than 64,000,000 characters | `OpenAiRequestError`: "The model's reply could not be read: an event of its stream held more than 64,000,000 characters." Not sent again. New in 0.6.1. | The response's, 200 | `"invalid"` |
 | `hooks.signal` aborted | The signal's reason, as it is | none | none |
-| A reply that is not streamed and whose body is not JSON (a gateway's HTML page) | The `SyntaxError` of `JSON.parse`, as it is | none | none |
 
-A part read throws as `send` does for an HTTP error, a connection that failed,
+A part read throws as `send` does for an HTTP error, a connection that failed, an empty body,
 `insufficient_system_resource`, an abort and a body that is not JSON. It has no waits of
 `firstByteTimeoutMs` and `idleTimeoutMs`; instead, a request that ran past `timeoutMs` throws the
 error of its abort (a `TimeoutError`). A reply with no text throws
 `Error("The model returned no text (length).")`, the reason in brackets being `finish_reason`.
-These two have no `status`.
+These two have no `status`. In a whole-file read, the model is told why a part failed by the
+error's kind and status, never by the server's message: "The model took too long to answer." for
+the `TimeoutError`, "The model returned no text (length)." for a reply with no text, the reason
+only when it is a plain word (see [`analyze_whole_document`](./tools.md#analyze_whole_document)).
 
 ```ts
 import { askWithFiles } from "llm-large-files";
@@ -259,12 +278,12 @@ provider through `ModelRequestError` and `kind` needs no case of its own for it.
 |---|---|---|
 | `name` | `string` | `"OpenAiRequestError"`. |
 | `message` | `string` | The server's own message, or one of the adapter's (see the table above). It is the provider's text: log it, and do not show it to your users as it is. |
-| `status` | `number` | The HTTP status, or the status of an error inside a stream; 0 when no answer came. |
-| `kind` | [`ModelErrorKind`](./errors-and-retries.md#modelerrorkind) | What went wrong, told from `status`, the message and `code`: `code` `"insufficient_quota"` makes it `"quota"`, and `"context_length_exceeded"` with a 4xx status `"context_overflow"`. The adapter sets `"timeout"` itself for a wait that ran out. |
+| `status` | `number` | The HTTP status, or the status of an error inside a stream; 0 when no answer came; 200 for a reply that came and could not be read. |
+| `kind` | [`ModelErrorKind`](./errors-and-retries.md#modelerrorkind) | What went wrong, told from `status`, the message and `code`: `code` `"insufficient_quota"` makes it `"quota"`, and so does HTTP 402 (DeepSeek's "Insufficient Balance", OpenRouter's "Insufficient credits"); `"context_length_exceeded"` with a 4xx status makes it `"context_overflow"`, and so does a request larger than the tokens a minute allow (OpenAI's 429 "Request too large … on tokens per min (TPM)", Groq's 413 or 429). The adapter sets `"timeout"` itself for a wait that ran out, and `"invalid"` for a reply of HTTP 200 it could not read. |
 | `retryAfterMs` | `number \| undefined` | The wait the server asked for: its `retry-after-ms` or `Retry-After` header, or the `retryDelay` of a `google.rpc.RetryInfo` in the error body (the Gemini API's OpenAI layer). |
 | `limitTokens`, `requestedTokens` | `number \| undefined` | For `kind` `"context_overflow"`: the model's limit and the tokens of the request, when the message gives them. |
-| `param` | `string \| undefined` | `error.param` of an HTTP error's body, when it is a string: the request field the error is about, such as `"max_tokens"`. |
-| `code` | `string \| undefined` | `error.code` of an HTTP error's body, when it is a string: the server's own word, such as `"unsupported_parameter"` or `"insufficient_quota"`. |
+| `param` | `string \| undefined` | `error.param` of an HTTP error's body (or `param` at its top), or of an error inside a stream, when it is a string: the request field the error is about, such as `"max_tokens"`. |
+| `code` | `string \| undefined` | `error.code` of an HTTP error's body (or `code` at its top), or of an error inside a stream (since 0.6.1), when it is a string: the server's own word, such as `"unsupported_parameter"`, `"context_length_exceeded"` or `"insufficient_quota"`. |
 | `cause` | `unknown` | The HTTP client's error, for a request that could not be reached. |
 
 The constructor takes the options of `ModelRequestError` and `param`. `code` sets the field and is
@@ -340,7 +359,8 @@ question and its answer. It throws nothing.
 
 Each round becomes an assistant message `{ role: "assistant", content: null, tool_calls }`, the
 arguments as a JSON string, followed by one `{ role: "tool", tool_call_id, content }` for each call,
-`content` being the result as JSON. No files: `toolTurns` keep none. A call with an ID keeps it. A
+`content` being the result as JSON, without `tool_turns_left`, which counted the turns of its own
+question (since 0.6.1, as `askWithFiles` sends stored rounds). No files: `toolTurns` keep none. A call with an ID keeps it. A
 call without one is given a new random ID, `call_` and 24 hex digits, a different one each time the
 function runs, so that the rounds of two questions kept in one history never share an ID. (Before
 0.6.0 such calls were numbered from 1.)

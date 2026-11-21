@@ -52,6 +52,10 @@ export const scratch = createLargeFiles({ store: new MemoryDocumentStore() });
 - It keeps originals, as a copy of the uploaded bytes.
 - `get` and `getMeta` remove a document that has expired when they are asked for it. `sweep`
   removes every one that has.
+- It copies the metadata it is given and the metadata it hands out, as a store that writes it
+  somewhere does: changing the `meta` that `ingest` or `getMeta` returned (deleting its `owner`
+  before you send it to a browser, say) changes nothing stored. Each call returns a new object.
+  `getOriginal` still returns the kept bytes themselves: treat them as read-only.
 - `now` is its clock, `() => new Date()` by default. In a test, give the store and
   `createLargeFiles({ now })` the same clock: see [Testing](./testing.md).
 
@@ -126,6 +130,21 @@ await files.delete(meta.id, { owner: "user-42" });   // true
 | `askWithFiles(options)`, `askGemini(options)` | `options.owner` | `DocumentsNotFoundError`, before any model request |
 | `createDocumentHandlers(files, options)` | `options.getOwner(request)` | 404 "This file is no longer available." on GET; `{ "deleted": false }` on DELETE |
 
+- An owner is a string that is not empty or only spaces. `ingest` throws a `TypeError` for `""`,
+  for spaces only and for `null`, which would make one owner shared by every caller without a
+  user: each could read and delete the documents of the others whose IDs it has. `user?.id ?? ""`
+  gives `""` to a caller who is not signed in. The message is
+  `owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.`
+  It throws the same for an owner from JavaScript that is neither a string nor a finite number,
+  such as the user object in place of its ID. A number is accepted, as before. Reads with
+  `owner: ""` work as before, so documents that 0.6.0 stored with that owner stay readable until
+  they expire.
+- In `createDocumentHandlers`, a `getOwner` that returns such an owner is the server's mistake: the
+  upload is answered 500 `{ "error": "Upload failed (empty owner)." }` for `""`, spaces only or
+  `null`, and `{ "error": "Upload failed (owner is not a string)." }` for an object, a boolean,
+  `NaN` or an array, before its body is read. Nothing is logged. Where every upload needs a
+  signed-in user, throw an error with `status: 401` from `getOwner`; return `undefined` only where
+  anonymous uploads are meant (`user?.id || undefined`); and return the user's ID, not the user.
 - A document of another owner looks exactly like one that does not exist, so a caller cannot learn
   that an ID is in use.
 - The comparison is exact (`===`): `"alice"` does not reach a document of `"Alice"` or of
@@ -374,7 +393,7 @@ library uses.
 
 | Method | Required | When the library calls it | What it must do |
 |---|---|---|---|
-| `put(document)` | Yes | `ingest`, last, after `putOriginal` and `putIndex`. | Keep `document.meta` and `document.text`. Keep the text exactly, as UTF-8: `readTextRange` offsets point into those bytes. Let the document appear only once all of it is written. |
+| `put(document)` | Yes | `ingest`, last, after `putOriginal` and `putIndex`. | Keep `document.meta` whole, as one object, and `document.text`. Keep the text exactly, as UTF-8: `readTextRange` offsets point into those bytes. Let the document appear only once all of it is written. |
 | `getMeta(id)` | Yes | Before every use of a document: `getMeta`, `getOriginal`, `delete`, `prepare` (once a document), and every tool call that reads one. | Return the metadata, or undefined when there is no such document. Keep it cheap: one look-up by key, without reading the text. |
 | `get(id)` | Yes | To load a document whole: one whose text is at most `wholeDocumentBytes`, or any document when the store has no `readTextRange`. Once a library while the document stays in the cache. | Return `{ meta, text }` with the text exactly as `put` got it, or undefined. |
 | `delete(id)` | Yes | `files.delete`, after the owner check. And `ingest`, to clean up after a write that failed. | Remove the metadata first, then the text, the index and the original. Return true when the document was there. Cope with a document that was only partly written. |
@@ -387,6 +406,16 @@ library uses.
 
 The library checks `expiresAt` itself, with its own clock, before every use. Your `getMeta` and
 `get` may return a document that has expired; your `sweep` must remove it.
+
+Keep every field of `meta`, including those your store does not know. Later versions add optional
+fields: 0.4.1 added `jsonBytes`, and 0.6.1 `encoding` and `replacedCharacters`, which say how a
+text file that was not valid UTF-8 was read ([PDFs and other formats](./pdfs.md#text-encodings)).
+A store that checks `meta` against a fixed list of fields (a `$jsonSchema` with
+`additionalProperties: false`, a Mongoose schema in strict mode that throws) refuses the ingest of
+every file that has them: a text file not in UTF-8, a UTF-8 log cut at a byte count, an ASCII log
+with a stray byte. `createDocumentHandlers` then answers 500 "Upload failed.". A store that keeps
+fixed columns and drops the others keeps the text, read right, but the model is no longer told how
+the file was read. [The example below](#example-object-storage-and-a-database) stores `meta` whole.
 
 What a missing optional method changes:
 
@@ -644,6 +673,9 @@ Before you trust a store with users' files, check these with the library over it
 - With the database stopped, `files.getMeta(id)` rejects with a `DocumentStoreError` instead of
   giving undefined, and a tool call answers "The document store could not be read. Try again.",
   with a code in parentheses when your error has one.
+- A text file that is not UTF-8, such as a CSV saved by Excel in windows-1255, is ingested, and
+  `files.getMeta(id)` gives back its `encoding` (and `replacedCharacters`, for a UTF-8 log cut at a
+  byte count): your store keeps fields it does not know.
 - With a write that fails, `files.ingest` throws, and leaves no record and no object behind.
 - `files.delete` removes every part. `getMeta` then gives undefined, and a second delete gives false.
 - With a clock past `expiresAt` (the `now` option of `createLargeFiles`), `files.sweep()` removes

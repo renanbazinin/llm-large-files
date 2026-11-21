@@ -84,7 +84,9 @@ describe("the kind of a model error", () => {
   });
 
   it("does not take throttling or other refusals for an overflow, and tells a quota only from what the provider marks", () => {
-    expect(classifyModelError(429, "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.").kind).toBe("rate_limit");
+    // Larger than a whole minute allows: only a smaller request can pass (since 0.6.1; it was "rate_limit").
+    expect(classifyModelError(429, "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.")).toEqual({ kind: "context_overflow", limitTokens: 30_000, requestedTokens: 50_000 });
+    expect(classifyModelError(429, "Rate limit reached for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Used 28000, Requested 5000. Please try again in 6s.").kind).toBe("rate_limit");
     // Vertex AI's answer to an output limit it does not take (November 2026): the request is wrong, not too large.
     expect(classifyModelError(400, "Unable to submit request because it has a maxOutputTokens value of 5000000 but the maximum supported value is 1048576. Update the value and try again.", { code: "INVALID_ARGUMENT" }).kind).toBe("invalid");
     expect(classifyModelError(400, "Too many tokens, please wait before trying again.").kind).toBe("invalid");
@@ -266,7 +268,7 @@ describe("a request larger than the model takes", () => {
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
     const steps: string[] = [];
     const model = fakeModel([(request) => {
-      const whole = textOf(request.messages[0]).includes("--- Attached file: app.log");
+      const whole = /^--- Attached file \[mark [0-9a-f]{8}\]: "app\.log"/.test(textOf(request.messages[0]));
       return whole
         ? new ModelRequestError("This model's maximum context length is 8192 tokens. However, your messages resulted in 21000 tokens.", 400)
         : says("Answered from the card.");
@@ -444,6 +446,35 @@ describe("a call that was answered already (no second run, no second result in t
     expect(await run({ ...full, note: "Showing 3 of 20 results to stay within the size limit. Narrow the query or read specific lines." })).toMatchObject({ total_matching_lines: 51 });
     expect(await run({ document: "app.log", dropped: true, note: "dropped" })).toMatchObject({ total_matching_lines: 51 });
     expect(await run({ error: "The scan failed." })).toMatchObject({ total_matching_lines: 51 });
+    // As 0.6.0 stored it: the first 20 matches, without the last one and without a note. Run now, it gets the last one.
+    const { note: _note, ...older } = full;
+    const matches = full.matches as Array<{ line: number }>;
+    expect(matches).toHaveLength(21);
+    const again = await run({ ...older, matches: matches.slice(0, 20) });
+    expect(again).toMatchObject({ total_matching_lines: 51, note: full.note });
+    expect((again.matches as Array<{ line: number }>).at(-1)!.line).toBe(matches.at(-1)!.line);
+  });
+
+  it("runs a search again whose result 0.6.0 stored, and makes a pointer 0.6.0 made to it a stand-in", async () => {
+    const { files, meta } = await largeLog();
+    const args = search(meta.id, "ERROR").args;
+    const full = await files.tools([meta]).execute("search_document", args);
+    const { note: _note, ...older } = full;
+    const stored = { ...older, matches: (full.matches as unknown[]).slice(0, 20) };
+    const pointer = { document: "app.log", already_shown: true, note: "Not run: this exact call was answered earlier in this conversation, and its result is still shown above in full. The file has not changed, so it would return the same. Use that result. For more, read other lines, or search with other words or another mode." };
+    const model = fakeModel([calls([search(meta.id, "ERROR")]), says("Done.")]);
+    const result = await askWithFiles({
+      files, model, documentIds: [meta.id], messages: [
+        { role: "user", text: "Errors?" }, { role: "tools", calls: [{ name: "search_document", args, result: stored }] }, { role: "assistant", text: "51." },
+        { role: "user", text: "Again?" }, { role: "tools", calls: [{ name: "search_document", args, result: pointer }] }, { role: "assistant", text: "Same." },
+        { role: "user", text: "Which is the last one?" },
+      ],
+    });
+    const [kept, then, now] = answersOf(model.requests[1]!.messages);
+    expect(kept).toEqual(stored);
+    expect(then).toEqual({ document: "app.log", dropped: true, note: "Not run then: it repeated an earlier call whose result was later dropped from the conversation to make room. Call it again if you need it." });
+    expect(now).toMatchObject({ total_matching_lines: 51, matches: full.matches });
+    expect(result.steps).toEqual(["Search app.log (exact) for “ERROR” — 51 matching lines"]);
   });
 
   it("adds a hint to the second search in a row that failed in the same mode", async () => {
@@ -623,7 +654,7 @@ describe("since the review of these changes", () => {
   it("fits the application's budget to the smaller window when it plans again, as for a window the model declares", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 128_000, reservedTokens: 24_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
-    const model = fakeModel([(request) => (textOf(request.messages[0]).includes("--- Attached file: app.log")
+    const model = fakeModel([(request) => (/^--- Attached file \[mark [0-9a-f]{8}\]: "app\.log"/.test(textOf(request.messages[0]))
       ? new ModelRequestError("This model's maximum context length is 32768 tokens. However, your messages resulted in 61000 tokens.", 400)
       : says("Answered from the card."))]);
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") });

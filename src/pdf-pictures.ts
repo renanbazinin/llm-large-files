@@ -11,7 +11,7 @@
  */
 import type { PDFContext, PDFDict, PDFDocument, PDFObject } from "@cantoo/pdf-lib";
 import { fairPause } from "./pause.js";
-import { decodeContent, loadPdfLibrary, objectsPerTick, tooManyObjects } from "./pdf-pages.js";
+import { decodeContent, loadPdf, loadPdfLibrary, tooManyObjects } from "./pdf-pages.js";
 
 type PdfLibrary = typeof import("@cantoo/pdf-lib");
 /** `[x0, y0, x1, y1]` with x0 <= x1 and y0 <= y1. */
@@ -344,7 +344,7 @@ export async function parsePdf(bytes: Uint8Array, signal?: AbortSignal): Promise
     await fairPause();
     const library = await loadPdfLibrary();
     await fairPause();
-    const document = await library.PDFDocument.load(bytes, { updateMetadata: false, parseSpeed: objectsPerTick(bytes), password: "" });
+    const document = await loadPdf(library, bytes);
     return signal?.aborted ? undefined : { library, document };
   } catch {
     return undefined;

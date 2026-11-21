@@ -78,11 +78,13 @@ describe("the tools of one question", () => {
     expect(from).toBe(1);
     expect(cut.next_start_line).toBe(to! + 1);
     expect(String(cut.text).split("\n")).toHaveLength(to!);
-    // A search is cut the same way, by dropping matches from the end.
+    // A search is cut the same way, by dropping matches from the end of the first ones: the last match of the file stays.
     const search = (await tools.executeWithFiles("search_document", { document_id: log.id, query: "INFO", mode: "exact", max_results: 50 }, { maxResultCharacters: 2_000 })).result;
     expect(JSON.stringify(search).length).toBeLessThanOrEqual(2_000);
     expect(search.total_matching_lines).toBeGreaterThan(2_000);
-    expect(String(search.note)).toMatch(/^Showing \d+ of 50 results/);
+    const lastInfo = Math.max(...serviceLog(3_000).split("\n").map((line, index) => (line.includes("INFO") ? index + 1 : 0)));
+    expect(String(search.note)).toMatch(new RegExp(`^Showing (\\d+) of the ${String(search.total_matching_lines)} matching lines to stay within the size limit: the first \\d+ and the last \\(line ${lastInfo}\\)\\.`));
+    expect((search.matches as Array<{ line: number }>).at(-1)!.line).toBe(lastInfo);
     // Room larger than the tool's own cap changes nothing.
     expect((await tools.executeWithFiles("read_document", read, { maxResultCharacters: 1_000_000 })).result).toEqual(whole);
     expect(tools.resultCharacters("analyze_whole_document")).toBe(40_000);
@@ -277,7 +279,7 @@ describe("a whole-file read on a model that is busy", () => {
       throw httpError(400, "The request is not valid.");
     };
     const failed = await files.tools([log], { generate: refused, retry }).execute("analyze_whole_document", { document_id: log.id, task: "Summarize." });
-    expect(failed.error).toBe("Could not read any part of small.log: The request is not valid.");
+    expect(failed.error).toBe("Could not read any part of small.log: The model refused the request (HTTP 400).");
     expect(attempts).toBe(1);
     expect(waits).toEqual([]);
   });

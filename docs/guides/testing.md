@@ -25,7 +25,9 @@ one you copy into your own tests.
 
 Use a new `MemoryDocumentStore` in each test: it keeps documents in process memory, so tests do not
 share them and leave nothing behind. `ingest` takes the bytes of a file; for text, encode a string
-with `TextEncoder`.
+with `TextEncoder`, which writes UTF-8. To test a file in an older encoding, such as a CSV that
+Excel saved in windows-1255, give `ingest` the bytes of a real file: `meta.encoding` then says how
+it was read ([Text encodings](./pdfs.md#text-encodings)).
 
 A document that fits goes into the prompt whole (by default up to 200,000 estimated tokens of
 documents), and the question is then one model request without tools. To test the tool loop with a
@@ -297,6 +299,16 @@ What these show of the loop:
   request of its own and takes a tool turn. It adds a step to `steps` and `onStep`: "The model's
   first reply was empty: it was asked again", or "The model's tool call could not be read: it was
   asked to send it again". Script that reply too, or the fake repeats its last entry.
+- The request for the answer (`toolChoice: "none"`) is asked for once more when its reply has no
+  text, or holds a tool call, with a note at its end that is not kept: "Your last reply had no
+  text. No tool can be called in this reply: write the answer now, in text, from what is above."
+  Its step is "The model's answer was empty: it was asked again", or "The model called a tool
+  instead of answering: it was asked again for the answer". It is one of the two second tries, and
+  can be one request past `limits.toolTurns`; it is not made after a refusal, a filter, a reply
+  cut off at the output limit with nothing in it, or once `limits.requests` or
+  `limits.inputTokens` is reached. So a fake that answers the answer's request
+  with nothing gets one more request, with `toolChoice: "none"`. The fake above repeats its last
+  entry; a fake that throws when its queue of replies runs out fails there.
 - With an `explorer`, the explorer gets the tool requests and what it writes is not shown. The
   answering model gets one request, with `toolChoice: "none"`. `turns` counts the chat requests of
   both. See [An explorer model](./explorer-model.md).
@@ -309,8 +321,8 @@ Assert what your application does with the result. These are the fields of
 | Field | What it holds in a test |
 | --- | --- |
 | `text` | What the script wrote: the answer, after any remark made before a tool call. |
-| `answered` | `false` when the last turn had no text: a blocked prompt (`blockReason`), a reply cut off before any text, a broken tool call. Test that your application then shows its own message. |
-| `steps` | The steps `onStep` received, in order. They are sentences for people, written by the library. |
+| `answered` | `false` when the last turn had no text: a blocked prompt (`blockReason`), a reply cut off before any text, an answer with no text after its second try. Test that your application then shows its own message. |
+| `steps` | The steps `onStep` received, in order. They are sentences for people, written by the library, one line of plain text each. |
 | `evidence` | One entry per tool call that showed something: `tool`, `documentId`, `document`, `lines`, `pages`, `query`, `mode`, `totalMatchingLines`, `whole`. |
 | `toolTurns` | The tool rounds as plain JSON. Test that your application stores them, and passes them back between the question and its answer (see [Conversations](./conversations.md)). |
 | `turns` | Chat requests made, an explorer's included: 1 for a document sent whole. |
@@ -327,6 +339,72 @@ Some advice:
   library's prompts, not your application's. Check that your own `system` text is in it.
 - To test what your application does with `usage` (a cost per user, a ceiling), give the fake's
   replies round numbers of tokens, as above. See [Costs and limits](./costs-and-limits.md).
+
+### Output that 0.6.1 changed
+
+A test that pins the library's exact output breaks when that output changes. These changed in
+0.6.1:
+
+- **The frame of a file sent whole** carries a mark made from the document ID, before the quoted
+  name: `--- Attached file [mark 1f0c3a9e]: "report.txt" (text, 6 lines; it ends only at the line with mark 1f0c3a9e) ---`
+  and `--- End attached file [mark 1f0c3a9e] ---`. It was `--- Attached file: report.txt (text, 6 lines) ---`.
+  The ID is new on every ingest, so the mark is too: match the start, `--- Attached file [mark `,
+  or find one file by `]: ` and its name as a JSON string (`JSON.stringify(name)`), then ` (`. A
+  file of one line says `1 line`, and the card of a PDF of one page `1 page`.
+- **An exact or regex search** with more matching lines than `max_results` returns one more entry
+  in `matches`: the first `max_results`, then the last matching line of the file, with the note
+  `21 of the 442 matching lines are shown: the first 20 and the last (line 15269). To see the ones in between, narrow the search.`
+  Its `evidence` lists the lines of the last match too. With no more matches than `max_results`,
+  nothing changed, unless the result is cut to the room it has: the last match then stays, matches
+  are dropped from the end of the first ones, and the note is new,
+  `Showing 4 of the 10 matching lines to stay within the size limit: the first 3 and the last (line 1000). Narrow the query or read specific lines.`
+  where 0.6.0 said `Showing 4 of 10 results to stay within the size limit. …`.
+- **Steps with a count of one** are singular: ` — 1 matching line`, ` — 1 passage`,
+  ` — 1 part, 1 relevant`, and `1 more tool call in this turn was not run (at most 8 a turn)`.
+- **A call to a tool that does not exist** has the step `Call “do_magic” — failed: Unknown tool “do_magic”.`,
+  and the model gets `Unknown tool “do_magic”.`, as `files.tools().execute()` returns it.
+- **The answer's second try** ([above](#replies-that-depend-on-the-request)): one more request when
+  the answer comes back without text. To cap the requests of a question exactly, set
+  `limits.requests`.
+- **A whole-file read that fails** says why by the kind and status of the error, never by its
+  words: `Could not read any part of app.log: The model was busy (HTTP 429).` A fake `generateText`
+  that throws a plain `Error` gives `The model request failed.`, and one that throws
+  `new ModelRequestError("…", 401)` gives `The model refused the key or token it was sent (HTTP 401).`
+- **A reply of HTTP 200 that is not JSON** is a `ModelRequestError` of kind `invalid` and status
+  200, with the `SyntaxError` as its `cause`: test `error.cause instanceof SyntaxError`. Kind
+  `invalid` alone also covers every other request the provider refused.
+- **A fake `fetch` whose reply of HTTP 200 is empty** gets the request again: the reply is kind
+  `unreachable`, status 0. A streamed reply that is not of type `text/event-stream` is read by what
+  it holds: as events when it starts like them, as JSON when it starts with `{` or `[`.
+- **`classifyModelError`** takes an OpenAI 429 "Request too large … on tokens per min (TPM)" for
+  `context_overflow`, with `limitTokens` and `requestedTokens`, not `rate_limit`. HTTP 402,
+  Claude's "Your credit balance is too low" and spending limits, and a Vertex AI quota per day are
+  kind `quota`.
+- **An error inside a stream** has the status and the kind of its type: on an OpenAI-compatible
+  endpoint, `context_length_exceeded` is 400, kind `context_overflow`; on Claude,
+  `authentication_error` is 401, kind `auth`. Both kept HTTP 500 or the stream's 200 before.
+- **A question stopped while its adapter is called** throws the signal's reason, even when the
+  adapter then fails with its own error (a fake that throws a 503, say).
+- **A Gemini part read** sends `generationConfig: { maxOutputTokens }`, without `temperature`.
+- **The card of a text file that is not valid UTF-8** has one more line, and its frame a note
+  after the count of lines, such as `, read as windows-1255`
+  ([Text encodings](./pdfs.md#text-encodings)).
+- **The stored text** of a file with characters that show nothing, with text that Word hides, or
+  with a hidden slide differs from what 0.6.0 stored
+  ([Characters that show nothing](../security.md#characters-that-show-nothing)).
+- **Steps** quote the model's words on one line, without the characters that show nothing, and
+  the steps of a request larger than the provider allows in a minute are new.
+- **`anthropic().capabilities`** has `clearsToolResults: true` when `body.context_management`
+  clears tool uses or compacts the conversation.
+- **`geminiToolTurns`, `openAiToolTurns` and `anthropicToolTurns`** leave `tool_turns_left` out of
+  each result, so their output no longer equals the stored result.
+- **`MemoryDocumentStore`** returns a new copy of the metadata from each call: compare with
+  `toEqual`, not `toBe`.
+- **`files.ingest` with `owner: ""`** throws a `TypeError`
+  ([Storage](./storage.md#how-ownership-works)).
+- **The description of `search_document`** now says that exact and regex results show the first
+  `max_results` matching lines and the last one. A test that compares the tool declarations, or the
+  `tools` of a request, with a stored copy fails.
 
 ## Errors
 
@@ -450,6 +528,8 @@ Notes on these tests:
   [`RetryOptions`](../reference/errors-and-retries.md#retryoptions).
 - **`partialResultOf(error)`** gives what the question found and used before it failed: its steps,
   evidence, tool rounds and usage, with `answered: false`. Test that your application keeps them.
+  Its `usage` is a copy taken when the question failed: a request of a fake that was still running
+  then, and answers later, is not counted.
 - **`DocumentsNotFoundError`** comes before any model request, for a document that is missing,
   expired or owned by someone else. Its `ids` are the ones not found.
 - **A request too large** (`context_overflow`) is mended inside the loop when it can be. A fake that
@@ -632,7 +712,8 @@ describe("other providers, without the network", () => {
   it("runs the loop on an OpenAI-compatible endpoint, and streams its answer", async () => {
     const { files, meta, args } = await largeLog();
     const api = fakeFetch([
-      // Asked for a stream, answered in one piece: the adapter reads a reply that is not text/event-stream as JSON.
+      // Asked for a stream, answered in one piece: a reply that is not text/event-stream is read by
+      // its first characters, here as JSON.
       Response.json({
         choices: [{ index: 0, finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [
           { id: "call_1", type: "function", function: { name: "search_document", arguments: JSON.stringify(args) } },
@@ -701,7 +782,7 @@ the adapter takes it for a broken one:
 | A tool call | `parts: [{ functionCall: { name, args } }]` | `message.tool_calls`, with `arguments` as a JSON string | `content: [{ type: "tool_use", id, name, input }]` |
 | Usage | `usageMetadata.promptTokenCount`, `candidatesTokenCount` | `usage.prompt_tokens`, `completion_tokens` | `usage.input_tokens`, `output_tokens` |
 | Streams when | `onText` is set and the endpoint has a `streamUrl` (`geminiApi()` and `vertexAi()` set one); the request goes to that URL | `onText` is set and the `stream` option is not `false` | Always, unless the `stream` option is `false` |
-| A streamed request's reply | Read as a stream whatever its content type: a JSON body is no reply | A stream only when the content type is `text/event-stream`; JSON otherwise | A stream only when the content type is `text/event-stream`; JSON otherwise |
+| A streamed request's reply | A stream when the content type is `text/event-stream`. Of any other type, by its first characters: events when it starts with `data:` or a comment, JSON when it starts with `{` or `[` (one chunk, or a list of chunks) | The same: a stream for `text/event-stream`, and by its first characters otherwise | The same |
 | A stream ends with | A chunk with `finishReason` | A chunk with `finish_reason`, or `data: [DONE]` | A `message_delta` event with `stop_reason` |
 | An HTTP error body | `{ error: { code, message, status, details } }` | `{ error: { message, type, code, param } }` | `{ type: "error", error: { type, message } }` |
 | Error class | `GeminiRequestError` | `OpenAiRequestError` | `AnthropicRequestError` |
@@ -709,9 +790,26 @@ the adapter takes it for a broken one:
 A stream that closes without its end is taken for a reply cut off on its way, with `status` 0:
 "Gemini's reply ended before it was complete.", "The model's reply ended before it was complete."
 (OpenAI-compatible) or "Claude's reply ended before it was complete." The loop then sends the
-request again, as for a connection that failed, unless text of it was shown. When a fake stream
-seems to be sent twice, check that it ends as the table above says: for Claude, a `message_delta`
-event with `stop_reason`, not only `message_stop`.
+request again, unless text of it was shown, and `onActivity` gets "The model's reply was cut off
+on its way. Trying again…". When a fake stream seems to be sent twice, check that it ends as the
+table above says: for Claude, a `message_delta` event with `stop_reason`, not only `message_stop`.
+A stream that said it is whole (`[DONE]`, `message_stop`) and then stays open is read for one more
+second, then left, and its reply is returned.
+
+Other fake replies, and what each adapter makes of them:
+
+- A body of HTTP 200 that is not JSON, such as `new Response("<html>…", { headers: { "Content-Type": "text/html" } })`:
+  a `ModelRequestError` with kind `invalid`, status 200 and the `SyntaxError` as `cause`, not sent
+  again. Its message is "Gemini's reply could not be read: it was not JSON (text/html). A proxy or
+  gateway may have answered in its place.", or the same with "The model's" or "Claude's". A body
+  under another type that starts with more than 65,536 characters of white space is read as JSON,
+  whatever follows.
+- An empty body of HTTP 200, `new Response("")`: kind `unreachable`, status 0, "Gemini could not
+  be reached (the reply was empty)." (or "The model could not…", "Claude could not…"), sent again
+  as a reply cut off on its way.
+- A stream with one event longer than 64,000,000 characters: kind `invalid`, status 200, "The
+  model's reply could not be read: an event of its stream held more than 64,000,000 characters.",
+  not sent again.
 
 All three error classes extend `ModelRequestError`, with the same `status` and `kind`. A
 `Retry-After` header on an error reply is the wait the loop takes before it sends the request
@@ -720,7 +818,10 @@ thrown.
 
 All three adapters can read a whole file in parts, so `analyze_whole_document` is offered, and its
 part reads go through the same `fetch`. Pass `wholeDocumentAnalysis: false` to `askWithFiles` or
-`askGemini` when a test is not about it. The adapters' options are in the reference:
+`askGemini` when a test is not about it. A part read that fails is told to the model by the kind
+and status of its error (`The model was busy (HTTP 429).`), never by the words of the fake's error
+body; a part read whose reply has no text gives `The model returned no text (SAFETY).`, with the
+provider's reason when it is a plain word. The adapters' options are in the reference:
 [gemini](../reference/gemini.md), [openai](../reference/openai.md),
 [anthropic](../reference/anthropic.md).
 
@@ -924,6 +1025,13 @@ describe("the upload routes", () => {
 
 The other statuses (400 for a file without a name, 413 for one over `maxUploadBytes`, 422 for one
 that cannot be read) are in the [`llm-large-files/node` reference](../reference/node.md).
+
+The `|| undefined` in `getOwner` matters. With it, a header that arrives empty (`"X-User": ""`)
+makes the upload anonymous: it is answered `201`, and anyone who has its ID can read it. With
+`?? ""` in its place, the same upload is answered 500
+`{ "error": "Upload failed (empty owner)." }` before its body is read. Test what your sign-in
+hands `getOwner` when there is no user, and throw an error with `status: 401` there if every
+upload needs a user ([A web app](./web-app.md#who-owns-an-upload-getowner)).
 
 An answer route is tested the same way: give it `fakeModel()` where it would take the real model,
 and read what it sends back with `fetch`. How such a route streams the answer is in

@@ -26,6 +26,21 @@ function remember(model: string, limit: number): void {
   learnedLimits.set(model, limit);
 }
 
+/**
+ * The errors `completeWithinLimit` threw for a reply with no text, with why the reply stopped, in
+ * the provider's word ("" when it did not say).
+ */
+const noTextErrors = new WeakMap<object, string>();
+
+/**
+ * Why a reply had no text, when this error is the one `completeWithinLimit` throws for it: the
+ * provider's word for why it stopped ("SAFETY", "refusal"), or "" when it did not say. Undefined
+ * for any other error. The message of that error is the package's own.
+ */
+export function noTextReason(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null ? noTextErrors.get(error) : undefined;
+}
+
 /** A reply to a plain completion. */
 export type LimitedReply = {
   text: string;
@@ -46,8 +61,9 @@ export type LimitedReply = {
  * Sends a completion with an output limit, and once more with `THINKING_OUTPUT_TOKENS` when the
  * reply was cut off with nothing written, or with half the limit or more gone on thoughts. What
  * was learned is kept under `model` (a URL, or a URL and a model name): later requests start with
- * the larger limit, and a model that refused it (HTTP 400) is not asked for it again. Requests
- * that arrive while the first one to a model is on its way wait for it.
+ * the larger limit, and a model that refused it (HTTP 400, but not for a request too large for the
+ * window with it) is not asked for it again, nor is one whose window, or allowance a minute, is no
+ * larger than that limit. Requests that arrive while the first one to a model is on its way wait for it.
  */
 export async function completeWithinLimit(model: string, maxOutputTokens: number, send: (limit: number) => Promise<LimitedReply>, options: {
   signal?: AbortSignal | undefined;
@@ -88,13 +104,27 @@ export async function completeWithinLimit(model: string, maxOutputTokens: number
       } catch (error) {
         if (signal?.aborted) throw error;
         // A model or a gateway that refuses the larger limit (HTTP 400) is not asked for it again.
-        // Any other failure says nothing about the limit: the next request starts with it. What
-        // the first reply had is kept; with nothing in it, this error is the one to report.
-        if ((error as { status?: unknown } | null)?.status === 400) remember(model, 0);
+        // A refusal of this request as too large for the window with that limit is no such refusal,
+        // unless the window is no larger than the limit itself: a smaller part may fit. Nothing is
+        // learned from it, and the next request starts as this one did. A request too large for
+        // what the provider allows in a minute (OpenAI's or Groq's TPM, HTTP 429 or 413) is too
+        // large the same way, with that allowance as the window. Any other failure says nothing
+        // about the limit: the next request starts with it. What the first reply had is kept; with
+        // nothing in it, this error is the one to report.
+        const { status, kind, limitTokens } = (error ?? {}) as { status?: unknown; kind?: unknown; limitTokens?: unknown };
+        if (status === 400 || kind === "context_overflow") {
+          const tooLarge = kind === "context_overflow" && !(typeof limitTokens === "number" && limitTokens <= THINKING_OUTPUT_TOKENS);
+          if (!tooLarge) remember(model, 0);
+          else if (learnedLimits.get(model) === THINKING_OUTPUT_TOKENS) learnedLimits.delete(model);
+        }
         if (!reply.text.trim()) throw error;
       }
     }
-    if (!reply.text.trim()) throw new Error(`The model returned no text${reply.reason ? ` (${reply.reason})` : ""}.`);
+    if (!reply.text.trim()) {
+      const error = new Error(`The model returned no text${reply.reason ? ` (${reply.reason})` : ""}.`);
+      noTextErrors.set(error, reply.reason ?? "");
+      throw error;
+    }
     // The text stops mid-list when the output limit is reached, or when a filter stopped it. Say so
     // instead of passing it off as complete.
     if (reply.cutOff || reply.stopped) options.onTruncated?.();

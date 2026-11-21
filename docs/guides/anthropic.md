@@ -144,10 +144,14 @@ documentation for your model. What the library does with thinking is the same fo
 - **It is not stored.** `result.toolTurns` hold the calls and their results, and
   `fromAnthropicMessages` leaves thinking blocks out: they belong to the question they were
   written in.
-- **It is counted in `outputTokens`.** The adapter reports no `thoughtTokens` (always 0).
-- **It counts against `maxTokens`.** A part read that comes back cut off at its limit with no text
-  is asked for once more with 32,768 tokens (`THINKING_OUTPUT_TOKENS`, exported by
-  `llm-large-files/gemini`), and later part reads of that model start there.
+- **It is counted in `outputTokens`.** The adapter reports no `thoughtTokens` (always 0), for part
+  reads too.
+- **It counts against `maxTokens`.** A part read that comes back cut off at its limit with no text,
+  or that thought most of its limit away and wrote a little, is asked for once more with 32,768
+  tokens (`THINKING_OUTPUT_TOKENS`, exported by `llm-large-files/gemini`), and later part reads of
+  that model start there. Claude does not count its thoughts apart: in a part read that thought,
+  they are taken as what it wrote besides its text (its `output_tokens` less the tokens of the
+  text). In 0.6.0 such notes came back cut: two lines out of 4,096 tokens.
 
 `body` and `analysisBody` are added last, so a field in them replaces the adapter's own. Set
 `max_tokens` with `maxTokens`, streaming with `stream` and caching with `cache`: the budget and the
@@ -156,8 +160,10 @@ reading of the reply follow the options, not `body`.
 ### Streaming and waits
 
 - **Every chat request is streamed** (`stream: true`), whether or not you pass `onText`. With
-  `onText`, the answer's text arrives as it is written. A gateway that answers without a stream
-  (a response that is not `text/event-stream`) is read in one piece. `stream: false` asks for none.
+  `onText`, the answer's text arrives as it is written. A reply that is not `text/event-stream` is
+  read by what its body starts with: as events after `data:` or a comment (a gateway that streams
+  under `application/octet-stream`, or under no type), as JSON in one piece after `{`. `stream:
+  false` asks for no stream.
 - **`eagerInputStreaming`** sets `eager_input_streaming: true` on each tool of a streamed request,
   so the input of a call arrives as it is written. It defaults to `true` for api.anthropic.com and
   `false` for any other URL, which may refuse the field. Either way the input is read once its
@@ -173,7 +179,12 @@ reading of the reply follow the options, not `body`.
   end, so `firstByteTimeoutMs` must cover all of it.
 - **A stream cut short is not a reply.** A stream that ends before the `message_delta` event that
   gives `stop_reason` (a gateway that closed it early) throws "Claude's reply ended before it was
-  complete." with `status` 0. It is sent again when none of it was shown.
+  complete." with `status` 0. It is sent again when none of it was shown, and `onActivity` says
+  "The model's reply was cut off on its way. Trying again…".
+- **A stream that ended is a reply.** After `message_stop`, the body is read for one more second at
+  most, then cancelled: a gateway that leaves the connection open does not hold the request until
+  `idleTimeoutMs`, and a connection that breaks after `message_stop` loses nothing. In 0.6.0 both
+  failed, with the whole answer already shown.
 - **Part reads are not streamed.** Each may take `timeoutMs` (180 s); one that takes longer is
   stopped and tried once more.
 
@@ -298,7 +309,9 @@ of Claude's that cannot be read is answered with a tool result that says what wa
 Claude makes the tool calls, the note stays in its conversation for the rest of the question,
 because Claude's later thinking follows it; when Claude is the only model, its request for the
 answer has the note too. When Claude only answers, after an explorer of another provider, it never
-gets the note.
+gets the explorer's notes. The note of the answer's own second try, sent when the answer comes back
+without text ("Your last reply had no text. …"), is in that one request only, for Claude too: it
+is the last request of the question.
 
 **A request too large is recovered only by planning again.** When Claude refuses a request as
 larger than it takes ("prompt is too long: 210417 tokens > 200000 maximum", the error type
@@ -341,9 +354,18 @@ const claude = anthropic({
 });
 ```
 
-The loop does not know what the API clears: it counts every result as sent, so its room runs out
-at the same point as without it. What clearing does to the bill and the cache is the API's: see
-Anthropic's documentation.
+With an edit that clears tool uses (`clear_tool_uses_…`) or compacts the conversation
+(`compact_…`) in `body.context_management`, `anthropic()` declares
+`capabilities.clearsToolResults: true`. The API may then have cleared a result before Claude reads
+the request, so the loop answers no repeated call with a pointer to an earlier result ("already
+shown above"): each runs again, and the pointers in stored rounds become stand-ins that say to call
+again ([Conversations](./conversations.md#repeated-calls-in-a-follow-up)). In 0.6.0 a pointer could
+say a result was "still shown above in full" when the server had cleared it. An edit of
+`clear_thinking` alone changes nothing.
+
+The loop still counts every result as sent, so its room runs out at the same point as without
+context editing. What clearing does to the bill and the cache is the API's: see Anthropic's
+documentation.
 
 ## PDF pages and pictures
 
@@ -388,14 +410,38 @@ API's own word for the error in `type`. Its fields, and every case the adapter t
 [`AnthropicRequestError`](../reference/anthropic.md#anthropicrequesterror). Which errors inside a
 stream are sent again: [A stream cut off](./errors-and-reliability.md#a-stream-cut-off).
 
-Three failures of a chat request are not an `AnthropicRequestError`, and have no status or kind:
-an error thrown by your `apiKey`, `authToken` or `headers` function, as it was thrown and not sent
-again; a gateway's HTTP 200 whose body is not JSON (an HTML error page), which throws the
-`SyntaxError` of reading it and is not sent again; and the abort of your own `signal`, thrown as it
-came. A part read of a whole-file read differs in two of them. An error of your `apiKey`,
-`authToken` or `headers` function becomes an `AnthropicRequestError` with `status` 0 and
-`kind: "unreachable"` ("Claude could not be reached (…)."), and the part read is sent again, as
-after a connection that failed. A part read whose body is not JSON is sent again once, at once.
+Two failures of a chat request are not an `AnthropicRequestError`, and have no status or kind: an
+error thrown by your `apiKey`, `authToken` or `headers` function, as it was thrown and not sent
+again; and the abort of your own `signal`, thrown as it came. A part read of a whole-file read
+differs in the first: an error of your `apiKey`, `authToken` or `headers` function becomes an
+`AnthropicRequestError` with `status` 0 and `kind: "unreachable"` ("Claude could not be reached
+(…)."), and the part read is sent again, as after a connection that failed.
+
+What else the adapter reads from a reply:
+
+- **A body that is not JSON.** A gateway's HTTP 200 whose body is not JSON (an HTML error page) is
+  an `AnthropicRequestError` of kind `"invalid"`, status 200, with the `SyntaxError` as `cause`:
+  "Claude's reply could not be read: it was not JSON (text/html). A proxy or gateway may have
+  answered in its place." It is not sent again, in a chat request or a part read. Until 0.6.1 it
+  was the `SyntaxError` itself. An empty body of HTTP 200 is "Claude could not be reached (the
+  reply was empty).", status 0, and is sent again.
+- **`x-should-retry: false`.** A request that the API says not to try again is not sent again,
+  whatever its status, as Anthropic's own SDKs do.
+- **No credit, or a spending limit reached.** "Your credit balance is too low" (HTTP 400) and the
+  spending limits of an organization ("You have reached your API usage limits", or HTTP 429 with
+  `enforced_spend_limit_reached`) are of kind `"quota"`, and are not sent again. The 429 was sent
+  again three times before 0.6.1.
+- **An error inside a stream** gets the status of its type: `overloaded_error` 529,
+  `rate_limit_error` 429, `api_error` 500, `timeout_error` 408, `invalid_request_error` 400,
+  `authentication_error` 401, `billing_error` 402, `permission_error` 403, `not_found_error` 404,
+  `request_too_large` 413. A type the adapter does not know is the server's failure, 500, and is
+  sent again when none of the reply was shown.
+
+The API refuses a request that holds half of a character outside the basic plane, such as half of
+an emoji (HTTP 400). Since 0.6.1 the library sends none: a file name, a log template or a search
+window that 0.5.0 or 0.6.0 stored cut inside an emoji is sent with U+FFFD in place of the half, and
+the message to Claude about a call whose input was not valid JSON quotes up to 300 characters of
+it, one fewer when the 300th is the first half of an emoji.
 
 ```ts
 import { askWithFiles, partialResultOf } from "llm-large-files";

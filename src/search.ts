@@ -227,7 +227,13 @@ export type GrepResult = {
   totalMatchingLines: number;
   /** True when the scan stopped early (too many matches or the regex time limit). */
   stoppedEarly: boolean;
+  /** The first `maxResults` matching lines. */
   matches: LineMatch[];
+  /**
+   * The last matching line of the document, when it is not among `matches`. Undefined when the
+   * scan stopped early: the last line it found need not be the last of the document.
+   */
+  last?: LineMatch;
 };
 
 export type GrepOptions = {
@@ -335,6 +341,14 @@ function remember(recent: Array<readonly [number, string]>, chunk: TextChunk, ke
  */
 class LineSearch {
   private readonly hits: Array<{ line: number; column: number; text: string }> = [];
+  /** The latest matching line past the first `maxResults`: the last one of the document, once the scan is over. */
+  private last?: { line: number; column: number; text: string };
+  /** The lines around `last`, by number, kept from the pieces as they are read: they need not be read again. */
+  private readonly aroundLast = new Map<number, string>();
+  /** The line of the match whose lines `aroundLast` holds. */
+  private aroundLine = 0;
+  /** True once the lines around `last` are among the lines to show. */
+  private lastShown = false;
   private total = 0;
   stoppedEarly = false;
   /** True once nothing more is to be found or counted: the rest of the text need not be read. */
@@ -401,12 +415,38 @@ class LineSearch {
         if (found !== undefined) this.fill(line, found);
       }
     }
+    if (this.last && this.context > 0) this.keepAroundLast(chunk);
     this.recent = remember(this.recent, chunk, this.keep);
     return true;
   }
 
-  /** Lines to show that were not in the pieces read (the scan stopped early). Read them and `fill` them. */
+  /** Keeps the lines around `last` that are in this piece or in the lines read just before it. */
+  private keepAroundLast(chunk: TextChunk): void {
+    const { line } = this.last!;
+    if (this.aroundLine !== line) {
+      this.aroundLast.clear();
+      this.aroundLine = line;
+    }
+    const end = chunk.firstLine + chunk.lines.lineCount - 1;
+    for (let other = Math.max(1, line - this.context); other <= Math.min(this.lineCount, line + this.context); other++) {
+      if (other === line || this.aroundLast.has(other)) continue;
+      const found = other >= chunk.firstLine && other <= end
+        ? chunk.lines.line(other - chunk.firstLine + 1)
+        : this.recent.find(([number]) => number === other)?.[1];
+      if (found !== undefined) this.aroundLast.set(other, found);
+    }
+  }
+
+  /**
+   * Lines to show that were not in the pieces read: those of a scan that stopped early, and those
+   * around the last match, which is known only once the scan is over. Read them and `fill` them.
+   */
   missing(): number[] {
+    if (this.last && !this.lastShown && !this.stoppedEarly) {
+      this.lastShown = true;
+      this.showAround(this.last.line);
+      if (this.aroundLine === this.last.line) for (const [line, text] of this.aroundLast) this.fill(line, text);
+    }
     if (this.unfilled === 0) return [];
     return [...this.shown].filter(([, text]) => text === undefined).map(([line]) => line).sort((left, right) => left - right);
   }
@@ -419,7 +459,7 @@ class LineSearch {
 
   result(): GrepResult {
     const lineText = (line: number) => this.shown.get(line) ?? "";
-    const matches = this.hits.map(({ line, column, text }): LineMatch => {
+    const show = ({ line, column, text }: { line: number; column: number; text: string }): LineMatch => {
       const match: LineMatch = { line, text: clip(text, column) };
       if (this.context > 0) {
         match.before = [];
@@ -428,14 +468,23 @@ class LineSearch {
         for (let other = line + 1; other <= Math.min(this.lineCount, line + this.context); other++) match.after.push(`${other}| ${clip(lineText(other), 0)}`);
       }
       return match;
-    });
-    return { totalMatchingLines: this.total, stoppedEarly: this.stoppedEarly, matches };
+    };
+    const last = this.last && !this.stoppedEarly ? { last: show(this.last) } : {};
+    return { totalMatchingLines: this.total, stoppedEarly: this.stoppedEarly, matches: this.hits.map(show), ...last };
   }
 
   private record(line: number, column: number, text: string): void {
     this.total++;
-    if (this.hits.length >= this.settings.maxResults) return;
+    if (this.hits.length >= this.settings.maxResults) {
+      this.last = { line, column, text };
+      return;
+    }
     this.hits.push({ line, column, text });
+    this.showAround(line);
+  }
+
+  /** Puts the lines around a match among the lines to show. */
+  private showAround(line: number): void {
     for (let other = Math.max(1, line - this.context); other <= Math.min(this.lineCount, line + this.context); other++) {
       if (other !== line && !this.shown.has(other)) {
         this.shown.set(other, undefined);

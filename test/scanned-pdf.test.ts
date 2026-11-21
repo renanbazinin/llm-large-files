@@ -71,7 +71,7 @@ describe("a PDF without any text", () => {
     const extractor = createPdfExtractor();
     const input = { name: "scan.pdf", mimeType: "application/pdf", format: "pdf" as const };
     await expect(extractor(scan(2), input)).rejects.toThrow(REFUSED);
-    await expect(extractor(scan(2), { ...input, scannedPages: 1 })).rejects.toThrow(/and 2 pages\..*up to 1 pages/);
+    await expect(extractor(scan(2), { ...input, scannedPages: 1 })).rejects.toThrow(/and 2 pages\..*up to 1 page\. It needs OCR first\./);
     expect((await extractor(scan(2), { ...input, scannedPages: 2 })).pages).toBe(2);
   });
 

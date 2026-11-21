@@ -186,7 +186,9 @@ What the Gemini adapter does in either case:
   `functionCallingConfig` mode `NONE` and go on calling them.
 - **A stream that ends without a `finishReason` was cut off** on its way (a proxy, a dropped
   connection). It is sent again when none of its text was shown, and is an error otherwise.
-- **A turn with `MALFORMED_FUNCTION_CALL` or `UNEXPECTED_TOOL_CALL`** is asked for once more.
+- **A turn with `MALFORMED_FUNCTION_CALL` or `UNEXPECTED_TOOL_CALL`** is asked for once more, the
+  request for the answer included: there the note says that no tool can be called, and asks for
+  the answer in text.
   `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII` and `IMAGE_SAFETY` mark a reply
   that a filter stopped; `MAX_TOKENS`, one cut off at the output limit.
 
@@ -249,8 +251,11 @@ answered "thinking_level is not supported by this model".
   `explorerGenerationConfig` is the explorer's, and defaults to `generationConfig`: set it when the
   two models do not take the same settings.
 - The part reads of a whole-file read do not get `generationConfig`. They get `analysisConfig`, or
-  `{ maxOutputTokens, temperature: 0.2 }` without it. With an explorer, the explorer reads the
-  parts, so write `analysisConfig` for it.
+  `{ maxOutputTokens }` without it, with no temperature: Gemini 3.6 and later ignore it, and
+  Google says later models will refuse it. Until 0.6.1 the default was
+  `{ maxOutputTokens, temperature: 0.2 }`; to keep it for an older model, pass
+  `analysisConfig: (maxOutputTokens) => ({ maxOutputTokens, temperature: 0.2 })`. With an explorer,
+  the explorer reads the parts, so write `analysisConfig` for it.
 - A model that thinks counts its thoughts in `maxOutputTokens`. Leave the limit out, or leave room
   for the thoughts in it.
 
@@ -260,9 +265,10 @@ for 4,096 tokens of notes on a part of a log, Gemini 3.8 Flash spent 3,931 of th
 wrote two lines, and Gemini 4 wrote nothing (November 2026). When a reply stops at the limit with
 nothing written, or with half the limit or more gone on thoughts, it is asked for once more with
 `THINKING_OUTPUT_TOKENS` (32,768), and later requests to that URL start there, for the life of the
-process. A model or a gateway that refuses 32,768 (HTTP 400) is not asked for it again.
-`analysisConfig` receives the limit: put it in `maxOutputTokens`, or the second request is the same
-as the first.
+process. A model or a gateway that refuses 32,768 (HTTP 400) is not asked for it again, unless the
+400 says the request was too large for the model's window with that limit, and the window is
+larger than 32,768: a later part may still get it. `analysisConfig` receives the limit: put it in
+`maxOutputTokens`, or the second request is the same as the first.
 
 ```ts
 import { askGemini } from "llm-large-files/gemini";
@@ -272,6 +278,7 @@ await askGemini({
   files, endpoint, documentIds, messages,
   generationConfig: { temperature: 0.3, thinkingConfig: { thinkingLevel: "high" } }, // the answering model
   explorerGenerationConfig: { thinkingConfig: { thinkingBudget: 0 } },              // a Gemini 2.5 explorer
+  // The part reads go to the Gemini 2.5 explorer, which takes a temperature.
   analysisConfig: (maxOutputTokens) => ({ maxOutputTokens, temperature: 0.2, thinkingConfig: { thinkingBudget: 0 } }),
   toolFilePlacement: "beside", // one of the two is Gemini 2.5: see Pages of PDFs below
 });
@@ -377,15 +384,17 @@ const reader: ModelAdapter = {
     url: readerEndpoint.url,
     headers: readerEndpoint.headers,
     timeoutMs: 300_000, // five minutes for each part read
-    generationConfig: (maxOutputTokens) => ({ maxOutputTokens, temperature: 0.2 }),
+    generationConfig: (maxOutputTokens) => ({ maxOutputTokens }), // the default: no temperature
   }),
 };
 // Give it as `explorer` (it reads the parts when there is one), or as `model` when it works alone.
 ```
 
 A part that Gemini refuses as larger than it takes is read as two halves, while `maxMapChunks` and
-the requests the question has left allow it. How the parts are cut and merged:
-[How it works](../how-it-works.md).
+the requests the question has left allow it. A part that cannot be read is reported to the model
+by the kind and status of its error ("The model was busy (HTTP 429).", "The model's quota has run
+out (HTTP 429)."), never by Google's message, which can name your project. How the parts are cut
+and merged: [How it works](../how-it-works.md).
 
 ## Pages of PDFs
 
@@ -473,18 +482,27 @@ names a wait. The loop sends a request again when another try can help, and thro
 it cannot. What each kind means for the user:
 [Errors and reliability](./errors-and-reliability.md).
 
-Three failures are not a `GeminiRequestError`, and have no `kind`:
+Two failures are not a `GeminiRequestError`, and have no `kind`:
 
 - an error thrown by your `accessToken` or `headers` function;
-- a reply of HTTP 200 that is not streamed and whose body is not JSON, such as a gateway's HTML
-  page: a `SyntaxError`, and a chat request is not sent again for it;
 - the abort of your own `signal`, thrown as it came.
+
+A reply of HTTP 200 whose body is not JSON, such as a gateway's HTML page, is a
+`GeminiRequestError` of kind `"invalid"`, status 200, with the `SyntaxError` as `cause`: "Gemini's
+reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its
+place." It is not sent again, streamed or not; until 0.6.1 it was the `SyntaxError` itself, and a
+streamed request that got such a page was sent again three times as a reply cut off. An empty body
+of HTTP 200 is "Gemini could not be reached (the reply was empty).", status 0, and is sent again.
+A reply asked for as a stream that comes under another content type than `text/event-stream` is
+read by what it starts with: events, or one chunk or a list of chunks in JSON, as Gemini sends them
+without `alt=sse`.
 
 ### Quotas
 
 | What Gemini or Vertex AI answers | `kind` | What the library does |
 |---|---|---|
 | HTTP 429 whose `details` hold a `google.rpc.QuotaFailure` with a quota per day (`PerDay` in its `quotaId` or `quotaMetric`) | `"quota"` | Throws at once: a wait does not mend it. |
+| HTTP 429 whose message alone names a quota per day ("Quota exceeded for … requests_per_day_per_project …") | `"quota"` | The same. |
 | Any other HTTP 429, a quota per minute among them | `"rate_limit"` | Sends it again, up to `retry.retries` times (3): after the wait the error names, or after a wait that doubles. |
 
 The wait an error names is its `Retry-After` or `retry-after-ms` header, or the `retryDelay` of a
@@ -543,6 +561,9 @@ not an overflow.
 | Gemini failed on its side | 5xx | `"server"` | Yes |
 | Nothing came for `firstByteTimeoutMs` or `idleTimeoutMs` | 0 | `"timeout"` | Once |
 | The connection failed, or a stream ended before its `finishReason` | 0 | `"unreachable"` | Yes, unless text was shown |
+| A reply of HTTP 200 whose body is empty | 0 | `"unreachable"` | Yes |
+| A reply of HTTP 200 whose body is not JSON (a gateway's page) | 200 | `"invalid"` | No |
+| An event of a stream longer than 64,000,000 characters | 200 | `"invalid"` | No |
 
 The message of the error is Google's own text, and can name your project, model and quotas. Log
 it; show the user a message of your own, chosen by `kind`, as the [sample below](#a-production-setup)
@@ -681,9 +702,12 @@ function messageFor(error: unknown): string {
 ```
 
 - `result.answered` is `false` when the last turn had no text (a blocked prompt, a reply stopped by
-  the output limit or a filter before it wrote anything, a broken tool call): show your own message
-  then. A reply cut off after some text is `answered: true`, with `finishReason` `"MAX_TOKENS"`.
-  With an explorer, `text` and `onText` carry only the answering model's words.
+  the output limit or a filter before it wrote anything, or an answer with no text, empty or a
+  tool call such as `UNEXPECTED_TOOL_CALL`, even after it was asked for once more): show your own
+  message then. A reply cut off after some text is `answered: true`, with `finishReason`
+  `"MAX_TOKENS"`. With an explorer, `text` and `onText` carry only the answering model's words.
+- Steps and activity lines are one line of plain text each, and still quote the model's words:
+  show them as text in the browser, never as HTML or markdown.
 - `limits.inputTokens` and `limits.requests` are ceilings on the whole question, part reads
   included: once one is reached no more tools run and the next request is the answer.
 - `owner` scopes the documents to the user: a document of another owner is reported missing

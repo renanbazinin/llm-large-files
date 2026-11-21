@@ -49,7 +49,8 @@ console.log(JSON.stringify({
 - **`steps`** holds one line for each tool call, such as
   `Search app.log (exact) for “timeout” — 12 matching lines`, or `… — failed: <reason>` when the
   call failed, and a line for each thing the loop did on its own, such as
-  `Older tool results were shortened to make room in the request`.
+  `Older tool results were shortened to make room in the request`. Each step is one line of plain
+  text that can quote the model's words: show it as text, never as markdown or HTML.
 - **`turns`** counts the chat requests that were sent (one that failed counts, and one sent again
   smaller after an overflow counts again); `usage.requests` counts the requests that were
   answered, the part reads of a whole-file read included.
@@ -66,6 +67,7 @@ try {
 } catch (error) {
   if (error instanceof ModelRequestError) {
     // status 0: no answer, a silent model (kind timeout), or a reply cut off on its way.
+    // status 200 and kind invalid: a reply that could not be read, such as a gateway's page.
     // limitTokens and requestedTokens: the provider's numbers of an overflow.
     console.error(error.name, error.kind, error.status, error.limitTokens, error.requestedTokens, error.message, error.cause);
   } else if (error instanceof DocumentsNotFoundError) {
@@ -116,12 +118,67 @@ as `devDependencies` and left out of the production install, or missing from the
 bundle you deploy.
 
 **Fix.** Install them as dependencies of the application that runs the upload route and the
-questions: `npm install jszip unpdf @cantoo/pdf-lib`. Install `@cantoo/pdf-lib` before PDFs are
-uploaded: without it nothing fails at upload, but the text of a PDF is written without the line
-that marks a page with a picture (`[Picture on this page. This text cannot show it.]`), and a
-document keeps the text it was ingested with.
+questions: `npm install jszip unpdf @cantoo/pdf-lib` on Node 24 and later. On Node 20 and 22, name
+a version of `unpdf` that runs there: `npm install jszip unpdf@1 @cantoo/pdf-lib` on Node 22, and
+`npm install jszip unpdf@1.7.0 @cantoo/pdf-lib` on Node 20 (see
+[below](#a-pdf-upload-fails-the-unpdf-installed-cannot-read-pdf-files-or-would-stop-the-whole-server)).
+Install `@cantoo/pdf-lib` before PDFs are uploaded: without it nothing fails at upload, but the
+text of a PDF is written without the line that marks a page with a picture
+(`[Picture on this page. This text cannot show it.]`), and a document keeps the text it was
+ingested with.
 
 See [PDFs and other formats](./guides/pdfs.md).
+
+### A PDF upload fails: "The unpdf installed cannot read PDF files" or "would stop the whole server"
+
+`files.ingest` throws one of these, and the upload handler answers `422` with it:
+
+- `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.`
+- `The unpdf installed would stop the whole server at the first PDF file on Node 20, so PDF files are not read. Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.`
+- `The unpdf installed cannot read PDF files on Node 20 (Serverless PDF.js bundle could not be resolved: ReferenceError: Iterator is not defined). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.`
+  The text in brackets is unpdf's own message, and differs between its versions.
+
+The number is the major version of the Node that runs the server. DOCX, PPTX and text files are
+read as before.
+
+**Cause.** The version of `unpdf` that is installed cannot read PDFs on this version of Node, and
+0.6.1 checks it before it reads a PDF:
+
+- unpdf 1.5.0 to 1.6.0 load a pdf.js that calls `Promise.try`, which Node 20 and 22 do not have. In
+  0.6.0 the first PDF stopped the whole process, with a `TypeError` that nothing could catch.
+- unpdf 1.9 and later, 2.x included, load a pdf.js that needs Node 22. On Node 20, every PDF failed
+  with unpdf's message alone.
+
+unpdf 2 asks for Node 24, and on Node 24 a plain `npm install unpdf` installs it. On Node 22 and
+later, a pdf.js that cannot be loaded for another reason fails with unpdf's message, as before.
+
+**Fix.** Install the `unpdf` that runs on your Node, or move to the Node the message names:
+
+| Node | `unpdf` to install |
+|---|---|
+| 20 | 1.4.0, or 1.6.1 to 1.8.1: `npm install unpdf@1.7.0`. 1.7.0 is the last that does not ask for Node 22. |
+| 22 | 1.4.0, or 1.6.1 or a later 1.x: `npm install unpdf@1`. |
+| 24 and later | Any version from 1.4.0, 2.x included: `npm install unpdf`. |
+
+If the server loads pdf.js when it starts, as [Deployment](./guides/deployment.md#uploads-and-ingest)
+shows, an `unpdf` that cannot load pdf.js on that Node (1.9 and later on Node 20) makes the start
+fail instead. With unpdf 1.5.0 to 1.6.0 on Node 20 or 22, pdf.js loads and the server starts: PDFs
+are then refused at upload, with one of the `would stop the whole server` messages above.
+
+See [PDFs and other formats](./guides/pdfs.md#formats).
+
+### `npm install` stops with `ERESOLVE` over `unpdf`
+
+**Cause.** llm-large-files 0.6.0 accepts `unpdf` ^1.4.0 only: with it, an install of unpdf 2, or
+of 0.6.0 in an app that already has unpdf 2, stops with `ERESOLVE`. 0.6.1 accepts
+`^1.4.0 || ^2.0.0`. So going back from 0.6.1 with unpdf 2 to 0.6.0 stops the same way
+(`npm install llm-large-files@0.6.0`), and changes nothing.
+
+**Fix.** Use 0.6.1. To go back to 0.6.0 from unpdf 2, install both in one command:
+`npm install llm-large-files@0.6.0 unpdf@^1`, or restore `package.json` and `package-lock.json`
+together.
+
+See [PDFs and other formats](./guides/pdfs.md#formats).
 
 ### `createLargeFiles` throws an error about `budget`
 
@@ -218,6 +275,35 @@ the handler and turned the file into an object.
 
 See [Web app](./guides/web-app.md).
 
+### `500`: "Upload failed (empty owner)." or "Upload failed (owner is not a string)."
+
+`createDocumentHandlers` answers the upload `500` with `{ "error": "Upload failed (empty owner)." }`
+or `{ "error": "Upload failed (owner is not a string)." }`. It answers before it reads the body, and
+logs nothing. `files.ingest`, called directly with such an owner, throws a `TypeError`:
+`owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.`
+
+**Cause.** Since 0.6.1 an owner of `""`, of spaces only, or `null` is refused. It would be one owner
+shared by every caller without a user: each of them could read and delete the documents of the
+others. 0.6.0 accepted it.
+
+- **"empty owner"**: `getOwner` returned `""`, spaces, or `null`. Most often it does
+  `user?.id ?? ""` for a user who is not signed in, or reads a header that arrives empty
+  (`req.headers["x-user-id"]`).
+- **"owner is not a string"**: `getOwner` returned, from JavaScript, something that is neither a
+  string nor a finite number: the user object (`req.user` in place of `req.user.id`), `true`, `NaN`,
+  an array.
+
+A numeric owner is accepted, as before. `get`, `remove` and questions that pass the owner `""` work
+as before, so documents that 0.6.0 stored with that owner stay readable until they expire.
+
+**Fix.** Return the user's ID, not the user object. Where every upload needs a signed-in user,
+throw an error with `status: 401` for a request without one. Only where anonymous uploads are
+meant, return `undefined` for such a caller (`user?.id || undefined`): anyone who has the ID of
+such a document may then use it.
+
+See [`DocumentHandlerOptions`](./reference/node.md#documenthandleroptions) and
+[Security](./security.md#ownership).
+
 ### `422` for a file the library cannot read
 
 `files.ingest` throws an error written for your user, and the upload handler answers `422` with it.
@@ -231,6 +317,7 @@ The common ones:
 | `report.txt is empty.` | A file of 0 bytes. |
 | `report.docx did not contain any text.` | Nothing left once read: a DOCX of pictures, a file of blank lines. |
 | `This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.` | A scan, while PDFs are not kept. |
+| `The unpdf installed would stop the whole server at the first PDF file on Node 22, …` or `The unpdf installed cannot read PDF files on Node 20 (…). …` | Any PDF, while the `unpdf` installed cannot run on this Node. See [above](#a-pdf-upload-fails-the-unpdf-installed-cannot-read-pdf-files-or-would-stop-the-whole-server). |
 | `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` | A PDF of more than `maxPdfPages` pages (5,000 by default). Refused before any page is read. |
 | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | A PDF whose text passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB). |
 | `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | The same, from the text extractor or one of your own: a UTF-16 file can grow by half in UTF-8. |
@@ -278,6 +365,61 @@ If you ingest in a process or a worker with a timer of its own, set that timer a
 
 See [`LargeFilesOptions`](./reference/library.md#largefilesoptions) and
 [Custom extractors](./guides/pdfs.md#custom-extractors).
+
+### Letters look wrong, or show as �, in a text file
+
+The model quotes words in letters of another alphabet, or with `�`, or says that the file is not in
+UTF-8. The document's metadata, and the summary the upload answered with, has `encoding` (such as
+`"windows-1252"`), `replacedCharacters` (a count), or both.
+
+**Cause.** A text, log, CSV, JSON or Markdown file that is not valid UTF-8 is never refused for its
+encoding. Since 0.6.1 it is read one of two ways:
+
+- **In an older encoding** (`encoding`), when its lines with letters fit one: windows-1255
+  (Hebrew), windows-1256 (Arabic), windows-1251 (Cyrillic), Shift_JIS (`"shift_jis"`, Japanese)
+  or windows-1252 (Western European). ISO-8859-8 is read as windows-1255, and ISO-8859-1 as
+  windows-1252. Lines of it that are valid UTF-8 are read as UTF-8.
+- **As UTF-8**, as 0.6.0 read every file: when at least as many lines count as UTF-8 as count as
+  not (a line counts as UTF-8 when it holds at least as many characters of more than one byte as
+  characters that are not valid); when at most one line in 200 is not UTF-8, ASCII lines counted
+  (a log cut at a byte count, a stray byte, a binary body in a log line); and when no older
+  encoding fits.
+
+Each character that was not valid in the encoding the file was read in is stored as `�`, and
+counted in `replacedCharacters`. The model is told how the file was read: its card says
+`This file is not in UTF-8. Its text was read as windows-1255: if its letters look wrong, ask the user to save it as UTF-8.`,
+or `3 characters of this file were not valid UTF-8, and show as �.`, and a file sent whole says it
+in its first frame line (`, read as windows-1255`).
+
+Letters come out wrong where the encoding is not recognized, or is taken for another:
+
+- Greek, Turkish, Central European (Polish, Czech, windows-1250), Icelandic, KOI8-R, the DOS code
+  pages (437, 850, 866), Chinese, Korean and Thai are not recognized: the file is read as UTF-8,
+  and almost every character of it outside ASCII is `�`, even one that windows-1252 has (Turkish
+  `güzel` comes out as `g�zel`). So is a Japanese file with few or no kana, such as names and
+  addresses in kanji only.
+- Hungarian in windows-1250 or ISO-8859-2 is read as windows-1252, with õ and û in place of ő and
+  ű: a search for a word with ő or ű finds nothing.
+- ISO-8859-15 is read as windows-1252 when it has no œ: its € comes out as ¤. In windows-1252, œ
+  is ½, which looks wrong inside a word (`c½ur`), and an encoding fits only when at most one word
+  or sign in 50 looks wrong: in French prose, one such word needs about 20 lines with accents
+  around it. So a file with œ in its words, a menu or a line or two of French, most often fits no
+  encoding: it is read as UTF-8, and each of its accented letters is `�`.
+- A file of a line or two, or of one long line (minified JSON), can be read in a wrong encoding:
+  Greek capitals as windows-1251, `Straße` saved in DOS code page 850 as windows-1252 `Straáe`.
+- In a log where at most one line in 200 is not UTF-8, those lines are `�` even when they are in
+  an older encoding.
+- A document that 0.6.0 stored from a file that is not UTF-8 holds `�` where its letters were:
+  0.6.0 read every file as UTF-8.
+
+**Fix.** Ask the user to save the file as UTF-8 and attach it again: in Excel, Save As
+"CSV UTF-8 (Comma delimited)"; in Notepad, Save As with the encoding UTF-8. Show `encoding` and
+`replacedCharacters` of the upload's summary next to the file ("read as windows-1255", "3
+characters could not be read"), so that the user sees it before asking. Ingest again the files
+that 0.6.0 stored.
+
+See [`DocumentMeta`](./reference/library.md#documentmeta) and
+[Text encodings](./guides/pdfs.md#text-encodings).
 
 ## Questions and answers
 
@@ -368,6 +510,22 @@ Log the result ([Start here](#start-here-what-to-log)) and look for one of these
 See [How it works](./how-it-works.md) for the plan and the tools, and
 [Tools](./reference/tools.md) for what each tool returns.
 
+### The answer quotes text that the document does not show
+
+The model cites a line that starts `[Hidden text, not shown in the document]`, or a slide whose
+heading says `(hidden, not shown in the slide show)`, and the user does not see it in the file.
+
+**Cause.** Since 0.6.1 the text of a DOCX run that Word hides (`<w:vanish/>`) is kept and marked: it
+comes after the text of its paragraph that shows, each of its lines starting with that mark. A
+slide that the slide show skips keeps its text, and its heading says so. The mark tells the model
+what a reader of the document does not see. It is a hint: text hidden through a style, white or
+tiny text, and hidden shapes are read as ordinary text, without it.
+
+**Fix.** Nothing breaks. To have the model leave hidden text out of its answers, or name it as
+hidden, say so in your `system` instruction.
+
+See [PDFs and other formats](./guides/pdfs.md#docx-and-pptx).
+
 ### `answered` is `false`
 
 **Cause.** The model's last turn had no text:
@@ -377,8 +535,15 @@ See [How it works](./how-it-works.md) for the plan and the tools, and
   OpenAI-compatible server. Nothing more is asked after a refusal.
 - **The reply was cut off before any text.** `finishReason` is `MAX_TOKENS` (Gemini), `length`
   (OpenAI-compatible) or `max_tokens` (Claude): the output limit was spent, most often on thinking.
-- **The reply was filtered**, or the model made a tool call that could not be read, in the request
-  that had to be the answer.
+- **The reply was filtered** in the request that had to be the answer.
+- **The request for the answer came back without text twice.** A reply to it that is empty, or
+  holds a tool call the model was told not to make (Gemini's `UNEXPECTED_TOOL_CALL` or
+  `MALFORMED_FUNCTION_CALL`), is asked for once more, with a note that is not kept. `steps` then
+  holds `The model's answer was empty: it was asked again` or
+  `The model called a tool instead of answering: it was asked again for the answer`. That second
+  try is one of the two a question may make, and is not made after a refusal, a filter, a reply
+  cut off with nothing in it, or once `limits.requests` or `limits.inputTokens` is reached. In
+  0.6.0 the question ended at the first empty reply.
 
 `text` is then empty, holds only a remark the model made before a tool call, or holds the start of
 a reply the provider then refused.
@@ -462,10 +627,46 @@ only with its cost in mind: each part is a request of up to `mapChunkTokens` inp
 
 See [Tools](./reference/tools.md) and [Costs and limits](./guides/costs-and-limits.md).
 
+### "Could not read any part of app.log: …"
+
+`steps` holds, for example,
+`Read all of app.log for “Summarize.” — failed: Could not read any part of app.log: The model refused the key or token it was sent (HTTP 401).`
+A part that failed among parts that were read is counted in the result's `parts_that_failed`, and
+its notes say `[This part could not be read: The model was busy (HTTP 429).]`.
+
+**Cause.** The model requests of the parts failed, after their retries. Since 0.6.1 the model, the
+step and `toolTurns` are told why by the error's kind, its HTTP status or its connection code, never
+by its message, which can name a project, a host, a key or a URL:
+
+| Reason | The error |
+|---|---|
+| `The request was larger than the model takes (HTTP 400).` | Kind `context_overflow`: a part too large for the model, even read in halves. |
+| `The model's quota has run out (HTTP 429).` | Kind `quota`. |
+| `The model was busy (HTTP 429).` | Kind `rate_limit`. |
+| `The model took too long to answer.` | Kind `timeout`, a part read that ran past its 180 s, an `AbortSignal.timeout` of your own, or an undici headers or body timeout. |
+| `The model could not be reached.` | Kind `unreachable`, or a connection code on the error or its cause (`ECONNREFUSED`, `ENOTFOUND`, `UND_ERR_SOCKET`…). |
+| `The model failed on its side (HTTP 503).` | Kind `server`. |
+| `The model refused the key or token it was sent (HTTP 401).` | Kind `auth`. |
+| `The model refused the request (HTTP 400).` | Kind `invalid`. |
+| `The model's reply could not be read (HTTP 200).` | A reply that was not JSON, such as a gateway's page. |
+| `The model returned no text (SAFETY).` | A reply with no text to the package's part reader. The provider's reason is given only when it is a plain word. |
+| `The model request failed.` | Any other error, such as a plain `Error` that a `generate` of your own throws. |
+
+The HTTP status is given when the error has one. The store's own errors keep their message:
+`[This part could not be read: The document store could not be read (EIO). Try again.]`.
+
+**Fix.** Act on the kind, as for the chat requests ([Errors from the model](#errors-from-the-model)).
+To see the provider's words, log them where they arrive: in the `fetch` option of the adapter, or
+in a `generate` of your own. A `generate` of your own can give the model a reason by throwing an
+error with a `kind` or an HTTP `status`.
+
+See [`analyze_whole_document`](./reference/tools.md#analyze_whole_document).
+
 ### The model repeats the same calls
 
 `steps` holds `… — already shown above`, or the same search in other words over and over, or
-`… more tool calls in this turn were not run (at most 8 a turn)`.
+`3 more tool calls in this turn were not run (at most 8 a turn)` (for one:
+`1 more tool call in this turn was not run (at most 8 a turn)`).
 
 **Cause.** A call whose result is still in the conversation in full (the same search, or a read of
 lines already shown) is not run again: the model gets a pointer to the earlier result, which costs
@@ -475,10 +676,16 @@ that fail with an error in the same mode get a hint: for `regex`, to try `exact`
 the other modes, to check the arguments. A search that finds nothing is not a failure and gets no
 hint.
 
-**Fix.** Nothing breaks: the question still ends with an answer within `limits.toolTurns`. To cap
-the cost of a model that loops, lower `limits.toolTurns`. To loop less, give the searching to a
-stronger model as an [explorer](./guides/explorer-model.md), and pass the `toolTurns` of earlier
-questions back, so that a follow-up starts from what was already found.
+Some calls run again by design. With Claude's context editing (an edit `clear_tool_uses_…` or
+`compact_…` in `body.context_management`), Claude may no longer have an earlier result, so no call
+is answered with a pointer. A read of one line from the tool rounds of an earlier question, and an
+exact or regex search that 0.6.0 stored without its last match, run again too.
+
+**Fix.** Nothing breaks: the question still ends with an answer within `limits.toolTurns`, plus one
+more request when the answer comes back without text. To cap the cost of a model that loops, lower
+`limits.toolTurns`. To loop less, give the searching to a stronger model as an
+[explorer](./guides/explorer-model.md), and pass the `toolTurns` of earlier questions back, so that
+a follow-up starts from what was already found.
 
 See [Conversations](./guides/conversations.md) and [`AskLimits`](./reference/ask.md#asklimits).
 
@@ -487,23 +694,35 @@ See [Conversations](./guides/conversations.md) and [`AskLimits`](./reference/ask
 A model request that fails, and is not mended by sending it again, reaches you as a
 `ModelRequestError`: a `GeminiRequestError`, `OpenAiRequestError` or `AnthropicRequestError`. Its
 `kind` says what went wrong, `status` is the HTTP status (0 when no answer came, the model sent
-nothing for the whole wait, or a streamed reply was cut off), and its message is most often the
-provider's own. Log the message; show your own words, chosen by `kind`.
-`partialResultOf(error)` gives what the question found and used until then.
+nothing for the whole wait, or a streamed reply was cut off; 200 for a reply that came and could
+not be read), and its message is most often the provider's own. Log the message; show your own
+words, chosen by `kind`. `partialResultOf(error)` gives what the question found and used until
+then.
 
 ### `context_overflow`: the request is larger than the model takes
 
 The provider's message, for example Vertex AI's `The input token count exceeds the maximum number of tokens allowed 1048576.`,
 with `limitTokens` and `requestedTokens` when the message gives the numbers. A body over a size
-limit (HTTP 413) is this kind too.
+limit (HTTP 413) is this kind too. So, since 0.6.1, is a request larger than the tokens a minute
+(or a day) that the account allows, though it comes as HTTP 429 or 413 and its words are those of
+a rate limit: OpenAI's
+`Request too large for gpt-4o in organization org-… on tokens per min (TPM): Limit 30000, Requested 45237.`,
+or Groq's `… on tokens per minute (TPM): Limit 6000, Requested 6438 …`. Its `limitTokens` is that
+allowance. In 0.6.0 it was `rate_limit`, and was sent again three times as it was.
 
 **Cause.** The loop recovers on its own when it can: it shortens older tool results and sends the
 request again (at most twice a question), or, before any tool ran, plans the documents again,
 once, for a smaller window worked out from the provider's numbers (see
-[How it works](./how-it-works.md#a-request-too-large-for-the-model)). `steps` then holds
+[How it works](./how-it-works.md#a-request-too-large-for-the-model)). A request of this kind is
+never sent again as it was. `steps` then holds
 `The request was larger than the model takes: older tool results were shortened, and it was sent again`
 or `The first request was larger than the model's window of … tokens: the files were planned again to fit it`.
-The error reaches you when that was not enough:
+For an allowance a minute they say so:
+`The request was larger than the provider allows in a minute: older tool results were shortened, and it was sent again`,
+`The first request was larger than the 30,000 tokens a minute that the provider allows: the files were planned again to fit it`,
+or, when the message gives no number,
+`The first request was larger than the provider allows in a minute: the files were planned again for a smaller request`
+(`a day` for an allowance a day). The error reaches you when that was not enough:
 
 - **The history is too long.** The loop never shortens a question or an answer you pass.
 - **The model's window is smaller than the budget says.** The budget assumes 1M tokens unless you
@@ -513,17 +732,25 @@ The error reaches you when that was not enough:
 - **The model may not have its conversation rewritten.** Claude's conversation is append-only, so
   old tool results are never shortened for it.
 - **The body is too large for a gateway.** Set `maxRequestBytes` to its limit.
+- **The account allows fewer tokens a minute than the model's window.** Every request of a
+  question must pass that allowance.
 
 **Fix.** Keep the history under a limit you choose, dropping old tool rounds first, then old turns.
 For a model or gateway with smaller limits, set `contextTokens` (and `maxRequestBytes`) on the
 adapter (`gemini()`, `openAiCompatible()`, `anthropic()`), or with `askGemini` pass
 `budget: { contextTokens, maxRequestBytes }` (or set them in the `budget` of `createLargeFiles`).
-Keep `partialResultOf(error).toolTurns` with the conversation, and tell the user to start a new
-chat or ask about fewer files.
+For an allowance a minute, set `contextTokens` below it, or raise the account's tier. Keep
+`partialResultOf(error).toolTurns` with the conversation, and tell the user to start a new chat or
+ask about fewer files.
 
 A provider whose wording the library does not know gives kind `invalid`, and the loop does not
-recover. `classifyModelError(status, message)` shows how a message is read; a wrapper around your
-adapter can set the kind itself ([Your own adapter and loop](./guides/own-adapter-and-loop.md)).
+recover. 0.6.1 knows more of them: Text Generation Inference and Together ("… tokens +
+max_new_tokens must be <= 32769. Given: 40000 …"), LM Studio ("loaded with context length of only
+4096 tokens"), Amazon Bedrock ("Input is too long for requested model."), and the message at the
+top of the body that vLLM before its OpenAI-shaped errors, SGLang, FastChat and servers built on
+FastAPI send.
+`classifyModelError(status, message)` shows how a message is read; a wrapper around your adapter
+can set the kind itself ([Your own adapter and loop](./guides/own-adapter-and-loop.md)).
 
 See [Conversations](./guides/conversations.md) and
 [Errors and reliability](./guides/errors-and-reliability.md).
@@ -531,12 +758,22 @@ See [Conversations](./guides/conversations.md) and
 ### `quota` or `rate_limit`: HTTP 429
 
 **Cause.** Too many requests or tokens for the account. The two kinds differ in one thing: a wait
-mends a `rate_limit` (a quota per minute, Gemini's among them) and not a `quota` (a Gemini quota
-per day, OpenAI's `insufficient_quota`). The library sends a `rate_limit` request again a few
-times, and throws a `quota` error at once. While it waits, `onActivity` reports it:
-`The model did not answer (HTTP 429). Trying again in 2 s…`. A whole-file read reaches a quota per
-minute first: up to 30 part reads, four at a time. Claude's HTTP 529 (overloaded) is neither: it
-is kind `server`.
+mends a `rate_limit` (a quota per minute, Gemini's among them) and not a `quota`. The library sends
+a `rate_limit` request again a few times, and throws a `quota` error at once. While it waits,
+`onActivity` reports it: `The model did not answer (HTTP 429). Trying again in 2 s…`. A whole-file
+read reaches a quota per minute first: up to 30 part reads, four at a time. Claude's HTTP 529
+(overloaded) is neither: it is kind `server`.
+
+A `quota` is a quota per day, or money: a Gemini quota per day (in the error's `details`, or named
+in Vertex AI's message, `Quota exceeded for …requests_per_day…`), OpenAI's `insufficient_quota`,
+and since 0.6.1 HTTP 402 (DeepSeek's "Insufficient Balance", OpenRouter's "Insufficient credits"),
+Claude's "Your credit balance is too low" (HTTP 400), and Claude's spending limits ("You have
+reached your API usage limits", HTTP 400, or HTTP 429 with `enforced_spend_limit_reached`). In
+0.6.0 these were `invalid` or `rate_limit`, and the 429 was sent again three times.
+
+A request larger than the tokens a minute allows also comes as HTTP 429, and is
+[`context_overflow`](#context_overflow-the-request-is-larger-than-the-model-takes): a wait does not
+let it through.
 
 **Fix.** For `rate_limit` under load, wait longer (`retry: { retries: 5, baseDelayMs: 2_000 }`),
 raise the quota, or move the searching to an explorer on another model or project. Tell the user to
@@ -580,7 +817,17 @@ Or `The model could not be reached (…).` and `Claude could not be reached (…
 
 **Cause.** No HTTP answer came: a name that does not resolve, a refused connection, a proxy that
 your server must go through, a certificate that Node does not trust (a corporate proxy that
-inspects TLS). The request is sent again up to 3 times before you see this.
+inspects TLS). The request is sent again up to 3 times before you see this. While it waits,
+`onActivity` says `The model could not be reached. Trying again…`.
+
+The same kind comes for a reply that began and was cut off on its way: a connection that broke
+while the reply arrived, a stream that closed before its end (an empty one too, see
+["Gemini's reply ended before it was complete."](#geminis-reply-ended-before-it-was-complete)),
+and, since 0.6.1, a reply of HTTP 200 whose body was empty and not of type `text/event-stream`
+(`Gemini could not be reached (the reply was empty).`, `The model could not be reached (the reply was empty).`,
+`Claude could not be reached (the reply was empty).`). These are sent again too, unless text of
+the reply was shown, and `onActivity` says
+`The model's reply was cut off on its way. Trying again…`.
 
 **Fix.** Log `error.cause`: it is the error of `fetch`, whose own `cause` usually names the system
 error (`ENOTFOUND`, `ECONNREFUSED`, a certificate error). Node's `fetch` does not go through a proxy
@@ -685,12 +932,23 @@ For an OpenAI-compatible server, set `answerWithoutTools: "omit"` or `stream: fa
 See [An explorer model](./guides/explorer-model.md) and
 [OpenAI-compatible endpoints](./guides/openai-compatible.md).
 
-### A `SyntaxError` from `JSON.parse`
+### "Gemini's reply could not be read: it was not JSON (text/html)."
 
-Often one that starts `Unexpected token '<'`. It has no `status` and no `kind`.
+The whole message: `Gemini's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.`
+From the other adapters it starts `The model's reply could not be read` (OpenAI-compatible) or
+`Claude's reply could not be read`. The brackets hold the media type of the response, and are left
+out when it has none. Status 200 (the status of the response), kind `invalid`, and the
+`SyntaxError` of `JSON.parse` as `cause`.
 
-**Cause.** A reply that was not streamed came with HTTP 200, but its body was not JSON: a gateway,
-a proxy or a sign-in page answered with HTML. A chat request is not sent again for it.
+**Cause.** A reply came with HTTP 200, but its body was not JSON: a gateway, a proxy or a sign-in
+page answered with HTML. So does a reply asked for as a stream whose body starts like neither
+events nor JSON. It is not sent again: the same page would most likely come back. In a whole-file
+read, the part is told `The model's reply could not be read (HTTP 200).`
+
+Until 0.6.1 this was the `SyntaxError` itself, with no `status` and no `kind`, and a streamed
+Gemini request that got such a page was sent again as a reply cut off on its way. A test of
+`error instanceof SyntaxError` no longer matches: test `error.cause instanceof SyntaxError`. Kind
+`invalid` alone also covers every other request that the provider refused.
 
 **Fix.** Call the URL the way the adapter does and look at what comes back. Fix the gateway's route
 or its sign-in, or give the adapter the URL that answers JSON.
@@ -719,6 +977,15 @@ Look at `result.usage`: `inputTokens`, `cachedInputTokens` (read from the provid
 - **Thinking.** Thoughts are billed as output.
 - **`documentPlacement: "last"`.** The documents then move to the latest turn, and a prompt cache
   cannot reuse them: keep the default, `"first"`.
+- **The first request of a follow-up question.** The tool rounds of an earlier question are sent
+  again without their `tool_turns_left` (since 0.6.1), so that request reads the cache only up to
+  the tool rounds of the question before it: the documents, the cards and the turns before those
+  rounds still hit. The later requests of the question hit as before.
+- **The first request after the upgrade to 0.6.1.** The description of `search_document` and the
+  frame of every file sent whole changed, so the first request of each conversation reads nothing
+  from the cache on Claude and OpenAI-compatible endpoints, where the tools come first, and only
+  the system instruction on Gemini. With Claude's `cache_control`, that request is a cache write.
+  While servers of both versions answer the same conversations, each switch misses again.
 
 **Fix.** Set ceilings for one question, and log the usage per user or session:
 
@@ -754,7 +1021,8 @@ follow-up whose `messages` hold only the text of earlier turns has none of them.
 
 **Fix.** Keep `result.toolTurns` with the conversation, and pass them back between the question
 they belong to and its answer. A follow-up then gets a pointer to an earlier result instead of
-running the same call again.
+running the same call again. With Claude's context editing, calls run again all the same (see
+[above](#the-model-repeats-the-same-calls)).
 
 See [Conversations](./guides/conversations.md).
 
@@ -907,8 +1175,9 @@ See [Deployment](./guides/deployment.md) and [Storage](./guides/storage.md).
 - `askGemini` and `gemini()` stream only to an endpoint with a `streamUrl`. `geminiApi()` and
   `vertexAi()` set it; an endpoint you write for a gateway may not.
 - `openAiCompatible({ stream: false })` and `anthropic({ stream: false })` do not stream, and a
-  server that answers without `text/event-stream` is read in one piece. `onText` is then called
-  once, with the whole text.
+  server that answers a streamed request in one piece, with JSON, is read whole. `onText` is then
+  called once, with the whole text. (A reply that starts like events is read as a stream, whatever
+  its content type.)
 - With an explorer, nothing streams until the answering model starts.
 - A proxy or a compression middleware between your server and the browser holds the events back.
 
@@ -951,16 +1220,39 @@ Or `The model's reply ended before it was complete.` and `Claude's reply ended b
 Status 0, kind `unreachable`.
 
 **Cause.** A streamed reply closed without the event that says why it ended: a proxy or gateway
-between your server and the provider cut it. For Gemini, a gateway that drops `?alt=sse` from the
-stream URL does the same: Gemini then answers with a JSON array, not with events. The request is
-sent again when none of its text was shown. When some was, it cannot be taken back, and the error
-reaches you after the user saw part of an answer.
+between your server and the provider cut it. The request is sent again when none of its text was
+shown, and `onActivity` says `The model's reply was cut off on its way. Trying again…`. When some
+text was shown, it cannot be taken back, and the error reaches you after the user saw part of an
+answer.
+
+Since 0.6.1, two kinds of reply that failed in 0.6.0 are read whole. A Gemini stream URL that a
+gateway answers in one piece (a JSON array of chunks, as Gemini sends without `?alt=sse`) is read
+as one reply; 0.6.0 failed it with this message. A stream that said it is whole (`[DONE]`, Claude's
+`message_stop`) and was then left open, or broke, keeps its reply: the body is read for one more
+second at most, and then closed; 0.6.0 failed it as `timeout` after `idleTimeoutMs`, or as
+`unreachable`.
 
 **Fix.** Keep the text that was shown and mark it as cut off, and keep `partialResultOf(error)`'s
 `toolTurns` so that the user's next question starts from what was found. Raise the gateway's
 timeouts for streams, or route the stream URL past it.
 
 See [Errors and reliability](./guides/errors-and-reliability.md).
+
+### "The model's reply could not be read: an event of its stream held more than 64,000,000 characters."
+
+Or `Gemini's reply could not be read: …` and `Claude's reply could not be read: …`. Status 200 (the
+status of the response), kind `invalid`.
+
+**Cause.** One event of the streamed reply held more than 64,000,000 characters: a server or a
+gateway that never ended an event, or sent data lines without the blank line that ends one. It is
+not sent again: the same stream would most likely come back. In 0.6.0 such a stream grew one string
+until the request failed as `unreachable` and was sent again, about 500 MB each time, and data lines
+without an end could run the server out of memory.
+
+**Fix.** Look at the stream the server or the gateway sends: an answer of a model fits well within
+the limit.
+
+See [`parseSseJson`](./reference/errors-and-retries.md#parsessejsonstream-hooks).
 
 ### The question goes on after the user leaves
 
@@ -982,8 +1274,11 @@ export async function answer(response: ServerResponse) {
 }
 ```
 
-The question then throws the signal's reason. What it used until then was paid for:
+The question then throws the signal's reason, at once: since 0.6.1 also with an adapter of your own
+that does not stop its request, and when the adapter fails with its own error as it stops. Nothing
+is sent after that, and text that arrives later is not shown. What it used until then was paid for:
 `partialResultOf(error)` gives its `usage` when the reason is an object, so abort with no reason or
-with an `Error`.
+with an `Error`. A request still running when the question stopped may be billed by the provider,
+and is not counted there: pass the signal on to the request, as the built-in adapters do.
 
 See [Web app](./guides/web-app.md).
