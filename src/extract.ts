@@ -6,6 +6,7 @@ import { checkPageWork, HeavyPage } from "./pdf-work.js";
 import { formatBytes } from "./plan.js";
 import { MAX_LINE_CHARACTERS, plural, sliceWhole, utf8Bytes } from "./text.js";
 import type { DocumentFormat, ExtractedText, ExtractInput, Extractor } from "./types.js";
+import { readZipDirectory } from "./zip-directory.js";
 
 const EXTENSION_FORMATS: Record<string, DocumentFormat> = {
   log: "log", out: "log", err: "log",
@@ -641,37 +642,25 @@ function officeReader(archive: ZipArchive, kind: "DOCX" | "PPTX", size: number, 
 
 /**
  * The parts an Office file may have, at most. A deck of 2,000 slides with notes and pictures has
- * about 12,000. JSZip reads the header of every part into memory before any part is unpacked: 300,000
- * empty parts took over 500 MB.
+ * about 12,000. JSZip reads the header of every part into memory before any part is unpacked:
+ * about 2 KB each, and 300,000 empty parts took over 500 MB.
  */
 const MAX_ZIP_ENTRIES = 20_000;
-
 /**
- * How many parts a ZIP file says it has, from its end-of-central-directory record, without
- * reading the parts. When that field holds 65,535 (more than it can hold), the count is read from
- * the ZIP64 record it points to; 65,535 when there is none. Undefined when there is no end record:
- * the file is not a ZIP, or is damaged, and JSZip will say so.
+ * The extra fields the parts of an Office file may have, together. Office writes none, other ZIP
+ * programs one to three for each part. JSZip keeps about 250 bytes for each field of 4 bytes: a
+ * file of 4 MB made only of them took 250 MB.
  */
-export function zipEntryCount(bytes: Uint8Array): number | undefined {
-  const at4 = (at: number, third: number, fourth: number) => bytes[at] === 0x50 && bytes[at + 1] === 0x4b && bytes[at + 2] === third && bytes[at + 3] === fourth;
-  // The record is 22 bytes, followed by a comment of at most 65,535 bytes.
-  const lowest = Math.max(0, bytes.length - 22 - 0xffff);
-  for (let at = bytes.length - 22; at >= lowest; at--) {
-    if (!at4(at, 0x05, 0x06)) continue;
-    const count = bytes[at + 10]! | (bytes[at + 11]! << 8);
-    if (count !== 0xffff) return count;
-    // ZIP64: a 20-byte locator just before the record gives the offset of the ZIP64 end record,
-    // which holds the count in 8 bytes.
-    const locator = at - 20;
-    if (locator < 0 || !at4(locator, 0x06, 0x07)) return count;
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const offset = Number(view.getBigUint64(locator + 8, true));
-    if (!Number.isSafeInteger(offset) || offset + 56 > bytes.length || !at4(offset, 0x06, 0x06)) return count;
-    const total = Number(view.getBigUint64(offset + 32, true));
-    return Number.isSafeInteger(total) ? total : count;
-  }
-  return undefined;
-}
+const MAX_ZIP_EXTRA_FIELDS = 4 * MAX_ZIP_ENTRIES;
+/**
+ * The bytes JSZip may turn into text, or go through one by one, from the directory of an Office
+ * file: names, comments, and the data of three kinds of extra field (see ZipDirectory). The Office
+ * files we tried had at most 68 KB. A name can be decoded from the same bytes for many parts, and
+ * the data of a field can run over the records after it, so the size of the file does not bound
+ * them: 2,000 parts of a 0.17 MB file took JSZip over 256 MB. A file just under this limit and the
+ * two above took JSZip under 0.5 s and 140 MB.
+ */
+const MAX_ZIP_TEXT_BYTES = 8 * 1024 * 1024;
 
 async function loadZip(bytes: Uint8Array, kind: "DOCX" | "PPTX"): Promise<ZipArchive> {
   let JSZip: { loadAsync(data: Uint8Array): Promise<ZipArchive> };
@@ -680,9 +669,18 @@ async function loadZip(bytes: Uint8Array, kind: "DOCX" | "PPTX"): Promise<ZipArc
   } catch {
     throw new Error("Reading DOCX and PPTX files needs the optional dependency \"jszip\".");
   }
-  const entries = zipEntryCount(bytes);
-  if (entries !== undefined && entries > MAX_ZIP_ENTRIES) {
-    throw new Error(`This ${kind} has ${entries === 0xffff ? "over 65,000" : entries.toLocaleString("en-US")} parts, more than an Office document has. It may be built to exhaust the server, so it is not read.`);
+  // The directory is read first, as JSZip will read it: the count of parts it gives may say
+  // anything.
+  const directory = readZipDirectory(bytes, { parts: MAX_ZIP_ENTRIES, extraFields: MAX_ZIP_EXTRA_FIELDS, textBytes: MAX_ZIP_TEXT_BYTES });
+  if (directory?.endless) {
+    throw new Error(`This ${kind} ends with a ZIP64 record that cannot be read, and reading it could hold the server without end. It may be built to exhaust the server, so it is not read.`);
+  }
+  if (directory && directory.parts > MAX_ZIP_ENTRIES) {
+    throw new Error(`This ${kind} has more than ${MAX_ZIP_ENTRIES.toLocaleString("en-US")} parts, more than an Office document has. It may be built to exhaust the server, so it is not read.`);
+  }
+  // A mass of extra fields, or of names, comments and field data: no Office program writes either.
+  if (directory && (directory.extraFields > MAX_ZIP_EXTRA_FIELDS || directory.textBytes > MAX_ZIP_TEXT_BYTES)) {
+    throw new Error(`This ${kind} lists its parts in a way that no Office program does: reading the list would take far more memory or time than an Office document needs. It may be built to exhaust the server, so it is not read.`);
   }
   return JSZip.loadAsync(bytes);
 }

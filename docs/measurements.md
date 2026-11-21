@@ -554,13 +554,110 @@ What `@cantoo/pdf-lib` reads in one step still holds the server. One object take
 0.2 s for each MB of an array of numbers, more when the numbers are short: 1.1 to 1.2 s for 8 MB,
 4.1 s for 32 MB, 9 s for 64 MB. A crafted one-page PDF of 16 MB held the server for 2.7 s at
 ingest and 2.5 s on each look. Measured again on a busy machine, one look at 16 MB took 2.1 s with
-numbers such as `1234.5` and 3.5 s with numbers of one digit. A stream whose length the file gives
+numbers such as `1234.5` and 3.5 s with numbers of one digit. These ran on Node's default heap, which
+held them. With a heap flag of 512 (two runs), 16 MB of numbers such as `1234.5` took 359 MB and
+1.7 s at a look, and with 256 it ran out of memory there; at ingest it took 229 MB and 1.6 to
+1.7 s with either flag (one run each). With numbers of one digit, a look took 984 MB and 2.7 to
+2.8 s on a heap flag of 2048 (two runs). A stream whose length the file gives
 by reference takes about 0.03 s for each MB, and a cross-reference table written as text 0.15 s
 for 150,000 objects: the longest stall of a file of 150,000 objects was 168 to 197 ms, 151 ms of
 it that table. Such files also take many times their size in heap, the more the shorter their
 numbers: one array of numbers such as `1234.5` left 173 MB in use at 16 MB and 399 MB at 32 MB,
-and one of one-digit numbers 493 MB and 929 MB. One of 40 MB ran a heap of 256 MB out of memory.
-The count of objects that a file declares does not show this.
+and one of one-digit numbers 493 MB and 929 MB. The count of objects that a file declares does not
+show this. What such files do to a server of 256 or 512 MB is in the next paragraph.
+
+**One object of a crafted PDF (0.6.1, November 2026, Node 24 on Windows).** pdf.js and
+`@cantoo/pdf-lib` build each object of a PDF in one step, and nothing checks an object before it
+is built. Each run below is a fresh process with `--max-old-space-size=256` (a heap limit of
+448 MB) or `=512` (704 MB), twice each unless the table says otherwise. Each file is one page of
+text and one large object that the page does not use, unless the table says otherwise. "In an
+object stream" means packed with FlateDecode into an object stream; "unpacked twice" means with
+`/Filter [/FlateDecode /FlateDecode]`. Ingest is the default PDF extractor, whose page check and
+picture marks have `@cantoo/pdf-lib` read every object; "pdf.js alone" is
+`createPdfExtractor({ checkPages: false, pictures: false })`. Heap is the most in use at a garbage
+collection, about 20 MB of it from before the file; memory, where given, is the most the process
+held (its peak resident set), which includes what is outside the heap; the stall is the longest the
+event loop was held.
+
+| File | Read by | Heap of 256 MB | Heap of 512 MB |
+|---|---|---|---|
+| 4 MB, one array of numbers (`[1 1 1 …]`) | Ingest | 154 MB, stall 0.7 to 0.8 s | 148 to 158 MB, 0.7 s |
+| The same | A look at page 1 | 252 MB, 0.7 s | 268 MB, 0.7 s |
+| 8 MB, the same | Ingest | 232 MB, 1.5 s | 243 to 244 MB, 1.5 s |
+| The same | A look | Out of memory | 422 to 427 MB, 1.5 s |
+| 16 MB, the same | Ingest | Out of memory | 465 MB, 3.2 s |
+| The same | A look | Out of memory | Out of memory |
+| 32 MB, the same | Ingest, a look | Out of memory | Out of memory |
+| 2 MB of empty dictionaries (`[<<>> <<>> …]`) | Ingest | 167 MB, 0.4 s | 166 to 168 MB, 0.4 s |
+| 4 MB, the same | Ingest | 290 MB, 1.0 s | 296 to 298 MB, 0.8 to 1.3 s |
+| 8 MB, the same | Ingest | Out of memory | 532 to 537 MB, 2.2 to 2.4 s |
+| 8 KB: an array of 8 MB in an object stream | Ingest | 234 to 235 MB, 1.5 to 3.0 s | 261 MB, 3.2 to 3.5 s |
+| 8 KB: 8 MB of empty dictionaries in an object stream | Ingest | Out of memory | 538 to 542 MB, 2.4 s |
+| 32 KB: an array of 32 MB in an object stream | Ingest | Out of memory | Out of memory |
+| 32 MB, one array of numbers, in the file or in an object stream | pdf.js alone | Not read: 20 to 22 MB | The same |
+| 8, 16 and 32 MB, one array of numbers that the page names as its MediaBox | pdf.js alone | 135, 212 and 313 MB; 0.2, 0.5 and 1.1 s | 135, 277 and 427 MB; 0.2, 0.5 and 1.2 to 1.3 s |
+| 3 KB: 2 MB of empty dictionaries in the object stream that holds the catalog | pdf.js alone | 146 MB, 0.2 s | 146 MB, 0.2 s |
+| The same | Ingest | 297 to 299 MB, 0.5 s | 293 to 301 MB, 0.4 s |
+| 5 KB: 4 MB of them, the same way | pdf.js alone | Out of memory | 274 to 281 MB, 0.5 to 0.6 s |
+| The same | Ingest | Out of memory | Out of memory |
+| 8 KB: 8 MB of them, the same way | pdf.js alone, ingest | Out of memory | Out of memory |
+| 732 bytes: 4 MB of them, the same way, unpacked twice | pdf.js alone | Out of memory | 281 MB, 0.4 to 0.6 s |
+| The same | Ingest | Out of memory | Out of memory |
+| 759 bytes: 8 MB of them, the same way, unpacked twice | pdf.js alone | Out of memory | Out of memory |
+| 1,633 bytes: the object stream that holds the catalog, unpacked twice, holds 512 MB of spaces before its objects | Ingest | Read. Heap 20 MB, memory 1,643 MB, stall 6.2 to 6.4 s | Read. Heap 20 MB, memory 1,643 to 1,644 MB, 6.1 to 6.2 s |
+| The same | pdf.js alone | Read. Heap 20 MB, memory 1,594 MB, 6.3 s (one run) | Read. Heap 20 MB, memory 1,594 MB, 6.2 to 6.3 s |
+| The same | A look | Not measured | Heap 20 MB, memory 1,083 MB, 1.0 s (one run) |
+| 1,660 bytes: the same spaces in the content stream of the page, unpacked twice | Ingest | Refused by the page check in 0.06 to 0.07 s | Not measured |
+| 8.7 KB: a cross-reference stream inside the file that declares 1,048,576 entries and holds none | Ingest | 0.6 to 0.8 s; 152 MB still in use after the ingest and a full collection, about 140 MB more than before | The same; 2,097,152 entries: 1.3 to 1.5 s, 267 to 287 MB still in use; 4,194,304: out of memory |
+
+pdf.js reads only the objects a page needs, but every object of an object stream once it needs one
+of them: the catalog of a PDF is often in one. At ingest pdf.js opens the file first, and the
+objects it built are still in memory while `@cantoo/pdf-lib` builds them again, so the file of 5 KB
+ran out at 512 MB with the default extractor. `@cantoo/pdf-lib` reads every object, and for each
+cross-reference stream it meets makes one entry for each object number its dictionary declares,
+whatever the stream holds. The checks on the number of objects a file declares read that number
+at the end of the file and where `startxref` points: they found 7 to 9 objects in each of these
+files.
+
+A stream unpacked twice packs far tighter than one unpacked once: 8 MB of empty dictionaries took
+759 bytes that way, and 8 KB with one filter. What a stream unpacks to is held in memory outside
+the heap, where `--max-old-space-size` does not limit it: the file of 1,633 bytes was read with no
+more heap than before it, while the process took 1.6 GB of memory for the 512 MB that pdf.js
+unpacked, in one block of 6 s. The same spaces in the content stream of the page are refused by
+the page check before pdf.js reads them.
+
+What one MB of a file takes when `@cantoo/pdf-lib` reads it, by what the MB holds (heap of 2 GB, one
+run each; the time is one block):
+
+| One MB of | Heap | Time |
+|---|---|---|
+| Empty dictionaries, `<<>>` | 91 MB | 0.29 s |
+| Arrays of two numbers, `[1 2]` | 52 MB | 0.21 s |
+| Names, each one different | 49 MB | 0.35 s |
+| Empty arrays, `[]` | 41 MB | 0.11 s |
+| A dictionary of different keys | 38 MB | 0.28 s |
+| Numbers of one digit | 32 MB | 0.34 s |
+| One string | 30 MB | 0.09 s |
+| One name, again and again | 20 MB | 0.24 s |
+| Short strings, `(a)` | 19 MB | 0.09 s |
+| Numbers such as `1234.5` | 18 MB | 0.2 s |
+| Short hex strings, `<00>` | 12 MB | 0.07 s |
+| One reference, again and again | 6 MB | 0.1 s |
+
+pdf.js took as much or less for each of these, read from an object stream that holds the catalog
+(2 MB of each): 127 MB against 146 MB for empty dictionaries, 20 MB against 66 MB for numbers, and
+25 MB against 26 MB for short strings.
+
+`@cantoo/pdf-lib` also keeps every name and every reference it reads, for the life of the process.
+After a document was dropped and the heap collected, 2 MB of different names (about 300,000) still
+took 37 MB, and 2 MB of references to different objects (about 190,000) 28 MB. Reading the same
+file again added nothing; numbers, and a name repeated, left nothing. Each file with other names or
+object numbers adds its own. Files of 8.8 KB, each with a cross-reference stream inside it that
+declared 1,048,576 new object numbers, were read one after another in one process, with a full
+collection after each. At ingest with a heap flag of 512, 152, 288 and 368 MB stayed in use, and
+the fourth file ran out of memory (two runs); with 256, the second did (one run). A look at each,
+with a flag of 832 (a heap limit of 1 GB), left 148, 285, 366, 559, 639 and 720 MB, and the
+seventh ran out of memory (two runs). The same file read three times left 151 to 152 MB (one run).
 
 A look at pages now also pauses while it copies the pages and writes the cut. Compared with 0.6.0:
 
@@ -577,6 +674,77 @@ process loads `@cantoo/pdf-lib`, in about 0.4 s (0.37 to 0.39 s for the ES build
 loads); a page whose resources list 140,000 pictures
 takes about 0.15 s to drop the ones it does not paint; and a content stream of 7 to 8 MB takes 74
 to 84 ms to read for the pictures it paints.
+
+**The ZIP directory of a DOCX or PPTX (0.6.1, November 2026, Node 24 on Windows).** JSZip reads
+the whole directory of a ZIP into memory before it unpacks any part. The limit of 20,000 parts took
+the count from the end of the file; the directory is now read as JSZip will read it, before
+JSZip does, and what JSZip would keep from it is added up: the parts, the extra fields, and the
+bytes it turns into text or goes through byte by byte (names, comments, and the data of the ZIP64,
+Unicode Path and Unicode Comment fields). Each file ingested into a `MemoryDocumentStore` in a
+fresh process, with heaps of 256 and 512 MB, 2 runs each, with the 0.6.1 code before this reading
+and with it, on a machine that ran other work too. Heap is the most used, sampled at each beat of a
+1 ms timer and at the end, so it misses the peak of one long block; the gap is the longest time
+between two beats. A refusal's time is nearly all the loading of JSZip: the reading itself takes a
+few ms.
+
+| File | Before | With the reading |
+|---|---|---|
+| 35 MB: 300,002 empty parts, the end record says 2 | Out of memory at 256 MB. Read at 512 MB in 2.2 to 2.4 s, all of it one gap | Refused in 53 to 56 ms, heap 8 MB |
+| 32 MB: 270,002 parts, the count kept to its low 16 bits (7,858) | Out of memory at 256 MB. Read at 512 MB in 1.8 to 2.0 s, heap 483 to 484 MB | Refused in 54 to 57 ms, heap 7 to 9 MB |
+| 35 MB: 300,002 parts, the true count, and 70 KB after the end record that is not its comment | Out of memory at 256 MB. Read at 512 MB in 2.4 to 2.5 s | Refused in 53 to 58 ms, heap 8 MB |
+| 19 MB: 300 parts of 16,383 extra fields each | Out of memory at 256 and 512 MB | Refused in 44 to 49 ms, heap 7 to 8 MB |
+| 0.28 MB: 5,000 parts that point to one local header, whose name is 65,535 bytes | Out of memory at 256 MB. Read at 512 MB in 0.42 s, heap 335 to 336 MB | Refused in 36 to 58 ms, heap 9 MB |
+| 0.17 MB: 2,000 parts, each with a Unicode Path field that says it is 65,535 bytes long and runs over the records after it | Out of memory at 256 MB. Read at 512 MB in 8.5 to 8.6 s, all of it one gap | Refused in 37 to 38 ms, heap 9 MB |
+| 1.1 MB: the same with 19,999 parts | Out of memory at 256 and 512 MB | Refused in 36 to 39 ms, heap 9 MB |
+| 1.1 MB: the same with 19,999 Unicode Comment fields | Out of memory at 256 and 512 MB | Refused in 35 to 36 ms, heap 9 MB |
+| 1.0 MB: the same with 19,999 ZIP64 fields, whose data JSZip goes through byte by byte | Read in 4.44 to 4.46 s, all of it one gap, heap 37 MB | Refused in 36 to 54 ms, heap 9 MB |
+| 94 MB: 1,500 parts, each with a name of 65,535 bytes of 0xFF and "/" | Out of memory at 256 MB. Read at 512 MB in 3.2 s, all of it one gap, heap 453 to 457 MB | Refused in 36 to 38 ms, heap 8 MB |
+| 63 MB: 1,000 parts whose local header sits in their own comment, its name of 65,535 bytes over the rest | Out of memory at 256 MB. Read at 512 MB in 2.3 s, all of it one gap, heap 426 to 430 MB | Refused in 35 to 43 ms, heap 8 MB |
+| 94 MB: 1,500 parts, each with a comment of 65,535 bytes | Read in 0.59 to 0.61 s, all of it one gap, heap 199 to 200 MB | Refused in 36 to 39 ms, heap 8 MB |
+| 636 bytes: a ZIP64 end record that says it is 6 bytes longer than its fields, then a field of length -6 | Held the process until it was killed, at 60 s | Refused in 36 to 40 ms, heap 9 MB |
+| 100 MB of the bytes 06 07, a ZIP64 locator at the start, and an end record that asks for ZIP64 | Refused for "over 65,000" parts in 36 to 52 ms | Refused by JSZip, which finds no ZIP64 end record, in 0.51 to 0.53 s, all of it one gap |
+| A DOCX of 4 MB, 120,000 paragraphs | 0.74 s, heap 91 to 94 MB, gap 43 to 48 ms | 0.74 to 0.76 s, heap 84 to 119 MB, gap 44 to 45 ms |
+| A PowerPoint deck of 500 slides with notes and pictures, 1.3 MB, 2,041 parts | 145 to 151 ms, heap 16 to 17 MB, gap 57 to 60 ms | 146 to 162 ms, heap 16 MB, gap 60 to 75 ms |
+| A DOCX of 0.25 MB written again by Info-ZIP, with a Unicode Path field and a comment on each part | 65 to 70 ms, heap 11 MB | 66 to 78 ms, heap 11 MB |
+| 20,000 empty parts, 2.4 MB, end record says 2 | 164 to 192 ms, heap 47 MB, all of it one gap | 161 to 209 ms, heap 47 MB, all of it one gap |
+| 95 MB: one picture of 95 MB, stored | 144 to 150 ms, heap 8 MB, all of it one gap | 144 to 159 ms, heap 8 MB |
+| 95 MB: the end record, then 95 MB that is not its comment | 322 to 328 ms, all of it one gap | 357 to 366 ms |
+| 100 MB that starts as a ZIP and has no end record | Refused by JSZip in 334 to 337 ms, all of it one gap | 365 to 374 ms |
+
+What the limits still let through, with the reading: a DOCX of 9 to 9.4 MB just under them, with
+20,000 parts and 7.6 to 7.9 MB of one kind of text, in 115 to 120 pieces of 65,000 bytes of 0xFF
+and "/".
+
+| Just under the limits | Read in, all of it one gap | Heap |
+|---|---|---|
+| Names | 405 to 409 ms | 84 to 104 MB |
+| Unicode Path fields, decoded as names | 413 to 482 ms | 81 to 141 MB |
+| Comments | 198 to 210 ms | 62 to 69 MB |
+| Unicode Comment fields | 224 to 245 ms | 68 to 70 MB |
+| ZIP64 fields | 195 to 207 ms | 44 to 47 MB |
+| Unicode Path fields, and 79,996 extra fields in all | 460 to 482 ms | 126 to 140 MB |
+
+The reading alone, in a warm process: 1 to 3 ms for a directory of 20,000 parts, under 4 ms for
+any of the real files below (a Java archive of 163 MB and 46,559 parts included), 1 to 7 ms for the
+file just under every limit, and 32 to 45 ms to search 95 to 100 MB for an end record that is not
+at its end. The 100 MB of near signatures above takes 0.22 to 0.23 s of searches; the reading finds
+no directory that JSZip could read, and JSZip then searches the file again with its own loop, for
+0.3 s, and fails. The code before refused that file at once, only because its end record said
+65,535 parts. JSZip goes through the whole file once as it starts to read, the gap of 0.15 s at
+95 MB.
+
+245 ZIP files gave the parts, and the bytes of text, that JSZip reads: 223 of Word, PowerPoint,
+Excel, Java and other programs; 17 copies of the deck and of a Word template written again by
+Python's `zipfile` (stored, packed, ZIP64), .NET, `System.IO.Packaging`, bsdtar and jar; and 5 Word
+files written again by Info-ZIP (with Unicode Path fields and comments), Python with comments and
+`git archive`. The most text in an Office file was 68 KB, and in any file 3.5 MB (a Java archive
+of 46,559 parts, past the limit of parts anyway); at most 282 bytes a part, and 2 extra fields a
+part. Their 101 Office files were read, or refused for their content, as by the code before: none
+was refused by the reading. 36,000 copies of 11 small ZIPs (a Word template, JSZip's with and
+without data descriptors, ZIP64, a comment, a program before the archive, parts that share a
+header, and the Info-ZIP and Python files) changed at their records and their extra fields gave the
+parts that JSZip reads, and never fewer bytes of text; JSZip read no part of the 185 refused for
+their ZIP64 end record, nor of the 6,273 where the reading found no directory.
 
 **Streams of a reply (0.6.1, November 2026, Node 24 on Windows).** `parseSseJson`, which the
 adapters read streamed replies with, scanned an event again with each piece that came. One event of

@@ -235,7 +235,9 @@ maps these messages itself.
 | A DOCX or PPTX whose text passes `maxTextBytes`, when that is below 32 million | `This DOCX holds more than 10 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
 | A DOCX or PPTX of more than 1,000,000 paragraphs with text | `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` |
 | A DOCX or PPTX with paragraphs nested more than 32 deep | `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.` |
-| A DOCX or PPTX whose ZIP directory lists more than 20,000 parts | `This DOCX has 30,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX of more than 20,000 parts, counted the way JSZip will read them, whatever count the file gives | `This DOCX has more than 20,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX with more than 80,000 extra fields, or more than 8 MB of names, comments and extra-field data that JSZip would turn into text or go through byte by byte | `This DOCX lists its parts in a way that no Office program does: reading the list would take far more memory or time than an Office document needs. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX whose ZIP64 end record says it is longer than its fields, which JSZip would read in a loop without end | `This DOCX ends with a ZIP64 record that cannot be read, and reading it could hold the server without end. It may be built to exhaust the server, so it is not read.` |
 | A file of any format whose text, from an extractor of your own or the text extractor, passes `maxTextBytes` | `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
 | A file that takes longer than `ingestTimeoutMs` to read (2 minutes by default) | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` |
 | A PDF without text on any page | See [Scanned PDFs](#scanned-pdfs). |
@@ -259,9 +261,10 @@ The numbers in the messages are your limits: `maxPdfPages`, `maxTextBytes` and `
 of `createLargeFiles` ([`LargeFilesOptions`](../reference/library.md#largefilesoptions)). A size
 below 1 MB is given in KB, and below 1 KB in B; a time below a second in ms, below 2 minutes in s,
 and from there in min. An Office message says `PPTX` for a presentation. An Office file is
-refused past 32 million characters of text even when `maxTextBytes` is larger. The count of parts
-says `over 65,000` when the ZIP directory says it has more than its field can hold and gives no
-ZIP64 count.
+refused past 32 million characters of text even when `maxTextBytes` is larger. The ZIP directory
+of a DOCX or PPTX is read before JSZip reads it, the way JSZip will read it, record by record:
+the count of parts that the file gives is not used, and the parts are not counted past 20,000
+([Security](../security.md#uploads)).
 
 What the user can do:
 
@@ -319,8 +322,19 @@ What still holds the server while pdf.js reads a page:
   declares more than 150,000 objects, or with `checkPages: false`;
 - a file built to be read one way by `@cantoo/pdf-lib` and another way by pdf.js.
 
-For uploads you do not trust, ingest in a process of its own
-([Deployment](./deployment.md#uploads-and-ingest)): only that process waits, and it can be stopped.
+Neither check looks at the memory an object takes. Both libraries build each object of the file in
+one step: `@cantoo/pdf-lib` every object, and pdf.js the ones a page needs and every object of an
+object stream it opens, such as the one that holds the catalog. A crafted object can take far more
+heap than file: one array of one-digit numbers in a PDF of 16 MB ran a heap of 256 MB out of memory
+at ingest, and 8 MB of empty dictionaries, packed with the catalog into an object stream unpacked
+twice, ran a heap of 512 MB out of memory in pdf.js alone, with `checkPages: false` and
+`pictures: false`, from a PDF of 759 bytes. What a stream unpacks to is held outside the heap: a PDF
+of 1.6 KB whose object stream unpacks to 512 MB took 1.6 GB of memory with 20 MB of heap, and held
+the server 6.1 to 6.4 s ([Security](../security.md#uploads)). Such files are not refused.
+
+For uploads you do not trust, ingest in a process of its own, with a memory limit of its own as
+well as a heap limit ([Deployment](./deployment.md#uploads-and-ingest)): only that process waits,
+it can be stopped, and when it runs out of memory it stops alone.
 
 ## PDF text
 
@@ -558,11 +572,19 @@ Pages that cannot be shown get an error result, and the model answers from the t
 
 What a look costs the server: the whole file is read into memory for every call. At the peak that
 is about twice the size of the file, plus 1 to 1.6 KB for each object in it. A file built to
-exhaust the server can take far more: a PDF of 32 MB that is one array of numbers left 400 to
-930 MB of used heap while it was parsed, the more the shorter its numbers, and one of 40 MB ran a
-heap of 256 MB out of memory. The check on
-the number of objects does not see such a file, which declares few. Peak memory for real files is
-in [measurements](../measurements.md); [Deployment](./deployment.md) sizes servers for it.
+exhaust the server can take far more, because each object is built in one step and nothing checks
+it before: a look at a PDF of 8 MB that is one array of one-digit numbers took 422 to 427 MB of
+heap, and ran a heap of 256 MB (`--max-old-space-size=256`) out of memory; one of 16 MB ran a heap
+of 512 MB out of memory, and took 984 MB on a heap of 2 GB. A look takes more than the ingest of
+the same file did (232 to 244 MB for that 8 MB file), so a file that a process of its own ingested
+can still stop the server that answers the question. What a stream unpacks to is outside the heap:
+a look at a PDF of 1.6 KB whose object stream unpacks to 512 MB took 1.1 GB of the server's
+memory. The check on the number of objects does not see such files, which declare few, and what
+`@cantoo/pdf-lib` keeps after each look adds up from file to file
+([Security](../security.md#reading-pdfs-for-pages-and-pictures)). For the documents of users you
+do not trust, do not offer `view_pages` (`viewPages: false`), or keep no PDF originals. Peak memory
+for real files is in [measurements](../measurements.md); [Deployment](./deployment.md) sizes
+servers for it.
 
 A look parses the file, copies the pages and writes the cut. It pauses after every 12 ms of that
 work so that other requests get a turn, or after up to 40 ms where a pause itself takes long, as a
@@ -571,10 +593,13 @@ a look at three pages of a 2,000-page PDF of 6.2 MB held the server for about 20
 (19 to 48 ms on a busy machine), where 0.6.0 held it 159 to 177 ms. Some steps still run in one
 block:
 
-- one object of the file: about 0.1 to 0.2 s for each MB of an array of numbers, more when the
-  numbers are short, and about 0.03 s for each MB of a stream whose length the file gives by
-  reference. A crafted PDF of 16 MB with one such array held the server 2.7 s at ingest and 2.5 s
-  on each look, and 2.9 to 3.5 s on each look when its numbers were of one digit;
+- one object of the file: about 0.1 to 0.35 s for each MB, by what it holds, and about 0.03 s for
+  each MB of a stream whose length the file gives by reference. A crafted PDF of 16 MB with one
+  array of numbers such as `1234.5` held the server 1.6 to 2.7 s at ingest and 1.7 to 2.5 s on each
+  look, and 2.7 to 3.5 s on each look when its numbers were of one digit, on a heap that could hold
+  it (that look took 984 MB);
+- a stream unpacked to reach an object: 1.0 s for an object stream that unpacks to 512 MB;
+- a cross-reference stream inside the file that declares many objects: 0.7 s for a million;
 - a cross-reference table written as text: 0.15 s for 150,000 objects;
 - the first look of a process, which loads `@cantoo/pdf-lib`: about 0.4 s, unless the
   server loads it when it starts ([Deployment](./deployment.md#uploads-and-ingest)).

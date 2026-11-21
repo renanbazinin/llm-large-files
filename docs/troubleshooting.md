@@ -327,7 +327,9 @@ The common ones:
 | `This PDF draws more than 16 MB of text, over 100 times its size. A file that grows that much is not read: it may be built to exhaust the server.` | A PDF whose pages draw more than 100 times its size in text, past the first 16 MB: forms painted inside forms, many times over. Real PDFs hold less text than their size. |
 | `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX of more than 1,000,000 paragraphs with text. |
 | `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX with paragraphs inside paragraphs, more than 32 deep. |
-| `This DOCX has 30,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX whose ZIP directory lists more than 20,000 parts. |
+| `This DOCX has more than 20,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX of more than 20,000 parts. They are counted the way JSZip will read them, whatever count the file gives: Office writes no file this large, a deck of 2,000 slides with notes and pictures has about 12,000. |
+| `This DOCX lists its parts in a way that no Office program does: reading the list would take far more memory or time than an Office document needs. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX with more than 80,000 extra fields, or more than 8 MB of names, comments and extra-field data that JSZip would turn into text or go through byte by byte. The Office files we tried had at most 68 KB of them. |
+| `This DOCX ends with a ZIP64 record that cannot be read, and reading it could hold the server without end. It may be built to exhaust the server, so it is not read.` | A DOCX or PPTX whose ZIP64 end record says it is longer than its fields: JSZip would read it in a loop that does not move on. |
 
 **Fix.** Most messages say what the user can do. For a scanned PDF, keep PDFs
 (`keepOriginals: ["pdf"]`): a scan of up to `scannedPdfPages` (30) pages is then accepted, and the
@@ -365,6 +367,34 @@ If you ingest in a process or a worker with a timer of its own, set that timer a
 
 See [`LargeFilesOptions`](./reference/library.md#largefilesoptions) and
 [Custom extractors](./guides/pdfs.md#custom-extractors).
+
+### The server stops with "JavaScript heap out of memory" on a PDF
+
+The process ends with `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory`,
+or with `FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory`,
+during an upload of a PDF, or when the model looks at its pages, and every answer streaming on
+that server stops.
+
+**Cause.** pdf.js and `@cantoo/pdf-lib` build each object of the PDF in one step, and nothing
+checks the memory an object takes before it is built. A file built for it holds objects far larger
+in memory than in the file, often packed in an object stream: a PDF of 732 bytes, whose object
+stream is unpacked twice, ran a heap of 512 MB out of memory at ingest, and a look at the pages of
+one of 8 MB ran a heap of 256 MB out of memory. The limits on the number of objects a file declares
+do not see such files. A look parses the whole file again, on the server that answers the
+question, and takes more than the ingest did. On that server, what `@cantoo/pdf-lib` keeps also
+adds up from file to file ([Memory grows with large files or many users](#memory-grows-with-large-files-or-many-users)).
+
+A stream that unpacks to hundreds of MB takes that memory outside the heap, and no such line is
+printed: a PDF of 1.6 KB was read with 20 MB of heap, while the process took 1.6 GB of memory and
+the server was held for 6 s. A container with less than that left runs out of memory.
+
+**Fix.** Ingest PDFs you do not trust in a child process with its own `--max-old-space-size`
+([Deployment](./guides/deployment.md#uploads-and-ingest)) and a memory limit of its own, such as a
+container of its own: the file then stops that process, the upload gets an error, and your server
+goes on. For their documents, do not offer `view_pages` (`viewPages: false`), or keep no PDF
+originals. A larger heap only moves the size of file that does it.
+
+See [Security](./security.md#uploads) and the [measurements](./measurements.md#the-server).
 
 ### Letters look wrong, or show as �, in a text file
 
@@ -1054,12 +1084,21 @@ See [Errors and reliability](./guides/errors-and-reliability.md) and [Web app](.
 - An upload is held in memory whole while it is read and extracted, with several copies of its
   text, and the parsers of PDF, DOCX and PPTX take memory of their own while they read, in the
   same heap as everything else.
+- `@cantoo/pdf-lib`, which reads PDFs for the page check, the picture marks and `view_pages`,
+  keeps every name and every reference it has read for the life of the process. Real PDFs add
+  little, as they share most of them, but each crafted one with other names or object numbers adds
+  its own, and it never comes back: 2 MB of different names kept 37 MB, and files of 9 KB that each
+  declared a million new objects kept about 140 MB each, until the fourth ingest ran a heap of
+  512 MB out of memory, or the seventh look a heap of 1 GB. On the server that answers `view_pages`,
+  it comes back only when that server restarts.
 
 **Fix.** Give a store of your own `readTextRange` (and `putIndex` and `getIndex`, so that no pass
 over the text is needed first). Lower `cacheBytes` and `maxConcurrentScans` to fit the memory of
 the server, and `maxUploadBytes` and `maxTextBytes` to the files you expect. To keep a file that
 needs too much memory from stopping the server, ingest in a process of its own with its own heap
-limit: a worker thread does not keep it apart.
+limit: a worker thread does not keep it apart. A process for each ingest also gives back what
+`@cantoo/pdf-lib` kept when it ends. For the documents of users you do not trust, do not offer
+`view_pages` (`viewPages: false`), or keep no PDF originals.
 
 See [Storage](./guides/storage.md) and [Deployment](./guides/deployment.md#uploads-and-ingest).
 

@@ -998,7 +998,9 @@ The messages they refuse a file with, which `ingest` throws:
 - `This DOCX holds more than <n> MB of text, more than is kept from one file. Split it, and attach the part you need.` (when `maxTextBytes` is below 32 million)
 - `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` (paragraphs with text)
 - `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.`
-- `This DOCX has <n> parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` (more than 20,000 parts in its ZIP directory, before JSZip reads it; the count of a ZIP64 directory is read from its ZIP64 record, and `over 65,000` is said when the directory says it has more than its field holds and has no such record)
+- `This DOCX has more than 20,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` (before JSZip reads the file: its ZIP directory is read the way JSZip will read it, record by record, whatever count of parts the file gives)
+- `This DOCX lists its parts in a way that no Office program does: reading the list would take far more memory or time than an Office document needs. It may be built to exhaust the server, so it is not read.` (more than 80,000 extra fields, or more than 8 MB of names, comments and extra-field data that JSZip would turn into text or go through byte by byte: a name is counted once for each part that points to it, and a field for all the data it says it has, even past its record)
+- `This DOCX ends with a ZIP64 record that cannot be read, and reading it could hold the server without end. It may be built to exhaust the server, so it is not read.` (a ZIP64 end record that says it is longer than its fields, which JSZip reads in a loop that does not move on)
 
 The Office messages say `PPTX` for a presentation. A PDF or an Office file that is damaged fails
 with the error of pdf.js or JSZip.

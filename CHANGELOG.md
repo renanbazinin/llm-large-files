@@ -39,9 +39,11 @@ matter.
 
 Uploads built to hurt the server are refused, and a large upload no longer holds the server while
 it is read: ingest pauses for other requests, limits the text, the pages and the time one file may
-take, and refuses a PDF page built to hold the server before pdf.js reads it. `files.tools()`
-checks the owner of each document it reads, a search shows the last matching line, and a text file
-saved in an older encoding, such as a Hebrew CSV from Excel, is read in that encoding. The rest are
+take, and refuses a PDF page built to hold the server before pdf.js reads it. A PDF built with
+objects or streams far larger in memory than in the file can still run the server out of memory:
+ingest files you do not trust in a process with a memory limit of its own. `files.tools()` checks the owner of each
+document it reads, a search shows the last matching line, and a text file saved in an older
+encoding, such as a Hebrew CSV from Excel, is read in that encoding. The rest are
 fixes from a review of 0.6.0: in the adapters, the tool loop, the text the model is sent, and the
 data that 0.5.0 and 0.6.0 stored.
 
@@ -96,7 +98,15 @@ Uploads and stored documents:
     each time. Real PDFs hold less text than their size.
   - files that no program writes, built to exhaust the server: a PDF whose page tree lists one
     page more than once, and a DOCX or PPTX with paragraphs nested more than 32 deep, more than
-    1,000,000 paragraphs with text, or more than 20,000 parts.
+    1,000,000 paragraphs with text, or more than 20,000 parts:
+    `This DOCX has more than 20,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.`
+    The parts are counted before JSZip reads them, the way JSZip will read them, not from the
+    count the file gives. A DOCX or PPTX with more than 80,000 extra fields, or more than 8 MB of
+    names, comments and extra-field data that JSZip turns into text or goes through byte by byte,
+    is refused with
+    `This DOCX lists its parts in a way that no Office program does: reading the list would take far more memory or time than an Office document needs. It may be built to exhaust the server, so it is not read.`,
+    and one whose ZIP64 end record says it is longer than its fields with
+    `This DOCX ends with a ZIP64 record that cannot be read, and reading it could hold the server without end. It may be built to exhaust the server, so it is not read.`
   - with `@cantoo/pdf-lib` installed, a PDF with a page whose text would take pdf.js far longer to
     read than its file explains, found before pdf.js reads any page: past about 1 to 1.5 s of
     pdf.js, or 32 times the size of the file in content when that is more, counting each form
@@ -250,15 +260,16 @@ Uploads and stored documents:
   32 ms. A 2,000-page PDF held it 32 to 106 ms, now 19 to 38 ms. A file of many small objects is
   read faster (61,000 objects: 1.65 to 1.87 s, now 0.91 to 0.96 s). A file of large objects takes
   up to a quarter longer on Windows (1.13 to 1.22 s, now 1.35 to 1.43 s). What pdf-lib reads in
-  one step still holds the server, and grows with the file. One object takes about 0.1 to 0.2 s
-  for each MB of an array of numbers, more when the numbers are short: a crafted PDF of 16 MB with
-  one such array held the server 2.7 s at ingest and 2.5 s on each look, and up to 3.5 s on each
-  look when its numbers were of one digit. One of 32 MB left 400 to 930 MB of heap in use while it
-  was read, the more the shorter its numbers. It takes about 0.03 s for each MB of a stream whose
-  length the file gives by reference. A cross-reference table written as text takes 0.15 s for
-  150,000 objects. When pdf-lib cannot be timed this way (a version built otherwise), it pauses by
-  count: every 500 objects, or more in a file of more than 50,000 objects (up to 4,000), so that
-  it pauses about 100 times at most. Your app's own use of `@cantoo/pdf-lib` is not changed.
+  one step still holds the server, and grows with the file. One object takes about 0.1 to 0.35 s
+  for each MB, by what it holds: a crafted PDF of 16 MB with one array of numbers held the server
+  1.6 to 2.7 s at ingest and 1.7 to 2.5 s on each look, and up to 3.5 s on each look when its
+  numbers were of one digit, on a heap that could hold it (that look took 984 MB). What such an
+  object takes from the heap is below, in "A crafted PDF can still run the server out of memory". It takes about 0.03 s for each MB of a stream whose length the file gives
+  by reference. A cross-reference table written as text takes 0.15 s for 150,000 objects, and a
+  cross-reference stream inside the file 0.7 s for each million objects it declares. When pdf-lib
+  cannot be timed this way (a version built otherwise), it pauses by count: every 500 objects, or
+  more in a file of more than 50,000 objects (up to 4,000), so that it pauses about 100 times at
+  most. Your app's own use of `@cantoo/pdf-lib` is not changed.
   **What to do:** nothing. If users can upload files you do not trust, ingest them in a process of
   their own, as [Deployment](docs/guides/deployment.md#uploads-and-ingest) shows. What a look
   takes from the heap of the server that answers questions is in
@@ -282,6 +293,47 @@ Uploads and stored documents:
   **What to do:** if your users can upload files you do not trust, ingest them in a child process
   of their own, as [Deployment](docs/guides/deployment.md#uploads-and-ingest) shows, so that only
   that process waits, and its time limit stops it.
+- **A crafted PDF can still run the server out of memory.** pdf.js and `@cantoo/pdf-lib` build
+  each object of a PDF in one step, and nothing checks the memory an object takes before it is
+  built. One MB of a file took 6 to 91 MB of heap in `@cantoo/pdf-lib`, by what it holds (empty
+  dictionaries the most), and a stream unpacked twice packs such objects thousands of times: 8 MB
+  of empty dictionaries fit in a PDF of 759 bytes. `@cantoo/pdf-lib` builds every object of the
+  file, at ingest for the page check and the picture marks (both on by default) and again for each
+  look of `view_pages`. pdf.js builds the objects a page needs, and every object of an object
+  stream once it needs one of them, as it does for the catalog. Measured on Node 24 with
+  `--max-old-space-size` of 256 and 512:
+  - one array of one-digit numbers in a PDF of 16 MB ran a heap of 256 MB out of memory at ingest,
+    and a look at its pages a heap of 512 MB; a look at one of 8 MB took 422 to 427 MB, where its
+    ingest took 232 to 244 MB;
+  - a PDF of 732 bytes whose object stream, unpacked twice, holds the catalog and 4 MB of empty
+    dictionaries ran a heap of 512 MB out of memory at ingest. With `checkPages: false` and
+    `pictures: false`, pdf.js alone did so for 8 MB of them, in a file of 759 bytes;
+  - what a stream unpacks to is held outside the heap, where `--max-old-space-size` does not limit
+    it: a PDF of 1.6 KB whose object stream unpacks to 512 MB was read with 20 MB of heap, but the
+    process took 1.6 GB of memory, and pdf.js held the server 6.1 to 6.4 s. A look at its pages
+    took 1.1 GB;
+  - a cross-reference stream inside a file of 8.7 KB that declared four million objects ran a heap
+    of 512 MB out of memory: `@cantoo/pdf-lib` makes an entry for each, whatever the stream holds;
+  - `@cantoo/pdf-lib` keeps every name and every reference it reads for the life of the process,
+    and each file with other names or object numbers adds its own. After the document was dropped,
+    2 MB of different names still took 37 MB, and a million declared objects about 140 MB. Files
+    of 9 KB that each declared a million new objects ran a heap of 512 MB out of memory at the
+    fourth ingest, and a heap of 1 GB (`--max-old-space-size=832`) at the seventh look.
+
+  The limits on the number of objects a file declares do not see these files. 0.6.0 did the same.
+  A check of each object before it is built is not in 0.6.1: pdf.js reads an object where the
+  cross-reference table points, also inside what reads as the data of a stream, and the object
+  streams of an encrypted file cannot be unpacked before they are decrypted, so it would be easy
+  to get around. See [Objects of a PDF](docs/security.md#uploads) and the
+  [measurements](docs/measurements.md#the-server).
+  **What to do:** if your users can upload files you do not trust, ingest them in a child process
+  with its own `--max-old-space-size`, as [Deployment](docs/guides/deployment.md#uploads-and-ingest)
+  shows, and with a memory limit of its own, such as a container of its own: such a file then
+  stops that process, not your server. A heap limit alone does not stop a stream that unpacks to
+  hundreds of MB. Do not offer `view_pages` on their documents (`viewPages: false`), or keep no
+  PDF originals: a look parses the file again on the server that answers the question, can need
+  more memory than the ingest did, and what `@cantoo/pdf-lib` keeps there comes back only when
+  that server restarts.
 
 What the model is sent, and what the loop does:
 
@@ -647,8 +699,9 @@ Besides the points under **Upgrading**:
   sent: nothing is stored.
 - **DOCX and PPTX take memory by their text, not by their XML.** Each paragraph becomes one string
   when it closes, and an empty paragraph is dropped. Text is counted as it reads, not as the XML
-  writes it (`&amp;` is one character). An Office file whose ZIP directory lists more than 20,000
-  parts (a ZIP64 directory included) is refused before JSZip reads it.
+  writes it (`&amp;` is one character). An Office file of more than 20,000 parts is refused before
+  JSZip reads it. The parts are counted the way JSZip will read them, not from the count the file
+  gives.
 - **`ingest` stops waiting for an extractor** when the ingest's signal aborts (`ingestTimeoutMs`,
   or `IngestInput.signal`), whether or not the extractor looks at the signal.
 - **A PDF is read with `@cantoo/pdf-lib` once, before its text.** When it is installed, the PDF
@@ -791,6 +844,29 @@ Uploads you do not trust:
   ("padded.docx did not contain any text.") in 3.0 to 3.2 s, with the process at 115 MB. A DOCX
   of 3 MB that unpacks to 1,000 MB of XML, which stopped the same server, is refused at its
   millionth paragraph in 0.9 s, at 165 MB.
+- **A DOCX that understates its parts no longer stops a server with a heap of 256 MB.** The limit
+  of 20,000 parts took the count from the end of the file, which whoever made the file writes.
+  300,002 parts with a count of 2, or 270,002 whose count kept only its low 16 bits, went past it,
+  took 440 to 490 MB in JSZip, and ran a heap of 256 MB out of memory, as in 0.6.0. The directory
+  is now read before JSZip reads it, as JSZip will read it: from where JSZip finds it, record by
+  record, each by its own lengths. Such a file is refused in 40 to 90 ms, nearly all of it loading
+  JSZip, with the heap at 8 to 9 MB. The same reading refuses other files that no ZIP program
+  writes, which stopped 0.6.0 as well: more than 8 MB of names, comments and extra-field data,
+  which JSZip turns into text or goes through byte by byte (a name is decoded once for each part
+  that points to its header, and a field gives all the data it says it has, even past its
+  record); more than 80,000 extra fields, for which JSZip keeps about 250 bytes each; and a ZIP64
+  end record that says it is longer than its fields, which JSZip reads in a loop that does not
+  move on. Unicode Path fields that ran over the records after them ran a heap of 256 MB out of
+  memory from a DOCX of 0.17 MB, and one of 512 MB from 1.1 MB; ZIP64 fields built the same way
+  held the event loop for 4.5 s from 1 MB; long names ran a heap of 256 MB out of memory from a
+  DOCX of 94 MB; 4.9 million extra fields ran one of 512 MB out of memory from 19 MB; and the
+  ZIP64 end record held the process from a file of 636 bytes until it was killed. Real files are
+  read as before: 223 ZIP files of Word, PowerPoint, Excel, Java and other programs, and 22 of a
+  deck from PowerPoint and of Word files written again by Python, Info-ZIP, git, .NET,
+  System.IO.Packaging, bsdtar and jar, gave the parts and the bytes of text that JSZip reads. Their
+  101 Office files were read or refused as before, none for their directory; the most text in
+  one was 68 KB. A DOCX just under every limit at once is read in 0.46 to 0.48 s, with the heap at
+  126 to 140 MB. See [Measurements](docs/measurements.md#the-server).
 - **A PDF of 3 KB no longer stores 107 MB of text.** Its page tree listed one dense page 150
   times, and each listing gave the text of the page again. A page tree that lists a page twice is
   now refused, in under 0.3 s.

@@ -98,8 +98,8 @@ The built-in stores:
 | Searches of documents read by range | A few MB each: `scanChunkBytes` (1 MB) of text read, decoded and lowercased, and the next piece read ahead | `maxConcurrentScans` (4) per `LargeFiles`. The others wait, and those waiting for the same file share one pass over it |
 | Decoded pieces of a document read by range | Up to its whole decoded text | Kept within `cacheBytes`, and only for a document whose decoded text takes at most a quarter of it |
 | An upload | The body, buffered whole | `maxUploadBytes`, 100 MB by default |
-| An ingest | Several copies of the text at once (below), and what the parsers of PDF, DOCX and PPTX take while they read | `maxTextBytes` bounds the text (100 MB by default). One at a time, or in a process of its own (below) |
-| A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects). A crafted file can take far more: a PDF of 32 MB that is one array of numbers left 400 to 930 MB of used heap while it was parsed, the more the shorter its numbers, and one of 40 MB ran a heap of 256 MB out of memory | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold. A crafted file of few objects passes that check. Ingested in a process of its own (below), with `@cantoo/pdf-lib` installed, a file that needs more than that process's heap fails there and is not stored; one that fits is parsed again by each look |
+| An ingest | Several copies of the text at once (below), and what the parsers of PDF, DOCX and PPTX take while they read. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing bounds what the PDF parsers build or unpack. One at a time, or in a process of its own with a memory limit of its own (below) |
+| A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects). A crafted file can take far more: a look at a PDF of 8 MB that is one array of numbers took 422 to 427 MB of heap, one of 16 MB ran a heap of 512 MB out of memory, and one at the PDF of 1.6 KB above took 1.1 GB outside the heap. What `@cantoo/pdf-lib` keeps after a look adds up from file to file, until the server restarts | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold. A crafted file of few objects passes that check. Ingested in a process of its own (below), with `@cantoo/pdf-lib` installed, a file that needs more than that process's heap fails there and is not stored; one that fits is parsed again by each look, which takes more than its ingest did (232 to 244 MB for that file of 8 MB). For the documents of users you do not trust, `viewPages: false`, or no PDF originals |
 | A question in flight | Its conversation, and each request it builds: up to `maxRequestBytes` (10 MB by default) of JSON, the pages it was shown included as base64 | The budget ([Costs and limits](./costs-and-limits.md)) |
 
 Measured peaks are in [Measurements](../measurements.md#the-server): an ingest of a plain-text log
@@ -174,7 +174,7 @@ export const files = createLargeFiles({
 |---|---|
 | The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF |
 | One ingest at a time, in a process with a heap of 512 MB | An ingest of a 95 MB log fitted in a heap of 256 MB. A process takes about 50 MB more for Node itself |
-| Outside the heaps | The upload being read (up to 100 MB) and its copy sent to the ingest process, files read from the store, Node itself |
+| Outside the heaps | The upload being read (up to 100 MB) and its copy sent to the ingest process, files read from the store, Node itself. Also what the PDF parsers unpack, which no heap limit bounds: a crafted PDF of 1.6 KB took 1.6 GB at ingest and 1.1 GB at a look, far more than this row has left. For uploads you do not trust, give the ingest process a container of its own, and do not offer `view_pages` on their documents |
 
 Raise `cacheBytes` to spend memory on speed: at 1 GB, the decoded pieces of an ASCII log of up to
 about 125 MB are kept between searches. Lower `maxUploadBytes` if large uploads are not needed:
@@ -228,7 +228,10 @@ end after the time limit. Three ways to bound that:
 - **Accept one or two ingests at a time** per server, and answer the others with 503 (the sample
   below does it): this bounds memory and keeps stalls from adding up.
 - **Ingest in a process of its own**, with a heap limit and a time limit: below. A process that
-  runs out of memory stops alone, and the upload is answered with an error.
+  runs out of memory stops alone, and the upload is answered with an error. The heap limit does not
+  bound what a parser unpacks outside the heap: a crafted PDF of 1.6 KB took 1.6 GB that way
+  ([Security](../security.md#uploads)). For uploads you do not trust, give that process a memory
+  limit of its own too, such as a container or a cgroup of its own, or use a service of its own.
 - **Ingest in a service of its own.** All the state is in the store, so an upload service with its
   own `createLargeFiles` and `createDocumentHandlers`, on servers sized for uploads, can write the
   documents that the chat servers read. Give it the options that apply at ingest, the same as the
@@ -382,10 +385,17 @@ like any other.
 original from the store, parses it with `@cantoo/pdf-lib`, copies the pages and writes the cut. It
 cannot be stopped once it has started, and it pauses after every 12 ms of work so that other
 requests get a turn (after up to 40 ms where a timer is slow, as on Windows). One object of the
-file is parsed in one block: about 0.1 to 0.2 s for each MB of an array of numbers, more when the
-numbers are short, so a crafted PDF of 16 MB held the server 2.5 to 3.5 s on each look. Its memory
-and its limits are in the table above. The check that refuses a file too large compares it with
-the free heap, so set the heap limit (above). What the model is told when pages cannot be shown,
+file is parsed in one block: about 0.1 to 0.35 s for each MB, by what it holds, so a crafted PDF of
+16 MB that is one array of numbers held the server 1.7 to 3.5 s on each look, on a heap that could
+hold it. Its memory and its limits are in the table above. The check that refuses a file too large
+compares it with the free heap, so set the heap limit (above). That check counts the objects a file
+declares, not what they take: a crafted file that a process of its own ingested can still run the
+chat server out of memory at its first look, or take memory outside the heap. And what
+`@cantoo/pdf-lib` keeps after each look adds up from file to file: files of 9 KB ran a heap of 1 GB
+out of memory at the seventh look ([Security](../security.md#reading-pdfs-for-pages-and-pictures)).
+For the documents of users you do not trust, do not offer `view_pages` (`viewPages: false`), or keep
+no PDF originals. To offer it anyway, run each of their questions, the whole tool loop, in a process
+you fork, with its own heap and memory limits. What the model is told when pages cannot be shown,
 and the rest of `view_pages`, are in [PDFs and other formats](./pdfs.md); without `keepOriginals`
 nothing is kept and nothing is cut.
 

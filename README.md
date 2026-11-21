@@ -167,11 +167,14 @@ its work. It does not refuse every file built to hurt a server. While a file is 
 memory from your server's heap. Some steps run in one block, and no other request is answered
 meanwhile. pdf.js reads one page of a PDF in one block: up to about 1.5 s for a page of a small
 file that passes the page check, longer in a large file. `@cantoo/pdf-lib` reads one object of a
-PDF in one block: about 0.1 to 0.2 s for each MB of a crafted array of numbers, which can take many
-times the file's size in heap (400 to 930 MB for a file of 32 MB). If your users can upload files you do not
-trust, ingest them in a child process with its own heap limit and timer, as
-[Deployment](docs/guides/deployment.md#uploads-and-ingest) shows. What is refused, and what still
-holds the server: [Security](docs/security.md#uploads).
+PDF in one block, about 0.1 to 0.35 s for each MB of it. Neither it nor pdf.js checks the memory
+an object takes before building it: a crafted PDF of 732 bytes, whose object stream unpacks to
+4 MB of empty dictionaries, ran a heap of 512 MB out of memory at ingest. What a stream unpacks to
+is outside the heap: one of 1.6 KB took 1.6 GB of memory with 20 MB of heap. If your users can
+upload files you do not trust, ingest them in a child process with its own heap limit, memory
+limit and timer, as [Deployment](docs/guides/deployment.md#uploads-and-ingest) shows, and do not
+offer `view_pages` on their documents. What is refused, and what still holds the server:
+[Security](docs/security.md#uploads).
 
 ## Pictures, charts and scans in PDFs
 
