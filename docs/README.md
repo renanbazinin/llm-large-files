@@ -277,6 +277,6 @@ headings, each pointing to its new home.
 
 ## Changelog
 
-[CHANGELOG.md](../CHANGELOG.md) says what changed in each version. From 0.6.0 on, each version
+[CHANGELOG.md](../CHANGELOG.md) says what changed in each version. From 0.6.1 on, each version
 starts with what you must change when you upgrade, then what you can add, what works differently
 and what was fixed.

@@ -68,8 +68,9 @@ question ─► plan the documents for the room left in the request, smallest fi
      times the size of the file in content when that is more, before pdf.js reads any page
      ([Pages that would hold the server](./guides/pdfs.md#pages-that-would-hold-the-server)). The text is counted as
      it is read, a PDF page by page and a DOCX or PPTX paragraph by paragraph, and the file is
-     refused once it passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB); a PDF also past
-     100 times its size in text (after the first 16 MB); a DOCX or PPTX also past 32 million
+     refused once it passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when that is
+     larger); a PDF also past 100 times its size in text (after the first 16 MB); a DOCX or PPTX
+     also past 32 million
      characters of text, 1,000,000 paragraphs with text, paragraphs nested 32 deep, or 20,000
      parts. The text of any other extractor, yours included, is checked when it returns.
 
@@ -92,7 +93,7 @@ question ─► plan the documents for the room left in the request, smallest fi
    these characters is kept as it is, and a line of megabytes is cleaned in pieces of 256K
    characters. Then lines over 2,000 characters are split, after a space or one of `,;}` near the
    end of a piece when there is one. A line that lost characters can be split into fewer pieces
-   than 0.6.0 split it, which moves the lines after it. Every line-based tool then returns bounded
+   than 0.5.0 split it, which moves the lines after it. Every line-based tool then returns bounded
    output. A file with no text left is refused:
    "app.log did not contain any text."
 4. **Profile.**
@@ -163,7 +164,7 @@ extractor looks at each line, about a megabyte at a time with a pause in between
    that are not UTF-8. When no line is UTF-8, the whole file is read in that encoding; otherwise
    each line that is valid UTF-8 is read as UTF-8, and the others in that encoding. A byte that the
    encoding does not have becomes U+FFFD and is counted. `meta.encoding` names the encoding.
-4. **UTF-8 again.** When no encoding fits, the file is read as UTF-8 with the count, as 0.6.0 read
+4. **UTF-8 again.** When no encoding fits, the file is read as UTF-8 with the count, as 0.5.0 read
    it. No text file is refused for its encoding.
 
 The model is told. The frame of a file sent whole adds `read as windows-1255`, or
@@ -230,7 +231,7 @@ one, and the first frame line tells the model that only the line with the mark e
 does not make the model obey, and the mark is not a secret. The name, which the uploader chooses
 with the text, comes after the mark, quoted as JSON, and the closing line holds the mark alone.
 The mark is the same in every request, so a provider's prompt cache can reuse the file from one
-request to the next; after an upgrade from 0.6.0, the first request of each conversation misses
+request to the next; after an upgrade from 0.5.0, the first request of each conversation misses
 it once, since the frame lines changed. A file of one line says `1 line`. A text file that was not
 valid UTF-8 adds a note after the line count ([Text encodings](#text-encodings)):
 `, read as windows-1255`, `, read as windows-1255, 1 character not valid in it, shown as �`, or
@@ -705,18 +706,18 @@ are never pointed to. When a result is later replaced by a stand-in, the pointer
 stand-ins too, which say that the call was not run then and can be made again; a call of the
 current turn that would have pointed to it runs instead.
 
-Three more cases run the call again, and turn the pointers stored to its result into the same
-stand-ins:
+Three more cases run the call again:
 
 - **A read of one line in the rounds of an earlier question.** 0.5.0 cut a long line to its room
   without saying so, and stored reads cannot be told apart. Reads of more lines, and reads of the
-  same question, are pointed to as before.
-- **An exact or regex search that 0.6.0 stored**, with fewer matches than `total_matching_lines`
+  same question, are pointed to.
+- **An exact or regex search that 0.5.0 stored**, with fewer matches than `total_matching_lines`
   and no note: it holds only the first matches, and a search made now shows the last one too.
 - **Any call, with a model whose provider may clear old tool results on its side**
   (`capabilities.clearsToolResults`: Claude with `clear_tool_uses` or compaction in
   `body.context_management`). The model may no longer have the result a pointer names, so no call
-  is answered with a pointer, and the same call made twice in one turn runs twice.
+  is answered with a pointer, every stored pointer is sent as the stand-in above, and the same call
+  made twice in one turn runs twice.
 
 ### Empty or broken turns
 

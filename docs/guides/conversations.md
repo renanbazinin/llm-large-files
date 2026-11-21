@@ -130,8 +130,9 @@ it ([Costs and limits](./costs-and-limits.md)).
 what it searched and read before. A follow-up is then often answered without a new search, and a
 call that repeats one of them is answered from the stored result
 ([below](#repeated-calls-in-a-follow-up)). In a live check of 0.5.0 a follow-up took one request
-and no search; in 0.6.0 on Vertex AI, a follow-up that repeated its first search got a pointer and
-answered from the stored result ([Measurements](../measurements.md)).
+and no search; in a live check of the pointers on Vertex AI, during the work on 0.6.1, a follow-up
+that repeated its first search got a pointer and answered from the stored result
+([Measurements](../measurements.md)).
 
 ## Storing a conversation and asking the next question
 
@@ -377,17 +378,16 @@ Some stored results are run again rather than pointed to:
 
 - **A read of one line in the rounds of an earlier question.** 0.5.0 cut a long line to the room
   it had without saying so, and a stored read cannot be told apart from such a one. Reads of more
-  lines, and reads of the same question, are pointed to as before.
-- **An exact or regex search that 0.6.0 stored** with more matching lines than it showed. It holds
+  lines, and reads of the same question, are pointed to.
+- **An exact or regex search that 0.5.0 stored** with more matching lines than it showed. It holds
   only the first matches; run again, it shows the last one too.
 - **Any call, with a model whose provider may clear old tool results on its side**
   (`capabilities.clearsToolResults`: Claude with context editing that clears tool uses, or
   compaction). No call is pointed to then, and the same call twice in one turn runs twice.
 
-A pointer stored to such a result, in a later question than the result, is sent as the stand-in
-that says to call again: "Not run then: it repeated an earlier call whose result was later dropped
-from the conversation to make room. Call it again if you need it." With a model that clears tool
-results, every stored pointer is.
+With a model that clears tool results, every stored pointer is sent as the stand-in that says to
+call again: "Not run then: it repeated an earlier call whose result was later dropped from the
+conversation to make room. Call it again if you need it."
 
 **When the result is no longer there.** When a result is later shortened to make room, the pointers
 to it become stand-ins (`dropped: true`) that say the call was not run then and can be made again.
@@ -435,7 +435,7 @@ export async function next(files: LargeFiles, endpoint: GeminiEndpoint, document
 - `geminiToolTurns` gives, for each round, a `model` turn of `functionCall` parts and a `user` turn
   of `functionResponse` parts. A call's `id` is in both when it has one. Each result is given
   without its `tool_turns_left`, as the loop sends the rounds of an earlier question. `contents`
-  that 0.6.0 converted keep it, and are sent as they are.
+  that 0.5.0 converted keep it, and are sent as they are.
 - `fromGeminiContents` makes a `"user"` turn a user turn and a `"model"` turn an assistant turn. A
   text part is text. A text part with more fields (a `thoughtSignature`) is kept whole as a native
   part, sized by its text. Every other part is a native part, as it is: an image, an inline PDF,

@@ -284,8 +284,8 @@ What the adapter handles for these servers:
 - **An error's message, wherever the server puts it.** Most servers put it in `error`. vLLM before
   its OpenAI-shaped errors, SGLang and FastChat put a `message` at the top of the body, and servers
   built on FastAPI a `detail` (a list of problems gives their `msg` joined with "; "). The adapter
-  reads all three; before 0.6.1, such a request too large became "The model returned HTTP 400.", of
-  kind `"invalid"`, and the loop did not make it smaller.
+  reads all three; before 0.6.1, such a request too large became "The model returned HTTP 400.",
+  and the loop did not make it smaller.
 - **The output limit** of a part read is named `max_tokens`.
 - **`answerWithoutTools: "omit"`** for a server that refuses `tool_choice`, and
   **`stream: false`** for one that cannot stream.
@@ -327,8 +327,9 @@ const gateway = openAiCompatible({
   was not JSON (text/html). A proxy or gateway may have answered in its place.", and is not sent
   again. An empty body of HTTP 200 is sent again, as a reply cut off on its way.
 - A gateway that sends `[DONE]` and then keeps the connection open is left one second later, with
-  the whole reply; so is one whose connection breaks after `[DONE]`. In 0.6.0 such a request failed
-  after `idleTimeoutMs`, with the answer already shown.
+  the whole reply; so is one whose connection breaks after `[DONE]`. 0.5.0 waited for such a
+  connection to close, and took one that broke for a model that could not be reached, with the
+  answer already shown.
 
 ## The name of the output limit
 
@@ -393,12 +394,10 @@ fields, and every message the adapter writes with its status and kind:
 [`OpenAiRequestError`](../reference/openai.md#openairequesterror) and the errors table under
 [`openAiCompatible()`](../reference/openai.md#openaicompatibleoptions).
 
-`code` and `param` are new in 0.6.0. They come from an HTTP error response, and since 0.6.1 from an
-error inside a stream too: `context_length_exceeded` there is HTTP 400, of kind
-`"context_overflow"`, and `insufficient_quota` HTTP 429, of kind `"quota"`. Before,
-`insufficient_quota` was taken for the server's failure (HTTP 500) and sent three more times, and
-so was `context_length_exceeded` when the error named no `type`; neither kept its `code` or
-`param`. `retryAfterMs` comes from an HTTP error response only.
+`code` and `param` are new in 0.6.1. They come from an HTTP error response, and from an error
+inside a stream too: `context_length_exceeded` there is HTTP 400, of kind `"context_overflow"`,
+and `insufficient_quota` HTTP 429, of kind `"quota"`. In 0.5.0 an error inside a stream kept the
+stream's HTTP 200, and was not sent again. `retryAfterMs` comes from an HTTP error response only.
 
 A reply of HTTP 200 whose body is not JSON is an `OpenAiRequestError` of kind `"invalid"`, status
 200, with the `SyntaxError` as `cause`: "The model's reply could not be read: it was not JSON
@@ -514,7 +513,7 @@ await saveHistory(chatId, history);
 - does not keep the text of an assistant turn that also made tool calls.
 
 `openAiToolTurns(result.toolTurns)` gives each round as an assistant message with its
-`tool_calls` and one `tool` message per call, its content the JSON of the result. **Since 0.6.0, a
+`tool_calls` and one `tool` message per call, its content the JSON of the result. **Since 0.6.1, a
 call that came without an ID gets a random one**, `call_` and 24 hexadecimal characters, and a new
 one each time you convert. Before, they were numbered from 1 each time, so the stored rounds of two
 questions had the same IDs. Convert a question's rounds once and store the messages; do not convert

@@ -7,8 +7,8 @@ an application or write a store, an extractor or a loop of their own.
 
 ```ts
 import {
-  createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_INGEST_TIMEOUT_MS,
-  NEVER_EXPIRES, isDocumentId, toDocumentSummary,
+  createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_MAX_TEXT_BYTES,
+  DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, isDocumentId, toDocumentSummary,
   DEFAULT_BUDGET, resolveBudget,
   MemoryDocumentStore, FileDocumentStore, DOCUMENT_ID_PATTERN, DocumentStoreError,
   createPdfExtractor, defaultExtractors, detectFormat,
@@ -31,7 +31,8 @@ Contents:
   [`AccessOptions`](#accessoptions), [`PrepareOptions`](#prepareoptions), [`ToolOptions`](#tooloptions),
   [`PreparedContext`](#preparedcontext), [`DocumentPlan`](#documentplan),
   [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
-  [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms),
+  [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes),
+  [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms),
   [`NEVER_EXPIRES`](#never_expires), [`isDocumentId(value)`](#isdocumentidvalue),
   [`toDocumentSummary(meta)`](#todocumentsummarymeta)
 - [The budget](#the-budget): [`Budget`](#budget), [`DEFAULT_BUDGET`](#default_budget),
@@ -111,7 +112,7 @@ type LargeFilesOptions = {
 | `budget` | `Partial<Budget>` | [`DEFAULT_BUDGET`](#default_budget) | The limits of your model connection. Fields you leave out follow `contextTokens` (see [`Budget`](#budget)): for a model with a smaller window, setting `contextTokens` is enough. |
 | `ttlMs` | `number` | 72 hours (259,200,000) | How long a document is kept after it is ingested. `expiresAt` is set at ingest, and the library never extends it. `Infinity`, or any time that would end at or after the end of year 9999, keeps documents until they are deleted: `expiresAt` is then [`NEVER_EXPIRES`](#never_expires). |
 | `maxUploadBytes` | `number` | 100 MB (104,857,600) | The largest file `ingest` accepts. The upload handler of [`llm-large-files/node`](./node.md) reads no more than this. |
-| `maxTextBytes` | `number` | `maxUploadBytes` | The most text kept from one file, in UTF-8 bytes. A file's text can be larger than the file: a PDF of 3 KB built for it drew 107 MB. The PDF, DOCX and PPTX extractors refuse a file as soon as its text passes this (a PDF page by page, and also past 100 times its size after the first 16 MB; a DOCX or PPTX also past 32 million characters, whatever this allows), and `ingest` refuses a larger text from any other extractor, the text extractor and yours included. Your extractor receives it as `ExtractInput.maxTextBytes`. At least 1. |
+| `maxTextBytes` | `number` | [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes), 100 MB, or `maxUploadBytes` when that is larger | The most text kept from one file, in UTF-8 bytes. A file's text can be larger than the file: a PDF of 3 KB built for it drew 107 MB. The PDF, DOCX and PPTX extractors refuse a file as soon as its text passes this (a PDF page by page, and also past 100 times its size after the first 16 MB; a DOCX or PPTX also past 32 million characters, whatever this allows), and `ingest` refuses a larger text from any other extractor, the text extractor and yours included. Your extractor receives it as `ExtractInput.maxTextBytes`. At least 1. |
 | `maxPdfPages` | `number` | [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), 5,000 | The most pages read from one PDF. A PDF with more is refused before any page is read. Your PDF extractor receives it as `ExtractInput.maxPages`. At least 1. |
 | `ingestTimeoutMs` | `number` | [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms), 120,000 (2 minutes) | The most time one `ingest` may take to extract the text, build its line index and profile it, in milliseconds. The store's writes are not counted. Past it, `ingest` throws `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.`, and stores nothing. 0 sets no limit, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days). Your extractor receives the limit as `ExtractInput.signal`. Within one page of a PDF the limit is not looked at: see [security](../security.md#uploads). |
 | `extractors` | `Partial<Record<DocumentFormat, Extractor>>` | the built-ins, [`defaultExtractors`](#defaultextractors) | An [`Extractor`](#extractor) per format, used in place of the built-in one. The formats are fixed ([`DocumentFormat`](#documentformat)): you can replace the extractor of a format, not add a format. |
@@ -199,7 +200,7 @@ pause, and the signal is looked at only between pages.
 
 | It throws | When |
 |---|---|
-| `TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.")` | `owner` is `""`, spaces only or `null`, or, from JavaScript, neither a string nor a finite number (an object, `true`, `NaN`). Before anything is read. New in 0.6.1: 0.6.0 accepted them. |
+| `TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.")` | `owner` is `""`, spaces only or `null`, or, from JavaScript, neither a string nor a finite number (an object, `true`, `NaN`). Before anything is read. New in 0.6.1: 0.5.0 accepted them. |
 | `Error("<name> is empty.")` | The file has no bytes. |
 | `Error("<name> is larger than the 100 MB upload limit.")` | The file is larger than `maxUploadBytes`. The message gives your limit. |
 | The extractor's `Error` | The extractor refused the file: a binary or compressed file, a PDF without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
@@ -234,7 +235,7 @@ The document's metadata, or `undefined` when the ID does not match
 [`DOCUMENT_ID_PATTERN`](#document_id_pattern), the document was never there, was deleted, has
 expired (the library compares `expiresAt` with its clock itself, whatever the store returns), or
 belongs to another owner ([`AccessOptions`](#accessoptions)). Throws `DocumentStoreError` when the
-store cannot be read. A name that 0.6.0 or earlier stored cut inside an emoji comes back with a
+store cannot be read. A name that 0.5.0 or earlier stored cut inside an emoji comes back with a
 replacement character (U+FFFD) in place of the half, as the model and the steps get it; the stored
 metadata is not changed.
 
@@ -480,7 +481,7 @@ A document sent whole sits between these two lines (new in 0.6.1, for every docu
 ```
 
 - `<mark>` is eight hex digits made from the document ID, the same in every request, so a
-  provider's prompt cache reuses the file. After an upgrade from 0.6.0, the first request of each
+  provider's prompt cache reuses the file. After an upgrade from 0.5.0, the first request of each
   conversation reads nothing of the file from the cache, since the frame lines changed. The
   file's own text cannot hold its mark: a line that
   copies the end of the frame has no mark or a wrong one, and the first line tells the model that
@@ -496,7 +497,7 @@ A document sent whole sits between these two lines (new in 0.6.1, for every docu
   file.
 
 For example `--- Attached file [mark 1f0c3a9e]: "app.log" (log, 3,000 lines; it ends only at the line with mark 1f0c3a9e) ---`.
-In 0.6.0 the lines were `--- Attached file: app.log (log, 3,000 lines) ---` and
+In 0.5.0 the lines were `--- Attached file: app.log (log, 3,000 lines) ---` and
 `--- End attached file: app.log ---`. Code or tests that look for one file in `blocks` or in a
 request can look for `]: `, then `JSON.stringify(name)`, then ` (`; `--- Attached file [mark `
 starts every frame.
@@ -550,7 +551,16 @@ The default of `LargeFilesOptions.wholeDocumentBytes`.
 declare const DEFAULT_MAX_PDF_PAGES = 5000;
 ```
 
-The default of `LargeFilesOptions.maxPdfPages`.
+The default of `LargeFilesOptions.maxPdfPages`. New in 0.6.1.
+
+### `DEFAULT_MAX_TEXT_BYTES`
+
+```ts
+declare const DEFAULT_MAX_TEXT_BYTES: number; // 104_857_600 (100 MB)
+```
+
+The default of `LargeFilesOptions.maxTextBytes`, when `maxUploadBytes` is not larger. New in
+0.6.1.
 
 ### `DEFAULT_INGEST_TIMEOUT_MS`
 
@@ -558,7 +568,7 @@ The default of `LargeFilesOptions.maxPdfPages`.
 declare const DEFAULT_INGEST_TIMEOUT_MS = 120000; // 2 minutes
 ```
 
-The default of `LargeFilesOptions.ingestTimeoutMs`.
+The default of `LargeFilesOptions.ingestTimeoutMs`. New in 0.6.1.
 
 ### `NEVER_EXPIRES`
 
@@ -971,7 +981,7 @@ The built-in extractor of each format, used for every format you do not replace 
 
 | Format | What the extractor does |
 |---|---|
-| `text`, `markdown`, `log`, `json`, `csv` | Decodes the bytes as UTF-8, or as UTF-16 when they start with a byte-order mark or look like little-endian UTF-16 without one. A file that is not valid UTF-8 is read as UTF-8 when it starts with a UTF-8 byte-order mark, when at least as many of its lines count as UTF-8 as count as not (a line counts as UTF-8 when it holds at least as many characters of more than one byte as characters that are not valid), or when at most one line in 200 is not UTF-8. Otherwise it is read in windows-1255, windows-1256, windows-1251, Shift_JIS or windows-1252 when its lines with letters fit one, its lines that are valid UTF-8 as UTF-8; and when none fits, as UTF-8, as 0.6.0 read it. Each character that is not valid in the encoding it is read in becomes U+FFFD. It returns `encoding` and `replacedCharacters` ([`ExtractedText`](#extractedtext)), and reads such a file a step at a time, with pauses for other requests. It never refuses a file for its encoding. It refuses gzip, ZIP and other binary files. See [Text encodings](../guides/pdfs.md#text-encodings). |
+| `text`, `markdown`, `log`, `json`, `csv` | Decodes the bytes as UTF-8, or as UTF-16 when they start with a byte-order mark or look like little-endian UTF-16 without one. A file that is not valid UTF-8 is read as UTF-8 when it starts with a UTF-8 byte-order mark, when at least as many of its lines count as UTF-8 as count as not (a line counts as UTF-8 when it holds at least as many characters of more than one byte as characters that are not valid), or when at most one line in 200 is not UTF-8. Otherwise it is read in windows-1255, windows-1256, windows-1251, Shift_JIS or windows-1252 when its lines with letters fit one, its lines that are valid UTF-8 as UTF-8; and when none fits, as UTF-8, as 0.5.0 read it. Each character that is not valid in the encoding it is read in becomes U+FFFD. It returns `encoding` and `replacedCharacters` ([`ExtractedText`](#extractedtext)), and reads such a file a step at a time, with pauses for other requests. It never refuses a file for its encoding. It refuses gzip, ZIP and other binary files. See [Text encodings](../guides/pdfs.md#text-encodings). |
 | `pdf` | [`createPdfExtractor()`](#createpdfextractoroptions). Needs the optional dependency `unpdf`, in a version that runs on this Node, and `@cantoo/pdf-lib` to mark pages with pictures and to refuse a page that would hold the server. |
 | `docx` | The paragraphs of the main document first, then those of its endnotes, footers, footnotes and headers (in the order of their part names), one line each, with a blank line between parts. A text box is read once. The text of a run that Word hides (`<w:vanish/>`) comes after the text of its paragraph that shows, each of its lines starting with `[Hidden text, not shown in the document]`: a carriage return, a U+0085 or a line separator in it starts a new marked line, a line of more than about 1,950 characters is cut into marked pieces, and the text of a run inside a hidden run (the reading of a ruby) is marked too. The marks count toward the limits of text. Text hidden through a style is read as ordinary text. Needs the optional dependency `jszip`. |
 | `pptx` | One `## Slide N` section per slide, in order, with `[No text on this slide]` for a slide without text. A slide that the slide show skips (`show="0"`) keeps its text, under `## Slide N (hidden, not shown in the slide show)`. `pages` is the number of slides. Needs `jszip`. |

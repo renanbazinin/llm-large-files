@@ -519,8 +519,8 @@ of this unless you write it.
 - **A call made again.** A call whose result is still in the conversation in full (the same
   search with the same arguments as the tool reads them, the same overview, the same read, or a
   read of lines inside a read shown in full), in this question or in the tool rounds of an earlier
-  one passed back in `messages`, is not run. Its result is a pointer, and its step ends
-  " — already shown above":
+  one passed back in `messages`, is not run (new in 0.6.1). Its result is a pointer, and its step
+  ends " — already shown above":
   - `{ "document": "app.log", "already_shown": true, "note": "Not run: this exact call was answered earlier in this conversation, and its result is still shown above in full. The file has not changed, so it would return the same. Use that result. For more, read other lines, or search with other words or another mode." }`
   - For a read inside an earlier read: `{ "document": "app.log", "lines": "150-200", "already_shown": true, "note": "Not run: lines 150-200 are already shown above in full, in the result that has lines 100-299 of this file, and the file has not changed. Use them. To see more, read other lines." }`
   - For the same call twice in one turn: `{ "already_shown": true, "note": "Not run: call 1 of this turn is the same call, and its result is next to this one. Use it." }`
@@ -533,7 +533,7 @@ of this unless you write it.
   error, a cut result, a pointer); only when the first is refused for lack of room is the second
   refused the same way. Whole-file reads and looks at pages are never pointed to.
 
-  Since 0.6.1 some calls also run again:
+  Some calls run again all the same:
   - every call, with a model that declares
     [`clearsToolResults`](./ask.md#modelcapabilities) (Claude with `clear_tool_uses` or compaction
     in its `body`), which may no longer have the earlier result; the same call twice in one turn
@@ -541,7 +541,7 @@ of this unless you write it.
   - a read of one line from the tool rounds of an earlier question: 0.5.0 cut the text of such a
     read without saying so (no `text_cut`), and the stored rounds do not tell which version wrote
     them;
-  - an exact or regex search that 0.6.0 stored: fewer `matches` than `total_matching_lines`, and
+  - an exact or regex search that 0.5.0 stored: fewer `matches` than `total_matching_lines`, and
     no note. Run now, it shows the last match too.
 - **Stand-ins.** When the request runs short of room, the results of older tool rounds are replaced
   by the short stand-ins of [`stubResult`](./ask.md#stubresultcall-result-hadfiles), with
@@ -550,9 +550,8 @@ of this unless you write it.
   becomes
   `{ "document": "app.log", "dropped": true, "note": "Not run then: it repeated an earlier call whose result was later dropped from the conversation to make room. Call it again if you need it." }`.
   So does every pointer of a stored round when a model of the question declares
-  `clearsToolResults`, a pointer to a read of one line made in an earlier question than the
-  pointer, and a pointer that 0.6.0 stored to a search it stored. In `toolTurns`, the result of a
-  look at pages is kept as its stand-in, since the file is not kept.
+  `clearsToolResults`. In `toolTurns`, the result of a look at pages is kept as its stand-in,
+  since the file is not kept.
 - **A hint after two failed searches.** When two `search_document` calls in a row fail in the
   same mode, the error of the second (and of any after it) ends with a hint. For `regex`: "Two
   regex searches in a row failed. Try mode "exact" with a plain word or ID from the file, or mode
@@ -754,7 +753,7 @@ type ToolCallLimits = {
 | `maxFileBytes` | number | 3/8 of (`maxRequestBytes` − 262,144): 3,651,696 bytes with the default budget | `view_pages`: the most bytes its file may have. Pages are left off the end until the cut fits. Below 1,024 the call fails. Give the room left in your request, times 3/4 when you send files as base64. |
 | `maxPages` | number | [`MAX_VIEW_PAGES`](#max_view_pages) (5) | `view_pages`: the most pages this call may show, never more than 5. Below 1 the call fails. Lower it as the pages already shown use up your token budget. |
 | `maxResultCharacters` | number | The tool's own cap ([`resultCharacters`](#toolset)) | The most characters of the JSON result, when that is less than the tool's cap: the room left in the request. The result is cut to it and says where to go on. Never below 600. `view_pages` ignores it. |
-| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. It does not stop the read: a part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, a merge and the answer must fit). New in 0.6.0. |
+| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. It does not stop the read: a part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, a merge and the answer must fit). New in 0.6.1. |
 
 In `askWithFiles`, `maxFileBytes` is what is left of `maxRequestBytes` after the request so far
 and a tenth kept free (256 KiB at least), times 3/4; `maxPages` is what is left of
@@ -870,10 +869,14 @@ See [Your own adapter and loop](../guides/own-adapter-and-loop.md).
 public API, like the documented exports and the HTTP responses of `llm-large-files/node`: changing them is
 a breaking change, and the [changelog](../../CHANGELOG.md) names it. While the version is `0.x`, a
 minor version (0.7.0) may make breaking changes. Descriptions, notes, error texts and the tool
-guide are written for the model and have changed between versions: 0.6.0 changed the guide, so
-the provider's prompt cache misses once after upgrading to it. 0.6.1 changed the description of
-`search_document`, and the frame of every file sent whole
-([`PreparedContext`](./library.md#preparedcontext)), so it misses once again: the first request of
-each conversation after the upgrade reads nothing from the cache where the tools come first
-(Claude, OpenAI-compatible endpoints), and only the system instruction on Gemini. Do not parse
-them; test for result fields instead.
+guide are written for the model and have changed between versions: do not parse them; test for
+result fields instead.
+
+0.6.1 changed the guide, the descriptions of `search_document` and `analyze_whole_document`, and
+the frame of every file sent whole ([`PreparedContext`](./library.md#preparedcontext)), so the
+provider's prompt cache misses once after upgrading to it: the first request of each conversation
+after the upgrade reads from the cache at most what comes before the first text that changed. For
+a question with files to search, that is nothing where the tools come first (Claude,
+OpenAI-compatible endpoints), and at most your own system text on Gemini, where the guide follows
+it in the system instruction. For a question whose files are all sent whole, it is your own system
+text, and `view_pages` with its guide when the pages of a PDF can be looked at.

@@ -54,7 +54,7 @@ not add sampling settings in `body`.
 
 `usage.byModel` names the model by its `model` ID; set `id` for another name.
 
-The adapter has not been run against the real Messages API, in 0.6.0 or any earlier version. It
+The adapter has not been run against the real Messages API, in 0.6.1 or any earlier version. It
 is tested against the request and response shapes of the Messages API documentation.
 [Measurements](../measurements.md) lists what has been run live.
 
@@ -151,7 +151,9 @@ documentation for your model. What the library does with thinking is the same fo
   tokens (`THINKING_OUTPUT_TOKENS`, exported by `llm-large-files/gemini`), and later part reads of
   that model start there. Claude does not count its thoughts apart: in a part read that thought,
   they are taken as what it wrote besides its text (its `output_tokens` less the tokens of the
-  text). In 0.6.0 such notes came back cut: two lines out of 4,096 tokens.
+  text). 0.5.0 counted none of them, so such notes came back cut, with the little the model wrote.
+  Gemini 3.8 Flash, which spends its limit on thoughts the same way, wrote two lines when asked for
+  4,096 tokens ([Measurements](../measurements.md#reading-a-whole-file)).
 
 `body` and `analysisBody` are added last, so a field in them replaces the adapter's own. Set
 `max_tokens` with `maxTokens`, streaming with `stream` and caching with `cache`: the budget and the
@@ -183,8 +185,9 @@ reading of the reply follow the options, not `body`.
   "The model's reply was cut off on its way. Trying again…".
 - **A stream that ended is a reply.** After `message_stop`, the body is read for one more second at
   most, then cancelled: a gateway that leaves the connection open does not hold the request until
-  `idleTimeoutMs`, and a connection that breaks after `message_stop` loses nothing. In 0.6.0 both
-  failed, with the whole answer already shown.
+  `idleTimeoutMs`, and a connection that breaks after `message_stop` loses nothing. 0.5.0 waited
+  for such a connection to close, and took one that broke for a model that could not be reached,
+  with the whole answer already shown.
 - **Part reads are not streamed.** Each may take `timeoutMs` (180 s); one that takes longer is
   stopped and tried once more.
 
@@ -359,8 +362,7 @@ With an edit that clears tool uses (`clear_tool_uses_…`) or compacts the conve
 `capabilities.clearsToolResults: true`. The API may then have cleared a result before Claude reads
 the request, so the loop answers no repeated call with a pointer to an earlier result ("already
 shown above"): each runs again, and the pointers in stored rounds become stand-ins that say to call
-again ([Conversations](./conversations.md#repeated-calls-in-a-follow-up)). In 0.6.0 a pointer could
-say a result was "still shown above in full" when the server had cleared it. An edit of
+again ([Conversations](./conversations.md#repeated-calls-in-a-follow-up)). An edit of
 `clear_thinking` alone changes nothing.
 
 The loop still counts every result as sent, so its room runs out at the same point as without
@@ -439,7 +441,8 @@ What else the adapter reads from a reply:
 
 The API refuses a request that holds half of a character outside the basic plane, such as half of
 an emoji (HTTP 400). Since 0.6.1 the library sends none: a file name, a log template or a search
-window that 0.5.0 or 0.6.0 stored cut inside an emoji is sent with U+FFFD in place of the half, and
+window that 0.5.0 or an earlier version stored cut inside an emoji is sent with U+FFFD in place of
+the half, and
 the message to Claude about a call whose input was not valid JSON quotes up to 300 characters of
 it, one fewer when the 300th is the first half of an emoji.
 
@@ -503,7 +506,7 @@ async function ask(question: string): Promise<string> {
 
 The IDs of the calls:
 
-- **Since 0.6.0, `anthropicToolTurns` gives a call that came without an ID a random one**,
+- **Since 0.6.1, `anthropicToolTurns` gives a call that came without an ID a random one**,
   `toolu_` and 24 hex digits, the same in its result. Before, it numbered them `toolu_1_1`,
   `toolu_1_2`, … each time, so the stored rounds of two questions had the same IDs, which the
   Messages API refuses. If your code expected IDs of that form, make it accept any ID.
@@ -566,7 +569,7 @@ What the pair changes:
   its window is the smaller one.
 - **Each count is read by its own model's scale.** The count Gemini reports with a reply is read by
   Gemini's scale, Claude's by Claude's, so the estimate rises when either model counted more than
-  its scale says. Before 0.6.0 every count was read by the largest scale, and a Gemini explorer's
+  its scale says. Before 0.6.1 every count was read by the largest scale, and a Gemini explorer's
   could not raise it.
 - **No result is shortened.** Claude is append-only, so the rule
   [above](#a-conversation-that-may-only-grow) holds for the explorer's rounds too.

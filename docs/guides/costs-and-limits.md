@@ -693,10 +693,14 @@ What the library changes:
   `cache_control`, as a cache write). The rounds of older questions were already sent without it,
   and still match. The documents and cards before them are still read from the cache.
 - An upgrade that changes the library's prompts misses the cache once in each conversation. 0.6.1
-  changed the description of `search_document` and the frame lines of a file sent whole: the first
-  request after the upgrade shares nothing cached with what 0.6.0 sent on Claude and
-  OpenAI-compatible endpoints, where the tools come first, and only the system instruction on
-  Gemini. From then on the frame of a document is the same in every request
+  changed the tool guide, the descriptions of `search_document` and `analyze_whole_document`, and
+  the frame lines of a file sent whole. The first request after the upgrade shares with what 0.5.0
+  sent at most what comes before the first text that changed. For a question with files to
+  search, that is nothing on Claude and OpenAI-compatible endpoints, where the tools come first,
+  and at most your own system text on Gemini, where the tool guide follows it in the system
+  instruction. For a question whose files are all sent whole, it is your own system text, and
+  `view_pages` with its guide when the pages of a PDF can be looked at. From then on the frame of a
+  document is the same in every request
   ([Deployment](./deployment.md#servers-of-two-versions)).
 
 The adapters:

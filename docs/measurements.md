@@ -7,8 +7,8 @@ has not.
 
 Each result is a measurement at one point in time, with the models named. It is not a guarantee.
 Another model, a later version of the same model, another provider or other files can give other
-results. Nothing was run again for this page: each result is given as it was recorded, with the
-release it was recorded for. Before you rely on a number, check it on your own files
+results. Nothing was run again for this page but one record, which says so: each result is given
+as it was recorded, with the release it was recorded for. Before you rely on a number, check it on your own files
 ([Measuring your own setup](#measuring-your-own-setup)).
 
 ## How to read this page
@@ -20,19 +20,27 @@ release it was recorded for. Before you rely on a number, check it on your own f
   2026-11-10, 0.3.5 and 0.3.6 of 2026-11-11, 0.4.0 of 2026-11-12, and 0.4.1 and 0.5.0 of
   2026-11-13. The checks of 0.6.0 and 0.6.1 are of November 2026. All live results are of
   November 2026.
+- **0.6.0 was never published.** Its changes ship in 0.6.1, the version after 0.5.0. A result
+  marked 0.6.0 was recorded on that code before the rest of 0.6.1 was written: on its branches, or
+  on `main` up to commit 5157e7f (2026-11-20), from which 0.6.0 was to be released. "The review of
+  0.6.0" is the review of that code on `main`, of 2026-11-20.
+- **5157e7f**, in a table, is that commit: the code before the changes of 0.6.1 that the table
+  measures. It reads and stores files as 0.5.0 does: the code that extracts, cleans, indexes and
+  stores a file, and reads the pages of a PDF, is that of 0.5.0, but for the cut of a log template
+  and of an outline of more than 400 headings. Its `parseSseJson` scans a stream as 0.5.0 does.
 - Where the record names no model, this page says "model not recorded".
 - What a result led to in the library is explained in the guides. This page links to them and does
-  not repeat them. The [changelog](../CHANGELOG.md) records 0.6.0 and 0.6.1, and links to the
-  history of 0.1.0 to 0.5.0.
+  not repeat them. The [changelog](../CHANGELOG.md) records 0.6.1, and links to the history of
+  0.1.0 to 0.5.0.
 - **Before** in a table of 0.6.1 is the code of 0.6.1 before the change measured, which was never
-  released, unless the table names 0.6.0.
+  released. A column named 5157e7f or 0.5.0 is that code.
 
 ## What has been run live
 
 | Provider | Live runs on record | Not run live |
 |---|---|---|
 | Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
-| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. 0.6.0: a count, a repeated search, the error of a request too large, and in the review of 0.6.0 a production log of 3 MB | |
+| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. 0.6.0 (never published, see above): a count, a repeated search, the error of a request too large, and in the review of 0.6.0 a production log of 3 MB | |
 | OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
 | Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation |
 
@@ -103,7 +111,7 @@ reports ([Costs and limits](./guides/costs-and-limits.md)).
 every one of 1,200 matching lines: 492 came back, and the result said that it was incomplete. The
 notes of a part were capped at 4,096 output tokens and the answer at 8,192, as they still are for
 a model that does not think. Even without reaching a cap, the model can skip items: 91 of 120 in
-the same test. Since 0.6.0 the tool guide sends counting and listing to `search_document` in exact
+the same test. Since 0.6.1 the tool guide sends counting and listing to `search_document` in exact
 or regex mode, whose `total_matching_lines` is exact ([Tools](./reference/tools.md)).
 
 **A count by exact search (0.6.0, live on Vertex AI, 2026-11-16).** `gemini-3.1-flash-lite`,
@@ -352,12 +360,12 @@ event loop for about 0.8 to 1.5 seconds (25 MB) and 3 to 5 seconds (95 MB). Linu
 measured. [Deployment](./guides/deployment.md) turns these into sizing advice.
 
 **Ingest of large and hostile files (0.6.1, November 2026, Node 24 on Windows).** Each file was
-ingested into a `MemoryDocumentStore` in a fresh process, with the parsers loaded first, 0.6.0 and
-0.6.1 in turn, on a machine that ran other work too. A stall is the longest gap between two beats
-of a 5 ms timer; memory is the resident set at the beats, so for 0.6.0, whose ingests let no beat
-in, it is not given.
+ingested into a `MemoryDocumentStore` in a fresh process, with the parsers loaded first, 5157e7f
+(which ingests as 0.5.0 does) and 0.6.1 in turn, on a machine that ran other work too. A stall is
+the longest gap between two beats of a 5 ms timer; memory is the resident set at the beats, so for
+5157e7f, whose ingests let no beat in, it is not given.
 
-| File | 0.6.0 | 0.6.1 |
+| File | 5157e7f | 0.6.1 |
 |---|---|---|
 | A log of 99 MB, 1,160,000 lines (3 runs each) | 1.9 to 2.0 s, all of it one stall | 1.9 s; longest stall 31 to 34 ms; 415 to 433 MB |
 | A PDF of 2,000 pages, 30 lines each, 3.5 MB (3 runs each) | 4.6 to 4.9 s; longest stall 4.4 to 4.5 s | 4.9 to 5.0 s; longest stall 0.16 s |
@@ -418,7 +426,7 @@ a page that may paint any of 140,000 drawings 100 times in 0.42 s. Their longest
 
 The 14 inputs of the identity check of 0.6.1 (logs of 10 to 100 MB, JSONL, CSV,
 Markdown, and the PDFs below with and without picture marks) store byte for byte the text, index
-and metadata that 0.6.0 stores. What the check adds to an ingest:
+and metadata that 5157e7f stores. What the check adds to an ingest:
 
 PDFs written with `@cantoo/pdf-lib` (pages of 45 lines of text, or of 1,500 small filled shapes),
 ingested into a `FileDocumentStore` with originals kept, without the check and with it in turn,
@@ -460,7 +468,7 @@ stopped the whole process. With the recipe of [Deployment](./guides/deployment.m
 a child forked with a heap of 48 MB ran out of memory on the 2,000-page PDF and stopped alone: the
 upload was answered with an error, and the next one was ingested.
 
-**Text files that are not UTF-8 (0.6.1, November 2026, Node 24 on Windows).** 0.6.0 read such a
+**Text files that are not UTF-8 (0.6.1, November 2026, Node 24 on Windows).** 0.5.0 read such a
 file as UTF-8, in one go, with every letter of the older encoding stored as U+FFFD. 0.6.1 looks at
 its lines, chooses an encoding, and decodes in steps of about a megabyte, with pauses in between.
 
@@ -502,10 +510,10 @@ process met such a file.
 slice at a time, but a slice runs on to the next line break, so a text with no line break was
 cleaned in one go. Each file below is one line of 30 MB, ingested into a `MemoryDocumentStore` in a
 fresh process for each run, on a machine that ran other work too: the longest stall, and the peak
-memory of the process. 0.6.0 is given where it was measured; it removed fewer characters, and held
-the event loop for the whole ingest.
+memory of the process. 5157e7f, which cleans text as 0.5.0 does, is given where it was measured; it
+removed fewer characters, and held the event loop for the whole ingest.
 
-| One line of 30 MB | 0.6.0 | Before | 0.6.1 |
+| One line of 30 MB | 5157e7f | Before | 0.6.1 |
 |---|---|---|---|
 | A zero-width space between letters | 357 to 370 ms | 931 to 1,061 ms, 721 to 809 MB | 34 to 52 ms, 195 to 196 MB |
 | A control character between letters | 1,856 to 1,887 ms, 761 MB | 2,014 to 3,428 ms, 1,497 to 1,567 MB | 71 to 76 ms, 248 to 250 MB |
@@ -532,7 +540,8 @@ each piece, so the work grew with the square of the line, in one block. Each DOC
 | 348 KB, one hidden run of 16 million characters of words | 11.7 s, one stall of 11.3 s | 0.53 s, longest stall 74 ms |
 | 1.48 MB, one hidden run of 134 million characters, refused for its text | 722 s | 0.75 s, longest stall 0.30 s, the same refusal |
 
-0.6.0, which did not mark hidden text, read the 16.7 KB file in 0.46 to 0.54 s (three runs).
+5157e7f, which reads a DOCX as 0.5.0 does and did not mark hidden text, read the 16.7 KB file in
+0.46 to 0.54 s (three runs).
 Marking the 16 million letters alone took 92 ms (10.1 s before). Reading the XML of 200,000 runs,
 formatted, hidden or neither, took the same time before and after, within the spread (0.6 to 0.8 s,
 five rounds).
@@ -541,7 +550,7 @@ five rounds).
 `@cantoo/pdf-lib` reads the whole file into objects for the page check and the picture marks at
 ingest, and for each look of `view_pages`. 0.6.1 makes it pause after every 12 ms of work, or up to
 40 ms where a pause itself takes long, as a timer does on Windows. Before, it paused after a count
-of 500 objects (0.6.0: 4,000). The stall is the longest the event loop was held:
+of 500 objects (0.5.0 and 5157e7f: 4,000). The stall is the longest the event loop was held:
 
 | Read into objects | Before: count of 500 | 0.6.1: by time |
 |---|---|---|
@@ -659,9 +668,10 @@ the fourth file ran out of memory (two runs); with 256, the second did (one run)
 with a flag of 832 (a heap limit of 1 GB), left 148, 285, 366, 559, 639 and 720 MB, and the
 seventh ran out of memory (two runs). The same file read three times left 151 to 152 MB (one run).
 
-A look at pages now also pauses while it copies the pages and writes the cut. Compared with 0.6.0:
+A look at pages now also pauses while it copies the pages and writes the cut. Compared with
+5157e7f, whose looks are those of 0.5.0:
 
-| Look at pages | 0.6.0: longest stall, of the whole look | 0.6.1 |
+| Look at pages | 5157e7f: longest stall, of the whole look | 0.6.1 |
 |---|---|---|
 | Pages 1,800 to 1,802 of a PDF of 2,000 pages, 6.2 MB | 159 to 177 ms, of 163 to 185 ms | 19 to 20 ms, of 0.2 s (19 to 48 ms on a busy machine) |
 | One page that refers to 4,000 large arrays | 0.73 to 0.75 s, of 1.27 to 1.30 s | 39 to 50 ms, of 1.5 to 1.6 s |
@@ -749,9 +759,12 @@ their ZIP64 end record, nor of the 6,273 where the reading found no directory.
 **Streams of a reply (0.6.1, November 2026, Node 24 on Windows).** `parseSseJson`, which the
 adapters read streamed replies with, scanned an event again with each piece that came. One event of
 1, 4 and 8 MB, in pieces of 16 KB, in memory, took 11 to 15 ms, 201 to 220 ms and 794 to 954 ms
-before, and takes 1 to 2 ms, 5 to 9 ms and 10 to 18 ms with 0.6.1. Now that it is fast, an endpoint
-that never ends an event could fill memory fast: one event holds at most 64,000,000 characters. A
-hostile endpoint on the same machine, read through the adapters' own `fetch`:
+before, and takes 1 to 2 ms, 5 to 9 ms and 10 to 18 ms with 0.6.1. 0.5.0 scans as the code
+before did.
+
+Now that it is fast, an endpoint that never ends an event could fill memory fast: one event holds
+at most 64,000,000 characters. A hostile endpoint on the same machine, read through the adapters'
+own `fetch`:
 
 | The endpoint sends | Before | 0.6.1 |
 |---|---|---|
@@ -760,12 +773,21 @@ hostile endpoint on the same machine, read through the adapters' own `fetch`:
 
 A reply made of many events has no cap yet.
 
+**Streams of a reply, measured again for 0.5.0 (2026-11-21, Node 24.19 on Windows).** One event
+of 1, 4 and 8 MB in pieces of 16 KB, in memory, five runs of each build in each of two sessions:
+0.5.0 took 14 to 18 ms, 212 to 294 ms and 965 to 1,193 ms; 5157e7f 14 to 19 ms, 227 to 299 ms and
+957 to 1,190 ms; 0.6.1 1 to 4 ms, 7 to 10 ms and 10 to 20 ms. An event that never ended, sent to
+0.5.0 in pieces of 16 KB, slowed with the square of its size: 16 MB took 3.1 to 3.9 s, and 32 MB
+12.5 to 13.5 s. 32 MB of data lines without the blank line that ends an event took 12.4 to 13.1 s,
+as one string. Two runs each.
+
 [Security](./security.md) explains the limits that came of these measurements.
 
 ## Faults reproduced before a fix
 
 Numbers from probes and tests that showed a fault, not from live runs. Each is fixed in the version
-named.
+named. 0.6.0 was never published: a fault marked 0.6.0 was found and fixed on its code, and the
+fix ships in 0.6.1.
 
 - **0.3.6.** A log of 10,000 lines whose third line held a logged user agent `ua="evil␛]"` was
   stored as 3 lines, with no error.

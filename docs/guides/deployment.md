@@ -190,10 +190,10 @@ that takes longer than five minutes to arrive: raise it for users on slow links.
 An ingest runs in your server's process, a slice at a time. It pauses for other requests about
 every 12 ms of its work, so an answer streaming on the same server waits a fraction of a second,
 not seconds: the longest stall measured was 34 ms for a 99 MB log and 0.16 s for a 2,000-page
-PDF, where 0.6.0 held the server for 2.0 s and 4.5 s ([measured](../measurements.md#the-server)).
+PDF, where 0.5.0 held the server for 2.0 s and 4.5 s ([measured](../measurements.md#the-server)).
 A text file in an older encoding is decoded a megabyte at a time, and a line of megabytes is
 cleaned in pieces of 256K characters: one line of 30 MB with a control character between its
-letters held the server for about 50 ms, where 0.6.0 held it about 1.9 s. One page of a PDF still
+letters held the server for 71 to 76 ms, where 0.5.0 held it about 1.9 s. One page of a PDF still
 holds the server for as long as pdf.js takes to read it. With
 `@cantoo/pdf-lib` installed, a page that would take long is refused before pdf.js reads any page
 (a page built to paint forms inside forms held the server for 13 s to 2 minutes without that
@@ -240,14 +240,16 @@ end after the time limit. Three ways to bound that:
   options that apply to reading: `cacheBytes`, `cacheSize`, `wholeDocumentBytes`, `scanChunkBytes`,
   `maxConcurrentScans` and `budget`.
 
-**Not a worker thread.** Until 0.6.1, this guide ran each ingest in a worker thread
+**Not a worker thread.** For uploads you do not trust, the security page of 0.5.0 suggested a
+worker thread or a separate process, and a draft of this guide on GitHub, before 0.6.1, ran each
+ingest in a worker thread
 (`ingestInWorker`) with `resourceLimits: { maxOldGenerationSizeMb: 512 }`. That keeps the event
 loop free, but it does not bound memory. The process's heap flag replaces the worker's limit (see
 [Memory on each server](#memory-on-each-server)): under `NODE_OPTIONS=--max-old-space-size=1024`,
-as that guide set it, that worker had 1,216 MB on Node 24, not 512. And a worker that runs out of
-memory can take the whole
-process down with it: in the review of 0.6.0, a worker of 512 MB, with no heap flag on the process,
-did so on a hostile DOCX. A child process stops alone.
+as that draft set it, that worker had 1,216 MB on Node 24, not 512. And a worker that runs out of
+memory can take the whole process down with it: in the review of 0.6.0, a version never published
+([Measurements](../measurements.md#how-to-read-this-page)), a worker of 512 MB, with no heap flag
+on the process, did so on a hostile DOCX. A child process stops alone.
 
 A process that runs one ingest, with the options of `large-files.ts` above:
 
@@ -547,20 +549,22 @@ same conversations.
   [the 0.4.0 entry of the changelog](https://github.com/renanbazinin/llm-large-files/blob/v0.5.0/CHANGELOG.md#040---2026-11-12).
 - **A document keeps what the version that ingested it extracted**: its text, outline and log
   profile. A better extractor applies to files uploaded after the upgrade. A text file in an older
-  encoding that 0.6.0 stored holds U+FFFD where 0.6.1 reads its letters, and text that 0.6.0
+  encoding that 0.5.0 stored holds U+FFFD where 0.6.1 reads its letters, and text that 0.5.0
   stored keeps the characters that show nothing and Word's hidden text unmarked: upload such a file
-  again to get the new reading. A document that 0.6.0 stored with the owner `""` stays readable
+  again to get the new reading. A document that 0.5.0 stored with the owner `""` stays readable
   with that owner until it expires.
 - **Conversations.** `toolTurns` are plain JSON, and their type (`ToolTurn`) has not changed since
   they appeared in 0.5.0. Both versions read the ones the other stored. 0.6.1 sends the rounds of
   an earlier question without their `tool_turns_left`
   ([Conversations](./conversations.md#what-toolturns-holds)).
-- **Provider caches.** The tool guide in the system instruction and the description of
-  `analyze_whole_document` changed in 0.6.0; the description of `search_document` and the frame
-  lines of a file sent whole changed in 0.6.1. They come at the start of a request, so a request
+- **Provider caches.** The tool guide in the system instruction, the descriptions of
+  `analyze_whole_document` and `search_document`, and the frame lines of a file sent whole changed
+  in 0.6.1. They come at the start of a request, so a request
   sent with the new text cannot reuse what the provider cached of the old: in each conversation
   whose files are searched or sent whole, the first request after the upgrade pays the full input
-  price once (with Claude's `cache_control`, as a cache write).
+  price once for what comes from the first text that changed on
+  ([Costs and limits](./costs-and-limits.md#prompt-caching)), with Claude's `cache_control` as a
+  cache write.
   While servers of both versions answer the same conversation in turn, it can miss more often:
   finish the rollout quickly, or keep a conversation on one version while it runs if that cost
   matters. Any upgrade that changes this text has the same effect; the

@@ -17,13 +17,17 @@ Changes go under the top version heading, marked "not released yet". The heading
 version the changes will ship in:
 
 ```markdown
-## 0.6.0 — not released yet
+## 0.6.1 — not released yet
 ```
 
 When the top version already has a date (it was released), start a new heading above it with the
-next version: a patch (0.6.1) when nothing in it needs a change in the user's code, a minor
+next version: a patch (0.6.2) when nothing in it needs a change in the user's code, a minor
 (0.7.0) when something does (see [Versioning](#versioning)). If a change made later turns a
 patch into a version that needs changes, raise the number in the heading.
+
+A version that was never published ships in the next one, and that version's **Upgrading** part
+is written for apps on the last version that was. 0.6.0 was never published: its changes ship in
+0.6.1, the version after 0.5.0.
 
 A template of an entry is in a comment at the top of CHANGELOG.md.
 
@@ -33,7 +37,7 @@ Each version opens with two to four sentences on what it is about. Then four par
 
 | Part | What goes in it |
 | --- | --- |
-| `### Upgrading: what you need to change` | Always present. First, whether code written for the previous version compiles as it is. Then each difference in behavior an app may need to act on: what changed, whom it affects, what to do. A change to the text the model is sent is one of these: the provider's prompt cache misses once after it (0.6.0, the tool guide). A version with nothing to change says so: "Nothing." |
+| `### Upgrading: what you need to change` | Always present. First, whether code written for the previous version compiles as it is. Then each difference in behavior an app may need to act on: what changed, whom it affects, what to do. A change to the text the model is sent is one of these: the provider's prompt cache misses once after it (0.6.1: the tool guide, two tool descriptions, the frame of a file sent whole). A version with nothing to change says so: "Nothing." |
 | `### New: what you can add` | Each addition (an export, an option, a tool, a field of a result) in one or two lines, with a link to the page that explains it, and a short sample for the ones most apps will use. |
 | `### Changed: what works differently` | Behavior that changes with no change to the app's code: a default, a retry, a limit, how a plan is made. Also what a change to the text the model is sent (tool descriptions, the tool guide, the instructions) makes models do. When a point under **Upgrading** links here, this part says how the behavior works, not again what an app must do. One or two lines each. |
 | `### Fixed` | Bugs, grouped by area, told by what an app developer saw, with the numbers that matter. One or two lines each. |
@@ -59,20 +63,25 @@ or field, or a wider parameter type goes in **New**.
 
 The release pull request makes two edits:
 
-1. Replace "not released yet" with the date of the release, as YYYY-MM-DD:
+1. Replace "not released yet" with the date of the release, as YYYY-MM-DD. For a release on
+   24 November 2026:
 
    ```markdown
-   ## 0.6.0 — 2026-11-20
+   ## 0.6.1 — 2026-11-24
    ```
 
 2. Bump the version in package.json and package-lock.json to the same number:
 
    ```bash
-   npm version minor --no-git-tag-version   # 0.5.0 becomes 0.6.0; patch makes 0.5.1
+   npm version 0.6.1 --no-git-tag-version   # the number in the changelog heading
    ```
 
+   `npm version minor` or `npm version patch` works the next number out from package.json (0.6.1
+   becomes 0.7.0 or 0.6.2). Give the number itself when the heading skips one, as 0.6.1 did: after
+   0.5.0, `minor` makes 0.6.0.
+
    Keep `--no-git-tag-version`. Without it, `npm version` refuses to run while the changelog edit
-   is not committed, and when it runs it commits and tags `v0.6.0` on your branch. The squash merge
+   is not committed, and when it runs it commits and tags `v0.6.1` on your branch. The squash merge
    then puts a different commit on `main`, and that tag points at a commit that is not on `main`.
 
 ## Releasing a version
@@ -85,7 +94,7 @@ Pushing the tag starts the release workflow.
    ```bash
    git switch main
    git pull
-   git switch -c release/0.6.0
+   git switch -c release/0.6.1
    ```
 
 2. Date the changelog heading and bump the version, as in [At release](#at-release).
@@ -100,7 +109,7 @@ Pushing the tag starts the release workflow.
    `files` in package.json publishes all of `dist/`, `src/` and `docs/`. CONTRIBUTING.md,
    `examples/` and `test/` are not published.
 
-4. Commit, push, and open a pull request titled "Release 0.6.0: what the version is about". Wait
+4. Commit, push, and open a pull request titled "Release 0.6.1: what the version is about". Wait
    for CI (Node 20, 22 and 24, on Ubuntu and Windows), then squash-merge it.
 
 5. Tag the merged commit and push the tag:
@@ -108,15 +117,15 @@ Pushing the tag starts the release workflow.
    ```bash
    git switch main
    git pull
-   git log -1 --oneline   # must be the release commit: "Release 0.6.0: ... (#N)"
-   git tag -a v0.6.0 -m "Release 0.6.0"
-   git push origin v0.6.0
+   git log -1 --oneline   # must be the release commit: "Release 0.6.1: ... (#N)"
+   git tag -a v0.6.1 -m "Release 0.6.1"
+   git push origin v0.6.1
    ```
 
    The tag must be `v` followed by exactly the `version` in package.json: the workflow checks it.
    It checks nothing else, so a tag on a later commit passes too. If another pull request was
    merged after the release, tag the release commit by its hash:
-   `git tag -a v0.6.0 <hash> -m "Release 0.6.0"`.
+   `git tag -a v0.6.1 <hash> -m "Release 0.6.1"`.
 
 6. Watch the release workflow:
 
@@ -133,12 +142,12 @@ Pushing the tag starts the release workflow.
    make one, and the changelog sends readers to the releases page:
 
    ```bash
-   awk 'index($0, "## 0.6.0 ") == 1 { p = 1; next } /^## / { p = 0 } p' CHANGELOG.md \
-     | sed 's#](docs/#](https://github.com/renanbazinin/llm-large-files/blob/v0.6.0/docs/#g' > notes.md
-   gh release create v0.6.0 --verify-tag --title "0.6.0" --notes-file notes.md
+   awk 'index($0, "## 0.6.1 ") == 1 { p = 1; next } /^## / { p = 0 } p' CHANGELOG.md \
+     | sed 's#](docs/#](https://github.com/renanbazinin/llm-large-files/blob/v0.6.1/docs/#g' > notes.md
+   gh release create v0.6.1 --verify-tag --title "0.6.1" --notes-file notes.md
    ```
 
-   The `awk` keeps the lines between the `## 0.6.0 — …` heading and the next `## ` heading. The
+   The `awk` keeps the lines between the `## 0.6.1 — …` heading and the next `## ` heading. The
    changelog's links are relative to the repository root, so `sed` points them at the docs of the
    tag. `--verify-tag` stops when the tag is not on GitHub yet.
 
@@ -151,13 +160,13 @@ GitHub for `contents: read` and `id-token: write`. Its steps:
 | Step | Fails when |
 | --- | --- |
 | `npm ci` | package-lock.json does not match package.json. |
-| Check the tag matches package.json | The tag is not `v` + the `version` in package.json: for example `v0.6.0` on a commit whose package.json still says 0.5.0. |
+| Check the tag matches package.json | The tag is not `v` + the `version` in package.json: for example `v0.6.1` on a commit whose package.json still says 0.5.0. |
 | `npm run check` | The typecheck, a test or the build fails. |
 | Check that this job can identify itself to npm | The job has no identity token: "No identity token for this job. The workflow needs the id-token write permission." |
 | `npm publish --provenance --access public --loglevel verbose` | npm does not accept the job's identity for this package (see below). `prepublishOnly` runs `npm run check` once more before it. |
 
 When a step before the publish fails, nothing was published. Fix the cause on `main` with a pull
-request, delete the tag (`git tag -d v0.6.0`, then `git push origin :refs/tags/v0.6.0`), and tag
+request, delete the tag (`git tag -d v0.6.1`, then `git push origin :refs/tags/v0.6.1`), and tag
 the fixed commit.
 
 ### Trusted publishing
@@ -203,8 +212,8 @@ published with provenance. This works only while the version is not on npm yet.
 **Publish by hand from a clean checkout of the tag:**
 
 ```bash
-git clone --depth 1 --branch v0.6.0 https://github.com/renanbazinin/llm-large-files.git release-v0.6.0
-cd release-v0.6.0
+git clone --depth 1 --branch v0.6.1 https://github.com/renanbazinin/llm-large-files.git release-v0.6.1
+cd release-v0.6.1
 npm ci
 npm whoami                  # an npm account that may publish the package; run npm login if not
 npm publish --access public
@@ -227,17 +236,17 @@ npm publish --access public
 
 ```bash
 npm view llm-large-files version              # the latest version
-npm view llm-large-files@0.6.0 dist.shasum
+npm view llm-large-files@0.6.1 dist.shasum
 ```
 
-After npm prints `+ llm-large-files@0.6.0`, the registry can take several minutes to list the
+After npm prints `+ llm-large-files@0.6.1`, the registry can take several minutes to list the
 version (about one minute for 0.4.1, about five for 0.5.0). A 404 in that time is not a failed
 publish: wait before you test from the registry.
 
 Then try it in an empty folder:
 
 ```bash
-mkdir try-it && cd try-it && npm init -y && npm install llm-large-files@0.6.0
+mkdir try-it && cd try-it && npm init -y && npm install llm-large-files@0.6.1
 node -e "import('llm-large-files').then((m) => console.log(Object.keys(m).length, 'exports'))"
 node -e "import('llm-large-files/gemini').then((m) => console.log(Object.keys(m)))"
 ```
@@ -259,8 +268,9 @@ An owner adds another maintainer with `npm owner add <npm-user> llm-large-files`
 ## Versioning
 
 Versions follow [semantic versioning](https://semver.org). While the version is `0.x`, a patch
-(0.6.1) never needs a change in the user's code. A version that needs one is at least a minor
-(0.7.0), and its **Upgrading** part says what to change.
+(0.6.2) never needs a change in the user's code. A version that needs one is at least a minor
+(0.7.0), and its **Upgrading** part says what to change. 0.6.1 is a minor for its users: it
+follows 0.5.0, since 0.6.0 was never published.
 
 These are public, and a change to them can need a change in someone's code:
 

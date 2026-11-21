@@ -353,9 +353,8 @@ What `send` does:
 - A reply to `streamUrl` is read as a stream when its content type is `text/event-stream`, or when
   it starts like events (`data:`, `event:`, `id:`, `retry:` or a comment). Otherwise it is read in
   one piece, as one chunk or a list of chunks, as Gemini answers without `?alt=sse`: a gateway that
-  drops `?alt=sse`, or does not stream, is read whole (since 0.6.1; 0.6.0 took it for a cut stream
-  and sent it again). A body that starts with more than 65,536 characters of white space is read in
-  one piece.
+  drops `?alt=sse`, or does not stream, is read whole (since 0.6.1; 0.5.0 read it as an empty
+  reply). A body that starts with more than 65,536 characters of white space is read in one piece.
 - Parts marked `"thought": true` are not in the reply's `text` and are not passed to `onText`.
 - Gemini's `finishReason` becomes the reply's `finish`: `STOP` is `"complete"`; `MAX_TOKENS` is
   `"cut"`; `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII` and `IMAGE_SAFETY` are
@@ -370,11 +369,11 @@ What `send` does:
 | Gemini answered with an HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "Gemini returned HTTP 503." | The HTTP status | Told from the status, Gemini's `error.status` and `details` |
 | An error object inside the stream | `GeminiRequestError` with its message | Its `code` when that is a number, else the response's | As above |
 | The connection failed, before or while the reply arrived, or an event of the stream was not JSON | `GeminiRequestError`: "Gemini could not be reached (fetch failed)." | 0 | `"unreachable"` |
-| A reply of HTTP 200 whose body is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", new in 0.6.1. When the reply's type is `text/event-stream`, "Gemini's reply ended before it was complete.", as before. Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
+| A reply of HTTP 200 whose body is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", new in 0.6.1. When the reply's type is `text/event-stream`, "Gemini's reply ended before it was complete." Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
 | Nothing arrived for a whole wait | `GeminiRequestError`: "Gemini sent nothing for 600 s." | 0 | `"timeout"` |
 | A stream that closed with no `finishReason` and no `blockReason` | `GeminiRequestError`: "Gemini's reply ended before it was complete." | 0 | `"unreachable"` |
 | A streamed response without a body | `GeminiRequestError`: "Gemini returned an empty stream." | The response's, a 2xx | `"invalid"` (the status is a 2xx); not sent again |
-| A reply whose body is not JSON (a gateway's HTML page), streamed or not | `GeminiRequestError`: "Gemini's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the brackets holding the response's media type (left out when it has none), with the `SyntaxError` as `cause`. Not sent again. Until 0.6.1, the `SyntaxError` itself, and for a streamed request "Gemini's reply ended before it was complete.", sent again. | The response's, 200 | `"invalid"` |
+| A reply whose body is not JSON (a gateway's HTML page), streamed or not | `GeminiRequestError`: "Gemini's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the brackets holding the response's media type (left out when it has none), with the `SyntaxError` as `cause`. Not sent again. Until 0.6.1, the `SyntaxError` itself, and for a streamed request an empty reply. | The response's, 200 | `"invalid"` |
 | An event of the stream longer than 64,000,000 characters | `GeminiRequestError`: "Gemini's reply could not be read: an event of its stream held more than 64,000,000 characters." Not sent again. New in 0.6.1. | The response's, 200 | `"invalid"` |
 | `hooks.signal` aborted | The signal's reason, as it is | none | none |
 
@@ -464,7 +463,7 @@ of `functionResponse` parts, in call order. Put them between the question and it
 model sees in a later question what its tools returned in this one. The results leave out
 `tool_turns_left`, which counted the turns of their own question, as `askWithFiles` does with
 stored rounds (since 0.6.1): a history kept as `contents` gives the same request as one kept as
-`toolTurns`. Contents that 0.6.0 converted keep the field.
+`toolTurns`. Contents that 0.5.0 converted keep the field.
 
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
@@ -741,11 +740,11 @@ failure, not Gemini's message ("The model was busy (HTTP 429)."). Its `name` is
 
 Its fields are those of [`ModelRequestError`](./errors-and-retries.md#modelrequesterror): `status`,
 `kind`, `retryAfterMs`, and for a request too large, `limitTokens` and `requestedTokens` when the
-message gives them. Gemini's `error.status` (such as `"RESOURCE_EXHAUSTED"`) and `details` are
+message gives them (`kind`, `limitTokens` and `requestedTokens` are new in 0.6.1). Gemini's `error.status` (such as `"RESOURCE_EXHAUSTED"`) and `details` are
 passed in as `code` and `details` to tell the `kind`, and are not kept on the error:
 
 - HTTP 429 whose `details` name a quota per day (`google.rpc.QuotaFailure`) is `"quota"`, which is
-  not retried. So, since 0.6.1, is a 429 whose message alone names a quota per day, as Vertex AI's
+  not retried. So is a 429 whose message alone names a quota per day, as Vertex AI's
   "Quota exceeded for aiplatform.googleapis.com/generate_content_requests_per_day_per_project_per_base_model …"
   does. Another 429 is `"rate_limit"`.
 - HTTP 400 whose `details` give the reason `API_KEY_INVALID` is `"auth"`.

@@ -145,7 +145,7 @@ read as before.
 0.6.1 checks it before it reads a PDF:
 
 - unpdf 1.5.0 to 1.6.0 load a pdf.js that calls `Promise.try`, which Node 20 and 22 do not have. In
-  0.6.0 the first PDF stopped the whole process, with a `TypeError` that nothing could catch.
+  0.5.0 the first PDF stopped the whole process, with a `TypeError` that nothing could catch.
 - unpdf 1.9 and later, 2.x included, load a pdf.js that needs Node 22. On Node 20, every PDF failed
   with unpdf's message alone.
 
@@ -169,13 +169,13 @@ See [PDFs and other formats](./guides/pdfs.md#formats).
 
 ### `npm install` stops with `ERESOLVE` over `unpdf`
 
-**Cause.** llm-large-files 0.6.0 accepts `unpdf` ^1.4.0 only: with it, an install of unpdf 2, or
-of 0.6.0 in an app that already has unpdf 2, stops with `ERESOLVE`. 0.6.1 accepts
-`^1.4.0 || ^2.0.0`. So going back from 0.6.1 with unpdf 2 to 0.6.0 stops the same way
-(`npm install llm-large-files@0.6.0`), and changes nothing.
+**Cause.** llm-large-files 0.5.0 accepts `unpdf` ^1.4.0 only: with it, an install of unpdf 2, or
+of 0.5.0 in an app that already has unpdf 2, stops with `ERESOLVE`. 0.6.1 accepts
+`^1.4.0 || ^2.0.0`. So going back from 0.6.1 with unpdf 2 to 0.5.0 stops the same way
+(`npm install llm-large-files@0.5.0`), and changes nothing.
 
-**Fix.** Use 0.6.1. To go back to 0.6.0 from unpdf 2, install both in one command:
-`npm install llm-large-files@0.6.0 unpdf@^1`, or restore `package.json` and `package-lock.json`
+**Fix.** Use 0.6.1. To go back to 0.5.0 from unpdf 2, install both in one command:
+`npm install llm-large-files@0.5.0 unpdf@^1`, or restore `package.json` and `package-lock.json`
 together.
 
 See [PDFs and other formats](./guides/pdfs.md#formats).
@@ -284,7 +284,7 @@ logs nothing. `files.ingest`, called directly with such an owner, throws a `Type
 
 **Cause.** Since 0.6.1 an owner of `""`, of spaces only, or `null` is refused. It would be one owner
 shared by every caller without a user: each of them could read and delete the documents of the
-others. 0.6.0 accepted it.
+others. 0.5.0 accepted it.
 
 - **"empty owner"**: `getOwner` returned `""`, spaces, or `null`. Most often it does
   `user?.id ?? ""` for a user who is not signed in, or reads a header that arrives empty
@@ -294,7 +294,7 @@ others. 0.6.0 accepted it.
   an array.
 
 A numeric owner is accepted, as before. `get`, `remove` and questions that pass the owner `""` work
-as before, so documents that 0.6.0 stored with that owner stay readable until they expire.
+as before, so documents that 0.5.0 stored with that owner stay readable until they expire.
 
 **Fix.** Return the user's ID, not the user object. Where every upload needs a signed-in user,
 throw an error with `status: 401` for a request without one. Only where anonymous uploads are
@@ -319,7 +319,7 @@ The common ones:
 | `This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.` | A scan, while PDFs are not kept. |
 | `The unpdf installed would stop the whole server at the first PDF file on Node 22, …` or `The unpdf installed cannot read PDF files on Node 20 (…). …` | Any PDF, while the `unpdf` installed cannot run on this Node. See [above](#a-pdf-upload-fails-the-unpdf-installed-cannot-read-pdf-files-or-would-stop-the-whole-server). |
 | `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` | A PDF of more than `maxPdfPages` pages (5,000 by default). Refused before any page is read. |
-| `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | A PDF whose text passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB). |
+| `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | A PDF whose text passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when that is larger). |
 | `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | The same, from the text extractor or one of your own: a UTF-16 file can grow by half in UTF-8. |
 | `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.` | A DOCX or PPTX of more than 32 million characters of text, about 10,000 dense pages. With `maxTextBytes` below that: `This DOCX holds more than 10 MB of text, more than is kept from one file.` |
 | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` | The ingest took longer than `ingestTimeoutMs` (2 minutes by default). See [below](#an-upload-fails-took-too-long-to-read). |
@@ -409,7 +409,7 @@ encoding. Since 0.6.1 it is read one of two ways:
   (Hebrew), windows-1256 (Arabic), windows-1251 (Cyrillic), Shift_JIS (`"shift_jis"`, Japanese)
   or windows-1252 (Western European). ISO-8859-8 is read as windows-1255, and ISO-8859-1 as
   windows-1252. Lines of it that are valid UTF-8 are read as UTF-8.
-- **As UTF-8**, as 0.6.0 read every file: when at least as many lines count as UTF-8 as count as
+- **As UTF-8**, as 0.5.0 read every file that was not UTF-16: when at least as many lines count as UTF-8 as count as
   not (a line counts as UTF-8 when it holds at least as many characters of more than one byte as
   characters that are not valid); when at most one line in 200 is not UTF-8, ASCII lines counted
   (a log cut at a byte count, a stray byte, a binary body in a log line); and when no older
@@ -439,14 +439,14 @@ Letters come out wrong where the encoding is not recognized, or is taken for ano
   Greek capitals as windows-1251, `Straße` saved in DOS code page 850 as windows-1252 `Straáe`.
 - In a log where at most one line in 200 is not UTF-8, those lines are `�` even when they are in
   an older encoding.
-- A document that 0.6.0 stored from a file that is not UTF-8 holds `�` where its letters were:
-  0.6.0 read every file as UTF-8.
+- A document that 0.5.0 stored from a file in an older encoding holds `�` where its letters were:
+  0.5.0 read every file that was not UTF-16 as UTF-8.
 
 **Fix.** Ask the user to save the file as UTF-8 and attach it again: in Excel, Save As
 "CSV UTF-8 (Comma delimited)"; in Notepad, Save As with the encoding UTF-8. Show `encoding` and
 `replacedCharacters` of the upload's summary next to the file ("read as windows-1255", "3
 characters could not be read"), so that the user sees it before asking. Ingest again the files
-that 0.6.0 stored.
+that 0.5.0 stored.
 
 See [`DocumentMeta`](./reference/library.md#documentmeta) and
 [Text encodings](./guides/pdfs.md#text-encodings).
@@ -573,7 +573,7 @@ See [PDFs and other formats](./guides/pdfs.md#docx-and-pptx).
   `The model called a tool instead of answering: it was asked again for the answer`. That second
   try is one of the two a question may make, and is not made after a refusal, a filter, a reply
   cut off with nothing in it, or once `limits.requests` or `limits.inputTokens` is reached. In
-  0.6.0 the question ended at the first empty reply.
+  0.5.0 the question ended at the first empty reply to the request for the answer.
 
 `text` is then empty, holds only a remark the model made before a tool call, or holds the start of
 a reply the provider then refused.
@@ -709,7 +709,7 @@ hint.
 Some calls run again by design. With Claude's context editing (an edit `clear_tool_uses_…` or
 `compact_…` in `body.context_management`), Claude may no longer have an earlier result, so no call
 is answered with a pointer. A read of one line from the tool rounds of an earlier question, and an
-exact or regex search that 0.6.0 stored without its last match, run again too.
+exact or regex search that 0.5.0 stored without its last match, run again too.
 
 **Fix.** Nothing breaks: the question still ends with an answer within `limits.toolTurns`, plus one
 more request when the answer comes back without text. To cap the cost of a model that loops, lower
@@ -733,12 +733,12 @@ then.
 
 The provider's message, for example Vertex AI's `The input token count exceeds the maximum number of tokens allowed 1048576.`,
 with `limitTokens` and `requestedTokens` when the message gives the numbers. A body over a size
-limit (HTTP 413) is this kind too. So, since 0.6.1, is a request larger than the tokens a minute
+limit (HTTP 413) is this kind too. So is a request larger than the tokens a minute
 (or a day) that the account allows, though it comes as HTTP 429 or 413 and its words are those of
 a rate limit: OpenAI's
 `Request too large for gpt-4o in organization org-… on tokens per min (TPM): Limit 30000, Requested 45237.`,
 or Groq's `… on tokens per minute (TPM): Limit 6000, Requested 6438 …`. Its `limitTokens` is that
-allowance. In 0.6.0 it was `rate_limit`, and was sent again three times as it was.
+allowance. In 0.5.0, which gave errors no kind, it was sent again three times as it was.
 
 **Cause.** The loop recovers on its own when it can: it shortens older tool results and sends the
 request again (at most twice a question), or, before any tool ran, plans the documents again,
@@ -774,7 +774,8 @@ For an allowance a minute, set `contextTokens` below it, or raise the account's 
 ask about fewer files.
 
 A provider whose wording the library does not know gives kind `invalid`, and the loop does not
-recover. 0.6.1 knows more of them: Text Generation Inference and Together ("… tokens +
+recover. Besides the wording of Gemini, OpenAI and Claude, it knows that of Text Generation
+Inference and Together ("… tokens +
 max_new_tokens must be <= 32769. Given: 40000 …"), LM Studio ("loaded with context length of only
 4096 tokens"), Amazon Bedrock ("Input is too long for requested model."), and the message at the
 top of the body that vLLM before its OpenAI-shaped errors, SGLang, FastChat and servers built on
@@ -796,10 +797,10 @@ read reaches a quota per minute first: up to 30 part reads, four at a time. Clau
 
 A `quota` is a quota per day, or money: a Gemini quota per day (in the error's `details`, or named
 in Vertex AI's message, `Quota exceeded for …requests_per_day…`), OpenAI's `insufficient_quota`,
-and since 0.6.1 HTTP 402 (DeepSeek's "Insufficient Balance", OpenRouter's "Insufficient credits"),
-Claude's "Your credit balance is too low" (HTTP 400), and Claude's spending limits ("You have
-reached your API usage limits", HTTP 400, or HTTP 429 with `enforced_spend_limit_reached`). In
-0.6.0 these were `invalid` or `rate_limit`, and the 429 was sent again three times.
+HTTP 402 (DeepSeek's "Insufficient Balance", OpenRouter's "Insufficient credits"), Claude's "Your
+credit balance is too low" (HTTP 400), and Claude's spending limits ("You have reached your API
+usage limits", HTTP 400, or HTTP 429 with `enforced_spend_limit_reached`). 0.5.0 gave errors no
+kind, and sent each of these that came as HTTP 429 again three times.
 
 A request larger than the tokens a minute allows also comes as HTTP 429, and is
 [`context_overflow`](#context_overflow-the-request-is-larger-than-the-model-takes): a wait does not
@@ -853,7 +854,7 @@ inspects TLS). The request is sent again up to 3 times before you see this. Whil
 The same kind comes for a reply that began and was cut off on its way: a connection that broke
 while the reply arrived, a stream that closed before its end (an empty one too, see
 ["Gemini's reply ended before it was complete."](#geminis-reply-ended-before-it-was-complete)),
-and, since 0.6.1, a reply of HTTP 200 whose body was empty and not of type `text/event-stream`
+and a reply of HTTP 200 whose body was empty and not of type `text/event-stream`
 (`Gemini could not be reached (the reply was empty).`, `The model could not be reached (the reply was empty).`,
 `Claude could not be reached (the reply was empty).`). These are sent again too, unless text of
 the reply was shown, and `onActivity` says
@@ -975,8 +976,8 @@ page answered with HTML. So does a reply asked for as a stream whose body starts
 events nor JSON. It is not sent again: the same page would most likely come back. In a whole-file
 read, the part is told `The model's reply could not be read (HTTP 200).`
 
-Until 0.6.1 this was the `SyntaxError` itself, with no `status` and no `kind`, and a streamed
-Gemini request that got such a page was sent again as a reply cut off on its way. A test of
+In 0.5.0 this was the `SyntaxError` itself, with no `status`, and a streamed Gemini request that
+got such a page came back as an empty reply. A test of
 `error instanceof SyntaxError` no longer matches: test `error.cause instanceof SyntaxError`. Kind
 `invalid` alone also covers every other request that the provider refused.
 
@@ -1011,10 +1012,14 @@ Look at `result.usage`: `inputTokens`, `cachedInputTokens` (read from the provid
   again without their `tool_turns_left` (since 0.6.1), so that request reads the cache only up to
   the tool rounds of the question before it: the documents, the cards and the turns before those
   rounds still hit. The later requests of the question hit as before.
-- **The first request after the upgrade to 0.6.1.** The description of `search_document` and the
-  frame of every file sent whole changed, so the first request of each conversation reads nothing
-  from the cache on Claude and OpenAI-compatible endpoints, where the tools come first, and only
-  the system instruction on Gemini. With Claude's `cache_control`, that request is a cache write.
+- **The first request after the upgrade to 0.6.1.** The tool guide, the descriptions of
+  `search_document` and `analyze_whole_document`, and the frame of every file sent whole changed,
+  so the first request of each conversation reads from the cache at most what comes before the
+  first text that changed. For a question with files to search, that is nothing on Claude and
+  OpenAI-compatible endpoints, where the tools come first, and at most your own system text on
+  Gemini, where the tool guide follows it in the system instruction. For a question whose files
+  are all sent whole, it is your own system text, and `view_pages` with its guide when the pages of
+  a PDF can be looked at. With Claude's `cache_control`, that request is a cache write.
   While servers of both versions answer the same conversations, each switch misses again.
 
 **Fix.** Set ceilings for one question, and log the usage per user or session:
@@ -1264,12 +1269,12 @@ shown, and `onActivity` says `The model's reply was cut off on its way. Trying a
 text was shown, it cannot be taken back, and the error reaches you after the user saw part of an
 answer.
 
-Since 0.6.1, two kinds of reply that failed in 0.6.0 are read whole. A Gemini stream URL that a
-gateway answers in one piece (a JSON array of chunks, as Gemini sends without `?alt=sse`) is read
-as one reply; 0.6.0 failed it with this message. A stream that said it is whole (`[DONE]`, Claude's
+Two kinds of reply are not cut off, and are read whole. A Gemini stream URL that a gateway answers
+in one piece (a JSON array of chunks, as Gemini sends without `?alt=sse`) is read as one reply;
+0.5.0 read it as an empty reply. A stream that said it is whole (`[DONE]`, Claude's
 `message_stop`) and was then left open, or broke, keeps its reply: the body is read for one more
-second at most, and then closed; 0.6.0 failed it as `timeout` after `idleTimeoutMs`, or as
-`unreachable`.
+second at most, and then closed; 0.5.0 waited for such a connection to close, and failed the
+request when it broke, as a model that could not be reached.
 
 **Fix.** Keep the text that was shown and mark it as cut off, and keep `partialResultOf(error)`'s
 `toolTurns` so that the user's next question starts from what was found. Raise the gateway's
@@ -1284,9 +1289,11 @@ status of the response), kind `invalid`.
 
 **Cause.** One event of the streamed reply held more than 64,000,000 characters: a server or a
 gateway that never ended an event, or sent data lines without the blank line that ends one. It is
-not sent again: the same stream would most likely come back. In 0.6.0 such a stream grew one string
-until the request failed as `unreachable` and was sent again, about 500 MB each time, and data lines
-without an end could run the server out of memory.
+not sent again: the same stream would most likely come back. In 0.5.0 nothing capped an event: it
+grew one string, read again from its start with each piece that came, so the read slowed with the
+square of its size. One event of 32 MB, in pieces of 16 KB, took 12.5 to 13.5 s on Node 24 on
+Windows ([Measurements](./measurements.md#the-server)). Data lines without an end grew the same
+string.
 
 **Fix.** Look at the stream the server or the gateway sends: an answer of a model fits well within
 the limit.

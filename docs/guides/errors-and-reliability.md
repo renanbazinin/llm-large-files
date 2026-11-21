@@ -47,8 +47,9 @@ failed question found, check `answered`, and set an overall deadline.
 | The reason of your `signal` | You stopped the question, or your deadline ran out. See [An overall deadline](#an-overall-deadline). | Test your signals, not the error. | Yes, for a reason that is an object |
 | `Error` | A mistake in the call: "The last message must be the user's.", or a budget that cannot work, such as "budget.reservedTokens (…) must be smaller than budget.contextTokens (…): nothing would be left for the conversation." | `message`, for your log. | No |
 
-Until 0.6.1, a reply of HTTP 200 that was not JSON threw a `SyntaxError`, with no `status` and no
-`kind`. Now the `SyntaxError` is the `cause` of the `ModelRequestError`: where you tested
+Until 0.6.1, a reply of HTTP 200 that was not JSON threw a `SyntaxError`, with no `status` (a
+streamed Gemini request got an empty reply instead). Now the `SyntaxError` is the `cause` of the
+`ModelRequestError`: where you tested
 `error instanceof SyntaxError`, test `error.cause instanceof SyntaxError`. Kind `invalid` alone
 also covers every other request that the provider refused.
 
@@ -434,7 +435,8 @@ A stream that said it is whole (`[DONE]` on an OpenAI-compatible stream, `messag
 Claude's) has its reply, whatever the connection does next. The body is read for one more second
 at most, then cancelled, which closes the connection: a server or gateway that leaves it open does
 not hold the request until `idleTimeoutMs`. A connection that breaks after the end marker loses
-nothing either. Both failed in 0.6.0, with the whole answer already shown.
+nothing either. 0.5.0 waited for such a connection to close, and took one that broke for a model
+that could not be reached, with the whole answer already shown.
 
 A reply asked for as a stream is read as one when its content type is `text/event-stream`. Of any
 other type (a gateway that streams under `application/octet-stream`, or under none), it is read by

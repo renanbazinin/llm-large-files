@@ -343,8 +343,42 @@ Some advice:
 ### Output that 0.6.1 changed
 
 A test that pins the library's exact output breaks when that output changes. These changed in
-0.6.1:
+0.6.1, for a test written for 0.5.0:
 
+- **A stream must say that it ended.** A fake stream without Gemini's `finishReason`, an
+  OpenAI-compatible `finish_reason` or `[DONE]`, or Claude's `stop_reason`, is no longer a whole
+  reply: it throws "Gemini's reply ended before it was complete." (or "The model's …",
+  "Claude's …"), status 0, kind `unreachable`, and is sent again when none of its text was shown.
+  Give the last piece of a fake stream its end marker.
+- **A repeated call is not run.** The same search, read or overview, or a read of lines inside a
+  read shown in full, gets a pointer to the earlier result: `already_shown: true` and a note, a
+  step that ends ` — already shown above`, and no entry in `evidence`. Script calls that differ.
+- **An empty first reply, or a tool call that could not be read, is asked for once more**: one
+  more request, and the step `The model's first reply was empty: it was asked again`. Script that
+  reply too.
+- **Tool results have new fields**: `already_shown`, `text_cut`, and on a whole-file read
+  `notes_only` and `answer_shortened`. Compare with `toMatchObject`, not `toEqual`.
+- **Model errors have a `kind`**, and some are not sent again as they were. A quota (a Gemini
+  quota per day, OpenAI's `insufficient_quota`, HTTP 402, Claude's credit and spending limits) is
+  thrown at once. A request too large, OpenAI's HTTP 429 for the tokens a minute among them, is
+  never sent again as it was: the loop makes it smaller first, when it can. 0.5.0 sent every error
+  of status 0, 408, 409, 429 or 500 and more again, up to three times.
+- **Calls without an ID** get a random one from `anthropicToolTurns` and `openAiToolTurns`:
+  `toolu_` or `call_` and 24 hex digits, a new one each time, where 0.5.0 gave `toolu_1_1` or
+  `call_1_1`.
+- **An upload whose store fails** while it writes, with an error that has no status, is answered
+  `500` `{ "error": "Upload failed." }`, not `422` with the store's message.
+- **A model that sends nothing fails after a wait.** A real adapter aborts a request that gets
+  nothing for `firstByteTimeoutMs` (600,000 ms), or for `idleTimeoutMs` (300,000 ms) between
+  pieces: a test with fake timers that moves the clock that far now aborts it
+  ([Timers](#timers)). 0.5.0 waited without end.
+- **Two searches in a row that fail in the same mode** get a hint at the end of their error:
+  `Two regex searches in a row failed. Try mode "exact" with a plain word or ID from the file, or mode "keywords".`
+  or `This search failed twice in a row. Check the arguments against the tool's description, or answer from what you have.`
+- **An unknown `document_id`** is answered `Unknown document_id nope. Use one of: <id> ("app.log").`,
+  where 0.5.0 said `Unknown document_id nope. Use an ID from a file card.`
+- **Part reads of a fake `generateText` that does not call `onUsage`** count in `usage.requests`
+  and toward `limits.requests`.
 - **The frame of a file sent whole** carries a mark made from the document ID, before the quoted
   name: `--- Attached file [mark 1f0c3a9e]: "report.txt" (text, 6 lines; it ends only at the line with mark 1f0c3a9e) ---`
   and `--- End attached file [mark 1f0c3a9e] ---`. It was `--- Attached file: report.txt (text, 6 lines) ---`.
@@ -358,7 +392,7 @@ A test that pins the library's exact output breaks when that output changes. The
   nothing changed, unless the result is cut to the room it has: the last match then stays, matches
   are dropped from the end of the first ones, and the note is new,
   `Showing 4 of the 10 matching lines to stay within the size limit: the first 3 and the last (line 1000). Narrow the query or read specific lines.`
-  where 0.6.0 said `Showing 4 of 10 results to stay within the size limit. …`.
+  where 0.5.0 said `Showing 4 of 10 results to stay within the size limit. …`.
 - **Steps with a count of one** are singular: ` — 1 matching line`, ` — 1 passage`,
   ` — 1 part, 1 relevant`, and `1 more tool call in this turn was not run (at most 8 a turn)`.
 - **A call to a tool that does not exist** has the step `Call “do_magic” — failed: Unknown tool “do_magic”.`,
@@ -376,13 +410,9 @@ A test that pins the library's exact output breaks when that output changes. The
 - **A fake `fetch` whose reply of HTTP 200 is empty** gets the request again: the reply is kind
   `unreachable`, status 0. A streamed reply that is not of type `text/event-stream` is read by what
   it holds: as events when it starts like them, as JSON when it starts with `{` or `[`.
-- **`classifyModelError`** takes an OpenAI 429 "Request too large … on tokens per min (TPM)" for
-  `context_overflow`, with `limitTokens` and `requestedTokens`, not `rate_limit`. HTTP 402,
-  Claude's "Your credit balance is too low" and spending limits, and a Vertex AI quota per day are
-  kind `quota`.
 - **An error inside a stream** has the status and the kind of its type: on an OpenAI-compatible
   endpoint, `context_length_exceeded` is 400, kind `context_overflow`; on Claude,
-  `authentication_error` is 401, kind `auth`. Both kept HTTP 500 or the stream's 200 before.
+  `authentication_error` is 401, kind `auth`. Both kept the stream's HTTP 200 in 0.5.0.
 - **A question stopped while its adapter is called** throws the signal's reason, even when the
   adapter then fails with its own error (a fake that throws a 503, say).
 - **A Gemini part read** sends `generationConfig: { maxOutputTokens }`, without `temperature`.
@@ -390,10 +420,14 @@ A test that pins the library's exact output breaks when that output changes. The
   after the count of lines, such as `, read as windows-1255`
   ([Text encodings](./pdfs.md#text-encodings)).
 - **The stored text** of a file with characters that show nothing, with text that Word hides, or
-  with a hidden slide differs from what 0.6.0 stored
+  with a hidden slide differs from what 0.5.0 stored
   ([Characters that show nothing](../security.md#characters-that-show-nothing)).
-- **Steps** quote the model's words on one line, without the characters that show nothing, and
-  the steps of a request larger than the provider allows in a minute are new.
+- **Steps** quote the model's words on one line, without the characters that show nothing. The
+  steps of a request too large are new, such as
+  `The request was larger than the model takes: older tool results were shortened, and it was sent again`
+  and `The first request was larger than the model's window of 60,000 tokens: the files were planned again to fit it`,
+  and the same for the tokens a minute the provider allows. So is `, notes only` at the end of the
+  step of a whole-file read that returned only its notes.
 - **`anthropic().capabilities`** has `clearsToolResults: true` when `body.context_management`
   clears tool uses or compacts the conversation.
 - **`geminiToolTurns`, `openAiToolTurns` and `anthropicToolTurns`** leave `tool_turns_left` out of
@@ -402,9 +436,10 @@ A test that pins the library's exact output breaks when that output changes. The
   `toEqual`, not `toBe`.
 - **`files.ingest` with `owner: ""`** throws a `TypeError`
   ([Storage](./storage.md#how-ownership-works)).
-- **The description of `search_document`** now says that exact and regex results show the first
-  `max_results` matching lines and the last one. A test that compares the tool declarations, or the
-  `tools` of a request, with a stored copy fails.
+- **The descriptions of `search_document` and `analyze_whole_document`** changed: the first now
+  says that exact and regex results show the first `max_results` matching lines and the last one,
+  and the second sends counting and listing to `search_document`. A test that compares the tool
+  declarations, or the `tools` of a request, with a stored copy fails.
 
 ## Errors
 

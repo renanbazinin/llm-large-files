@@ -137,7 +137,7 @@ await files.delete(meta.id, { owner: "user-42" });   // true
   `owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.`
   It throws the same for an owner from JavaScript that is neither a string nor a finite number,
   such as the user object in place of its ID. A number is accepted, as before. Reads with
-  `owner: ""` work as before, so documents that 0.6.0 stored with that owner stay readable until
+  `owner: ""` work as before, so documents that 0.5.0 stored with that owner stay readable until
   they expire.
 - In `createDocumentHandlers`, a `getOwner` that returns such an owner is the server's mistake: the
   upload is answered 500 `{ "error": "Upload failed (empty owner)." }` for `""`, spaces only or

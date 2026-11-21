@@ -491,7 +491,7 @@ A reply of HTTP 200 whose body is not JSON, such as a gateway's HTML page, is a
 `GeminiRequestError` of kind `"invalid"`, status 200, with the `SyntaxError` as `cause`: "Gemini's
 reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its
 place." It is not sent again, streamed or not; until 0.6.1 it was the `SyntaxError` itself, and a
-streamed request that got such a page was sent again three times as a reply cut off. An empty body
+streamed request that got such a page came back as an empty reply. An empty body
 of HTTP 200 is "Gemini could not be reached (the reply was empty).", status 0, and is sent again.
 A reply asked for as a stream that comes under another content type than `text/event-stream` is
 read by what it starts with: events, or one chunk or a list of chunks in JSON, as Gemini sends them

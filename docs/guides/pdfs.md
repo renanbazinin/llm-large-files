@@ -30,8 +30,8 @@ Not every `unpdf` runs on every Node. unpdf 2 asks for Node 24, and on Node 24 a
 
 The 12 test PDFs of the package give the same text, pages, picture marks and page cuts with every
 `unpdf` from 1.4.0 to 2.2.1, each on a Node it runs on. An app that installs unpdf 2 and goes
-back to llm-large-files 0.6.0 must go back to unpdf 1 in the same command
-(`npm install llm-large-files@0.6.0 unpdf@^1`): 0.6.0 does not accept unpdf 2, and npm stops with
+back to llm-large-files 0.5.0 must go back to unpdf 1 in the same command
+(`npm install llm-large-files@0.5.0 unpdf@^1`): 0.5.0 does not accept unpdf 2, and npm stops with
 `ERESOLVE`.
 
 | Format | Detected by | Needs | What the text holds |
@@ -66,7 +66,7 @@ taken for half of a UTF-8 letter and removed; anywhere else it is removed with t
 characters. That is text in UTF-8: the same export converted to ISO-8859-1 is read as
 windows-1252, where its byte 0x85 is "…", and stays one long line, so convert it to UTF-8
 instead. No other line break is added or removed, but a line of more than 2,000 characters
-that lost some of these characters can be split into fewer pieces than 0.6.0 split it, which
+that lost some of these characters can be split into fewer pieces than 0.5.0 split it, which
 moves the lines after it. Every format but log, JSON and CSV gets an outline from its
 headings: Markdown `#` lines (`## Slide N` among them), chapter and numbered section lines, and
 short lines in capitals. `meta.pages` is the number of pages of a PDF and of slides of a PPTX.
@@ -77,8 +77,8 @@ short lines in capitals. `meta.pages` is the number of pages of a PDF and of sli
 A text, log, CSV, JSON or Markdown file that is not valid UTF-8 is read in the older encoding it
 was saved in, when its letters show which one: Excel saves a Hebrew CSV in windows-1255, and an old
 program writes in the code page of Windows. No text file is refused for its encoding. When no
-encoding fits, the file is read as UTF-8, as 0.6.0 read every file, and each character that is not
-valid is stored as U+FFFD (�).
+encoding fits, the file is read as UTF-8, as 0.5.0 read every file that was not UTF-16, and each
+character that is not valid is stored as U+FFFD (�).
 
 | `meta.encoding` | Letters | Also read this way |
 |---|---|---|
@@ -176,7 +176,7 @@ count. The builds of nodejs.org have them.
 
 When letters look wrong, or show as �, ask the user to save the file as UTF-8 and upload it again:
 in Excel, Save As "CSV UTF-8 (Comma delimited)"; in Notepad, Save As with the encoding UTF-8. A
-document that 0.6.0 stored from a file in one of these encodings still holds U+FFFD: upload the
+document that 0.5.0 stored from a file in one of these encodings still holds U+FFFD: upload the
 file again.
 
 ### DOCX and PPTX
@@ -225,7 +225,7 @@ maps these messages itself.
 | A file that holds no text once read | `report.docx did not contain any text.` |
 | A DOCX or PPTX that unpacks to more than 100 times its size (past the first 16 MB), or to more than 128 MB of XML | `This DOCX unpacks to more than …`, which ends `Save it as text or PDF, and attach that.` |
 | A PDF of more than `maxPdfPages` pages (5,000 by default), before any page is read | `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` |
-| A PDF whose text passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB), counted page by page | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
+| A PDF whose text passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when that is larger), counted page by page | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
 | A PDF whose page tree lists one page more than once | `This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.` |
 | A PDF whose pages draw more than 100 times its size in text (past the first 16 MB), by painting forms inside forms | `This PDF draws more than 16 MB of text, over 100 times its size. A file that grows that much is not read: it may be built to exhaust the server.` |
 | A PDF with a page that would hold the server while pdf.js reads it, found before any page is read (with `@cantoo/pdf-lib`; [Pages that would hold the server](#pages-that-would-hold-the-server)) | `Page 1 of this PDF draws far more than its file holds, and reading it would hold the server for a long time. A file built that way is not read: it may be built to exhaust the server. Print it to a new PDF, and attach that.` |
@@ -248,7 +248,7 @@ maps these messages itself.
 | A PPTX without slides | `This PPTX does not contain any slides.` |
 | A DOCX or PPTX without `jszip` installed | `Reading DOCX and PPTX files needs the optional dependency "jszip".` |
 | A PDF without `unpdf` installed | `Reading PDF files needs the optional dependency "unpdf".` |
-| A PDF, with `unpdf` 1.5.0 to 1.6.0 on Node 22 or 23, which would stop the whole process at the first PDF (0.6.0 did stop) | `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
+| A PDF, with `unpdf` 1.5.0 to 1.6.0 on Node 22 or 23, which would stop the whole process at the first PDF (0.5.0 did stop) | `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
 | The same on Node 20 | `The unpdf installed would stop the whole server at the first PDF file on Node 20, so PDF files are not read. Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.` |
 | A PDF, with `unpdf` 1.9 or later (2.x included) on Node 20, which cannot load pdf.js there | `The unpdf installed cannot read PDF files on Node 20 (Serverless PDF.js bundle could not be resolved: ReferenceError: Iterator is not defined). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` The part in parentheses is unpdf's own message: with unpdf 2 it is `PDF.js could not be resolved: ReferenceError: Iterator is not defined`. |
 
@@ -440,7 +440,7 @@ The options of this page, and where each is explained:
 |---|---|---|
 | `keepOriginals` (`createLargeFiles`) | `[]`: no file kept | List `"pdf"` to keep the uploaded file, which `view_pages` and scanned PDFs need ([above](#pictures-in-pdfs)). |
 | `scannedPdfPages` (`createLargeFiles`) | 30 | The most pages a PDF without text may have to be accepted, when PDFs are kept. 0 refuses every one ([Scanned PDFs](#scanned-pdfs)). |
-| `maxPdfPages`, `maxTextBytes`, `ingestTimeoutMs` (`createLargeFiles`) | 5,000 pages; `maxUploadBytes`; 120,000 ms | The most pages, text and time one file may take at ingest ([What is refused](#what-is-refused)). |
+| `maxPdfPages`, `maxTextBytes`, `ingestTimeoutMs` (`createLargeFiles`) | 5,000 pages; 100 MB, or `maxUploadBytes` when that is larger; 120,000 ms | The most pages, text and time one file may take at ingest ([What is refused](#what-is-refused)). |
 | `tables`, `pictures` (`createPdfExtractor`) | `true` | Rebuild tables; write the line that marks a page with a picture ([PDF tables](#pdf-tables), [The line that marks a page](#the-line-that-marks-a-page)). |
 | `viewPages` (`askGemini`, `askWithFiles`) | `true` | Offer `view_pages` for the PDFs whose file is kept ([Limits and cost](#limits-and-cost)). |
 | `toolFilePlacement` (`gemini()`, `askGemini`, `anthropic()`) | `"inside"` | Where the pages go in the request ([Where the pages go](#where-the-pages-go-toolfileplacement)). |
@@ -590,7 +590,7 @@ A look parses the file, copies the pages and writes the cut. It pauses after eve
 work so that other requests get a turn, or after up to 40 ms where a pause itself takes long, as a
 timer does on Windows. It cannot be stopped once it has started. Measured on Windows with Node 24,
 a look at three pages of a 2,000-page PDF of 6.2 MB held the server for about 20 ms at a time
-(19 to 48 ms on a busy machine), where 0.6.0 held it 159 to 177 ms. Some steps still run in one
+(19 to 48 ms on a busy machine), where 0.5.0 held it 159 to 177 ms. Some steps still run in one
 block:
 
 - one object of the file: about 0.1 to 0.35 s for each MB, by what it holds, and about 0.03 s for

@@ -122,8 +122,9 @@ or not: the explorer's requests too. Each piece of text goes to `onText` as it a
   characters of white space is read whole.
 - `message_stop` ends the reply. A gateway that then leaves the connection open is read for one
   more second at most, and the body is cancelled, which closes the connection; a connection that
-  breaks after `message_stop` keeps the reply too. In 0.6.0 such a stream failed after
-  `idleTimeoutMs`, or as unreachable, with the whole answer already shown.
+  breaks after `message_stop` keeps the reply too. 0.5.0 waited for such a connection to close,
+  and failed a request whose connection broke after `message_stop` with status 0, with the whole
+  answer already shown.
 
 **The reply** ([`ModelReply`](./ask.md#modelreply)):
 
@@ -158,8 +159,8 @@ thinking, while the limit was below 32,768, is asked again with 32,768 output to
 ([`THINKING_OUTPUT_TOKENS`](./gemini.md#thinking_output_tokens)), and later part reads to the same
 URL and model start there. Claude does not count its thoughts apart: when the reply has thinking
 blocks, its thoughts are taken as its `output_tokens` less its text, estimated with `tokenScale`
-(new in 0.6.1: 0.6.0 counted none, and a reply that thought most of its limit away came back as
-two lines of notes). A model that refuses that limit with HTTP 400 is not asked for it again. A
+(new in 0.6.1: 0.5.0 counted none, so a part that thought most of its limit away came back cut,
+with the little text it wrote). A model that refuses that limit with HTTP 400 is not asked for it again. A
 refusal of the request as too large for the model's window is not taken for that (since 0.6.1): it
 turns the larger limit off only when the window it names is 32,768 tokens or less.
 
@@ -170,9 +171,9 @@ turns the larger limit off only when the window it names is 32,768 tokens or les
 | Case | Error | `status` | `kind` |
 |---|---|---|---|
 | The API answered with an HTTP error | [`AnthropicRequestError`](#anthropicrequesterror) with the body's `error.message`, else "Claude returned HTTP {status}." (for example "Claude returned HTTP 529."). With `type` (the body's `error.type`) and `retryAfterMs` when the API gave them. A spending cap of the organization (HTTP 429 with `error.details.error_code` `enforced_spend_limit_reached`) has kind `"quota"` (since 0.6.1; it was sent again three times). A response with the header `x-should-retry: false` is not sent again, whatever its status, as Anthropic's own SDKs do (since 0.6.1). | The HTTP status | Told from the status, the message and `type` |
-| An `error` event inside the stream | `AnthropicRequestError` with its message, else "Claude reported an error.", and its `type` | From its `type`: `overloaded_error` 529, `rate_limit_error` 429, `api_error` 500, `timeout_error` 408, and since 0.6.1 `invalid_request_error` 400, `authentication_error` 401, `billing_error` 402, `permission_error` 403, `not_found_error` 404, `request_too_large` 413. Any other type, or none: 500, sent again when none of the reply was shown (in 0.6.0, the response's 200, not sent again) | Told from the status, the message and `type` |
+| An `error` event inside the stream | `AnthropicRequestError` with its message, else "Claude reported an error.", and its `type` | From its `type`: `overloaded_error` 529, `rate_limit_error` 429, `api_error` 500, `timeout_error` 408, and since 0.6.1 `invalid_request_error` 400, `authentication_error` 401, `billing_error` 402, `permission_error` 403, `not_found_error` 404, `request_too_large` 413. Any other type, or none: 500, sent again when none of the reply was shown (in 0.5.0, the response's 200, not sent again) | Told from the status, the message and `type` |
 | The connection failed, before or while the reply arrived, or an event of the stream was not JSON | `AnthropicRequestError`: "Claude could not be reached (fetch failed).", the reason being the HTTP client's message | 0 | `"unreachable"` |
-| A reply of HTTP 200 whose body is empty | `AnthropicRequestError`: "Claude could not be reached (the reply was empty).", new in 0.6.1. When the reply's type is `text/event-stream`, "Claude's reply ended before it was complete.", as before. Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
+| A reply of HTTP 200 whose body is empty | `AnthropicRequestError`: "Claude could not be reached (the reply was empty).", new in 0.6.1. When the reply's type is `text/event-stream`, "Claude's reply ended before it was complete." Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
 | Nothing arrived for a whole wait (`firstByteTimeoutMs`, `idleTimeoutMs`) | `AnthropicRequestError`: "Claude sent nothing for {seconds} s.", the wait that ran out (600 s or 300 s by default) | 0 | `"timeout"` |
 | A stream that closed with no `stop_reason` | `AnthropicRequestError`: "Claude's reply ended before it was complete." | 0 | `"unreachable"` |
 | A reply whose body is not JSON (a gateway's HTML page) | `AnthropicRequestError`: "Claude's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the brackets holding the response's media type (left out when it has none), with the `SyntaxError` as `cause`. Not sent again. Until 0.6.1, the `SyntaxError` itself. | The response's, 200 | `"invalid"` |
@@ -319,9 +320,9 @@ The table under [`anthropic()`](#anthropicoptions) lists when the adapter throws
 | `name` | `string` | `"AnthropicRequestError"`. |
 | `message` | `string` | The API's own message, or one of the adapter's (see the table above). It is the provider's text: log it, and do not show it to your users as it is. |
 | `status` | `number` | The HTTP status, or the status of an `error` event in the stream; 0 when no answer came; 200 for a reply that came and could not be read. |
-| `kind` | [`ModelErrorKind`](./errors-and-retries.md#modelerrorkind) | What went wrong, told from `status`, the message and `type`: `type` `"request_too_large"` with a 4xx status makes it `"context_overflow"`, an `overloaded_error` (529) `"server"`, a `rate_limit_error` (429) `"rate_limit"`. "Your credit balance is too low" (HTTP 400) and the spending limits ("You have reached your API usage limits", HTTP 400, or HTTP 429 with `enforced_spend_limit_reached`) make it `"quota"` (since 0.6.1). The adapter sets `"timeout"` itself for a wait that ran out, and `"invalid"` for a reply of HTTP 200 it could not read. |
+| `kind` | [`ModelErrorKind`](./errors-and-retries.md#modelerrorkind) | What went wrong, told from `status`, the message and `type`: `type` `"request_too_large"` with a 4xx status makes it `"context_overflow"`, an `overloaded_error` (529) `"server"`, a `rate_limit_error` (429) `"rate_limit"`. "Your credit balance is too low" (HTTP 400) and the spending limits ("You have reached your API usage limits", HTTP 400, or HTTP 429 with `enforced_spend_limit_reached`) make it `"quota"`. The adapter sets `"timeout"` itself for a wait that ran out, and `"invalid"` for a reply of HTTP 200 it could not read. New in 0.6.1. |
 | `retryAfterMs` | `number \| undefined` | The wait the API asked for: its `retry-after-ms` or `Retry-After` header, or the `retryDelay` of a `google.rpc.RetryInfo` in the error body. |
-| `limitTokens`, `requestedTokens` | `number \| undefined` | For `kind` `"context_overflow"`: the model's limit and the tokens of the request, when the message gives them. |
+| `limitTokens`, `requestedTokens` | `number \| undefined` | For `kind` `"context_overflow"`: the model's limit and the tokens of the request, when the message gives them. New in 0.6.1. |
 | `type` | `string \| undefined` | The API's own word for the error, its `error.type`: `"rate_limit_error"`, `"overloaded_error"`, `"request_too_large"`. |
 | `cause` | `unknown` | The HTTP client's error, for a request that could not be reached. |
 
@@ -402,7 +403,7 @@ error. No document blocks: `toolTurns` keep no files.
 
 A call with an ID keeps it. A call without one is given a new random ID, `toolu_` and 24 hex
 digits, a different one each time the function runs, so that the rounds of two questions kept in
-one history never share an ID. (Before 0.6.0 such calls were numbered from 1.) The IDs are then
+one history never share an ID. (Before 0.6.1 such calls were numbered from 1.) The IDs are then
 made to fit the API: each character other than `A-Z`, `a-z`, `0-9`, `_` and `-` becomes `_` (a
 call from another provider, such as `functions.search:0`, becomes `functions_search_0`), and an ID
 already used earlier in the returned list gets `_2`, `_3` and so on.

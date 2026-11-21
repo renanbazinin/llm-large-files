@@ -46,7 +46,7 @@ shared by every caller without a user: each of them could read and delete the do
 others whose IDs it has. From JavaScript, an owner that is neither a string nor a finite number
 (the user object in place of its ID, `true`, `NaN`, an array) is refused with the same error. A
 number is accepted, as before. Only `ingest` and the upload handler refuse: calls that read with
-`owner: ""` work as before, so documents that 0.6.0 stored with that owner stay readable until
+`owner: ""` work as before, so documents that 0.5.0 stored with that owner stay readable until
 they expire.
 
 **A document ingested without an owner is open to every call that has its ID**, with an owner or
@@ -274,7 +274,7 @@ model that only the line with the mark ends the file. The uploader chooses the n
 text, so the mark comes before the name, the name is quoted as a JSON string, and the closing line
 holds the mark alone: a name cannot put a mark of its own first. The mark is the same in every
 request, so a provider's prompt cache can reuse the file from one request to the next. After an
-upgrade from 0.6.0, the first request of each conversation reads nothing of the file from the
+upgrade from 0.5.0, the first request of each conversation reads nothing of the file from the
 cache, since the frame lines changed.
 
 What the mark does not do:
@@ -297,7 +297,7 @@ below):
 - control characters other than tab and line breaks, C1 (U+0080-U+009F) included, and terminal
   escape sequences;
 - Unicode tag characters (U+E0000-U+E007F), each of which spells out one ASCII character that a
-  model reads and a person does not see. In 0.6.0, a line with 44 of them sent all 44 to the model,
+  model reads and a person does not see. In 0.5.0, a line with 44 of them sent all 44 to the model,
   in the prompt and in tool results. The flags of England, Scotland and Wales, which are written
   with them, are kept; any other flag written with them keeps only its black flag;
 - the text-direction controls that change the order a person sees: embeddings and overrides
@@ -322,7 +322,7 @@ stays (`re\x1b[31mport.txt` is stored as `re [31mport.txt`).
 
 No line break is added or removed, except in a text with no line feed, where U+0085 ends lines
 ([Uploads](#uploads)). A line of more than 2,000 characters that held such characters can be split
-into fewer pieces than 0.6.0 split it, which moves the lines after it. Documents stored by an
+into fewer pieces than 0.5.0 split it, which moves the lines after it. Documents stored by an
 earlier version keep their text until they expire. Steps and activity lines drop the same
 characters ([What the library logs](#what-the-library-logs)).
 
@@ -410,7 +410,7 @@ U+FFFD. `meta.replacedCharacters` counts the U+FFFD, and the model is told of th
 - `MemoryDocumentStore` keeps everything in the memory of one process, until it restarts. It is for
   tests and single-process demos. It copies the metadata it is given and the metadata it hands out,
   so deleting `owner` from what `ingest` or `getMeta` returned, before you send it to a browser,
-  changes nothing stored. (In 0.6.0 it opened the document to every owner.) The original it returns
+  changes nothing stored. (In 0.5.0 it opened the document to every owner.) The original it returns
   is the stored bytes themselves: treat them as read-only.
 
 ## Original files
@@ -537,7 +537,8 @@ server that memory is the server's heap. Choose the isolation with care:
   on. That flag bounds the heap only. What a parser unpacks is held outside it: a PDF of 1.6 KB
   took 1.6 GB of memory at ingest with 20 MB of heap ([Objects of a PDF](#uploads)). Give that
   process a memory limit of its own too, such as a container or a cgroup of its own.
-- **A worker thread does not reliably contain it.** In the review of 0.6.0, a worker given
+- **A worker thread does not reliably contain it.** In the review of 0.6.0, a version never
+  published ([Measurements](./measurements.md#how-to-read-this-page)), a worker given
   `resourceLimits: { maxOldGenerationSizeMb: 512 }` ran out of memory on a hostile DOCX and took
   the whole process down with it.
 - **A heap flag of the process silently replaces a worker's limit.** With `--max-old-space-size`
@@ -562,8 +563,8 @@ server that memory is the server's heap. Choose the isolation with care:
   or ingest in a process of its own: [Deployment](./guides/deployment.md) has measurements and
   recipes.
 - **Text.** A small file can hold far more text than its size: a PDF of 3 KB whose page tree
-  listed one dense page 150 times drew 107 MB of text in 0.6.0. `maxTextBytes` (by default
-  `maxUploadBytes`, 100 MB) bounds the text kept from one file, in UTF-8 bytes. The PDF extractor
+  listed one dense page 150 times drew 107 MB of text in 0.5.0. `maxTextBytes` (100 MB by
+  default, or `maxUploadBytes` when that is larger) bounds the text kept from one file, in UTF-8 bytes. The PDF extractor
   counts it page by page, and DOCX and PPTX as they are unpacked; each refuses the file as soon as
   it passes. The text of any other extractor is checked when it returns. A PDF whose page tree
   lists one page more than once is refused before its text grows: "This PDF lists the same page
@@ -609,7 +610,7 @@ server that memory is the server's heap. Choose the isolation with care:
   759 bytes whose object stream, unpacked twice, held the catalog and 8 MB of empty dictionaries
   ran a heap of 512 MB out of memory in pdf.js alone, with the page check and the picture marks
   off. With them on, as by default, both build such objects, and a file of 732 bytes with 4 MB of
-  them did so ([measured](./measurements.md#the-server)). 0.6.0 did the same. What a stream unpacks
+  them did so ([measured](./measurements.md#the-server)). 0.5.0 did the same. What a stream unpacks
   to is held outside the heap, where `--max-old-space-size` does not limit it: a PDF of 1,633 bytes
   whose object stream holds the catalog after 512 MB of spaces was read with 20 MB of heap, but the
   process took 1.6 GB of memory. The same spaces in the content of a page are refused by the page
@@ -626,8 +627,9 @@ server that memory is the server's heap. Choose the isolation with care:
   a PDF, as a DOCX or PPTX is unpacked, as a text file that is not UTF-8 is decoded, and in every
   step after extraction, a line of megabytes included. In a measurement on one machine, the longest
   stall of the event loop was 31 to 34 ms for a 99 MB log and 0.16 s for a 2,000-page PDF, against
-  1.9 to 2.0 s and 4.4 to 4.5 s with 0.6.0 ([Measurements](./measurements.md#the-server)). Some
-  steps still hold the server, and neither the time limit nor a signal cuts them short:
+  1.9 to 2.0 s and 4.4 to 4.5 s with the ingest of 0.5.0
+  ([Measurements](./measurements.md#the-server)). Some steps still hold the server, and neither the
+  time limit nor a signal cuts them short:
   - A PDF page, for as long as pdf.js takes to read it: up to about 1.5 s for a page that passes
     the check in a small file, longer in a large file, and without limit when the page check does
     not run (without `@cantoo/pdf-lib`, on a file it cannot read or that declares more than 150,000
@@ -663,7 +665,7 @@ server that memory is the server's heap. Choose the isolation with care:
   XML: each paragraph becomes one string when it closes, and an empty one is dropped. A file is
   refused with more than 32 million characters of text (or `maxTextBytes`, when that is smaller), more than
   1,000,000 paragraphs with text, paragraphs nested more than 32 deep, or more than 20,000 parts in
-  its ZIP directory. In 0.6.0, a DOCX of 1.5 MB that held 120 MB of empty paragraphs ran a heap of
+  its ZIP directory. In 0.5.0, a DOCX of 1.5 MB that held 120 MB of empty paragraphs ran a heap of
   512 MB out of memory and stopped the server; it is now refused with the process at 115 MB.
 - **The ZIP directory of a DOCX or PPTX** is read before JSZip reads it, the way JSZip 3.10 will
   read it: from where JSZip finds it (the last end record of the file, and for a ZIP64 file the

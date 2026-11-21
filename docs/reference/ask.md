@@ -235,6 +235,8 @@ Guides: [conversations](../guides/conversations.md) (`toolTurns`),
 declare function partialResultOf(error: unknown): AskResult | undefined;
 ```
 
+New in 0.6.1, from `llm-large-files` and `llm-large-files/gemini`.
+
 What a question that failed had done before it failed. `askWithFiles` throws the error as it came;
 this gives, for that error object, an [`AskResult`](#askresult) with `answered: false` and the
 `steps`, `evidence`, `toolTurns`, `usage`, `turns`, `plan` and `budget` of the question until
@@ -360,7 +362,7 @@ sees in a later question what its tools returned in an earlier one. Their result
 holds is unchanged). A call whose result is still in the conversation in full is then not run
 again: it is answered with a pointer (`already_shown: true`). Not with a model that declares
 `clearsToolResults`, and not for a read of one line made in an earlier question, or an exact or
-regex search that 0.6.0 stored without its last match: those run again (see
+regex search that 0.5.0 stored without its last match: those run again (see
 [tools](./tools.md#what-askwithfiles-adds-to-results)). Guide:
 [conversations](../guides/conversations.md).
 
