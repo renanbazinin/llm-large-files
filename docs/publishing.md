@@ -3,7 +3,7 @@
 For maintainers. This page covers how a version of `llm-large-files` reaches npm: the changelog
 while the version is in development, the release pull request, the tag that starts the release
 workflow, and publishing by hand when the workflow's publish step fails. Working on the code
-itself is in [CONTRIBUTING.md](../CONTRIBUTING.md).
+itself is in [CONTRIBUTING.md](https://github.com/renanbazinin/llm-large-files/blob/main/CONTRIBUTING.md).
 
 ## The changelog
 

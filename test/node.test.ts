@@ -145,7 +145,8 @@ describe("createDocumentHandlers", () => {
     expect(await empty.json()).toEqual({ error: "blank.txt did not contain any text." });
   });
 
-  it("stops reading an upload when the client goes away", async () => {
+  // On Node 20 and 22 the client's fetch keeps the aborted connection about 4 s.
+  it("stops reading an upload when the client goes away", { timeout: 15_000 }, async () => {
     let started!: () => void;
     const reading = new Promise<void>((resolve) => (started = resolve));
     let stoppedWith: unknown;

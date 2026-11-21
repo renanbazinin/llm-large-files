@@ -491,6 +491,9 @@ describe("a call that was answered already (no second run, no second result in t
     const { files, meta } = await largeLog();
     const result = await files.tools([meta]).execute("read_document", { document_id: "doc_nope", start_line: 1 });
     expect(result.error).toBe(`Unknown document_id doc_nope. Use one of: ${meta.id} ("app.log").`);
+    // An ID of any length is quoted cut, so that it does not fill the error and the step.
+    const long = await files.tools([meta]).execute("read_document", { document_id: `doc_${"a".repeat(200_000)}`, start_line: 1 });
+    expect(long.error).toBe(`Unknown document_id doc_${"a".repeat(60)}…. Use one of: ${meta.id} ("app.log").`);
   });
 });
 

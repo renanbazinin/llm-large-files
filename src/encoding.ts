@@ -295,7 +295,7 @@ function joinLines(pieces: Uint8Array[]): Uint8Array {
  * here has a character of its own for it. As UTF-8, `replaced` is 0: `scanLines` counts.
  */
 function* decodeInSteps(bytes: Uint8Array, encoding: string): Generator<void, { text: string; replaced: number }> {
-  const decoder = new TextDecoder(encoding);
+  const decoder = decoderFor(encoding);
   const pieces: string[] = [];
   let replaced = 0;
   const add = (decoded: string) => {
@@ -327,7 +327,7 @@ function* decodeInSteps(bytes: Uint8Array, encoding: string): Generator<void, { 
 function* decodeLines(bytes: Uint8Array, encoding: string): Generator<void, { text: string; replaced: number }> {
   // A byte-order mark further on is kept, as in a file decoded whole.
   const utf8 = new TextDecoder("utf-8", { ignoreBOM: true });
-  const older = new TextDecoder(encoding);
+  const older = decoderFor(encoding);
   const chars = encoding === "shift_jis" ? undefined : charsOf(encoding);
   // The text of each step, and of the step being decoded.
   const pieces: string[] = [];
@@ -436,7 +436,7 @@ const charTables = new Map<string, string[]>();
 function charsOf(encoding: string): string[] {
   let chars = charTables.get(encoding);
   if (!chars) {
-    const decoder = new TextDecoder(encoding);
+    const decoder = decoderFor(encoding);
     chars = Array.from({ length: 256 }, (_, byte) => decoder.decode(Uint8Array.of(byte)).replace(C1_CONTROLS, REPLACEMENT));
     charTables.set(encoding, chars);
   }
@@ -503,6 +503,17 @@ export function encodingsThatFit(sample: Uint8Array): string[] {
 /** Whether the sample looks like text of the script, read in the encoding. */
 function fits(sample: Uint8Array, encoding: string, script: Script): boolean {
   return script === "Japanese" ? fitsJapanese(sample) : fitsSingleByte(sample, kindsOf(encoding), script);
+}
+
+/**
+ * A decoder for an older encoding. Node 20 reads windows-1252 (and its other Latin-1 labels) as
+ * Latin-1 in a decode call that is not streamed, so 0x80-0x9F come out as control characters
+ * ("’" as U+0092), until the decoder has been called once streamed: that call is made here.
+ */
+function decoderFor(encoding: string, options?: TextDecoderOptions): TextDecoder {
+  const decoder = new TextDecoder(encoding, options);
+  decoder.decode(new Uint8Array(0), { stream: true });
+  return decoder;
 }
 
 /** Whether this runtime's TextDecoder has the encoding: a Node.js built without full ICU has only UTF-8, UTF-16 and Latin-1. */
@@ -613,7 +624,7 @@ const byteKinds = new Map<string, CharKind[]>();
 function kindsOf(encoding: string): CharKind[] {
   let kinds = byteKinds.get(encoding);
   if (!kinds) {
-    const decoder = new TextDecoder(encoding, { fatal: true });
+    const decoder = decoderFor(encoding, { fatal: true });
     kinds = [...ASCII_KINDS];
     for (let byte = 0x80; byte <= 0xff; byte++) {
       let char: string | undefined;

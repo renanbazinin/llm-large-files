@@ -165,19 +165,21 @@ export function replyEnd(watch: Pick<IdleWatch, "signal" | "stop">): ReplyEnd {
  * A wait for `next` that ends with the signal's reason when the signal aborts first. The global
  * `fetch` ends the body of a request whose signal aborts; another `fetch` (or a test's) may not,
  * and a watch on the request must still end it. The tool loop waits for a model request the same
- * way: an adapter of an application's own may not stop when the signal aborts.
+ * way: an adapter of an application's own may not stop when the signal aborts, and one written in
+ * plain JavaScript may give back a value, or a thenable, rather than a promise.
  */
-export function until<T>(next: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (!signal) return next;
+export function until<T>(next: T | PromiseLike<T>, signal: AbortSignal | undefined): Promise<T> {
+  const promise = Promise.resolve(next);
+  if (!signal) return promise;
   if (signal.aborted) {
     // The read is not waited for: when it fails later, that is no error of anyone's.
-    next.catch(() => undefined);
+    promise.catch(() => undefined);
     return Promise.reject(signal.reason);
   }
   return new Promise<T>((resolve, reject) => {
     const stop = () => reject(signal.reason);
     signal.addEventListener("abort", stop, { once: true });
-    next.then(
+    promise.then(
       (value) => {
         signal.removeEventListener("abort", stop);
         resolve(value);

@@ -21,6 +21,8 @@ export type SseHooks = {
 
 /** The most characters one event holds, by default: see `SseHooks.maxEventLength`. */
 const DEFAULT_MAX_EVENT_LENGTH = 64_000_000;
+/** The data lines of an event are joined this many at a time as they come (see `parseSseJson`). */
+const JOIN_LINES = 1_024;
 
 /** An event of a stream held more characters than `SseHooks.maxEventLength`, and was not read. */
 export class SseEventTooLongError extends Error {
@@ -47,8 +49,13 @@ export function eventTooLongMessage(who: string, error: SseEventTooLongError): s
 export async function* parseSseJson<T>(stream: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array | string>, hooks: SseHooks = {}): AsyncGenerator<T> {
   const decoder = new TextDecoder();
   const most = typeof hooks.maxEventLength === "number" && hooks.maxEventLength > 0 ? hooks.maxEventLength : DEFAULT_MAX_EVENT_LENGTH;
-  /** The data lines of the event being read. */
+  /** The data lines of the event being read, since the last ones were joined into `joined`. */
   let data: string[] = [];
+  /**
+   * Earlier data lines of the event, joined `JOIN_LINES` at a time: an event of millions of empty
+   * data lines would otherwise hold a slot for each, far more memory than the characters counted.
+   */
+  let joined: string[] = [];
   /** The characters of the event those lines make. */
   let held = 0;
   /** The start of a line whose end has not arrived. */
@@ -65,8 +72,10 @@ export async function* parseSseJson<T>(stream: ReadableStream<Uint8Array> | Asyn
   const lineEnd = /\r\n?|\n/g;
   /** The event of the data lines read so far, which a blank line ends. */
   const event = (): T | undefined => {
-    const text = data.join("\n");
+    if (data.length > 0) joined.push(data.join("\n"));
+    const text = joined.join("\n");
     data = [];
+    joined = [];
     held = 0;
     if (text === "[DONE]") hooks.onDone?.();
     return text && text !== "[DONE]" ? JSON.parse(text) as T : undefined;
@@ -76,9 +85,13 @@ export async function* parseSseJson<T>(stream: ReadableStream<Uint8Array> | Asyn
     if (line.startsWith("data:")) {
       const value = line.slice(5).trimStart();
       // The line feed that joins it to the line before counts too: empty data lines add up.
-      held += value.length + (data.length > 0 ? 1 : 0);
+      held += value.length + (data.length > 0 || joined.length > 0 ? 1 : 0);
       if (held > most) throw new SseEventTooLongError(most);
       data.push(value);
+      if (data.length >= JOIN_LINES) {
+        joined.push(data.join("\n"));
+        data = [];
+      }
     } else if (held + line.length > most) {
       // Another line is not kept, but it was held until its end: it counts as it did then.
       throw new SseEventTooLongError(most);
@@ -96,7 +109,7 @@ export async function* parseSseJson<T>(stream: ReadableStream<Uint8Array> | Asyn
       at = start.length - partial.length;
       if (start === "data:") {
         partialKind = "field";
-        partialHeld = data.length > 0 ? 1 : 0;
+        partialHeld = data.length > 0 || joined.length > 0 ? 1 : 0;
       } else if (!"data:".startsWith(start)) {
         partialKind = "other";
         partialHeld = partial.length;

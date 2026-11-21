@@ -156,7 +156,7 @@ that has an owner is missing for anyone else. This `getOwner` returns `undefined
 upload. Never return an empty string: it would be one owner shared by every caller without a user,
 and the upload is answered 500. Streaming the answer and its progress to the browser, and
 cancelling, are in the [web app guide](docs/guides/web-app.md). There's also a
-[one-file demo server](examples/server.ts) and a [command-line script](examples/ask-cli.ts): from a
+[one-file demo server](https://github.com/renanbazinin/llm-large-files/blob/main/examples/server.ts) and a [command-line script](https://github.com/renanbazinin/llm-large-files/blob/main/examples/ask-cli.ts): from a
 clone of this repository, run `npm install` and `npm run build`, then run them with Node 22.18 or a
 later 22.x, or Node 23.6 or later.
 
@@ -282,7 +282,7 @@ Reference, one page per module:
 
 Also: [How it works](docs/how-it-works.md), [Security](docs/security.md),
 [Troubleshooting](docs/troubleshooting.md) and [Measurements](docs/measurements.md). For
-maintainers: [Contributing](CONTRIBUTING.md) and [Publishing](docs/publishing.md).
+maintainers: [Contributing](https://github.com/renanbazinin/llm-large-files/blob/main/CONTRIBUTING.md) and [Publishing](docs/publishing.md).
 
 ## Requirements
 

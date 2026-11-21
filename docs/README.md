@@ -273,7 +273,7 @@ headings, each pointing to its new home.
 ## Maintainers
 
 - [Publishing](./publishing.md): releasing a version to npm.
-- [Contributing](../CONTRIBUTING.md): how to work on the code and its tests.
+- [Contributing](https://github.com/renanbazinin/llm-large-files/blob/main/CONTRIBUTING.md): how to work on the code and its tests.
 
 ## Changelog
 

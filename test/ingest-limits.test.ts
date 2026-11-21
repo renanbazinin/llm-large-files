@@ -2,7 +2,7 @@ import "./load-pdf-libraries.js";
 import { deflateSync } from "node:zlib";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { createLargeFiles, createPdfExtractor, MemoryDocumentStore } from "llm-large-files";
+import { createLargeFiles, createPdfExtractor, DEFAULT_MAX_TEXT_BYTES, MemoryDocumentStore } from "llm-large-files";
 import { buildLogProfile, buildLogProfileInSlices, buildOutline, buildOutlineInSlices } from "../src/analyze.js";
 import { zipEntryCount } from "../src/extract.js";
 import { TimeSlicer } from "../src/pause.js";
@@ -147,6 +147,21 @@ describe("limits on what one file may cost", () => {
     ]);
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     await expect(files.ingest({ name: "repeat.pdf", bytes: pdf })).rejects.toThrow("This PDF lists the same page more than once.");
+  });
+
+  it("keeps the text of a DOCX larger than a lower upload limit: maxTextBytes stays 100 MB", async () => {
+    // A DOCX is packed XML: its text is often 2 to 4 times the size of the file.
+    const paragraph = "<w:p><w:r><w:t>Forty characters of text in a paragraph.</w:t></w:r></w:p>";
+    const zip = new JSZip();
+    zip.file("word/document.xml", `<w:document><w:body>${paragraph.repeat(30_000)}</w:body></w:document>`);
+    const docx = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+    expect(docx.length).toBeLessThan(200_000);
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 200_000 });
+    // 30,000 lines of 40 characters: about 1.2 MB of text, six times the upload limit.
+    const meta = await files.ingest({ name: "long.docx", bytes: docx });
+    expect(meta.lines).toBe(30_000);
+    // A larger upload limit raises it.
+    expect(DEFAULT_MAX_TEXT_BYTES).toBe(100 * 1024 * 1024);
   });
 
   it("refuses a PDF, a DOCX and the result of an extractor of your own past maxTextBytes", async () => {

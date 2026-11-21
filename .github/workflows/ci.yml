@@ -44,7 +44,7 @@ jobs:
           - { node: 22, unpdf: "^1" }
           - { node: 24, unpdf: "^1" }
           - { node: 24, unpdf: "^2" } # unpdf 2 needs Node 24
-          - { node: 20, unpdf: "^1", refused: true }
+          - { node: 20, unpdf: "1.9", refused: true } # npm would pick 1.7.0 on Node 20 for "^1"
           - { node: 22, unpdf: "1.6.0", refused: true }
     steps:
       - uses: actions/checkout@v7

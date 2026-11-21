@@ -89,6 +89,9 @@ describe("parseSseJson", () => {
     const tooLong = { name: "SseEventTooLongError", message: "An event of the stream held more than 100 characters." };
     // One line whose end never comes.
     await expect(events(["data: {\"t\":\"", "x".repeat(60), "x".repeat(60)], { maxEventLength: 100 })).rejects.toMatchObject(tooLong);
+    // An event of thousands of data lines, joined as they come, reads as one.
+    const many = ["data: [", ...Array.from({ length: 2_999 }, () => "data: 1,"), "data: 1]", "", ""].join("\n");
+    expect(await events([many.slice(0, 7_000), many.slice(7_000)])).toEqual([Array.from({ length: 3_000 }, () => 1)]);
     // The error can be told by its class, from either entry, and carries the limit.
     const thrown = await events(["data: {\"t\":\"", "x".repeat(200)], { maxEventLength: 100 }).catch((error: unknown) => error);
     expect(thrown).toBeInstanceOf(SseEventTooLongError);

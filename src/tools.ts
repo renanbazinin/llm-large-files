@@ -344,6 +344,12 @@ export function stepLine(text: string): string {
 /** An unknown tool's name as a step or an error quotes it: the model chose it, at any length. */
 export const unknownToolName = (name: string): string => `“${sliceWhole(name, 64)}”`;
 
+/**
+ * A document_id the model sent, as an error quotes it: whole when it is as long as a real one can
+ * be, cut otherwise. The model chose it, at any length, and the error goes into steps too.
+ */
+const shownId = (id: string): string => (id.length > 64 ? `${sliceWhole(id, 64)}…` : id);
+
 export function createDocumentTools(options: {
   /** Loads a document the tools may access. Return undefined for anything out of scope. */
   load(documentId: string): Promise<DocumentSource | undefined>;
@@ -419,8 +425,8 @@ export function createDocumentTools(options: {
       // The IDs it may use, with their file names, so that the next call is right.
       const usable = [...allowed].slice(0, 20).map((known) => `${known}${names.has(known) ? ` (${JSON.stringify(names.get(known))})` : ""}`);
       throw new Error(usable.length === 0
-        ? `Unknown document_id ${id}. No attached file is read with this tool in this conversation.`
-        : `Unknown document_id ${id}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
+        ? `Unknown document_id ${shownId(id)}. No attached file is read with this tool in this conversation.`
+        : `Unknown document_id ${shownId(id)}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
     }
     const document = await options.load(id);
     if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
@@ -617,7 +623,7 @@ export function createDocumentTools(options: {
     if (!viewable.has(id)) {
       throw new Error(allowed.has(id)
         ? `The pages of ${names.get(id) ?? id} cannot be shown: only its text was kept. Answer from the text.`
-        : `Unknown document_id ${id}. Use the document_id of an attached PDF.`);
+        : `Unknown document_id ${shownId(id)}. Use the document_id of an attached PDF.`);
     }
     const document = await options.load(id);
     if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);

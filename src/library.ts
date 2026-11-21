@@ -47,7 +47,9 @@ export type LargeFilesOptions = {
   /** Largest accepted upload. Defaults to 100 MB. */
   maxUploadBytes?: number;
   /**
-   * The most text kept from one file, in UTF-8 bytes. Defaults to `maxUploadBytes`. A small PDF can
+   * The most text kept from one file, in UTF-8 bytes. Defaults to 100 MB, or `maxUploadBytes` when
+   * that is larger: the text of a DOCX is often 2 to 4 times the size of the file, so a lower upload
+   * limit does not lower it. A small PDF can
    * draw far more text than its own size (a 3 KB file built for it held 107 MB), so this is checked
    * as the text is extracted: the built-in extractors refuse a file as soon as its text passes it,
    * and `ingest` refuses a larger result from an extractor of your own.
@@ -331,6 +333,8 @@ const tooMuchText = (name: string, maxTextBytes: number) =>
 
 /** Default for `maxPdfPages`. */
 export const DEFAULT_MAX_PDF_PAGES = 5_000;
+/** Default for `maxTextBytes`, when `maxUploadBytes` is not larger: 100 MB. */
+export const DEFAULT_MAX_TEXT_BYTES = 100 * 1024 * 1024;
 /** Default for `ingestTimeoutMs`: 2 minutes. */
 export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
 /** The longest a Node.js timer waits: a longer one fires at once. A limit past it is no limit. */
@@ -390,7 +394,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const ttlMs = options.ttlMs ?? 72 * 60 * 60 * 1000;
   const maxUploadBytes = options.maxUploadBytes ?? 100 * 1024 * 1024;
   const given = (value: number | undefined, fallback: number) => (typeof value === "number" && !Number.isNaN(value) ? value : fallback);
-  const maxTextBytes = Math.max(1, given(options.maxTextBytes, maxUploadBytes));
+  const maxTextBytes = Math.max(1, given(options.maxTextBytes, Math.max(maxUploadBytes, DEFAULT_MAX_TEXT_BYTES)));
   const maxPdfPages = Math.max(1, Math.trunc(given(options.maxPdfPages, DEFAULT_MAX_PDF_PAGES)));
   const ingestTimeoutMs = given(options.ingestTimeoutMs, DEFAULT_INGEST_TIMEOUT_MS);
   const now = options.now ?? (() => new Date());

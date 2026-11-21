@@ -6,7 +6,7 @@ import { askWithFiles, classifyModelError, createLargeFiles, DocumentStoreError,
 import { anthropic } from "llm-large-files/anthropic";
 import { createGeminiGenerateText, gemini, geminiApi, THINKING_OUTPUT_TOKENS, vertexAi } from "llm-large-files/gemini";
 import { openAiCompatible } from "llm-large-files/openai";
-import { streamedReply } from "../src/http.js";
+import { streamedReply, until } from "../src/http.js";
 import { analyzeWholeDocument } from "../src/map-reduce.js";
 import { SearchableDocument } from "../src/search.js";
 import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
@@ -374,6 +374,19 @@ describe("streams that end or hang, since the review of 0.6.0", () => {
       await expect(withRetry(() => make(server.fetch).send(request), { retry: quick }), who).rejects.toMatchObject({ status: 0, kind: "unreachable", message: `${who} could not be reached (the reply was empty).` });
       expect(server.sent, who).toBe(4);
     }
+  });
+});
+
+describe("a request raced against the caller's signal", () => {
+  it("takes a value or a thenable from an adapter written in plain JavaScript, as a promise", async () => {
+    const live = new AbortController().signal;
+    expect(await until("a plain reply", live)).toBe("a plain reply");
+    const thenable = (value: string) => ({ then: (resolve: (value: string) => void) => resolve(value) }) as unknown as PromiseLike<string>;
+    expect(await until(thenable("a thenable"), live)).toBe("a thenable");
+    const stopped = new AbortController();
+    stopped.abort(new Error("stopped by the caller"));
+    await expect(until("a plain reply", stopped.signal)).rejects.toThrow("stopped by the caller");
+    await expect(until({ then: () => undefined } as unknown as PromiseLike<string>, stopped.signal)).rejects.toThrow("stopped by the caller");
   });
 });
 

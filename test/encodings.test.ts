@@ -12,6 +12,8 @@ function singleByte(text: string, encoding: string): Uint8Array {
   let bytesOf = tables.get(encoding);
   if (!bytesOf) {
     const decoder = new TextDecoder(encoding);
+    // Node 20 reads windows-1252 as Latin-1 in a call that is not streamed, until one is.
+    decoder.decode(new Uint8Array(0), { stream: true });
     bytesOf = new Map<string, number>();
     for (let byte = 0; byte < 256; byte++) bytesOf.set(decoder.decode(Uint8Array.of(byte)), byte);
     tables.set(encoding, bytesOf);
