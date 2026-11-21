@@ -1,10 +1,13 @@
 import "./load-pdf-libraries.js";
+import { deflateSync } from "node:zlib";
 import JSZip from "jszip";
 import { describe, expect, it } from "vitest";
-import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
+import { createLargeFiles, createPdfExtractor, MemoryDocumentStore } from "llm-large-files";
 import { buildLogProfile, buildLogProfileInSlices, buildOutline, buildOutlineInSlices } from "../src/analyze.js";
 import { zipEntryCount } from "../src/extract.js";
 import { TimeSlicer } from "../src/pause.js";
+import { parsePdf } from "../src/pdf-pictures.js";
+import { checkPageWork, pageWorkLimit } from "../src/pdf-work.js";
 import { buildTextIndex, buildTextIndexInSlices, serializeTextIndex } from "../src/text-index.js";
 import { estimateTokens, measureText, normalizeText, prepareText, textSizes, wrapLongLines } from "../src/text.js";
 import { serviceLog } from "./fake-model.js";
@@ -213,6 +216,151 @@ describe("limits on what one file may cost", () => {
     // Without a locator, the end record's 65,535 is all there is to go on.
     view.setUint32(56, 0, true);
     expect(zipEntryCount(bytes)).toBe(0xffff);
+  });
+});
+
+const FORM = "/Type /XObject /Subtype /Form /BBox [0 0 612 792]";
+const page = (contents: string, resources: string) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} /Resources ${resources} >>`;
+
+/**
+ * One page that paints a form, which paints the next form `fanout` times, `depth` deep. The last
+ * form shows a line of text. Objects: 1 catalog, 2 pages, 3 the page, 4 the font, 5 the content,
+ * 6 the form with text, then one form for each level. `split` writes the page's content in two
+ * streams, "q /" and "X Do Q"; `content` replaces the stream of the page's content.
+ */
+function formsInForms(depth: number, fanout: number, { split = false, content }: { split?: boolean; content?: Uint8Array } = {}): Uint8Array {
+  const contents = split ? `[5 0 R ${7 + depth} 0 R]` : "5 0 R";
+  const objects: Array<string | Uint8Array> = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page(contents, `<< /XObject << /X ${6 + depth} 0 R >> >>`), HELVETICA, content ?? pdfStream("", split ? "q /" : "q /X Do Q")];
+  objects.push(pdfStream(`${FORM} /Resources << /Font << /F1 4 0 R >> >>`, textLine("Words painted many times.")));
+  for (let level = 1; level <= depth; level++) objects.push(pdfStream(`${FORM} /Resources << /XObject << /X ${5 + level} 0 R >> >>`, "q /X Do Q\n".repeat(fanout)));
+  if (split) objects.push(pdfStream("", "X Do Q"));
+  return pdfFromObjects(objects);
+}
+
+/** Lines of text operators, `megabytes` of them, packed with Flate: a few kilobytes. */
+function packedText(megabytes: number): Uint8Array {
+  const line = `(${"A".repeat(200)}) '\n`;
+  return deflateSync(Buffer.from(`BT /F1 8 Tf 10 780 Td 10 TL\n${line.repeat(Math.ceil((megabytes * 1024 * 1024) / line.length))}ET`, "latin1"), { level: 9 });
+}
+
+describe("a PDF page that would hold the server is refused before pdf.js reads it", () => {
+  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const heavy = "Page 1 of this PDF draws far more than its file holds, and reading it would hold the server for a long time.";
+
+  it("refuses a page that paints forms inside forms", async () => {
+    // 3 KB: 125,000 forms with text. pdf.js held the event loop for 13 to 14 s reading it.
+    const bomb = formsInForms(3, 50);
+    expect(bomb.length).toBeLessThan(4_000);
+    const started = performance.now();
+    await expect(files.ingest({ name: "forms.pdf", bytes: bomb })).rejects.toThrow(heavy);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    // A few forms inside forms is what real files do.
+    expect((await files.ingest({ name: "few.pdf", bytes: formsInForms(2, 3) })).pages).toBe(1);
+  });
+
+  it("refuses a page whose content is packed hundreds of times", async () => {
+    const content = packedText(12);
+    const pdf = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page("5 0 R", "<< /Font << /F1 4 0 R >> >>"), HELVETICA, pdfStream("/Filter /FlateDecode", content)]);
+    expect(pdf.length).toBeLessThan(100_000);
+    await expect(files.ingest({ name: "packed.pdf", bytes: pdf })).rejects.toThrow(heavy);
+  });
+
+  it("refuses pages that are each within the limit but together draw far more than the file", async () => {
+    // 20 pages show one stream of 2 MB of text: 40 MB for pdf.js to read, from a few kilobytes.
+    const kids = Array.from({ length: 20 }, (_, index) => `${5 + index} 0 R`);
+    const pdf = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${kids.join(" ")}] /Count 20 >>`, pdfStream("/Filter /FlateDecode", packedText(2)), HELVETICA,
+      ...kids.map(() => page("3 0 R", "<< /Font << /F1 4 0 R >> >>"))]);
+    await expect(files.ingest({ name: "shared.pdf", bytes: pdf })).rejects.toThrow("This PDF draws far more than its file holds, and reading it would hold the server for a long time.");
+  });
+
+  it("refuses a Type3 font whose glyph paints forms inside forms", async () => {
+    // pdf.js runs every glyph program of a Type3 font when a page sets it, and this 3 KB file's
+    // glyph paints 125,000 forms: 2.9 s of pdf.js.
+    const objects: Array<string | Uint8Array> = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page("5 0 R", "<< /Font << /T3 7 0 R /F1 4 0 R >> >>"), HELVETICA,
+      pdfStream("", `BT /T3 12 Tf 72 700 Td (a) Tj ET ${textLine("A line of plain text.", 650)}`),
+      pdfStream("", "1000 0 0 0 1000 1000 d1 q /X Do Q"),
+      "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a 6 0 R >> /Encoding << /Type /Encoding /Differences [97 /a] >> /FirstChar 97 /LastChar 97 /Widths [1000] /Resources << /XObject << /X 11 0 R >> >> >>",
+      pdfStream(`${FORM} /Resources << /Font << /F1 4 0 R >> >>`, textLine("Inside a glyph."))];
+    for (let level = 1; level <= 3; level++) objects.push(pdfStream(`${FORM} /Resources << /XObject << /X ${7 + level} 0 R >> >>`, "q /X Do Q\n".repeat(50)));
+    await expect(files.ingest({ name: "glyphs.pdf", bytes: pdfFromObjects(objects) })).rejects.toThrow(heavy);
+  });
+
+  it("reads two forms that paint each other, as pdf.js does, and refuses forms that all paint each other", async () => {
+    // pdf.js skips a form that is already being painted: A paints B, and B's paint of A is skipped.
+    const loop = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page("5 0 R", "<< /XObject << /A 6 0 R >> /Font << /F1 4 0 R >> >>"), HELVETICA,
+      pdfStream("", `/A Do ${textLine("Text.")}`),
+      pdfStream(`${FORM} /Resources << /XObject << /B 7 0 R >> >>`, "/B Do"),
+      pdfStream(`${FORM} /Resources << /XObject << /A 6 0 R >> >>`, "/A Do")]);
+    expect((await files.ingest({ name: "loop.pdf", bytes: loop })).pages).toBe(1);
+    // Eight forms with text that each paint all eight: pdf.js follows paths through them until each
+    // meets a form already open, and held the event loop for 6 s on this 3 KB file.
+    const names = Array.from({ length: 8 }, (_, index) => `/F${index} ${7 + index} 0 R`).join(" ");
+    const clique = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page("5 0 R", "6 0 R"), HELVETICA,
+      pdfStream("", "/F0 Do"), `<< /XObject << ${names} >> /Font << /F1 4 0 R >> >>`,
+      ...Array.from({ length: 8 }, () => pdfStream(`${FORM} /Resources 6 0 R`, `${textLine("Text.")} /F0 Do /F1 Do /F2 Do /F3 Do /F4 Do /F5 Do /F6 Do /F7 Do`))]);
+    const started = performance.now();
+    await expect(files.ingest({ name: "clique.pdf", bytes: clique })).rejects.toThrow(heavy);
+    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it("follows a name cut between two streams of a page's content", async () => {
+    // pdf.js joins the streams with nothing between them: "q /" and "X Do Q" paint /X.
+    await expect(files.ingest({ name: "split.pdf", bytes: formsInForms(3, 50, { split: true }) })).rejects.toThrow(heavy);
+  });
+
+  it("counts content it cannot read as painting all it can name, and refuses content it cannot decode", async () => {
+    // A page's content stored with a predictor, which pdf-lib does not undo (pdf.js does): "q /X Do Q"
+    // in rows of 3 bytes, each after a 0 that says the row is stored as it is. It paints forms inside forms.
+    const content = "q /X Do Q";
+    const rows = Buffer.from(Array.from({ length: content.length / 3 }, (_, row) => `\0${content.slice(row * 3, row * 3 + 3)}`).join(""), "latin1");
+    const predicted = pdfStream("/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 3 >>", deflateSync(rows));
+    await expect(files.ingest({ name: "predicted.pdf", bytes: formsInForms(3, 50, { content: predicted }) })).rejects.toThrow(heavy);
+    // Content behind a filter that only images use: pdf.js would decode it, and nothing here can.
+    const jpeg = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page("5 0 R", "<< /Font << /F1 4 0 R >> >>"), HELVETICA,
+      pdfStream("/Filter /DCTDecode", "\xff\xd8\xff\xd9")]);
+    await expect(files.ingest({ name: "jpeg.pdf", bytes: jpeg })).rejects.toThrow("Page 1 of this PDF stores its content in a way that cannot be checked before it is read, so it is not read.");
+  });
+
+  it("reads such a page with checkPages: false", async () => {
+    // 14,400 paints of a form with text: past the limit, and about 1.1 s of pdf.js.
+    const bomb = formsInForms(2, 120);
+    await expect(files.ingest({ name: "forms.pdf", bytes: bomb })).rejects.toThrow(heavy);
+    const unchecked = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { pdf: createPdfExtractor({ checkPages: false }) } });
+    expect((await unchecked.ingest({ name: "forms.pdf", bytes: bomb })).pages).toBe(1);
+  });
+
+  it("passes a page that paints a small form with text 10,000 times, as a CAD drawing can", async () => {
+    // pdf.js reads it in about 0.7 s, under the limit of about 1 to 1.5 s.
+    const bytes = formsInForms(1, 10_000);
+    const parsed = await parsePdf(bytes);
+    const work = await checkPageWork(parsed!.library, parsed!.document, bytes.byteLength);
+    expect(work).toBeGreaterThan(pageWorkLimit(bytes.byteLength) * 0.6);
+    expect(work).toBeLessThan(pageWorkLimit(bytes.byteLength));
+  });
+
+  it("reads a list of drawings that many pages share once, not once for each page", async () => {
+    // 200 pages with resources of their own that point to one list of 60,000 drawings. Read for each
+    // page, a list of 140,000 shared by 300 pages filled 4 GB.
+    const names = Array.from({ length: 60_000 }, (_, index) => `/x${index} 5 0 R`).join("");
+    const kids = Array.from({ length: 200 }, (_, index) => `${7 + index} 0 R`).join(" ");
+    const bytes = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${kids}] /Count 200 >>`, `<< ${names} >>`, HELVETICA,
+      pdfStream(`${FORM} /Resources << /Font << /F1 4 0 R >> >>`, textLine("Stamp.")), pdfStream("", "/x1 Do"),
+      ...Array.from({ length: 200 }, () => page("6 0 R", "<< /XObject 3 0 R /Font << /F1 4 0 R >> >>"))]);
+    const parsed = await parsePdf(bytes);
+    const started = performance.now();
+    await checkPageWork(parsed!.library, parsed!.document, bytes.byteLength);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  it("reads a page that paints a drawing without text 50,000 times, as a chart does", async () => {
+    // pdf.js runs a form without text once, and skips its other paints: so does the count.
+    const marks = Array.from({ length: 50_000 }, (_, index) => `q 1 0 0 1 ${index % 600} ${Math.floor(index / 600)} cm /M Do Q`).join("\n");
+    const pdf = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page("5 0 R", "<< /XObject << /M 6 0 R >> /Font << /F1 4 0 R >> >>"), HELVETICA,
+      pdfStream("/Filter /FlateDecode", deflateSync(Buffer.from(`${marks}\n${textLine("A scatter plot of 50,000 points.")}`, "latin1"))),
+      pdfStream(`${FORM} /Resources << >>`, "0 0 m 1 1 l S")]);
+    const meta = await files.ingest({ name: "chart.pdf", bytes: pdf });
+    expect(meta.pages).toBe(1);
+    expect(await files.tools([meta]).execute("read_document", { document_id: meta.id })).toMatchObject({ text: expect.stringContaining("A scatter plot of 50,000 points.") });
   });
 });
 

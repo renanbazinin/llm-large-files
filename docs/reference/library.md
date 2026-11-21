@@ -904,7 +904,7 @@ The built-in extractor of each format, used for every format you do not replace 
 | Format | What the extractor does |
 |---|---|
 | `text`, `markdown`, `log`, `json`, `csv` | Decodes the bytes as UTF-8, or as UTF-16 when they start with a byte-order mark or look like little-endian UTF-16 without one. Refuses gzip, ZIP and other binary files. |
-| `pdf` | [`createPdfExtractor()`](#createpdfextractoroptions). Needs the optional dependency `unpdf`, and `@cantoo/pdf-lib` to mark pages with pictures. |
+| `pdf` | [`createPdfExtractor()`](#createpdfextractoroptions). Needs the optional dependency `unpdf`, and `@cantoo/pdf-lib` to mark pages with pictures and to refuse a page that would hold the server. |
 | `docx` | The paragraphs of the main document first, then those of its endnotes, footers, footnotes and headers (in the order of their part names), one line each, with a blank line between parts. A text box is read once. Needs the optional dependency `jszip`. |
 | `pptx` | One `## Slide N` section per slide, in order, with `[No text on this slide]` for a slide without text. `pages` is the number of slides. Needs `jszip`. |
 
@@ -961,13 +961,14 @@ Guide: [PDFs](../guides/pdfs.md).
 ### `PdfExtractorOptions`
 
 ```ts
-type PdfExtractorOptions = { tables?: boolean; pictures?: boolean };
+type PdfExtractorOptions = { tables?: boolean; pictures?: boolean; checkPages?: boolean };
 ```
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
 | `tables` | `boolean` | `true` | Rebuilds tables from the position of the text, and writes each row as `\| cell \| cell \|  \|`, so an empty cell stays an empty cell. `false` gives the text in pdf.js order, as in version 0.1.0. |
 | `pictures` | `boolean` | `true` | Writes `[Picture on this page. This text cannot show it.]` under the page line of every page that shows a picture or a drawing, so the model knows that the text does not tell all of that page. Needs the optional dependency `@cantoo/pdf-lib`; without it, and with `false`, no page is marked. |
+| `checkPages` | `boolean` | `true` | Before pdf.js reads any page, adds up what each page would make it run, and refuses a file with a page that would hold the server for a long time ([Pages that would hold the server](../guides/pdfs.md#pages-that-would-hold-the-server)). Needs the optional dependency `@cantoo/pdf-lib`; without it, and with `false`, every page is read however long it takes. With `false` and `pictures: false`, the file is not read with `@cantoo/pdf-lib` at ingest. New in 0.6.1. |
 
 ### detectFormat(name, mimeType)
 

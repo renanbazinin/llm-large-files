@@ -13,7 +13,7 @@ every server that ingests files:
 ```bash
 npm install jszip              # DOCX and PPTX
 npm install unpdf              # PDF text
-npm install @cantoo/pdf-lib    # PDF picture marks and view_pages
+npm install @cantoo/pdf-lib    # PDF picture marks, page check, and view_pages
 ```
 
 They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.4.0 and
@@ -26,7 +26,7 @@ They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.
 | `markdown` | `.md`, `.markdown`, `text/markdown` | | As `text`. Its `#` headings form the outline. |
 | `json` | `.json`, `.jsonl`, `.ndjson`, `application/json` | | As `text`. Minified JSON becomes lines of at most 2,000 characters. |
 | `csv` | `.csv`, `.tsv`, `text/csv` | | As `text`. |
-| `pdf` | `.pdf`, `application/pdf` | `unpdf`; `@cantoo/pdf-lib` for picture marks and `view_pages` | A `--- Page N ---` line before each page, tables rebuilt as rows of cells, a line for a page without text and for a page with a picture ([PDF text](#pdf-text)). |
+| `pdf` | `.pdf`, `application/pdf` | `unpdf`; `@cantoo/pdf-lib` for picture marks, the page check and `view_pages` | A `--- Page N ---` line before each page, tables rebuilt as rows of cells, a line for a page without text and for a page with a picture ([PDF text](#pdf-text)). |
 | `docx` | `.docx`, or the Word MIME type | `jszip` | The body, then the endnotes, footers, footnotes and headers, in that order. |
 | `pptx` | `.pptx`, or the PowerPoint MIME type | `jszip` | `## Slide N` before each slide, `[No text on this slide]` for a slide without text. |
 
@@ -77,6 +77,9 @@ maps these messages itself.
 | A PDF whose text passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB), counted page by page | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
 | A PDF whose page tree lists one page more than once | `This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.` |
 | A PDF whose pages draw more than 100 times its size in text (past the first 16 MB), by painting forms inside forms | `This PDF draws more than 16 MB of text, over 100 times its size. A file that grows that much is not read: it may be built to exhaust the server.` |
+| A PDF with a page that would hold the server while pdf.js reads it, found before any page is read (with `@cantoo/pdf-lib`; [Pages that would hold the server](#pages-that-would-hold-the-server)) | `Page 1 of this PDF draws far more than its file holds, and reading it would hold the server for a long time. A file built that way is not read: it may be built to exhaust the server. Print it to a new PDF, and attach that.` |
+| A PDF whose pages are each within that limit, but together far past it | `This PDF draws far more than its file holds, and reading it would hold the server for a long time. A file built that way is not read: it may be built to exhaust the server. Print it to a new PDF, and attach that.` |
+| A PDF with a page whose content is stored with a filter that only images use (JPEG, JPEG 2000, JBIG2, CCITT), or decodes to more than 64 MB through LZW, ASCII85, ASCIIHex or RunLength | `Page 1 of this PDF stores its content in a way that cannot be checked before it is read, so it is not read. Print it to a new PDF, and attach that.` |
 | A DOCX or PPTX of more than 32 million characters of text | `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.` |
 | A DOCX or PPTX whose text passes `maxTextBytes`, when that is below 32 million | `This DOCX holds more than 10 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
 | A DOCX or PPTX of more than 1,000,000 paragraphs with text | `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` |
@@ -117,6 +120,49 @@ What the user can do:
   content past what a program writes:** these are built to exhaust a server, not written by Word,
   PowerPoint or a PDF printer. If one comes from a real program, opening it there and saving it
   again, or printing it to a new PDF, writes it the usual way.
+- **A PDF with a page that would hold the server:** the same. If your users' real files are
+  refused this way, `createPdfExtractor({ checkPages: false })` reads them, and every page then
+  takes as long as pdf.js needs (below).
+
+### Pages that would hold the server
+
+pdf.js reads the text of a page in one block: until it is done, no other request on the server is
+answered, and neither `ingestTimeoutMs` nor a signal stops it. A page of a document takes a few
+milliseconds. A page built to paint a form that paints another form, many times over, held the
+server for 13 s to 2 minutes, from files of 2 to 21 KB
+([measured](../measurements.md#the-server)).
+
+With `@cantoo/pdf-lib` installed, the PDF extractor adds up what each page would make pdf.js run,
+before pdf.js reads any page:
+
+- the content of the page;
+- each form the content paints, every time it is painted, with what the form paints in turn. pdf.js
+  runs a form without text once, and skips its other paints: so does the count;
+- the first time the file sets a font: its font program and maps, and every glyph program of a
+  Type3 font, with the forms, patterns and shadings it paints. pdf.js does not decode an image to
+  read text, so images count for nothing.
+
+It reads the file without running it, and counts high where it cannot tell: any name written
+before a paint may be the drawing painted, and anything that looks like a text operator makes a
+form one with text. A byte of content counts one unit, a form painted for its text 640 more
+(about 0.1 ms of pdf.js, which took 75 to 85 µs), and a form painted by a glyph 256 more. A page is
+refused past 8,388,608 units, about 1 to 1.5 s of pdf.js, or past 32 times the size of the file
+when that is more, and a file whose pages add up to more than four times that. What the check
+looks through counts against that file budget too, 16 units for each entry of a resource
+dictionary, so a file cannot make the check itself work long. The pages of the real documents
+tested ran up to 11% of their limit. The count follows pdf.js 5.4, the version `unpdf` 1.4
+bundles; another version of pdf.js may run more.
+
+What still holds the server while pdf.js reads a page:
+
+- a page within the limit: up to about 1.5 s in a small file, and longer in a large one (a page of
+  a 10 MB file may run 320 MB of content);
+- any page, when `@cantoo/pdf-lib` is not installed or cannot read the file, when the file
+  declares more than 150,000 objects, or with `checkPages: false`;
+- a file built to be read one way by `@cantoo/pdf-lib` and another way by pdf.js.
+
+For uploads you do not trust, ingest in a process of its own
+([Deployment](./deployment.md#uploads-and-ingest)): only that process waits, and it can be stopped.
 
 ## PDF text
 
@@ -181,7 +227,9 @@ export const files = createLargeFiles({
 ```
 
 `tables: false` alone still writes the page lines, the line for a page without text, and the
-picture marks. `pictures: false` leaves out the picture marks. Both default to `true`
+picture marks. `pictures: false` leaves out the picture marks. `checkPages: false` turns off the
+check of [pages that would hold the server](#pages-that-would-hold-the-server), which changes no
+text. All three default to `true`
 ([`PdfExtractorOptions`](../reference/library.md#pdfextractoroptions)).
 
 ## Pictures in PDFs

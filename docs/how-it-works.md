@@ -48,7 +48,12 @@ question ─► plan the documents for the room left in the request, smallest fi
      `pages`. **DOCX**: the body, then the endnotes, footers, footnotes and headers (the other
      parts in the order of their names).
    - **Limits.** A PDF of more than `maxPdfPages` (5,000) pages is refused before its pages are
-     read, and one whose page tree lists a page twice as soon as it does. The text is counted as
+     read, and one whose page tree lists a page twice as soon as it does. With `@cantoo/pdf-lib`,
+     the same reading of the file that finds the pictures first adds up what each page would make
+     pdf.js run (its content, each form every time it is painted, the glyph programs of its Type3
+     fonts), and refuses a page that would hold the server for more than about 1.5 s, or 32
+     times the size of the file in content when that is more, before pdf.js reads any page
+     ([Pages that would hold the server](./guides/pdfs.md#pages-that-would-hold-the-server)). The text is counted as
      it is read, a PDF page by page and a DOCX or PPTX paragraph by paragraph, and the file is
      refused once it passes `maxTextBytes` (by default `maxUploadBytes`, 100 MB); a PDF also past
      100 times its size in text (after the first 16 MB); a DOCX or PPTX also past 32 million

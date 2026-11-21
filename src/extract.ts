@@ -1,6 +1,7 @@
 import { TimeSlicer } from "./pause.js";
 import { layoutPage, plainPageText, type LayoutBox, type PdfTextItem } from "./pdf-layout.js";
-import { findPicturePages, type PageGeometry } from "./pdf-pictures.js";
+import { findPicturePages, parsePdf, type PageGeometry } from "./pdf-pictures.js";
+import { checkPageWork, HeavyPage } from "./pdf-work.js";
 import { formatBytes } from "./plan.js";
 import { utf8Bytes } from "./text.js";
 import type { DocumentFormat, ExtractedText, ExtractInput, Extractor } from "./types.js";
@@ -487,6 +488,13 @@ export type PdfExtractorOptions = {
    * optional dependency `@cantoo/pdf-lib`; without it, and with false, the text is that of 0.2.0.
    */
   pictures?: boolean;
+  /**
+   * Before pdf.js reads any page, add up what each page would make it run, and refuse a file with
+   * a page that would hold the server for a long time: pdf.js reads a page in one block that no
+   * time limit can cut short. Defaults to true. It needs the optional dependency
+   * `@cantoo/pdf-lib`. With false, and `pictures: false`, the file is not read with it at ingest.
+   */
+  checkPages?: boolean;
 };
 
 /**
@@ -494,6 +502,14 @@ export type PdfExtractorOptions = {
  * a 3 KB file built that way held 107 MB of text. PDF writers do not do this.
  */
 const REPEATED_PAGE = "This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.";
+/**
+ * pdf.js reads the text of a page in one go, and nothing can stop it. A page that paints forms
+ * inside forms, or whose content is packed hundreds of times, held the server for 6 s to 2 minutes
+ * from files of 2 to 650 KB. Such a page is found before pdf.js reads it (see pdf-work.ts).
+ */
+const HEAVY_PAGE = (page: number) => `Page ${page} of this PDF draws far more than its file holds, and reading it would hold the server for a long time. A file built that way is not read: it may be built to exhaust the server. Print it to a new PDF, and attach that.`;
+const HEAVY_FILE = "This PDF draws far more than its file holds, and reading it would hold the server for a long time. A file built that way is not read: it may be built to exhaust the server. Print it to a new PDF, and attach that.";
+const UNREADABLE_PAGE = (page: number) => `Page ${page} of this PDF stores its content in a way that cannot be checked before it is read, so it is not read. Print it to a new PDF, and attach that.`;
 /**
  * The text of a PDF is smaller than the file: fonts and pictures take room, and text is
  * compressed. A page that paints one form inside another, many times over, draws the text of the
@@ -518,6 +534,7 @@ export const PICTURE_ON_PAGE = "[Picture on this page. This text cannot show it.
 export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor {
   const tables = options.tables ?? true;
   const pictures = options.pictures ?? true;
+  const checkPages = options.checkPages ?? true;
   return async (bytes, input) => {
     let unpdf: typeof import("unpdf");
     try {
@@ -533,6 +550,20 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
     if (maxPages !== undefined && document.numPages > maxPages) {
       throw new Error(`This PDF has ${document.numPages.toLocaleString("en-US")} pages, more than the ${maxPages.toLocaleString("en-US")} read from one file. Split it, and attach the part you need.`);
     }
+    // Read once with @cantoo/pdf-lib, when it is installed: to refuse a page that would hold the
+    // server before pdf.js reads it, and to mark the pages that show a picture.
+    let parsed = checkPages || pictures ? await parsePdf(bytes, signal) : undefined;
+    signal?.throwIfAborted();
+    if (parsed && checkPages) {
+      try {
+        await checkPageWork(parsed.library, parsed.document, bytes.byteLength, signal);
+      } catch (error) {
+        if (error instanceof HeavyPage) throw new Error(error.reason === "unreadable" ? UNREADABLE_PAGE(error.page) : error.reason === "file" ? HEAVY_FILE : HEAVY_PAGE(error.page));
+        signal?.throwIfAborted();
+        // Anything else unusual in the file: the check is given up, and the text is read as before.
+      }
+    }
+    if (!pictures) parsed = undefined;
     const maxTextBytes = input?.maxTextBytes ?? Number.POSITIVE_INFINITY;
     const mostDrawn = Math.max(PDF_ALLOWANCE, bytes.byteLength * MAX_PDF_EXPANSION);
     const tooMuchText = () => new Error(maxTextBytes <= mostDrawn
@@ -592,7 +623,7 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
       }
     }
     // Which pages show a picture. Undefined when that could not be found out: then none is marked.
-    const pictured = pictures ? await findPicturePages(bytes, geometry, signal) : undefined;
+    const pictured = pictures ? await findPicturePages(parsed, geometry, signal) : undefined;
     signal?.throwIfAborted();
     const pages = texts.map((text, index) => `--- Page ${index + 1} ---\n${pictured?.[index] ? `${PICTURE_ON_PAGE}\n` : ""}${text || PAGE_WITHOUT_TEXT}`);
     return { text: pages.join("\n\n"), pages: document.numPages };

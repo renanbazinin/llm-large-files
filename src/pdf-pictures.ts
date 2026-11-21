@@ -9,7 +9,7 @@
  *
  * Needs the optional dependency "@cantoo/pdf-lib". Without it, no page is marked.
  */
-import type { PDFContext, PDFDict, PDFObject } from "@cantoo/pdf-lib";
+import type { PDFContext, PDFDict, PDFDocument, PDFObject } from "@cantoo/pdf-lib";
 import { fairPause } from "./pause.js";
 import { decodeContent, loadPdfLibrary, objectsPerTick, tooManyObjects } from "./pdf-pages.js";
 
@@ -325,20 +325,46 @@ function showsPicture(graphics: Graphics, geometry: PageGeometry, furniture: Rea
   return false;
 }
 
+/** A PDF read into objects by @cantoo/pdf-lib: once for a file, by the page-work check and the picture marks. */
+export type ParsedPdf = { library: PdfLibrary; document: PDFDocument };
+
+/**
+ * Reads a PDF into objects with @cantoo/pdf-lib. Undefined when that cannot be done: the library is
+ * not installed, the file declares more than `MAX_OBJECTS` objects, it cannot be read, or `signal`
+ * was aborted. It never throws.
+ */
+export async function parsePdf(bytes: Uint8Array, signal?: AbortSignal): Promise<ParsedPdf | undefined> {
+  try {
+    if (signal?.aborted || tooManyObjects(bytes, MAX_OBJECTS) !== undefined) return undefined;
+    // The first time, loading the library is one block of about 0.4 s, as is opening pdf.js just
+    // before: other requests get a turn between the two, and before the parse. One pause runs
+    // straight after the work before it, in the same turn of the event loop; the second comes after
+    // the timers and the I/O of other requests.
+    await fairPause();
+    await fairPause();
+    const library = await loadPdfLibrary();
+    await fairPause();
+    const document = await library.PDFDocument.load(bytes, { updateMetadata: false, parseSpeed: objectsPerTick(bytes), password: "" });
+    return signal?.aborted ? undefined : { library, document };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * For each page, whether it shows a picture (images that cover a real share of the page, other
  * than one repeated on many pages) or a drawing (shapes filled in several colours, outside the
  * tables). Undefined when that could not be worked out: the library is not installed, the file has
  * too many objects or took too long, it does not have the pages the text was extracted from, or
- * `signal` was aborted (the caller then stops). It never throws.
+ * `signal` was aborted (the caller then stops). It never throws. `source`: the bytes of the file, or
+ * the file as `parsePdf` read it (undefined when it could not).
  */
-export async function findPicturePages(bytes: Uint8Array, pages: readonly PageGeometry[], signal?: AbortSignal): Promise<boolean[] | undefined> {
+export async function findPicturePages(source: Uint8Array | ParsedPdf | undefined, pages: readonly PageGeometry[], signal?: AbortSignal): Promise<boolean[] | undefined> {
   try {
-    if (signal?.aborted || tooManyObjects(bytes, MAX_OBJECTS) !== undefined) return undefined;
-    const library = await loadPdfLibrary();
-    const { PDFArray, PDFDocument, PDFRawStream } = library;
-    const document = await PDFDocument.load(bytes, { updateMetadata: false, parseSpeed: objectsPerTick(bytes), password: "" });
-    if (signal?.aborted) return undefined;
+    const opened = source instanceof Uint8Array ? await parsePdf(source, signal) : source;
+    if (!opened || signal?.aborted) return undefined;
+    const { library, document } = opened;
+    const { PDFArray, PDFRawStream } = library;
     const leaves = document.getPages();
     if (leaves.length !== pages.length) return undefined;
     const { context } = document;

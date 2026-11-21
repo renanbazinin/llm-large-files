@@ -273,7 +273,8 @@ maintainers: [Contributing](CONTRIBUTING.md) and [Publishing](docs/publishing.md
 
 Node.js 20.19 or newer. The package is ESM; CommonJS code can `require()` it on Node 20.19+ and
 22.12+. For DOCX/PPTX install `jszip`, for PDF install `unpdf`, and to mark and show the pages of a
-PDF install `@cantoo/pdf-lib`. All three are optional:
+PDF, and refuse a page built to hold the server before it is read, install `@cantoo/pdf-lib`. All
+three are optional:
 
 ```bash
 npm install jszip unpdf @cantoo/pdf-lib

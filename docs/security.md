@@ -269,12 +269,14 @@ How `view_pages` works, and what to weigh before you keep originals, is in [PDFs
 
 ## Reading PDFs for pages and pictures
 
-Two features read the whole PDF into objects with `@cantoo/pdf-lib`, in your process, on a file a
-user uploaded:
+Three features read the whole PDF into objects with `@cantoo/pdf-lib`, in your process, on a file
+a user uploaded:
 
 - **`view_pages`** reads the kept original again for every call, to cut the pages out of it.
-- **Picture marks** read every PDF at ingest, when `@cantoo/pdf-lib` is installed, whether or not
-  originals are kept. A page that shows a picture or a drawing then gets the line
+- **Picture marks** and **the page check** read every PDF at ingest, once for both, when
+  `@cantoo/pdf-lib` is installed, whether or not originals are kept. The page check refuses a page
+  that would hold the server while pdf.js reads it ([Uploads](#uploads)), before pdf.js reads any
+  page. A page that shows a picture or a drawing gets the line
   `[Picture on this page. This text cannot show it.]`.
 
 What bounds them:
@@ -285,8 +287,9 @@ What bounds them:
   declares more than 1,000,000 objects, or more than 60% of the free heap holds at 1,700 bytes an
   object: the model is told
   `report.pdf: This PDF has 1,200,000 objects, too many to cut pages from it in memory.`
-  Picture marks skip a file past 150,000 objects: it is ingested with no page marked. Both checks
-  trust what the file declares: a file that declares fewer objects than it has, or none, is read.
+  Picture marks and the page check skip a file past 150,000 objects: it is ingested with no page
+  marked, and no page checked. Both limits trust what the file declares: a file that declares fewer
+  objects than it has, or none, is read.
 - **Time.** Reading cannot be interrupted once it has started, not even by the question's `signal`.
   It pauses every 500 objects so other requests get a turn, or every few thousand for a file of
   more than 50,000 objects, so that it pauses about 100 times at most. (Until 0.6.1 it paused every
@@ -300,17 +303,18 @@ What bounds them:
   answers from the text. Picture marks that fail leave every page unmarked.
 
 To turn them off: without `keepOriginals` for PDFs, `view_pages` is never offered
-(`viewPages: false` turns it off for one question). Picture marks are turned off in the PDF
-extractor, or by not installing `@cantoo/pdf-lib`; a `view_pages` call then fails too, so keep no
-PDF originals either.
+(`viewPages: false` turns it off for one question). Picture marks and the page check are turned off
+in the PDF extractor, or by not installing `@cantoo/pdf-lib`; a `view_pages` call then fails too,
+so keep no PDF originals either. Without the page check, a page that is slow to read holds the
+server for as long as pdf.js takes ([Uploads](#uploads)): ingest in a process of its own.
 
 ```ts
 import { createLargeFiles, createPdfExtractor, FileDocumentStore } from "llm-large-files";
 
 const files = createLargeFiles({
   store: new FileDocumentStore("./data/documents"),
-  // No picture marks: PDFs are not read with @cantoo/pdf-lib at ingest.
-  extractors: { pdf: createPdfExtractor({ pictures: false }) },
+  // No picture marks and no page check: PDFs are not read with @cantoo/pdf-lib at ingest.
+  extractors: { pdf: createPdfExtractor({ pictures: false, checkPages: false }) },
   // No keepOriginals: no original is kept, so view_pages is never offered.
 });
 ```
@@ -369,17 +373,36 @@ server that memory is the server's heap. Choose the isolation with care:
   limit, `ingest` stops waiting, but a step already under way (one page of pdf.js, JSZip reading
   the directory of a ZIP, a parse of `@cantoo/pdf-lib`, an extractor of your own that does not
   look at `ExtractInput.signal`) runs on to its end in the background.
+- **Work of a PDF page.** pdf.js reads the text of a page in one block that neither the time limit
+  nor a signal cuts short, and a page can be built to make it run far more than its file holds: a
+  3 KB page that paints a form that paints another, 50 times at each of three levels, held the
+  event loop for 13 s, and one of 4 KB for about 100 s. With `@cantoo/pdf-lib` installed, the PDF
+  extractor adds up, before pdf.js reads any page, what each page would make it run (its content,
+  each form every time it is painted, and the fonts it sets, Type3 glyph programs included), and
+  refuses a page past about 1 to 1.5 s of pdf.js, or past 32 times the size of the file when that
+  is more: "Page 1 of this PDF draws far more than its file holds, and reading it would hold the
+  server for a long time. A file built that way is not read: it may be built to exhaust the
+  server. Print it to a new PDF, and attach that." Pages that add up to more than four such pages
+  are refused with "This PDF draws far more than its file holds, …", and a page whose content
+  cannot be decoded before pdf.js reads it with "Page 1 of this PDF stores its content in a way
+  that cannot be checked before it is read, so it is not read. …". The hostile files of the review
+  are refused in under 0.06 s. The check narrows what an upload can do; it does not bound it (see
+  Stalls). How it counts: [Pages that would hold the server](./guides/pdfs.md#pages-that-would-hold-the-server).
 - **Stalls.** Ingest pauses for other requests about every 12 ms of its work: between the pages of
   a PDF, as a DOCX or PPTX is unpacked, and in every step after extraction. In a measurement on
   one machine, the longest stall of the event loop was 31 to 34 ms for a 99 MB log and 0.16 s for
   a 2,000-page PDF, against 1.9 to 2.0 s and 4.4 to 4.5 s with 0.6.0
   ([Measurements](./measurements.md#the-server)). Two kinds of file still hold the server, and
-  neither the time limit nor a signal cuts them short: a PDF page that is slow to read holds it
-  for as long as that page takes (a page built to paint forms inside forms held it for 25 s), and
-  a DOCX or PPTX packed hundreds of times tighter than documents are holds it for about 0.2 s at a
-  time while JSZip unpacks a piece. Ingest files you do not trust in a process of their own
-  ([Deployment](./guides/deployment.md#uploads-and-ingest)).
-- **Parsers.** PDF text is read with `unpdf` (pdf.js), pages and pictures with `@cantoo/pdf-lib`,
+  neither the time limit nor a signal cuts them short. A PDF page holds it for as long as pdf.js
+  takes to read it: up to about 1.5 s for a page that passes the check in a small file, longer in
+  a large file, and without limit when the page check does not run (without `@cantoo/pdf-lib`, on
+  a file it cannot read or that declares more than 150,000 objects, with `checkPages: false`) or
+  on a file built to be read one way by `@cantoo/pdf-lib` and another way by pdf.js. And a DOCX or
+  PPTX packed hundreds of times tighter than documents are holds it for about 0.2 s at a time while
+  JSZip unpacks a piece. Ingest files you do not trust in a process of their own
+  ([Deployment](./guides/deployment.md#uploads-and-ingest)): only that process waits, and it is
+  stopped at its time limit.
+- **Parsers.** PDF text is read with `unpdf` (pdf.js), pages, pictures and the page check with `@cantoo/pdf-lib`,
   and DOCX and PPTX are unpacked with `jszip`. They are optional dependencies, and they run on
   untrusted input in your process. Keep them updated, and for high-risk deployments move extraction
   to a process of its own or a sandbox ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)

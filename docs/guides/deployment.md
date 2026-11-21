@@ -168,14 +168,18 @@ An ingest runs in your server's process, a slice at a time. It pauses for other 
 every 12 ms of its work, so an answer streaming on the same server waits a fraction of a second,
 not seconds: the longest stall measured was 34 ms for a 99 MB log and 0.16 s for a 2,000-page
 PDF, where 0.6.0 held the server for 2.0 s and 4.5 s ([measured](../measurements.md#the-server)).
-One page of a PDF that is slow to read still holds the server for as long as it takes: a page
-built to paint forms inside forms held it for 25 s. It has limits too: `maxTextBytes` (the text kept from
+One page of a PDF still holds the server for as long as pdf.js takes to read it. With
+`@cantoo/pdf-lib` installed, a page that would take long is refused before pdf.js reads any page
+(a page built to paint forms inside forms held the server for 13 s to 2 minutes without that
+check); a page that passes can still take about 1.5 s, more in a large file
+([Pages that would hold the server](./pdfs.md#pages-that-would-hold-the-server)). It has limits too: `maxTextBytes` (the text kept from
 one file, 100 MB by default), `maxPdfPages` (5,000) and `ingestTimeoutMs` (2 minutes) refuse a file
 that would cost more ([Security](../security.md#uploads)).
 
 The first PDF a process reads also loads the PDF parsers, in one block that no pause can split:
-about 0.25 s for `@cantoo/pdf-lib` and 0.05 s for pdf.js, measured on Node 24. Load them when the
-server starts, before it takes requests:
+about 0.25 s for `@cantoo/pdf-lib` and 0.05 s for pdf.js, measured on Node 24. Since 0.6.1 it loads
+`@cantoo/pdf-lib` even with `pictures: false`, for the page check. Load them when the server
+starts, before it takes requests:
 
 ```ts
 // Before the server listens: the first upload of a PDF then does not hold it while they load.

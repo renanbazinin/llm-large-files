@@ -360,11 +360,75 @@ parsers not loaded first):
 |---|---|
 | PDFs of 23 KB and 95 KB whose 140 and 600 distinct pages all paint one dense content stream | Refused at 16 MB of text ("draws more than 16 MB of text, over 100 times its size") in 5.5 to 6.0 s, at 210 MB; longest stall 0.34 to 0.59 s. Without that limit, the first was stored with 99.5 MB of text after 35 to 40 s, at 430 MB. |
 | The DOCX of 1.5 MB holding 120 MB of empty paragraphs, with JSZip loaded first | Stalls of 0.2 to 0.25 s, one after the other, for 3 s: JSZip unpacks a piece of the file in one block, and a piece packed this tight is several MB of XML. A DOCX of 4 MB written the usual way, with 32 MB of XML, never held the event loop for 30 ms. |
-| A PDF of 650 KB whose one page paints forms inside forms | Read: 9 KB of text in 24 to 26 s, nearly all of it one stall of about 25 s, at 510 MB. pdf.js reads a page in one block, and neither `ingestTimeoutMs` nor a signal stops it within the page. |
-| A PDF of 160 KB of three such pages | Read in 17 s, with one stall of 11 s. |
+| A PDF of 650 KB whose one page runs 160 MB of text operators, packed 250 times | Read: 9 KB of text in 24 to 26 s, nearly all of it one stall of about 25 s, at 510 MB. pdf.js reads a page in one block, and neither `ingestTimeoutMs` nor a signal stops it within the page. |
+| A PDF of 160 KB of three pages that each run 40 MB | Read in 17 s, with one stall of 11 s. |
 
-These last two are why [Deployment](./guides/deployment.md#uploads-and-ingest) ingests files you
-do not trust in a process of their own.
+These last two, measured without the page check, are why it was written (below), and why
+[Deployment](./guides/deployment.md#uploads-and-ingest) ingests files you do not trust in a process
+of their own.
+
+**The page check (0.6.1, November 2026, Node 24 on Windows).** Each file ingested into a
+`MemoryDocumentStore` in a fresh process with the parsers loaded first, without the check (the
+0.6.1 code before it; one or two runs) and with it (one run). Time is the whole ingest; the stall
+is the longest gap between two beats of a 5 ms timer.
+
+| File | Without the check | With the check |
+|---|---|---|
+| 2.8 KB: one page paints a form that paints the next 50 times, 3 deep (125,000 forms with text) | Read in 13 to 14 s, one stall of 13 to 14 s, at 345 to 380 MB | Refused in 15 ms, at 68 MB |
+| 2.2 to 2.3 KB, the same 4, 5 and 6 deep (20, 12 and 8 times) | Read in 17 to 36 s, nearly all of it one stall, at 385 to 470 MB | Refused in 14 to 19 ms |
+| 4.3 KB and 21 KB, the same 3 deep 100 times, and 2 deep 1,000 times (1,000,000 forms) | Refused once read, for 16 MB of text, after 95 to 119 s, all of it one stall | Refused in 19 and 22 ms |
+| 636 KB: one page runs 160 MB of text operators, packed 250 times | Read in 23 to 29 s, one stall of 23 to 29 s, at 420 MB | Refused in 54 ms; longest stall 20 ms |
+| 160 KB: three pages each run 40 MB | Read in 18 to 22 s, longest stall 6 to 14 s | Refused in 32 ms |
+| 2.9 KB: a Type3 glyph paints a form 390,000 times, through forms inside forms | Read in 9.1 s, one stall of 9.0 s, at 730 MB | Refused in 17 ms, at 68 MB |
+| 2.6 KB: eight forms with text that each paint all eight | Read in 5.8 to 6.0 s, one stall | Refused in 42 ms |
+| 2.9 KB: forms inside forms, painted from content stored with a predictor | Read in 9.7 to 10.0 s, one stall | Refused in 20 ms |
+| 23 KB: 140 pages show one dense content stream | Refused at 16 MB of text after 5.8 s; longest stall 0.53 s | Refused in 26 ms |
+| 25 KB: 60 pages show one stream of 4 MB | Read in 38 s; a stall of 1.3 s a page | Refused in 35 ms |
+
+The check found the pages of the documents tested at 11% of the limit at most. Under 2%: PDFs
+printed by Chrome, Word and PowerPoint (10,000 to 150,000 units a page), books of 300 to 2,000
+pages (10,000), a 3,000-page file of 60,000 objects (under 5,000), and 300 pages of 1,500 filled
+shapes each (180,000). Under 11%: Edge printing a table of 6,000 rows, an SVG chart of 30,000
+points (16.6 million units in a 4.6 MB file; pdf.js read the page in 0.32 s), 5,000 SVG icons,
+30 fonts, and pages of CSS gradients and shadows; matplotlib saving a scatter plot of 50,000
+points, a 40-page report of 16 charts a page, and 600,000 points of lines.
+
+A form painted for its text counts 640 units, about 0.1 ms. pdf.js took 75 to 85 µs a form,
+warm: 0.84 s for a page that paints one small form with text 10,000 times, 0.79 s for forms
+inside forms 100 times 2 deep, 1.26 s for 25 times 3 deep, and 1.70 s for 12 times 4 deep. The
+first two are read, the last two refused. Files built to make the check itself work hard are
+checked fast: 300 pages whose resources all point to one list of 140,000 drawings in 0.16 s, and
+a page that may paint any of 140,000 drawings 100 times in 0.42 s. Their longest stall, 0.1 to
+0.15 s, is reading the list once, about as long as `@cantoo/pdf-lib` takes to parse it.
+
+The 14 inputs of the identity check of 0.6.1 (logs of 10 to 100 MB, JSONL, CSV,
+Markdown, and the PDFs below with and without picture marks) store byte for byte the text, index
+and metadata that 0.6.0 stores. What the check adds to an ingest:
+
+PDFs written with `@cantoo/pdf-lib` (pages of 45 lines of text, or of 1,500 small filled shapes),
+ingested into a `FileDocumentStore` with originals kept, without the check and with it in turn,
+three runs each: the median, and the range. A warm process ingests the file a second time, the
+parsers already loaded; a fresh one loads them during the ingest. Peak memory is that of the
+process.
+
+| PDF | Picture marks | Ingest, warm: without / with | Longest stall, warm | Ingest, fresh process | Longest stall, fresh | Peak memory, fresh |
+|---|---|---|---|---|---|---|
+| 300 pages, 1 MB | on | 0.91 / 0.91 s | 50 / 46 ms | 1.48 / 1.56 s | 0.44 / 0.41 s | 169 / 169 MB |
+| 300 pages | off | 0.84 / 0.93 s | 54 / 61 ms | 1.00 / 1.49 s | 0.13 / 0.41 s | 146 / 159 MB |
+| 1,000 pages, 3.2 MB | on | | | 4.03 / 3.91 s | 0.50 / 0.43 s | 323 / 332 MB |
+| 1,000 pages | off | | | 3.25 / 4.16 s | 0.22 / 0.47 s | 258 / 325 MB |
+| 2,000 pages, 6.4 MB | on | 6.27 [5.99 to 8.01] / 7.26 [6.20 to 7.47] s | 0.18 / 0.19 s | 7.93 / 8.19 s | 0.52 / 0.49 s | 418 / 443 MB |
+| 2,000 pages | off | 6.05 / 6.37 s | 0.19 / 0.19 s | 7.02 / 8.29 s | 0.33 / 0.49 s | 345 / 436 MB |
+| 300 pages of drawings, 3 MB | on | 3.86 / 4.07 s | 40 / 33 ms | 5.08 / 4.87 s | 0.51 / 0.47 s | 315 / 323 MB |
+| 300 pages of drawings | off | | | 2.95 / 3.64 s | 0.13 / 0.49 s | 87 / 154 MB |
+
+With picture marks on, the file was read with `@cantoo/pdf-lib` before too, after the text: the
+check itself took 31 ms for 300 pages of text, 0.11 s for 300 pages of drawings and 0.25 s for
+2,000 pages, inside the spread of the runs. With them off, that reading is new: in a warm process
+0.08 s for 300 pages and 0.3 s for 2,000. In a fresh process, the first PDF also loads
+`@cantoo/pdf-lib`, one block of about 0.4 s: the longest stall of a fresh process with
+`pictures: false` is that load, which a server that loads the parsers when it starts does not pay
+([Deployment](./guides/deployment.md#uploads-and-ingest)).
 
 **Heap limits of workers and child processes (0.6.1, Node 24 on Windows).** The heap limit a
 thread sees (`v8.getHeapStatistics().heap_size_limit`), with `resourceLimits:

@@ -39,15 +39,15 @@ matter.
 
 Uploads built to hurt the server are refused, and a large upload no longer holds the server while
 it is read. Ingest now pauses for other requests between the pages of a PDF and between slices of
-its own work, and limits the text, the pages and the time one file may take. `files.tools()`
-checks the owner of each document it reads. These are fixes from a review of how 0.6.0 handles
-hostile files.
+its own work, limits the text, the pages and the time one file may take, and refuses a PDF page
+built to hold the server before pdf.js reads it. `files.tools()` checks the owner of each document
+it reads. These are fixes from a review of how 0.6.0 handles hostile files.
 
 ### Upgrading: what you need to change
 
 Code written for 0.6.0 compiles with 0.6.1 as it is. Every change to the public types is an
-addition: three options of `createLargeFiles`, `IngestInput.signal`, three fields of
-`ExtractInput`, and two constants.
+addition: three options of `createLargeFiles`, one of `createPdfExtractor`, `IngestInput.signal`,
+three fields of `ExtractInput`, and two constants.
 
 Some behavior is different. Check each point against your app:
 
@@ -70,9 +70,22 @@ Some behavior is different. Check each point against your app:
   - files that no program writes, built to exhaust the server: a PDF whose page tree lists one
     page more than once, and a DOCX or PPTX with paragraphs nested more than 32 deep, more than
     1,000,000 paragraphs with text, or more than 20,000 parts.
+  - with `@cantoo/pdf-lib` installed, a PDF with a page whose text would take pdf.js far longer to
+    read than its file explains, found before pdf.js reads any page: past about 1 to 1.5 s of
+    pdf.js, or 32 times the size of the file in content when that is more, counting each form
+    every time it is painted and the glyph programs of the Type3 fonts the page sets
+    ([Pages that would hold the server](docs/guides/pdfs.md#pages-that-would-hold-the-server)):
+    `Page 1 of this PDF draws far more than its file holds, and reading it would hold the server for a long time. A file built that way is not read: it may be built to exhaust the server. Print it to a new PDF, and attach that.`
+    Pages that are each within that, but add up to more than four times as much:
+    `This PDF draws far more than its file holds, …` with the same end. A page whose content is
+    stored in a way that cannot be decoded first (a filter that only images use, such as JPEG):
+    `Page 1 of this PDF stores its content in a way that cannot be checked before it is read, so it is not read. Print it to a new PDF, and attach that.`
+    The pages of the documents tested ran up to 11% of that limit.
 
   **What to do:** nothing, unless your users upload PDFs of more than 5,000 pages, or files with
-  more than 100 MB of text: then raise `maxPdfPages` or `maxTextBytes`. Every message is in
+  more than 100 MB of text: then raise `maxPdfPages` or `maxTextBytes`. If real PDFs of your users
+  are refused for a page that would hold the server, read them with
+  `createPdfExtractor({ checkPages: false })`, in a process of its own. Every message is in
   [PDFs and other formats](docs/guides/pdfs.md#what-is-refused).
 - **An ingest that takes more than 2 minutes throws.** `ingestTimeoutMs` (120,000 by default)
   bounds the extraction, the line index and the log profile, not the store's writes. Past it,
@@ -112,17 +125,23 @@ Some behavior is different. Check each point against your app:
   **What to do:** nothing.
 - **One page of a PDF still holds the server while pdf.js reads it.** Between two pages, the PDF
   extractor lets other requests run and looks at the time limit and the signal. Within a page it
-  cannot: pdf.js gives no way to stop a page, and does all of it without letting a timer run. A
-  page built to paint forms inside forms can take far longer than a page of text: in the review,
-  the one page of a 650 KB file built that way held the event loop for 25 s, and one page of a
-  160 KB file for 11 s. Neither `ingestTimeoutMs` nor `IngestInput.signal` cuts such a page
-  short. Likewise, a DOCX or PPTX
-  packed hundreds of times tighter than documents are holds it for about 0.2 s at a time while
-  JSZip unpacks a piece; a 4 MB DOCX written the usual way, with 32 MB of XML, never held it for
-  30 ms.
+  cannot: pdf.js gives no way to stop a page, and does all of it without letting a timer run.
+  Neither `ingestTimeoutMs` nor `IngestInput.signal` cuts a page short. The page check (above)
+  refuses the pages that would take far longer than their file explains: forms painted inside
+  forms, content packed hundreds of times, Type3 glyphs that paint either. What it leaves:
+  - a page that passes holds the server for up to about 1.5 s in a small file, and longer in a
+    large one: a page of a 10 MB file may run 320 MB of content, about a minute of pdf.js;
+  - without `@cantoo/pdf-lib`, on a file it cannot read or that declares more than 150,000
+    objects, and with `checkPages: false`, no page is checked: a 3 KB page of forms inside forms
+    held the event loop for 13 s, and one of 4 KB for about 100 s;
+  - a file built to be read one way by `@cantoo/pdf-lib` and another way by pdf.js passes it.
+
+  Likewise, a DOCX or PPTX packed hundreds of times tighter than documents are holds it for about
+  0.2 s at a time while JSZip unpacks a piece; a 4 MB DOCX written the usual way, with 32 MB of
+  XML, never held it for 30 ms.
   **What to do:** if your users can upload files you do not trust, ingest them in a child process
   of their own, as [Deployment](docs/guides/deployment.md#uploads-and-ingest) shows, so that only
-  that process waits.
+  that process waits, and its time limit stops it.
 
 ### New: what you can add
 
@@ -145,6 +164,9 @@ Some behavior is different. Check each point against your app:
   [Custom extractors](docs/guides/pdfs.md#custom-extractors).
 - **`DEFAULT_MAX_PDF_PAGES`** (5,000) and **`DEFAULT_INGEST_TIMEOUT_MS`** (120,000): the defaults
   above, exported. See [the library reference](docs/reference/library.md#default_max_pdf_pages).
+- **`createPdfExtractor({ checkPages: false })`** turns the page check off. With
+  `pictures: false` too, PDFs are not read with `@cantoo/pdf-lib` at ingest. See
+  [`PdfExtractorOptions`](docs/reference/library.md#pdfextractoroptions).
 
 ```ts
 import type { ServerResponse } from "node:http";
@@ -184,6 +206,17 @@ Besides the points under **Upgrading**:
   parts (a ZIP64 directory included) is refused before JSZip reads it.
 - **`ingest` stops waiting for an extractor** when the ingest's signal aborts (`ingestTimeoutMs`,
   or `IngestInput.signal`), whether or not the extractor looks at the signal.
+- **A PDF is read with `@cantoo/pdf-lib` once, before its text.** When it is installed, the PDF
+  extractor reads the file into objects before pdf.js reads any page, for the page check and the
+  picture marks together; 0.6.0 read it after the text, for the marks only. With
+  `pictures: false`, the file is now read too, for the check, unless `checkPages: false`.
+  With picture marks on (the default), that costs nothing measurable: PDFs of 300 to 2,000 pages
+  took the same time within the spread of three runs, and the longest stall did not grow. With
+  `pictures: false`, the reading is new: 0.1 to 0.3 s more for 300 to 2,000 pages, and up to
+  90 MB more memory at the peak. The first PDF of a process now loads `@cantoo/pdf-lib` even with
+  `pictures: false`, in one block of about 0.4 s, unless the server loads it when it starts
+  ([Deployment](docs/guides/deployment.md#uploads-and-ingest)). See
+  [Measurements](docs/measurements.md#the-server).
 - **A text without a line over 2,000 characters is not split and joined again** at ingest, a
   text that needs no cleaning is not copied, and a text file is taken for a log from its first 200
   non-empty lines without going through the rest. An ingest of a 99 MB log takes 1.9 s, as with
@@ -206,7 +239,30 @@ Uploads you do not trust:
   listings, held the event loop for 205 s with a heap of 1.5 GB, and ran a heap of 512 MB out of
   memory. It is refused in under 0.3 s.
 - **A PDF of 23 KB no longer stores 99.5 MB of text.** Its 140 pages all paint one dense content
-  stream. It is now refused at 16 MB of text, in under 6 s.
+  stream: they add up to far more than the file holds, and it is now refused before pdf.js reads a
+  page, in under 0.03 s. Without `@cantoo/pdf-lib`, it is refused at 16 MB of text, in under 6 s.
+- **A PDF of 3 KB no longer holds the server for 13 s, nor one of 4 KB for about 100 s.** The page
+  of each paints a form that paints the next one 50 (or 100) times, three levels deep, and the
+  last one shows a line of text: 125,000 (or 1,000,000) runs of a form for pdf.js, in one block.
+  The second was refused only once read, for its 16 MB of text. With `@cantoo/pdf-lib` installed,
+  both are refused before pdf.js reads them, in under 0.03 s, with the process at 70 MB, where the
+  first took 350 to 380 MB. Files of 2 to 21 KB built the same way, 2 to 6 levels deep, held it
+  for 17 s to 2 minutes, and are refused as fast.
+- **A PDF of 650 KB no longer holds the server for 23 to 29 s.** Its one page runs 160 MB of text
+  operators, packed 250 times. It is refused in 0.05 s. One of 160 KB, whose three pages each run
+  40 MB, held it for 6 to 14 s at a time; it is refused in 0.03 s.
+- **Forms that all paint each other, and content stored with a predictor, no longer hold the
+  server.** Eight forms of a 3 KB file that each paint all eight held the event loop for 6 s, and
+  forms inside forms painted from content that only pdf.js could decode (a predictor, which
+  `@cantoo/pdf-lib` does not undo) for 10 s. Both are refused in under 0.05 s. Two forms that
+  paint each other are read, as pdf.js reads them.
+- **A PDF of 25 KB no longer keeps pdf.js busy for 38 s.** Its 60 pages all show one stream of
+  4 MB, and each page held the event loop for 1.3 s. Its pages add up to far more than the file
+  holds: it is refused in 0.04 s.
+- **A Type3 font no longer holds the server while a page loads it.** pdf.js runs every glyph
+  program of a Type3 font when a page sets it: a 3 KB file whose one glyph paints a form 390,000
+  times, through forms inside forms, held the event loop for 9 s, at 730 MB. It is refused in
+  under 0.02 s.
 - **A large upload no longer holds the server while it is read.** In the review, a 100 MB log held
   the event loop for 3.5 s, and a 2,000-page PDF for 8.3 s: every answer streaming on that server
   stopped for that long. Measured again on one machine (Node 24, Windows), 0.6.0 and 0.6.1 in
