@@ -676,9 +676,15 @@ export function pageWorkLimit(fileBytes: number): number {
  * pdf.js more than `pageWorkLimit` of the file's size to read, or whose content cannot be measured
  * here, and for a file whose pages together take more than `FILE_WORK_PAGES` such pages. Other
  * requests get a turn every few milliseconds, and an aborted `signal` stops it. Returns the work
- * of the heaviest page, in units.
+ * of the heaviest page, in units. `onProgress` is told the pages checked so far, after each page.
  */
-export async function checkPageWork(library: PdfLibrary, document: PDFDocument, fileBytes: number, signal?: AbortSignal): Promise<number> {
+export async function checkPageWork(
+  library: PdfLibrary,
+  document: PDFDocument,
+  fileBytes: number,
+  signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
+): Promise<number> {
   const limit = pageWorkLimit(fileBytes);
   const budget = limit * FILE_WORK_PAGES;
   const slicer = new TimeSlicer(signal);
@@ -691,7 +697,10 @@ export async function checkPageWork(library: PdfLibrary, document: PDFDocument, 
   for (let index = 0; index < leaves.length; index++) {
     const leaf = leaves[index]!;
     // A page listed twice is refused by the text extractor, with its own message.
-    if (measured.has(leaf)) continue;
+    if (measured.has(leaf)) {
+      onProgress?.(index + 1, leaves.length);
+      continue;
+    }
     measured.add(leaf);
     const contents = leaf.Contents();
     const streams = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
@@ -706,6 +715,7 @@ export async function checkPageWork(library: PdfLibrary, document: PDFDocument, 
       if (error instanceof HeavyPage) throw new HeavyPage(error.reason, index + 1);
       throw error;
     }
+    onProgress?.(index + 1, leaves.length);
     await slicer.maybePause();
   }
   return heaviest;

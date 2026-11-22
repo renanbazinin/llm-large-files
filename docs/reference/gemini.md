@@ -34,7 +34,7 @@ The entry point needs no Google SDK: it posts to the Generate Content REST API w
 - [Errors](#errors): [`GeminiRequestError`](#geminirequesterror)
 - [Re-exports of the main entry](#re-exports-of-the-main-entry): `DocumentsNotFoundError`,
   `partialResultOf`, `EXPLORER_INSTRUCTION`, `FINAL_ANSWER_REQUEST`, `FINAL_ANSWER_AFTER_PAGES`,
-  `FINAL_ANSWER_WITHOUT_TOOLS`, `parseSseJson`, `ChatTurn`
+  `FINAL_ANSWER_WITHOUT_TOOLS`, `parseSseJson`, `ChatTurn`, `AskEvent`
 
 ## Endpoints
 
@@ -266,14 +266,16 @@ takes their place.
 
 Shared with [`AskOptions`](./ask.md#askoptions), with the same meaning and defaults: `files`,
 `documentIds`, `documentPlacement`, `system`, `owner`, `limits`, `retry`, `budget`,
-`wholeDocumentAnalysis`, `viewPages`, `onText`, `onActivity`, `onStep`, `signal`. With Gemini:
+`wholeDocumentAnalysis`, `viewPages`, `onText`, `onActivity`, `onStep`, `signal`, and, new in 0.7.0,
+`streamText`, `onEvent`, `runId` and `eventResults` (see [events](./events.md)). With Gemini:
 
 - `messages` is optional and typed `Array<ChatTurn | ToolTurn>`: plain turns and the `toolTurns`
   of earlier questions. Turns with native parts (images, inline PDFs, thought signatures) go in
   `contents` instead. Give `messages` or `contents`: with neither, the question throws "The last
   message must be the user's."
 - `onText` streams only when the endpoint has a `streamUrl`. Without one, it gets the text of each
-  reply once the reply has arrived.
+  reply once the reply has arrived. The same holds for `streamText` (on by default with `onText`):
+  it asks for the answer as it is written only from an endpoint with a `streamUrl`.
 - `limits` is merged with `maxToolTurns` and `maxToolCallsPerTurn` (below). A field of `limits`
   wins.
 
@@ -292,6 +294,34 @@ Fields `askGemini` adds:
 | `maxToolTurns` | `number` | 12 | `limits.toolTurns`, under the name it had before 0.5.0. `limits.toolTurns` wins when both are set. |
 | `maxToolCallsPerTurn` | `number` | 8 | `limits.callsPerTurn`, under the name it had before 0.5.0. `limits.callsPerTurn` wins when both are set. |
 | `fetch` | `typeof fetch` | the global `fetch` | Used for every request of both models, part reads included: a proxy, logging, tests. |
+
+`askGemini` has no stream form of its own. To read its events with `for await`, as
+[`askStream`](./ask.md#askstreamoptions) gives them for `askWithFiles`, wrap it in
+[`eventStream`](./events.md#eventstreamrun-options) from `llm-large-files`: it passes the listener
+and a signal, and leaving the loop early stops the question.
+
+```ts
+import { eventStream } from "llm-large-files";
+import { askGemini, type AskEvent, type AskGeminiOptions, type AskGeminiResult } from "llm-large-files/gemini";
+
+// options are those of askGemini, with your endpoint, files and messages.
+export async function showGeminiQuestion(options: AskGeminiOptions): Promise<AskGeminiResult | undefined> {
+  const stream = eventStream<AskEvent, AskGeminiResult>(
+    (onEvent, signal) => askGemini({ ...options, onEvent, signal, streamText: options.streamText !== false }),
+    { signal: options.signal },
+  );
+  for await (const event of stream) {
+    if (event.type === "request.start") console.error(`${event.role} request ${event.requestId} to ${event.model}`);
+    if (event.type === "tool.end") console.error(event.step ?? `${event.callId}: ${event.outcome}`);
+    if (event.type === "text") process.stdout.write(event.delta);
+    if (event.type === "run.error") console.error(event.error.message);
+  }
+  return stream.result.catch(() => undefined);
+}
+```
+
+With an explorer, `run.start` names both models (`models.explorer`), and the explorer's requests
+have `role: "explorer"`.
 
 Guide: [Gemini API and Vertex AI](../guides/vertex-and-gemini.md).
 
@@ -790,3 +820,4 @@ whichever entry point you import them from. Each is described on its own page.
 | `FINAL_ANSWER_WITHOUT_TOOLS` | The message that asks for the answer when no tool ran. | [ask](./ask.md#final_answer_without_tools) |
 | `parseSseJson(stream, hooks?)` | The `text/event-stream` parser: JSON objects, one per `data:` event. | [errors and retries](./errors-and-retries.md#parsessejsonstream-hooks) |
 | `ChatTurn` | The type `{ role: "user" \| "assistant" \| "model"; text: string }`. | [ask](./ask.md#chatturn) |
+| `AskEvent` | The type of the events `onEvent` gets. New in 0.7.0. | [events](./events.md) |

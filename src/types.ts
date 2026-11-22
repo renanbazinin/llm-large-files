@@ -162,6 +162,24 @@ export type ExtractInput = {
   maxTextBytes?: number;
   /** The most pages to read from one PDF (`maxPdfPages`). The built-in PDF extractor refuses more. */
   maxPages?: number;
+  /**
+   * Call it as the extraction goes on, so `ingest` can report progress (`IngestInput.onEvent`).
+   * The built-in extractors call it for each page of a PDF (also for the page check and the
+   * picture marks: `stage` "check" and "pictures"), each part of a DOCX or PPTX, and once when a
+   * text file not in UTF-8 is decoded ("decode"). Calls after the extractor returned are dropped. An
+   * extractor of your own may ignore it. New in 0.7.0.
+   */
+  onProgress?: (progress: ExtractProgress) => void;
+};
+
+/** How far an extraction is, for `ExtractInput.onProgress`. */
+export type ExtractProgress = {
+  /** "extract" (the default): text read; "check": pages checked before reading; "pictures": pages looked at for pictures; "decode": bytes of a text file decoded. */
+  stage?: "extract" | "check" | "pictures" | "decode";
+  done: number;
+  /** Absent when not known. */
+  total?: number;
+  unit: "pages" | "parts" | "bytes";
 };
 
 export type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>;
@@ -236,6 +254,42 @@ export type ToolCallLimits = {
    */
   maxRequests?: number;
 };
+/**
+ * Listeners for one tool call, next to its limits. New in 0.7.0: with them, the progress of two
+ * whole-file reads that run at once can be told apart.
+ */
+export type ToolCallHooks = {
+  /** Progress of this call (a whole-file read), in place of `ToolOptions.onProgress` for it. */
+  onProgress?: ProgressListener;
+  /**
+   * Each model request this call makes (a whole-file read), as it starts. Tell the handle it
+   * returns about each retry of that request, and when it ends.
+   */
+  onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
+};
+
+/** One model request of a tool call (`ToolCallHooks.onRequest`). */
+export type ToolRequestHandle = {
+  /** The request failed and is sent again after `delayMs`. */
+  retry(notice: { attempt: number; delayMs: number; error: unknown }): void;
+  /** The request ended, after any retries. Call it once. */
+  end(end: ToolRequestEnd): void;
+};
+
+/** A model request of a tool call, as it starts (`ToolCallHooks.onRequest`). */
+export type ToolRequestStart = {
+  purpose: "part" | "merge" | "final";
+  /** "part 3 of 12", "first half of part 3 of 12", "round 2: 1 of 4", "the answer". */
+  detail: string;
+};
+
+/** A model request of a tool call, as it ends. */
+export type ToolRequestEnd = {
+  outcome: "ok" | "error";
+  usage?: GenerateUsage;
+  error?: unknown;
+};
+
 /** The name of `ToolCallLimits` before 0.5.0. */
 export type ToolFileLimits = ToolCallLimits;
 
@@ -251,7 +305,7 @@ export type ToolSet = {
    * Runs a tool call and also returns the files it produced, to be sent to the model with the
    * result. Use it in place of `execute` in a loop that can send files.
    */
-  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallLimits): Promise<ToolOutput>;
+  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallLimits, hooks?: ToolCallHooks): Promise<ToolOutput>;
   /** A short, human-readable line describing a call, for progress UIs. */
   describe(name: string, args: Record<string, unknown>): string;
   /**

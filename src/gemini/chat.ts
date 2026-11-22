@@ -1,5 +1,6 @@
 import { askWithFiles, type AskLimits, type AskResult } from "../ask.js";
 import type { LargeFiles } from "../library.js";
+import type { AskEvent } from "../events.js";
 import type { ChatTurn, ToolTurn } from "../model.js";
 import type { RetryOptions } from "../retry.js";
 import type { Budget } from "../types.js";
@@ -9,6 +10,7 @@ import type { GeminiToolFilePlacement } from "./generate.js";
 
 export { DocumentsNotFoundError } from "../model.js";
 export { EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "../ask.js";
+export type { AskEvent } from "../events.js";
 export type { ChatTurn } from "../model.js";
 export type { GeminiContent, GeminiPart } from "./adapter.js";
 export { GeminiRequestError } from "./errors.js";
@@ -89,12 +91,20 @@ export type AskGeminiOptions = {
    * arrive. Defaults to 300,000. 0 waits without end.
    */
   idleTimeoutMs?: number;
-  /** Answer text as it streams. Streaming is used when this is set and the endpoint has `streamUrl`. */
+  /** Answer text as it streams. Streaming is used when this is set (or `streamText` is true) and the endpoint has `streamUrl`. */
   onText?: (delta: string) => void;
+  /** Whether to ask for the answer as it is written (`AskOptions.streamText`). Defaults to true when `onText` is given. New in 0.7.0. */
+  streamText?: boolean;
   /** Short-lived status, such as "Searching app.log for “timeout”…". */
   onActivity?: (text: string) => void;
   /** A finished step, such as "Search app.log (exact) for “timeout” — 12 matching lines". */
   onStep?: (text: string) => void;
+  /** Everything the question does, as typed events in order (`AskOptions.onEvent`). New in 0.7.0. */
+  onEvent?: (event: AskEvent) => void;
+  /** The `runId` of the events. Defaults to one made for the question ("run_…"). */
+  runId?: string;
+  /** Put each tool result in its `tool.end` event (`AskOptions.eventResults`). Off by default. */
+  eventResults?: boolean;
   fetch?: typeof fetch;
   signal?: AbortSignal;
 };
@@ -137,8 +147,12 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     ...(options.wholeDocumentAnalysis !== undefined ? { wholeDocumentAnalysis: options.wholeDocumentAnalysis } : {}),
     ...(options.viewPages !== undefined ? { viewPages: options.viewPages } : {}),
     ...(options.onText ? { onText: options.onText } : {}),
+    ...(options.streamText !== undefined ? { streamText: options.streamText } : {}),
     ...(options.onActivity ? { onActivity: options.onActivity } : {}),
     ...(options.onStep ? { onStep: options.onStep } : {}),
+    ...(options.onEvent ? { onEvent: options.onEvent } : {}),
+    ...(options.runId !== undefined ? { runId: options.runId } : {}),
+    ...(options.eventResults !== undefined ? { eventResults: options.eventResults } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   });
 }

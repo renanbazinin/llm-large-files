@@ -483,10 +483,16 @@ export async function measureText(text: string, slicer: TimeSlicer): Promise<{ t
  * then the lines (a line break at the very end does not start another line). The same results as
  * doing each in one go: no step of `normalizeText` reaches across a line break, and whether a U+0085
  * ends lines is decided once, for the whole text. A slice that runs far past its size holds a long
- * line: it is cleaned in pieces too.
+ * line: it is cleaned in pieces too. `onProgress` is told the characters of `raw` cleaned so far,
+ * after each slice; splitting the lines after that is quick, and is not counted.
  */
-export async function prepareText(raw: string, slicer: TimeSlicer): Promise<{ text: string; wrapped: number; lines: string[] }> {
-  const body = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+export async function prepareText(
+  raw: string,
+  slicer: TimeSlicer,
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ text: string; wrapped: number; lines: string[] }> {
+  const start = raw.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const body = start === 1 ? raw.slice(1) : raw;
   const nextLines = breaksAtNextLine(body);
   const parts: string[] = [];
   // A clean text (most logs) comes back as it is: joining its slices would copy all of it.
@@ -496,6 +502,7 @@ export async function prepareText(raw: string, slicer: TimeSlicer): Promise<{ te
     const normalized = slice.length > 2 * SLICE_CHARACTERS ? await normalizeInPieces(slice, slicer, nextLines) : normalizeLines(slice, nextLines);
     if (normalized !== slice) changed = true;
     parts.push(normalized);
+    onProgress?.(start + to, raw.length);
     await slicer.maybePause();
   }
   const { text, wrapped } = wrapLongLines(!changed ? body : parts.length === 1 ? parts[0]! : parts.join(""));

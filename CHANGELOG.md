@@ -36,6 +36,159 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.7.0 — not released yet
+
+A question and an ingest now say what they do as typed events, in order: the plan, each model
+request with its retries and usage, each tool call with how it ended, the answer's text, and the
+result or the error at the end. `askStream` gives a question's events as an async iterable,
+`writeSseEvents` sends them to a browser as Server-Sent Events, and an upload can answer with its
+progress. The callbacks of 0.6.0 (`onText`, `onActivity`, `onStep`) get the same strings at the
+same moments, and events carry no tool results, which hold document text, unless you ask
+for them. A live check with the
+Gemini API passed: the events of a search, of a question with an explorer and of a whole-file read
+were counted and paired, and a question was sent end to end over SSE. See
+[Events](docs/reference/events.md).
+
+### Upgrading: what you need to change
+
+Code written for 0.6.0 compiles with 0.7.0 as it is. Every change to the public types is an
+addition: new optional options and fields, an optional fourth parameter of
+`ToolSet.executeWithFiles`, and new exports. `llm-large-files` adds `askStream`, `eventStream`,
+`newRunId` and the types `AskEvent`, `IngestEvent`, `LibraryEvent`, `EventBase`, `EventError`,
+`EventResult`, `EventStream`, `DocumentRef`, `IngestStage`, `NoticeCode`, `NoticeDisplay`,
+`RequestRole`, `RequestPurpose`, `ToolOutcome`, `ExtractProgress`, `ToolCallHooks`,
+`ToolRequestHandle`, `ToolRequestStart` and `ToolRequestEnd`; `llm-large-files/node` adds
+`writeSseEvents`, `sseMessageOf` and the types `SseMessage` and `SseWriteOptions`;
+`llm-large-files/gemini` adds the type `AskEvent`.
+
+Some behavior is different. Check each point against your app:
+
+- **Each entry of `AskResult.evidence` now has `callId`.** `askWithFiles` and `askGemini` set it
+  to the id of the tool call it came from (`"call_1"`, `"call_2"`…), the id its events use. Code
+  or a test that compares `result.evidence` with objects that have no `callId`, by deep equality
+  (`toEqual`, `assert.deepStrictEqual`), now fails.
+  **What to do:** add `callId` to the objects you compare with, or compare with `toMatchObject`.
+  `evidenceOf()` in a loop of your own does not set it.
+- **A throw from `onActivity` during a whole-file read now ends the question.** In 0.6.0, a throw
+  of `onActivity` on the progress of `analyze_whole_document` ("Reading app.log: part 3 of 12…")
+  became the tool's error: the model was sent your error's message, and the question went on. Now
+  the read and the other calls of its turn stop, and `askWithFiles` throws that error. A throw of
+  `onEvent` there does the same.
+  **What to do:** nothing, unless your `onActivity` can throw, such as one that writes to a
+  connection that may have closed. Catch its errors inside it.
+- **`ToolSet.executeWithFiles` takes an optional fourth argument, `hooks`** (`ToolCallHooks`). It
+  matters only for a `ToolSet` of your own, such as a wrapper around `files.tools()` in a
+  `LargeFiles` of your own. A wrapper that drops the argument still works, but `askWithFiles`
+  then gets no `tool.progress` events and no events for the requests of a whole-file read.
+  **What to do:** in such a wrapper, pass `hooks` on.
+- **`ExtractInput` has an optional `onProgress`.** An extractor of your own works as before, and
+  its file reports no `extract` progress. An extractor that wraps a built-in one with an
+  `ExtractInput` of its own should pass `onProgress` on.
+  **What to do:** nothing; call it to report progress (see **New**).
+
+### New: what you can add
+
+The samples assume what your app already has: `files` from `createLargeFiles()`, `model` from an
+adapter, and the `documentIds` and `question` of the chat.
+
+- **The events of a question: `AskOptions.onEvent`.** Every event of the question, in order:
+  `run.start`, `plan`, `request.start`, `retry`, `text`, `request.end`, `tool.start`,
+  `tool.progress`, `tool.end`, `notice`, and last `run.finish` or `run.error`. Each has `seq`
+  (1, 2, 3… without gaps), `runId` and `time`. Requests and tool calls come in pairs with ids
+  (`req_1`, `call_1`), and tool ends come in call order. Notices say what the callbacks said, and
+  three things they never did (`budget_reached`, `no_room`, `blocked`). Errors in events are told
+  in words for users: a model error by its kind and status, never in the provider's words, which
+  stay on the error that is thrown. See [`AskEvent`](docs/reference/events.md#askevent) and
+  [The order of the events](docs/reference/events.md#the-order-of-the-events).
+- **`askStream(options)`**: `askWithFiles` as an async iterable of its events, with `result` and
+  `abort()`. Leaving the loop early stops the question; the loop never throws (read `run.error`,
+  or await `result`). The answer is asked for as it is written unless `streamText: false`. See
+  [`askStream`](docs/reference/events.md#askstreamoptions).
+
+  ```ts
+  import { askStream } from "llm-large-files";
+
+  const stream = askStream({ files, model, documentIds, messages: [{ role: "user", text: question }] });
+  for await (const event of stream) {
+    if (event.type === "tool.start") console.log(`${event.label}…`);
+    if (event.type === "text") process.stdout.write(event.delta);
+    if (event.type === "run.error") console.log(`Failed: ${event.error.message}`);
+  }
+  const result = await stream.result.catch(() => undefined); // keep result.toolTurns with the chat
+  ```
+
+- **`eventStream(run, options?)`**: the same for any function that takes an `onEvent` and a
+  `signal`, such as `askGemini` or `files.ingest`. See
+  [`eventStream`](docs/reference/events.md#eventstreamrun-options).
+- **`AskOptions.runId`**: the `runId` of the events, to tie them to a request of your app.
+  Defaults to `"run_"` and 16 hex digits; `newRunId(prefix?)` makes one.
+- **`AskOptions.eventResults`**: put each tool result in its `tool.end` event, and `toolTurns` and
+  the full plan (each document's `DocumentMeta`) in the result of `run.finish` and `run.error`.
+  Off by default, since they hold document text: without it, that plan names the documents only. See
+  [Documents](docs/reference/events.md#documents-eventresults-and-eventresult).
+- **`AskOptions.streamText`**: whether the model is asked for the answer as it is written. It
+  defaults to `true` with `onText` and in `askStream`, and to `false` otherwise, as 0.6.0 did:
+  `onEvent` alone never changes how the model is asked. See
+  [`streamText`](docs/reference/events.md#streamtext).
+- **The events of an ingest: `IngestInput.onEvent` and `IngestInput.runId`.** `ingest.start`,
+  `ingest.progress` for each stage (`check`, `extract`, `pictures`, `decode`, `prepare`, `index`,
+  `store`, in pages, parts, bytes or characters, at most one every 12 ms for a stage, and the last
+  one), then `ingest.finish` with the `DocumentSummary`, or `ingest.error`. See
+  [`IngestEvent`](docs/reference/events.md#ingestevent).
+- **`ExtractInput.onProgress`**, for an extractor of your own to report its progress, as the
+  built-in ones do for each page of a PDF and each part of a DOCX or PPTX. See
+  [`ExtractInput.onProgress`](docs/reference/events.md#extractinputonprogress-for-an-extractor-of-your-own).
+- **`ToolCallHooks`**, the optional fourth argument of `ToolSet.executeWithFiles`: the progress
+  and the model requests of one call, for a loop of your own in which two whole-file reads run at
+  once. See [`ToolCallHooks`](docs/reference/events.md#toolcallhooks).
+- **`writeSseEvents(response, events, options?)` and `sseMessageOf(event)`**, in
+  `llm-large-files/node`: events to a browser as Server-Sent Events, one message per event
+  (`id` is `seq`, `event` is `type`, `data` the event itself), with the event-stream headers,
+  keep-alive comments and back-pressure. It stops an `askStream` passed to it when the client goes
+  away. `sseMessageOf`, its default, sends the result of `run.finish` without `toolTurns`, `plan`,
+  `budget` and `lastUsage`. See
+  [`writeSseEvents`](docs/reference/events.md#writesseeventsresponse-events-options).
+
+  ```ts
+  import { askStream } from "llm-large-files";
+  import { writeSseEvents } from "llm-large-files/node";
+
+  // In your route, with Node's response.
+  const stream = askStream({ files, model, documentIds, messages: [{ role: "user", text: question }] });
+  await writeSseEvents(response, stream);
+  ```
+
+- **Uploads with progress.** `createDocumentHandlers().upload` answers a request with
+  `Accept: text/event-stream` with `200` and the ingest's events, ending with `ingest.finish`
+  (its `document` is the summary a `201` holds) or `ingest.error` (its `error` is the message and
+  status a JSON answer would have). A missing name, a refused owner and a file too large still get
+  an HTTP error in JSON, and without the header nothing changes. See
+  [Uploads with progress](docs/reference/events.md#uploads-with-progress).
+- **`askGemini` takes `onEvent`, `runId`, `eventResults` and `streamText`**, and passes them to
+  `askWithFiles`. See [`askGemini`](docs/reference/events.md#askgemini).
+
+### Changed: what works differently
+
+Besides the points under **Upgrading**:
+
+- **`Evidence.callId`**: each entry of `AskResult.evidence`, and of `partialResultOf(error)`,
+  names its tool call, as `tool.end` does.
+- **A turn that fails stops its other tool calls.** When a turn ends with an error (the question
+  was stopped, or a callback threw), the calls of that turn still waiting for their turn do not
+  run, and those running are told to stop. In 0.6.0, after a callback threw, they went on
+  running after the question had thrown.
+- **`examples/server.ts`** asks with `askStream` and sends the events with `writeSseEvents`. The
+  page shows the tool calls with how each ended, a counter for whole-file reads, the status line
+  and the answer, and uploads with progress. The tool rounds of each chat stay on the server, so
+  the page no longer sends them back, and the question's body has a size limit.
+
+### Fixed
+
+- **The status line of the example page shows.** The page of `examples/server.ts` wrote its
+  status to `status`, which in a browser is `window.status`, not the element with that id: retries,
+  "Writing the answer…", errors and the usage at the end never showed. The page now looks the
+  element up by its id.
+
 ## 0.6.0 — 2026-11-22
 
 Questions fail less often, and when one fails, you can tell why and keep what it found: every

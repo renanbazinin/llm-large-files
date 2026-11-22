@@ -131,11 +131,15 @@ export function buildTextIndex(text: string): TextIndex {
   return builder.finish();
 }
 
-/** `buildTextIndex`, the same index, with pauses for other requests while a large text is indexed. */
-export async function buildTextIndexInSlices(text: string, slicer: TimeSlicer): Promise<TextIndex> {
+/**
+ * `buildTextIndex`, the same index, with pauses for other requests while a large text is indexed.
+ * `onProgress` is told the characters indexed so far, after each slice.
+ */
+export async function buildTextIndexInSlices(text: string, slicer: TimeSlicer, onProgress?: (done: number, total: number) => void): Promise<TextIndex> {
   const builder = new TextIndexBuilder();
   for (let at = 0; at < text.length;) {
     at = pushSlice(builder, text, at);
+    onProgress?.(at, text.length);
     await slicer.maybePause();
   }
   return builder.finish();

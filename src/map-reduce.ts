@@ -5,7 +5,7 @@ import { noTextReason } from "./output-limit.js";
 import { statusOf, withRetry, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes } from "./text.js";
 import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
-import type { Budget, GenerateText, ProgressListener } from "./types.js";
+import type { Budget, GenerateText, GenerateUsage, ProgressListener, ToolCallHooks, ToolRequestStart } from "./types.js";
 
 const NOTHING = "NOTHING RELEVANT";
 const PART_OUTPUT_TOKENS = 4_096;
@@ -111,7 +111,7 @@ const PLAIN_REASON = /^[A-Za-z_]{1,40}$/;
  * status and message. An error with none of these is told as a request that failed. A reply with
  * no text to a part reader of the package's is told in the package's words, as before.
  */
-function modelFailureReason(error: unknown): string {
+export function modelFailureReason(error: unknown): string {
   try {
     const noText = noTextReason(error);
     if (noText !== undefined) return `The model returned no text${PLAIN_REASON.test(noText) ? ` (${noText})` : ""}.`;
@@ -242,26 +242,52 @@ export class TooManyPartsError extends Error {
   }
 }
 
+/** Two reports of usage as one. */
+function addUsage(sum: GenerateUsage | undefined, used: GenerateUsage): GenerateUsage {
+  const out: GenerateUsage = { ...sum };
+  for (const key of ["inputTokens", "cachedInputTokens", "outputTokens", "thoughtTokens"] as const) {
+    if (typeof used[key] === "number") out[key] = (out[key] ?? 0) + used[key];
+  }
+  return out;
+}
+
+/** Who is told of each model request of a read (`ToolCallHooks.onRequest`), and what the request is. */
+type Told = { onRequest: NonNullable<ToolCallHooks["onRequest"]>; start: ToolRequestStart };
+
 /**
  * One model call. A model that was busy or failed on its side (an error with an HTTP status worth
  * retrying) is asked again after a wait, a few times; a request it refused is not. An error that
  * says nothing of the kind is tried once more, at once. `truncated` is true when the reply that
  * was kept hit the output limit. When the signal aborts, the call ends with its reason, whether or
- * not the part reader stops.
+ * not the part reader stops. `told` hears when the request starts, each retry, and how it ended,
+ * with the usage its part reader reported.
  */
 async function ask(
   generate: GenerateText,
   request: { system: string; prompt: string; maxOutputTokens: number },
   signal: AbortSignal | undefined,
   retry: RetryOptions | undefined,
+  told?: Told,
 ): Promise<{ text: string; truncated: boolean }> {
   let truncated = false;
-  const text = await withRetry(() => {
-    truncated = false;
-    // Nothing is sent once the read was stopped: the signal may abort while a part's lines are read.
-    signal?.throwIfAborted();
-    return until(generate({ ...request, ...(signal ? { signal } : {}), onTruncated: () => { truncated = true; } }), signal);
-  }, { retry, signal, unknownErrors: "once" });
+  const handle = told?.onRequest(told.start);
+  let usage: GenerateUsage | undefined;
+  const onUsage = handle && ((used: GenerateUsage) => {
+    usage = addUsage(usage, used);
+  });
+  let text: string;
+  try {
+    text = await withRetry(() => {
+      truncated = false;
+      // Nothing is sent once the read was stopped: the signal may abort while a part's lines are read.
+      signal?.throwIfAborted();
+      return until(generate({ ...request, ...(signal ? { signal } : {}), onTruncated: () => { truncated = true; }, ...(onUsage ? { onUsage } : {}) }), signal);
+    }, { retry, signal, unknownErrors: "once", ...(handle ? { onRetry: (notice) => handle.retry(notice) } : {}) });
+  } catch (error) {
+    handle?.end({ outcome: "error", ...(usage ? { usage } : {}), error });
+    throw error;
+  }
+  handle?.end({ outcome: "ok", ...(usage ? { usage } : {}) });
   return { text: text.trim(), truncated };
 }
 
@@ -275,6 +301,8 @@ export async function analyzeWholeDocument(options: {
   generate: GenerateText;
   budget: Budget;
   onProgress?: ProgressListener;
+  /** Told of each model request of the read as it starts: see `ToolCallHooks.onRequest`. */
+  onRequest?: ToolCallHooks["onRequest"];
   signal?: AbortSignal;
   concurrency?: number;
   /** How a model request that failed is sent again. See `RetryOptions`. */
@@ -285,7 +313,9 @@ export async function analyzeWholeDocument(options: {
    */
   maxRequests?: number;
 }): Promise<WholeDocumentResult> {
-  const { document, task, generate, budget, onProgress, signal, retry } = options;
+  const { document, task, generate, budget, onProgress, onRequest, signal, retry } = options;
+  /** What `ask` tells of a request of this read, when anyone listens. */
+  const told = (purpose: ToolRequestStart["purpose"], detail: string): Told | undefined => (onRequest ? { onRequest, start: { purpose, detail } } : undefined);
   const name = document.meta.name;
   const parts = await partsOf(document, budget, signal);
   if (parts.length > budget.maxMapChunks) throw new TooManyPartsError(name, parts.length, budget.maxMapChunks);
@@ -321,7 +351,7 @@ export async function analyzeWholeDocument(options: {
    * than the budget says) is read as two halves instead, once: a half that is still too large is
    * reported as a part that could not be read.
    */
-  const readPart = async (from: number, to: number, where: string, halved: boolean): Promise<Note[]> => {
+  const readPart = async (from: number, to: number, where: string, halved: boolean, detail: string): Promise<Note[]> => {
     let part: string;
     try {
       part = numberLines(await document.readLines(from, to), from);
@@ -345,7 +375,7 @@ export async function analyzeWholeDocument(options: {
           "</part>",
         ].join("\n"),
         maxOutputTokens: PART_OUTPUT_TOKENS,
-      }, signal, retry);
+      }, signal, retry, told("part", detail));
       let text = reply.text;
       if (reply.truncated) {
         truncatedParts++;
@@ -358,8 +388,8 @@ export async function analyzeWholeDocument(options: {
         halvings--;
         const middle = Math.floor((from + to) / 2);
         return [
-          ...await readPart(from, middle, `${where}, first half`, true),
-          ...await readPart(middle + 1, to, `${where}, second half`, true),
+          ...await readPart(from, middle, `${where}, first half`, true, `first half of ${detail}`),
+          ...await readPart(middle + 1, to, `${where}, second half`, true, `second half of ${detail}`),
         ];
       }
       return failedPart(from, to, error, modelFailureReason(error));
@@ -367,7 +397,8 @@ export async function analyzeWholeDocument(options: {
   };
   const notes = (await pool(parts.length, options.concurrency ?? 4, async (index) => {
     const { from, to } = parts[index]!;
-    const read = await readPart(from, to, `part ${index + 1} of ${parts.length}`, false);
+    const where = `part ${index + 1} of ${parts.length}`;
+    const read = await readPart(from, to, where, false, where);
     done++;
     onProgress?.({ kind: "map", message: `Reading ${name}: part ${done} of ${parts.length}`, done, total: parts.length });
     return read;
@@ -428,7 +459,7 @@ export async function analyzeWholeDocument(options: {
           system: "You merge partial notes about a document into shorter notes, keeping every relevant fact and line citation.",
           prompt: `Task: ${task}\n\nMerge these notes from ${name} into one set of notes. Keep line citations.\n\n${batch}`,
           maxOutputTokens: PART_OUTPUT_TOKENS,
-        }, signal, retry);
+        }, signal, retry, told("merge", `round ${round}: ${index + 1} of ${batches.length}`));
         if (reply.truncated) truncatedMerges++;
         merged = reply.truncated ? `${reply.text}\n[These merged notes were cut off at the output limit.]` : reply.text;
       } catch (error) {
@@ -462,7 +493,7 @@ export async function analyzeWholeDocument(options: {
         layer.join("\n\n"),
       ].join("\n"),
       maxOutputTokens: FINAL_OUTPUT_TOKENS,
-    }, signal, retry);
+    }, signal, retry, told("final", "the answer"));
   } catch (error) {
     if (signal?.aborted) throw error;
     // The notes of every part were paid for and hold what was found: they are the answer, rather than an error.

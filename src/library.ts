@@ -3,6 +3,7 @@ import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./a
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
 import { DocumentStoreError, noteStoreWriteFailure } from "./errors.js";
+import { EventEmitter, eventErrorOf, newRunId, type IngestEvent, type IngestStage } from "./events.js";
 import { detectFormat, extractText } from "./extract.js";
 import { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
@@ -21,6 +22,7 @@ import type {
   DocumentStore,
   DocumentSummary,
   ExtractedText,
+  ExtractProgress,
   Extractor,
   GenerateText,
   PreparedContext,
@@ -127,6 +129,13 @@ export type IngestInput = {
    * is stored. The built-in extractors stop between pages and pieces.
    */
   signal?: AbortSignal;
+  /**
+   * What the ingest does as it goes: `ingest.start`, `ingest.progress` for each stage, then
+   * `ingest.finish` or `ingest.error`. See docs/reference/events.md. New in 0.7.0.
+   */
+  onEvent?: (event: IngestEvent) => void;
+  /** The `runId` of those events. Defaults to one made for the ingest ("ing_…"). */
+  runId?: string;
 };
 
 /** Access options. When a document has an owner, only that owner can use it. */
@@ -381,6 +390,90 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
+/** The message of `ingest.error` when the store failed to write the document. */
+const STORE_WRITE_FAILED = "The document could not be stored. Try again later.";
+
+/** The least time between two `ingest.progress` events of one stage, in milliseconds: a slice of `TimeSlicer`. */
+const PROGRESS_MS = 12;
+
+type ProgressUnit = Extract<IngestEvent, { type: "ingest.progress" }>["unit"];
+const EXTRACT_STAGES = new Set<unknown>(["extract", "check", "pictures", "decode"]);
+const EXTRACT_UNITS = new Set<unknown>(["pages", "parts", "bytes"]);
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+/** What `ingest.start` says of an ingest, worked out from whatever it was given: the checks come after it. */
+function startOf(input: IngestInput | undefined): { name: string; format: DocumentFormat; bytes: number } {
+  try {
+    const name = typeof input?.name === "string" ? cleanFileName(input.name) : "";
+    const mimeType = (typeof input?.mimeType === "string" ? input.mimeType.trim() : "") || "application/octet-stream";
+    const bytes = input?.bytes?.byteLength;
+    return { name, format: detectFormat(name, mimeType), bytes: isCount(bytes) ? bytes : 0 };
+  } catch {
+    return { name: "", format: "text", bytes: 0 };
+  }
+}
+
+type HeldProgress = { done: number; total: number | undefined; unit: ProgressUnit; sent: boolean };
+
+/**
+ * Sends the `ingest.progress` events of one ingest: at most one every `PROGRESS_MS` for each stage,
+ * however the stages take turns, then the last progress of each stage when the stages end (`end`).
+ * A progress that completes its stage goes out at once, the first time, so that stages that run one
+ * after the other end in that order. Made only when someone listens.
+ */
+class IngestProgress {
+  /** Each stage that reported, in the order it first did: when it last sent, and its last progress. */
+  private readonly stages = new Map<IngestStage, { sentAt: number; completed: boolean; last: HeldProgress }>();
+  /** Set once a stage after the extractor's began: an extract stage is not reported again. */
+  private extractOver = false;
+
+  constructor(private readonly events: EventEmitter<IngestEvent>) {}
+
+  report(stage: IngestStage, done: number, total: number | undefined, unit: ProgressUnit): void {
+    if (!EXTRACT_STAGES.has(stage)) this.extractOver = true;
+    const last: HeldProgress = { done, total, unit, sent: false };
+    let state = this.stages.get(stage);
+    if (!state) {
+      state = { sentAt: Number.NEGATIVE_INFINITY, completed: false, last };
+      this.stages.set(stage, state);
+    }
+    state.last = last;
+    const now = performance.now();
+    const completes = !state.completed && total !== undefined && done >= total;
+    if (completes) state.completed = true;
+    if (completes || now - state.sentAt >= PROGRESS_MS) {
+      state.sentAt = now;
+      this.send(stage, last);
+    }
+  }
+
+  /** The progress an extractor reported (`ExtractInput.onProgress`). One of your own may send anything: what does not fit is left out. */
+  extracted(progress: ExtractProgress): void {
+    if (this.extractOver) return;
+    const stage = progress?.stage ?? "extract";
+    if (!EXTRACT_STAGES.has(stage) || !EXTRACT_UNITS.has(progress?.unit) || !isCount(progress?.done)) return;
+    this.report(stage, progress.done, isCount(progress.total) ? progress.total : undefined, progress.unit);
+  }
+
+  /** The stages so far are over: the last progress of each, when it was held back, goes out, in the order they began. */
+  end(): void {
+    const held = [...this.stages].filter(([, state]) => !state.last.sent);
+    this.stages.clear();
+    for (const [stage, state] of held) this.send(stage, state.last);
+  }
+
+  private send(stage: IngestStage, last: HeldProgress): void {
+    last.sent = true;
+    this.events.emit({
+      type: "ingest.progress",
+      stage,
+      done: last.done,
+      ...(last.total !== undefined ? { total: last.total } : {}),
+      unit: last.unit,
+    });
+  }
+}
+
 /** Default for `wholeDocumentBytes`. */
 export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
 
@@ -519,39 +612,48 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     return meta && allowed(meta, access) ? meta : undefined;
   }
 
-  return {
-    budget,
-    budgetFor,
-    maxUploadBytes,
-
-    async ingest(input) {
-      checkOwner(input.owner);
-      const name = cleanFileName(input.name);
-      const mimeType = input.mimeType?.trim() || "application/octet-stream";
-      if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
-      if (input.bytes.byteLength > maxUploadBytes) {
-        throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
-      }
-      let format = detectFormat(name, mimeType);
-      const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
-      // Each long step works in slices, with pauses for other requests: one large upload no longer
-      // holds the whole server while it is read.
-      const slicer = new TimeSlicer(signal);
-      let pages: number | undefined;
-      let reading: ReturnType<typeof readingOf>;
-      let text: string;
-      let wrapped: number;
-      let lines: string[];
-      let measured: Awaited<ReturnType<typeof measureText>>;
-      let outline: DocumentMeta["outline"];
-      let logProfile: DocumentMeta["logProfile"];
-      let index: Awaited<ReturnType<typeof buildTextIndexInSlices>> | undefined;
-      try {
-        signal.throwIfAborted();
-        // In a function of its own, so that the text as extracted is let go once it is prepared:
-        // the steps after it hold only the prepared text.
-        const read = async () => {
-          const extracted = await untilAborted(extractText(input.bytes, {
+  /**
+   * The work of `ingest`, once the file is named: `detected` is the format its name and type say.
+   * `progress` is given when someone listens to the events of the ingest. `storeFailed` is called
+   * when the store fails to write the document, whatever it throws.
+   */
+  async function ingestFile(
+    input: IngestInput,
+    name: string,
+    mimeType: string,
+    detected: DocumentFormat,
+    progress: IngestProgress | undefined,
+    storeFailed: () => void,
+  ): Promise<DocumentMeta> {
+    if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
+    if (input.bytes.byteLength > maxUploadBytes) {
+      throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
+    }
+    let format = detected;
+    const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
+    // Each long step works in slices, with pauses for other requests: one large upload no longer
+    // holds the whole server while it is read.
+    const slicer = new TimeSlicer(signal);
+    let pages: number | undefined;
+    let reading: ReturnType<typeof readingOf>;
+    let text: string;
+    let wrapped: number;
+    let lines: string[];
+    let measured: Awaited<ReturnType<typeof measureText>>;
+    let outline: DocumentMeta["outline"];
+    let logProfile: DocumentMeta["logProfile"];
+    let index: Awaited<ReturnType<typeof buildTextIndexInSlices>> | undefined;
+    try {
+      signal.throwIfAborted();
+      // In a function of its own, so that the text as extracted is let go once it is prepared:
+      // the steps after it hold only the prepared text.
+      const read = async () => {
+        // What an extractor of your own reports once it has settled (from a timer, a worker) is
+        // not reported: the stages after it have begun.
+        let extracting = true;
+        let extracted: ExtractedText;
+        try {
+          extracted = await untilAborted(extractText(input.bytes, {
             name,
             mimeType,
             format,
@@ -560,68 +662,136 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
             signal,
             maxTextBytes,
             maxPages: maxPdfPages,
+            ...(progress ? { onProgress: (report: ExtractProgress) => { if (extracting) progress.extracted(report); } } : {}),
           }, options.extractors), signal);
-          // A character is at least one byte: a text this long is too large whatever it holds.
-          if (extracted.text.length > maxTextBytes) throw tooMuchText(name, maxTextBytes);
-          await slicer.pauseNow();
-          return { pages: extracted.pages, reading: readingOf(extracted), ...await prepareText(extracted.text, slicer) };
-        };
-        ({ pages, reading, text, wrapped, lines } = await read());
-        if (!text.trim()) throw new Error(`${name} did not contain any text.`);
-        if (format === "text" && looksLikeLog(lines)) format = "log";
-        measured = await measureText(text, slicer);
-        if (measured.utf8 > maxTextBytes) throw tooMuchText(name, maxTextBytes);
-        outline = await buildOutlineInSlices(lines, format, slicer);
-        logProfile = format === "log" ? await buildLogProfileInSlices(lines, slicer) : undefined;
-        // The line index, so that the text can be read by range: a few bytes a line, built from the
-        // UTF-8 bytes the store writes. Kept by any store that can keep it, even one this library
-        // then loads whole, so that switching to reading by range finds it ready.
-        index = typeof store.putIndex === "function" ? await buildTextIndexInSlices(text, slicer) : undefined;
-        signal.throwIfAborted();
-      } finally {
-        dispose();
-      }
-      const created = now();
-      const expires = created.getTime() + ttlMs;
-      const keepOriginal = keeps(format);
-      const meta: DocumentMeta = {
-        id: `doc_${randomUUID().replaceAll("-", "")}`,
-        ...(input.owner !== undefined ? { owner: input.owner } : {}),
-        name,
-        mimeType,
-        format,
-        bytes: input.bytes.byteLength,
-        textBytes: measured.utf8,
-        jsonBytes: measured.json,
-        characters: text.length,
-        lines: lines.length,
-        estimatedTokens: measured.tokens,
-        wrappedLines: wrapped,
-        ...(pages ? { pages } : {}),
-        ...reading,
-        ...(keepOriginal ? { originalKept: true } : {}),
-        outline,
-        ...(logProfile ? { logProfile } : {}),
-        createdAt: created.toISOString(),
-        // Never, for a time to live without end (or one that runs past what a date can hold).
-        expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
+        } finally {
+          extracting = false;
+        }
+        progress?.end();
+        // A character is at least one byte: a text this long is too large whatever it holds.
+        if (extracted.text.length > maxTextBytes) throw tooMuchText(name, maxTextBytes);
+        await slicer.pauseNow();
+        return { pages: extracted.pages, reading: readingOf(extracted), ...await prepareText(extracted.text, slicer, progress && ((done, total) => progress.report("prepare", done, total, "characters"))) };
       };
-      const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters
-        ? serializeTextIndex(index)
+      ({ pages, reading, text, wrapped, lines } = await read());
+      progress?.end();
+      if (!text.trim()) throw new Error(`${name} did not contain any text.`);
+      if (format === "text" && looksLikeLog(lines)) format = "log";
+      measured = await measureText(text, slicer);
+      if (measured.utf8 > maxTextBytes) throw tooMuchText(name, maxTextBytes);
+      outline = await buildOutlineInSlices(lines, format, slicer);
+      logProfile = format === "log" ? await buildLogProfileInSlices(lines, slicer) : undefined;
+      // The line index, so that the text can be read by range: a few bytes a line, built from the
+      // UTF-8 bytes the store writes. Kept by any store that can keep it, even one this library
+      // then loads whole, so that switching to reading by range finds it ready.
+      index = typeof store.putIndex === "function"
+        ? await buildTextIndexInSlices(text, slicer, progress && ((done, total) => progress.report("index", done, total, "characters")))
         : undefined;
+      progress?.end();
+      signal.throwIfAborted();
+    } finally {
+      dispose();
+    }
+    const created = now();
+    const expires = created.getTime() + ttlMs;
+    const keepOriginal = keeps(format);
+    const meta: DocumentMeta = {
+      id: `doc_${randomUUID().replaceAll("-", "")}`,
+      ...(input.owner !== undefined ? { owner: input.owner } : {}),
+      name,
+      mimeType,
+      format,
+      bytes: input.bytes.byteLength,
+      textBytes: measured.utf8,
+      jsonBytes: measured.json,
+      characters: text.length,
+      lines: lines.length,
+      estimatedTokens: measured.tokens,
+      wrappedLines: wrapped,
+      ...(pages ? { pages } : {}),
+      ...reading,
+      ...(keepOriginal ? { originalKept: true } : {}),
+      outline,
+      ...(logProfile ? { logProfile } : {}),
+      createdAt: created.toISOString(),
+      // Never, for a time to live without end (or one that runs past what a date can hold).
+      expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
+    };
+    const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters
+      ? serializeTextIndex(index)
+      : undefined;
+    // Each write is reported once done. What the listener of the events throws is not the store's failure.
+    const writes = (keepOriginal ? 1 : 0) + (savedIndex ? 1 : 0) + 1;
+    let written = 0;
+    let listenerFailed: { error: unknown } | undefined;
+    const wrote = (last: boolean) => {
+      if (!progress) return;
       try {
-        // The files first, the document last: a document is there once its metadata is.
-        if (keepOriginal) await store.putOriginal!(meta.id, input.bytes);
-        if (savedIndex) await store.putIndex!(meta.id, savedIndex);
-        await store.put({ meta, text });
+        progress.report("store", ++written, writes, "parts");
+        if (last) progress.end();
       } catch (error) {
-        // Do not leave a file of up to the upload limit, or a part of one, behind for a document
-        // that does not exist.
-        await store.delete(meta.id).catch(() => undefined);
-        noteStoreWriteFailure(error);
+        listenerFailed = { error };
         throw error;
       }
-      return meta;
+    };
+    try {
+      // The files first, the document last: a document is there once its metadata is.
+      if (keepOriginal) {
+        await store.putOriginal!(meta.id, input.bytes);
+        wrote(false);
+      }
+      if (savedIndex) {
+        await store.putIndex!(meta.id, savedIndex);
+        wrote(false);
+      }
+      await store.put({ meta, text });
+      wrote(true);
+    } catch (error) {
+      // Do not leave a file of up to the upload limit, or a part of one, behind for a document
+      // that does not exist.
+      await store.delete(meta.id).catch(() => undefined);
+      if (listenerFailed?.error !== error) {
+        noteStoreWriteFailure(error);
+        storeFailed();
+      }
+      throw error;
+    }
+    return meta;
+  }
+
+  return {
+    budget,
+    budgetFor,
+    maxUploadBytes,
+
+    async ingest(input) {
+      // The events first, so that every ingest that throws, even on what it was given, ends with ingest.error.
+      const events = new EventEmitter<IngestEvent>(input?.runId ?? newRunId("ing"), input?.onEvent);
+      let storeFailed = false;
+      try {
+        if (events.active) events.emit({ type: "ingest.start", ...startOf(input) });
+        checkOwner(input.owner);
+        const name = cleanFileName(input.name);
+        const mimeType = input.mimeType?.trim() || "application/octet-stream";
+        const format = detectFormat(name, mimeType);
+        // Progress is worked out only for someone who listens.
+        const progress = events.active ? new IngestProgress(events) : undefined;
+        const meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true));
+        try {
+          events.emit({ type: "ingest.finish", document: toDocumentSummary(meta) });
+        } catch (error) {
+          // The caller never gets the id: the document goes, as on a throw of the listener a moment earlier.
+          await store.delete(meta.id).catch(() => undefined);
+          forget(meta.id);
+          throw error;
+        }
+        return meta;
+      } catch (error) {
+        // A store's own error may name a host or a path, whatever it is: the event, which a browser
+        // may see, says only that the document could not be stored.
+        events.emit({ type: "ingest.error", error: storeFailed ? { message: STORE_WRITE_FAILED } : eventErrorOf(error) });
+        throw error;
+      }
     },
 
     getMeta: metaFor,

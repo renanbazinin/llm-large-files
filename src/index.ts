@@ -5,7 +5,7 @@ export { createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_INGEST_TIMEOUT_MS, DEFAU
 export type { AccessOptions, IngestInput, LargeFiles, LargeFilesOptions, PrepareOptions, ToolOptions } from "./library.js";
 export { DEFAULT_BUDGET, resolveBudget } from "./budget.js";
 export type { ModelLimits } from "./budget.js";
-export { askWithFiles, EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "./ask.js";
+export { askStream, askWithFiles, EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "./ask.js";
 export type { AskLimits, AskOptions, AskResult } from "./ask.js";
 export { classifyModelError, DocumentsNotFoundError, errorKindOf, ModelRequestError, UsageMeter } from "./model.js";
 export type {
@@ -28,6 +28,23 @@ export type {
   ToolTurn,
   UsageTotals,
 } from "./model.js";
+export { eventStream, newRunId } from "./events.js";
+export type {
+  AskEvent,
+  DocumentRef,
+  EventBase,
+  EventError,
+  EventResult,
+  EventStream,
+  IngestEvent,
+  IngestStage,
+  LibraryEvent,
+  NoticeCode,
+  NoticeDisplay,
+  RequestPurpose,
+  RequestRole,
+  ToolOutcome,
+} from "./events.js";
 export { evidenceOf, mergeRanges, stubResult } from "./evidence.js";
 export type { Evidence, NumberRange } from "./evidence.js";
 export { isRetryableStatus, retryAfterMs, withRetry } from "./retry.js";

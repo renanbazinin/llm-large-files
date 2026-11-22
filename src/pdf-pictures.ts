@@ -357,9 +357,15 @@ export async function parsePdf(bytes: Uint8Array, signal?: AbortSignal): Promise
  * tables). Undefined when that could not be worked out: the library is not installed, the file has
  * too many objects or took too long, it does not have the pages the text was extracted from, or
  * `signal` was aborted (the caller then stops). It never throws. `source`: the bytes of the file, or
- * the file as `parsePdf` read it (undefined when it could not).
+ * the file as `parsePdf` read it (undefined when it could not). `onProgress` is told the pages
+ * looked at so far, after each page.
  */
-export async function findPicturePages(source: Uint8Array | ParsedPdf | undefined, pages: readonly PageGeometry[], signal?: AbortSignal): Promise<boolean[] | undefined> {
+export async function findPicturePages(
+  source: Uint8Array | ParsedPdf | undefined,
+  pages: readonly PageGeometry[],
+  signal?: AbortSignal,
+  onProgress?: (done: number, total: number) => void,
+): Promise<boolean[] | undefined> {
   try {
     const opened = source instanceof Uint8Array ? await parsePdf(source, signal) : source;
     if (!opened || signal?.aborted) return undefined;
@@ -399,6 +405,8 @@ export async function findPicturePages(source: Uint8Array | ParsedPdf | undefine
         // A page that paints more than a page of text can is a drawing. Any other trouble leaves
         // an unusual page unmarked.
         if (error instanceof PaintsTooMuch) found.tooLarge = true;
+      } finally {
+        onProgress?.(graphics.length, leaves.length);
       }
     }
     // An image painted on many pages is part of the page design, whatever its size.

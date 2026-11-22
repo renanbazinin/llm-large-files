@@ -1,14 +1,14 @@
 # The tool loop and the adapter contract
 
-This is the reference for the part of `llm-large-files` that asks the questions: `askWithFiles`,
-its options, limits and result, the conversation it takes, the contract a model adapter
-implements, usage totals and evidence. It is for you if you call `askWithFiles`, write or wrap an
-adapter, or run a tool loop of your own. Sections link to the guide that explains the task, where
-there is one.
+This is the reference for the part of `llm-large-files` that asks the questions: `askWithFiles`
+and `askStream`, their options, limits and result, the conversation they take, the contract a model
+adapter implements, usage totals and evidence. It is for you if you call `askWithFiles`, write or
+wrap an adapter, or run a tool loop of your own. Sections link to the guide that explains the
+task, where there is one.
 
 ```ts
 import {
-  askWithFiles, partialResultOf, DocumentsNotFoundError, UsageMeter,
+  askWithFiles, askStream, partialResultOf, DocumentsNotFoundError, UsageMeter,
   evidenceOf, mergeRanges, stubResult,
   EXPLORER_INSTRUCTION, FINAL_ANSWER_REQUEST, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_WITHOUT_TOOLS,
 } from "llm-large-files";
@@ -17,7 +17,7 @@ import type {
   ChatMessage, ChatTurn, ToolTurn,
   ModelAdapter, ModelCapabilities, ModelRequest, ModelMessage, ModelTextMessage, ModelToolRound,
   ModelPart, ToolCall, ToolAnswer, SendHooks, ModelReply, GenerateText, GenerateUsage,
-  ModelUsage, UsageTotals, Evidence, NumberRange,
+  ModelUsage, UsageTotals, Evidence, NumberRange, AskEvent, EventStream,
 } from "llm-large-files";
 ```
 
@@ -26,7 +26,8 @@ four message constants. They are the same values, documented here.
 
 Contents:
 
-- **The question:** [`askWithFiles(options)`](#askwithfilesoptions), [`AskOptions`](#askoptions),
+- **The question:** [`askWithFiles(options)`](#askwithfilesoptions),
+  [`askStream(options)`](#askstreamoptions), [`AskOptions`](#askoptions),
   [`AskLimits`](#asklimits), [`AskResult`](#askresult),
   [`partialResultOf(error)`](#partialresultoferror),
   [`DocumentsNotFoundError`](#documentsnotfounderror)
@@ -52,7 +53,8 @@ The rest of the main entry is on three other pages: [library and documents](./li
 (`createLargeFiles`, the budget, stores, extractors, document types), [errors and
 retries](./errors-and-retries.md) (`ModelRequestError` and its kinds, `withRetry`, timeouts,
 `parseSseJson`) and [tools](./tools.md) (each tool the model sees, `TOOL_NAMES`, `ToolResult`,
-`ToolFile`, `ToolDeclaration`).
+`ToolFile`, `ToolDeclaration`). The events of a question and of an ingest (`AskEvent`,
+`IngestEvent`, `EventError`, `eventStream`) are on [events](./events.md).
 
 ## The question
 
@@ -116,6 +118,7 @@ allowance as the window, and its steps say so.
 | [`DocumentsNotFoundError`](#documentsnotfounderror) | A document of `documentIds` was never stored, has expired or been deleted, or belongs to another `owner`. Before any request. | undefined |
 | [`ModelRequestError`](./errors-and-retries.md#modelrequesterror), or the adapter's subclass (`GeminiRequestError`, `OpenAiRequestError`, `AnthropicRequestError`) | A chat request failed, and was not worth another try, still failed after `retry.retries` more, asked for a longer wait than `retry.maxDelayMs`, or had already shown text. A `context_overflow` that the recovery above did not mend. | What the question had done |
 | Any other error of an adapter | Thrown as it came. An error without a numeric `status` is not sent again. | What the question had done |
+| What a listener threw | `onEvent`, `onText`, `onActivity` or `onStep` threw. The question stops: the calls of the turn still running stop, and no request follows. New in 0.7.0 for a throw during a whole-file read (`onActivity` on its progress, `onEvent` on its events): 0.6.0 reported it to the model as the tool's error, and went on. | What the question had done, when the error is an object and the question was under way |
 | The signal's reason | `signal` aborted. Nothing is sent or retried after that, no part of a whole-file read either. It is thrown at once, also while an adapter (or a part reader) that does not look at the signal is still at work, and also when the adapter then fails with its own error. Text that such an adapter sends later is not shown. | What the question had done, when the reason is an object |
 
 When the documents were planned again after an overflow and the second plan fails before it sends
@@ -161,6 +164,62 @@ for you. Guides: [web app](../guides/web-app.md) (streaming, progress, cancellin
 [conversations](../guides/conversations.md), [explorer model](../guides/explorer-model.md),
 [errors and reliability](../guides/errors-and-reliability.md).
 
+### askStream(options)
+
+```ts
+declare function askStream(options: AskOptions): EventStream<AskEvent, AskResult>;
+```
+
+New in 0.7.0. [`askWithFiles`](#askwithfilesoptions) as a stream of its events, for a page that
+shows the question as it goes. It starts the question at once and returns an async iterable of
+[`AskEvent`](./events.md#askevent)s, in order: `run.start` first, then the plan, the requests, the tool
+calls, the text and the notices, and last `run.finish` or `run.error`. Each event is also the one
+`onEvent` would get.
+
+| Member | What it is |
+|---|---|
+| `[Symbol.asyncIterator]()` | The events, read with `for await`. They wait in memory until they are read. The loop ends after the last event. It does not throw when the question fails: read the `run.error` event, or await `result`. Leaving the loop early (`break`, `return`, a throw) stops the question. It can be read once: a second `for await` throws `TypeError("These events can be read once.")`. |
+| `result` | `Promise<AskResult>`: what `askWithFiles` returns, `toolTurns` included. It rejects with the question's error, and [`partialResultOf`](#partialresultoferror) works on that error. Awaiting it is optional: it never goes unhandled. |
+| `abort(reason?)` | Stops the question. The stream ends after its last event, `run.error`. Without a reason, the question throws a `DOMException` named `"AbortError"`. |
+
+The options are those of `askWithFiles`, with three differences:
+
+- `streamText` defaults to `true`: the model is asked for the answer as it is written, and `text`
+  events come as it arrives. Pass `streamText: false` to ask for each reply whole.
+- `signal` still stops the question, as does `abort()` or leaving the loop.
+- `onEvent`, when given, gets each event too, after the stream. A throw from it ends the question
+  with that error, and the stream still ends with the `run.error`; a throw on `run.finish` leaves
+  the stream ending with `run.finish`, and `result` rejects with it.
+
+```ts
+import { askStream, partialResultOf, type AskOptions, type ToolTurn } from "llm-large-files";
+
+// options are those of askWithFiles. Returns the tool rounds to keep with the conversation.
+export async function showQuestion(options: AskOptions): Promise<ToolTurn[]> {
+  const stream = askStream(options);
+  for await (const event of stream) {
+    if (event.type === "tool.start") console.error(`${event.label}…`);
+    if (event.type === "tool.progress") console.error(`${event.message}…`);
+    if (event.type === "text") process.stdout.write(event.delta);
+    if (event.type === "run.error") console.error(`\nFailed: ${event.error.message}`); // safe to show
+  }
+  try {
+    return (await stream.result).toolTurns;
+  } catch (error) {
+    console.error(error); // the provider's own words, for your logs
+    return partialResultOf(error)?.toolTurns ?? [];
+  }
+}
+```
+
+To send the events to a browser as Server-Sent Events, pass the stream itself to
+[`writeSseEvents`](./node.md#writesseeventsresponse-events-options): it stops the question when the
+client goes away. An async
+generator that wraps the stream stops it only when it next yields; change what is sent with the
+`map` option instead. What each event holds, and what goes over the wire: [events](./events.md).
+[`eventStream`](./events.md#eventstreamrun-options) makes the same kind of stream around any
+function that takes an `onEvent` and a `signal`.
+
 ### `AskOptions`
 
 The options of `askWithFiles`.
@@ -180,15 +239,20 @@ The options of `askWithFiles`.
 | `budget` | `Partial<`[`Budget`](./library.md#budget)`>` | the library's | Budget fields for this question, in place of the library's. Fields given nowhere follow the context window. The budget is then fitted to the models either way: `result.budget` shows it. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`. It changes nothing for a library that keeps no originals. |
-| `onText` | `(delta: string) => void` | none | The answer's text as it arrives. The adapter streams when it is set and it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
-| `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. |
+| `onText` | `(delta: string) => void` | none | The answer's text as it arrives. With it, `streamText` defaults to `true`, and the adapter streams when it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
+| `streamText` | `boolean` | `true` with `onText`, and in [`askStream`](#askstreamoptions); `false` otherwise | Whether to ask the model for the answer as it is written: the loop then passes `onText` to the adapter's `send` ([`SendHooks`](#sendhooks)), and an adapter that can stream does. A reply that fails after its first piece of text is not sent again: that text was shown. With `false`, the text of each reply comes once the reply is in, to `onText` and as `text` events, and a reply that fails can be sent again. A listener of the events alone (`onEvent` without `onText`) does not change how the model is asked. New in 0.7.0. |
+| `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry of a chat request ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. The retries of a whole-file read's requests are not told here: they come only as `retry` events. |
 | `onStep` | `(text: string) => void` | none | Each finished step, the same lines as `result.steps`, as they happen. |
+| `onEvent` | `(event: AskEvent) => void` | none | Everything the question does, as typed events in order: `run.start`, the `plan`, each model request (`request.start`, `retry`, `request.end`), each tool call (`tool.start`, `tool.progress`, `tool.end`), the text, the notices, and last `run.finish` or `run.error`. See [events](./events.md). `onText`, `onActivity` and `onStep` still get the same strings, at the same moments. A model error in an event is told by its kind and status, never in the provider's words ([`EventError`](./errors-and-retries.md#errors-in-events-eventerror)). Tool results are left out unless `eventResults` is set. A throw from it ends the question with that error ([a listener that throws](./events.md#a-listener-that-throws)). New in 0.7.0. |
+| `runId` | `string` | `"run_"` and 16 hex digits | The `runId` of every event of the question. Pass your own to find the events in your logs. New in 0.7.0. |
+| `eventResults` | `boolean` | `false` | Put each tool result in its `tool.end` event (`result`), and `toolTurns` in the result that `run.finish` and `run.error` carry. Off by default: results hold the text of the documents, and events are often sent on to a browser. The result `askWithFiles` returns always has `toolTurns`. New in 0.7.0. |
 | `signal` | `AbortSignal` | none | Stops the question: the request under way is aborted through the adapter, tool calls stop, and nothing is sent again. `askWithFiles` then throws the signal's reason, at once: the loop does not wait for an adapter, or a part reader, that does not look at the signal. A request left running that way may be billed by the provider, and is not counted in the usage. |
 
 Guides: [conversations](../guides/conversations.md) (`messages`, `documentPlacement`),
 [storage](../guides/storage.md) (`owner`), [web app](../guides/web-app.md) (`onText`,
 `onActivity`, `onStep`, `signal`), [PDFs](../guides/pdfs.md) (`viewPages`),
-[costs and limits](../guides/costs-and-limits.md) (`limits`, `budget`).
+[costs and limits](../guides/costs-and-limits.md) (`limits`, `budget`). Reference:
+[events](./events.md) (`onEvent`, `runId`, `eventResults`).
 
 ### `AskLimits`
 
@@ -216,7 +280,7 @@ question that failed.
 | `answered` | `boolean` | True when the last reply had text that is not blank, and the provider did not refuse the prompt. False when the prompt was refused (`blockReason`), or the last reply had no text: it was cut off before any text, or the request for the answer came back without text, and so did its second try. `text` may then be empty, or hold a remark made before a tool call, or the start of a reply that was refused: show your own message. |
 | `blockReason` | `string`, optional | Why the provider refused the prompt, in the adapter's words. Set only then. Nothing more is asked after a refusal. |
 | `steps` | `string[]` | Each finished step, in order: a line for each tool call, run or refused ("Search app.log (exact) for “timeout” — 12 matching lines", or "… — already shown above"), one for the calls of a turn over `callsPerTurn`, and one when the loop shortened older results, asked again after an empty or broken reply, or planned the documents again. The second try of the answer says "The model's answer was empty: it was asked again" or "The model called a tool instead of answering: it was asked again for the answer". The lines `onStep` got. Each is one line of plain text: a line break, a tab or another control character in what the model sent becomes one space with the blanks around it; the invisible characters that file text loses are dropped (text-direction overrides and isolates, zero-width spaces, word joiners, soft hyphens, tag characters); `](` becomes `] (`, so that a markdown link or picture stays text. A query is cut at 80 characters and a task at 100, never in the middle of a character. Steps still quote the model's words, HTML tags and web addresses included: show them as plain text, never as markdown or HTML. |
-| `evidence` | [`Evidence[]`](#evidence) | What each tool call showed the model: the document, and the lines or pages. In call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. |
+| `evidence` | [`Evidence[]`](#evidence) | What each tool call showed the model: the document, and the lines or pages. In call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. Each has the `callId` of its call's events (new in 0.7.0). |
 | `toolTurns` | [`ToolTurn[]`](#toolturn) | The tool rounds of this question, as plain JSON, as the model last had them. Pass them back in `messages`, between this question and its answer, and a later question sees what was found here. Each result of a call made in this question has `tool_turns_left`, except a stand-in (`dropped: true`, see [`stubResult`](#stubresultcall-result-hadfiles)): a result shortened to make room, a pointer whose result was shortened, and the result of a call that showed pages. The pages are not kept: their stand-in says which pages were shown. A call's `problem` is left out. |
 | `plan` | [`DocumentPlan`](./library.md#documentplan) | Which documents went in whole (`inline`) and which were reached through tools (`searchable`). |
 | `budget` | [`Budget`](./library.md#budget) | The budget the question ran with: the library's (with `options.budget`), fitted to the models. |
@@ -246,6 +310,13 @@ or a part reader that did not stop at the signal) may be billed by the provider,
 counted. It returns `undefined` for an error that did not come from a question under way (a missing
 document, a budget that cannot work, a store that could not be read while planning) and for a
 value that is not an object. The sample under [`askWithFiles`](#askwithfilesoptions) uses it.
+
+The `run.error` event carries the same result as `partial`, as an `EventResult`: without
+`toolTurns`, and with a plan that names the documents only (both hold text of the documents),
+unless `eventResults` is set; and
+`sseMessageOf` sends only its `steps`, `evidence` and `usage`. Keep the tool rounds from
+`partialResultOf(error)` on the server: with `askStream`, `error` is what `stream.result` rejects
+with.
 
 Guide: [errors and reliability](../guides/errors-and-reliability.md).
 
@@ -565,7 +636,7 @@ type SendHooks = { onText?: (delta: string) => void; signal?: AbortSignal };
 
 | Field | What it holds |
 |---|---|
-| `onText` | Called with the reply's text as it arrives. The loop gives it only for a reply that is shown (never an explorer's) and only when the application gave `onText`. An adapter streams when it is given and it can; one that does not stream calls it once the reply is in: `openAiCompatible()` and `anthropic()` once with the whole text, `gemini()` once for each text part. The text is in `reply.text` either way, and the loop passes on what the adapter did not. The deltas must add up to the start of `reply.text`: the loop passes on the rest of `reply.text` only when it starts with what was streamed, and `result.text` is what was passed on. |
+| `onText` | Called with the reply's text as it arrives. The loop gives it only for a reply that is shown (never an explorer's) and only when the text is asked for as it is written: `streamText`, on by default with `onText` and in `askStream` (until 0.7.0, whenever the application gave `onText`). An adapter streams when it is given and it can; one that does not stream calls it once the reply is in: `openAiCompatible()` and `anthropic()` once with the whole text, `gemini()` once for each text part. The text is in `reply.text` either way, and the loop passes on what the adapter did not. The deltas must add up to the start of `reply.text`: the loop passes on the rest of `reply.text` only when it starts with what was streamed, and `result.text` is what was passed on. |
 | `signal` | The question's signal. Pass it to the request. |
 
 ### `ModelReply`
@@ -717,6 +788,7 @@ type Evidence = {
   mode?: string;
   totalMatchingLines?: number;
   whole?: boolean;
+  callId?: string;
 };
 ```
 
@@ -734,6 +806,7 @@ that showed something.
 | `mode` | `"keywords"`, `"exact"` or `"regex"`, for a search. |
 | `totalMatchingLines` | For an exact or regex search: how many lines match in the whole file, often more than were shown. |
 | `whole` | True for a whole-file read: other model requests read every line, and the model saw their answer. It has no `lines`. |
+| `callId` | The tool call it came from, as its events name it (`"call_3"`): the `callId` of its `tool.start` and `tool.end`, whose `evidence` is this entry. `askWithFiles` always sets it; [`evidenceOf`](#evidenceofcall-result) does not. New in 0.7.0. |
 
 ```ts
 import { mergeRanges, type AskResult, type NumberRange } from "llm-large-files";

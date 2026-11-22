@@ -510,7 +510,8 @@ The wait an error names is its `Retry-After` or `retry-after-ms` header, or the 
 error is thrown. Without a named wait, the defaults wait 0.25 to 0.5 s, then 0.5 to 1 s, then 1 to
 2 s: three and a half seconds at most, which a quota per minute can outlast. `onActivity` reports
 each wait of a chat request ("The model did not answer (HTTP 429). Trying again in 2 s…"). The
-waits of part reads are not reported.
+waits of part reads are not told to `onActivity`; since 0.7.0, `onEvent` and `askStream` give every
+wait, theirs included, as a `retry` event ([events](../reference/events.md#retry)).
 
 A whole-file read is what reaches a quota per minute first: up to 30 part reads, four at a time,
 each with the same rule. If your project hits its quota under load, wait longer:

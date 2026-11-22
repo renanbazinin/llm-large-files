@@ -1070,7 +1070,9 @@ the provider asks); a silent model is waited for 600 s, twice. Nothing streams w
 works.
 
 **Fix.** Show `onActivity` to the user: it says what the question is doing
-(`Search app.log (exact) for “timeout”…`, `Writing the answer…`, and each retry). Bound the time
+(`Search app.log (exact) for “timeout”…`, `Writing the answer…`, and each retry). The events of
+`askStream` or `onEvent` say more: each tool call, the parts of a whole-file read, and the retries
+of its requests ([events](./reference/events.md)). Bound the time
 with a `signal` that aborts at your deadline. Lower `limits.toolTurns`, turn off whole-file reads,
 or use a faster model as the explorer.
 
@@ -1214,7 +1216,8 @@ See [Deployment](./guides/deployment.md) and [Storage](./guides/storage.md).
 
 ### The answer arrives in one piece
 
-**Cause.** Text streams only when you pass `onText` and the adapter can stream:
+**Cause.** Text streams only when the loop asks for it as it is written (`streamText`, on by
+default with `onText` and in `askStream`) and the adapter can stream:
 
 - `askGemini` and `gemini()` stream only to an endpoint with a `streamUrl`. `geminiApi()` and
   `vertexAi()` set it; an endpoint you write for a gateway may not.
@@ -1245,6 +1248,62 @@ compression.
 
 See [Web app](./guides/web-app.md).
 
+### `text` events come in one piece, at the end of each reply
+
+You listen with `onEvent`, and the `text` events of the answer arrive all at once, after the
+model has finished writing.
+
+**Cause.** A listener of the events alone does not change how the model is asked: without `onText`,
+`streamText` is `false`, and each reply's text comes in one `text` event once the reply is in.
+`askStream` turns it on for you.
+
+**Fix.** Pass `streamText: true` (or use `askStream`):
+
+```ts
+import { askWithFiles, type AskEvent } from "llm-large-files";
+
+// files, model, documentIds and messages are those of your question; send() is your own.
+declare function send(event: AskEvent): void;
+await askWithFiles({ files, model, documentIds, messages, streamText: true, onEvent: send });
+```
+
+With it, a reply that fails after its first text is not sent again: the question throws, with what
+was shown. With `streamText: false`, such a reply is sent again, but the user waits longer for the
+first word, and the whole reply must arrive within the adapter's `firstByteTimeoutMs`. See
+[Errors, retries and streams](./reference/errors-and-retries.md#retries-in-events).
+
+### The events stop when the user leaves the page
+
+`writeSseEvents` returns before `run.finish`, and the question ends with an `AbortError`: "The
+events stopped being read."
+
+**Cause.** This is expected. When the client goes away, `writeSseEvents` stops reading and ends
+the iterator, and leaving an `askStream` (or an `eventStream`) early stops its question, so nothing
+more is paid for. `await stream.result` then rejects with the abort, and `partialResultOf(error)`
+gives what the question found until then.
+
+When the question goes on instead, you passed a generator that wraps the stream: it stops only when
+it next yields, and a question waiting on a long model request goes on until then. Pass the stream
+itself, and change what is sent with `map` (return `undefined` to skip an event); or stop it
+yourself:
+
+```ts
+import type { ServerResponse } from "node:http";
+import { askStream, type AskOptions } from "llm-large-files";
+import { sseMessageOf, writeSseEvents } from "llm-large-files/node";
+
+export async function answer(response: ServerResponse, options: AskOptions) {
+  const stream = askStream(options);
+  // Notices the page does not show are skipped; every other event is sent as sseMessageOf sends it.
+  await writeSseEvents(response, stream, {
+    map: (event) => (event.type === "notice" && event.display === "none" ? undefined : sseMessageOf(event)),
+  });
+}
+```
+
+See [`askStream`](./reference/ask.md#askstreamoptions) and
+[when the client goes away](./reference/node.md#when-the-client-goes-away).
+
 ### The stream to the browser stops or stalls
 
 The browser's stream ends without your final event, or the events arrive all at once at the end.
@@ -1254,7 +1313,8 @@ arrived for a while, or ends one that runs longer than its limit, or buffers the
 can be silent for minutes: an explorer at work, a model that thinks, a whole-file read.
 
 **Fix.** Write an SSE comment line (`: keep-alive`) every 15 seconds or so, turn off buffering for
-the route, and set the proxy's timeout above your own deadline for a question.
+the route, and set the proxy's timeout above your own deadline for a question. `writeSseEvents`
+sends the comment every 15 seconds and `X-Accel-Buffering: no` for you.
 
 See [Web app](./guides/web-app.md) and [Deployment](./guides/deployment.md).
 

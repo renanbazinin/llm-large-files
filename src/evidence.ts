@@ -27,6 +27,8 @@ export type Evidence = {
   totalMatchingLines?: number;
   /** True for a whole-file read: other model calls read every line, and the model saw their answer. */
   whole?: boolean;
+  /** The tool call it came from, as its events name it ("call_3"). Set by `askWithFiles`. New in 0.7.0. */
+  callId?: string;
 };
 
 /** "12-14", "12" or 12 as a range. */

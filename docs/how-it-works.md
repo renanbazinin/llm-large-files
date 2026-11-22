@@ -564,7 +564,9 @@ the part reader (`generateText`) of the model that explores.
 
 The result holds `parts_read`, `parts_with_relevant_content`, `parts_that_failed`,
 `notes_cut_short`, `answer_cut_short`, `notes_only` and the `answer`. While it runs, the progress goes
-to `onActivity`: "Reading app.log: part 3 of 12…".
+to `onActivity`: "Reading app.log: part 3 of 12…", and, with `onEvent`, comes as `tool.progress`
+events with the `callId` of the read, each part a `request.start` and `request.end` of role
+`"reader"`.
 
 **Output limits.** Part notes and merged notes start at 4,096 output tokens, the answer at 8,192.
 When a reply reaches its limit, or a provider's filter stops it (Gemini `SAFETY` and the like,
@@ -789,7 +791,7 @@ were planned again to fit it".
   (60 s), or it is the wait the provider asks for (`retry-after-ms`, `Retry-After`, or the
   `retryDelay` of Gemini's `RetryInfo`). A provider that asks for more than `maxDelayMs` is not
   waited for: the error is reported. Meanwhile `onActivity` says "The model did not answer (HTTP
-  503). Trying again in 1 s…".
+  503). Trying again in 1 s…", and a `retry` event says the same, with the error's kind and status.
 - **Not sent again**: a refusal such as 400, 401, 403 or 404; a quota that does not come back soon
   (kind `quota`: OpenAI's `insufficient_quota`, HTTP 402, Claude's credit balance and spending
   limits, a Gemini quota per day); an error of kind `context_overflow`, whatever its status, which
@@ -814,7 +816,8 @@ were planned again to fit it".
   characters show; one that starts with more than 65,536 characters of white space is read as
   JSON, whatever follows.
 - **Part reads** of a whole-file read follow the same rule, and an error with no status is tried once
-  more at once. They have no silence waits: each request has a limit of 180 s instead (`timeoutMs`
+  more at once. Their retries are not told to `onActivity`; since 0.7.0 they are `retry` events.
+  They have no silence waits: each request has a limit of 180 s instead (`timeoutMs`
   of `openAiCompatible()` and `anthropic()`; fixed for `gemini()`). An error your token or header
   function throws in a part read has no status with `gemini()`; with `openAiCompatible()` and
   `anthropic()` it is a failed connection (status 0), sent again like one.
@@ -900,6 +903,27 @@ explorer })`, where the two may be of different providers, or an `askGemini` end
   retries, and "Writing the answer…".
 - `onStep` and `steps`: each finished call with what it found ("Search app.log (exact) for
   “timeout” — 12 matching lines"), and what the loop did to the conversation.
+- `onEvent`, or `askStream` (new in 0.7.0): all of the above and more, as typed events in order,
+  each with a `seq` from 1, from `run.start` to `run.finish` or `run.error`. The three callbacks
+  get the same strings, at the same moments, with or without it. See
+  [Events](./reference/events.md).
+
+Where the events of a question come from:
+
+| Event | Sent by | When |
+|---|---|---|
+| `run.start` | `askWithFiles` | First, before the options are checked or the documents planned. |
+| `plan` | the plan | Once the documents are planned; again after a question planned again (a `replanned` notice comes first). |
+| `request.start`, `request.end` | each chat request (`role` `"tools"`, `"explorer"` or `"answer"`) and each request of a whole-file read (`"reader"`, with its `callId`) | Around the request, its retries included. An overflow made smaller is a new request. |
+| `retry` | the retry rule ([Retries and waits](#retries-and-waits)) | Before each wait, between the request's start and end. |
+| `text` | the answering model's replies | As the text arrives with `streamText`; otherwise once each reply is in. The same text as `onText`. |
+| `tool.start`, `tool.progress`, `tool.end` | the calls of a turn ([The calls of a turn](#the-calls-of-a-turn)) | A call starts when it runs, so starts and ends of one turn interleave; ends come in call order. `tool.progress` is the progress of a whole-file read. |
+| `notice` | the loop | What it did that is not a request or a call: `searching_instead`, `writing_answer`, `replanned`, `room_made`, `nudged`, `results_shortened`, `answer_again`, `calls_not_run`, and three that the callbacks never got: `budget_reached`, `no_room`, `blocked`. |
+| `run.finish`, `run.error` | `askWithFiles` | Last, once. Nothing comes after them, not even a part read still running. |
+
+The events tell a model error by its kind and status, never in the provider's words, and carry no
+text of the documents unless the question is asked with `eventResults: true`. An ingest has its own events, from `ingest.start` to
+`ingest.finish` or `ingest.error` ([`files.ingest`](./reference/library.md#filesingestinput)).
 
 Activity lines and steps are each one line of plain text, cleaned of what file text drops, and a
 call to a tool that does not exist is shown as `Call “<name>”`. They quote the model's words: show
@@ -951,7 +975,7 @@ What differs is in the adapters:
 | Request size declared | none, unless you set `maxRequestBytes` | none, unless you set `maxRequestBytes` | 32,000,000 bytes by default (`maxRequestBytes`) |
 | Old results shortened for room | yes, unless Claude is the other model of the question | yes, unless Claude is the other model of the question | no: the conversation may only grow (`appendOnly`); with Claude as the answering model or the explorer, nothing is shortened for either |
 | Prompt cache | the provider's own | the provider's own | `cache_control` on each request: 5 minutes, `cache: "1h"`, or `false` for none |
-| Streams the chat | when `onText` is given and the endpoint has a `streamUrl` | when `onText` is given, unless `stream: false` | always, unless `stream: false` |
+| Streams the chat | when the loop asks for the text as it is written (`streamText`: with `onText`, or in `askStream`) and the endpoint has a `streamUrl` | when the loop asks for the text as it is written, unless `stream: false` | always, unless `stream: false` |
 | A whole stream ends with | a chunk with a `finishReason` | a `finish_reason`, or `[DONE]` | a stop reason |
 
 The adapters also handle what their providers do differently:
@@ -1021,3 +1045,13 @@ Setting up Gemini and Vertex AI, thinking, quotas and gateways:
 
 The live checks of the loop, the token estimate, map-reduce and `view_pages` are in
 [Measurements](./measurements.md).
+
+The events of 0.7.0 were checked live on the Gemini API in November 2026, with
+`gemini-3.1-flash-lite` answering and `gemini-3.5-flash-lite` exploring, on a log of 60,000 lines
+(7.2 MB) and a smaller one read whole. In each question the events ran in order from `run.start`
+to `run.finish`, every request and call that started ended, the `text` events joined to the
+answer, and `onStep` got the same steps as before. The explorer's requests were marked `role: "explorer"` and the answer's
+`role: "answer"`. A whole-file read made 7 part requests, each with the `callId` of its call and a
+`tool.progress` for each part, and its 21 retries came as `retry` events. `writeSseEvents` sent a
+question to a client over HTTP, one message per event, ending with `run.finish` without
+`toolTurns`.
