@@ -200,7 +200,7 @@ pause, and the signal is looked at only between pages.
 
 | It throws | When |
 |---|---|
-| `TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.")` | `owner` is `""`, spaces only or `null`, or, from JavaScript, neither a string nor a finite number (an object, `true`, `NaN`). Before anything is read. New in 0.6.1: 0.5.0 accepted them. |
+| `TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.")` | `owner` is `""`, spaces only or `null`, or, from JavaScript, neither a string nor a finite number (an object, `true`, `NaN`). Before anything is read. New in 0.6.0: 0.5.0 accepted them. |
 | `Error("<name> is empty.")` | The file has no bytes. |
 | `Error("<name> is larger than the 100 MB upload limit.")` | The file is larger than `maxUploadBytes`. The message gives your limit. |
 | The extractor's `Error` | The extractor refused the file: a binary or compressed file, a PDF without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
@@ -472,7 +472,7 @@ What [`files.prepare`](#filesprepareids-base-options) returns.
 | `missing` | `string[]` | The IDs that were not found: never uploaded, not a document ID, deleted, expired, or another owner's. |
 | `viewable` | `DocumentMeta[]` | The PDFs whose pages `view_pages` can show, whether their text is in the prompt or searched. Empty unless `prepare` was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`. |
 
-A document sent whole sits between these two lines (new in 0.6.1, for every document):
+A document sent whole sits between these two lines (new in 0.6.0, for every document):
 
 ```text
 --- Attached file [mark <mark>]: <name> (<format>, <lines> lines<reading>; it ends only at the line with mark <mark>) ---
@@ -551,7 +551,7 @@ The default of `LargeFilesOptions.wholeDocumentBytes`.
 declare const DEFAULT_MAX_PDF_PAGES = 5000;
 ```
 
-The default of `LargeFilesOptions.maxPdfPages`. New in 0.6.1.
+The default of `LargeFilesOptions.maxPdfPages`. New in 0.6.0.
 
 ### `DEFAULT_MAX_TEXT_BYTES`
 
@@ -560,7 +560,7 @@ declare const DEFAULT_MAX_TEXT_BYTES: number; // 104_857_600 (100 MB)
 ```
 
 The default of `LargeFilesOptions.maxTextBytes`, when `maxUploadBytes` is not larger. New in
-0.6.1.
+0.6.0.
 
 ### `DEFAULT_INGEST_TIMEOUT_MS`
 
@@ -568,7 +568,7 @@ The default of `LargeFilesOptions.maxTextBytes`, when `maxUploadBytes` is not la
 declare const DEFAULT_INGEST_TIMEOUT_MS = 120000; // 2 minutes
 ```
 
-The default of `LargeFilesOptions.ingestTimeoutMs`. New in 0.6.1.
+The default of `LargeFilesOptions.ingestTimeoutMs`. New in 0.6.0.
 
 ### `NEVER_EXPIRES`
 
@@ -718,7 +718,7 @@ or implement it over a database, Redis or S3.
 
 | Method | Required | What it must do, and when the library calls it |
 |---|---|---|
-| `put(document)` | yes | Store the text and the metadata. Called last at ingest. A document should exist once its metadata does: `FileDocumentStore` writes the metadata last. Keep every field of `meta`, the optional ones too, and those a later version adds (0.6.1 added `encoding` and `replacedCharacters`): a store that keeps a fixed list of fields loses them, and one that checks `meta` against a fixed schema refuses the ingest of every file that has them. |
+| `put(document)` | yes | Store the text and the metadata. Called last at ingest. A document should exist once its metadata does: `FileDocumentStore` writes the metadata last. Keep every field of `meta`, the optional ones too, and those a later version adds (0.6.0 added `encoding` and `replacedCharacters`): a store that keeps a fixed list of fields loses them, and one that checks `meta` against a fixed schema refuses the ingest of every file that has them. |
 | `get(id)` | yes | The whole document, or `undefined` when there is no such document. It may return an expired one: the library checks `expiresAt` itself. Called to load a document whole: its text is at most `wholeDocumentBytes`, or the store has no `readTextRange`. |
 | `getMeta(id)` | yes | The metadata, or `undefined` when there is no such document (an expired one may be returned; the library checks `expiresAt`). Called by every `prepare`, `getMeta`, `getOriginal` and `delete`, and by every tool call: keep it cheap, apart from the text. |
 | `delete(id)` | yes | Remove the document, its original and its index, and return whether it existed. Also called by `ingest` after a failed write, so it must cope with a document that was written only in part. |
@@ -782,7 +782,7 @@ one-process demos. They are lost on restart and not shared between processes. It
 bytes, so the caller may reuse its buffer. The metadata is copied too, on the way in (`put`) and
 on the way out (`get`, `getMeta`), as a store that writes it somewhere does: changing the metadata
 that `ingest` or `getMeta` returned (deleting its `owner` before it goes to a browser, say) changes
-nothing stored. Until 0.6.1 it handed out its own object. `getOriginal` returns the kept bytes
+nothing stored. Until 0.6.0 it handed out its own object. `getOriginal` returns the kept bytes
 themselves: treat them as read-only.
 
 | Option | Type | Default | What it does |
@@ -964,8 +964,8 @@ type ExtractedText = { text: string; pages?: number; encoding?: string; replaced
 |---|---|---|
 | `text` | `string` | The text of the file. |
 | `pages` | `number \| undefined` | The number of pages (or slides), stored as `DocumentMeta.pages`. |
-| `encoding` | `string \| undefined` | The older encoding the file was read in, when it is not UTF-8, such as `"windows-1255"`. Stored as `DocumentMeta.encoding` when it is a name (letters, digits, `.`, `_`, `:` and `-`, up to 40 characters) and not a name of UTF-8 or UTF-16 (`utf-8`, `utf8`, `unicode`, `utf-16be`…): a name `TextDecoder` does not know is kept. New in 0.6.1. |
-| `replacedCharacters` | `number \| undefined` | The characters that were not valid in the encoding the file was read in, each now U+FFFD (�). Stored as `DocumentMeta.replacedCharacters` when it is a whole number above 0. New in 0.6.1. |
+| `encoding` | `string \| undefined` | The older encoding the file was read in, when it is not UTF-8, such as `"windows-1255"`. Stored as `DocumentMeta.encoding` when it is a name (letters, digits, `.`, `_`, `:` and `-`, up to 40 characters) and not a name of UTF-8 or UTF-16 (`utf-8`, `utf8`, `unicode`, `utf-16be`…): a name `TextDecoder` does not know is kept. New in 0.6.0. |
+| `replacedCharacters` | `number \| undefined` | The characters that were not valid in the encoding the file was read in, each now U+FFFD (�). Stored as `DocumentMeta.replacedCharacters` when it is a whole number above 0. New in 0.6.0. |
 
 The model is told of both, on the card and in the frame of a file sent whole (see
 [`PreparedContext`](#preparedcontext)).
@@ -992,8 +992,8 @@ The messages they refuse a file with, which `ingest` throws:
 - `This file is gzip-compressed. Decompress it, then attach the text file inside.`
 - `This file is a ZIP archive. Extract it, then attach the text file you need.`
 - `Reading PDF files needs the optional dependency "unpdf".`
-- `The unpdf installed would stop the whole server at the first PDF file on Node <n>, so PDF files are not read.`, followed by what to install: before Node 22 `Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.`, on Node 22 and 23 `Install unpdf 1.6.1 or later, or run Node 24 or later.`, on a later Node `Install unpdf 1.6.1 or later.` (an `unpdf` from 1.5.0 to 1.6.0, which loads a pdf.js that calls `Promise.try` where Node does not have it; new in 0.6.1)
-- `The unpdf installed cannot read PDF files on Node <n> (<unpdf's message>). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` (before Node 22, an `unpdf` that cannot load its pdf.js: 1.9 and later, 2.x included; new in 0.6.1. From Node 22 on, unpdf's own error is thrown as it is.)
+- `The unpdf installed would stop the whole server at the first PDF file on Node <n>, so PDF files are not read.`, followed by what to install: before Node 22 `Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.`, on Node 22 and 23 `Install unpdf 1.6.1 or later, or run Node 24 or later.`, on a later Node `Install unpdf 1.6.1 or later.` (an `unpdf` from 1.5.0 to 1.6.0, which loads a pdf.js that calls `Promise.try` where Node does not have it; new in 0.6.0)
+- `The unpdf installed cannot read PDF files on Node <n> (<unpdf's message>). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` (before Node 22, an `unpdf` that cannot load its pdf.js: 1.9 and later, 2.x included; new in 0.6.0. From Node 22 on, unpdf's own error is thrown as it is.)
 - `This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.`
 - `This PDF has no text layer (it may be scanned) and <n> pages. Without text it can only be read by looking at its pages, which works for up to <m> pages. It needs OCR first.`
 - `Reading DOCX and PPTX files needs the optional dependency "jszip".`
@@ -1050,7 +1050,7 @@ type PdfExtractorOptions = { tables?: boolean; pictures?: boolean; checkPages?: 
 |---|---|---|---|
 | `tables` | `boolean` | `true` | Rebuilds tables from the position of the text, and writes each row as `\| cell \| cell \|  \|`, so an empty cell stays an empty cell. `false` gives the text in pdf.js order, as in version 0.1.0. |
 | `pictures` | `boolean` | `true` | Writes `[Picture on this page. This text cannot show it.]` under the page line of every page that shows a picture or a drawing, so the model knows that the text does not tell all of that page. Needs the optional dependency `@cantoo/pdf-lib`; without it, and with `false`, no page is marked. |
-| `checkPages` | `boolean` | `true` | Before pdf.js reads any page, adds up what each page would make it run, and refuses a file with a page that would hold the server for a long time ([Pages that would hold the server](../guides/pdfs.md#pages-that-would-hold-the-server)). Needs the optional dependency `@cantoo/pdf-lib`; without it, and with `false`, every page is read however long it takes. With `false` and `pictures: false`, the file is not read with `@cantoo/pdf-lib` at ingest. New in 0.6.1. |
+| `checkPages` | `boolean` | `true` | Before pdf.js reads any page, adds up what each page would make it run, and refuses a file with a page that would hold the server for a long time ([Pages that would hold the server](../guides/pdfs.md#pages-that-would-hold-the-server)). Needs the optional dependency `@cantoo/pdf-lib`; without it, and with `false`, every page is read however long it takes. With `false` and `pictures: false`, the file is not read with `@cantoo/pdf-lib` at ingest. New in 0.6.0. |
 
 ### detectFormat(name, mimeType)
 
@@ -1160,8 +1160,8 @@ browser instead.
 | `estimatedTokens` | `number` | [`estimateTokens`](#estimatetokenstext) of the text. |
 | `wrappedLines` | `number` | How many lines longer than 2,000 characters were split into several, so that every line can be read by number. |
 | `pages` | `number \| undefined` | The pages of a PDF, the slides of a PPTX, or what your extractor returned. |
-| `encoding` | `string \| undefined` | The older encoding a text file was read in, because it is not UTF-8, as `TextDecoder` names it: `"windows-1255"` for a Hebrew CSV that Excel saved, or `"windows-1256"`, `"windows-1251"`, `"shift_jis"`, `"windows-1252"`. Lines of it that are valid UTF-8 are read as UTF-8 all the same. Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see `replacedCharacters`), for UTF-16, for PDF, DOCX and PPTX, and on documents from before 0.6.1. An extractor of your own may set another name ([`ExtractedText`](#extractedtext)). How the encoding is chosen: [Text encodings](../guides/pdfs.md#text-encodings). New in 0.6.1. |
-| `replacedCharacters` | `number \| undefined` | The characters of a text file that were not valid in the encoding it was read in (UTF-8, or `encoding`), such as a character cut in two at the end of a UTF-8 log, or a byte that `encoding` does not have: each is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.1. New in 0.6.1. |
+| `encoding` | `string \| undefined` | The older encoding a text file was read in, because it is not UTF-8, as `TextDecoder` names it: `"windows-1255"` for a Hebrew CSV that Excel saved, or `"windows-1256"`, `"windows-1251"`, `"shift_jis"`, `"windows-1252"`. Lines of it that are valid UTF-8 are read as UTF-8 all the same. Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see `replacedCharacters`), for UTF-16, for PDF, DOCX and PPTX, and on documents from before 0.6.0. An extractor of your own may set another name ([`ExtractedText`](#extractedtext)). How the encoding is chosen: [Text encodings](../guides/pdfs.md#text-encodings). New in 0.6.0. |
+| `replacedCharacters` | `number \| undefined` | The characters of a text file that were not valid in the encoding it was read in (UTF-8, or `encoding`), such as a character cut in two at the end of a UTF-8 log, or a byte that `encoding` does not have: each is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.0. New in 0.6.0. |
 | `originalKept` | `boolean \| undefined` | `true` when the uploaded file is kept in the store (`keepOriginals`). Absent otherwise. Documents ingested before you turned `keepOriginals` on have no original. |
 | `outline` | [`OutlineEntry[]`](#outlineentry) | The headings found in the text, at most 400. Empty for `log`, `json` and `csv`. |
 | `logProfile` | [`LogProfile`](#logprofile) or `undefined` | The log profile, for a `log` document only. |
@@ -1189,7 +1189,7 @@ type DocumentSummary = {
 A JSON-safe summary of a document for API responses and browser state, made by
 [`toDocumentSummary`](#todocumentsummarymeta). Its fields mean what they mean in
 [`DocumentMeta`](#documentmeta); `pages` is there only when the document has pages, and `encoding`
-and `replacedCharacters` only for a text file that was not valid UTF-8 (new in 0.6.1): a UI can say
+and `replacedCharacters` only for a text file that was not valid UTF-8 (new in 0.6.0): a UI can say
 "read as windows-1255", or that some characters could not be read. A client that checks the
 answer against a fixed list of fields must allow the two. It leaves out `owner`, `textBytes`,
 `jsonBytes`, `characters`, `wrappedLines`, `originalKept`, `outline`, `logProfile` and

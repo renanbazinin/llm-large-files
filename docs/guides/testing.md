@@ -340,10 +340,10 @@ Some advice:
 - To test what your application does with `usage` (a cost per user, a ceiling), give the fake's
   replies round numbers of tokens, as above. See [Costs and limits](./costs-and-limits.md).
 
-### Output that 0.6.1 changed
+### Output that 0.6.0 changed
 
 A test that pins the library's exact output breaks when that output changes. These changed in
-0.6.1, for a test written for 0.5.0:
+0.6.0, for a test written for 0.5.0:
 
 - **A stream must say that it ended.** A fake stream without Gemini's `finishReason`, an
   OpenAI-compatible `finish_reason` or `[DONE]`, or Claude's `stop_reason`, is no longer a whole

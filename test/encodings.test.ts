@@ -81,7 +81,7 @@ describe("text files that are not UTF-8", () => {
     const csv = `id,name,amount\r\n${Array.from({ length: 30 }, (_, row) => `${row + 1},לקוח ירושלים בע"מ,48200\r\n`).join("")}`;
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "clients.csv", bytes: singleByte(csv, "windows-1255") });
-    // 0.6.0 decoded it as UTF-8: 30 rows of U+FFFD, and "ירושלים" found 0 times.
+    // 0.5.0 decoded it as UTF-8: 30 rows of U+FFFD, and "ירושלים" found 0 times.
     expect(meta.encoding).toBe("windows-1255");
     expect(meta.replacedCharacters).toBeUndefined();
     const tools = files.tools([meta]);
@@ -122,9 +122,9 @@ describe("text files that are not UTF-8", () => {
     const turkish = singleByte("Müşteri, faturanın ay sonuna kadar gönderilmesini istedi. Ödeme başarıyla tamamlandı.\r\n".repeat(5), "windows-1254");
     // Icelandic ð and þ are letters that the other languages written in windows-1252 seldom use.
     const icelandic = singleByte("Þetta er prófun á íslensku. Við höfum það gott í Reykjavík, og veðrið er frábært í dag.\n".repeat(30), "windows-1252");
-    // The bytes of 0.6.0's own test of a legacy encoding.
+    // The bytes of an earlier test of a legacy encoding.
     const bytes = new Uint8Array(Array.from({ length: 4_000 }, (_, index) => (index % 6 === 5 ? 0x20 : 0xe0 + (index % 27))));
-    // These were refused, and 0.6.0 stored them as UTF-8.
+    // These were refused, and 0.5.0 stored them as UTF-8.
     for (const [name, file] of [["notes.txt", greek], ["payments.csv", turkish], ["notes.txt", icelandic], ["legacy.txt", bytes]] as const) {
       const text = new TextDecoder().decode(file);
       const meta = await files.ingest({ name, bytes: file });
@@ -343,7 +343,7 @@ describe("text files that are not UTF-8", () => {
       ["one line with a binary body", log((line) => (line === 9_000 ? [...utf8(" body="), ...body] : undefined))],
       // C4 E0 is "Да" in windows-1251: the log was read as windows-1251.
       ["one line with two bytes that are a Russian word", log((line) => (line === 9_000 ? [0x20, 0xc4, 0xe0] : undefined))],
-      // One line in 1,500 with a Latin-1 é: the log was read as windows-1252. It is read as 0.6.0
+      // One line in 1,500 with a Latin-1 é: the log was read as windows-1252. It is read as 0.5.0
       // read it, so that a few stray bytes never decide the encoding of a log.
       ["10 lines with a Latin-1 é", log((line) => (line % 1_500 === 7 ? [...utf8(" user=Jos"), 0xe9] : undefined))],
     ];

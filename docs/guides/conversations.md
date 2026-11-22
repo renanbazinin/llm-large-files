@@ -130,7 +130,7 @@ it ([Costs and limits](./costs-and-limits.md)).
 what it searched and read before. A follow-up is then often answered without a new search, and a
 call that repeats one of them is answered from the stored result
 ([below](#repeated-calls-in-a-follow-up)). In a live check of 0.5.0 a follow-up took one request
-and no search; in a live check of the pointers on Vertex AI, during the work on 0.6.1, a follow-up
+and no search; in a live check of the pointers on Vertex AI, during the work on 0.6.0, a follow-up
 that repeated its first search got a pointer and answered from the stored result
 ([Measurements](../measurements.md)).
 

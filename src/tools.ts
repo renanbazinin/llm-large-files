@@ -252,7 +252,7 @@ export function alreadyShown(call: { name: string; args: Record<string, unknown>
   // time ("the total is a lower bound"; a later question has time of its own): a call made now may get more.
   if (typeof result.note === "string" && (result.note.startsWith("Showing ") || result.note.startsWith("The scan stopped early"))) return undefined;
   if (result.text_cut === true) return undefined;
-  // An exact or regex search that 0.6.0 or earlier stored: the first matches, without the last one
+  // An exact or regex search that an earlier version stored: the first matches, without the last one
   // and without a note. Run now, the call returns more (the last match), not the same.
   if (call.name === TOOL_NAMES.search && typeof result.total_matching_lines === "number" && Array.isArray(result.matches)
     && result.matches.length < result.total_matching_lines && typeof result.note !== "string") return undefined;

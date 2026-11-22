@@ -284,7 +284,7 @@ export function cleanFileName(raw: string): string {
 }
 
 /**
- * Metadata with a whole file name. 0.6.0 and earlier cut a long name at 255 UTF-16 units, at times
+ * Metadata with a whole file name. 0.5.0 and earlier cut a long name at 255 UTF-16 units, at times
  * inside an emoji, and stored it: half of a character is sent as a replacement character, never on
  * its own (Claude's API refuses it). Metadata whose name is whole comes back as it is.
  */

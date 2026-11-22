@@ -54,7 +54,7 @@ not add sampling settings in `body`.
 
 `usage.byModel` names the model by its `model` ID; set `id` for another name.
 
-The adapter has not been run against the real Messages API, in 0.6.1 or any earlier version. It
+The adapter has not been run against the real Messages API, in 0.6.0 or any earlier version. It
 is tested against the request and response shapes of the Messages API documentation.
 [Measurements](../measurements.md) lists what has been run live.
 
@@ -424,7 +424,7 @@ What else the adapter reads from a reply:
 - **A body that is not JSON.** A gateway's HTTP 200 whose body is not JSON (an HTML error page) is
   an `AnthropicRequestError` of kind `"invalid"`, status 200, with the `SyntaxError` as `cause`:
   "Claude's reply could not be read: it was not JSON (text/html). A proxy or gateway may have
-  answered in its place." It is not sent again, in a chat request or a part read. Until 0.6.1 it
+  answered in its place." It is not sent again, in a chat request or a part read. Until 0.6.0 it
   was the `SyntaxError` itself. An empty body of HTTP 200 is "Claude could not be reached (the
   reply was empty).", status 0, and is sent again.
 - **`x-should-retry: false`.** A request that the API says not to try again is not sent again,
@@ -432,7 +432,7 @@ What else the adapter reads from a reply:
 - **No credit, or a spending limit reached.** "Your credit balance is too low" (HTTP 400) and the
   spending limits of an organization ("You have reached your API usage limits", or HTTP 429 with
   `enforced_spend_limit_reached`) are of kind `"quota"`, and are not sent again. The 429 was sent
-  again three times before 0.6.1.
+  again three times before 0.6.0.
 - **An error inside a stream** gets the status of its type: `overloaded_error` 529,
   `rate_limit_error` 429, `api_error` 500, `timeout_error` 408, `invalid_request_error` 400,
   `authentication_error` 401, `billing_error` 402, `permission_error` 403, `not_found_error` 404,
@@ -440,7 +440,7 @@ What else the adapter reads from a reply:
   sent again when none of the reply was shown.
 
 The API refuses a request that holds half of a character outside the basic plane, such as half of
-an emoji (HTTP 400). Since 0.6.1 the library sends none: a file name, a log template or a search
+an emoji (HTTP 400). Since 0.6.0 the library sends none: a file name, a log template or a search
 window that 0.5.0 or an earlier version stored cut inside an emoji is sent with U+FFFD in place of
 the half, and
 the message to Claude about a call whose input was not valid JSON quotes up to 300 characters of
@@ -506,7 +506,7 @@ async function ask(question: string): Promise<string> {
 
 The IDs of the calls:
 
-- **Since 0.6.1, `anthropicToolTurns` gives a call that came without an ID a random one**,
+- **Since 0.6.0, `anthropicToolTurns` gives a call that came without an ID a random one**,
   `toolu_` and 24 hex digits, the same in its result. Before, it numbered them `toolu_1_1`,
   `toolu_1_2`, … each time, so the stored rounds of two questions had the same IDs, which the
   Messages API refuses. If your code expected IDs of that form, make it accept any ID.
@@ -569,7 +569,7 @@ What the pair changes:
   its window is the smaller one.
 - **Each count is read by its own model's scale.** The count Gemini reports with a reply is read by
   Gemini's scale, Claude's by Claude's, so the estimate rises when either model counted more than
-  its scale says. Before 0.6.1 every count was read by the largest scale, and a Gemini explorer's
+  its scale says. Before 0.6.0 every count was read by the largest scale, and a Gemini explorer's
   could not raise it.
 - **No result is shortened.** Claude is append-only, so the rule
   [above](#a-conversation-that-may-only-grow) holds for the explorer's rounds too.

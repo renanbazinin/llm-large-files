@@ -203,7 +203,7 @@ one file, 100 MB by default), `maxPdfPages` (5,000) and `ingestTimeoutMs` (2 min
 that would cost more ([Security](../security.md#uploads)).
 
 The first PDF a process reads also loads the PDF parsers, in one block that no pause can split:
-about 0.4 s for `@cantoo/pdf-lib` and 0.05 s for pdf.js, measured on Node 24. Since 0.6.1 it loads
+about 0.4 s for `@cantoo/pdf-lib` and 0.05 s for pdf.js, measured on Node 24. Since 0.6.0 it loads
 `@cantoo/pdf-lib` even with `pictures: false`, for the page check. An app that reads PDFs with
 `createPdfExtractor({ pictures: false, checkPages: false })` does not load it at ingest, but then no
 page is checked ([PDFs](./pdfs.md#pages-that-would-hold-the-server)). Load them when the server
@@ -241,13 +241,13 @@ end after the time limit. Three ways to bound that:
   `maxConcurrentScans` and `budget`.
 
 **Not a worker thread.** For uploads you do not trust, the security page of 0.5.0 suggested a
-worker thread or a separate process, and a draft of this guide on GitHub, before 0.6.1, ran each
+worker thread or a separate process, and a draft of this guide on GitHub, before 0.6.0, ran each
 ingest in a worker thread
 (`ingestInWorker`) with `resourceLimits: { maxOldGenerationSizeMb: 512 }`. That keeps the event
 loop free, but it does not bound memory. The process's heap flag replaces the worker's limit (see
 [Memory on each server](#memory-on-each-server)): under `NODE_OPTIONS=--max-old-space-size=1024`,
 as that draft set it, that worker had 1,216 MB on Node 24, not 512. And a worker that runs out of
-memory can take the whole process down with it: in the review of 0.6.0, a version never published
+memory can take the whole process down with it: in the 0.6 review, on the code before this release
 ([Measurements](../measurements.md#how-to-read-this-page)), a worker of 512 MB, with no heap flag
 on the process, did so on a hostile DOCX. A child process stops alone.
 
@@ -549,17 +549,17 @@ same conversations.
   [the 0.4.0 entry of the changelog](https://github.com/renanbazinin/llm-large-files/blob/v0.5.0/CHANGELOG.md#040---2026-11-12).
 - **A document keeps what the version that ingested it extracted**: its text, outline and log
   profile. A better extractor applies to files uploaded after the upgrade. A text file in an older
-  encoding that 0.5.0 stored holds U+FFFD where 0.6.1 reads its letters, and text that 0.5.0
+  encoding that 0.5.0 stored holds U+FFFD where 0.6.0 reads its letters, and text that 0.5.0
   stored keeps the characters that show nothing and Word's hidden text unmarked: upload such a file
   again to get the new reading. A document that 0.5.0 stored with the owner `""` stays readable
   with that owner until it expires.
 - **Conversations.** `toolTurns` are plain JSON, and their type (`ToolTurn`) has not changed since
-  they appeared in 0.5.0. Both versions read the ones the other stored. 0.6.1 sends the rounds of
+  they appeared in 0.5.0. Both versions read the ones the other stored. 0.6.0 sends the rounds of
   an earlier question without their `tool_turns_left`
   ([Conversations](./conversations.md#what-toolturns-holds)).
 - **Provider caches.** The tool guide in the system instruction, the descriptions of
   `analyze_whole_document` and `search_document`, and the frame lines of a file sent whole changed
-  in 0.6.1. They come at the start of a request, so a request
+  in 0.6.0. They come at the start of a request, so a request
   sent with the new text cannot reuse what the provider cached of the old: in each conversation
   whose files are searched or sent whole, the first request after the upgrade pays the full input
   price once for what comes from the first text that changed on

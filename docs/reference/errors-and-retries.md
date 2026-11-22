@@ -64,14 +64,14 @@ subclass sets its own.
 | Field | Type | What it holds |
 |---|---|---|
 | `status` | `number` | The HTTP status of the provider's answer. 0 when no answer came: the connection failed, the adapter's wait on a silent model ran out (kind `"timeout"`), a stream ended before it was complete, or a reply of HTTP 200 came with an empty body. For an error event inside a stream whose response was HTTP 200, it is the status the event names or implies (Claude's `overloaded_error` is 529 and `invalid_request_error` 400; a Claude error with no `type`, or one the adapter does not map, is 500, as an OpenAI-compatible error the server does not name is). A Gemini error without a numeric `code` keeps the response's 200. A reply of HTTP 200 that the adapter could not read (a body that is not JSON, or a streamed event too long) keeps its 200, with kind `"invalid"`. See the adapter's page. |
-| `kind` | `ModelErrorKind` | What went wrong. The `kind` option when it was given; otherwise `classifyModelError(status, message, { code, details }).kind`. New in 0.6.1. |
+| `kind` | `ModelErrorKind` | What went wrong. The `kind` option when it was given; otherwise `classifyModelError(status, message, { code, details }).kind`. New in 0.6.0. |
 | `retryAfterMs` | `number`, optional | The wait the provider asked for, in milliseconds, when it named one. The adapters read it with [`retryAfterMs()`](#retryaftermsheaders-body-now). Unset otherwise. |
-| `limitTokens` | `number`, optional | Only for kind `"context_overflow"`: the most input tokens the model takes, as the provider counts them, when its message names the number. New in 0.6.1. |
-| `requestedTokens` | `number`, optional | Only for kind `"context_overflow"`: the tokens of the refused request that the provider counted against the window, when its message names them. Some providers (OpenRouter, vLLM) count the output it would have taken too. New in 0.6.1. |
+| `limitTokens` | `number`, optional | Only for kind `"context_overflow"`: the most input tokens the model takes, as the provider counts them, when its message names the number. New in 0.6.0. |
+| `requestedTokens` | `number`, optional | Only for kind `"context_overflow"`: the tokens of the refused request that the provider counted against the window, when its message names them. Some providers (OpenRouter, vLLM) count the output it would have taken too. New in 0.6.0. |
 | `message` | `string` | The provider's own message when its error body has one, otherwise the adapter's ("Claude returned HTTP 502."). It can name projects, quotas and models: log it, and show your users your own text. |
 | `cause` | `unknown` | The `cause` option: for a request that got no answer, the error of `fetch`. |
 
-The constructor options (`kind`, `code` and `details` are new in 0.6.1):
+The constructor options (`kind`, `code` and `details` are new in 0.6.0):
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
@@ -160,7 +160,7 @@ table, and the first that matches gives the kind:
 Nothing is sent again after the caller's signal aborted, once `canRetry` says no, or when the
 provider said not to (Claude's `x-should-retry: false`): see [`withRetry`](#withretryrun-options).
 
-Kinds are new in 0.6.1. 0.5.0 sent an error again by its status alone: every status 0, 408, 409,
+Kinds are new in 0.6.0. 0.5.0 sent an error again by its status alone: every status 0, 408, 409,
 429 and 500 or more, so a quota or a request too large that came as HTTP 429 was sent again as it
 was, up to three times.
 
@@ -174,7 +174,7 @@ type ModelErrorClass = {
 };
 ```
 
-What [`classifyModelError`](#classifymodelerrorstatus-message-signals) returns. New in 0.6.1.
+What [`classifyModelError`](#classifymodelerrorstatus-message-signals) returns. New in 0.6.0.
 
 | Field | Type | What it holds |
 |---|---|---|
@@ -195,7 +195,7 @@ declare function classifyModelError(
 Tells the kind of a failure from its HTTP status, the provider's message and the provider's own
 signals, by the order of the [`ModelErrorKind`](#modelerrorkind) table. For an overflow it also
 reads the provider's numbers from the message. `ModelRequestError` calls it in its constructor;
-call it yourself to see how a message of your provider is read. New in 0.6.1.
+call it yourself to see how a message of your provider is read. New in 0.6.0.
 
 | Parameter | Type | Default | What it is |
 |---|---|---|---|
@@ -289,9 +289,9 @@ The kind of a model error: the `kind` field of the value when it is a string, wh
 string. That covers `ModelRequestError` and its subclasses, and any error of your own with the
 same field. Returns `undefined` for a value without one, such as `DocumentsNotFoundError`,
 `DocumentStoreError`, the default reason of an aborted signal, or a plain `Error`. Throws nothing.
-New in 0.6.1.
+New in 0.6.0.
 
-Since 0.6.1 the adapters throw no `SyntaxError` for a reply that is not JSON: it is the `cause` of
+Since 0.6.0 the adapters throw no `SyntaxError` for a reply that is not JSON: it is the `cause` of
 a `ModelRequestError` of kind `"invalid"` and status 200. Test `error.cause instanceof SyntaxError`
 where you tested `error instanceof SyntaxError`: kind `"invalid"` alone also covers every other
 request that the provider refused.
@@ -536,7 +536,7 @@ const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 600_000; // 10 minutes
 The default `firstByteTimeoutMs` of the adapters: the longest wait for the first piece of a reply.
 Headers do not count, since some servers send them at once. It is long because a model that thinks
 sends nothing while it does (Gemini without its thoughts, OpenAI's reasoning models), and a reply
-that is not streamed comes whole at the end. New in 0.6.1.
+that is not streamed comes whole at the end. New in 0.6.0.
 
 ### `DEFAULT_IDLE_TIMEOUT_MS`
 
@@ -546,7 +546,7 @@ const DEFAULT_IDLE_TIMEOUT_MS = 300_000; // 5 minutes
 
 The default `idleTimeoutMs` of the adapters: the longest wait between two pieces of a reply once
 it has started to arrive. An event of a stream, a keep-alive and a piece of a body all count. A
-model that is writing sends something well within it. New in 0.6.1.
+model that is writing sends something well within it. New in 0.6.0.
 
 ### `IdleWaits`
 
@@ -560,7 +560,7 @@ type IdleWaits = {
 How long an adapter waits on a chat request that sends nothing. `gemini()`, `askGemini`,
 `openAiCompatible()` and `anthropic()` take these two options under the same names (see
 [gemini.md](./gemini.md), [openai.md](./openai.md), [anthropic.md](./anthropic.md)). The type is
-exported so that you can keep the pair in one setting; the watch itself is internal. New in 0.6.1.
+exported so that you can keep the pair in one setting; the watch itself is internal. New in 0.6.0.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
@@ -574,7 +574,7 @@ exported so that you can keep the pair in one setting; the watch itself is inter
   (OpenAI-compatible) or "Claude sent nothing for 600 s.". The loop sends it again once, by the
   rule of [`withRetry`](#withretryrun-options), unless text of it was already shown. The error
   comes when the wait runs out, also with a `fetch` whose body never settles its `cancel()`.
-- The waits are new in 0.6.1: 0.5.0 waited on a silent model without end.
+- The waits are new in 0.6.0: 0.5.0 waited on a silent model without end.
 - A reply that keeps arriving has no time limit.
 - The waits watch the chat requests (`send`). The part reads of a whole-file read have a time
   limit of their own: see the adapter's page.
@@ -618,12 +618,12 @@ from node-fetch and the like). The adapters read their streams with it, and
 `llm-large-files/gemini` exports the same function.
 
 - An event ends at a blank line. Lines may end with LF, CRLF or a CR alone (a CR alone since
-  0.6.1). The bytes are decoded as UTF-8 across pieces, so an event, a line ending or a character
+  0.6.0). The bytes are decoded as UTF-8 across pieces, so an event, a line ending or a character
   cut between two reads is put together. Each piece is read once, however long the event it belongs
   to: one event of 8 MB in pieces of 16 KB, in memory, took 0.97 to 1.19 s in 0.5.0, and takes 10
-  to 20 ms in 0.6.1, on Node 24 on Windows ([Measurements](../measurements.md#the-server)). On a
-  machine busy with other Node processes, the same function at 5157e7f (the code of 0.6.0, never
-  published), which reads a stream as 0.5.0 does, took 1.1 to 3.6 s, and 0.6.1 takes 11 to 46 ms.
+  to 20 ms in 0.6.0, on Node 24 on Windows ([Measurements](../measurements.md#the-server)). On a
+  machine busy with other Node processes, the same function at 5157e7f (main before the last changes
+  of 0.6.0), which reads a stream as 0.5.0 does, took 1.1 to 3.6 s, and 0.6.0 takes 11 to 46 ms.
 - Only `data:` lines count: the text after `data:`, without its leading white space. The `data:` lines
   of one event are joined with a newline. Comments (`: …`), `event:`, `id:` and `retry:` lines are
   passed over.
@@ -631,14 +631,14 @@ from node-fetch and the like). The adapters read their streams with it, and
 - A last event that no blank line follows is read when the stream ends.
 - The data of each event goes through `JSON.parse` and is yielded as `T`, unchecked.
 - One event may hold at most `hooks.maxEventLength` characters, 64,000,000 by default (new in
-  0.6.1). A longer one ends the stream with an error, whether it comes whole or in pieces: a server
+  0.6.0). A longer one ends the stream with an error, whether it comes whole or in pieces: a server
   that never ends an event holds at most that many characters of your server's memory for each
   stream it sends. The limit is not on all streams together.
 
 Throws a `SyntaxError` for an event whose data is not JSON (it is not passed over), the signal's
 reason when `hooks.signal` aborts, and any error of the stream itself. For an event past
 `maxEventLength` it throws an `SseEventTooLongError` (exported from `llm-large-files` and
-`llm-large-files/gemini`, new in 0.6.1; its `limit` holds the limit), whose message is
+`llm-large-files/gemini`, new in 0.6.0; its `limit` holds the limit), whose message is
 `An event of the stream held more than 64,000,000 characters.`, the number being the limit in the
 en-US way. The adapters turn it into their own
 error, of kind `"invalid"`, that is not sent again (see their pages). Leaving the loop early
@@ -698,11 +698,11 @@ type SseHooks = {
 ```
 
 What [`parseSseJson`](#parsessejsonstream-hooks) tells you as the stream goes, and the most one
-event may hold. New in 0.6.1: 0.5.0's `parseSseJson` took the stream alone.
+event may hold. New in 0.6.0: 0.5.0's `parseSseJson` took the stream alone.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `onData` | `() => void` | none | Called for each piece of bytes that arrives, before it is parsed: an event, part of one, or a keep-alive comment. Use it to start a wait on silence again. |
 | `onDone` | `() => void` | none | Called when an event's data is `[DONE]`, which OpenAI-compatible servers send at the end. The OpenAI-compatible adapter takes a stream that closes with neither `[DONE]` nor a `finish_reason` as cut off on its way. |
 | `signal` | `AbortSignal \| undefined` | none | When it aborts, the next piece is not waited for: the generator throws the signal's reason, and the body is ended. |
-| `maxEventLength` | `number` | 64,000,000 | The most characters one event may hold: what its data lines hold after `data:` and the spaces after it, and the line feeds that join them. A line of another field (a comment, `event:`, `id:`) counts in full with the event while it is read, as it is held until its end. A longer event ends the stream with an error named `SseEventTooLongError`, however the stream is cut into pieces. `Infinity` sets no limit; a value that is not a positive number counts as not set. New in 0.6.1. |
+| `maxEventLength` | `number` | 64,000,000 | The most characters one event may hold: what its data lines hold after `data:` and the spaces after it, and the line feeds that join them. A line of another field (a comment, `event:`, `id:`) counts in full with the event while it is read, as it is held until its end. A longer event ends the stream with an error named `SseEventTooLongError`, however the stream is cut into pieces. `Infinity` sets no limit; a value that is not a positive number counts as not set. New in 0.6.0. |

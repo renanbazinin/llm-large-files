@@ -1,6 +1,6 @@
 // @cantoo/pdf-lib reads the whole file into objects before a page can be cut or checked, and
 // cannot be stopped once it has started. It pauses for other requests by time, not by a count of
-// objects: in the review of 0.6.0, a file of 4,006 objects never paused, and objects differ in cost
+// objects: in the 0.6 review, a file of 4,006 objects never paused, and objects differ in cost
 // a hundred times. A look at pages then copies the pages into a new file and writes it: that
 // pauses too.
 import "./load-pdf-libraries.js";
@@ -74,7 +74,7 @@ describe("parsing a PDF with @cantoo/pdf-lib lets other work run", () => {
     const { beats, result } = await beatsDuring(() => tools.executeWithFiles("view_pages", { document_id: meta.id, from_page: 1 }));
     expect(result.result).toMatchObject({ pages: "1", total_pages: 1 });
     expect(result.files).toHaveLength(1);
-    // Before 0.6.1 the look held the event loop until the whole file was parsed.
+    // Before 0.6.0 the look held the event loop until the whole file was parsed.
     expect(beats).toBeGreaterThanOrEqual(3);
   });
 });
@@ -119,7 +119,7 @@ describe("cutting pages out of a PDF lets other work run", () => {
       PDFDocument.prototype.save = save;
     }
     expect(await objectsIn(cut.bytes)).toBeGreaterThan(450);
-    // Before 0.6.1, the copy and the writing each held the event loop until they were done.
+    // Before 0.6.0, the copy and the writing each held the event loop until they were done.
     expect(saving! - copying!).toBeGreaterThanOrEqual(3);
     expect(beats - saving!).toBeGreaterThanOrEqual(3);
   });
@@ -160,7 +160,7 @@ describe("cutting pages out of a PDF lets other work run", () => {
       PDFCrossRefStream.create = create;
     }
     expect(await objectsIn(cut.bytes)).toBeGreaterThan(count);
-    // Before 0.6.1: one search for each object, and one for each stream of 50 objects.
+    // Before 0.6.0: one search for each object, and one for each stream of 50 objects.
     expect(searches).toBeLessThan(10);
   });
 

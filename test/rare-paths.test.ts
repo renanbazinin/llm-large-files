@@ -1,4 +1,4 @@
-// Paths that no test ran before 0.6.1, as the review of 0.6.0 found: the rename that Windows
+// Paths that no test ran before 0.6.0, as the 0.6 review found: the rename that Windows
 // refuses for a moment, upload limits on bodies that are streamed or already parsed, page numbers of
 // a PDF read by range, waits of 0 for a silent model, and a pointer to a result that was shortened.
 import "./load-pdf-libraries.js";

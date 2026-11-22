@@ -1,4 +1,4 @@
-// The tool loop since the review of 0.6.0: the answer's request asked for once more, pointers that
+// The tool loop since the 0.6 review: the answer's request asked for once more, pointers that
 // say only what is true, rounds of earlier questions sent as they should be, a question that stops
 // when it is stopped, and steps that are plain text.
 import { describe, expect, it } from "vitest";
@@ -182,7 +182,7 @@ describe("a read in the rounds of an earlier question", () => {
     expect(answersOf(model.requests[2]!.messages)[1]).toMatchObject({ lines: "50-50", already_shown: true });
   });
 
-  it("of one line is no longer said to be shown in full by a pointer that 0.6.0 stored in a later question", async () => {
+  it("of one line is no longer said to be shown in full by a pointer that main stored in a later question", async () => {
     const { files, meta } = await largeLog();
     const tools = files.tools([meta]);
     const cut = { document: "app.log", lines: "1500-1500", total_lines: 5_000, text: "1500| 2026-11-12T08:06:15.000Z INFO [worker-4] req=", next_start_line: 1501 };
@@ -193,7 +193,7 @@ describe("a read in the rounds of an earlier question", () => {
       note: `Not run: lines ${from}-${to} are already shown above in full, in the result that has lines ${first}-${last} of this file, and the file has not changed. Use them. To see more, read other lines.`,
     });
     const stored: ChatMessage[] = [
-      // Read by 0.5.0, which cut line 1500 without saying so; or by 0.6.0: the rounds cannot tell.
+      // Read by 0.5.0, which cut line 1500 without saying so; or by main: the rounds cannot tell.
       { role: "user", text: "Lines?" },
       { role: "tools", calls: [
         { ...read(meta.id, 1500, 1500), result: cut },
@@ -203,7 +203,7 @@ describe("a read in the rounds of an earlier question", () => {
       // A pointer of the same question: the read it points to was made by the same version.
       { role: "tools", calls: [{ ...read(meta.id, 50, 50), result: pointer(50, 50, 50, 50) }] },
       { role: "assistant", text: "Here." },
-      // Pointers 0.6.0 made in a later question.
+      // Pointers main made in a later question.
       { role: "user", text: "Again?" },
       { role: "tools", calls: [{ ...read(meta.id, 1500, 1500), result: pointer(1500, 1500, 1500, 1500) }, { ...read(meta.id, 150, 160), result: pointer(150, 160, 100, 200) }] },
       { role: "assistant", text: "Same." },
@@ -285,10 +285,10 @@ describe("the rounds of an earlier question", () => {
     expect(card).toContain(fresh.meta.logProfile!.topIssues[0]!.template);
   });
 
-  it("and a file name 0.6.0 cut inside an emoji are sent with a replacement character for the half", async () => {
+  it("and a file name 0.5.0 cut inside an emoji are sent with a replacement character for the half", async () => {
     const { files: first, meta, store } = await largeLog();
     const small = await first.ingest({ name: "notes.txt", bytes: utf8("hello\n") });
-    // 0.6.0 cut names at 255 UTF-16 units, at times inside an emoji, and stored them so.
+    // 0.5.0 cut names at 255 UTF-16 units, at times inside an emoji, and stored them so.
     const half = `${"a".repeat(254)}\ud83d`;
     const whole = `${"a".repeat(254)}\ufffd`;
     for (const id of [meta.id, small.id]) {

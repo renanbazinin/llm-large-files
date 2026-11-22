@@ -84,7 +84,7 @@ describe("the kind of a model error", () => {
   });
 
   it("does not take throttling or other refusals for an overflow, and tells a quota only from what the provider marks", () => {
-    // Larger than a whole minute allows: only a smaller request can pass (since 0.6.1; it was "rate_limit").
+    // Larger than a whole minute allows: only a smaller request can pass (since 0.6.0; it was "rate_limit").
     expect(classifyModelError(429, "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.")).toEqual({ kind: "context_overflow", limitTokens: 30_000, requestedTokens: 50_000 });
     expect(classifyModelError(429, "Rate limit reached for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Used 28000, Requested 5000. Please try again in 6s.").kind).toBe("rate_limit");
     // Vertex AI's answer to an output limit it does not take (November 2026): the request is wrong, not too large.
@@ -446,7 +446,7 @@ describe("a call that was answered already (no second run, no second result in t
     expect(await run({ ...full, note: "Showing 3 of 20 results to stay within the size limit. Narrow the query or read specific lines." })).toMatchObject({ total_matching_lines: 51 });
     expect(await run({ document: "app.log", dropped: true, note: "dropped" })).toMatchObject({ total_matching_lines: 51 });
     expect(await run({ error: "The scan failed." })).toMatchObject({ total_matching_lines: 51 });
-    // As 0.6.0 stored it: the first 20 matches, without the last one and without a note. Run now, it gets the last one.
+    // As main stored it: the first 20 matches, without the last one and without a note. Run now, it gets the last one.
     const { note: _note, ...older } = full;
     const matches = full.matches as Array<{ line: number }>;
     expect(matches).toHaveLength(21);
@@ -455,7 +455,7 @@ describe("a call that was answered already (no second run, no second result in t
     expect((again.matches as Array<{ line: number }>).at(-1)!.line).toBe(matches.at(-1)!.line);
   });
 
-  it("runs a search again whose result 0.6.0 stored, and makes a pointer 0.6.0 made to it a stand-in", async () => {
+  it("runs a search again whose result main stored, and makes a pointer main made to it a stand-in", async () => {
     const { files, meta } = await largeLog();
     const args = search(meta.id, "ERROR").args;
     const full = await files.tools([meta]).execute("search_document", args);

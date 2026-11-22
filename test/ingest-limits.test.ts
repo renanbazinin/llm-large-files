@@ -46,7 +46,7 @@ function mixedText(lines: number): string {
   return Array.from({ length: lines }, (_, n) => kinds[n % kinds.length]!(n)).join("\n");
 }
 
-describe("ingest work in slices gives the results of 0.6.0", () => {
+describe("ingest work in slices gives the results of 0.5.0", () => {
   it("measures a text the same, slice by slice", async () => {
     for (const text of [mixedText(20_000), mixedText(20_000) + "\n", "", "one line without a break", mixedText(3)]) {
       const measured = await measureText(text, new TimeSlicer());
@@ -110,7 +110,7 @@ describe("ingest lets other work run", () => {
     const bytes = encoder.encode(serviceLog(120_000));
     const { beats, result } = await beatsDuring(() => files.ingest({ name: "app.log", bytes }));
     expect(result.lines).toBe(120_000);
-    // Before 0.6.1 the whole ingest was one block, and a timer never ran during it.
+    // Before 0.6.0 the whole ingest was one block, and a timer never ran during it.
     expect(beats).toBeGreaterThanOrEqual(3);
   });
 

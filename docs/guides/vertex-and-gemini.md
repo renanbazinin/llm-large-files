@@ -252,7 +252,7 @@ answered "thinking_level is not supported by this model".
   two models do not take the same settings.
 - The part reads of a whole-file read do not get `generationConfig`. They get `analysisConfig`, or
   `{ maxOutputTokens }` without it, with no temperature: Gemini 3.6 and later ignore it, and
-  Google says later models will refuse it. Until 0.6.1 the default was
+  Google says later models will refuse it. Until 0.6.0 the default was
   `{ maxOutputTokens, temperature: 0.2 }`; to keep it for an older model, pass
   `analysisConfig: (maxOutputTokens) => ({ maxOutputTokens, temperature: 0.2 })`. With an explorer,
   the explorer reads the parts, so write `analysisConfig` for it.
@@ -490,7 +490,7 @@ Two failures are not a `GeminiRequestError`, and have no `kind`:
 A reply of HTTP 200 whose body is not JSON, such as a gateway's HTML page, is a
 `GeminiRequestError` of kind `"invalid"`, status 200, with the `SyntaxError` as `cause`: "Gemini's
 reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its
-place." It is not sent again, streamed or not; until 0.6.1 it was the `SyntaxError` itself, and a
+place." It is not sent again, streamed or not; until 0.6.0 it was the `SyntaxError` itself, and a
 streamed request that got such a page came back as an empty reply. An empty body
 of HTTP 200 is "Gemini could not be reached (the reply was empty).", status 0, and is sent again.
 A reply asked for as a stream that comes under another content type than `text/event-stream` is

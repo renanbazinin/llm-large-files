@@ -408,7 +408,7 @@ The library checks `expiresAt` itself, with its own clock, before every use. You
 `get` may return a document that has expired; your `sweep` must remove it.
 
 Keep every field of `meta`, including those your store does not know. Later versions add optional
-fields: 0.4.1 added `jsonBytes`, and 0.6.1 `encoding` and `replacedCharacters`, which say how a
+fields: 0.4.1 added `jsonBytes`, and 0.6.0 `encoding` and `replacedCharacters`, which say how a
 text file that was not valid UTF-8 was read ([PDFs and other formats](./pdfs.md#text-encodings)).
 A store that checks `meta` against a fixed list of fields (a `$jsonSchema` with
 `additionalProperties: false`, a Mongoose schema in strict mode that throws) refuses the ingest of

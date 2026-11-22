@@ -53,13 +53,13 @@ export type DocumentMeta = {
    * The older encoding a text file was read in, because it is not UTF-8: "windows-1255" for a
    * Hebrew CSV that Excel saved. Lines of it that are valid UTF-8 are read as UTF-8 all the same.
    * Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see
-   * `replacedCharacters`), for UTF-16, for PDF, DOCX and PPTX, and on documents from before 0.6.1.
+   * `replacedCharacters`), for UTF-16, for PDF, DOCX and PPTX, and on documents from before 0.6.0.
    */
   encoding?: string;
   /**
    * Characters of a text file that were not valid in the encoding it was read in, such as a
    * character cut in two at the end of a UTF-8 log, or a byte that `encoding` does not have: each
-   * is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.1.
+   * is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.0.
    */
   replacedCharacters?: number;
   /**

@@ -91,7 +91,7 @@ What it does, in order:
    tool can be called in this reply: write the answer now, in text, from what is above." Not after
    a refusal (`blockReason`), a reply `"filtered"`, or one `"cut"` with nothing in it; not once
    `limits.requests` or `limits.inputTokens` is reached; and not when the question already made its
-   two second tries (see [`ModelReply`](#modelreply)). New in 0.6.1.
+   two second tries (see [`ModelReply`](#modelreply)). New in 0.6.0.
 
 A request that fails is sent again by the rule of `retry` (see
 [`withRetry`](./errors-and-retries.md#withretryrun-options)), but never once text of its reply was
@@ -235,7 +235,7 @@ Guides: [conversations](../guides/conversations.md) (`toolTurns`),
 declare function partialResultOf(error: unknown): AskResult | undefined;
 ```
 
-New in 0.6.1, from `llm-large-files` and `llm-large-files/gemini`.
+New in 0.6.0, from `llm-large-files` and `llm-large-files/gemini`.
 
 What a question that failed had done before it failed. `askWithFiles` throws the error as it came;
 this gives, for that error object, an [`AskResult`](#askresult) with `answered: false` and the
@@ -306,7 +306,7 @@ was empty, or no turn was left for tools), so there is no tool result to answer 
 > if the answer needs a part of a file that is not shown here, say so plainly.
 
 None of the three is kept in the conversation or in `toolTurns`. Nor is the note of the answer's
-second try, which is not exported (new in 0.6.1): "Your last reply had no text. No tool can be
+second try, which is not exported (new in 0.6.0): "Your last reply had no text. No tool can be
 called in this reply: write the answer now, in text, from what is above."
 
 ## The conversation
@@ -358,7 +358,7 @@ One round of tool use as an application stores it: the calls of one model turn, 
 tool returned ([`ToolResult`](./tools.md#toolresult)), in call order. Plain JSON that belongs to no
 provider. `askWithFiles` returns them in `result.toolTurns`; passed back in `messages`, the model
 sees in a later question what its tools returned in an earlier one. Their results are sent without
-`tool_turns_left`, which counted the turns of their own question (since 0.6.1; what `toolTurns`
+`tool_turns_left`, which counted the turns of their own question (since 0.6.0; what `toolTurns`
 holds is unchanged). A call whose result is still in the conversation in full is then not run
 again: it is answered with a pointer (`already_shown: true`). Not with a model that declares
 `clearsToolResults`, and not for a read of one line made in an earlier question, or an exact or
@@ -465,7 +465,7 @@ reference page.
 | `tokenScale` | `number` | 1 | How many of this model's tokens one token of the library's estimate (`estimateTokens`, fitted to Gemini) comes to. A model that counts a third more for the same text says 1.33, and its window is that much smaller in the library's tokens. The question uses the largest of its models'. A value that is not above 0 counts as 1. |
 | `outputTokens` | `number` | none | Tokens set aside for the reply, when they come out of the same window as the prompt (Claude's `max_tokens`). The largest of the models' is kept free, but at least a quarter of the window is left for the prompt. |
 | `appendOnly` | `boolean` | `false` | True for a model whose earlier turns may not be rewritten (Claude ties its thinking blocks to the turns they were written in). When any model of the question says so, old tool results are not shortened to make room: when the room runs out, the question is answered with what it has, and an overflow is mended only by planning the documents again. When the model that explores is append-only, a note the loop adds after an empty or broken reply stays in its conversation for the rest of the question. |
-| `clearsToolResults` | `boolean` | `false` | True for a model whose provider may clear old tool results from the conversation on its side, before the model reads it: Claude's context editing with `clear_tool_uses`, or compaction. When any model of the question says so, no call is answered with a pointer to an earlier result: each call made again runs again, the same call twice in one turn runs twice, and pointers in stored rounds are sent as the stand-in that says to call again. The loop still counts every result as sent, so its room runs out where it would without it. `anthropic()` sets it from its `body`; set it in an adapter of your own whose provider does this. New in 0.6.1. |
+| `clearsToolResults` | `boolean` | `false` | True for a model whose provider may clear old tool results from the conversation on its side, before the model reads it: Claude's context editing with `clear_tool_uses`, or compaction. When any model of the question says so, no call is answered with a pointer to an earlier result: each call made again runs again, the same call twice in one turn runs twice, and pointers in stored rounds are sent as the stand-in that says to call again. The loop still counts every result as sent, so its room runs out where it would without it. `anthropic()` sets it from its `body`; set it in an adapter of your own whose provider does this. New in 0.6.0. |
 
 With an explorer, every field counts for the pair: the budget is planned for the smaller window
 and the larger scale, because both models get the same conversation. Guides:

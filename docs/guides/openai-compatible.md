@@ -284,7 +284,7 @@ What the adapter handles for these servers:
 - **An error's message, wherever the server puts it.** Most servers put it in `error`. vLLM before
   its OpenAI-shaped errors, SGLang and FastChat put a `message` at the top of the body, and servers
   built on FastAPI a `detail` (a list of problems gives their `msg` joined with "; "). The adapter
-  reads all three; before 0.6.1, such a request too large became "The model returned HTTP 400.",
+  reads all three; before 0.6.0, such a request too large became "The model returned HTTP 400.",
   and the loop did not make it smaller.
 - **The output limit** of a part read is named `max_tokens`.
 - **`answerWithoutTools: "omit"`** for a server that refuses `tool_choice`, and
@@ -394,7 +394,7 @@ fields, and every message the adapter writes with its status and kind:
 [`OpenAiRequestError`](../reference/openai.md#openairequesterror) and the errors table under
 [`openAiCompatible()`](../reference/openai.md#openaicompatibleoptions).
 
-`code` and `param` are new in 0.6.1. They come from an HTTP error response, and from an error
+`code` and `param` are new in 0.6.0. They come from an HTTP error response, and from an error
 inside a stream too: `context_length_exceeded` there is HTTP 400, of kind `"context_overflow"`,
 and `insufficient_quota` HTTP 429, of kind `"quota"`. In 0.5.0 an error inside a stream kept the
 stream's HTTP 200, and was not sent again. `retryAfterMs` comes from an HTTP error response only.
@@ -402,7 +402,7 @@ stream's HTTP 200, and was not sent again. `retryAfterMs` comes from an HTTP err
 A reply of HTTP 200 whose body is not JSON is an `OpenAiRequestError` of kind `"invalid"`, status
 200, with the `SyntaxError` as `cause`: "The model's reply could not be read: it was not JSON
 (text/html). A proxy or gateway may have answered in its place." It was a `SyntaxError` before
-0.6.1. An empty body of HTTP 200 is "The model could not be reached (the reply was empty).", status
+0.6.0. An empty body of HTTP 200 is "The model could not be reached (the reply was empty).", status
 0, and is sent again.
 
 ```ts
@@ -434,7 +434,7 @@ the IDs it gives calls that came without one: "Streaming" and "The reply" under
 [`openAiCompatible()`](../reference/openai.md#openaicompatibleoptions). A streamed tool call goes
 back with every field the server sent in it, such as `extra_content`. A server that sends the name
 of a tool call again with each piece of it is read right: the name is not doubled
-(`search_documentsearch_document`, which the loop answered as an unknown tool before 0.6.1).
+(`search_documentsearch_document`, which the loop answered as an unknown tool before 0.6.0).
 
 ## What it does not do
 
@@ -513,7 +513,7 @@ await saveHistory(chatId, history);
 - does not keep the text of an assistant turn that also made tool calls.
 
 `openAiToolTurns(result.toolTurns)` gives each round as an assistant message with its
-`tool_calls` and one `tool` message per call, its content the JSON of the result. **Since 0.6.1, a
+`tool_calls` and one `tool` message per call, its content the JSON of the result. **Since 0.6.0, a
 call that came without an ID gets a random one**, `call_` and 24 hexadecimal characters, and a new
 one each time you convert. Before, they were numbered from 1 each time, so the stored rounds of two
 questions had the same IDs. Convert a question's rounds once and store the messages; do not convert

@@ -142,7 +142,7 @@ The number is the major version of the Node that runs the server. DOCX, PPTX and
 read as before.
 
 **Cause.** The version of `unpdf` that is installed cannot read PDFs on this version of Node, and
-0.6.1 checks it before it reads a PDF:
+0.6.0 checks it before it reads a PDF:
 
 - unpdf 1.5.0 to 1.6.0 load a pdf.js that calls `Promise.try`, which Node 20 and 22 do not have. In
   0.5.0 the first PDF stopped the whole process, with a `TypeError` that nothing could catch.
@@ -170,11 +170,11 @@ See [PDFs and other formats](./guides/pdfs.md#formats).
 ### `npm install` stops with `ERESOLVE` over `unpdf`
 
 **Cause.** llm-large-files 0.5.0 accepts `unpdf` ^1.4.0 only: with it, an install of unpdf 2, or
-of 0.5.0 in an app that already has unpdf 2, stops with `ERESOLVE`. 0.6.1 accepts
-`^1.4.0 || ^2.0.0`. So going back from 0.6.1 with unpdf 2 to 0.5.0 stops the same way
+of 0.5.0 in an app that already has unpdf 2, stops with `ERESOLVE`. 0.6.0 accepts
+`^1.4.0 || ^2.0.0`. So going back from 0.6.0 with unpdf 2 to 0.5.0 stops the same way
 (`npm install llm-large-files@0.5.0`), and changes nothing.
 
-**Fix.** Use 0.6.1. To go back to 0.5.0 from unpdf 2, install both in one command:
+**Fix.** Use 0.6.0. To go back to 0.5.0 from unpdf 2, install both in one command:
 `npm install llm-large-files@0.5.0 unpdf@^1`, or restore `package.json` and `package-lock.json`
 together.
 
@@ -282,7 +282,7 @@ or `{ "error": "Upload failed (owner is not a string)." }`. It answers before it
 logs nothing. `files.ingest`, called directly with such an owner, throws a `TypeError`:
 `owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.`
 
-**Cause.** Since 0.6.1 an owner of `""`, of spaces only, or `null` is refused. It would be one owner
+**Cause.** Since 0.6.0 an owner of `""`, of spaces only, or `null` is refused. It would be one owner
 shared by every caller without a user: each of them could read and delete the documents of the
 others. 0.5.0 accepted it.
 
@@ -403,7 +403,7 @@ UTF-8. The document's metadata, and the summary the upload answered with, has `e
 `"windows-1252"`), `replacedCharacters` (a count), or both.
 
 **Cause.** A text, log, CSV, JSON or Markdown file that is not valid UTF-8 is never refused for its
-encoding. Since 0.6.1 it is read one of two ways:
+encoding. Since 0.6.0 it is read one of two ways:
 
 - **In an older encoding** (`encoding`), when its lines with letters fit one: windows-1255
   (Hebrew), windows-1256 (Arabic), windows-1251 (Cyrillic), Shift_JIS (`"shift_jis"`, Japanese)
@@ -493,7 +493,7 @@ from `read_document`, `search_document`, `get_document_overview`, `analyze_whole
 `view_pages`.
 
 **Cause.** Besides a document that expired or was deleted after the question was planned: since
-0.6.1, `files.tools()` compares the owner stored with each document with the `owner` of the
+0.6.0, `files.tools()` compares the owner stored with each document with the `owner` of the
 `DocumentMeta` it was handed, and answers a mismatch as a document that is gone. Your loop passes
 metadata that it built itself (from an ID, from its own database, from a `DocumentSummary`, which
 has no owner) or that another owner's call returned. A document stored without an owner is not
@@ -545,7 +545,7 @@ See [How it works](./how-it-works.md) for the plan and the tools, and
 The model cites a line that starts `[Hidden text, not shown in the document]`, or a slide whose
 heading says `(hidden, not shown in the slide show)`, and the user does not see it in the file.
 
-**Cause.** Since 0.6.1 the text of a DOCX run that Word hides (`<w:vanish/>`) is kept and marked: it
+**Cause.** Since 0.6.0 the text of a DOCX run that Word hides (`<w:vanish/>`) is kept and marked: it
 comes after the text of its paragraph that shows, each of its lines starting with that mark. A
 slide that the slide show skips keeps its text, and its heading says so. The mark tells the model
 what a reader of the document does not see. It is a hint: text hidden through a style, white or
@@ -664,7 +664,7 @@ See [Tools](./reference/tools.md) and [Costs and limits](./guides/costs-and-limi
 A part that failed among parts that were read is counted in the result's `parts_that_failed`, and
 its notes say `[This part could not be read: The model was busy (HTTP 429).]`.
 
-**Cause.** The model requests of the parts failed, after their retries. Since 0.6.1 the model, the
+**Cause.** The model requests of the parts failed, after their retries. Since 0.6.0 the model, the
 step and `toolTurns` are told why by the error's kind, its HTTP status or its connection code, never
 by its message, which can name a project, a host, a key or a URL:
 
@@ -1009,10 +1009,10 @@ Look at `result.usage`: `inputTokens`, `cachedInputTokens` (read from the provid
 - **`documentPlacement: "last"`.** The documents then move to the latest turn, and a prompt cache
   cannot reuse them: keep the default, `"first"`.
 - **The first request of a follow-up question.** The tool rounds of an earlier question are sent
-  again without their `tool_turns_left` (since 0.6.1), so that request reads the cache only up to
+  again without their `tool_turns_left` (since 0.6.0), so that request reads the cache only up to
   the tool rounds of the question before it: the documents, the cards and the turns before those
   rounds still hit. The later requests of the question hit as before.
-- **The first request after the upgrade to 0.6.1.** The tool guide, the descriptions of
+- **The first request after the upgrade to 0.6.0.** The tool guide, the descriptions of
   `search_document` and `analyze_whole_document`, and the frame of every file sent whole changed,
   so the first request of each conversation reads from the cache at most what comes before the
   first text that changed. For a question with files to search, that is nothing on Claude and
@@ -1320,7 +1320,7 @@ export async function answer(response: ServerResponse) {
 }
 ```
 
-The question then throws the signal's reason, at once: since 0.6.1 also with an adapter of your own
+The question then throws the signal's reason, at once: since 0.6.0 also with an adapter of your own
 that does not stop its request, and when the adapter fails with its own error as it stops. Nothing
 is sent after that, and text that arrives later is not shown. What it used until then was paid for:
 `partialResultOf(error)` gives its `usage` when the reason is an object, so abort with no reason or

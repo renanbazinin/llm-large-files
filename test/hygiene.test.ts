@@ -18,7 +18,7 @@ const SCOTLAND = `\u{1F3F4}${tag("gbsct")}\u{E007F}`;
 
 describe("invisible characters in the text (S4, S15)", () => {
   it("removes C1 control characters, and the one-character CSI sequence whole", () => {
-    // docs/security.md said control characters were removed; 0.6.0 kept U+0080-U+009F.
+    // docs/security.md said control characters were removed; 0.5.0 kept U+0080-U+009F.
     expect(normalizeText("a\u0081b\u0080c\u009fd\u008de")).toBe("abcde");
     expect(normalizeText("x\u009b31mERROR\u009b0m y")).toBe("xERROR y");
   });

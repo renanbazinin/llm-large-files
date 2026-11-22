@@ -114,7 +114,7 @@ storage (EIO). Try the call again.", and a store that could not be read gives th
 | `Unknown document_id ID. Use one of: doc_… ("app.log"), ….` | `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`: the ID is not one of the tool set's documents. Up to 20 usable IDs are listed, each with its file name, and `…` when there are more. |
 | `Unknown document_id ID. No attached file is read with this tool in this conversation.` | `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`: the tool set has no document for these tools. |
 | `ID is no longer available on the server. Ask the user to attach the file again.` | The document was deleted or expired after the request was planned. |
-| `Unknown tool “NAME”.` | The name is not a tool of this tool set. The name is cut at 64 characters, never in the middle of a character. Until 0.6.1: `Unknown tool NAME.`, with the whole name. |
+| `Unknown tool “NAME”.` | The name is not a tool of this tool set. The name is cut at 64 characters, never in the middle of a character. Until 0.6.0: `Unknown tool NAME.`, with the whole name. |
 
 **Size.** One result is at most `toolResultCharacters` characters of JSON (a field of
 [`Budget`](./library.md#budget): 24,000 with the default budget, less for a model with a small
@@ -153,7 +153,7 @@ The description the model sees:
 > result shows the first max_results of them and the last one. Results include line numbers to read
 > further with read_document.
 
-Until 0.6.1 it said that `exact` "returns every line containing the text", while the result showed
+Until 0.6.0 it said that `exact` "returns every line containing the text", while the result showed
 the first lines only: a model asked when something last happened named the last line it was shown.
 
 | Argument | Type | Required | Default and limits | Meaning |
@@ -383,7 +383,7 @@ Errors:
 | The store's error | No part could be read from the store. Nothing was sent. | no |
 
 REASON, in these errors, in the notes of a part that could not be read, and in the note of
-`notes_only`, says why a model request failed. Since 0.6.1 it is built from the error's kind, its
+`notes_only`, says why a model request failed. Since 0.6.0 it is built from the error's kind, its
 HTTP status or its connection code, never from its message, which can name a project, a host, a
 key or a URL. It is one of:
 
@@ -408,7 +408,7 @@ told from the status and its message, as [`classifyModelError`](./errors-and-ret
 does. A failure to read a part's lines from the store is told as every tool tells a store's error
 ([Rules for every tool](#rules-for-every-tool)):
 `[This part could not be read: The document store could not be read (EIO). Try again.]`. Until
-0.6.1, REASON was the error's own message.
+0.6.0, REASON was the error's own message.
 
 ## `view_pages`
 
@@ -514,12 +514,12 @@ of this unless you write it.
   turns left after this one, or 0 when the request has no room left. A stand-in that later
   replaces the result, and the stand-in kept in `toolTurns` for a look at pages, do not have it.
   `toolTurns` keep it, but the rounds of an earlier question passed back in `messages` are sent
-  without it, since it counted the turns of their own question (since 0.6.1). `geminiToolTurns`,
+  without it, since it counted the turns of their own question (since 0.6.0). `geminiToolTurns`,
   `openAiToolTurns` and `anthropicToolTurns` leave it out too.
 - **A call made again.** A call whose result is still in the conversation in full (the same
   search with the same arguments as the tool reads them, the same overview, the same read, or a
   read of lines inside a read shown in full), in this question or in the tool rounds of an earlier
-  one passed back in `messages`, is not run (new in 0.6.1). Its result is a pointer, and its step
+  one passed back in `messages`, is not run (new in 0.6.0). Its result is a pointer, and its step
   ends " — already shown above":
   - `{ "document": "app.log", "already_shown": true, "note": "Not run: this exact call was answered earlier in this conversation, and its result is still shown above in full. The file has not changed, so it would return the same. Use that result. For more, read other lines, or search with other words or another mode." }`
   - For a read inside an earlier read: `{ "document": "app.log", "lines": "150-200", "already_shown": true, "note": "Not run: lines 150-200 are already shown above in full, in the result that has lines 100-299 of this file, and the file has not changed. Use them. To see more, read other lines." }`
@@ -582,7 +582,7 @@ of this unless you write it.
   this turn were not run (at most 8 a turn)", or "1 more tool call in this turn was not run (at
   most 8 a turn)" for one. A call of a tool that does not exist has the label `Call “NAME”`, the
   name cut at 64 characters, and the step `Call “do_magic” — failed: Unknown tool “do_magic”.`;
-  until 0.6.1 the label was the name itself. Labels and steps are one line of plain text: a line
+  until 0.6.0 the label was the name itself. Labels and steps are one line of plain text: a line
   break or a control character the model sent becomes a space, the invisible characters that file
   text loses are dropped, and `](` becomes `] (` (see [`AskResult`](./ask.md#askresult)). See
   [Web app](../guides/web-app.md) for showing them.
@@ -654,7 +654,7 @@ const step = label + toolResultSummary(label, { document: "app.log", mode: "exac
 // "Search app.log (exact) for “timeout” — 1,203 matching lines"
 ```
 
-Until 0.6.1 a count of one was plural too (` — 1 matching lines`). `askWithFiles` makes its steps
+Until 0.6.0 a count of one was plural too (` — 1 matching lines`). `askWithFiles` makes its steps
 this way, and then makes each one line of plain text. See [Web app](../guides/web-app.md).
 
 ### `ToolSet`
@@ -753,7 +753,7 @@ type ToolCallLimits = {
 | `maxFileBytes` | number | 3/8 of (`maxRequestBytes` − 262,144): 3,651,696 bytes with the default budget | `view_pages`: the most bytes its file may have. Pages are left off the end until the cut fits. Below 1,024 the call fails. Give the room left in your request, times 3/4 when you send files as base64. |
 | `maxPages` | number | [`MAX_VIEW_PAGES`](#max_view_pages) (5) | `view_pages`: the most pages this call may show, never more than 5. Below 1 the call fails. Lower it as the pages already shown use up your token budget. |
 | `maxResultCharacters` | number | The tool's own cap ([`resultCharacters`](#toolset)) | The most characters of the JSON result, when that is less than the tool's cap: the room left in the request. The result is cut to it and says where to go on. Never below 600. `view_pages` ignores it. |
-| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. It does not stop the read: a part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, a merge and the answer must fit). New in 0.6.1. |
+| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. It does not stop the read: a part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, a merge and the answer must fit). New in 0.6.0. |
 
 In `askWithFiles`, `maxFileBytes` is what is left of `maxRequestBytes` after the request so far
 and a tenth kept free (256 KiB at least), times 3/4; `maxPages` is what is left of
@@ -872,7 +872,7 @@ minor version (0.7.0) may make breaking changes. Descriptions, notes, error text
 guide are written for the model and have changed between versions: do not parse them; test for
 result fields instead.
 
-0.6.1 changed the guide, the descriptions of `search_document` and `analyze_whole_document`, and
+0.6.0 changed the guide, the descriptions of `search_document` and `analyze_whole_document`, and
 the frame of every file sent whole ([`PreparedContext`](./library.md#preparedcontext)), so the
 provider's prompt cache misses once after upgrading to it: the first request of each conversation
 after the upgrade reads from the cache at most what comes before the first text that changed. For

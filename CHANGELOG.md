@@ -3,7 +3,7 @@
 What changed in each version of `llm-large-files`, for the developers who use it. Each version
 says what you need to change when you upgrade, what you can add, what works differently, and what
 was fixed. Versions follow [semantic versioning](https://semver.org). While the version is 0.x, a
-minor version (0.5 to 0.6) may need changes in your code or settings, and a patch (0.6.1 to 0.6.2)
+minor version (0.5 to 0.6) may need changes in your code or settings, and a patch (0.6.0 to 0.6.1)
 does not. The **Upgrading** part of each version says what to change, and it is there even when
 the answer is "nothing".
 
@@ -36,10 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.6.1 — not released yet
-
-0.6.0 was never published: its changes are part of 0.6.1, and this entry gives them all as
-changes from 0.5.0.
+## 0.6.0 — 2026-11-22
 
 Questions fail less often, and when one fails, you can tell why and keep what it found: every
 model error has a kind, a request too large for the model is made smaller and sent again, a model
@@ -56,7 +53,7 @@ text the model is sent. Some of these change what the library sends, throws or r
 
 ### Upgrading: what you need to change
 
-Code written for 0.5.0 compiles with 0.6.1 as it is, but for two cases. The turns of
+Code written for 0.5.0 compiles with 0.6.0 as it is, but for two cases. The turns of
 `geminiFunctionResponses` and `geminiFunctionResponseTurns` now have `GeminiPart[]` parts, where
 they had `unknown[]` (see **Changed**). Code that adds to those `parts` a string, or a value typed
 `unknown`, `object` or by an interface (another SDK's `Part`), no longer compiles: add an object
@@ -248,7 +245,7 @@ Uploads and stored documents:
 
   The optional peer range of `unpdf` is now `^1.4.0 || ^2.0.0`; it was `^1.4.0`. An app that
   upgrades keeps the unpdf its lock file has. On Node 24 and later, a new `npm install unpdf` next
-  to 0.6.1 installs unpdf 2 and saves `^2` in `package.json`, where it got 1.9.1 next to 0.5.0. On
+  to 0.6.0 installs unpdf 2 and saves `^2` in `package.json`, where it got 1.9.1 next to 0.5.0. On
   Node 20 and 22, npm 11 (the version checked) picks a 1.x whose engines fit: 1.7.0 and 1.9.1.
   **What to do:** nothing, if your PDFs are read today. Otherwise install the unpdf that runs on
   your Node: on Node 20, 1.4.0 or 1.6.1 to 1.8.1 (1.7.0 is the last that does not ask for
@@ -284,7 +281,7 @@ Uploads and stored documents:
   `--max-old-space-size` does not limit it; and `@cantoo/pdf-lib` keeps every name and reference it
   reads for the life of the process, so that files of 9 KB that each declared a million new objects
   ran a heap of 512 MB out of memory at the fourth ingest. A check of each object before it is
-  built is not in 0.6.1: it would be easy to get around. See
+  built is not in 0.6.0: it would be easy to get around. See
   [Objects of a PDF](docs/security.md#uploads) and the [measurements](docs/measurements.md#the-server).
   **What to do:** if your users can upload files you do not trust, ingest them in a child process
   of their own, with its own `--max-old-space-size` and a memory limit of its own, such as a
@@ -514,7 +511,7 @@ What the model is sent, and what the loop does:
   `already_shown: true` and a note, and it adds no entry to `evidence`. The same call made twice
   in one turn is run once. A call is run again when the earlier result failed, was cut to its
   room, was replaced by a stand-in, or came from a search that stopped early; when it is an exact
-  or regex search stored before 0.6.1 with more matches than it shows (it lacks the last match); and
+  or regex search stored before 0.6.0 with more matches than it shows (it lacks the last match); and
   when it is a read of one line from the rounds of an earlier question, since 0.5.0 cut a long line
   to the room it had without saying so (no `text_cut`). With an adapter whose provider may clear
   old tool results (`clearsToolResults`, under **New**), a call made again is run again.
@@ -525,7 +522,7 @@ What the model is sent, and what the loop does:
   the turns their own question had left, and a model could take a 0 there for its own. What
   `toolTurns` stores is unchanged. `geminiToolTurns`, `openAiToolTurns` and `anthropicToolTurns`
   leave the field out too, so a history kept in a provider's form gives the same request as one
-  kept as `toolTurns`; contents converted before 0.6.1 keep it.
+  kept as `toolTurns`; contents converted before 0.6.0 keep it.
   **What to do:** nothing, unless your tests compare the output of a converter with the stored
   `toolTurns`: leave `tool_turns_left` out of the expected value. See
   [What `toolTurns` holds](docs/guides/conversations.md#what-toolturns-holds).
@@ -614,7 +611,7 @@ Your own adapter or loop:
 Tests:
 
 - **Tests that compare exact output need new expectations.** A test that pins what the library
-  writes fails where 0.6.1 writes something else. The cases, each explained above or under
+  writes fails where 0.6.0 writes something else. The cases, each explained above or under
   **Changed**:
   - prompts: the tool guide, the description of `analyze_whole_document`, the frame of a file sent
     whole, and the card (`1 line`, `1 page`, the line on how a file that is not valid UTF-8 was
@@ -648,9 +645,9 @@ Tests:
   **What to do:** update those expectations. Compare steps and evidence to the tools that ran
   rather than to whole sentences, and leave the library's prompts out of what you compare whole,
   as [What to assert](docs/guides/testing.md#what-to-assert) advises. The testing guide shows the
-  new forms in [Output that 0.6.1 changed](docs/guides/testing.md#output-that-061-changed).
+  new forms in [Output that 0.6.0 changed](docs/guides/testing.md#output-that-060-changed).
 
-If you ran main between 0.5.0 and 0.6.1:
+If you ran main between 0.5.0 and 0.6.0:
 
 - **Rounds that main stored, its ingest worker, and the kinds it gave.** Tool rounds that main
   stored can hold pointers (`already_shown: true`). A pointer to a search that lacks its last
@@ -824,7 +821,7 @@ Uploads:
   (`"windows-1255"`); lines of the file that are valid UTF-8 were read as UTF-8 all the same.
   `replacedCharacters` is the number of characters that were not valid in the encoding the file
   was read in (UTF-8, or `encoding`), each stored as U+FFFD. Both are absent for valid UTF-8, for
-  UTF-16, PDF, DOCX and PPTX, and on documents stored before 0.6.1; `encoding` is absent too for a
+  UTF-16, PDF, DOCX and PPTX, and on documents stored before 0.6.0; `encoding` is absent too for a
   file read as UTF-8 with characters that are not valid. `toDocumentSummary` passes them on, so
   the upload route of `createDocumentHandlers` answers with them. An extractor of your own may
   report them in `ExtractedText`: `encoding` is kept when it is a name, such as `iso-8859-2`, other
@@ -1251,5 +1248,5 @@ Packaging:
 Versions 0.1.0 to 0.5.0 are recorded in the
 [full history up to 0.5.0](https://github.com/renanbazinin/llm-large-files/blob/v0.5.0/CHANGELOG.md).
 Each of them but 0.1.0 is a [tag of the repository](https://github.com/renanbazinin/llm-large-files/tags);
-from 0.6.1 on, each release is also on the
+from 0.6.0 on, each release is also on the
 [GitHub releases page](https://github.com/renanbazinin/llm-large-files/releases).

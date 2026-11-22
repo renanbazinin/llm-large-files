@@ -1,4 +1,4 @@
-// How the three adapters read replies and errors, since the review of 0.6.0: provider wordings,
+// How the three adapters read replies and errors, since the 0.6 review: provider wordings,
 // streams that end or hang in odd ways, bodies that are not what was asked for, and what a failed
 // part read tells the model.
 import { describe, expect, it, vi } from "vitest";
@@ -66,7 +66,7 @@ const openAi = (fetch: typeof globalThis.fetch, more: Json = {}) => openAiCompat
 const claude = (fetch: typeof globalThis.fetch, more: Json = {}) => anthropic({ model: "claude-test", apiKey: "k", fetch, ...more });
 const geminiModel = (fetch: typeof globalThis.fetch, more: Json = {}) => gemini(geminiApi({ apiKey: "k", model: "gemini-test" }), { fetch, ...more });
 
-describe("errors of OpenAI-compatible servers, since the review of 0.6.0", () => {
+describe("errors of OpenAI-compatible servers, since the 0.6 review", () => {
   it("reads a message at the top of the body (vLLM before 0.29, SGLang, FastChat) and FastAPI's detail", async () => {
     const overflow = "This model's maximum context length is 32768 tokens. However, you requested 40000 tokens (38000 in the messages, 2000 in the completion). Please reduce the length of the messages or completion.";
     const cases: Array<[number, unknown, Json]> = [
@@ -158,7 +158,7 @@ describe("errors of OpenAI-compatible servers, since the review of 0.6.0", () =>
   });
 });
 
-describe("the kind of a refusal, since the review of 0.6.0", () => {
+describe("the kind of a refusal, since the 0.6 review", () => {
   it("tells a quota from HTTP 402, from no credit left, from a spending cap, and from a quota per day named in the message", () => {
     const quota: Array<[number, string, Json?]> = [
       [402, "Insufficient Balance"], // DeepSeek
@@ -225,7 +225,7 @@ describe("the kind of a refusal, since the review of 0.6.0", () => {
   });
 });
 
-describe("streams that end or hang, since the review of 0.6.0", () => {
+describe("streams that end or hang, since the 0.6 review", () => {
   it("ends a request once its wait ran out, though the body never finishes being cancelled", async () => {
     const hanging = () => new Response(new ReadableStream({ pull: () => new Promise<void>(() => undefined), cancel: () => new Promise<void>(() => undefined) }), { headers: { "Content-Type": "text/event-stream" } });
     const waits = { firstByteTimeoutMs: 50, idleTimeoutMs: 50 };
@@ -390,7 +390,7 @@ describe("a request raced against the caller's signal", () => {
   });
 });
 
-describe("bodies that are not what was asked for, since the review of 0.6.0", () => {
+describe("bodies that are not what was asked for, since the 0.6 review", () => {
   it("reads a stream that a gateway sent under another content type, or none", async () => {
     const openAiEvents = sse([chunk({ content: "hi" }), chunk({}, "stop"), "[DONE]"]);
     for (const headers of [{ "Content-Type": "application/octet-stream" }, { "Content-Type": "text/plain" }, {}] as Array<Record<string, string>>) {
@@ -512,7 +512,7 @@ describe("bodies that are not what was asked for, since the review of 0.6.0", ()
   });
 });
 
-describe("part reads, since the review of 0.6.0", () => {
+describe("part reads, since the 0.6 review", () => {
   it("does not tell the model the provider's words when a part read fails: only its kind and status", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(300)) });

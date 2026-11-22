@@ -119,7 +119,7 @@ still in the store and has not expired, and compares the owner stored with the d
 document that is gone, and `view_pages` shows no page. So metadata built from an ID a client sent,
 with no owner or another one, reads nothing of a document that has an owner. The check compares
 strings: metadata that carries the stored owner reads the document, wherever it came from, and a
-document stored without an owner is open to any metadata. (Before 0.6.1, `tools()` checked no
+document stored without an owner is open to any metadata. (Before 0.6.0, `tools()` checked no
 owner.) In a tool loop of your own, give it only metadata that `prepare(ids, base, { owner })` or
 `getMeta(id, { owner })` returned, never objects built from IDs a client sent:
 
@@ -310,7 +310,7 @@ Kept, because scripts and emoji need them: the marks that right-to-left text nee
 U+061C), zero-width joiners and non-joiners (U+200C, U+200D), variation selectors (U+FE00-U+FE0F,
 U+E0100-U+E01EF), Hangul fillers, and the line and paragraph separators (U+2028, U+2029). A few
 others that show nothing pass too, such as U+034F, U+180E, U+FFF9-U+FFFB and the private use area.
-A crafted file can still carry text a person does not see in them: in the review of 0.6.1, 32 bytes
+A crafted file can still carry text a person does not see in them: in the review of 0.6.0, 32 bytes
 written as variation selectors after one emoji reached the model whole, in the prompt and in a
 tool result, and the line showed only the emoji. The library does not detect instructions there,
 nor anywhere else.
@@ -490,7 +490,7 @@ What bounds them:
   (`viewPages: false`), or keep no PDF originals.
 - **Time.** Reading cannot be interrupted once it has started, not even by the question's `signal`.
   It pauses so that other requests get a turn after every 12 ms of work, or up to 40 ms where a
-  pause itself takes long, as a timer does on Windows. (Until 0.6.1 it paused every 4,000 objects,
+  pause itself takes long, as a timer does on Windows. (Until 0.6.0 it paused every 4,000 objects,
   and 4,000 objects of a large file took 0.5 to 0.8 s.) `view_pages` pauses the same way while it
   copies the pages and writes the cut. What `@cantoo/pdf-lib` reads in one step still holds the
   server, and grows with the file: one object takes about 0.1 to 0.35 s for each MB, by what it
@@ -537,8 +537,8 @@ server that memory is the server's heap. Choose the isolation with care:
   on. That flag bounds the heap only. What a parser unpacks is held outside it: a PDF of 1.6 KB
   took 1.6 GB of memory at ingest with 20 MB of heap ([Objects of a PDF](#uploads)). Give that
   process a memory limit of its own too, such as a container or a cgroup of its own.
-- **A worker thread does not reliably contain it.** In the review of 0.6.0, a version never
-  published ([Measurements](./measurements.md#how-to-read-this-page)), a worker given
+- **A worker thread does not reliably contain it.** In the 0.6 review, on the code before this
+  release ([Measurements](./measurements.md#how-to-read-this-page)), a worker given
   `resourceLimits: { maxOldGenerationSizeMb: 512 }` ran out of memory on a hostile DOCX and took
   the whole process down with it.
 - **A heap flag of the process silently replaces a worker's limit.** With `--max-old-space-size`
@@ -614,7 +614,7 @@ server that memory is the server's heap. Choose the isolation with care:
   to is held outside the heap, where `--max-old-space-size` does not limit it: a PDF of 1,633 bytes
   whose object stream holds the catalog after 512 MB of spaces was read with 20 MB of heap, but the
   process took 1.6 GB of memory. The same spaces in the content of a page are refused by the page
-  check, in under 0.07 s. A check of each object before it is built is not in 0.6.1:
+  check, in under 0.07 s. A check of each object before it is built is not in 0.6.0:
   pdf.js reads an object where the cross-reference table points, also inside what reads as the
   data of a stream, and the object streams of an encrypted file cannot be unpacked before they are
   decrypted, so such a check would be easy to get around. Ingest files you do not trust in a

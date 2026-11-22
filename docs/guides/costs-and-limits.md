@@ -692,7 +692,7 @@ What the library changes:
   question: those rounds are billed at the full price in that request (with Claude's
   `cache_control`, as a cache write). The rounds of older questions were already sent without it,
   and still match. The documents and cards before them are still read from the cache.
-- An upgrade that changes the library's prompts misses the cache once in each conversation. 0.6.1
+- An upgrade that changes the library's prompts misses the cache once in each conversation. 0.6.0
   changed the tool guide, the descriptions of `search_document` and `analyze_whole_document`, and
   the frame lines of a file sent whole. The first request after the upgrade shares with what 0.5.0
   sent at most what comes before the first text that changed. For a question with files to

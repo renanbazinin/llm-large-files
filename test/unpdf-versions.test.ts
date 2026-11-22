@@ -1,5 +1,5 @@
 // Versions of unpdf that cannot read PDFs on a supported version of Node are refused with a
-// message that says what to install. In the review of 0.6.0, unpdf 1.5.0 to 1.6.0 stopped the whole
+// message that says what to install. In the 0.6 review, unpdf 1.5.0 to 1.6.0 stopped the whole
 // process at the first PDF on Node 20.19 and 22.12, and 1.9 failed every PDF on Node 20.
 //
 // The CI job "unpdf versions" runs this file with other versions of unpdf installed, and sets
