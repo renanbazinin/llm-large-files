@@ -76,10 +76,10 @@ that were taken in silence and did not work are now refused. Check each point ag
   joined by single hyphens (`"global"`, `"us"`, `"europe-west4"`) throws a `TypeError`. With `/`,
   `?`, `#` or `@`, it named another host, which got the access token.
   **What to do:** nothing, unless a location comes from a user; then expect the `TypeError`.
-- **An upload answered before its body was read closes the connection.** The `413` of an upload
-  over `maxUploadBytes` (and every answer sent before the body was read to its end) has
-  `Connection: close`. A `node:http` client that is still writing its body gets the `413`, then
-  `EPIPE` or `ECONNRESET` on the request.
+- **An upload answered before its body was read drains the rest, up to 8 MB.** The `413` of an
+  upload over `maxUploadBytes` (and every answer sent before the body was read to its end) is
+  written at once, and ends once the rest of the body has been read and dropped. A body that goes
+  on more than 8 MB past the limit is cut off by closing the connection.
   **What to do:** nothing. See [`node`](docs/reference/node.md).
 - **An adapter of your own whose `capabilities` lack `pageTokens` or `toolFiles`.** A `pageTokens`
   that is missing, NaN or negative counts as 1,000, and a `toolFiles` that is none of `"inside"`,
@@ -134,8 +134,10 @@ Documents and uploads:
   0.5.0. The store example in the [storage guide](docs/guides/storage.md) decodes the same way.
 - **An upload over the limit no longer holds its connection** (LLF-033). The handler stopped
   reading at the limit and answered `413`, but the connection stayed open, with a client still
-  sending into it. The comment and the docs said the rest was drained; draining it would read up
-  to what the client sends, so the connection is closed instead (`Connection: close`).
+  sending into it. The comment said the rest was drained, and now it is, up to 8 MB: the client
+  reads the `413` and can send its next request on the same connection. Past 8 MB the connection
+  is closed. Closing it at once was tried, and lost the answer on Windows, which resets a
+  connection closed while data still arrives.
 - **`vertexAi()` checks its location** (LLF-029): see **Upgrading**.
 - **The JSDoc of `ToolCallLimits.maxFileBytes`** gives its default as 3/8 of
   (`maxRequestBytes` − 262,144), 3,651,696 bytes for the default budget, which the code uses

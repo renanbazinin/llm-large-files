@@ -85,9 +85,9 @@ function answerOf(error: unknown, failed: string, tooLarge: string): { status: n
 }
 
 /** Answers a failed request with JSON (see `answerOf`). */
-function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string): void {
+function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string, unread?: IncomingMessage): void {
   const { status, message } = answerOf(error, failed, tooLarge);
-  send(response, status, { error: message });
+  send(response, status, { error: message }, unread);
 }
 
 /**
@@ -160,11 +160,19 @@ async function streamIngest(files: LargeFiles, input: IngestInput, response: Ser
   await writeSseEvents(response, events());
 }
 
-function send(response: ServerResponse, status: number, value: unknown): void {
+/**
+ * Answers with `value` as JSON. With `unread`, a request whose body was not read to its end (an
+ * upload refused as too large, or before it was read): the answer is written now, so that a client
+ * still sending reads it, and ended once the rest of the body is drained (see `drain`).
+ */
+function send(response: ServerResponse, status: number, value: unknown, unread?: IncomingMessage): void {
   if (response.headersSent) return;
   response.statusCode = status;
   response.setHeader("Content-Type", "application/json; charset=utf-8");
-  response.end(JSON.stringify(value));
+  const body = JSON.stringify(value);
+  if (!unread || unread.complete || unread.destroyed) return void response.end(body);
+  response.write(body);
+  drain(unread, response);
 }
 
 function header(request: IncomingMessage, name: string): string {
@@ -192,16 +200,52 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Uint8A
   if (Number.isFinite(declared) && declared > limit) throw new HttpError(413, "");
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of request) {
+  // Leaving the loop early must not destroy the request: the rest of the body is drained after
+  // the answer (see `drain`), which a destroyed request would not do.
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
     size += buffer.byteLength;
-    // Past the limit the rest is not read: leaving the loop ends the request stream. The answer
-    // then closes the connection (see `upload`), so the client is not left sending into it.
     if (size > limit) throw new HttpError(413, "");
     chunks.push(buffer);
   }
   const body = Buffer.concat(chunks);
   return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+}
+
+/**
+ * The most bytes of an upload's body that are read and dropped after it was answered before the
+ * body was read to its end (too large, no name). Past it the connection is closed.
+ */
+const DRAIN_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Reads and drops the rest of a body that was answered before it was read to its end, up to
+ * `DRAIN_BYTES`, then ends the answer, which was written but not ended. The client, still
+ * sending, reads the answer and can use the connection again. Two things Node does shape this:
+ * it stops reading a request once its answer has ended, and its client stops sending once it has
+ * a whole answer (so the answer has no Content-Length, and ends only after the drain). Closing the
+ * connection at once instead makes some systems (Windows) reset it, and the client then never
+ * reads the answer. A body larger than `DRAIN_BYTES` is cut off: the answer ends, and the
+ * connection is closed.
+ */
+function drain(request: IncomingMessage, response: ServerResponse): void {
+  let drained = 0;
+  const end = () => {
+    request.off("data", count);
+    if (!response.writableEnded) response.end();
+  };
+  const count = (chunk: Buffer | string) => {
+    drained += chunk.length;
+    if (drained <= DRAIN_BYTES) return;
+    end();
+    if (response.writableFinished) request.destroy();
+    else response.once("finish", () => request.destroy());
+  };
+  request.on("data", count);
+  request.once("end", end);
+  request.once("close", end);
+  request.on("error", () => {});
+  request.resume();
 }
 
 /**
@@ -258,13 +302,11 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         }
         send(response, 201, toDocumentSummary(meta));
       } catch (error) {
-        // Answered before the body was read to its end (too large, no name): the rest of it is
-        // not read, so the connection is closed after the answer. Kept open, it would hold a
-        // client that is still sending, and its next request would be read as part of this body.
-        if (!request.complete && !response.headersSent) response.setHeader("Connection", "close");
-        fail(response, error, "Upload failed", tooLarge);
-        // An event stream that failed after its headers were sent cannot answer with a status.
-        if (response.headersSent && !response.writableEnded) response.end();
+        // Answered before the body was read to its end (too large, no name): the rest is drained.
+        fail(response, error, "Upload failed", tooLarge, request);
+        // An event stream that failed after its headers were sent cannot answer with a status. (An
+        // answer to a body still being drained is ended by `drain`.)
+        if (response.headersSent && !response.writableEnded && request.complete) response.end();
       }
     },
 

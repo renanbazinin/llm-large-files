@@ -169,15 +169,19 @@ What it does, in order:
      as the file, with the same limit;
    - an object with fields in `request.body` (`express.json()` on a JSON request) is answered
      `400`;
-   - otherwise it reads the request stream. Past the limit it stops reading, and answers `413`.
-     The rest of the body is not read, and the answer has `Connection: close`: the server closes
-     the connection once the answer is sent, rather than read megabytes nobody wants or leave the
-     client sending into a connection that is not read. `fetch` and a `node:http` client both
-     read the `413`; a `node:http` request that is still writing its body then gets `EPIPE` or
-     `ECONNRESET` on the request, after the response. The same holds for every answer sent before
-     the body was read to its end (no name, or a `Content-Length` over the limit). A stream that
-     another middleware has already read gives no bytes, and the upload is answered `422` as an
-     empty file.
+   - otherwise it reads the request stream. Past the limit it stops keeping the bytes, and
+     answers `413` at once. The rest of the body is then read and dropped, up to 8 MB, and the
+     answer ends when the body does: a client that is still sending reads the `413`, and can send
+     its next request on the same keep-alive connection. A body that goes on more than 8 MB past
+     that is cut off: the connection is closed, and a client still sending may then get a reset
+     (`ECONNRESET`) instead of the answer. Closing the connection at once was not chosen: some
+     systems (Windows) reset a connection closed while data is still arriving, and the client
+     never reads the answer. The same holds for every answer sent before the body was read to its
+     end (no name, or a `Content-Length` over the limit, whose body Node would otherwise read
+     whole). Before 0.7.1 the rest was left unread, and the connection stayed open with the
+     client stuck sending into it. The answer to such a body has no `Content-Length`. A stream
+     that another middleware has already read gives no bytes, and the upload is answered `422` as
+     an empty file.
 4. Ingests it: `files.ingest({ name, bytes, mimeType, owner, signal })`, `mimeType` and `owner`
    only when there are any. The `signal` aborts when the client closes the connection before the
    answer is sent: the ingest stops between two pages or pieces, and nothing is stored. The

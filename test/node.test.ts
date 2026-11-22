@@ -1,4 +1,4 @@
-import { createServer, request as httpRequest, type Server } from "node:http";
+import { Agent, createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore, type DocumentStore } from "llm-large-files";
@@ -72,38 +72,66 @@ describe("createDocumentHandlers", () => {
     expect((await big.json()).error).toBe("The file is larger than the 1000 B upload limit.");
   });
 
-  // LLF-033: the rest of a body over the limit is not read, so the connection is closed after the
-  // 413. It was kept open, with the client still sending into it, and the next request on it was lost.
-  it("closes the connection after a 413 to a chunked upload that is still being sent", async () => {
-    const base = await start(1_000);
+  // LLF-033: the rest of a body over the limit is drained after the 413, up to 8 MB, so that a
+  // client still sending reads the answer and can use the connection again. It was left unread:
+  // the connection stayed open with the client stuck sending into it.
+  /** A chunked upload of `bytes` through `agent`, as a client that sends its whole body does. */
+  function chunkedUpload(base: string, bytes: number, agent?: Agent) {
     const url = new URL(base);
-    const answer = await new Promise<{ status?: number; connection?: string; body: string }>((resolve, reject) => {
-      const request = httpRequest({ host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "X-File-Name": "a.txt", "Transfer-Encoding": "chunked" } });
+    return new Promise<{ status?: number; body: string } | { error: string }>((resolve) => {
+      const request = httpRequest({ host: url.hostname, port: url.port, path: url.pathname, method: "POST", agent, headers: { "X-File-Name": "a.txt", "Transfer-Encoding": "chunked" } });
       request.on("response", (response) => {
         let body = "";
         response.setEncoding("utf8");
         response.on("data", (piece: string) => (body += piece));
-        response.on("end", () => resolve({ status: response.statusCode, connection: response.headers.connection, body }));
-        response.on("error", reject);
+        response.on("end", () => resolve({ status: response.statusCode, body }));
+        response.on("error", (error: NodeJS.ErrnoException) => resolve({ error: error.code ?? error.message }));
       });
-      // The server closes the connection while the client is still sending: that write fails.
-      request.on("error", () => {});
+      request.on("error", (error: NodeJS.ErrnoException) => resolve({ error: error.code ?? error.message }));
       const piece = Buffer.alloc(64 * 1024, 120);
       let sent = 0;
       const pump = () => {
-        while (sent < 8 * 1024 * 1024 && !request.destroyed) {
+        while (sent < bytes && !request.destroyed) {
           sent += piece.byteLength;
           if (!request.write(piece)) return void request.once("drain", pump);
         }
-        request.end();
+        if (!request.destroyed) request.end();
       };
       pump();
     });
+  }
+  const connections = () => new Promise<number>((resolve) => server!.getConnections((_error, count) => resolve(count)));
+
+  it("drains the rest of an upload over the limit, answers 413, and keeps the connection for the next request", async () => {
+    const base = await start(1_000);
+    let opened = 0;
+    server!.on("connection", () => opened++);
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
     try {
-      expect(answer.status).toBe(413);
-      expect(JSON.parse(answer.body).error).toBe("The file is larger than the 1000 B upload limit.");
-      expect(answer.connection).toBe("close");
-      await expect.poll(() => new Promise<number>((resolve) => server!.getConnections((_error, count) => resolve(count)))).toBe(0);
+      const answer = await chunkedUpload(base, 4 * 1024 * 1024, agent);
+      expect(answer).toEqual({ status: 413, body: JSON.stringify({ error: "The file is larger than the 1000 B upload limit." }) });
+      // The next request goes on the same connection, and is answered.
+      const next = await new Promise<number | undefined>((resolve, reject) => {
+        httpRequest(`${base}/${UNKNOWN_ID}`, { agent }, (response) => {
+          response.resume();
+          resolve(response.statusCode);
+        }).on("error", reject).end();
+      });
+      expect(next).toBe(404);
+      expect(opened).toBe(1);
+    } finally {
+      agent.destroy();
+      server!.closeAllConnections();
+    }
+  });
+
+  it("closes the connection of an upload that goes on more than 8 MB past the limit", async () => {
+    const base = await start(1_000);
+    try {
+      const answer = await chunkedUpload(base, 64 * 1024 * 1024);
+      // The 413 when the client read it before the connection closed, else the reset.
+      if ("status" in answer) expect(answer.status).toBe(413);
+      await expect.poll(connections).toBe(0);
     } finally {
       server!.closeAllConnections();
     }
