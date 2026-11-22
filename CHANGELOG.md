@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.7.0 — not released yet
+## 0.7.0 — 2026-11-22
 
 A question and an ingest now say what they do as typed events, in order: the plan, each model
 request with its retries and usage, each tool call with how it ended, the answer's text, and the
