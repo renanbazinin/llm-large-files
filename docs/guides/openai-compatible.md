@@ -120,11 +120,17 @@ const openai = openAiCompatible({
   its first piece. Its `completion_tokens_details.reasoning_tokens` are counted as
   `usage.thoughtTokens`, and a part read that spent its limit on reasoning is asked again with a
   larger one ([below](#the-name-of-the-output-limit)).
-- `insufficient_quota` (no credit left) in an HTTP error is of kind `"quota"`, and is not sent
-  again.
+- `insufficient_quota` (no credit left) is of kind `"quota"`, and is not sent again, in an HTTP
+  error or inside a stream.
 - OpenAI reports a failure inside a stream that began with HTTP 200 as
   `{ type: "server_error", code: null }`. The adapter takes it for HTTP 500, which is sent again
   when no text of the reply was shown.
+- "Request too large for gpt-4o … on tokens per min (TPM): Limit 30000, Requested 45237" (HTTP
+  429) is a single request larger than your tier lets through in a minute. No wait mends it, so it
+  is of kind `"context_overflow"`, with that limit as `limitTokens`: the loop makes the request
+  smaller, or plans the files again for 30,000 tokens, and a part read is read in halves. The step
+  says "The first request was larger than the 30,000 tokens a minute that the provider allows: the
+  files were planned again to fit it".
 - `pdfInput: true` sends pages in the `file` part OpenAI documents for Chat Completions. It has not
   been run against OpenAI.
 
@@ -204,6 +210,8 @@ const deepseek = openAiCompatible({
 - **Blank lines while a request waits** count as pieces of the reply, so a slow reply that is not
   streamed does not run out the [waits](#waits).
 - **Cached input**: `prompt_cache_hit_tokens` is counted as `usage.cachedInputTokens`.
+- **No balance left**: "Insufficient Balance" comes as HTTP 402, of kind `"quota"`, and is not sent
+  again.
 - Part reads name their output limit `max_tokens`.
 
 ### OpenRouter
@@ -225,6 +233,7 @@ const openrouter = openAiCompatible({
   Gemini 3 model behind OpenRouter, which that model needs in the next request.
 - A request larger than the model takes is recognized from OpenRouter's error, with the window it
   names, and the loop makes the request smaller.
+- "Insufficient credits" comes as HTTP 402, of kind `"quota"`, and is not sent again.
 - Part reads name their output limit `max_tokens`, unless the model behind refuses it
   ([below](#the-name-of-the-output-limit)).
 
@@ -266,9 +275,17 @@ What the adapter handles for these servers:
 - **Two user turns in a row are sent as one.** The chat templates of Mistral and Gemma models
   refuse them.
 - **A request larger than the window.** vLLM's error names the window (`max_model_len`) and the
-  tokens asked for, and the loop reads both. llama.cpp's wording is recognized too. The loop then
-  makes the request smaller and sends it again, but each question pays for the refused request:
-  set `contextTokens`.
+  tokens asked for ("your request has 40000 input tokens" in its newer wording), and the loop reads
+  both. The wordings of llama.cpp, LM Studio ("loaded with context length of only 4096 tokens"),
+  Text Generation Inference and Together ("`inputs` tokens + `max_new_tokens` must be <= 32769.
+  Given: 40000 …") and Amazon Bedrock ("Input is too long for requested model.") are recognized
+  too. The loop then makes the request smaller and sends it again, but each question pays for the
+  refused request: set `contextTokens`.
+- **An error's message, wherever the server puts it.** Most servers put it in `error`. vLLM before
+  its OpenAI-shaped errors, SGLang and FastChat put a `message` at the top of the body, and servers
+  built on FastAPI a `detail` (a list of problems gives their `msg` joined with "; "). The adapter
+  reads all three; before 0.6.0, such a request too large became "The model returned HTTP 400.",
+  and the loop did not make it smaller.
 - **The output limit** of a part read is named `max_tokens`.
 - **`answerWithoutTools: "omit"`** for a server that refuses `tool_choice`, and
   **`stream: false`** for one that cannot stream.
@@ -303,6 +320,16 @@ const gateway = openAiCompatible({
   again. Its own timeout should be longer than the model takes to start a reply: a reasoning model
   sends nothing while it thinks. See [Deployment](./deployment.md) for proxies in front of your
   own server.
+- A gateway that streams under another content type than `text/event-stream`
+  (`application/octet-stream`, or none) is read by what its body starts with: events after
+  `data:` or a comment, JSON after `{` or `[`. One that answers HTTP 200 with a page of its own (a
+  sign-in page) fails with kind `"invalid"`, status 200, "The model's reply could not be read: it
+  was not JSON (text/html). A proxy or gateway may have answered in its place.", and is not sent
+  again. An empty body of HTTP 200 is sent again, as a reply cut off on its way.
+- A gateway that sends `[DONE]` and then keeps the connection open is left one second later, with
+  the whole reply; so is one whose connection breaks after `[DONE]`. 0.5.0 waited for such a
+  connection to close, and took one that broke for a model that could not be reached, with the
+  answer already shown.
 
 ## The name of the output limit
 
@@ -332,7 +359,11 @@ The number itself: part notes start at 4,096 output tokens, and the answer of a 
 nothing written, or with half its limit or more spent on reasoning (as the server reports it in
 `completion_tokens_details.reasoning_tokens`), it is asked again with 32,768, and later part reads
 of the same URL and model in this process start there. A server that refuses
-32,768 with HTTP 400 is not asked for it again. Both requests are counted in `usage`.
+32,768 with HTTP 400 is not asked for it again, unless the 400 says the request was too large for
+the model's window with that limit and the window is larger than 32,768: a later part may still
+get it. A request refused as larger than the tokens a minute allows (OpenAI's or Groq's TPM) turns
+the larger limit off when that allowance is no larger than 32,768. Both requests are counted in
+`usage`.
 
 ## Waits
 
@@ -363,9 +394,16 @@ fields, and every message the adapter writes with its status and kind:
 [`OpenAiRequestError`](../reference/openai.md#openairequesterror) and the errors table under
 [`openAiCompatible()`](../reference/openai.md#openaicompatibleoptions).
 
-`code` and `param` are new in 0.6.0. `code`, `param` and `retryAfterMs` come from an HTTP error
-response. An error inside a stream carries none of them, so OpenAI's `insufficient_quota` is of
-kind `"quota"` only when it comes as an HTTP error.
+`code` and `param` are new in 0.6.0. They come from an HTTP error response, and from an error
+inside a stream too: `context_length_exceeded` there is HTTP 400, of kind `"context_overflow"`,
+and `insufficient_quota` HTTP 429, of kind `"quota"`. In 0.5.0 an error inside a stream kept the
+stream's HTTP 200, and was not sent again. `retryAfterMs` comes from an HTTP error response only.
+
+A reply of HTTP 200 whose body is not JSON is an `OpenAiRequestError` of kind `"invalid"`, status
+200, with the `SyntaxError` as `cause`: "The model's reply could not be read: it was not JSON
+(text/html). A proxy or gateway may have answered in its place." It was a `SyntaxError` before
+0.6.0. An empty body of HTTP 200 is "The model could not be reached (the reply was empty).", status
+0, and is sent again.
 
 ```ts
 import { askWithFiles, partialResultOf } from "llm-large-files";
@@ -394,7 +432,9 @@ The classes and helpers: [the errors reference](../reference/errors-and-retries.
 When it streams, what goes back to the model, how `finish_reason`, refusals and usage are read, and
 the IDs it gives calls that came without one: "Streaming" and "The reply" under
 [`openAiCompatible()`](../reference/openai.md#openaicompatibleoptions). A streamed tool call goes
-back with every field the server sent in it, such as `extra_content`.
+back with every field the server sent in it, such as `extra_content`. A server that sends the name
+of a tool call again with each piece of it is read right: the name is not doubled
+(`search_documentsearch_document`, which the loop answered as an unknown tool before 0.6.0).
 
 ## What it does not do
 

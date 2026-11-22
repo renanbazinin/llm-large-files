@@ -142,9 +142,11 @@ describe("extraction", () => {
   it("still accepts coloured logs and text in a legacy single-byte encoding", () => {
     const coloured = "2026-01-01 10:00:00 \x1b[31mERROR\x1b[0m boom\n".repeat(200);
     expect(decodeText(new TextEncoder().encode(coloured))).toBe(coloured);
-    // Windows-1255 Hebrew: every letter is a byte above 0x7F, none of them control bytes.
-    const legacy = new Uint8Array(Array.from({ length: 4_000 }, (_, index) => (index % 6 === 5 ? 0x20 : 0xe0 + (index % 27))));
-    expect(() => decodeText(legacy)).not.toThrow();
+    // Windows-1255 Hebrew: every letter is a byte above 0x7F, none of them control bytes. א to ת are
+    // the bytes 0xE0 to 0xFA.
+    const hebrew = "שלום לכולם, הלקוח ביקש את החשבונית עד סוף החודש.\n".repeat(80);
+    const legacy = Uint8Array.from(hebrew, (char) => (char < "\u0080" ? char.charCodeAt(0) : char.charCodeAt(0) - 0x05d0 + 0xe0));
+    expect(decodeText(legacy)).toBe(hebrew);
     expect(decodeText(new TextEncoder().encode("col1\tcol2\x0c\nshort"))).toBe("col1\tcol2\x0c\nshort");
   });
 
@@ -179,9 +181,15 @@ describe("extraction", () => {
     const shapes = ["<w:p>".repeat(200_000), `<w:p><w:r>${"<w:t>".repeat(200_000)}</w:r></w:p>`, `<w:p a="${"<w:p>".repeat(100_000)}`];
     for (const xml of shapes) {
       const started = performance.now();
-      officeXmlParagraphs(xml, "w");
+      try {
+        officeXmlParagraphs(xml, "w");
+      } catch (error) {
+        // Paragraphs opened inside each other without end are refused as soon as they pass 32.
+        expect(String(error)).toMatch(/nests paragraphs more than 32 deep/);
+      }
       expect(performance.now() - started).toBeLessThan(1_000);
     }
+    expect(() => officeXmlParagraphs("<w:p>".repeat(200_000), "w")).toThrow(/nests paragraphs more than 32 deep/);
     // A ">" inside a quoted value does not end the tag.
     expect(officeXmlParagraphs("<w:p><w:r w:x=\"a>b\"><w:t>Text</w:t></w:r></w:p>", "w")).toEqual(["Text"]);
   });

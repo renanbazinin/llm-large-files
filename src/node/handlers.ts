@@ -1,12 +1,16 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isStoreWriteFailure } from "../errors.js";
-import { toDocumentSummary, type LargeFiles } from "../library.js";
+import { checkOwner, toDocumentSummary, type LargeFiles } from "../library.js";
 import { formatBytes } from "../plan.js";
 
 export type DocumentHandlerOptions = {
   /**
    * The signed-in user for this request. When set, uploads are owned by that user and other
-   * users cannot read or delete them. Return undefined to allow anonymous access.
+   * users cannot read or delete them. Return undefined to allow anonymous access. An empty owner
+   * ("", spaces only, or null from JavaScript) is the server's mistake: the upload is answered with a 500
+   * `{"error":"Upload failed (empty owner)."}`, before its body is read. So is an owner from
+   * JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`,
+   * say): `{"error":"Upload failed (owner is not a string)."}`.
    *
    * To refuse a request, throw an error with a `status` (or `statusCode`) between 400 and 599, as
    * the `http-errors` package makes: the handler answers with that status and the error's message.
@@ -133,11 +137,27 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         const url = new URL(request.url ?? "/", "http://localhost");
         const name = header(request, "x-file-name").trim() || url.searchParams.get("name")?.trim() || "";
         if (!name) throw new HttpError(400, "Name the file with an X-File-Name header or a ?name= query parameter.");
-        // Who is asking comes first: a refused upload is not read into memory.
+        // Who is asking comes first: a refused upload is not read into memory. An owner that
+        // `ingest` would refuse ("", or an object such as `req.user` from JavaScript) is the server's
+        // mistake, answered with a 500 before the body is read. Its message says which, so that the
+        // operator knows where to look; it says nothing else.
         const currentOwner = await owner(request);
+        try {
+          checkOwner(currentOwner);
+        } catch {
+          const empty = typeof currentOwner === "string" || currentOwner === null;
+          throw new HttpError(500, empty ? "Upload failed (empty owner)." : "Upload failed (owner is not a string).");
+        }
         const bytes = await readBody(request, files.maxUploadBytes);
         const contentType = header(request, "content-type");
         const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
+        // A client that goes away before the answer stops the reading of its file: nobody would
+        // get the document, and the server has other work.
+        const gone = new AbortController();
+        const onClose = () => {
+          if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
+        };
+        response.once("close", onClose);
         let meta;
         try {
           meta = await files.ingest({
@@ -145,6 +165,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
             bytes,
             ...(mimeType ? { mimeType } : {}),
             ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
+            signal: gone.signal,
           });
         } catch (error) {
           // A file that cannot be read is the client's 422, with the reason. An error with a status
@@ -154,6 +175,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           if (statusOf(error) !== undefined || systemErrorCode(error) !== undefined) throw error;
           if (isStoreWriteFailure(error) || !(error instanceof Error)) throw error;
           throw new HttpError(422, error.message);
+        } finally {
+          response.off("close", onClose);
         }
         send(response, 201, toDocumentSummary(meta));
       } catch (error) {

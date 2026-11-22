@@ -3,7 +3,7 @@
 For maintainers. This page covers how a version of `llm-large-files` reaches npm: the changelog
 while the version is in development, the release pull request, the tag that starts the release
 workflow, and publishing by hand when the workflow's publish step fails. Working on the code
-itself is in [CONTRIBUTING.md](../CONTRIBUTING.md).
+itself is in [CONTRIBUTING.md](https://github.com/renanbazinin/llm-large-files/blob/main/CONTRIBUTING.md).
 
 ## The changelog
 
@@ -25,6 +25,9 @@ next version: a patch (0.6.1) when nothing in it needs a change in the user's co
 (0.7.0) when something does (see [Versioning](#versioning)). If a change made later turns a
 patch into a version that needs changes, raise the number in the heading.
 
+A version that was never published ships in the next one, and that version's **Upgrading** part
+is written for apps on the last version that was.
+
 A template of an entry is in a comment at the top of CHANGELOG.md.
 
 ### What an entry holds
@@ -33,7 +36,7 @@ Each version opens with two to four sentences on what it is about. Then four par
 
 | Part | What goes in it |
 | --- | --- |
-| `### Upgrading: what you need to change` | Always present. First, whether code written for the previous version compiles as it is. Then each difference in behavior an app may need to act on: what changed, whom it affects, what to do. A change to the text the model is sent is one of these: the provider's prompt cache misses once after it (0.6.0, the tool guide). A version with nothing to change says so: "Nothing." |
+| `### Upgrading: what you need to change` | Always present. First, whether code written for the previous version compiles as it is. Then each difference in behavior an app may need to act on: what changed, whom it affects, what to do. A change to the text the model is sent is one of these: the provider's prompt cache misses once after it (0.6.0: the tool guide, two tool descriptions, the frame of a file sent whole). A version with nothing to change says so: "Nothing." |
 | `### New: what you can add` | Each addition (an export, an option, a tool, a field of a result) in one or two lines, with a link to the page that explains it, and a short sample for the ones most apps will use. |
 | `### Changed: what works differently` | Behavior that changes with no change to the app's code: a default, a retry, a limit, how a plan is made. Also what a change to the text the model is sent (tool descriptions, the tool guide, the instructions) makes models do. When a point under **Upgrading** links here, this part says how the behavior works, not again what an app must do. One or two lines each. |
 | `### Fixed` | Bugs, grouped by area, told by what an app developer saw, with the numbers that matter. One or two lines each. |
@@ -59,17 +62,21 @@ or field, or a wider parameter type goes in **New**.
 
 The release pull request makes two edits:
 
-1. Replace "not released yet" with the date of the release, as YYYY-MM-DD:
+1. Replace "not released yet" with the date of the release, as YYYY-MM-DD. For a release on
+   24 November 2026:
 
    ```markdown
-   ## 0.6.0 — 2026-11-20
+   ## 0.6.0 — 2026-11-24
    ```
 
 2. Bump the version in package.json and package-lock.json to the same number:
 
    ```bash
-   npm version minor --no-git-tag-version   # 0.5.0 becomes 0.6.0; patch makes 0.5.1
+   npm version 0.6.0 --no-git-tag-version   # the number in the changelog heading
    ```
+
+   `npm version minor` or `npm version patch` works the next number out from package.json (0.6.0
+   becomes 0.7.0 or 0.6.1). Give the number itself when the heading skips one.
 
    Keep `--no-git-tag-version`. Without it, `npm version` refuses to run while the changelog edit
    is not committed, and when it runs it commits and tags `v0.6.0` on your branch. The squash merge
@@ -260,7 +267,8 @@ An owner adds another maintainer with `npm owner add <npm-user> llm-large-files`
 
 Versions follow [semantic versioning](https://semver.org). While the version is `0.x`, a patch
 (0.6.1) never needs a change in the user's code. A version that needs one is at least a minor
-(0.7.0), and its **Upgrading** part says what to change.
+(0.7.0), and its **Upgrading** part says what to change. 0.6.0 is a minor: its
+**Upgrading** part says what to change from 0.5.0.
 
 These are public, and a change to them can need a change in someone's code:
 

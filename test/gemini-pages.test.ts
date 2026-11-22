@@ -3,6 +3,7 @@ import { getDocumentProxy } from "unpdf";
 import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, geminiApi, geminiFunctionResponses, geminiFunctionResponseTurns, type GeminiContent } from "llm-large-files/gemini";
+import { frameMark } from "../src/plan.js";
 import { numberedPdf, pdfWithPictures, utf8 } from "./pdf-fixtures.js";
 
 const endpoint = geminiApi({ apiKey: "test-key", model: "gemini-test" });
@@ -133,7 +134,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
     expect(search!.parts).toBeUndefined();
     expect(view!.response).toMatchObject({ pages: "4", file: { $ref: "pages-4.pdf" } });
     expect(await pageTexts(Buffer.from(view!.parts[0].inlineData.data, "base64"))).toEqual([pageLine(4)]);
-    expect(result.steps).toEqual(["Search report.pdf (exact) for “Page 4 of” — 1 matching lines", "Look at report.pdf page 4"]);
+    expect(result.steps).toEqual(["Search report.pdf (exact) for “Page 4 of” — 1 matching line", "Look at report.pdf page 4"]);
   });
 
   it.each(PLACEMENTS)("keeps every request under the byte limit, however many pages the model asks for (pages %s)", async (toolFilePlacement) => {
@@ -263,7 +264,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
 describe("askGemini without pages to show", () => {
   const log = utf8(Array.from({ length: 3_000 }, (_, index) => `2026-05-01 12:00:00 INFO request ${index + 1} ok`).join("\n"));
 
-  /** The requests one question produces, with document IDs replaced by their order of appearance. */
+  /** The requests one question produces, with document IDs and the marks made from them replaced by their order of appearance. */
   async function requestsFor(options: { keepOriginals: boolean; viewPages?: boolean }): Promise<Body[]> {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 }, ...(options.keepOriginals ? { keepOriginals: ["pdf" as const] } : {}) });
     const pdf = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
@@ -275,7 +276,10 @@ describe("askGemini without pages to show", () => {
     ]);
     await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [pdf.id, large.id], system: "Be brief.", messages: question("Where is request 250?"), ...(options.viewPages === undefined ? {} : { viewPages: options.viewPages }) });
     const ids = [pdf.id, large.id];
-    return JSON.parse(JSON.stringify(gemini.bodies).replace(/doc_[a-f0-9]{32}/g, (id) => `doc_${ids.indexOf(id) + 1}`)) as Body[];
+    const marks = ids.map(frameMark);
+    return JSON.parse(JSON.stringify(gemini.bodies)
+      .replace(/doc_[a-f0-9]{32}/g, (id) => `doc_${ids.indexOf(id) + 1}`)
+      .replace(new RegExp(marks.join("|"), "g"), (mark) => `mark_${marks.indexOf(mark) + 1}`)) as Body[];
   }
 
   it("sends what 0.2.0 sent when the library keeps no originals", async () => {
@@ -284,7 +288,7 @@ describe("askGemini without pages to show", () => {
     expect(toolNames(bodies[0]!)).toEqual(["search_document", "read_document", "get_document_overview", "analyze_whole_document"]);
     expect(systemOf(bodies[0]!)).toBe(`Be brief.\n\n${GUIDE_0_2_0(`"app.log" (document_id doc_2)`)}`);
     const block = bodies[0]!.contents[0].parts[0].text as string;
-    expect(block.startsWith("--- Attached file: report.pdf (pdf, 17 lines) ---\n--- Page 1 ---\nPage 1 of the test file.\n")).toBe(true);
+    expect(block.startsWith("--- Attached file [mark mark_1]: \"report.pdf\" (pdf, 17 lines; it ends only at the line with mark mark_1) ---\n--- Page 1 ---\nPage 1 of the test file.\n")).toBe(true);
     expect(block).not.toContain("view_pages");
     expect(JSON.stringify(bodies)).not.toContain("view_pages");
     expect(Object.keys(bodies[0]!).sort()).toEqual(["contents", "systemInstruction", "toolConfig", "tools"]);
@@ -310,8 +314,9 @@ describe("askGemini without pages to show", () => {
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(2) });
     const gemini = fakeGemini([say("Two pages.")]);
     const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], messages: question("How long is it?") });
+    const mark = frameMark(meta.id);
     expect(gemini.bodies).toEqual([{ contents: [{ role: "user", parts: [
-      { text: "--- Attached file: report.pdf (pdf, 5 lines) ---\n--- Page 1 ---\nPage 1 of the test file.\n\n--- Page 2 ---\nPage 2 of the test file.\n--- End attached file: report.pdf ---" },
+      { text: `--- Attached file [mark ${mark}]: "report.pdf" (pdf, 5 lines; it ends only at the line with mark ${mark}) ---\n--- Page 1 ---\nPage 1 of the test file.\n\n--- Page 2 ---\nPage 2 of the test file.\n--- End attached file [mark ${mark}] ---` },
       { text: "How long is it?" },
     ] }] }]);
     expect(result).toMatchObject({ answered: true, turns: 1, steps: [] });

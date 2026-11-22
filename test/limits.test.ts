@@ -139,6 +139,11 @@ describe("askGemini and a turn with many tool calls", () => {
     expect(result).toMatchObject({ text: "Done.", answered: true });
   });
 
+  it("says one call in the singular", async () => {
+    const { result } = await ask(9);
+    expect(result.steps.at(-1)).toBe("1 more tool call in this turn was not run (at most 8 a turn)");
+  });
+
   it("changes nothing for a turn within the limit, and takes another limit", async () => {
     const within = await ask(8);
     expect(within.result.steps).toHaveLength(8);

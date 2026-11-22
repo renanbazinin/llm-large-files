@@ -6,6 +6,7 @@
  * It is built from the bytes of the text, in one pass, at ingest (and written next to the text
  * with `putIndex`), or the first time an older document without one is used.
  */
+import type { TimeSlicer } from "./pause.js";
 import type { DocumentMeta } from "./types.js";
 
 /** A passage, for keyword search, is a run of lines of about this many characters... */
@@ -126,16 +127,30 @@ export class TextIndexBuilder {
 /** The index of a text held as a string, built from its UTF-8 bytes a slice at a time. */
 export function buildTextIndex(text: string): TextIndex {
   const builder = new TextIndexBuilder();
-  const slice = 1 << 20;
+  for (let at = 0; at < text.length;) at = pushSlice(builder, text, at);
+  return builder.finish();
+}
+
+/** `buildTextIndex`, the same index, with pauses for other requests while a large text is indexed. */
+export async function buildTextIndexInSlices(text: string, slicer: TimeSlicer): Promise<TextIndex> {
+  const builder = new TextIndexBuilder();
   for (let at = 0; at < text.length;) {
-    let end = Math.min(text.length, at + slice);
-    // Never cut between the two halves of a surrogate pair: each half alone encodes as U+FFFD.
-    const last = text.charCodeAt(end - 1);
-    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end++;
-    builder.push(Buffer.from(text.slice(at, end), "utf8"));
-    at = end;
+    at = pushSlice(builder, text, at);
+    await slicer.maybePause();
   }
   return builder.finish();
+}
+
+/** Pushes the next slice of `text`, from `at`, as UTF-8; returns where the slice ended. */
+function pushSlice(builder: TextIndexBuilder, text: string, at: number): number {
+  let end = Math.min(text.length, at + (1 << 18));
+  // Never cut between the two halves of a surrogate pair: each half alone encodes as U+FFFD. Only
+  // a real pair is kept whole: a first half followed by anything else is one U+FFFD either way.
+  const last = text.charCodeAt(end - 1);
+  const next = text.charCodeAt(end);
+  if (end < text.length && last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end++;
+  builder.push(Buffer.from(text.slice(at, end), "utf8"));
+  return end;
 }
 
 // The file: a 40-byte header, then the lists of 32-bit numbers (line starts in bytes, line starts

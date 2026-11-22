@@ -59,7 +59,7 @@ Now in [Storage](./guides/storage.md); what `view_pages` does with the kept file
 
 ## Formats
 
-Now in [PDFs and other formats](./guides/pdfs.md).
+Now in [PDFs and other formats](./guides/pdfs.md), which also says how a text file that is not in UTF-8 is read; the fields that record it are `encoding` and `replacedCharacters` of [`DocumentMeta`](./reference/library.md#documentmeta).
 
 ### PDF tables
 
@@ -95,4 +95,4 @@ Now in [Your own adapter and loop](./guides/own-adapter-and-loop.md).
 
 ### Custom extractors
 
-Now in [PDFs and other formats](./guides/pdfs.md); the type is [`Extractor`](./reference/library.md#extractor).
+Now in [PDFs and other formats](./guides/pdfs.md); the type is [`Extractor`](./reference/library.md#extractor), and what it returns is [`ExtractedText`](./reference/library.md#extractedtext).

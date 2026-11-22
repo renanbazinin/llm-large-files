@@ -1,10 +1,10 @@
 import { safeErrorMessage } from "./errors.js";
 import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
-import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource } from "./search.js";
+import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource, type LineMatch } from "./search.js";
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
-import { sliceWhole } from "./text.js";
+import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
 import type { Budget, GenerateText, ProgressListener, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
@@ -42,7 +42,7 @@ const documentId = { type: "string" as const, description: "The document_id from
 const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
   search: {
     name: TOOL_NAMES.search,
-    description: "Search a large attached file. mode \"keywords\" returns the most relevant passages for a question; \"exact\" returns every line containing the text; \"regex\" returns lines matching a JavaScript regular expression. Results include line numbers to read further with read_document.",
+    description: "Search a large attached file. mode \"keywords\" returns the most relevant passages for a question; \"exact\" finds the lines that contain the text; \"regex\" finds the lines that match a JavaScript regular expression. For exact and regex, total_matching_lines counts every matching line, and the result shows the first max_results of them and the last one. Results include line numbers to read further with read_document.",
     parameters: {
       type: "object",
       properties: {
@@ -126,13 +126,17 @@ function pageNumber(value: unknown, name: string): number {
 
 const pageRange = (from: number, to: number): string => (to > from ? `${from}-${to}` : String(from));
 
-/** Trims a result to the character budget by dropping trailing list entries, then cutting text. */
+/**
+ * Trims a result to the character budget by dropping trailing list entries, then cutting text. A
+ * note the result already has (a search that stopped early) is kept, before the one that says so.
+ */
 function fit(result: ToolResult, listKey: string | null, limit: number): ToolResult {
   if (JSON.stringify(result).length <= limit) return result;
   const list = listKey ? result[listKey] : undefined;
   if (Array.isArray(list)) {
     const kept = [...list];
-    const note = () => `Showing ${kept.length} of ${list.length} results to stay within the size limit. Narrow the query or read specific lines.`;
+    const before = typeof result.note === "string" ? `${result.note} ` : "";
+    const note = () => `${before}Showing ${kept.length} of ${list.length} results to stay within the size limit. Narrow the query or read specific lines.`;
     const trimmed = () => ({ ...result, [listKey!]: kept, note: note() });
     while (kept.length > 1 && JSON.stringify(trimmed()).length > limit) kept.pop();
     if (JSON.stringify(trimmed()).length <= limit) return trimmed();
@@ -172,6 +176,37 @@ export function fitAnswer(result: ToolResult, limit: number): ToolResult {
   return fit(cutAt(low), null, limit);
 }
 
+/**
+ * The result of an exact or regex search that read the whole file: the first matches, then the
+ * last one of the file, and a note that says how many of how many are shown when that is not all.
+ * Without the last one, a model asked when something last happened named the last line it was
+ * shown. To fit `limit`, matches are dropped from the end of the first ones: the last one stays.
+ */
+function firstAndLastMatches(base: ToolResult, first: LineMatch[], last: LineMatch, total: number, limit: number): ToolResult {
+  const which = (kept: number) => (kept === 0 ? `the last (line ${last.line})` : `the first${kept > 1 ? ` ${kept}` : ""} and the last (line ${last.line})`);
+  const shown = (kept: number) => `${kept + 1} of the ${total} matching lines`;
+  const withFirst = (kept: number, cut: boolean): ToolResult => ({
+    ...base,
+    ...(cut
+      ? { note: `Showing ${shown(kept)} to stay within the size limit: ${which(kept)}. Narrow the query or read specific lines.` }
+      // When every match is shown, there is nothing to say.
+      : kept + 1 < total ? { note: `${shown(kept)} are shown: ${which(kept)}. To see the ones in between, narrow the search.` } : {}),
+    matches: [...first.slice(0, kept), last],
+  });
+  const whole = withFirst(first.length, false);
+  if (JSON.stringify(whole).length <= limit) return whole;
+  let kept = first.length;
+  while (kept > 0 && JSON.stringify(withFirst(kept, true)).length > limit) kept--;
+  const cut = withFirst(kept, true);
+  if (JSON.stringify(cut).length <= limit) return cut;
+  // Only the last match is left, and its note is too long for the room: a shorter one. It still
+  // starts with "Showing ", so the result is taken as cut. `fit` must not put its own note in its
+  // place, which would say "1 of 1 results" and drop the line of the last match. When even this
+  // does not fit, `fit` cuts the result as text: the note, with that line, comes before the match.
+  const lastOnly = { ...base, note: `Showing 1 of the ${total} matching lines: ${which(0)}. Narrow the search.`, matches: [last] };
+  return fit(lastOnly, null, limit);
+}
+
 const searchMode = (mode: unknown): "keywords" | "exact" | "regex" => (mode === "exact" || mode === "regex" ? mode : "keywords");
 
 /** The lines a `read_document` call asks for, as its handler reads them, before the end of the file is known. */
@@ -205,8 +240,11 @@ export function toolCallKey(name: string, args: Record<string, unknown>): string
  * conversation in full: a short result that says so, in place of running the call again. A result
  * that was cut to the room it had, or replaced by a stand-in, or failed, is not pointed to: the call
  * is run, and may get more. A read of lines inside a read that is shown in full is pointed to.
+ * `stored` is true for a result in the tool rounds of an earlier question, which an older version
+ * may have written: 0.5.0 cut the text of a read of one long line without saying so (no
+ * `text_cut`), so a read of one line from there is not taken as shown in full.
  */
-export function alreadyShown(call: { name: string; args: Record<string, unknown> }, earlier: { call: { name: string; args: Record<string, unknown> }; result: ToolResult }): ToolResult | undefined {
+export function alreadyShown(call: { name: string; args: Record<string, unknown> }, earlier: { call: { name: string; args: Record<string, unknown> }; result: ToolResult }, stored = false): ToolResult | undefined {
   const { result } = earlier;
   if (earlier.call.name !== call.name || earlier.call.args.document_id !== call.args.document_id) return undefined;
   if (result.dropped === true || result.already_shown === true || typeof result.error === "string" || result.truncated === true) return undefined;
@@ -214,12 +252,17 @@ export function alreadyShown(call: { name: string; args: Record<string, unknown>
   // time ("the total is a lower bound"; a later question has time of its own): a call made now may get more.
   if (typeof result.note === "string" && (result.note.startsWith("Showing ") || result.note.startsWith("The scan stopped early"))) return undefined;
   if (result.text_cut === true) return undefined;
+  // An exact or regex search that an earlier version stored: the first matches, without the last one
+  // and without a note. Run now, the call returns more (the last match), not the same.
+  if (call.name === TOOL_NAMES.search && typeof result.total_matching_lines === "number" && Array.isArray(result.matches)
+    && result.matches.length < result.total_matching_lines && typeof result.note !== "string") return undefined;
   const document = typeof result.document === "string" ? { document: result.document } : {};
   if (call.name === TOOL_NAMES.read) {
     const shown = typeof result.lines === "string" ? /^(\d+)-(\d+)$/.exec(result.lines) : null;
     const total = result.total_lines;
     if (!shown || typeof total !== "number") return undefined;
     const [first, last] = [Number(shown[1]), Number(shown[2])];
+    if (stored && first === last) return undefined;
     const [start, end] = requestedLines(call.args);
     const from = Math.min(start, total);
     const to = Math.min(end, total);
@@ -265,11 +308,13 @@ export function failureKind(call: { name: string; args: Record<string, unknown> 
  */
 export function toolResultSummary(label: string, result: ToolResult): string {
   if (typeof result.error === "string") return ` — failed: ${result.error}`;
-  if (typeof result.total_matching_lines === "number") return ` — ${result.total_matching_lines.toLocaleString("en-US")} matching lines`;
-  if (Array.isArray(result.passages)) return ` — ${result.passages.length} passages`;
+  if (typeof result.total_matching_lines === "number") {
+    return ` — ${result.total_matching_lines.toLocaleString("en-US")} ${plural(result.total_matching_lines, "matching line")}`;
+  }
+  if (Array.isArray(result.passages)) return ` — ${result.passages.length} ${plural(result.passages.length, "passage")}`;
   if (typeof result.parts_read === "number") {
     const incomplete = result.notes_only ? ", notes only" : result.notes_cut_short || result.answer_cut_short ? ", incomplete" : "";
-    return ` — ${result.parts_read} parts, ${String(result.parts_with_relevant_content ?? 0)} relevant${incomplete}`;
+    return ` — ${result.parts_read} ${plural(result.parts_read, "part")}, ${String(result.parts_with_relevant_content ?? 0)} relevant${incomplete}`;
   }
   // A read reports its range only when it was cut short of what was asked.
   if (typeof result.lines === "string" && typeof result.total_lines === "number") return label.endsWith(result.lines) ? "" : ` — got ${result.lines}`;
@@ -279,6 +324,31 @@ export function toolResultSummary(label: string, result: ToolResult): string {
   }
   return "";
 }
+
+/**
+ * A step, or a label of one, as one line of plain text. Steps quote what the model sent (a query, a
+ * task, the name of a tool, arguments that were not JSON), and they reach users' screens: the
+ * invisible characters that file text and names lose are dropped (`removeInvisible`: text-direction
+ * overrides and isolates, zero-width spaces, tag characters), a line break, a tab or another control
+ * character becomes one space with the blanks around it, and "](" gets a space, so that a markdown
+ * link or picture in a query stays text. A line without them is unchanged.
+ */
+export function stepLine(text: string): string {
+  // Each control character, tab and line break is a "\n" first, which `removeInvisible` keeps (it
+  // would drop the others): an invisible character between two of them then leaves one space, not
+  // two. A soft hyphen it keeps before one goes too. Then a run of blanks with a "\n" in it is one space.
+  const marked = removeInvisible(text.replace(/[\p{Cc}\p{Zl}\p{Zp}]/gu, "\n")).replace(/\xAD+(?=\n)/g, "");
+  return marked.replace(/\s+/g, (blank) => (blank.includes("\n") ? " " : blank)).replaceAll("](", "] (");
+}
+
+/** An unknown tool's name as a step or an error quotes it: the model chose it, at any length. */
+export const unknownToolName = (name: string): string => `“${sliceWhole(name, 64)}”`;
+
+/**
+ * A document_id the model sent, as an error quotes it: whole when it is as long as a real one can
+ * be, cut otherwise. The model chose it, at any length, and the error goes into steps too.
+ */
+const shownId = (id: string): string => (id.length > 64 ? `${sliceWhole(id, 64)}…` : id);
 
 export function createDocumentTools(options: {
   /** Loads a document the tools may access. Return undefined for anything out of scope. */
@@ -355,8 +425,8 @@ export function createDocumentTools(options: {
       // The IDs it may use, with their file names, so that the next call is right.
       const usable = [...allowed].slice(0, 20).map((known) => `${known}${names.has(known) ? ` (${JSON.stringify(names.get(known))})` : ""}`);
       throw new Error(usable.length === 0
-        ? `Unknown document_id ${id}. No attached file is read with this tool in this conversation.`
-        : `Unknown document_id ${id}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
+        ? `Unknown document_id ${shownId(id)}. No attached file is read with this tool in this conversation.`
+        : `Unknown document_id ${shownId(id)}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
     }
     const document = await options.load(id);
     if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
@@ -408,15 +478,25 @@ export function createDocumentTools(options: {
         });
       };
       const result = await (regex ? inRegexTurn(grep) : grep());
+      const placed = (match: LineMatch): LineMatch => {
+        if (!paged) return match;
+        const { line, ...rest } = match;
+        const page = document.pageOfLine(line);
+        return { line, ...(page ? { page } : {}), ...rest };
+      };
+      const base = { document: document.meta.name, mode, total_matching_lines: result.totalMatchingLines };
+      const matches = result.matches.map(placed);
+      if (!result.stoppedEarly && result.totalMatchingLines >= 2) {
+        // The last match is `last`, or, when every match is among the first ones, the last of them.
+        return result.last
+          ? firstAndLastMatches(base, matches, placed(result.last), result.totalMatchingLines, limit)
+          : firstAndLastMatches(base, matches.slice(0, -1), matches.at(-1)!, result.totalMatchingLines, limit);
+      }
       return fit({
-        document: document.meta.name,
-        mode,
-        total_matching_lines: result.totalMatchingLines,
-        ...(result.stoppedEarly ? { note: "The scan stopped early; the total is a lower bound." } : {}),
-        matches: paged ? result.matches.map(({ line, ...rest }) => {
-          const page = document.pageOfLine(line);
-          return { line, ...(page ? { page } : {}), ...rest };
-        }) : result.matches,
+        ...base,
+        // The description says the last match is shown: here it is not known.
+        ...(result.stoppedEarly ? { note: "The scan stopped early; the total is a lower bound, and the last match in the file is not known." } : {}),
+        matches,
       }, "matches", limit);
     },
 
@@ -468,7 +548,8 @@ export function createDocumentTools(options: {
         ...(meta.pages ? { pages: meta.pages } : {}),
         parts_for_whole_document_analysis: parts,
         ...(parts > options.budget.maxMapChunks ? { whole_document_analysis: `Not available for this file: it would take about ${parts} parts, and the limit is ${options.budget.maxMapChunks}. Use search_document and read_document.` } : {}),
-        ...(meta.logProfile ? { log_profile: meta.logProfile } : {}),
+        // 0.5.0 stored some log templates cut inside an emoji: half of a character is not sent.
+        ...(meta.logProfile ? { log_profile: wellFormedJson(meta.logProfile) } : {}),
         first_lines: numberLines(await document.readLines(1, first), 1),
         last_lines: lineCount > 30 ? numberLines(await document.readLines(tail, lineCount), tail) : "",
         outline: meta.outline.length ? outlineLines(meta.outline) : [],
@@ -542,7 +623,7 @@ export function createDocumentTools(options: {
     if (!viewable.has(id)) {
       throw new Error(allowed.has(id)
         ? `The pages of ${names.get(id) ?? id} cannot be shown: only its text was kept. Answer from the text.`
-        : `Unknown document_id ${id}. Use the document_id of an attached PDF.`);
+        : `Unknown document_id ${shownId(id)}. Use the document_id of an attached PDF.`);
     }
     const document = await options.load(id);
     if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
@@ -587,7 +668,7 @@ export function createDocumentTools(options: {
   const failure = (error: unknown): ToolResult => ({ error: safeErrorMessage(error) });
 
   async function execute(name: string, args: Record<string, unknown>, limits: ToolCallLimits = {}): Promise<ToolResult> {
-    if (!known.has(name)) return { error: `Unknown tool ${name}.` };
+    if (!known.has(name)) return { error: `Unknown tool ${unknownToolName(name)}.` };
     // The pages are a file, and this method returns only JSON. Saying that pages are attached
     // with nothing attached would be worse than saying that they could not be shown.
     if (name === TOOL_NAMES.view) return { error: FILES_NOT_DELIVERED };
@@ -624,7 +705,7 @@ export function createDocumentTools(options: {
       }
       if (name === TOOL_NAMES.search) {
         const mode = args.mode === "exact" || args.mode === "regex" ? args.mode : "keywords";
-        return `Search ${file} (${mode}) for “${String(args.query ?? "").slice(0, 80)}”`;
+        return `Search ${file} (${mode}) for “${sliceWhole(String(args.query ?? ""), 80)}”`;
       }
       if (name === TOOL_NAMES.read) {
         const start = integer(args.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -632,7 +713,7 @@ export function createDocumentTools(options: {
         return `Read ${file} lines ${start}${end}`;
       }
       if (name === TOOL_NAMES.overview) return `Overview of ${file}`;
-      if (name === TOOL_NAMES.analyze) return `Read all of ${file} for “${String(args.task ?? "").slice(0, 100)}”`;
+      if (name === TOOL_NAMES.analyze) return `Read all of ${file} for “${sliceWhole(String(args.task ?? ""), 100)}”`;
       return name;
     },
   };

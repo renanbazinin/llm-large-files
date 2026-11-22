@@ -1,6 +1,8 @@
 import { safeErrorMessage } from "./errors.js";
-import { errorKindOf } from "./model.js";
-import { withRetry, type RetryOptions } from "./retry.js";
+import { until } from "./http.js";
+import { classifyModelError, errorKindOf, type ModelErrorKind } from "./model.js";
+import { noTextReason } from "./output-limit.js";
+import { statusOf, withRetry, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes } from "./text.js";
 import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
 import type { Budget, GenerateText, ProgressListener } from "./types.js";
@@ -27,6 +29,108 @@ export type WholeDocumentResult = {
    */
   answerFailed?: string;
 };
+
+/**
+ * What went wrong with a model request, by its kind, in words for the model that asked for the
+ * read. The request may be a part, a merge of notes, or the last step that writes the answer.
+ */
+const FAILED_BECAUSE: Record<ModelErrorKind, string> = {
+  context_overflow: "The request was larger than the model takes",
+  quota: "The model's quota has run out",
+  rate_limit: "The model was busy",
+  timeout: "The model took too long to answer",
+  unreachable: "The model could not be reached",
+  server: "The model failed on its side",
+  auth: "The model refused the key or token it was sent",
+  invalid: "The model refused the request",
+};
+
+const knownKind = (kind: unknown): kind is ModelErrorKind => typeof kind === "string" && Object.hasOwn(FAILED_BECAUSE, kind);
+
+/**
+ * The HTTP status of a model error: its `status`, or the `statusCode` or `response.status` that
+ * the errors of other HTTP clients and SDKs carry (got, http-errors, axios). 0 is a request that
+ * got no answer. A number that is no HTTP status is not one.
+ */
+function httpStatusOf(error: unknown): number | undefined {
+  const other = error as { statusCode?: unknown; response?: { status?: unknown } | null } | null | undefined;
+  for (const status of [statusOf(error), other?.statusCode, other?.response?.status]) {
+    if (typeof status === "number" && Number.isInteger(status) && (status === 0 || (status >= 100 && status <= 599))) return status;
+  }
+  return undefined;
+}
+
+/**
+ * The codes of a connection that failed, Node's and undici's, and their kind. An answer that did
+ * not come in time is a timeout.
+ */
+const CONNECTION_FAILURES: Record<string, ModelErrorKind> = {
+  ECONNREFUSED: "unreachable",
+  ECONNRESET: "unreachable",
+  ECONNABORTED: "unreachable",
+  ENOTFOUND: "unreachable",
+  EAI_AGAIN: "unreachable",
+  ETIMEDOUT: "unreachable",
+  EHOSTUNREACH: "unreachable",
+  ENETUNREACH: "unreachable",
+  ENETDOWN: "unreachable",
+  EPIPE: "unreachable",
+  UND_ERR_CONNECT_TIMEOUT: "unreachable",
+  UND_ERR_SOCKET: "unreachable",
+  UND_ERR_CLOSED: "unreachable",
+  UND_ERR_DESTROYED: "unreachable",
+  UND_ERR_HEADERS_TIMEOUT: "timeout",
+  UND_ERR_BODY_TIMEOUT: "timeout",
+};
+
+/**
+ * The kind of a connection that failed, from the code of the error or of one that caused it (the
+ * `fetch failed` of undici). An `AbortSignal.timeout` of the app's (a `TimeoutError`) is a timeout.
+ * Undefined for any other error.
+ */
+function connectionFailure(error: unknown): ModelErrorKind | undefined {
+  let at = error;
+  for (let depth = 0; depth < 4 && typeof at === "object" && at !== null; depth++) {
+    const { code, name, cause } = at as { code?: unknown; name?: unknown; cause?: unknown };
+    if (typeof code === "string" && Object.hasOwn(CONNECTION_FAILURES, code)) return CONNECTION_FAILURES[code];
+    if (name === "TimeoutError") return "timeout";
+    at = cause;
+  }
+  return undefined;
+}
+
+/** A reason a provider gives for a reply with no text that is a plain word ("SAFETY", "content_filter"). */
+const PLAIN_REASON = /^[A-Za-z_]{1,40}$/;
+
+/**
+ * Why a model request of a whole-file read failed, as the model and `onStep` are told: by its
+ * kind, its HTTP status, or the code of a connection that failed, never by its message. The
+ * provider's message, or the HTTP client's, can name a project, a host, a key or a URL of the
+ * server, and goes to the log of the app, not to the model. An error with an HTTP status and no
+ * kind (that of a provider's SDK, in a `generate` of the app's own) has its kind told from its
+ * status and message. An error with none of these is told as a request that failed. A reply with
+ * no text to a part reader of the package's is told in the package's words, as before.
+ */
+function modelFailureReason(error: unknown): string {
+  try {
+    const noText = noTextReason(error);
+    if (noText !== undefined) return `The model returned no text${PLAIN_REASON.test(noText) ? ` (${noText})` : ""}.`;
+    const status = httpStatusOf(error);
+    let kind: unknown = errorKindOf(error);
+    if (!knownKind(kind) && status !== undefined && (status === 0 || status >= 400)) {
+      const code = (error as { code?: unknown } | null)?.code;
+      kind = classifyModelError(status, error instanceof Error ? error.message : "", { code: typeof code === "string" ? code : undefined }).kind;
+    }
+    if (!knownKind(kind)) kind = connectionFailure(error);
+    if (!knownKind(kind)) return `The model request failed${status ? ` (HTTP ${status})` : ""}.`;
+    // A reply that came with a status of success, and could not be read (a gateway's page).
+    if (kind === "invalid" && status !== undefined && status >= 200 && status < 300) return `The model's reply could not be read (HTTP ${status}).`;
+    return `${FAILED_BECAUSE[kind]}${status ? ` (HTTP ${status})` : ""}.`;
+  } catch {
+    // An error whose fields throw when read (a getter, a proxy): their words are not told either.
+    return "The model request failed.";
+  }
+}
 
 /** A whole-document read in which no part could be read: nothing was learned, and nothing is returned. */
 export class NothingReadError extends Error {
@@ -142,7 +246,8 @@ export class TooManyPartsError extends Error {
  * One model call. A model that was busy or failed on its side (an error with an HTTP status worth
  * retrying) is asked again after a wait, a few times; a request it refused is not. An error that
  * says nothing of the kind is tried once more, at once. `truncated` is true when the reply that
- * was kept hit the output limit.
+ * was kept hit the output limit. When the signal aborts, the call ends with its reason, whether or
+ * not the part reader stops.
  */
 async function ask(
   generate: GenerateText,
@@ -153,7 +258,9 @@ async function ask(
   let truncated = false;
   const text = await withRetry(() => {
     truncated = false;
-    return generate({ ...request, ...(signal ? { signal } : {}), onTruncated: () => { truncated = true; } });
+    // Nothing is sent once the read was stopped: the signal may abort while a part's lines are read.
+    signal?.throwIfAborted();
+    return until(generate({ ...request, ...(signal ? { signal } : {}), onTruncated: () => { truncated = true; } }), signal);
   }, { retry, signal, unknownErrors: "once" });
   return { text: text.trim(), truncated };
 }
@@ -200,15 +307,31 @@ export async function analyzeWholeDocument(options: {
     budget.maxMapChunks - parts.length,
     options.maxRequests === undefined ? Number.POSITIVE_INFINITY : options.maxRequests - parts.length - 2,
   ));
+  /** The note on a part that could not be read, and why. */
+  const failedPart = (from: number, to: number, error: unknown, reason: string): Note[] => {
+    failed++;
+    if (!firstFailure) {
+      firstFailure = reason;
+      firstError = error;
+    }
+    return [{ from, to, text: `[This part could not be read: ${reason}]`, read: false }];
+  };
   /**
    * The notes on one part. A part the model refuses as larger than it takes (its window is smaller
    * than the budget says) is read as two halves instead, once: a half that is still too large is
    * reported as a part that could not be read.
    */
   const readPart = async (from: number, to: number, where: string, halved: boolean): Promise<Note[]> => {
+    let part: string;
     try {
-      const part = numberLines(await document.readLines(from, to), from);
-      sent++;
+      part = numberLines(await document.readLines(from, to), from);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      // The store's error, not the model's: a `DocumentStoreError` tells it in words safe to show.
+      return failedPart(from, to, error, safeErrorMessage(error));
+    }
+    sent++;
+    try {
       const reply = await ask(generate, {
         system: "You read one part of a larger document and take notes for a later step that combines the notes from every part.",
         prompt: [
@@ -239,13 +362,7 @@ export async function analyzeWholeDocument(options: {
           ...await readPart(middle + 1, to, `${where}, second half`, true),
         ];
       }
-      failed++;
-      const reason = safeErrorMessage(error);
-      if (!firstFailure) {
-        firstFailure = reason;
-        firstError = error;
-      }
-      return [{ from, to, text: `[This part could not be read: ${reason}]`, read: false }];
+      return failedPart(from, to, error, modelFailureReason(error));
     }
   };
   const notes = (await pool(parts.length, options.concurrency ?? 4, async (index) => {
@@ -349,7 +466,7 @@ export async function analyzeWholeDocument(options: {
   } catch (error) {
     if (signal?.aborted) throw error;
     // The notes of every part were paid for and hold what was found: they are the answer, rather than an error.
-    return { answer: layer.join("\n\n"), ...counts, answerTruncated: false, answerFailed: safeErrorMessage(error) };
+    return { answer: layer.join("\n\n"), ...counts, answerTruncated: false, answerFailed: modelFailureReason(error) };
   }
   return { answer: final.text, ...counts, answerTruncated: final.truncated };
 }

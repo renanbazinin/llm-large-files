@@ -5,7 +5,7 @@ import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { readJson } from "../http.js";
 import { retryAfterMs } from "../retry.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
-import { finishOfGemini, geminiFailure, unreachable } from "./errors.js";
+import { finishOfGemini, geminiFailure, notJson, unreachable } from "./errors.js";
 
 /** Gemini accepts this package's JSON Schema subset as-is. */
 export function toGeminiTools(declarations: ToolDeclaration[]): { functionDeclarations: ToolDeclaration[] } {
@@ -109,6 +109,7 @@ export function createGeminiGenerateText(options: {
   /** Request headers, or a function returning them. A function is called for every request: a whole-file read can outlast an access token. */
   headers: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
   fetchImpl?: typeof fetch;
+  /** The `generationConfig` of each request, from its output limit. Defaults to `{ maxOutputTokens }`. */
   generationConfig?: (maxOutputTokens: number) => Record<string, unknown>;
   timeoutMs?: number;
 }): GenerateText {
@@ -128,7 +129,8 @@ export function createGeminiGenerateText(options: {
           body: JSON.stringify({
             contents: [{ role: "user", parts: [{ text: prompt }] }],
             systemInstruction: { role: "system", parts: [{ text: system }] },
-            generationConfig: options.generationConfig?.(limit) ?? { maxOutputTokens: limit, temperature: 0.2 },
+            // No temperature: Gemini 3.6 and later ignore it, and Google says later models will refuse it.
+            generationConfig: options.generationConfig?.(limit) ?? { maxOutputTokens: limit },
           }),
         });
       } catch (error) {
@@ -144,7 +146,7 @@ export function createGeminiGenerateText(options: {
       // An error may have no JSON body. A reply must: one whose body could not be read is a
       // connection that failed, and is sent again.
       const data: Data = response.ok
-        ? await readJson<Data>(response, () => Boolean(signal?.aborted) || timeout.aborted, unreachable)
+        ? await readJson<Data>(response, () => Boolean(signal?.aborted) || timeout.aborted, unreachable, undefined, (error) => notJson(response, error))
         : await response.json().catch(() => null) as Data;
       if (!response.ok) throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`);
       onUsage?.(usageOfGemini(data?.usageMetadata));

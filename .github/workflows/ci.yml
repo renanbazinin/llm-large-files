@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   test:
-    # Windows too: the file store has rename handling that only runs there.
+    # Windows too: the file store has rename handling for it. (The tests make a rename fail on
+    # every system, so that the handling runs everywhere.)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -27,3 +28,37 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm pack --dry-run
+
+  unpdf-versions:
+    # The tests above run with the unpdf that package-lock.json pins (1.4.0). Other versions in the
+    # peer range behave otherwise on some versions of Node: unpdf 1.5.0 to 1.6.0 stopped the whole
+    # process at the first PDF on Node 20 and 22, and 1.9 and later cannot load pdf.js on Node 20.
+    # Each version must read PDFs where it can, and be refused with a message where it cannot.
+    name: unpdf ${{ matrix.unpdf }} on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { node: 20, unpdf: "1.7.0" } # the last version for Node 20
+          - { node: 22, unpdf: "^1" }
+          - { node: 24, unpdf: "^1" }
+          - { node: 24, unpdf: "^2" } # unpdf 2 needs Node 24
+          - { node: 20, unpdf: "1.9", refused: true } # npm would pick 1.7.0 on Node 20 for "^1"
+          - { node: 22, unpdf: "1.6.0", refused: true }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm install --no-save "unpdf@${{ matrix.unpdf }}"
+      - name: Every test, with this unpdf
+        if: ${{ !matrix.refused }}
+        run: npm test
+      - name: A message that says what to install, and no stop of the process
+        if: ${{ matrix.refused }}
+        run: npx vitest run test/unpdf-versions.test.ts
+        env:
+          UNPDF_EXPECT: refused

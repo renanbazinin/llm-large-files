@@ -171,7 +171,8 @@ describe("gemini() as a model of askWithFiles", () => {
     const asContents = geminiToolTurns(turns);
     expect(asContents).toEqual([
       { role: "model", parts: [{ functionCall: { name: "read_document", args: { document_id: meta.id, start_line: 96, end_line: 98 }, id: "c1" } }] },
-      { role: "user", parts: [{ functionResponse: { name: "read_document", id: "c1", response: turns[0]!.calls[0]!.result } }] },
+      // Without the tool turns the question had left: they are not those of a later one.
+      { role: "user", parts: [{ functionResponse: { name: "read_document", id: "c1", response: { document: "app.log", lines: "96-98", total_lines: 5_000, text: "96| a\n97| b\n98| c" } } }] },
     ]);
     const endpoint = geminiApi({ apiKey: "k", model: "gemini-test" });
     const viaMessages = fakeGemini([say("Line 97 took 0ms.")]);

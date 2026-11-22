@@ -1,6 +1,6 @@
 {
   "name": "llm-large-files",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Let an LLM answer questions about books, logs, and other files larger than its request limit or context window: upload, plan, search and read tools, map-reduce, a look at the pages of a PDF, and one tool loop for any model. Adapters for Gemini and Vertex AI, OpenAI-compatible endpoints, and Claude.",
   "keywords": [
     "llm",
@@ -94,7 +94,7 @@
   "peerDependencies": {
     "@cantoo/pdf-lib": "^2.11.1",
     "jszip": "^3.10.0",
-    "unpdf": "^1.4.0"
+    "unpdf": "^1.4.0 || ^2.0.0"
   },
   "peerDependenciesMeta": {
     "@cantoo/pdf-lib": {

@@ -101,6 +101,14 @@ tool calls of one model turn, each with what its tool returned:
 - Each result is **as the model last had it**. One that was shortened during the question to make
   room is stored as its stand-in (`dropped: true`). Every result, pointer and refusal carries
   `tool_turns_left`, the tool turns the question had left then. A stand-in does not.
+- **`tool_turns_left` is stored, and not sent again.** When you pass the rounds back in a later
+  question, the results go to the model without it: its count was of the turns their own question
+  had left, and a model could take a 0 there for its own. So the first request of a follow-up
+  differs from the requests of the question before it, from that question's first tool round on.
+  The provider's prompt cache misses from there, once in each follow-up question, in its first
+  request; the rounds of older questions were already sent without the count and still match, and
+  the documents and cards before the rounds are still read from the cache
+  ([Costs and limits](./costs-and-limits.md#prompt-caching)).
 - Calls that were not run are there too, with an `error`: for example refused for lack of room,
   past `limits.callsPerTurn`, or whose arguments could not be read. So are pointers to results already
   shown ([Repeated calls](#repeated-calls-in-a-follow-up)).
@@ -114,15 +122,17 @@ tool calls of one model turn, each with what its tool returned:
 - With an explorer model they are the explorer's rounds. Its words are not kept.
 - They are there when `answered` is false, and in `partialResultOf(error)` when the question failed.
 
-`limits.toolTurns` is something else: the most chat requests of one question, the answer included.
-Whole-file part reads do not count toward it ([Costs and limits](./costs-and-limits.md)).
+`limits.toolTurns` is something else: the most chat requests of one question, the answer included,
+plus one more when the answer comes back without text. Whole-file part reads do not count toward
+it ([Costs and limits](./costs-and-limits.md)).
 
 **Why keep them.** Passed back between their question and its answer, the rounds show the model
 what it searched and read before. A follow-up is then often answered without a new search, and a
 call that repeats one of them is answered from the stored result
 ([below](#repeated-calls-in-a-follow-up)). In a live check of 0.5.0 a follow-up took one request
-and no search; in 0.6.0 on Vertex AI, a follow-up that repeated its first search got a pointer and
-answered from the stored result ([Measurements](../measurements.md)).
+and no search; in a live check of the pointers on Vertex AI, during the work on 0.6.0, a follow-up
+that repeated its first search got a pointer and answered from the stored result
+([Measurements](../measurements.md)).
 
 ## Storing a conversation and asking the next question
 
@@ -265,7 +275,8 @@ its own in some ways, and not in others.
   make room in the request".
 - **It stops running tools when nothing fits.** A call that cannot get 1,500 characters of room is
   not run. The model is told to answer from what it has, and the next request is the answer.
-- **It recovers when the provider refuses a request as too large.** It shortens older results,
+- **It recovers when the provider refuses a request as too large**, for the model's window or for
+  the tokens the provider allows in a minute. It shortens older results,
   down to the latest round if needed, and sends the request again, at most twice a question. When
   nothing can be shortened, or the request sent again is still too large, and no tool call has
   been answered and no text shown yet, it plans the documents again for a smaller window, once a
@@ -363,6 +374,21 @@ Which calls count as the same and which results are never pointed to:
 [How it works](../how-it-works.md#pointers-to-repeated-calls). The exact pointer and stand-in
 results: [Tools](../reference/tools.md#what-askwithfiles-adds-to-results).
 
+Some stored results are run again rather than pointed to:
+
+- **A read of one line in the rounds of an earlier question.** 0.5.0 cut a long line to the room
+  it had without saying so, and a stored read cannot be told apart from such a one. Reads of more
+  lines, and reads of the same question, are pointed to.
+- **An exact or regex search that 0.5.0 stored** with more matching lines than it showed. It holds
+  only the first matches; run again, it shows the last one too.
+- **Any call, with a model whose provider may clear old tool results on its side**
+  (`capabilities.clearsToolResults`: Claude with context editing that clears tool uses, or
+  compaction). No call is pointed to then, and the same call twice in one turn runs twice.
+
+With a model that clears tool results, every stored pointer is sent as the stand-in that says to
+call again: "Not run then: it repeated an earlier call whose result was later dropped from the
+conversation to make room. Call it again if you need it."
+
 **When the result is no longer there.** When a result is later shortened to make room, the pointers
 to it become stand-ins (`dropped: true`) that say the call was not run then and can be made again.
 The same check runs at the start of every question, on the rounds you pass. A pointer whose result
@@ -381,9 +407,11 @@ into `messages` before the question, and the new tool rounds back into that form
 | Chat Completions messages | `fromOpenAiMessages(history)`, which returns `{ system, messages }` | `openAiToolTurns(result.toolTurns)` | `llm-large-files/openai` |
 | Messages API messages (Claude) | `fromAnthropicMessages(history)` | `anthropicToolTurns(result.toolTurns)` | `llm-large-files/anthropic` |
 
-Put the converted rounds between the question and its answer, as with `ToolTurn`s. The full
-signatures are in [gemini.md](../reference/gemini.md), [openai.md](../reference/openai.md) and
-[anthropic.md](../reference/anthropic.md).
+Put the converted rounds between the question and its answer, as with `ToolTurn`s. The three
+converters leave `tool_turns_left` out of each result, so a request built from them is the same as
+one built from the stored `ToolTurn`s; a test that compares a converted result with the stored one
+must leave that field out. The full signatures are in [gemini.md](../reference/gemini.md),
+[openai.md](../reference/openai.md) and [anthropic.md](../reference/anthropic.md).
 
 ### Gemini `contents`
 
@@ -405,7 +433,9 @@ export async function next(files: LargeFiles, endpoint: GeminiEndpoint, document
 ```
 
 - `geminiToolTurns` gives, for each round, a `model` turn of `functionCall` parts and a `user` turn
-  of `functionResponse` parts. A call's `id` is in both when it has one.
+  of `functionResponse` parts. A call's `id` is in both when it has one. Each result is given
+  without its `tool_turns_left`, as the loop sends the rounds of an earlier question. `contents`
+  that 0.5.0 converted keep it, and are sent as they are.
 - `fromGeminiContents` makes a `"user"` turn a user turn and a `"model"` turn an assistant turn. A
   text part is text. A text part with more fields (a `thoughtSignature`) is kept whole as a native
   part, sized by its text. Every other part is a native part, as it is: an image, an inline PDF,
@@ -449,8 +479,8 @@ export async function next(files: LargeFiles, documentIds: string[], history: Op
 - In a `user` or `assistant` message, content parts other than text are native parts. Messages of
   any other role are skipped.
 - `openAiToolTurns` gives, for each round, an `assistant` message with `content: null` and
-  `tool_calls`, then one `tool` message per call with the result as JSON text. A call without an
-  ID gets a random one: `call_` and 24 hex characters.
+  `tool_calls`, then one `tool` message per call with the result as JSON text, without its
+  `tool_turns_left`. A call without an ID gets a random one: `call_` and 24 hex characters.
 
 ### Messages API messages (Claude)
 
@@ -486,7 +516,8 @@ export async function next(files: LargeFiles, documentIds: string[], system: str
   `redacted_thinking`) are left out: they belong to the conversation they were written in. Every
   other block, an image or a document, is a native part.
 - `anthropicToolTurns` gives, for each round, an `assistant` message of `tool_use` blocks and a
-  `user` message of `tool_result` blocks. A result with an `error` gets `is_error: true`. A call
+  `user` message of `tool_result` blocks, each result without its `tool_turns_left`. A result with
+  an `error` gets `is_error: true`. A call
   without an ID gets a random one, `toolu_` and 24 hex characters, and every ID is made to fit the
   API (`[A-Za-z0-9_-]`) and to appear once in the output.
 - Set `contextTokens` on `anthropic()` to the model's window, and trim the history yourself: the
@@ -549,8 +580,9 @@ the explorer's calls and results, built in its own form ([Explorer model](./expl
 ## Owners and documents across turns
 
 - **Pass the same `owner` with every question.** A document ingested with another owner is treated
-  as missing. How to choose the owner (a user, or a user and a session) is in
-  [Storage](./storage.md).
+  as missing. The owner is a string that is not empty: `ingest` refuses `""`, which
+  `user?.id ?? ""` gives a caller who is not signed in. How to choose the owner (a user, or a user
+  and a session) is in [Storage](./storage.md#how-ownership-works).
 - **Keep the documents with the conversation, not with one message.** Pass all of them in
   `documentIds` on every question. They are planned again each time.
 - **A document that is gone stops the question before any model request.** One that expired, was

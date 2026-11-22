@@ -75,7 +75,7 @@ export type AskGeminiOptions = {
    */
   toolFilePlacement?: GeminiToolFilePlacement;
   /**
-   * generationConfig for whole-document part reads. Defaults to `{ temperature: 0.2, maxOutputTokens }`.
+   * generationConfig for whole-document part reads. Defaults to `{ maxOutputTokens }`, with no temperature.
    * The parts are read by the explorer model when there is one, so write it for that model.
    */
   analysisConfig?: (maxOutputTokens: number) => Record<string, unknown>;

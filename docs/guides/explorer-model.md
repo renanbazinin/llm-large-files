@@ -16,8 +16,8 @@ answer from what the explorer's tool calls returned.
 |---|---|---|
 | Requests with tools: `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`, `view_pages` | All of them | None |
 | The part reads of `analyze_whole_document` | All of them | None |
-| A second try after an empty or broken turn, with its note | Gets it | Never sees it |
-| The answer | None | One request, in which no tool can be called |
+| A second try after an empty or broken turn, with its note | Gets it | Never sees the explorer's |
+| The answer | None | One request, in which no tool can be called, and a second try with its own note when that request comes back without text |
 | A question whose documents are all sent whole, with no pages to look at | Not called | One request, as without an explorer |
 
 The explorer is called only when the question needs tools: a document is too large to send whole,
@@ -257,8 +257,12 @@ Without an explorer, the notes ask the model to call the tools or to answer, ins
   [Errors and reliability](./errors-and-reliability.md#empty-or-broken-turns).
 - An explorer whose adapter declares `appendOnly` (Claude) keeps the note in its own conversation,
   because Claude ties what it thinks next to the turns before it.
-- **With an explorer, the answering model never gets a note**, whichever adapter explores or
-  answers.
+- **With an explorer, the answering model never gets the explorer's notes**, whichever adapter
+  explores or answers. It gets a note of its own only when its answer comes back without text,
+  empty or with a tool call: the request for the answer is then made once more, with "Your last
+  reply had no text. No tool can be called in this reply: write the answer now, in text, from what
+  is above." at its end, and the note is not kept. That try is one of the two of the question, and
+  it can be one request past `limits.toolTurns`.
 
 ## Limits and usage across both models
 
@@ -267,10 +271,11 @@ the [ask reference](../reference/ask.md); what each costs is in
 [Costs and limits](./costs-and-limits.md).
 
 - **`limits.toolTurns`** (12 by default) counts every chat request: the explorer's, its second
-  tries, and the answer. With an explorer the answer is always a request of its own, so the explorer
-  has at most `toolTurns − 1` requests. With `toolTurns: 1` there is no exploring: the one request
-  is the answer, from what is in the prompt. `maxToolTurns` of `askGemini` is the same limit under
-  its name from before 0.5.0.
+  tries, and the answer. The second try of the answer itself, when the answering model wrote no
+  text, can be one past it. With an explorer the answer is always a request of its own, so the
+  explorer has at most `toolTurns − 1` requests. With `toolTurns: 1` there is no exploring: the one
+  request is the answer, from what is in the prompt. `maxToolTurns` of `askGemini` is the same
+  limit under its name from before 0.5.0.
 - **`limits.callsPerTurn`** and **`limits.wholeDocumentReads`** apply to the explorer's turns, as
   they do to one model's.
 - **`limits.inputTokens`** and **`limits.requests`** are ceilings on the totals of the question:
@@ -326,7 +331,8 @@ How the request is kept inside the budget is in [How it works](../how-it-works.m
   A question that one model settles in three requests takes four.
 - **`text` and `onText` carry only the answer.** Without an explorer, a remark the model makes
   before a tool call ("Let me search…") is part of `text`, and is streamed. With one, the first
-  text your user sees is the answer. `answered` is false when the answering model wrote no text.
+  text your user sees is the answer. `answered` is false when the answering model wrote no text,
+  also after the second try of its answer.
 - **Progress still arrives.** `onActivity` and `onStep` report the explorer's tool calls, and
   `steps` and `evidence` list them, as they do for one model. `onActivity` says "Writing the
   answer…" when the answer is asked for. See [Web app](./web-app.md) for sending them over SSE.

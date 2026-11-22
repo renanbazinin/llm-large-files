@@ -1,3 +1,4 @@
+import type { TimeSlicer } from "./pause.js";
 import { sliceWhole } from "./text.js";
 import type { DocumentFormat, LogIssue, LogProfile, OutlineEntry } from "./types.js";
 
@@ -10,7 +11,8 @@ const LEVEL_NAMES: Record<string, string> = { ERR: "ERROR", WARNING: "WARN", CRI
 
 /** Treats text as a log when most early lines start with a timestamp or a level. */
 export function looksLikeLog(lines: string[]): boolean {
-  const sample = lines.filter((line) => line.trim()).slice(0, 200);
+  const sample: string[] = [];
+  for (let index = 0; index < lines.length && sample.length < 200; index++) if (lines[index]!.trim()) sample.push(lines[index]!);
   if (sample.length < 5) return false;
   const hits = sample.filter((line) => LINE_START_TIMESTAMP.test(line.trim()) || /^\[?(FATAL|ERROR|WARN|WARNING|INFO|DEBUG|TRACE)\b/.test(line.trim())).length;
   return hits / sample.length >= 0.4;
@@ -21,22 +23,46 @@ export function buildOutline(lines: string[], format: DocumentFormat): OutlineEn
   if (format === "log" || format === "json" || format === "csv") return [];
   const entries: OutlineEntry[] = [];
   for (let index = 0; index < lines.length; index++) {
-    const line = (lines[index] ?? "").trim();
-    if (!line || line.length > 120) continue;
-    const previousBlank = index === 0 || !(lines[index - 1] ?? "").trim();
-    let entry: OutlineEntry | undefined;
-    const markdown = /^(#{1,6})\s+(.+)$/.exec(line);
-    if (markdown) entry = { line: index + 1, level: markdown[1]!.length, title: markdown[2]!.trim() };
-    // A lookahead, not \b: JavaScript's \b does not treat Hebrew letters as word characters.
-    else if (/^(chapter|part|book|section|appendix|פרק|חלק|נספח)(?=[\s:.\d]|$)/iu.test(line) && previousBlank) {
-      entry = { line: index + 1, level: /^(part|book|חלק)(?=[\s:.\d]|$)/iu.test(line) ? 1 : 2, title: line };
-    } else if (/^\d+(\.\d+){0,2}\s+\S/.test(line) && previousBlank && line.length <= 80 && !/[.:;,]$/.test(line)) {
-      entry = { line: index + 1, level: (line.split(" ")[0]!.match(/\./g)?.length ?? 0) + 2, title: line };
-    } else if (previousBlank && line.length >= 4 && line.length <= 60 && /\p{Lu}/u.test(line) && line === line.toUpperCase() && /\p{L}{3}/u.test(line)) {
-      entry = { line: index + 1, level: 2, title: line };
-    }
+    const entry = outlineEntry(lines, index);
     if (entry) entries.push(entry);
   }
+  return pickOutline(entries);
+}
+
+/** `buildOutline`, the same result, with pauses for other requests while a large file is read. */
+export async function buildOutlineInSlices(lines: string[], format: DocumentFormat, slicer: TimeSlicer): Promise<OutlineEntry[]> {
+  if (format === "log" || format === "json" || format === "csv") return [];
+  const entries: OutlineEntry[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const entry = outlineEntry(lines, index);
+    if (entry) entries.push(entry);
+    if ((index & 4095) === 4095) await slicer.maybePause();
+  }
+  return pickOutline(entries);
+}
+
+/** The heading on line `index` (0-based), if it is one. */
+function outlineEntry(lines: string[], index: number): OutlineEntry | undefined {
+  const line = (lines[index] ?? "").trim();
+  if (!line || line.length > 120) return undefined;
+  const previousBlank = index === 0 || !(lines[index - 1] ?? "").trim();
+  const markdown = /^(#{1,6})\s+(.+)$/.exec(line);
+  if (markdown) return { line: index + 1, level: markdown[1]!.length, title: markdown[2]!.trim() };
+  // A lookahead, not \b: JavaScript's \b does not treat Hebrew letters as word characters.
+  if (/^(chapter|part|book|section|appendix|פרק|חלק|נספח)(?=[\s:.\d]|$)/iu.test(line) && previousBlank) {
+    return { line: index + 1, level: /^(part|book|חלק)(?=[\s:.\d]|$)/iu.test(line) ? 1 : 2, title: line };
+  }
+  if (/^\d+(\.\d+){0,2}\s+\S/.test(line) && previousBlank && line.length <= 80 && !/[.:;,]$/.test(line)) {
+    return { line: index + 1, level: (line.split(" ")[0]!.match(/\./g)?.length ?? 0) + 2, title: line };
+  }
+  if (previousBlank && line.length >= 4 && line.length <= 60 && /\p{Lu}/u.test(line) && line === line.toUpperCase() && /\p{L}{3}/u.test(line)) {
+    return { line: index + 1, level: 2, title: line };
+  }
+  return undefined;
+}
+
+/** The outline kept from all the headings found: at most 400 of them. */
+function pickOutline(entries: OutlineEntry[]): OutlineEntry[] {
   if (entries.length <= MAX_OUTLINE_ENTRIES) return entries;
   // Keep the top-level headings when there are at least 20 of them. A pool that fits is kept whole;
   // a larger one is sampled evenly, so the outline still spans the document.
@@ -67,35 +93,56 @@ export function logTemplate(line: string): string {
 }
 
 export function buildLogProfile(lines: string[]): LogProfile {
-  const levels: Record<string, number> = {};
-  const templates = new Map<string, LogIssue>();
-  let firstTimestamp: string | undefined;
-  let lastTimestamp: string | undefined;
+  const profile = new LogProfiler();
+  for (let index = 0; index < lines.length; index++) profile.add(lines[index] ?? "", index);
+  return profile.result();
+}
+
+/** `buildLogProfile`, the same result, with pauses for other requests while a large log is read. */
+export async function buildLogProfileInSlices(lines: string[], slicer: TimeSlicer): Promise<LogProfile> {
+  const profile = new LogProfiler();
   for (let index = 0; index < lines.length; index++) {
-    const line = lines[index] ?? "";
+    profile.add(lines[index] ?? "", index);
+    if ((index & 4095) === 4095) await slicer.maybePause();
+  }
+  return profile.result();
+}
+
+/** Builds a log profile one line at a time. */
+class LogProfiler {
+  private readonly levels: Record<string, number> = {};
+  private readonly templates = new Map<string, LogIssue>();
+  private firstTimestamp: string | undefined;
+  private lastTimestamp: string | undefined;
+
+  /** Adds line `index` (0-based). */
+  add(line: string, index: number): void {
     const stamp = TIMESTAMP.exec(line)?.[0];
     if (stamp) {
-      firstTimestamp ??= stamp;
-      lastTimestamp = stamp;
+      this.firstTimestamp ??= stamp;
+      this.lastTimestamp = stamp;
     }
     const raw = LEVEL.exec(line)?.[1];
-    if (!raw) continue;
+    if (!raw) return;
     const level = LEVEL_NAMES[raw] ?? raw;
-    levels[level] = (levels[level] ?? 0) + 1;
-    if (level !== "ERROR" && level !== "FATAL" && level !== "WARN") continue;
+    this.levels[level] = (this.levels[level] ?? 0) + 1;
+    if (level !== "ERROR" && level !== "FATAL" && level !== "WARN") return;
     const template = logTemplate(line);
-    const existing = templates.get(template);
+    const existing = this.templates.get(template);
     if (existing) existing.count++;
-    else if (templates.size < MAX_TEMPLATES) templates.set(template, { template, level, count: 1, firstLine: index + 1 });
+    else if (this.templates.size < MAX_TEMPLATES) this.templates.set(template, { template, level, count: 1, firstLine: index + 1 });
   }
-  const severity = (issue: LogIssue) => (issue.level === "FATAL" ? 2 : issue.level === "ERROR" ? 1 : 0);
-  const topIssues = [...templates.values()]
-    .sort((left, right) => severity(right) - severity(left) || right.count - left.count)
-    .slice(0, 15);
-  return {
-    levels,
-    ...(firstTimestamp ? { firstTimestamp } : {}),
-    ...(lastTimestamp ? { lastTimestamp } : {}),
-    topIssues,
-  };
+
+  result(): LogProfile {
+    const severity = (issue: LogIssue) => (issue.level === "FATAL" ? 2 : issue.level === "ERROR" ? 1 : 0);
+    const topIssues = [...this.templates.values()]
+      .sort((left, right) => severity(right) - severity(left) || right.count - left.count)
+      .slice(0, 15);
+    return {
+      levels: this.levels,
+      ...(this.firstTimestamp ? { firstTimestamp: this.firstTimestamp } : {}),
+      ...(this.lastTimestamp ? { lastTimestamp: this.lastTimestamp } : {}),
+      topIssues,
+    };
+  }
 }

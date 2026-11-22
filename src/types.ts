@@ -50,6 +50,19 @@ export type DocumentMeta = {
   wrappedLines: number;
   pages?: number;
   /**
+   * The older encoding a text file was read in, because it is not UTF-8: "windows-1255" for a
+   * Hebrew CSV that Excel saved. Lines of it that are valid UTF-8 are read as UTF-8 all the same.
+   * Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see
+   * `replacedCharacters`), for UTF-16, for PDF, DOCX and PPTX, and on documents from before 0.6.0.
+   */
+  encoding?: string;
+  /**
+   * Characters of a text file that were not valid in the encoding it was read in, such as a
+   * character cut in two at the end of a UTF-8 log, or a byte that `encoding` does not have: each
+   * is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.0.
+   */
+  replacedCharacters?: number;
+  /**
    * True when the uploaded file itself is kept in the store next to its text (see `keepOriginals`).
    * Recorded here so that planning a request does not have to load the file to know.
    */
@@ -72,6 +85,10 @@ export type DocumentSummary = {
   lines: number;
   estimatedTokens: number;
   pages?: number;
+  /** See `DocumentMeta.encoding`. */
+  encoding?: string;
+  /** See `DocumentMeta.replacedCharacters`. */
+  replacedCharacters?: number;
   expiresAt: string;
 };
 
@@ -109,7 +126,17 @@ export interface DocumentStore {
   getIndex?(id: string): Promise<Uint8Array | undefined>;
 }
 
-export type ExtractedText = { text: string; pages?: number };
+export type ExtractedText = {
+  text: string;
+  pages?: number;
+  /**
+   * The older encoding the file was read in, when it is not UTF-8. Kept as `DocumentMeta.encoding`
+   * when it is a name, and not one of UTF-8 or UTF-16.
+   */
+  encoding?: string;
+  /** Characters that were not valid in the encoding the file was read in, each now U+FFFD. Kept as `DocumentMeta.replacedCharacters`. */
+  replacedCharacters?: number;
+};
 
 export type ExtractInput = {
   name: string;
@@ -121,6 +148,20 @@ export type ExtractInput = {
    * always was. An extractor of your own may ignore it.
    */
   scannedPages?: number;
+  /**
+   * Aborted when the ingest's time is up (`ingestTimeoutMs`) or the caller gave up
+   * (`IngestInput.signal`). The built-in extractors stop between pages and pieces; its `reason`
+   * is the error to throw. An extractor of your own should stop too: `ingest` stops waiting for it
+   * either way, but cannot stop the work it does.
+   */
+  signal?: AbortSignal;
+  /**
+   * The most text to keep from this file, in UTF-8 bytes (`maxTextBytes`). The built-in extractors
+   * refuse a file as soon as its text grows past it. `ingest` refuses any larger result.
+   */
+  maxTextBytes?: number;
+  /** The most pages to read from one PDF (`maxPdfPages`). The built-in PDF extractor refuses more. */
+  maxPages?: number;
 };
 
 export type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>;

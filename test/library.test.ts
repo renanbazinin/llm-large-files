@@ -208,7 +208,7 @@ describe("createLargeFiles", () => {
     expect(read).toMatchObject({ lines: "1990-2000", total_lines: 2_000, note: "End of file." });
     const overview = await tools.execute("get_document_overview", { document_id: mine.id });
     expect(overview).toMatchObject({ format: "log", lines: 2_000 });
-    expect(await tools.execute("nope", {})).toEqual({ error: "Unknown tool nope." });
+    expect(await tools.execute("nope", {})).toEqual({ error: "Unknown tool “nope”." });
   });
 
   it("reports the lines it actually read when a read runs past the end of the file", async () => {
@@ -228,7 +228,7 @@ describe("createLargeFiles", () => {
     const tools = files.tools([meta]);
     const search = await tools.execute("search_document", { document_id: meta.id, query: "INFO", mode: "exact", max_results: 50 });
     expect(JSON.stringify(search).length).toBeLessThanOrEqual(3_000);
-    expect(search.note).toMatch(/Showing \d+ of 50/);
+    expect(search.note).toMatch(/^Showing \d+ of the \d+ matching lines to stay within the size limit: the first \d+ and the last \(line \d+\)\./);
     const read = await tools.execute("read_document", { document_id: meta.id, start_line: 1, end_line: 600 });
     expect(JSON.stringify(read).length).toBeLessThanOrEqual(3_200);
     expect(read.next_start_line).toBeGreaterThan(1);
@@ -317,7 +317,7 @@ describe("createLargeFiles", () => {
       throw new Error("quota exceeded");
     };
     const result = await files.tools([meta], { generate: down }).execute("analyze_whole_document", { document_id: meta.id, task: "summarize" });
-    expect(result).toEqual({ error: "Could not read any part of novel.txt: quota exceeded" });
+    expect(result).toEqual({ error: "Could not read any part of novel.txt: The model request failed." });
     expect(prompts.every((prompt) => prompt.includes("<part>"))).toBe(true);
 
     // One part fails and the rest have nothing relevant: say so, without asking the model to write from nothing.

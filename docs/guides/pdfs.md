@@ -12,23 +12,38 @@ every server that ingests files:
 
 ```bash
 npm install jszip              # DOCX and PPTX
-npm install unpdf              # PDF text
-npm install @cantoo/pdf-lib    # PDF picture marks and view_pages
+npm install unpdf              # PDF text (on Node 20 and 22, name a version: see below)
+npm install @cantoo/pdf-lib    # PDF picture marks, page check, and view_pages
 ```
 
-They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.4.0 and
-`@cantoo/pdf-lib` ^2.11.1.
+They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.4.0 || ^2.0.0
+and `@cantoo/pdf-lib` ^2.11.1.
+
+Not every `unpdf` runs on every Node. unpdf 2 asks for Node 24, and on Node 24 and later
+`npm install unpdf` installs it. On Node 20 and 22, install a version that runs there:
+
+| Node | `unpdf` to install | Refused at the first PDF ([What is refused](#what-is-refused)) |
+|---|---|---|
+| 20 | 1.4.0, or 1.6.1 to 1.8.1: `npm install unpdf@1.7.0`. 1.7.0 is the last that does not ask for Node 22. | 1.5.0 to 1.6.0, which would stop the whole process; 1.9 and later, 2.x included, which cannot load pdf.js on Node 20 |
+| 22 | 1.4.0, or 1.6.1 or a later 1.x: `npm install unpdf@1` | 1.5.0 to 1.6.0 |
+| 24 and later | Any version from 1.4.0, 2.x included: `npm install unpdf` | None |
+
+The 12 test PDFs of the package give the same text, pages, picture marks and page cuts with every
+`unpdf` from 1.4.0 to 2.2.1, each on a Node it runs on. An app that installs unpdf 2 and goes
+back to llm-large-files 0.5.0 must go back to unpdf 1 in the same command
+(`npm install llm-large-files@0.5.0 unpdf@^1`): 0.5.0 does not accept unpdf 2, and npm stops with
+`ERESOLVE`.
 
 | Format | Detected by | Needs | What the text holds |
 |---|---|---|---|
-| `text` | Anything not below | | The file decoded as UTF-8, or as UTF-16 with a byte-order mark. Without the mark, only little-endian UTF-16 of mostly ASCII text is recognised. |
+| `text` | Anything not below | | The file decoded as UTF-8, or as UTF-16 with a byte-order mark. Without the mark, only little-endian UTF-16 of mostly ASCII text is recognised. A file that is not UTF-8 is read in windows-1255, windows-1256, windows-1251, Shift_JIS or windows-1252 when its letters show which one (`meta.encoding`), and as UTF-8 otherwise ([Text encodings](#text-encodings)). Characters that are not valid are stored as U+FFFD (�) and counted (`meta.replacedCharacters`). |
 | `log` | `.log`, `.out`, `.err`; or a `text` file in which at least 40% of the first 200 non-empty lines (5 at least) start with a timestamp or a level | | As `text`, plus a log profile: levels, time range, most frequent errors. |
 | `markdown` | `.md`, `.markdown`, `text/markdown` | | As `text`. Its `#` headings form the outline. |
 | `json` | `.json`, `.jsonl`, `.ndjson`, `application/json` | | As `text`. Minified JSON becomes lines of at most 2,000 characters. |
 | `csv` | `.csv`, `.tsv`, `text/csv` | | As `text`. |
-| `pdf` | `.pdf`, `application/pdf` | `unpdf`; `@cantoo/pdf-lib` for picture marks and `view_pages` | A `--- Page N ---` line before each page, tables rebuilt as rows of cells, a line for a page without text and for a page with a picture ([PDF text](#pdf-text)). |
-| `docx` | `.docx`, or the Word MIME type | `jszip` | The body, then the endnotes, footers, footnotes and headers, in that order. |
-| `pptx` | `.pptx`, or the PowerPoint MIME type | `jszip` | `## Slide N` before each slide, `[No text on this slide]` for a slide without text. |
+| `pdf` | `.pdf`, `application/pdf` | `unpdf`; `@cantoo/pdf-lib` for picture marks, the page check and `view_pages` | A `--- Page N ---` line before each page, tables rebuilt as rows of cells, a line for a page without text and for a page with a picture ([PDF text](#pdf-text)). |
+| `docx` | `.docx`, or the Word MIME type | `jszip` | The body, then the endnotes, footers, footnotes and headers, in that order. Text that Word hides comes after the text of its paragraph that shows, each of its lines starting `[Hidden text, not shown in the document]` ([DOCX and PPTX](#docx-and-pptx)). |
+| `pptx` | `.pptx`, or the PowerPoint MIME type | `jszip` | `## Slide N` before each slide, `## Slide N (hidden, not shown in the slide show)` for a slide that the slide show skips, `[No text on this slide]` for a slide without text. |
 
 `detectFormat(name, mimeType)` picks the format: a known extension first, then the MIME type, then
 `text`. So `report` with no extension, sent as `application/pdf`, is a PDF, and `data.txt` sent as
@@ -39,10 +54,130 @@ JSON. Send the bare type (or `X-File-Type: application/json` to the upload route
 
 Whatever the format, the text is then made uniform: line breaks become `\n`, colour codes and other
 control characters are removed, and lines longer than 2,000 characters are split, so every line can
-be read by its number. Every format but log, JSON and CSV gets an outline from its headings:
-Markdown `#` lines (`## Slide N` among them), chapter and numbered section lines, and short lines in
-capitals. `meta.pages` is the number of pages of a PDF and of slides of a PPTX.
+be read by its number. Most characters that show nothing are removed too: tag characters,
+zero-width spaces, word joiners, a soft hyphen inside a line, and the text-direction controls that
+reorder what a person sees. Those that scripts and emoji need are kept: the marks of right-to-left
+text (U+200E, U+200F, U+061C), the joiners of emoji and Persian, variation selectors, Hangul
+fillers, and the line and paragraph separators (U+2028, U+2029). A crafted file can still carry
+text that a person does not see in them ([Security](../security.md#characters-that-show-nothing)
+lists them all). In a text with no other line break, such as a mainframe file converted to UTF-8,
+U+0085 (next line) ends a line, except right after a character from U+0080 to U+00FF, where it is
+taken for half of a UTF-8 letter and removed; anywhere else it is removed with the other control
+characters. That is text in UTF-8: the same export converted to ISO-8859-1 is read as
+windows-1252, where its byte 0x85 is "…", and stays one long line, so convert it to UTF-8
+instead. No other line break is added or removed, but a line of more than 2,000 characters
+that lost some of these characters can be split into fewer pieces than 0.5.0 split it, which
+moves the lines after it. Every format but log, JSON and CSV gets an outline from its
+headings: Markdown `#` lines (`## Slide N` among them), chapter and numbered section lines, and
+short lines in capitals. `meta.pages` is the number of pages of a PDF and of slides of a PPTX.
 [How it works](../how-it-works.md) follows ingest from there.
+
+### Text encodings
+
+A text, log, CSV, JSON or Markdown file that is not valid UTF-8 is read in the older encoding it
+was saved in, when its letters show which one: Excel saves a Hebrew CSV in windows-1255, and an old
+program writes in the code page of Windows. No text file is refused for its encoding. When no
+encoding fits, the file is read as UTF-8, as 0.5.0 read every file that was not UTF-16, and each
+character that is not valid is stored as U+FFFD (�).
+
+| `meta.encoding` | Letters | Also read this way |
+|---|---|---|
+| `windows-1255` | Hebrew | ISO-8859-8 |
+| `windows-1256` | Arabic | |
+| `windows-1251` | Cyrillic | |
+| `shift_jis` | Japanese, half-width katakana too (as in Japanese bank files) | |
+| `windows-1252` | Western European | ISO-8859-1, as browsers read it |
+
+How the encoding is chosen:
+
+1. Each line is read as UTF-8. It counts as UTF-8 when it holds at least as many characters of
+   more than one byte as characters that are not valid, as not UTF-8 when it holds more that are
+   not valid, and as ASCII when it holds neither. A character cut in two by the start or the end
+   of the file counts as UTF-8.
+2. The file is UTF-8 when at least as many lines count as UTF-8 as count as not (ASCII lines count
+   for neither), or when at most one line in 200 is not UTF-8 (ASCII lines counted): a log cut at a
+   byte count, a part made by `split -b`, stray bytes, or a binary body that a log line holds. A
+   byte-order mark always means UTF-8. Each character that is not valid becomes U+FFFD, and
+   `meta.replacedCharacters` counts them.
+3. A file whose only fault is emoji written as two halves of a surrogate pair (CESU-8, as an Oracle
+   export in its UTF8 character set and Java's modified UTF-8 write them) is read as UTF-8, with
+   its emoji.
+4. Otherwise the encoding is chosen on the lines that are not UTF-8 and hold a letter (a byte of
+   0xC0 or more), wherever they are in the file, up to 64 KB of them. Lines of signs alone
+   (– ’ € °) choose only when no line has a letter. Shift_JIS is tried on the first 64 KB of the
+   lines that are not UTF-8. An encoding fits when those lines read as words of its letters, with
+   at most one word or sign in 50 that looks wrong. The first that fits, in the order of the table,
+   is the one.
+5. When no line holds a UTF-8 character, the whole file is read in that encoding. Otherwise each
+   line that is valid UTF-8 is read as UTF-8, and the other lines in that encoding. A byte that the
+   encoding does not have becomes U+FFFD and is counted.
+6. When no encoding fits, the file is read as UTF-8, and its characters that are not valid are
+   counted.
+
+The model is told how the file was read. The card of a large file has the line
+`This file is not in UTF-8. Its text was read as windows-1255: if its letters look wrong, ask the user to save it as UTF-8.`,
+which goes on ` 1 character of it was not valid in windows-1255, and shows as �.` when a byte was
+not in that encoding. A file read as UTF-8 with characters that are not valid gets
+`3 characters of this file were not valid UTF-8, and show as �.` A file sent whole says the same in
+its first frame line, after the count of lines: `, read as windows-1255` or
+`, 3 characters not valid UTF-8, shown as �`. `toDocumentSummary` passes `encoding` and
+`replacedCharacters` on, so the upload route of `createDocumentHandlers` answers with them, and
+your page can show "read as windows-1255".
+
+Such a file is read in steps of about a megabyte, with pauses for other requests, and stops when
+the ingest's signal aborts. Decoding a 30 MB file all in windows-1255 took 0.27 to 0.28 s, in steps
+of 15 ms at most. Files with lines in both encodings take longer: 0.35 to 0.37 s for a CSV of
+windows-1255 rows with one UTF-8 row, and 0.50 to 0.53 s for a log whose lines take turns between
+windows-1252 and UTF-8, with one windows-1252 line more than UTF-8 lines (30 MB each; Node 24,
+Windows, a shared machine). With as many lines of each, that log is read as UTF-8, by rule 2. A
+valid UTF-8 file is decoded in one step, as before.
+
+What it gets wrong, as a rule:
+
+- **Encodings it does not recognize** are read as UTF-8, with U+FFFD and the count: Greek
+  (windows-1253), Turkish (windows-1254), Central European (windows-1250: Polish, Czech, Slovene),
+  Icelandic, KOI8-R and KOI8-U, the DOS and OEM code pages (437, 850, 866), ISO-8859-5 and
+  ISO-8859-6, EUC-JP, Chinese (GBK, Big5), Korean (EUC-KR) and Thai (windows-874).
+- **Hungarian** in windows-1250 or ISO-8859-2 is read as windows-1252, with õ and û in place of ő
+  and ű: a search for a word with ő or ű finds nothing.
+- **Japanese with few or no kana**, such as a list of names, cities and addresses in kanji only, is
+  not recognized as Shift_JIS, and is read as UTF-8 with U+FFFD.
+- **ISO-8859-15** is read as windows-1252 when it has no œ: its € comes out as ¤. A file with
+  words such as cœur or bœuf is most often read as UTF-8 instead, with U+FFFD for every letter
+  that is not ASCII: in windows-1252, its œ is ½, and ½ between two letters does not fit. A file
+  whose only characters that are not ASCII are ₪ amounts, with no Hebrew letter, is read as
+  windows-1252 too, with ¤.
+- **A short file can be read in a wrong encoding.** A line or two of Greek capitals comes out as
+  windows-1251, "Dzień dobry." as windows-1252, "Straße" saved in DOS code page 850 as
+  windows-1252 "Straáe", and a Thai name as windows-1256 or Shift_JIS. The rule of one line in 200
+  counts lines, so the same holds for a file of fewer than 200 lines, or of one long line (minified
+  JSON, or line ends that are a CR alone), whose few stray bytes happen to fit an encoding.
+  `meta.encoding` names the encoding used. A few lines of half-width katakana in Shift_JIS can be
+  read as UTF-8 with U+FFFD: pairs of their bytes are valid UTF-8 by chance, so some lines count as
+  UTF-8 (rule 1).
+- **A few words the encoding does not explain** can tip a file to UTF-8 with U+FFFD, when most of
+  its lines that are not UTF-8 hold only signs: a Hebrew price list with a few rows such as
+  לGoogle, or a windows-1252 CSV with an Icelandic name or two.
+- **Lines in an older encoding inside a UTF-8 file** become U+FFFD and are counted, when the file
+  is mostly UTF-8, or when at most one line in 200 is not UTF-8: Hebrew names in windows-1255 on
+  0.4% of the lines of a log, or 10 lines with a Latin-1 "José" among 20,000.
+- **Lines that are valid UTF-8 by chance**, in a file in an older encoding, are read as UTF-8: the
+  half-width katakana name ﾏｻﾋｺ in Shift_JIS comes out as ϻ˺, and Weiß’ in windows-1252 as Weiߒ.
+  This is rare, and most likely in a file of half-width katakana alone. In the same kind of file, a
+  line with a UTF-8 character and a byte that is not valid is read in the older encoding.
+- **Two readings of one file.** An editor that opens a file in an older encoding as UTF-8 shows its
+  lines as �, while the model reads them in the older encoding. A person who checks the file there
+  does not see what the model reads
+  ([Security](../security.md#text-files-that-were-not-utf-8)). Lines that are valid UTF-8 read
+  the same in both.
+
+A Node.js built without full ICU may lack these encodings; a file is then read as UTF-8, with the
+count. The builds of nodejs.org have them.
+
+When letters look wrong, or show as �, ask the user to save the file as UTF-8 and upload it again:
+in Excel, Save As "CSV UTF-8 (Comma delimited)"; in Notepad, Save As with the encoding UTF-8. A
+document that 0.5.0 stored from a file in one of these encodings still holds U+FFFD: upload the
+file again.
 
 ### DOCX and PPTX
 
@@ -52,6 +187,22 @@ capitals. `meta.pages` is the number of pages of a PDF and of slides of a PPTX.
   empty cell reads like a shorter row. PDF tables are rebuilt with their empty cells
   ([PDF tables](#pdf-tables)): if those matter, the PDF of the same document reads better.
 - Comments and speaker notes are not read.
+- Text that Word hides (a run marked `<w:vanish/>`) is kept, after the text of its paragraph that
+  shows, and each of its lines starts with `[Hidden text, not shown in the document]`, so the model
+  can tell it from what a reader sees. A carriage return, a U+0085 or a line separator in it starts
+  a new marked line, and a line longer than about 1,950 characters is cut into pieces, each marked.
+  The text of a run inside a hidden run, such as the reading of a ruby, is marked too. The marks
+  count toward `maxTextBytes`.
+- A slide that the slide show skips keeps its text, under
+  `## Slide 2 (hidden, not shown in the slide show)`.
+- The mark is a hint, not a filter. Text without it can still be hidden from a reader: text hidden
+  through a style, a hidden shape on a slide that shows, white or 1-point text, a text box inside a
+  hidden run, tags written with a prefix other than `w:` or `p:`, a `show` value written as a
+  character reference (`show="&#48;"`), and parts that nothing in the file refers to (an orphan
+  header or slide). Of `mc:AlternateContent`, the `mc:Choice` is read, where Word may show the
+  `mc:Fallback`. And a document's own text can write the mark. A `w:val` written as a character
+  reference does the opposite: `<w:vanish w:val="&#48;"/>`, which Word reads as 0, marks text that
+  Word shows.
 - Pictures are not marked, and `view_pages` works on PDFs only. For a deck of charts, the PDF
   export of the deck lets the model look at the slides.
 
@@ -73,6 +224,22 @@ maps these messages itself.
 | Any other binary file: images, legacy `.doc` and `.xls` | `This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.` |
 | A file that holds no text once read | `report.docx did not contain any text.` |
 | A DOCX or PPTX that unpacks to more than 100 times its size (past the first 16 MB), or to more than 128 MB of XML | `This DOCX unpacks to more than …`, which ends `Save it as text or PDF, and attach that.` |
+| A PDF of more than `maxPdfPages` pages (5,000 by default), before any page is read | `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` |
+| A PDF whose text passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when that is larger), counted page by page | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
+| A PDF whose page tree lists one page more than once | `This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.` |
+| A PDF whose pages draw more than 100 times its size in text (past the first 16 MB), by painting forms inside forms | `This PDF draws more than 16 MB of text, over 100 times its size. A file that grows that much is not read: it may be built to exhaust the server.` |
+| A PDF with a page that would hold the server while pdf.js reads it, found before any page is read (with `@cantoo/pdf-lib`; [Pages that would hold the server](#pages-that-would-hold-the-server)) | `Page 1 of this PDF draws far more than its file holds, and reading it would hold the server for a long time. A file built that way is not read: it may be built to exhaust the server. Print it to a new PDF, and attach that.` |
+| A PDF whose pages are each within that limit, but together far past it | `This PDF draws far more than its file holds, and reading it would hold the server for a long time. A file built that way is not read: it may be built to exhaust the server. Print it to a new PDF, and attach that.` |
+| A PDF with a page whose content is stored with a filter that only images use (JPEG, JPEG 2000, JBIG2, CCITT), or decodes to more than 64 MB through LZW, ASCII85, ASCIIHex or RunLength | `Page 1 of this PDF stores its content in a way that cannot be checked before it is read, so it is not read. Print it to a new PDF, and attach that.` |
+| A DOCX or PPTX of more than 32 million characters of text | `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.` |
+| A DOCX or PPTX whose text passes `maxTextBytes`, when that is below 32 million | `This DOCX holds more than 10 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
+| A DOCX or PPTX of more than 1,000,000 paragraphs with text | `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX with paragraphs nested more than 32 deep | `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX of more than 20,000 parts, counted the way JSZip will read them, whatever count the file gives | `This DOCX has more than 20,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX with more than 80,000 extra fields, or more than 8 MB of names, comments and extra-field data that JSZip would turn into text or go through byte by byte | `This DOCX lists its parts in a way that no Office program does: reading the list would take far more memory or time than an Office document needs. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX whose ZIP64 end record says it is longer than its fields, which JSZip would read in a loop without end | `This DOCX ends with a ZIP64 record that cannot be read, and reading it could hold the server without end. It may be built to exhaust the server, so it is not read.` |
+| A file of any format whose text, from an extractor of your own or the text extractor, passes `maxTextBytes` | `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
+| A file that takes longer than `ingestTimeoutMs` to read (2 minutes by default) | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` |
 | A PDF without text on any page | See [Scanned PDFs](#scanned-pdfs). |
 | A PDF that needs a password to open | `No password given`, the message of pdf.js. |
 | A damaged PDF | The message of pdf.js, such as `Invalid PDF structure.` |
@@ -81,9 +248,93 @@ maps these messages itself.
 | A PPTX without slides | `This PPTX does not contain any slides.` |
 | A DOCX or PPTX without `jszip` installed | `Reading DOCX and PPTX files needs the optional dependency "jszip".` |
 | A PDF without `unpdf` installed | `Reading PDF files needs the optional dependency "unpdf".` |
+| A PDF, with `unpdf` 1.5.0 to 1.6.0 on Node 22 or 23, which would stop the whole process at the first PDF (0.5.0 did stop) | `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
+| The same on Node 20 | `The unpdf installed would stop the whole server at the first PDF file on Node 20, so PDF files are not read. Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.` |
+| A PDF, with `unpdf` 1.9 or later (2.x included) on Node 20, which cannot load pdf.js there | `The unpdf installed cannot read PDF files on Node 20 (Serverless PDF.js bundle could not be resolved: ReferenceError: Iterator is not defined). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` The part in parentheses is unpdf's own message: with unpdf 2 it is `PDF.js could not be resolved: ReferenceError: Iterator is not defined`. |
 
-A missing dependency is your server's fault, but it reaches the user as a 422, a file that cannot be
-read. Install the dependencies wherever the upload route runs.
+A missing dependency, or an `unpdf` that does not run on your Node, is your server's fault, but it
+reaches the user as a 422, a file that cannot be read. Install the dependencies wherever the upload
+route runs, in versions that run on its Node ([Formats](#formats)). The messages name the major
+version of Node only.
+
+The numbers in the messages are your limits: `maxPdfPages`, `maxTextBytes` and `ingestTimeoutMs`
+of `createLargeFiles` ([`LargeFilesOptions`](../reference/library.md#largefilesoptions)). A size
+below 1 MB is given in KB, and below 1 KB in B; a time below a second in ms, below 2 minutes in s,
+and from there in min. An Office message says `PPTX` for a presentation. An Office file is
+refused past 32 million characters of text even when `maxTextBytes` is larger. The ZIP directory
+of a DOCX or PPTX is read before JSZip reads it, the way JSZip will read it, record by record:
+the count of parts that the file gives is not used, and the parts are not counted past 20,000
+([Security](../security.md#uploads)).
+
+What the user can do:
+
+- **A long PDF, or one with a lot of text:** split it (by chapters, by year), and attach the part
+  the question is about. If such files are expected, raise `maxPdfPages` or `maxTextBytes`; the
+  text is then searched as any other.
+- **A file that took too long:** split it, or save it again as plain text (or, for a PDF, print it
+  to a new PDF), and attach that. A server that is busy reads slower: if files that should pass
+  are refused, raise `ingestTimeoutMs`, and check how many ingests run at once
+  ([Deployment](./deployment.md#uploads-and-ingest)).
+- **A PDF that lists a page more than once, or an Office file that nests, repeats or splits its
+  content past what a program writes:** these are built to exhaust a server, not written by Word,
+  PowerPoint or a PDF printer. If one comes from a real program, opening it there and saving it
+  again, or printing it to a new PDF, writes it the usual way.
+- **A PDF with a page that would hold the server:** the same. If your users' real files are
+  refused this way, `createPdfExtractor({ checkPages: false })` reads them, and every page then
+  takes as long as pdf.js needs (below).
+
+### Pages that would hold the server
+
+pdf.js reads the text of a page in one block: until it is done, no other request on the server is
+answered, and neither `ingestTimeoutMs` nor a signal stops it. A page of a document takes a few
+milliseconds. A page built to paint a form that paints another form, many times over, held the
+server for 13 s to 2 minutes, from files of 2 to 21 KB
+([measured](../measurements.md#the-server)).
+
+With `@cantoo/pdf-lib` installed, the PDF extractor adds up what each page would make pdf.js run,
+before pdf.js reads any page:
+
+- the content of the page;
+- each form the content paints, every time it is painted, with what the form paints in turn. pdf.js
+  runs a form without text once, and skips its other paints: so does the count;
+- the first time the file sets a font: its font program and maps, and every glyph program of a
+  Type3 font, with the forms, patterns and shadings it paints. pdf.js does not decode an image to
+  read text, so images count for nothing.
+
+It reads the file without running it, and counts high where it cannot tell: any name written
+before a paint may be the drawing painted, and anything that looks like a text operator makes a
+form one with text. A byte of content counts one unit, a form painted for its text 640 more
+(about 0.1 ms of pdf.js, which took 75 to 85 µs), and a form painted by a glyph 256 more. A page is
+refused past 8,388,608 units, about 1 to 1.5 s of pdf.js, or past 32 times the size of the file
+when that is more, and a file whose pages add up to more than four times that. What the check
+looks through counts against that file budget too, 16 units for each entry of a resource
+dictionary, so a file cannot make the check itself work long. The pages of the real documents
+tested ran up to 11% of their limit. The count follows pdf.js 5.4, the version `unpdf` 1.4
+bundles, and its cost was measured with that version only. Later versions of `unpdf` bundle pdf.js
+5.6 (1.5 to 1.7), 6.1 (1.8), 6.4 (1.9 to 2.1) and 6.5 (2.2): what a page costs them was not
+measured, and may be more.
+
+What still holds the server while pdf.js reads a page:
+
+- a page within the limit: up to about 1.5 s in a small file, and longer in a large one (a page of
+  a 10 MB file may run 320 MB of content);
+- any page, when `@cantoo/pdf-lib` is not installed or cannot read the file, when the file
+  declares more than 150,000 objects, or with `checkPages: false`;
+- a file built to be read one way by `@cantoo/pdf-lib` and another way by pdf.js.
+
+Neither check looks at the memory an object takes. Both libraries build each object of the file in
+one step: `@cantoo/pdf-lib` every object, and pdf.js the ones a page needs and every object of an
+object stream it opens, such as the one that holds the catalog. A crafted object can take far more
+heap than file: one array of one-digit numbers in a PDF of 16 MB ran a heap of 256 MB out of memory
+at ingest, and 8 MB of empty dictionaries, packed with the catalog into an object stream unpacked
+twice, ran a heap of 512 MB out of memory in pdf.js alone, with `checkPages: false` and
+`pictures: false`, from a PDF of 759 bytes. What a stream unpacks to is held outside the heap: a PDF
+of 1.6 KB whose object stream unpacks to 512 MB took 1.6 GB of memory with 20 MB of heap, and held
+the server 6.1 to 6.4 s ([Security](../security.md#uploads)). Such files are not refused.
+
+For uploads you do not trust, ingest in a process of its own, with a memory limit of its own as
+well as a heap limit ([Deployment](./deployment.md#uploads-and-ingest)): only that process waits,
+it can be stopped, and when it runs out of memory it stops alone.
 
 ## PDF text
 
@@ -148,8 +399,13 @@ export const files = createLargeFiles({
 ```
 
 `tables: false` alone still writes the page lines, the line for a page without text, and the
-picture marks. `pictures: false` leaves out the picture marks. Both default to `true`
-([`PdfExtractorOptions`](../reference/library.md#pdfextractoroptions)).
+picture marks. `pictures: false` leaves out the picture marks. `checkPages: false` turns off the
+check of [pages that would hold the server](#pages-that-would-hold-the-server), which changes no
+text. All three default to `true`
+([`PdfExtractorOptions`](../reference/library.md#pdfextractoroptions)). With `pictures: false`
+alone, `@cantoo/pdf-lib` still reads each PDF at ingest, for the page check, and the first PDF of a
+process loads it, in one block of about 0.4 s. With `pictures: false` and `checkPages: false`,
+ingest does not use it at all ([Deployment](./deployment.md#uploads-and-ingest)).
 
 ## Pictures in PDFs
 
@@ -184,6 +440,7 @@ The options of this page, and where each is explained:
 |---|---|---|
 | `keepOriginals` (`createLargeFiles`) | `[]`: no file kept | List `"pdf"` to keep the uploaded file, which `view_pages` and scanned PDFs need ([above](#pictures-in-pdfs)). |
 | `scannedPdfPages` (`createLargeFiles`) | 30 | The most pages a PDF without text may have to be accepted, when PDFs are kept. 0 refuses every one ([Scanned PDFs](#scanned-pdfs)). |
+| `maxPdfPages`, `maxTextBytes`, `ingestTimeoutMs` (`createLargeFiles`) | 5,000 pages; 100 MB, or `maxUploadBytes` when that is larger; 120,000 ms | The most pages, text and time one file may take at ingest ([What is refused](#what-is-refused)). |
 | `tables`, `pictures` (`createPdfExtractor`) | `true` | Rebuild tables; write the line that marks a page with a picture ([PDF tables](#pdf-tables), [The line that marks a page](#the-line-that-marks-a-page)). |
 | `viewPages` (`askGemini`, `askWithFiles`) | `true` | Offer `view_pages` for the PDFs whose file is kept ([Limits and cost](#limits-and-cost)). |
 | `toolFilePlacement` (`gemini()`, `askGemini`, `anthropic()`) | `"inside"` | Where the pages go in the request ([Where the pages go](#where-the-pages-go-toolfileplacement)). |
@@ -314,9 +571,41 @@ Pages that cannot be shown get an error result, and the model answers from the t
 | A page past the end | `report.pdf has 40 pages. There is no page 41.` |
 
 What a look costs the server: the whole file is read into memory for every call. At the peak that
-is about twice the size of the file, plus 1 to 1.6 KB for each object in it. Reading pauses every 4,000 objects so other
-requests get a turn, but it cannot be stopped once it has started. Peak memory for real files is in
-[measurements](../measurements.md); [Deployment](./deployment.md) sizes servers for it.
+is about twice the size of the file, plus 1 to 1.6 KB for each object in it. A file built to
+exhaust the server can take far more, because each object is built in one step and nothing checks
+it before: a look at a PDF of 8 MB that is one array of one-digit numbers took 422 to 427 MB of
+heap, and ran a heap of 256 MB (`--max-old-space-size=256`) out of memory; one of 16 MB ran a heap
+of 512 MB out of memory, and took 984 MB on a heap of 2 GB. A look takes more than the ingest of
+the same file did (232 to 244 MB for that 8 MB file), so a file that a process of its own ingested
+can still stop the server that answers the question. What a stream unpacks to is outside the heap:
+a look at a PDF of 1.6 KB whose object stream unpacks to 512 MB took 1.1 GB of the server's
+memory. The check on the number of objects does not see such files, which declare few, and what
+`@cantoo/pdf-lib` keeps after each look adds up from file to file
+([Security](../security.md#reading-pdfs-for-pages-and-pictures)). For the documents of users you
+do not trust, do not offer `view_pages` (`viewPages: false`), or keep no PDF originals. Peak memory
+for real files is in [measurements](../measurements.md); [Deployment](./deployment.md) sizes
+servers for it.
+
+A look parses the file, copies the pages and writes the cut. It pauses after every 12 ms of that
+work so that other requests get a turn, or after up to 40 ms where a pause itself takes long, as a
+timer does on Windows. It cannot be stopped once it has started. Measured on Windows with Node 24,
+a look at three pages of a 2,000-page PDF of 6.2 MB held the server for about 20 ms at a time
+(19 to 48 ms on a busy machine), where 0.5.0 held it 159 to 177 ms. Some steps still run in one
+block:
+
+- one object of the file: about 0.1 to 0.35 s for each MB, by what it holds, and about 0.03 s for
+  each MB of a stream whose length the file gives by reference. A crafted PDF of 16 MB with one
+  array of numbers such as `1234.5` held the server 1.6 to 2.7 s at ingest and 1.7 to 2.5 s on each
+  look, and 2.7 to 3.5 s on each look when its numbers were of one digit, on a heap that could hold
+  it (that look took 984 MB);
+- a stream unpacked to reach an object: 1.0 s for an object stream that unpacks to 512 MB;
+- a cross-reference stream inside the file that declares many objects: 0.7 s for a million;
+- a cross-reference table written as text: 0.15 s for 150,000 objects;
+- the first look of a process, which loads `@cantoo/pdf-lib`: about 0.4 s, unless the
+  server loads it when it starts ([Deployment](./deployment.md#uploads-and-ingest)).
+
+A look runs on the server that answers the question, not where the file was ingested
+([Deployment](./deployment.md#pages-of-pdfs)).
 
 ### Limits and cost
 
@@ -504,6 +793,20 @@ Pass yours in `extractors`, by format. The other formats keep the built-in extra
 `defaultExtractors` holds, one per format ([`Extractor`](../reference/library.md#extractor),
 [`defaultExtractors`](../reference/library.md#defaultextractors)).
 
+`input` also carries the limits of the ingest, for your extractor to honour
+([`ExtractInput`](../reference/library.md#extractinput)):
+
+| Field | What it is | What to do with it |
+|---|---|---|
+| `signal` | Aborted after `ingestTimeoutMs` (2 minutes by default), or when the caller's `IngestInput.signal` aborts. Its `reason` is the error to throw. | Pass it to the work you start (`fetch(url, { signal: input.signal })`), and call `input.signal?.throwIfAborted()` between long steps. When it aborts, `ingest` stops waiting for your extractor and throws; work that does not look at the signal goes on in the background until it ends. |
+| `maxTextBytes` | `maxTextBytes` of `createLargeFiles`: the most text kept from one file, in UTF-8 bytes. | Refuse the file as soon as your text passes it, with a message for the user. `ingest` refuses a larger text when you return it, but by then it is all in memory. |
+| `maxPages` | `maxPdfPages` of `createLargeFiles`: the most pages read from one PDF. | In a PDF extractor, refuse a file with more pages before you read them. `ingest` does not check it for you. |
+
+The built-in PDF, DOCX and PPTX extractors honour all three, so an extractor that wraps one, as the
+OCR example below does, gets them by passing `input` on. The text extractor decodes a valid UTF-8
+file in one step, and a file in another encoding in steps that stop when `signal` aborts; its text
+is checked against `maxTextBytes` when it returns.
+
 The eight formats are fixed: you can replace the extractor of a format, not add a format. A file of
 another kind, such as HTML or XLSX, is detected as `text`, so it goes to the `text` extractor: check
 the name or the MIME type there ([Other formats](#other-formats)).
@@ -513,6 +816,14 @@ What the library does with what you return:
 - The text is made uniform, as for the built-in extractors ([Formats](#formats)). A text that is
   empty is refused: `report.pdf did not contain any text.`
 - `pages` becomes `meta.pages`, which the card, the system instruction and `toDocumentSummary` show.
+- `encoding`, the older encoding your extractor read the file in, becomes `meta.encoding`. It is
+  kept when it is a name such as `iso-8859-2`, and dropped when it names UTF-8 or UTF-16 (`utf-8`,
+  `utf8`, `unicode`, `utf-16be`…), or is not such a name: a value that is not a string, is longer
+  than 40 characters, or holds a character other than letters, digits, `.`, `_`, `:` and `-` (a
+  space, say).
+- `replacedCharacters`, a whole number above 0, becomes `meta.replacedCharacters`: the characters
+  your extractor stored as U+FFFD. Both reach the card, the frame of a file sent whole, and
+  `toDocumentSummary` ([Text encodings](#text-encodings)).
 - A `text` file whose lines look like a log becomes `log`.
 
 An error you throw is the answer to the upload. `createDocumentHandlers` answers 422 with its
@@ -556,11 +867,12 @@ Textract or Tesseract can stand behind it.
 import { createLargeFiles, createPdfExtractor, FileDocumentStore, type Extractor } from "llm-large-files";
 
 /** The text of each page of a PDF, in page order, from your OCR service. */
-async function recognizePages(pdf: Uint8Array): Promise<string[]> {
+async function recognizePages(pdf: Uint8Array, signal: AbortSignal | undefined): Promise<string[]> {
   const response = await fetch(process.env.OCR_URL!, {
     method: "POST",
     headers: { "Content-Type": "application/pdf" },
     body: Buffer.from(pdf),
+    signal, // the ingest's time limit stops the request too
   });
   if (!response.ok) throw new Error(`The OCR service answered ${response.status}.`);
   const { pages } = (await response.json()) as { pages: string[] };
@@ -580,8 +892,10 @@ const pdfWithOcr: Extractor = async (bytes, input) => {
 
   let recognized: string[];
   try {
-    recognized = await recognizePages(bytes);
+    recognized = await recognizePages(bytes, input.signal);
   } catch (error) {
+    // Stopped by the ingest's time limit or its caller: throw what stopped it.
+    input.signal?.throwIfAborted();
     // With a status, the upload answers 503 and this message, not 422 and the service's own error.
     throw Object.assign(new Error("Text recognition is not available. Try again later.", { cause: error }), { status: 503 });
   }
@@ -612,8 +926,9 @@ since the model can still look at it to check a stamp or a signature. Only PDFs 
 text go to the OCR service, and only those pages change. A scan of any length is accepted once OCR
 found text in it.
 
-OCR runs inside `files.ingest`, so the upload waits for it. For long scans, run ingest in a
-background job and tell the user when the file is ready ([Web app](./web-app.md)).
+OCR runs inside `files.ingest`, so the upload waits for it, and it counts toward `ingestTimeoutMs`
+(2 minutes by default). For long scans, raise `ingestTimeoutMs` (0 sets no limit), run ingest in a
+background job, and tell the user when the file is ready ([Web app](./web-app.md)).
 
 ### Other formats
 
@@ -626,10 +941,12 @@ import { convert } from "html-to-text";
 import { createLargeFiles, defaultExtractors, FileDocumentStore, type Extractor } from "llm-large-files";
 
 const text: Extractor = async (bytes, input) => {
-  // The built-in extractor decodes UTF-8 and UTF-16, and refuses binary files.
+  // The built-in extractor decodes UTF-8 and UTF-16, reads Hebrew, Arabic, Cyrillic, Japanese and
+  // Western files in their older encodings, and refuses binary files.
   const decoded = await defaultExtractors.text(bytes, input);
   const html = /\.html?$/i.test(input.name) || input.mimeType.startsWith("text/html");
-  return html ? { text: convert(decoded.text, { wordwrap: false }) } : decoded;
+  // `...decoded` keeps `encoding` and `replacedCharacters`: the model is told how the file was read.
+  return html ? { ...decoded, text: convert(decoded.text, { wordwrap: false }) } : decoded;
 };
 
 export const files = createLargeFiles({

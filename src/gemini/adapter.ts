@@ -1,10 +1,10 @@
 // Gemini (Generate Content REST) as a model of `askWithFiles`.
-import type { ChatMessage, ModelAdapter, ModelMessage, ModelReply, ModelRequest, ModelTextMessage, ModelToolRound, SendHooks, ToolCall, ToolTurn } from "../model.js";
+import { laterResult, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { retryAfterMs } from "../retry.js";
-import { idleWatch, readJson, type IdleWatch } from "../http.js";
-import { parseSseJson } from "../sse.js";
+import { idleWatch, noteCutReply, readJson, streamedReply, type IdleWatch } from "../http.js";
+import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
-import { finishOfGemini, geminiFailure, GeminiRequestError, silent, unreachable } from "./errors.js";
+import { finishOfGemini, geminiFailure, GeminiRequestError, notJson, silent, unreachable } from "./errors.js";
 import { createGeminiGenerateText, geminiFunctionResponseTurns, usageOfGemini, type GeminiContent, type GeminiPart, type GeminiToolFilePlacement } from "./generate.js";
 
 export type { GeminiContent, GeminiPart };
@@ -22,7 +22,7 @@ export type GeminiModelOptions = {
    * inside a function response.
    */
   toolFilePlacement?: GeminiToolFilePlacement | undefined;
-  /** generationConfig for whole-document part reads. Defaults to `{ temperature: 0.2, maxOutputTokens }`. */
+  /** generationConfig for whole-document part reads. Defaults to `{ maxOutputTokens }`, with no temperature. */
   analysisConfig?: ((maxOutputTokens: number) => Record<string, unknown>) | undefined;
   /** The model's context window in tokens, when the budget of a question should follow it. */
   contextTokens?: number | undefined;
@@ -105,7 +105,8 @@ export function fromGeminiContents(contents: GeminiContent[]): ChatMessage[] {
  */
 export function geminiToolTurns(turns: ToolTurn[]): GeminiContent[] {
   return turns.flatMap((turn) => {
-    const answers = turn.calls.map(({ result, ...call }) => ({ call, result }));
+    // Sent again in later questions: without the tool turns this question had left.
+    const answers = turn.calls.map(({ result, ...call }) => ({ call, result: laterResult(result) }));
     return [callsTurn(answers.map((answer) => answer.call)), ...geminiFunctionResponseTurns(answers)];
   });
 }
@@ -222,21 +223,39 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
       finishReason = candidate?.finishReason ?? finishReason;
       usage = chunk.usageMetadata ?? usage;
     };
+    const notTheReply = (error: unknown) => notJson(response, error);
     if (stream) {
       if (!response.body) throw new GeminiRequestError("Gemini returned an empty stream.", response.status);
+      let events: boolean;
+      let body: Response;
       try {
-        for await (const chunk of parseSseJson<Chunk>(response.body, { onData: watch.pulse, signal: watch.signal })) take(chunk);
+        ({ events, response: body } = await streamedReply(response, watch));
       } catch (error) {
-        if (hooks.signal?.aborted || error instanceof GeminiRequestError) throw error;
-        // The connection went while the answer was on its way, or nothing came for the whole wait.
-        throw lost(error);
+        if (hooks.signal?.aborted) throw error;
+        throw noteCutReply(lost(error));
       }
-      // Every reply Gemini streams ends with a chunk that says why it ended. A stream that closed
-      // without one was cut off on its way (a proxy, a dropped connection): it is not a whole
-      // reply, and is sent again like a connection that failed, unless text of it was shown.
-      if (finishReason === undefined && blockReason === undefined) throw new GeminiRequestError("Gemini's reply ended before it was complete.", 0);
+      if (events) {
+        try {
+          for await (const chunk of parseSseJson<Chunk>(body.body!, { onData: watch.pulse, signal: watch.signal })) take(chunk);
+        } catch (error) {
+          if (hooks.signal?.aborted || error instanceof GeminiRequestError) throw error;
+          // An event too long to read would come again: it is not sent again, like a page in the reply's place.
+          if (error instanceof SseEventTooLongError) throw new GeminiRequestError(eventTooLongMessage("Gemini's", error), response.status, { kind: "invalid", cause: error });
+          // The connection went while the answer was on its way, or nothing came for the whole wait.
+          throw noteCutReply(lost(error));
+        }
+        // Every reply Gemini streams ends with a chunk that says why it ended. A stream that closed
+        // without one was cut off on its way (a proxy, a dropped connection): it is not a whole
+        // reply, and is sent again like a connection that failed, unless text of it was shown.
+        if (finishReason === undefined && blockReason === undefined) throw noteCutReply(new GeminiRequestError("Gemini's reply ended before it was complete.", 0));
+      } else {
+        // In one piece, though it was asked for as a stream: a gateway that does not stream (its
+        // chunks in a list, as Gemini sends them without `alt=sse`), or a page in the model's place.
+        const data = await readJson<Chunk | Chunk[]>(body, () => Boolean(hooks.signal?.aborted), lost, watch, notTheReply);
+        for (const chunk of Array.isArray(data) ? data : [data]) take(chunk);
+      }
     } else {
-      take(await readJson<Chunk>(response, () => Boolean(hooks.signal?.aborted), lost, watch));
+      take(await readJson<Chunk>(response, () => Boolean(hooks.signal?.aborted), lost, watch, notTheReply));
     }
     const finish = finishOfGemini(finishReason);
     return {

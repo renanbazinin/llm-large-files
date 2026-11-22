@@ -43,6 +43,17 @@ export type ChatTurn = { role: "user" | "assistant" | "model"; text: string };
  */
 export type ToolTurn = { role: "tools"; calls: Array<ToolCall & { result: ToolResult }> };
 
+/**
+ * A result of a stored tool round, as it is sent again in a later question: without
+ * `tool_turns_left`, which counted the tool turns its own question had left, not those of the
+ * later one. The same result when it has none.
+ */
+export function laterResult(result: ToolResult): ToolResult {
+  if (result === null || typeof result !== "object" || !("tool_turns_left" in result)) return result;
+  const { tool_turns_left: _left, ...rest } = result;
+  return rest;
+}
+
 /** What `askWithFiles` takes as conversation: plain turns, stored tool rounds, and turns with native parts. */
 export type ChatMessage = ChatTurn | ToolTurn | ModelTextMessage;
 
@@ -136,6 +147,13 @@ export type ModelCapabilities = {
    * question is answered with what it has.
    */
   appendOnly?: boolean;
+  /**
+   * True for a model whose provider may clear old tool results from the conversation on its side,
+   * before the model reads it (Claude's context editing with `clear_tool_uses`, or compaction). A
+   * call made again is then run again, instead of being answered with a pointer to an earlier
+   * result that the model may no longer have.
+   */
+  clearsToolResults?: boolean;
 };
 
 /** A model provider, as the tool loop sees it. */
@@ -211,7 +229,23 @@ const OVERFLOW_WORDING = [
   /request_too_large/i,
   // Claude 3.7 to 4.1: "input length and `max_tokens` exceed context limit: 188240 + 21333 > 200000".
   /exceed context limit/i,
+  // Text Generation Inference (Hugging Face, Together): "Input validation error: `inputs` tokens +
+  // `max_new_tokens` must be <= 32769. Given: 40000 `inputs` tokens and 1024 `max_new_tokens`".
+  /`?inputs`? tokens \+ `?max_new_tokens`? must be <=/i,
+  /`?inputs`? must have less than [\d,]+ tokens/i,
+  // LM Studio: "Trying to keep the first 9000 tokens when context the overflows. However, the model
+  // is loaded with context length of only 4096 tokens, which is not enough."
+  /loaded with context length of only/i,
+  /tokens to keep from the initial prompt is greater than the context length/i,
+  // Amazon Bedrock: "Input is too long for requested model."
+  /input is too long for (?:the )?(?:requested )?model/i,
 ];
+/**
+ * A request larger than the tokens a whole minute (or day) allows. OpenAI: "Request too large for
+ * gpt-4o in organization org-… on tokens per min (TPM): Limit 30000, Requested 45237.", as HTTP 429.
+ * Groq says "tokens per minute", as HTTP 413. No wait lets it pass: only a smaller request can.
+ */
+const RATE_TOO_SMALL = /request too large for .{0,200}\bon tokens per (min(?:ute)?|day)\b/i;
 /** Wording of throttling, which can share words with an overflow ("too many tokens, please wait"). */
 const THROTTLE_WORDING = /rate.?limit|too many requests|please (?:wait|try again later)|per (?:minute|second|day)\b|\b[TR]PM\b|throttl/i;
 
@@ -225,6 +259,10 @@ const LIMIT_WORDING = [
   /configured limit of ([\d,]+) tokens/i,
   /supports up to ([\d,]+)/i,
   /context limit: [\d,]+ \+ [\d,]+ > ([\d,]+)/i,
+  /must be <= ?([\d,]+)/i,
+  /must have less than ([\d,]+) tokens/i,
+  /context length of only ([\d,]+) tokens/i,
+  /\bLimit:? ([\d,]+), Requested\b/i,
 ];
 const REQUESTED_WORDING = [
   /input token count \(([\d,]+)\)/i,
@@ -235,7 +273,19 @@ const REQUESTED_WORDING = [
   /too long: ([\d,]+) tokens/i,
   /prompt contains ([\d,]+) tokens/i,
   /requested (?:about )?([\d,]+) tokens/i,
+  // vLLM since its errors changed: "However, your request has 40000 input tokens."
+  /your request has ([\d,]+) input tokens/i,
+  /\bGiven: ([\d,]+)/i,
+  /\bRequested:? ([\d,]+)/i,
 ];
+/**
+ * Wording of a quota that does not come back soon: no credit left (DeepSeek's "Insufficient
+ * Balance", OpenRouter's "Insufficient credits", Claude's "Your credit balance is too low"), or a
+ * spending cap that was reached (Claude's "You have reached your API usage limits").
+ */
+const QUOTA_WORDING = /credit balance is too low|insufficient (?:balance|credits?|funds)|reached your (?:specified )?API usage limits/i;
+/** A quota per day named in the message alone: Vertex AI's "Quota exceeded for …requests_per_day_per_project…". */
+const DAILY_QUOTA_WORDING = /quota.{0,200}(?:per[_ -]?day|PerDay)/i;
 
 function firstNumber(message: string, patterns: RegExp[]): number | undefined {
   for (const pattern of patterns) {
@@ -259,6 +309,13 @@ function dailyQuota(details: unknown): boolean {
   });
 }
 
+/** A request larger than the model takes, with the numbers its message gives. */
+function overflowOf(message: string): ModelErrorClass {
+  const limitTokens = firstNumber(message, LIMIT_WORDING);
+  const requestedTokens = firstNumber(message, REQUESTED_WORDING);
+  return { kind: "context_overflow", ...(limitTokens ? { limitTokens } : {}), ...(requestedTokens ? { requestedTokens } : {}) };
+}
+
 /** True when a Gemini error names an API key that is not valid (it comes as HTTP 400). */
 const keyRefused = (details: unknown): boolean => Array.isArray(details) && details.some((detail) => (detail as { reason?: unknown } | null)?.reason === "API_KEY_INVALID");
 
@@ -266,22 +323,23 @@ const keyRefused = (details: unknown): boolean => Array.isArray(details) && deta
  * Tells what kind of failure an HTTP status and an error message are (see `ModelErrorKind`).
  * `code` is the provider's own word, when it gives one (OpenAI's `error.code`, Claude's
  * `error.type`, Gemini's `error.status`); `details` is a Gemini error's `details`. A quota is told
- * only from those: Gemini says "You exceeded your current quota" of a limit per minute too, which
- * a wait mends.
+ * from those, from HTTP 402 (payment required), and from words that only a quota uses (no credit
+ * left, a spending cap, a quota per day): Gemini says "You exceeded your current quota" of a limit
+ * per minute too, which a wait mends.
  */
 export function classifyModelError(status: number, message: string, signals: { code?: string | undefined; details?: unknown } = {}): ModelErrorClass {
   const { code, details } = signals;
   if (status === 0) return { kind: "unreachable" };
-  if (code === "insufficient_quota" || (status === 429 && dailyQuota(details))) return { kind: "quota" };
+  if (code === "insufficient_quota" || status === 402 || (status === 429 && (dailyQuota(details) || DAILY_QUOTA_WORDING.test(message)))) return { kind: "quota" };
+  if (status < 500 && QUOTA_WORDING.test(message)) return { kind: "quota" };
+  // Larger than the provider lets through in a minute: a context overflow, though it comes as 429,
+  // and though its words are those of a rate limit.
+  if ((status === 429 || status === 413) && RATE_TOO_SMALL.test(message)) return overflowOf(message);
   const throttled = THROTTLE_WORDING.test(message);
   const overflow = !throttled && status !== 429 && status < 500 && (
     status === 413 || code === "context_length_exceeded" || code === "request_too_large" || OVERFLOW_WORDING.some((pattern) => pattern.test(message))
   );
-  if (overflow) {
-    const limitTokens = firstNumber(message, LIMIT_WORDING);
-    const requestedTokens = firstNumber(message, REQUESTED_WORDING);
-    return { kind: "context_overflow", ...(limitTokens ? { limitTokens } : {}), ...(requestedTokens ? { requestedTokens } : {}) };
-  }
+  if (overflow) return overflowOf(message);
   if (status === 429) return { kind: "rate_limit" };
   if (status === 408) return { kind: "timeout" };
   if (status >= 500) return { kind: "server" };
@@ -328,6 +386,17 @@ export class ModelRequestError extends Error {
 export function errorKindOf(error: unknown): ModelErrorKind | undefined {
   const kind = (error as { kind?: unknown } | null)?.kind;
   return typeof kind === "string" ? kind as ModelErrorKind : undefined;
+}
+
+/**
+ * For a request refused as larger than the tokens a minute (or a day) of the provider allows, not
+ * than the model's window: that period. Undefined for any other error.
+ */
+export function rateAllowanceOf(error: unknown): "minute" | "day" | undefined {
+  if (errorKindOf(error) !== "context_overflow" || !(error instanceof Error)) return undefined;
+  const period = RATE_TOO_SMALL.exec(error.message)?.[1];
+  if (period === undefined) return undefined;
+  return period.toLowerCase() === "day" ? "day" : "minute";
 }
 
 /** Some document IDs were never uploaded, have expired, or belong to another owner. */

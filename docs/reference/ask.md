@@ -85,15 +85,24 @@ What it does, in order:
 5. **Ends with the answer.** A reply with text and no tool call is the answer, when there is no
    explorer. Otherwise (out of turns, room or `limits`, a reply with no text, an explorer that is
    done) `model` gets one more request: the tools listed, `toolChoice: "none"`, and one of the
-   [`FINAL_ANSWER_*`](#final_answer_request) lines as a user turn at the end.
+   [`FINAL_ANSWER_*`](#final_answer_request) lines as a user turn at the end. When its reply has
+   no text (it is empty, or holds a tool call the model was told not to make), that request is
+   sent once more with a note after the line, which is not kept: "Your last reply had no text. No
+   tool can be called in this reply: write the answer now, in text, from what is above." Not after
+   a refusal (`blockReason`), a reply `"filtered"`, or one `"cut"` with nothing in it; not once
+   `limits.requests` or `limits.inputTokens` is reached; and not when the question already made its
+   two second tries (see [`ModelReply`](#modelreply)). New in 0.6.0.
 
 A request that fails is sent again by the rule of `retry` (see
 [`withRetry`](./errors-and-retries.md#withretryrun-options)), but never once text of its reply was
-shown. A request the provider refuses as too large (`kind: "context_overflow"`) is made smaller and sent again: older
-tool results are shortened, at most twice a question, and never when a model of the question is
-`appendOnly`. When that does not mend it, and no tool call was answered and no text was shown yet,
-the documents are planned again, once, for a smaller window worked out from the provider's
-numbers. [How it works](../how-it-works.md#a-request-too-large-for-the-model) explains each step.
+shown. A request the provider refuses as too large (`kind: "context_overflow"`) is never sent again
+as it was: it is made smaller. Older tool results are shortened, at most twice a question, and
+never when a model of the question is `appendOnly`. When that does not mend it, and no tool call
+was answered and no text was shown yet, the documents are planned again, once, for a smaller window
+worked out from the provider's numbers. A request larger than the tokens a minute (or a day) that
+the provider allows (OpenAI's and Groq's TPM, HTTP 429 or 413) is this kind too, with that
+allowance as the window, and its steps say so.
+[How it works](../how-it-works.md#a-request-too-large-for-the-model) explains each step.
 
 **Returns** an [`AskResult`](#askresult).
 
@@ -107,7 +116,7 @@ numbers. [How it works](../how-it-works.md#a-request-too-large-for-the-model) ex
 | [`DocumentsNotFoundError`](#documentsnotfounderror) | A document of `documentIds` was never stored, has expired or been deleted, or belongs to another `owner`. Before any request. | undefined |
 | [`ModelRequestError`](./errors-and-retries.md#modelrequesterror), or the adapter's subclass (`GeminiRequestError`, `OpenAiRequestError`, `AnthropicRequestError`) | A chat request failed, and was not worth another try, still failed after `retry.retries` more, asked for a longer wait than `retry.maxDelayMs`, or had already shown text. A `context_overflow` that the recovery above did not mend. | What the question had done |
 | Any other error of an adapter | Thrown as it came. An error without a numeric `status` is not sent again. | What the question had done |
-| The signal's reason | `signal` aborted. Nothing is sent or retried after that. The error of a request that failed as it was stopped may come instead. | What the question had done, when the reason is an object |
+| The signal's reason | `signal` aborted. Nothing is sent or retried after that, no part of a whole-file read either. It is thrown at once, also while an adapter (or a part reader) that does not look at the signal is still at work, and also when the adapter then fails with its own error. Text that such an adapter sends later is not shown. | What the question had done, when the reason is an object |
 
 When the documents were planned again after an overflow and the second plan fails before it sends
 anything, the first overflow error is thrown, with what the first try had done. A whole-file part
@@ -172,9 +181,9 @@ The options of `askWithFiles`.
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`. It changes nothing for a library that keeps no originals. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. The adapter streams when it is set and it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
-| `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry ("The model did not answer (HTTP 503). Trying again in 2 s…"), and "Writing the answer…" before the request for the answer. |
+| `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. |
 | `onStep` | `(text: string) => void` | none | Each finished step, the same lines as `result.steps`, as they happen. |
-| `signal` | `AbortSignal` | none | Stops the question: the request under way is aborted through the adapter, tool calls stop, and nothing is sent again. `askWithFiles` then throws. |
+| `signal` | `AbortSignal` | none | Stops the question: the request under way is aborted through the adapter, tool calls stop, and nothing is sent again. `askWithFiles` then throws the signal's reason, at once: the loop does not wait for an adapter, or a part reader, that does not look at the signal. A request left running that way may be billed by the provider, and is not counted in the usage. |
 
 Guides: [conversations](../guides/conversations.md) (`messages`, `documentPlacement`),
 [storage](../guides/storage.md) (`owner`), [web app](../guides/web-app.md) (`onText`,
@@ -187,7 +196,7 @@ The limits of one question: `AskOptions.limits`. Every field is optional.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `toolTurns` | `number` | 12 | The most model turns of the chat for one question, counting the answer and a second try after an empty or broken reply. Tools run in all but the last: if the model is still calling tools then, the last turn must be answered in text. With an explorer, the explorer has up to `toolTurns - 1` turns and `model` the last. A request the provider refused as too large takes no turn of its own: what is sent again after it is the same turn, so `result.turns` can be a little higher. Truncated to a whole number; below 1 counts as 1. With 1, no tool runs and the only request is the answer. |
+| `toolTurns` | `number` | 12 | The most model turns of the chat for one question, counting the answer and a second try after an empty or broken reply. Tools run in all but the last: if the model is still calling tools then, the last turn must be answered in text. With an explorer, the explorer has up to `toolTurns - 1` turns and `model` the last. A request the provider refused as too large takes no turn of its own: what is sent again after it is the same turn, so `result.turns` can be a little higher. When the answer comes back without text, it is asked for once more, and that request can be one past `toolTurns`; it is not made once `requests` or `inputTokens` is reached. Truncated to a whole number; below 1 counts as 1. With 1, no tool runs and the only request is the answer. |
 | `callsPerTurn` | `number` | 8 | The most tool calls of one model turn that are run. Each call beyond it is answered with an error ("Not run: one turn runs at most 8 tool calls. Send this call again if you still need it."), and `steps` says how many were not run. Truncated to a whole number; below 1 counts as 1. |
 | `wholeDocumentReads` | `number` | 1 ([`MAX_WHOLE_DOCUMENT_READS`](./tools.md#max_whole_document_reads)) | How many times each document may be read whole (`analyze_whole_document`) in one question. One read of a large file is up to `budget.maxMapChunks` part requests and a few more. 0 refuses every whole-file read but still lists the tool: to withhold it, set `wholeDocumentAnalysis: false`. |
 | `inputTokens` | `number` | none | A ceiling on the input tokens of the question, over all its requests, part reads included, as the adapters report them (`usage.inputTokens`, cached tokens included). Checked before each tool request: once it is reached, no further tool request is made and the next request is the answer. The calls of the reply that reached it still run, and their results and the answer come on top. A whole-file read that would pass it is refused, with the numbers, before it starts. |
@@ -204,9 +213,9 @@ question that failed.
 | Field | Type | What it holds |
 |---|---|---|
 | `text` | `string` | Everything the answering model wrote, as `onText` got it: a remark made before a tool call, then `"\n\n"` and the answer. With an explorer, only what `model` wrote. `""` when nothing was written. |
-| `answered` | `boolean` | True when the last reply had text that is not blank, and the provider did not refuse the prompt. False when the prompt was refused (`blockReason`), or the last reply had no text: it was cut off before any text, or the request for the answer came back empty too. `text` may then be empty, or hold a remark made before a tool call, or the start of a reply that was refused: show your own message. |
+| `answered` | `boolean` | True when the last reply had text that is not blank, and the provider did not refuse the prompt. False when the prompt was refused (`blockReason`), or the last reply had no text: it was cut off before any text, or the request for the answer came back without text, and so did its second try. `text` may then be empty, or hold a remark made before a tool call, or the start of a reply that was refused: show your own message. |
 | `blockReason` | `string`, optional | Why the provider refused the prompt, in the adapter's words. Set only then. Nothing more is asked after a refusal. |
-| `steps` | `string[]` | Each finished step, in order: a line for each tool call, run or refused ("Search app.log (exact) for “timeout” — 12 matching lines", or "… — already shown above"), one for the calls of a turn over `callsPerTurn`, and one when the loop shortened older results, asked again after an empty or broken reply, or planned the documents again. The lines `onStep` got. |
+| `steps` | `string[]` | Each finished step, in order: a line for each tool call, run or refused ("Search app.log (exact) for “timeout” — 12 matching lines", or "… — already shown above"), one for the calls of a turn over `callsPerTurn`, and one when the loop shortened older results, asked again after an empty or broken reply, or planned the documents again. The second try of the answer says "The model's answer was empty: it was asked again" or "The model called a tool instead of answering: it was asked again for the answer". The lines `onStep` got. Each is one line of plain text: a line break, a tab or another control character in what the model sent becomes one space with the blanks around it; the invisible characters that file text loses are dropped (text-direction overrides and isolates, zero-width spaces, word joiners, soft hyphens, tag characters); `](` becomes `] (`, so that a markdown link or picture stays text. A query is cut at 80 characters and a task at 100, never in the middle of a character. Steps still quote the model's words, HTML tags and web addresses included: show them as plain text, never as markdown or HTML. |
 | `evidence` | [`Evidence[]`](#evidence) | What each tool call showed the model: the document, and the lines or pages. In call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. |
 | `toolTurns` | [`ToolTurn[]`](#toolturn) | The tool rounds of this question, as plain JSON, as the model last had them. Pass them back in `messages`, between this question and its answer, and a later question sees what was found here. Each result of a call made in this question has `tool_turns_left`, except a stand-in (`dropped: true`, see [`stubResult`](#stubresultcall-result-hadfiles)): a result shortened to make room, a pointer whose result was shortened, and the result of a call that showed pages. The pages are not kept: their stand-in says which pages were shown. A call's `problem` is left out. |
 | `plan` | [`DocumentPlan`](./library.md#documentplan) | Which documents went in whole (`inline`) and which were reached through tools (`searchable`). |
@@ -226,11 +235,15 @@ Guides: [conversations](../guides/conversations.md) (`toolTurns`),
 declare function partialResultOf(error: unknown): AskResult | undefined;
 ```
 
+New in 0.6.0, from `llm-large-files` and `llm-large-files/gemini`.
+
 What a question that failed had done before it failed. `askWithFiles` throws the error as it came;
 this gives, for that error object, an [`AskResult`](#askresult) with `answered: false` and the
 `steps`, `evidence`, `toolTurns`, `usage`, `turns`, `plan` and `budget` of the question until
 then. Keep its `toolTurns` with the conversation and count its `usage`: those requests were paid
-for. It returns `undefined` for an error that did not come from a question under way (a missing
+for. `usage` is a copy taken when the question failed: a request still running then (an adapter
+or a part reader that did not stop at the signal) may be billed by the provider, and is not
+counted. It returns `undefined` for an error that did not come from a question under way (a missing
 document, a budget that cannot work, a store that could not be read while planning) and for a
 value that is not an object. The sample under [`askWithFiles`](#askwithfilesoptions) uses it.
 
@@ -292,7 +305,9 @@ was empty, or no turn was left for tools), so there is no tool result to answer 
 > Answer my question now, from what is in this conversation. No tools are available for this reply:
 > if the answer needs a part of a file that is not shown here, say so plainly.
 
-None of the three is kept in the conversation or in `toolTurns`.
+None of the three is kept in the conversation or in `toolTurns`. Nor is the note of the answer's
+second try, which is not exported (new in 0.6.0): "Your last reply had no text. No tool can be
+called in this reply: write the answer now, in text, from what is above."
 
 ## The conversation
 
@@ -342,9 +357,14 @@ type ToolTurn = { role: "tools"; calls: Array<ToolCall & { result: ToolResult }>
 One round of tool use as an application stores it: the calls of one model turn, each with what the
 tool returned ([`ToolResult`](./tools.md#toolresult)), in call order. Plain JSON that belongs to no
 provider. `askWithFiles` returns them in `result.toolTurns`; passed back in `messages`, the model
-sees in a later question what its tools returned in an earlier one. A call whose result is still in
-the conversation in full is then not run again: it is answered with a pointer
-(`already_shown: true`). Guide: [conversations](../guides/conversations.md).
+sees in a later question what its tools returned in an earlier one. Their results are sent without
+`tool_turns_left`, which counted the turns of their own question (since 0.6.0; what `toolTurns`
+holds is unchanged). A call whose result is still in the conversation in full is then not run
+again: it is answered with a pointer (`already_shown: true`). Not with a model that declares
+`clearsToolResults`, and not for a read of one line made in an earlier question, or an exact or
+regex search that 0.5.0 stored without its last match: those run again (see
+[tools](./tools.md#what-askwithfiles-adds-to-results)). Guide:
+[conversations](../guides/conversations.md).
 
 ## The adapter contract
 
@@ -387,7 +407,9 @@ What `send` must do with the request:
   (the pages of `view_pages`) go where `capabilities.toolFiles` says.
 - **`toolChoice: "none"`** means the model must answer in text. The tools are still in `tools`.
 - **Text:** call `hooks.onText` as text arrives when it is given; return the whole text in
-  `reply.text` either way, starting with what was streamed. Pass `hooks.signal` to the request.
+  `reply.text` either way, starting with what was streamed. Pass `hooks.signal` to the request: the
+  loop stops waiting for `send` when the signal aborts, and drops what it returns later, but a
+  request that goes on holds a connection and may be billed.
 - **A call whose arguments could not be read** is returned with `problem`: the loop answers it with
   that message and does not run it.
 
@@ -443,6 +465,7 @@ reference page.
 | `tokenScale` | `number` | 1 | How many of this model's tokens one token of the library's estimate (`estimateTokens`, fitted to Gemini) comes to. A model that counts a third more for the same text says 1.33, and its window is that much smaller in the library's tokens. The question uses the largest of its models'. A value that is not above 0 counts as 1. |
 | `outputTokens` | `number` | none | Tokens set aside for the reply, when they come out of the same window as the prompt (Claude's `max_tokens`). The largest of the models' is kept free, but at least a quarter of the window is left for the prompt. |
 | `appendOnly` | `boolean` | `false` | True for a model whose earlier turns may not be rewritten (Claude ties its thinking blocks to the turns they were written in). When any model of the question says so, old tool results are not shortened to make room: when the room runs out, the question is answered with what it has, and an overflow is mended only by planning the documents again. When the model that explores is append-only, a note the loop adds after an empty or broken reply stays in its conversation for the rest of the question. |
+| `clearsToolResults` | `boolean` | `false` | True for a model whose provider may clear old tool results from the conversation on its side, before the model reads it: Claude's context editing with `clear_tool_uses`, or compaction. When any model of the question says so, no call is answered with a pointer to an earlier result: each call made again runs again, the same call twice in one turn runs twice, and pointers in stored rounds are sent as the stand-in that says to call again. The loop still counts every result as sent, so its room runs out where it would without it. `anthropic()` sets it from its `body`; set it in an adapter of your own whose provider does this. New in 0.6.0. |
 
 With an explorer, every field counts for the pair: the budget is planned for the smaller window
 and the larger scale, because both models get the same conversation. Guides:
@@ -531,7 +554,8 @@ A tool call with what the tool returned for it: its JSON result
 ([`ToolResult`](./tools.md#toolresult)) and the files that belong to it
 ([`ToolFile`](./tools.md#toolfile)), such as the pages of `view_pages`. Each result the loop adds in
 a question has `tool_turns_left`, the tool turns left at that point. A stand-in that later replaces
-it (`dropped: true`) does not.
+it (`dropped: true`) does not, and a result of a stored round is sent in a later question without
+it.
 
 ### `SendHooks`
 
@@ -565,7 +589,7 @@ type ModelReply = {
 | `calls` | The tool calls of this reply, in order. `[]` when there are none. |
 | `raw` | This turn in the provider's own form, to be sent back unchanged with the tool results. The loop gives it back only to this adapter. |
 | `finishReason` | Why the reply ended, in the provider's own word (`"STOP"`, `"length"`, `"end_turn"`). It becomes `result.finishReason`. |
-| `finish` | How the reply ended, in terms every adapter maps its own to: `"complete"`; `"cut"` at the output limit; `"filtered"` by the provider's safety filters; `"malformed_call"`, a tool call the model tried to make that could not be read (Gemini's `MALFORMED_FUNCTION_CALL`). Unset when the adapter does not know. The loop asks once more, with a note, after a reply with no calls that is `"malformed_call"`, or that is empty before any tool ran and is neither `"cut"` nor `"filtered"`: at most twice a question, only while a tool turn is left before the answer, and not for a reply with `blockReason` or once `limits.inputTokens` or `limits.requests` is reached. |
+| `finish` | How the reply ended, in terms every adapter maps its own to: `"complete"`; `"cut"` at the output limit; `"filtered"` by the provider's safety filters; `"malformed_call"`, a tool call the model tried to make that could not be read (Gemini's `MALFORMED_FUNCTION_CALL`). Unset when the adapter does not know. The loop asks once more, with a note, after a reply with no calls that is `"malformed_call"`, or that is empty before any tool ran and is neither `"cut"` nor `"filtered"`, while a tool turn is left before the answer. It also asks once more for the answer when its reply has no text and is not `"filtered"`: empty and not `"cut"`, or with calls, or `"malformed_call"`. At most two such second tries a question, the answer's included, and none for a reply with `blockReason` or once `limits.inputTokens` or `limits.requests` is reached. |
 | `blockReason` | Why the provider refused the prompt, when it did. A reply with `blockReason` and no calls ends the question: no request for the answer follows, and the result has `answered: false` and this `blockReason`. |
 | `usage` | The tokens of this request ([`ModelUsage`](#modelusage)), as far as the provider says. `inputTokens` must count every token of the prompt, cached ones included, and `outputTokens` the thoughts. The loop adds it to `result.usage`, and uses `inputTokens` to correct its own estimate of the request's size. |
 | `providerUsage` | The provider's own usage object, as it came. It becomes `result.lastUsage`. |
@@ -597,7 +621,12 @@ library stays provider-neutral by taking it as a function: `ModelAdapter.generat
 | `onUsage` | Optional to call. Call it once for every request that was answered, with the tokens it used. In `askWithFiles`, a call of `generateText` that never calls it is counted as one request with no tokens. |
 
 Throw a `ModelRequestError` for a request that failed, as `send` does: the part is sent again by
-the rule of `retry`, and an error without a status is tried once more. Guide:
+the rule of `retry`, and an error without a status is tried once more. The model that asked for the
+read, the step and `toolTurns` are told why a part failed by the error's `kind`, its HTTP status
+(`status`, `statusCode` or `response.status`), or the code of a connection that failed, never by
+its message: a plain `Error` is told as "The model request failed." (see
+[`analyze_whole_document`](./tools.md#analyze_whole_document)). The loop stops waiting for
+`generateText` when the signal aborts. Guide:
 [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
 ### `GenerateUsage`
@@ -699,7 +728,7 @@ that showed something.
 | `tool` | The tool that was called: `"search_document"`, `"read_document"`, `"get_document_overview"`, `"analyze_whole_document"`, `"view_pages"`. |
 | `documentId` | The document's ID. |
 | `document` | The file's name, when the result gave it. |
-| `lines` | The lines the model was shown, merged and in order. A read: its lines. A search: its passages, or each matching line with the lines of context around it. An overview: the first 30 and the last 20 lines (all of them in a file of 30 lines or fewer). |
+| `lines` | The lines the model was shown, merged and in order. A read: its lines. A search: its passages, or each matching line with the lines of context around it, the last matching line of the file included when the search showed it. An overview: the first 30 and the last 20 lines (all of them in a file of 30 lines or fewer). |
 | `pages` | The pages it looked at (`view_pages`), or the pages those lines are on, where the tool said. |
 | `query` | What was searched for, or the task of a whole-file read. |
 | `mode` | `"keywords"`, `"exact"` or `"regex"`, for a search. |
@@ -782,7 +811,7 @@ stand-in, or (without `hadFiles`) its JSON is under 700 characters. Otherwise, b
 | Tool | The stand-in keeps |
 |---|---|
 | `read_document` | `lines`, `total_lines` |
-| `search_document` | `mode`, `query` (its first 200 characters), `total_matching_lines`, `lines_shown` (up to 60 ranges, such as `"120-180"`) |
+| `search_document` | `mode`, `query` (its first 200 characters), `total_matching_lines`, `lines_shown` (up to 60 ranges, such as `"120-180"`, the last match's among them when the search showed it) |
 | `analyze_whole_document` | `parts_read`, and the first 6,000 characters of `answer`, followed by "…" when it was longer: the answer cannot be asked for again |
 | `view_pages` | `pages`, `total_pages` |
 | `get_document_overview`, any other | nothing more than `document` and the note |

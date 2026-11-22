@@ -17,7 +17,9 @@ On Node 21 and on 22.0 to 22.11, load it with `import("llm-large-files")`.
 Text, Markdown, logs, JSON and CSV need nothing more. Three optional packages add the rest:
 
 ```bash
-npm install jszip unpdf @cantoo/pdf-lib
+npm install jszip unpdf @cantoo/pdf-lib        # Node 24 and later
+npm install jszip unpdf@1 @cantoo/pdf-lib      # Node 22
+npm install jszip unpdf@1.7.0 @cantoo/pdf-lib  # Node 20
 ```
 
 | Package | What it enables |
@@ -30,6 +32,11 @@ Without the package a format needs, its upload fails with an error that names th
 as `Reading PDF files needs the optional dependency "unpdf".` Install `@cantoo/pdf-lib` before you
 turn on `keepOriginals`: without it, every look at a page fails. The details are in
 [PDFs](./guides/pdfs.md).
+
+On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24. On Node 22,
+install `unpdf@1`, and on Node 20, `unpdf@1.7.0`. An unpdf that cannot read PDFs on your version
+of Node is refused at the first PDF, with a message that says what to install, such as
+`The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.`
 
 The Vertex AI samples on this page also use Google's auth library, which is not a dependency of
 this package:
@@ -104,8 +111,8 @@ What happened:
   10 MB. A larger one becomes a short card, and the model gets tools to search it, read lines of
   it, get an overview of it, and read it whole in parts.
 - When the model used tools, the loop ran its calls and sent it what they returned, until it
-  answered: at most 12 chat requests by default, the last of which must be answered in text.
-  `result.steps` lists what it did, for example
+  answered: at most 12 chat requests by default, the last of which must be answered in text, and
+  one more when that answer comes back without text. `result.steps` lists what it did, for example
   `Search app.log (exact) for “timeout” — 12 matching lines`.
 
 The details of the plan and the loop are in [How it works](./how-it-works.md).
@@ -260,9 +267,16 @@ app.use(express.json());
 
 The browser posts the raw file, with its name in an `X-File-Name` header (URI-encoded). The
 response is a `201` with a `DocumentSummary`: `id`, `name`, `format`, `lines`, `estimatedTokens`,
-`expiresAt` and more. Keep the `id` with the chat session. Not on a Node HTTP server, or taking
-multipart forms? Call `files.ingest({ name, mimeType, bytes, owner })` yourself and return
-`toDocumentSummary(meta)`.
+`expiresAt` and more. A text file that was not valid UTF-8 also has `encoding`, the older encoding
+it was read in (`"windows-1255"`), or `replacedCharacters`, the characters stored as �, or both.
+Keep the `id` with the chat session. Not on a Node HTTP server, or taking multipart forms? Call
+`files.ingest({ name, mimeType, bytes, owner })` yourself and return `toDocumentSummary(meta)`.
+
+`getOwner` returns the signed-in user's ID, or `undefined` for an anonymous upload. An empty
+string, a string of spaces or `null` would be one owner shared by every caller without a user, so
+the upload is refused: `500` with `{ "error": "Upload failed (empty owner)." }`. Return the ID
+itself, not the user object (`{ "error": "Upload failed (owner is not a string)." }`). Both come
+before the body is read.
 
 The browser side, every status and other servers are in [Web app](./guides/web-app.md); the
 routes in full are in the [node reference](./reference/node.md).
@@ -318,9 +332,12 @@ export async function ask(session: Session, question: string, send: (event: stri
   treated as missing.
 - `send` stands for your transport: in a web app, a Server-Sent Event. The answer streams when
   `onText` is set and the endpoint has a stream URL, as `vertexAi()` and `geminiApi()` do.
+- Show the steps and activity lines as plain text, never as markdown or HTML: they quote what the
+  model sent, which a file can steer ([Security](./security.md#what-the-library-logs)).
 - Abort `signal` when the client goes away, so the question stops.
 - `answered` is `false` when the model's last turn had no text: a blocked prompt, a reply cut off,
-  or a tool call that could not be read. Show your own message then.
+  or a tool call that could not be read. An answer that comes back empty, or with a tool call in
+  place of the text, is asked for once more first. Show your own message then.
 
 The route, the browser side and cancelling are in [Web app](./guides/web-app.md). To have a
 second, cheaper model search the files while this one writes the answer, add `explorerModel` to
@@ -416,7 +433,9 @@ console.log(result.usage.inputTokens, result.usage.outputTokens, result.usage.re
 - `budget.contextTokens` in `createLargeFiles` is the window the plan fits the request into. With
   `askWithFiles`, an adapter's `contextTokens` applies too, and the smaller wins.
 - `limits` also takes `callsPerTurn` (default 8), `wholeDocumentReads` (default 1 per document)
-  and `requests` (default: none). See [`AskLimits`](./reference/ask.md#asklimits).
+  and `requests` (default: none). See [`AskLimits`](./reference/ask.md#asklimits). An answer that
+  comes back without text is asked for once more, which can be one request past `toolTurns`; it is
+  not made once `requests` or `inputTokens` is reached.
 - `result.usage` is what the question used, in all and for each model: input, cached input, output
   and thought tokens, and requests. Store it per user or per session to count costs.
 

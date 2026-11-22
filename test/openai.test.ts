@@ -348,7 +348,7 @@ describe("an OpenAI-compatible endpoint, since the review of 0.5.0", () => {
     expect(result).toMatchObject({ text: "Tuesday.", answered: true });
     // A body that came whole but is not JSON is not a connection that failed: it is not sent again.
     const html = fakeEndpoint([new Response("<html>Bad gateway</html>", { status: 200 })]);
-    await expect(askWithFiles({ files, model: openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: html.fetch }), documentIds: [meta.id], messages: question("When?"), retry: quick })).rejects.toBeInstanceOf(SyntaxError);
+    await expect(askWithFiles({ files, model: openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: html.fetch }), documentIds: [meta.id], messages: question("When?"), retry: quick })).rejects.toMatchObject({ name: "OpenAiRequestError", status: 200, kind: "invalid" });
     expect(html.sent).toHaveLength(1);
   });
 

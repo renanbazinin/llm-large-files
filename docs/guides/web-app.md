@@ -154,6 +154,15 @@ either. The handlers call it before they read the body, so a refused upload is n
   `{ "deleted": false }`.
 - **`undefined`.** The request is anonymous, and the upload has no owner: anyone who has its ID can
   read it, delete it and ask about it. Use this only for a demo.
+- **An empty owner** (`""`, spaces only, or `null` from JavaScript) is the server's mistake, since
+  it would be one owner shared by every caller without a user. The upload is answered `500`
+  `{ "error": "Upload failed (empty owner)." }` before its body is read. An owner that is neither a
+  string nor a finite number (`req.user` in place of `req.user.id`, say) is answered
+  `{ "error": "Upload failed (owner is not a string)." }`. `get` and `remove` pass such an owner on
+  as before. Where every upload needs a user, throw an error with `status: 401` when there is
+  none, as the example above does. Return `undefined` only where anonymous uploads are meant, and
+  write `user?.id || undefined` there, not `user?.id ?? ""`: a header that arrives empty gives `""`
+  too.
 - **A thrown error with a `status` (or `statusCode`) from 400 to 599**, as the `http-errors`
   package makes them: the handler answers with that status and the error's message, as the `401`
   above. Any other error is answered `500`, without its message, which may name your hosts.
@@ -169,12 +178,17 @@ ownership does and does not protect.
 - **The body is the file**, as raw bytes, not a form.
 - **`X-File-Name`** names it, URI-encoded with `encodeURIComponent`, so that any name survives an
   HTTP header. A `?name=` query parameter works too. One of them is required. The library keeps the
-  last path segment of the name, without control characters, up to 255 characters: the name is
-  shown to the model and in your UI.
+  last path segment of the name, up to 255 characters and never half of one. Control characters,
+  line and paragraph separators and text-direction controls become a space, and most characters
+  that show nothing are removed (variation selectors and joiners stay): the name is shown to the
+  model and in your UI.
 - **`X-File-Type`** is the MIME type, and is optional. Without it, `Content-Type` is taken, unless
   it is `application/octet-stream`. The format comes from the extension first (`.log`, `.md`,
   `.json`, `.csv`, `.pdf`, `.docx`, `.pptx` and a few more), then from the MIME type; anything else
-  is text, and text that looks like a log becomes a log.
+  is text, and text that looks like a log becomes a log. A text file needs no charset: one that is
+  not UTF-8 is read in the older encoding of Hebrew, Arabic, Cyrillic, Japanese or Western European
+  text that its letters fit, or as UTF-8 with the characters that are not valid counted. None is
+  refused for its encoding ([Text encodings](./pdfs.md#text-encodings)).
 - **`Content-Type: application/octet-stream`**, so that no body parser takes the upload.
 
 [Upload from the browser](#upload-from-the-browser) has the `fetch` call.
@@ -189,19 +203,26 @@ A successful upload answers `201` with a `DocumentSummary`:
   "expiresAt": "2026-11-22T07:43:14.435Z" }
 ```
 
-`pages` is there too for a PDF or a PPTX. Everything else is JSON `{ "error": "…" }`, with a message
-you can show: `400` for a missing name or a body another middleware already parsed, `413` over
-`maxUploadBytes`, `422` for a file that cannot be read, an error's own status (400 to 599) from
-`getOwner`, an extractor or your store, and `500` for a failure of the server. `get` answers `404`
-for a document this owner cannot see, and `get` and `remove` answer `500` when the store cannot be
-read. Every status and body is in the [node reference](../reference/node.md#uploadrequest-response).
+`pages` is there too for a PDF or a PPTX. For a text file that was not valid UTF-8, `encoding` names
+the older encoding it was read in (`"windows-1255"`), and `replacedCharacters` counts the
+characters stored as � ([Text encodings](./pdfs.md#text-encodings)). Your page can show "read as
+windows-1255", or warn that some characters could not be read and ask for the file saved as UTF-8.
+
+Everything else is JSON `{ "error": "…" }`, with a message you can show: `400` for a missing name or
+a body another middleware already parsed, `413` over `maxUploadBytes`, `422` for a file that cannot
+be read, an error's own status (400 to 599) from `getOwner`, an extractor or your store, and `500`
+for a failure of the server, among them `Upload failed (empty owner).` and
+`Upload failed (owner is not a string).` ([above](#who-owns-an-upload-getowner)). `get` answers
+`404` for a document this owner cannot see, and `get` and `remove` answer `500` when the store
+cannot be read. Every status and body is in the
+[node reference](../reference/node.md#uploadrequest-response).
 
 A store of your own that fails while it writes an upload can throw an error with a `status` (or
 `statusCode`) from 400 to 599 (a `503`, say): the handler answers with that status and the error's
 message. A Node system error, with `code` and `syscall`, is answered `500` with its code. Any other
 error it throws is answered `500` "Upload failed.", without its message, which may name your hosts.
 The handlers log nothing: log the error in your store before you throw it. Behind an `ingest` of
-your own that throws a new error in the store's place, as `ingestInWorker` in
+your own that throws a new error in the store's place, as `ingestInProcess` in
 [Deployment](./deployment.md#uploads-and-ingest) does, the handler answers `422` with that error's
 message, the store's own, unless the error keeps a status, or a code and a syscall. See
 [Storage](./storage.md#errors).
@@ -226,16 +247,19 @@ input, an [`IngestInput`](../reference/library.md#ingestinput):
 | `name` | The file's name. Cleaned as above. |
 | `mimeType` | Optional. Used for the format when the extension says nothing. |
 | `bytes` | The file, as a `Uint8Array`. A Node `Buffer` is one. |
-| `owner` | Optional. The user (or tenant, or chat session) the document belongs to. Every later call must pass the same. |
+| `owner` | Optional. The user (or tenant, or chat session) the document belongs to. Every later call must pass the same. A string that is not empty or only spaces: `""` and `null` throw a `TypeError` ([Storage](./storage.md#how-ownership-works)). Check it before you read the upload, as the handler does: the helper below would answer that error `422`. |
+| `signal` | Optional. Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws its `reason`, and nothing is stored. |
 
 Answer the browser with `toDocumentSummary(meta)`, not with `meta`: the summary holds the fields that
 are safe to return to a browser, while `meta` also holds the owner, the outline and the log profile.
 
 `ingest` throws a plain `Error`, with a message written for the user, when it cannot take the file:
 the cases of the `422` above (an empty, binary or compressed file, no text, a missing optional
-dependency), and a file larger than `maxUploadBytes` ("app.log is larger than the 100 MB upload
-limit."). A store that fails while it writes throws its own error, as it came. This helper tells
-them apart by the rule `createDocumentHandlers` uses, with two differences, given below the code:
+dependency, a file past `maxTextBytes` or `maxPdfPages`, one that took longer than
+`ingestTimeoutMs`), and a file larger than `maxUploadBytes` ("app.log is larger than the 100 MB
+upload limit."). [PDFs and other formats](./pdfs.md#what-is-refused) lists every message. A store
+that fails while it writes throws its own error, as it came. This helper tells them apart by the
+rule `createDocumentHandlers` uses, with two differences, given below the code:
 
 ```ts
 // ingest-failure.ts
@@ -435,7 +459,8 @@ route on the Node runtime; edge runtimes, such as the Next.js Edge runtime, are 
 
 `ingest` runs while the upload request waits: extraction, profiling, the line index, the store's
 writes. That takes seconds for most files. For work that can take minutes, such as OCR of a long
-scan ([PDFs](./pdfs.md)), answer at once and ingest afterwards. The library has no jobs of its own;
+scan ([PDFs](./pdfs.md)), answer at once and ingest afterwards, and raise `ingestTimeoutMs`
+(2 minutes by default) above what that work takes. The library has no jobs of its own;
 this sketch keeps them in memory, on one server:
 
 ```ts
@@ -503,7 +528,9 @@ export async function uploadFile(file: File): Promise<DocumentSummary> {
 - Every file can take this path. A file small enough to fit in the request is sent to the model
   whole anyway; only the larger ones are searched ([How it works](../how-it-works.md)).
 - Show `estimatedTokens`, `lines` or `pages` next to the file if you like: they come with the
-  summary.
+  summary. So do `encoding` and `replacedCharacters`, for a text file that was not valid UTF-8:
+  "read as windows-1255", or "12 characters could not be read: save the file as UTF-8 and attach
+  it again".
 
 ## Streaming the answer
 
@@ -536,21 +563,28 @@ fails: the question throws, and `partialResultOf(error).text` holds what was sho
 | A document must be searched | "Too large to read at once: app.log. Searching instead…" |
 | A tool call starts | "Search app.log (keywords) for “timeout”…", "Read app.log lines 120-180…", "Overview of app.log…", "Look at report.pdf pages 2-3…" |
 | A whole-file read goes on | "Reading app.log: part 3 of 12…", "Combining notes on app.log (round 1): 2 of 4…" |
-| A request is sent again | "The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", "The model sent nothing for too long. Trying again…" |
+| A request is sent again | "The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", "The model's reply was cut off on its way. Trying again…", "The model sent nothing for too long. Trying again…" |
 | The answer is asked for | "Writing the answer…" |
 
 **`onStep`.** One line for each tool call that ran, with what it found: "Search app.log (exact) for
 “timeout” — 12 matching lines", "Read app.log lines 120-180", "Look at report.pdf pages 12-14". A
 call answered from an earlier result ends in " — already shown above", and one that failed in
-" — failed: " and the reason. The loop adds its own lines too, such as "Older tool results were
-shortened to make room in the request". Every tool, and `toolResultSummary`, which writes what a
-step found, are in the [tools reference](../reference/tools.md).
+" — failed: " and the reason. A call to a tool that does not exist reads
+`Call “do_magic” — failed: Unknown tool “do_magic”.`, its name cut at 64 characters. The loop adds
+its own lines too, such as "Older tool results were shortened to make room in the request" or "The
+model's answer was empty: it was asked again". Every tool, and `toolResultSummary`, which writes
+what a step found, are in the [tools reference](../reference/tools.md).
 
 Activities and steps are English sentences, made by the library, with file names and the model's
-search words in them. Render them as text, never as HTML. For a UI in another language, show your
-own words for each event ("Searching your files…"), and build a list of sources from
-`result.evidence` when the answer is done: it is the structured record of what each call showed,
-the document and the lines or pages.
+search words in them. Each is one line of plain text: a line break, a tab or another control
+character in what the model sent becomes one space, text-direction controls, zero-width spaces
+and tag characters are dropped (variation selectors and joiners are not), `](` becomes `] (` so
+that a markdown link or picture in a query stays text, and a query is cut at 80 characters and a
+task at 100. They still quote the model's words, HTML tags and web addresses included. Render
+them as plain text, never as markdown or HTML. For a UI in another language, show your own words
+for each event ("Searching your files…"), and build a list of sources from `result.evidence` when
+the answer is done: it is the structured record of what each call showed, the document and the
+lines or pages.
 
 **Whole-file reads.** `askGemini` and `askWithFiles` take no `onProgress`. The progress of a
 whole-file read, a `ProgressEvent` (`kind` "map" or "reduce", `message`, `done`, `total`), reaches
@@ -774,6 +808,11 @@ A question stops when the `signal` you pass aborts. The route above aborts it in
 - **Your deadline passes**: `AbortSignal.timeout`, joined with the first by `AbortSignal.any`. A
   question has no time limit of its own.
 
+The question stops at once, even with an adapter of your own that does not look at the signal:
+nothing more is sent, and text that such an adapter sends later is not shown. `usage` in
+`partialResultOf(error)` is what was counted when it stopped; a request still running then may be
+billed by the provider, and is not counted.
+
 What aborting stops, what a stopped question throws, how to tell your deadline from a user who
 left, and why to abort with an `Error` rather than a string are in
 [Errors and reliability](./errors-and-reliability.md#an-overall-deadline).
@@ -885,8 +924,9 @@ export async function showAnswer(sessionId: string, question: string): Promise<v
 ```
 
 - **`answered: false`** means the text is no answer: a blocked prompt, a reply cut off before its
-  first word, a broken tool call. The text may be empty or hold only a remark from before a tool
-  call. Show your own message in its place, as above, and do not store it as the assistant's turn.
+  first word, or an answer that had no text (empty, or a tool call) even when it was asked for once
+  more. The text may be empty or hold only a remark from before a tool call. Show your own message
+  in its place, as above, and do not store it as the assistant's turn.
 - **An error after some text** (`incomplete: true`, or a dropped connection) leaves the text that
   arrived. Keep it, mark it as cut off, and let the user ask again.
 - **Stop** aborts the `fetch`. The connection closes, the server aborts the question, and `fetch`'s

@@ -1,11 +1,11 @@
 // Any Chat Completions endpoint as a model of `askWithFiles`: OpenAI, Azure OpenAI, DeepSeek,
 // LiteLLM, vLLM, Ollama, OpenRouter, Gemini's OpenAI layer. No SDK: the caller gives the URL.
 import { randomUUID } from "node:crypto";
-import { base64, idleWatch, parseArguments, readArguments, readJson, resolveHeaderSource, resolveSecret, unreachableReason, type HeaderSource, type IdleWatch, type SecretSource } from "../http.js";
-import { ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, type HeaderSource, type IdleWatch, type SecretSource } from "../http.js";
+import { laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
-import { parseSseJson } from "../sse.js";
+import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolResult } from "../types.js";
 
 /** The endpoint answered with an HTTP error, or could not be reached (`status` 0). */
@@ -119,6 +119,7 @@ function usageOf(usage: Json | undefined): GenerateUsage {
 const STATUS_OF_ERROR: Record<string, number> = {
   server_error: 500, api_error: 500, internal_error: 500, internal_server_error: 500, service_unavailable: 503,
   rate_limit_exceeded: 429, rate_limit_error: 429, tokens_exceeded: 429, timeout: 408, invalid_request_error: 400,
+  context_length_exceeded: 400, insufficient_quota: 429,
 };
 
 /**
@@ -179,18 +180,41 @@ function addReasoningDetail(details: Json[], detail: unknown): void {
   }
 }
 
-/** The error of a response that is not OK. Gemini's layer wraps its error in an array. */
+/**
+ * The error of a response that is not OK. Gemini's layer wraps its error in an array. Most servers
+ * put it in `error`; vLLM before its OpenAI-shaped errors, SGLang and FastChat put `message`, and
+ * servers built on FastAPI `detail`, at the top of the body.
+ */
 async function failure(response: Response): Promise<OpenAiRequestError> {
   const data = await response.json().catch(() => null) as Json | Json[] | null;
   const body = Array.isArray(data) ? data[0] : data;
-  const message = typeof body?.error === "string" ? body.error : body?.error?.message;
+  const nested = body?.error && typeof body.error === "object" ? body.error as Json : undefined;
+  const message = [typeof body?.error === "string" ? body.error : nested?.message, body?.message, detailText(body?.detail)]
+    .find((text): text is string => typeof text === "string" && text.length > 0);
   const wait = retryAfterMs(response.headers, body);
-  const param = typeof body?.error?.param === "string" ? body.error.param as string : undefined;
-  const code = typeof body?.error?.code === "string" ? body.error.code as string : undefined;
-  return new OpenAiRequestError(typeof message === "string" && message ? message : `The model returned HTTP ${response.status}.`, response.status, {
+  const own = nested ?? (body && typeof body === "object" ? body : undefined);
+  const param = typeof own?.param === "string" ? own.param as string : undefined;
+  const code = typeof own?.code === "string" ? own.code as string : undefined;
+  return new OpenAiRequestError(message ?? `The model returned HTTP ${response.status}.`, response.status, {
     ...(wait === undefined ? {} : { retryAfterMs: wait }),
     ...(param ? { param } : {}),
     ...(code ? { code } : {}),
+  });
+}
+
+/** FastAPI's `detail`: a message, or a list of problems, each with its own `msg`. */
+function detailText(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return undefined;
+  return detail.map((problem) => (typeof (problem as Json | null)?.msg === "string" ? (problem as Json).msg as string : "")).filter(Boolean).join("; ") || undefined;
+}
+
+/** An error event inside a stream that began with 200, with the server's own word for it. */
+function streamFailure(failed: unknown): OpenAiRequestError {
+  const named = failed && typeof failed === "object" ? failed as Json : {};
+  return new OpenAiRequestError(typeof failed === "string" ? failed : String(named.message ?? "The model reported an error."), streamErrorStatus(failed), {
+    ...(typeof named.code === "string" && named.code ? { code: named.code } : {}),
+    ...(typeof named.param === "string" && named.param ? { param: named.param } : {}),
   });
 }
 
@@ -290,7 +314,7 @@ export function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[] {
   return turns.flatMap((turn, index) => {
     // A call that came without an ID is given one that no round of another question has: these
     // messages are kept, and sent again next to those of later questions.
-    const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: `call_${randomUUID().replaceAll("-", "").slice(0, 24)}` }, result }));
+    const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: `call_${randomUUID().replaceAll("-", "").slice(0, 24)}` }, result: laterResult(result) }));
     return roundMessages({ role: "tools", calls: answers.map((answer) => answer.call), answers }, index + 1, false);
   });
 }
@@ -379,7 +403,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         if (maxTokensField === sent) maxTokensField = other;
         response = await post(body(other), signal ? AbortSignal.any([signal, timeout]) : timeout, stopped);
       }
-      const data = await readJson<Json>(response, stopped, unreachable);
+      const data = await readJson<Json>(response, stopped, unreachable, undefined, (error) => new OpenAiRequestError(notJsonMessage("The model's", response), response.status, { kind: "invalid", cause: error }));
       const used = usageOf(data.usage);
       onUsage?.(used);
       const choice = data.choices?.[0];
@@ -427,23 +451,37 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
   };
 
   /** The reply of a request that was answered: streamed, or in one piece. */
-  async function readReply(response: Response, stream: boolean, hooks: SendHooks, watch: IdleWatch, lost: (error: unknown) => OpenAiRequestError): Promise<ModelReply> {
+  async function readReply(answer: Response, stream: boolean, hooks: SendHooks, watch: IdleWatch, lost: (error: unknown) => OpenAiRequestError): Promise<ModelReply> {
     {
       let message: Json;
       let finish: unknown;
       let usage: Json | undefined;
       let text = "";
-      if (stream && response.body && (response.headers.get("content-type") ?? "").includes("text/event-stream")) {
+      // A body that is no JSON (a gateway's page) is not the model's reply, and is not sent again.
+      const notJson = (error: unknown) => new OpenAiRequestError(notJsonMessage("The model's", answer), answer.status, { kind: "invalid", cause: error });
+      let response = answer;
+      let events = false;
+      if (stream && answer.body) {
+        try {
+          ({ events, response } = await streamedReply(answer, watch));
+        } catch (error) {
+          if (hooks.signal?.aborted) throw error;
+          throw noteCutReply(lost(error));
+        }
+      }
+      if (events && response.body) {
         let reasoning = "";
         let reasoningText = "";
         let refusal = "";
         const details: Json[] = [];
         const toolCalls: Json[] = [];
         let ended = false;
+        // "[DONE]" ends the reply: a server that leaves the connection open after it is not waited for.
+        const end = replyEnd(watch);
         try {
-          for await (const chunk of parseSseJson<Json>(response.body, { onData: watch.pulse, onDone: () => { ended = true; }, signal: watch.signal })) {
+          for await (const chunk of parseSseJson<Json>(response.body, { onData: watch.pulse, onDone: () => { ended = true; end.reached(); }, signal: end.signal })) {
             const failed = (Array.isArray(chunk) ? chunk[0] : chunk)?.error;
-            if (failed) throw new OpenAiRequestError(typeof failed === "string" ? failed : String(failed.message ?? "The model reported an error."), streamErrorStatus(failed));
+            if (failed) throw streamFailure(failed);
             if (chunk.usage) usage = chunk.usage as Json;
             const choice = chunk.choices?.[0] as Json | undefined;
             if (!choice) continue;
@@ -466,20 +504,32 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
               for (const [key, value] of Object.entries(part)) {
                 if (key !== "index" && key !== "function" && value !== undefined && value !== null && !(key === "id" && call.id)) call[key] = value;
               }
-              if (typeof part.function?.name === "string") call.function.name += part.function.name;
+              // The name comes whole in the first piece of a call. A server that sends it again with
+              // each piece does not make it longer; one that sends it in pieces does.
+              const name = part.function?.name;
+              if (typeof name === "string" && name !== call.function.name) call.function.name += name;
               if (typeof part.function?.arguments === "string") call.function.arguments += part.function.arguments;
             }
             finish = choice.finish_reason ?? finish;
           }
         } catch (error) {
-          if (hooks.signal?.aborted || error instanceof OpenAiRequestError) throw error;
-          // The connection went while the answer was on its way, or nothing came for the whole wait.
-          throw lost(error);
+          // The reply ended with "[DONE]", and the connection then stayed open, or broke rather than
+          // end: what came before it is whole.
+          const whole = end.left(error) || (end.whole && !hooks.signal?.aborted && !(error instanceof OpenAiRequestError));
+          if (!whole) {
+            if (hooks.signal?.aborted || error instanceof OpenAiRequestError) throw error;
+            // An event too long to read would come again: it is not sent again, like a page in the reply's place.
+            if (error instanceof SseEventTooLongError) throw new OpenAiRequestError(eventTooLongMessage("The model's", error), answer.status, { kind: "invalid", cause: error });
+            // The connection went while the answer was on its way, or nothing came for the whole wait.
+            throw noteCutReply(lost(error));
+          }
+        } finally {
+          end.dispose();
         }
         // A stream ends with a reason for its end, and with "[DONE]". One that closed with neither
         // was cut off on its way (a proxy, a dropped connection): it is not a whole reply, and is
         // sent again like a connection that failed, unless text of it was shown.
-        if (finish === undefined && !ended) throw new OpenAiRequestError("The model's reply ended before it was complete.", 0);
+        if (finish === undefined && !ended) throw noteCutReply(new OpenAiRequestError("The model's reply ended before it was complete.", 0));
         const calls = toolCalls.filter(Boolean);
         message = {
           role: "assistant",
@@ -497,7 +547,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         }
       } else {
         // In one piece: no streaming was asked for, or the server answered without it.
-        const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), lost, watch);
+        const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), lost, watch, notJson);
         const choice = data.choices?.[0] as Json | undefined;
         message = (choice?.message ?? { role: "assistant", content: null }) as Json;
         finish = choice?.finish_reason;
