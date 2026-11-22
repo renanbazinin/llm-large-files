@@ -134,9 +134,17 @@ Pushing the tag starts the release workflow.
 
    If its publish step fails, see [When the publish step fails](#when-the-publish-step-fails).
 
-7. [Check the release](#checking-a-release).
+7. Approve the staged version. The workflow stages it (`npm stage publish`): it is uploaded with
+   its provenance, but not installable yet. Open npmjs.com → your account → **Staged Packages**,
+   check that it is `llm-large-files` with the version of the tag, and click **Approve**; npm asks
+   for the account's two-factor approval. From a terminal logged in to npm, `npm stage approve
+   <stage-id>` does the same. Until then `npm view llm-large-files@0.7.0` answers 404. A staged
+   version you do not want is removed with **Reject** (or `npm stage reject <stage-id>`), and the
+   same version can be staged again.
 
-8. Create the GitHub release from the version's section of CHANGELOG.md. The workflow does not
+8. [Check the release](#checking-a-release).
+
+9. Create the GitHub release from the version's section of CHANGELOG.md. The workflow does not
    make one, and the changelog sends readers to the releases page:
 
    ```bash
@@ -161,7 +169,7 @@ GitHub for `contents: read` and `id-token: write`. Its steps:
 | Check the tag matches package.json | The tag is not `v` + the `version` in package.json: for example `v0.6.0` on a commit whose package.json still says 0.5.0. |
 | `npm run check` | The typecheck, a test or the build fails. |
 | Check that this job can identify itself to npm | The job has no identity token: "No identity token for this job. The workflow needs the id-token write permission." |
-| `npm publish --provenance --access public --loglevel verbose` | npm does not accept the job's identity for this package (see below). `prepublishOnly` runs `npm run check` once more before it. |
+| `npm stage publish --provenance --access public --loglevel verbose` | npm does not accept the job's identity for this package, or the trusted publisher does not allow staging (see below). The version is staged, not public, until a maintainer approves it. |
 
 When a step before the publish fails, nothing was published. Fix the cause on `main` with a pull
 request, delete the tag (`git tag -d v0.6.0`, then `git push origin :refs/tags/v0.6.0`), and tag
@@ -176,6 +184,13 @@ name this workflow. Open the package on npmjs.com → Settings → Trusted Publi
 - Organization or user: `renanbazinin`
 - Repository: `llm-large-files`
 - Workflow filename: `release.yml`
+- Environment name: empty
+- Permissions: `npm stage publish` only (npm's default and its recommendation). Leave `npm publish`
+  off: then a pushed tag, or a changed workflow, can never make a version public without a
+  maintainer's two-factor approval.
+
+A new trusted publisher must be used for a first successful publish within two days, or npm drops
+it and it has to be added again.
 
 The workflow reads no token, so an `NPM_TOKEN` secret is ignored. It used to set `NODE_AUTH_TOKEN`
 from that secret; when the secret did not exist the value was empty, and with an empty token npm
@@ -188,6 +203,12 @@ none. npm checks the trusted publisher only at publish time, and says why it ref
 only in the verbose log: that is why the step runs with `--loglevel verbose`.
 
 ## When the publish step fails
+
+**`403 Forbidden … OIDC permission denied for this action`.** npm accepted the job's identity
+(`npm verbose oidc Successfully retrieved and set token`) but the trusted publisher does not allow
+what the step asked for: a plain `npm publish` against a publisher that allows staging only. This
+happened on the first v0.7.0 run, before the step was `npm stage publish`. Make the step and the
+publisher's permissions agree, then tag again.
 
 The publish step has failed with trusted publishing before: on every tag from v0.2.0 to v0.5.0, and
 each of those versions was published by hand. The first v0.2.0 run failed with `ENEEDAUTH` (the

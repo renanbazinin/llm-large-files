@@ -1,6 +1,7 @@
 name: Release
 
-# Publishes to npm when a version tag (v1.2.3) is pushed. See docs/publishing.md.
+# Stages the version on npm when a version tag (v1.2.3) is pushed: a maintainer then approves it on
+# npmjs.com (Staged Packages, with two-factor approval) and it goes public. See docs/publishing.md.
 on:
   push:
     tags: ["v*"]
@@ -35,4 +36,7 @@ jobs:
       # not exist), npm did not use trusted publishing and failed with ENEEDAUTH.
       # npm checks the trusted publisher settings only at publish time and says why it refused an
       # identity only in the verbose log.
-      - run: npm publish --provenance --access public --loglevel verbose
+      # Staged publishing: the trusted publisher allows "npm stage publish" only, so this job can
+      # never make a version public by itself; a maintainer's two-factor approval does. A plain
+      # "npm publish" is refused with "403 … OIDC permission denied for this action".
+      - run: npm stage publish --provenance --access public --loglevel verbose
