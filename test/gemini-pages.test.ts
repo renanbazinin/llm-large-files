@@ -60,6 +60,8 @@ const GUIDE_0_2_0 = (names: string) => [
   "You see only a summary card for each. Read them through the tools:",
   "- search_document finds lines (exact or regex) or the most relevant passages (keywords).",
   "- To count or list what can be matched as text (a word, an ID, an error code, a log level, a pattern), use search_document in exact or regex mode: its total_matching_lines is exact.",
+  "- To count per group (per hour or day, per error code or ID with a regex group, per message shape), pass group_by: one call gives every count. For more matches than a result shows, search again from its next_from_line, or with order \"last\" for the last ones.",
+  "- Search for the bare form of a word: a search matches inside longer words, so \"timeout\" also finds \"timeouts\", and a Hebrew word without its prefix letters (חוזה, not בחוזה) finds every form of it.",
   "- read_document reads a line range. Read around search hits before you rely on them.",
   "- get_document_overview returns the outline, log profile, and the start and end of a file.",
   "- analyze_whole_document reads the entire file in parts. Use it only when the task needs all of the file and cannot be done by matching text: a full summary, a timeline, or items that must be judged by meaning. It is slow and costly, and it can miss items of a long list.",

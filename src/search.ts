@@ -1,7 +1,8 @@
 import { createContext, Script, type Context } from "node:vm";
+import { GroupCounter, type GroupBy, type GroupResult } from "./groups.js";
 import { pause } from "./pause.js";
 import { PASSAGE_CHARACTERS, PASSAGE_MAX_LINES, positionOf } from "./text-index.js";
-import { foldCase, LineIndex, sliceWhole } from "./text.js";
+import { composed, foldCase, LineIndex, sliceWhole } from "./text.js";
 import type { DocumentMeta, StoredDocument } from "./types.js";
 
 const MAX_OCCURRENCES_PER_TERM = 200_000;
@@ -234,6 +235,10 @@ export type GrepResult = {
    * scan stopped early: the last line it found need not be the last of the document.
    */
   last?: LineMatch;
+  /** With `order: "last"`: the first matching line, when it is not among `matches`. */
+  first?: LineMatch;
+  /** With `groupBy`: the matching lines counted by group. `matches` is then empty. */
+  groups?: GroupResult;
 };
 
 export type GrepOptions = {
@@ -245,6 +250,16 @@ export type GrepOptions = {
   timeLimitMs?: number;
   /** Regex mode only: the time spent matching is added to `usedMs`, for a caller that keeps a budget over several searches. */
   regexClock?: { usedMs: number };
+  /** Only lines from this one on are looked at (1-based). */
+  fromLine?: number;
+  /** Only lines up to this one are looked at. */
+  toLine?: number;
+  /** "last": `matches` are the last `maxResults` matching lines, and `first` the first one. Defaults to "first". */
+  order?: "first" | "last";
+  /** Count the matching lines by group, and show none (see `GroupBy`). */
+  groupBy?: GroupBy;
+  /** Exact mode: only where the text is a whole word, not part of a longer one. Letters of every script count. */
+  wholeWord?: boolean;
 };
 
 function clip(line: string, column: number): string {
@@ -283,14 +298,56 @@ function withinTimeLimit(scan: () => void, milliseconds: number): boolean {
   }
 }
 
+/** A group that holds a quantifier and is repeated itself: `(a+)+`, `(\d{1,3}\.){3}`. Group 1 is its body. */
+const NESTED_QUANTIFIER = /\(((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*)\)\s*[+*{]/g;
+/** An atom of a pattern, as `regexAtoms` splits it: an escape, a class, or one character. */
+const REGEX_ATOM = /\\[pPu]\{[^}]*\}|\\x[0-9a-fA-F]{2}|\\u[0-9a-fA-F]{4}|\\.|\[(?:[^\]\\]|\\.)*\]|\{\d*,?\d*\}|[\s\S]/gu;
+/** Escapes that stand for many characters, not for one. */
+const CLASS_ESCAPE = /^\\[dDwWsSbBpP]/;
+const QUANTIFIER = /^(?:[+*?]|\{\d*,?\d*\})$/;
+
+/**
+ * Whether a repeated group cannot backtrack without end: its body ends in a literal character that
+ * none of the quantified atoms before it can match, and has no alternation. Each repeat then ends at
+ * the next such character, so the match takes time in proportion to the line. `(\d{1,3}\.){3}`,
+ * `(\w+\.)+com` and `(\d+-)+\d+` pass; `(a+)+`, `(\w+\s?)+`, `(.+x)+` and `(\d+\d)+` do not.
+ */
+function separatedRepeat(body: string): boolean {
+  const atoms: string[] = body.match(REGEX_ATOM) ?? [];
+  if (atoms.includes("|")) return false;
+  const last = atoms.at(-1);
+  if (last === undefined) return false;
+  // The separator: one character, written plainly or escaped, not a class, a dot or a quantifier.
+  let separator: string;
+  if (last.startsWith("\\")) {
+    if (last.length !== 2 || CLASS_ESCAPE.test(last) || /^\\[0-9ck]$/.test(last)) return false;
+    separator = last[1]!;
+  } else {
+    if (last.length !== 1 || ".?*+{}()[]|^$".includes(last)) return false;
+    separator = last;
+  }
+  for (let index = 0; index < atoms.length - 1; index++) {
+    const next = atoms[index + 1]!;
+    if (!QUANTIFIER.test(next) || QUANTIFIER.test(atoms[index]!)) continue;
+    try {
+      if (new RegExp(`^(?:${atoms[index]})$`, "iu").test(separator)) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * A quick refusal for the most common catastrophic shape, a nested quantifier such as (a+)+.
- * It does not catch every slow pattern; the time limit in `grep` is what bounds the search.
+ * A repeated group whose repeats are separated by a literal character none of its quantified parts
+ * matches, as in an IPv4 address or a domain, is linear, and passes (see `separatedRepeat`). It does
+ * not catch every slow pattern; the time limit in `grep` is what bounds the search.
  */
 export function unsafeRegexReason(pattern: string): string | null {
   if (pattern.length > 300) return "Regex is longer than 300 characters.";
-  if (/\((?:[^()\\]|\\.)*[+*}](?:[^()\\]|\\.)*\)\s*[+*{]/.test(pattern)) {
-    return "Regex has a nested quantifier like (a+)+, which can hang on large files. Simplify it.";
+  for (const [, body] of pattern.matchAll(NESTED_QUANTIFIER)) {
+    if (!separatedRepeat(body!)) return "Regex has a nested quantifier like (a+)+, which can hang on large files. Simplify it.";
   }
   try {
     new RegExp(pattern);
@@ -300,17 +357,85 @@ export function unsafeRegexReason(pattern: string): string | null {
   return null;
 }
 
+/** What `\w` means in a pattern compiled here: a letter, a mark or a digit of any script, or "_". */
+const WORD_CLASS = "\\p{L}\\p{M}\\p{N}_";
+
+/**
+ * The pattern with `\w`, `\W`, `\b` and `\B` meaning letters of every script, not only ASCII:
+ * in JavaScript, `\bחוזה\b` matches nothing and `\w+` stops at "é". Undefined when the pattern
+ * cannot be rewritten that way (`\W` inside a class): it is then compiled as it is.
+ */
+export function unicodeWordPattern(pattern: string): string | undefined {
+  let out = "";
+  let inClass = false;
+  for (let at = 0; at < pattern.length; at++) {
+    const character = pattern[at]!;
+    if (character === "\\") {
+      const next = pattern[at + 1];
+      if (next === undefined) return undefined;
+      at++;
+      if (inClass) {
+        if (next === "w") out += WORD_CLASS;
+        else if (next === "W") return undefined;
+        else out += `\\${next}`;
+      } else if (next === "w") {
+        out += `[${WORD_CLASS}]`;
+      } else if (next === "W") {
+        out += `[^${WORD_CLASS}]`;
+      } else if (next === "b") {
+        out += `(?:(?<=[${WORD_CLASS}])(?![${WORD_CLASS}])|(?<![${WORD_CLASS}])(?=[${WORD_CLASS}]))`;
+      } else if (next === "B") {
+        out += `(?:(?<=[${WORD_CLASS}])(?=[${WORD_CLASS}])|(?<![${WORD_CLASS}])(?![${WORD_CLASS}]))`;
+      } else {
+        out += `\\${next}`;
+      }
+      continue;
+    }
+    if (character === "[" && !inClass) inClass = true;
+    else if (character === "]" && inClass) inClass = false;
+    out += character;
+  }
+  return out;
+}
+
 /**
  * The pattern as a regular expression. With the Unicode flag when the pattern allows it, so that
- * `\p{L}` means a letter and a character outside the basic plane is one character; without it for
- * a pattern that is only valid the old way (`[\w-.]`, `\-`).
+ * `\p{L}` means a letter, a character outside the basic plane is one character, and `\w` and `\b`
+ * know the letters of every script (see `unicodeWordPattern`); without it for a pattern that is
+ * only valid the old way (`[\w-.]`, `\-`). The pattern is composed (NFC) first, as the text is.
  */
-function compileRegex(pattern: string, flags: string): RegExp {
+function compileRegex(given: string, flags: string): RegExp {
+  const pattern = composed(given);
+  const unicode = unicodeWordPattern(pattern);
+  if (unicode !== undefined) {
+    try {
+      return new RegExp(unicode, `${flags}u`);
+    } catch {
+      // Below: as it is.
+    }
+  }
   try {
     return new RegExp(pattern, `${flags}u`);
   } catch {
     return new RegExp(pattern, flags);
   }
+}
+
+/** A letter, mark, digit or "_" of any script: what a whole word is made of. */
+const WORD_CHARACTER = /[\p{L}\p{M}\p{N}_]/u;
+
+/** Whether the character that ends just before `at` is a word character. */
+function wordBefore(text: string, at: number): boolean {
+  if (at <= 0) return false;
+  const low = text.charCodeAt(at - 1);
+  const from = low >= 0xdc00 && low <= 0xdfff && at >= 2 ? at - 2 : at - 1;
+  return WORD_CHARACTER.test(text.slice(from, at));
+}
+
+/** Whether the character that starts at `at` is a word character. */
+function wordAt(text: string, at: number): boolean {
+  if (at >= text.length) return false;
+  return WORD_CHARACTER.test(String.fromCodePoint(text.codePointAt(at)!));
 }
 
 const newlinesIn = (text: string) => text.split("\n").length - 1;
@@ -370,6 +495,18 @@ class LineSearch {
   private unfinished?: { chunk: TextChunk; next: number };
   /** Regex mode: the line that took a whole slice without being finished. A second such slice ends the search. */
   private stuck?: number;
+  /** The lines looked at: matches outside them are neither counted nor shown. */
+  private readonly fromLine: number;
+  private readonly toLine: number;
+  /** `order: "last"`: the matches are the last ones, and this is the first. */
+  private readonly lastOnes: boolean;
+  private firstHit?: { line: number; column: number; text: string };
+  /** `order: "last"`: whether the lines around the matches kept have been put among the lines to show. */
+  private lastOnesShown = false;
+  private readonly groups?: GroupCounter;
+  /** Exact mode, `wholeWord`: whether the needle starts and ends with a word character, where a word must start and end. */
+  private readonly wordStart: boolean = false;
+  private readonly wordEnd: boolean = false;
 
   constructor(query: string, private readonly settings: GrepOptions, private readonly lineCount: number) {
     if (!query) throw new Error("The search query is empty.");
@@ -378,12 +515,27 @@ class LineSearch {
       if (problem) throw new Error(problem);
       this.pattern = compileRegex(query, settings.caseSensitive ? "" : "i");
     } else {
-      this.needle = settings.caseSensitive ? query : foldCase(query);
+      // Composed, as the text is at ingest (`composed`): "café" typed either way finds both.
+      const needle = composed(query);
+      this.needle = settings.caseSensitive ? needle : foldCase(needle);
       this.newlines = newlinesIn(this.needle);
+      if (settings.wholeWord) {
+        this.wordStart = wordAt(this.needle, 0);
+        this.wordEnd = wordBefore(this.needle, this.needle.length);
+      }
     }
     this.timeLeft = settings.timeLimitMs ?? REGEX_TIME_LIMIT_MS;
-    this.context = Math.max(0, Math.min(5, settings.contextLines));
+    this.lastOnes = settings.order === "last";
+    if (settings.groupBy) {
+      if (settings.groupBy === "capture" && !settings.regex) throw new Error("group_by \"capture\" counts by the first group of a regex: use mode \"regex\" with a group, as in PAY-(\\d+).");
+      this.groups = new GroupCounter(settings.groupBy);
+    }
+    // Lines around matches are not shown when no match is.
+    this.context = this.groups ? 0 : Math.max(0, Math.min(5, settings.contextLines));
     this.keep = this.context + this.newlines;
+    this.fromLine = Math.max(1, Math.trunc(settings.fromLine ?? 1));
+    this.toLine = Math.min(lineCount, Math.trunc(settings.toLine ?? lineCount));
+    if (this.toLine < this.fromLine) this.done = true;
   }
 
   /** Scans a piece to its end, without a pause: for a caller that cannot wait. See `addSome`. */
@@ -400,6 +552,17 @@ class LineSearch {
    */
   addSome(chunk: TextChunk): boolean {
     if (this.done) return true;
+    const chunkEnd = chunk.firstLine + chunk.lines.lineCount - 1;
+    if (chunk.firstLine > this.toLine) {
+      this.done = true;
+      return true;
+    }
+    // A piece that ends before the lines searched is not scanned; its last lines are still kept,
+    // for lines shown before a match and for a needle across lines.
+    if (chunkEnd < this.fromLine) {
+      this.recent = remember(this.recent, chunk, this.keep);
+      return true;
+    }
     if (this.pattern) {
       if (!this.scanRegex(chunk)) return false;
     } else {
@@ -442,6 +605,11 @@ class LineSearch {
    * around the last match, which is known only once the scan is over. Read them and `fill` them.
    */
   missing(): number[] {
+    if (this.lastOnes && !this.lastOnesShown) {
+      this.lastOnesShown = true;
+      for (const hit of this.hits) this.showAround(hit.line);
+      if (this.firstHit && this.firstHit.line < (this.hits[0]?.line ?? 0)) this.showAround(this.firstHit.line);
+    }
     if (this.last && !this.lastShown && !this.stoppedEarly) {
       this.lastShown = true;
       this.showAround(this.last.line);
@@ -469,12 +637,37 @@ class LineSearch {
       }
       return match;
     };
+    if (this.groups) return { totalMatchingLines: this.total, stoppedEarly: this.stoppedEarly, matches: [], groups: this.groups.result() };
+    if (this.lastOnes) {
+      const first = this.firstHit && this.firstHit.line < (this.hits[0]?.line ?? 0) ? { first: show(this.firstHit) } : {};
+      return { totalMatchingLines: this.total, stoppedEarly: this.stoppedEarly, matches: this.hits.map(show), ...first };
+    }
     const last = this.last && !this.stoppedEarly ? { last: show(this.last) } : {};
     return { totalMatchingLines: this.total, stoppedEarly: this.stoppedEarly, matches: this.hits.map(show), ...last };
   }
 
-  private record(line: number, column: number, text: string): void {
+  /**
+   * A matching line. Lines outside `fromLine`-`toLine` are left out, and the first past `toLine`
+   * ends the search. `capture`: the text of the regex's first group, for `groupBy: "capture"`.
+   */
+  private record(line: number, column: number, text: string, capture?: string): void {
+    if (line < this.fromLine) return;
+    if (line > this.toLine) {
+      this.done = true;
+      return;
+    }
     this.total++;
+    if (this.groups) {
+      this.groups.add(line, text, capture);
+      return;
+    }
+    if (this.lastOnes) {
+      // The last ones kept so far; the lines around them are known once the scan is over (`missing`).
+      this.firstHit ??= { line, column, text };
+      this.hits.push({ line, column, text });
+      if (this.hits.length > this.settings.maxResults) this.hits.shift();
+      return;
+    }
     if (this.hits.length >= this.settings.maxResults) {
       this.last = { line, column, text };
       return;
@@ -508,18 +701,30 @@ class LineSearch {
       firstLine = before.firstLine;
       start = chunk.startCharacter - before.text.length;
     }
-    for (let at = text.indexOf(needle, Math.max(0, this.nextAllowed - start)); at !== -1; at = text.indexOf(needle, at + needle.length)) {
-      this.nextAllowed = start + at + needle.length;
+    for (let at = text.indexOf(needle, Math.max(0, this.nextAllowed - start)); at !== -1;) {
+      if ((this.wordStart && wordBefore(text, at)) || (this.wordEnd && wordAt(text, at + needle.length))) {
+        // Part of a longer word: the next occurrence may be a whole one, on this line too.
+        at = text.indexOf(needle, at + 1);
+        continue;
+      }
       const local = lines.lineAt(at);
       const line = firstLine + local - 1;
-      if (line === this.lastLine) continue;
-      this.lastLine = line;
-      this.record(line, at - lines.startOf(local), lines.line(local));
-      if (this.total >= MAX_EXACT_MATCHES) {
-        this.stoppedEarly = true;
-        this.done = true;
-        return;
+      // A line is counted once, where an occurrence starts: the search goes on at the start of the
+      // next line. Overlapping occurrences of a needle across lines ("a\na" in "a\na\na") each
+      // count on their own line, and further occurrences on a counted line cost nothing.
+      const next = lines.startOf(local + 1);
+      this.nextAllowed = start + next;
+      if (line > this.lastLine) {
+        this.lastLine = line;
+        this.record(line, at - lines.startOf(local), lines.line(local));
+        if (this.done) return;
+        if (this.total >= MAX_EXACT_MATCHES) {
+          this.stoppedEarly = true;
+          this.done = true;
+          return;
+        }
       }
+      at = next >= text.length ? -1 : text.indexOf(needle, next);
     }
   }
 
@@ -540,18 +745,20 @@ class LineSearch {
     if (this.timeLeft <= 0) return stop();
     const pattern = this.pattern!;
     const { lines, firstLine } = chunk;
+    // Lines before those searched are not matched at all.
+    if (firstLine + next - 1 < this.fromLine) next = this.fromLine - firstLine + 1;
     const from = next;
     const slice = Math.min(this.timeLeft, REGEX_SLICE_MS);
     const started = performance.now();
     const finished = withinTimeLimit(() => {
-      for (; next <= lines.lineCount; next++) {
+      for (; next <= lines.lineCount && !this.done; next++) {
         const line = firstLine + next - 1;
         const text = lines.line(next);
         const match = pattern.exec(text);
         // A line is recorded once, also when a slice ended while it was being recorded and it is looked at again.
         if (match && line > this.lastLine) {
           this.lastLine = line;
-          this.record(line, match.index, text);
+          this.record(line, match.index, text, match[1]);
         }
       }
     }, slice);
@@ -610,9 +817,89 @@ export async function grepSource(source: DocumentSource, query: string, options:
   return search.result();
 }
 
+/** What splits a query into words: anything but letters, marks, digits and "_". A mark stays with its letter (Hindi, Thai, pointed Hebrew). */
+const NOT_WORD = /[^\p{L}\p{M}\p{N}_]+/u;
+/** Scripts written without spaces between words: a word of them is split by `Intl.Segmenter`. */
+const WITHOUT_SPACES = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+/** Han and kana: one character can be a word. */
+const IDEOGRAPHS = /^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+$/u;
+let wordSegmenter: Intl.Segmenter | undefined | null;
+
+/** The words of a run of a script written without spaces, or the run itself where Node has no word segmenter. */
+function segmentWords(run: string): string[] {
+  if (wordSegmenter === undefined) {
+    try {
+      wordSegmenter = new Intl.Segmenter("und", { granularity: "word" });
+    } catch {
+      wordSegmenter = null;
+    }
+  }
+  if (!wordSegmenter) return [run];
+  const words: string[] = [];
+  for (const piece of wordSegmenter.segment(run)) if (piece.isWordLike) words.push(piece.segment);
+  return words.length > 0 ? words : [run];
+}
+
+const codePoints = (text: string) => {
+  let count = 0;
+  for (const _ of text) count++;
+  return count;
+};
+
+/** A word of Hebrew letters, with or without points. */
+const HEBREW_WORD = /^[\u05d0-\u05ea\u0591-\u05c7]+$/u;
+const HEBREW_POINTS = /[\u0591-\u05c7]/gu;
+/** Letters that Hebrew writes before a word: and, the, in, as, to, from, that (ו ה ב כ ל מ ש). */
+const HEBREW_PREFIXES = "והבכלמש";
+/** Final letters, and the form each takes inside a longer word: כסף, כספים. */
+const HEBREW_FINALS: Record<string, string> = { "ך": "כ", "ם": "מ", "ן": "נ", "ף": "פ", "ץ": "צ" };
+
+/**
+ * A query word, and the texts that count as hits of it. A Hebrew word loses its points (a model may
+ * write them when the file does not); one that ends in a final letter also matches with the plain
+ * form of that letter, as in a longer word (כסף finds כספים). Search matches substrings, so other
+ * words need nothing more: "timeout" finds "timeouts".
+ */
+type QueryTerm = { term: string; variants: string[] };
+
+function hebrewVariants(word: string): string[] {
+  const final = HEBREW_FINALS[word.at(-1)!];
+  return final ? [word, word.slice(0, -1) + final] : [word];
+}
+
+/**
+ * The terms of a keyword search: the words of the query, folded as the text is searched, without
+ * stop words and words of one letter (a Han or kana word can be one character). A Hebrew word that
+ * starts with prefix letters (בחוזה, והחוזה) also gives its stem without them (חוזה) as a term of its
+ * own, while at least 3 letters are left: the stem finds the word with any prefix, and passages
+ * with the word as written still rank first, as they hold both terms.
+ */
+export function searchTerms(query: string): QueryTerm[] {
+  const terms = new Map<string, QueryTerm>();
+  const add = (term: string, variants: string[]) => {
+    if (!terms.has(term)) terms.set(term, { term, variants });
+  };
+  for (const word of foldCase(composed(query)).split(NOT_WORD)) {
+    for (const piece of WITHOUT_SPACES.test(word) ? segmentWords(word) : [word]) {
+      if (!piece || STOPWORDS.has(piece) || codePoints(piece) < (IDEOGRAPHS.test(piece) ? 1 : 2)) continue;
+      if (!HEBREW_WORD.test(piece)) {
+        add(piece, [piece]);
+        continue;
+      }
+      const bare = piece.replace(HEBREW_POINTS, "");
+      if (bare.length < 2 || STOPWORDS.has(bare)) continue;
+      add(bare, hebrewVariants(bare));
+      let stem = bare;
+      for (let stripped = 0; stripped < 3 && stem.length > 3 && HEBREW_PREFIXES.includes(stem[0]!); stripped++) stem = stem.slice(1);
+      if (stem !== bare) add(stem, hebrewVariants(stem));
+    }
+  }
+  return [...terms.values()].slice(0, 12);
+}
+
+/** The terms of a keyword search, as text. See `searchTerms`. */
 export function queryTerms(query: string): string[] {
-  const terms = foldCase(query).split(/[^\p{L}\p{N}_]+/u).filter((term) => term.length >= 2 && !STOPWORDS.has(term));
-  return [...new Set(terms)].slice(0, 12);
+  return searchTerms(query).map(({ term }) => term);
 }
 
 export type RankedPassage = { from: number; to: number; score: number };
@@ -623,16 +910,20 @@ export type RankedPassage = { from: number; to: number; score: number };
  * language, and a term also matches longer words ("timeout" → "timeouts").
  */
 class PassageRank {
-  private readonly terms: Array<{ term: string; seen: number; frequency: Map<number, number> }>;
+  private readonly terms: Array<{ variants: string[]; seen: number; frequency: Map<number, number> }>;
   /** Passage lengths in characters, for the passages that have a hit. */
   private readonly lengths = new Map<number, number>();
   private readonly phrase?: { needle: string; newlines: number; passages: Set<number>; nextAllowed: number };
   private recent: Array<readonly [number, string]> = [];
 
-  constructor(query: string, private readonly source: Pick<DocumentSource, "passageStarts" | "lineCount" | "characters">) {
-    this.terms = queryTerms(query).map((term) => ({ term, seen: 0, frequency: new Map() }));
+  /**
+   * `range`: the lines to rank passages of; a passage that has none of them is left out, one that
+   * has some keeps all its lines.
+   */
+  constructor(query: string, private readonly source: Pick<DocumentSource, "passageStarts" | "lineCount" | "characters">, private readonly range?: { from: number; to: number }) {
+    this.terms = searchTerms(query).map(({ variants }) => ({ variants, seen: 0, frequency: new Map() }));
     // Passages that contain the whole phrase rank above passages with scattered terms.
-    const phrase = foldCase(query.trim());
+    const phrase = foldCase(composed(query.trim()));
     if (this.terms.length > 1 && phrase.length <= 200) this.phrase = { needle: phrase, newlines: newlinesIn(phrase), passages: new Set(), nextAllowed: 0 };
   }
 
@@ -644,12 +935,13 @@ class PassageRank {
     if (this.empty) return;
     const haystack = chunk.lower();
     for (const entry of this.terms) {
-      const { term } = entry;
-      for (let at = haystack.indexOf(term); at !== -1 && entry.seen < MAX_OCCURRENCES_PER_TERM; at = haystack.indexOf(term, at + term.length)) {
-        entry.seen++;
-        const passage = this.passageOf(chunk.firstLine + chunk.lines.lineAt(at) - 1);
-        entry.frequency.set(passage, (entry.frequency.get(passage) ?? 0) + 1);
-        if (!this.lengths.has(passage)) this.lengths.set(passage, this.lengthOf(passage, chunk));
+      for (const term of entry.variants) {
+        for (let at = haystack.indexOf(term); at !== -1 && entry.seen < MAX_OCCURRENCES_PER_TERM; at = haystack.indexOf(term, at + term.length)) {
+          entry.seen++;
+          const passage = this.passageOf(chunk.firstLine + chunk.lines.lineAt(at) - 1);
+          entry.frequency.set(passage, (entry.frequency.get(passage) ?? 0) + 1);
+          if (!this.lengths.has(passage)) this.lengths.set(passage, this.lengthOf(passage, chunk));
+        }
       }
     }
     const phrase = this.phrase;
@@ -678,9 +970,12 @@ class PassageRank {
     const passageCount = this.source.passageStarts.length;
     const averageLength = Math.max(1, this.source.characters / passageCount);
     const scores = new Map<number, number>();
-    for (const { frequency } of this.terms) {
+    for (const { frequency, seen } of this.terms) {
       const df = frequency.size;
-      if (df === 0) continue;
+      // A term found this often is in a large share of the passages, and tells little about any of
+      // them; and it was counted only up to the cap, in the passages before it. Scored, it pushed
+      // passages from the start of the file above better ones.
+      if (df === 0 || seen >= MAX_OCCURRENCES_PER_TERM) continue;
       const idf = Math.log(1 + (passageCount - df + 0.5) / (df + 0.5));
       for (const [passage, tf] of frequency) {
         const length = this.lengths.get(passage)!;
@@ -689,23 +984,29 @@ class PassageRank {
       }
     }
     if (this.phrase) for (const passage of this.phrase.passages) scores.set(passage, (scores.get(passage) ?? 0) * 1.5 + 1);
+    const range = this.range;
     return [...scores.entries()]
+      .filter(([passage]) => {
+        if (!range) return true;
+        const { from, to } = this.rangeOf(passage);
+        return to >= range.from && from <= range.to;
+      })
       .sort((left, right) => right[1] - left[1])
       .slice(0, topK)
-      .map(([passage, score]) => ({ ...this.range(passage), score: Math.round(score * 100) / 100 }));
+      .map(([passage, score]) => ({ ...this.rangeOf(passage), score: Math.round(score * 100) / 100 }));
   }
 
   private passageOf(line: number): number {
     return positionOf(this.source.passageStarts, line) - 1;
   }
 
-  private range(passage: number): { from: number; to: number } {
+  private rangeOf(passage: number): { from: number; to: number } {
     const starts = this.source.passageStarts;
     return { from: starts[passage]!, to: (passage + 1 < starts.length ? starts[passage + 1]! : this.source.lineCount + 1) - 1 };
   }
 
   private lengthOf(passage: number, chunk: TextChunk): number {
-    const { from, to } = this.range(passage);
+    const { from, to } = this.rangeOf(passage);
     const first = from - chunk.firstLine + 1;
     const last = to - chunk.firstLine + 1;
     if (first < 1 || last > chunk.lines.lineCount) throw new Error("A piece of the text does not hold whole passages.");
@@ -713,17 +1014,17 @@ class PassageRank {
   }
 }
 
-/** BM25 passage ranking over a document held in memory. */
-export function rankPassages(document: SearchableDocument, query: string, topK: number): RankedPassage[] {
-  const rank = new PassageRank(query, document);
+/** BM25 passage ranking over a document held in memory. `range`: only passages with lines in it. */
+export function rankPassages(document: SearchableDocument, query: string, topK: number, range?: { from: number; to: number }): RankedPassage[] {
+  const rank = new PassageRank(query, document, range);
   rank.add(document.wholeChunk());
   return rank.result(topK);
 }
 
 /** `rankPassages` over any document: one held in memory, or one read from the store a piece at a time. */
-export async function rankSource(source: DocumentSource, query: string, topK: number, signal?: AbortSignal): Promise<RankedPassage[]> {
-  if (source instanceof SearchableDocument) return rankPassages(source, query, topK);
-  const rank = new PassageRank(query, source);
+export async function rankSource(source: DocumentSource, query: string, topK: number, signal?: AbortSignal, range?: { from: number; to: number }): Promise<RankedPassage[]> {
+  if (source instanceof SearchableDocument) return rankPassages(source, query, topK, range);
+  const rank = new PassageRank(query, source, range);
   if (rank.empty) return [];
   await scanSource(source, (chunk) => {
     rank.add(chunk);

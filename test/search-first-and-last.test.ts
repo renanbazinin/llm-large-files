@@ -47,12 +47,13 @@ describe("the last match of an exact or regex search", () => {
     const result = await tools.execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact" });
     expect(result.total_matching_lines).toBe(30);
     expect(linesOf(result)).toEqual([...ERROR_LINES.slice(0, 20), 2910]);
-    expect(result.note).toBe("21 of the 30 matching lines are shown: the first 20 and the last (line 2910). To see the ones in between, narrow the search.");
-    expect(Object.keys(result)).toEqual(["document", "mode", "total_matching_lines", "note", "matches"]);
+    expect(result.note).toBe("21 of the 30 matching lines are shown: the first 20 and the last (line 2910). To see the ones in between, search again with from_line 1941, or count them with group_by.");
+    expect(Object.keys(result)).toEqual(["document", "mode", "total_matching_lines", "note", "next_from_line", "matches"]);
+    expect(result.next_from_line).toBe(1941);
     // One asked for: the first and the last.
     const one = await tools.execute("search_document", { document_id: meta.id, query: "ERROR", mode: "regex", max_results: 1 });
     expect(linesOf(one)).toEqual([97, 2910]);
-    expect(one.note).toBe("2 of the 30 matching lines are shown: the first and the last (line 2910). To see the ones in between, narrow the search.");
+    expect(one.note).toBe("2 of the 30 matching lines are shown: the first and the last (line 2910). To see the ones in between, search again with from_line 98, or count them with group_by.");
   });
 
   it("leaves the result as it was when every match is shown", async () => {
@@ -128,7 +129,8 @@ describe("the last match of an exact or regex search", () => {
     const lines = linesOf(cut);
     expect(lines.at(-1)).toBe(2910);
     expect(lines.slice(0, -1)).toEqual(ERROR_LINES.slice(0, lines.length - 1));
-    expect(cut.note).toBe(`Showing ${lines.length} of the 30 matching lines to stay within the size limit: the first ${lines.length - 1} and the last (line 2910). Narrow the query or read specific lines.`);
+    expect(cut.note).toBe(`Showing ${lines.length} of the 30 matching lines to stay within the size limit: the first ${lines.length - 1} and the last (line 2910). To see the ones in between, search again with from_line ${lines.at(-2)! + 1}, or count them with group_by.`);
+    expect(cut.next_from_line).toBe(lines.at(-2)! + 1);
     // Room for one match only: the last one, which no other search can show.
     const long = Array.from({ length: 10 }, (_, index) => `${index + 1} hit ${"x".repeat(300)}`).join("\n");
     const document = new SearchableDocument({ meta: { id: "doc_long", name: "long.txt" } as never, text: long });
@@ -209,7 +211,7 @@ describe("the search tool's description", () => {
     const { tools } = await inMemory();
     const description = tools.declarations.find((declaration) => declaration.name === "search_document")!.description;
     expect(description).not.toMatch(/every line/);
-    expect(description).toContain("total_matching_lines counts every matching line, and the result shows the first max_results of them and the last one.");
+    expect(description).toContain("total_matching_lines counts every matching line, and the result shows the first max_results of them and the last one;");
   });
 });
 

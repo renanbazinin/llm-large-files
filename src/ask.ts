@@ -42,14 +42,14 @@ import {
 import type { Budget, DocumentMeta, DocumentPlan, GenerateText, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
-export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find.";
+export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
 /** The same, when the only tool was `view_pages`: the text of the files is in the prompt, not in tool results. */
-export const FINAL_ANSWER_AFTER_PAGES = "Stop using tools now. Answer my question from the text of the files and the pages you looked at. Say plainly what you could not see or find.";
+export const FINAL_ANSWER_AFTER_PAGES = "Stop using tools now. Answer my question from the text of the files and the pages you looked at. Say plainly what you could not see or find. Answer in the language of my question.";
 /**
  * Sent when no tool ran (an explorer model called none, the first reply was empty, or no turn was
  * left for tools), so there is no tool result to answer from.
  */
-export const FINAL_ANSWER_WITHOUT_TOOLS = "Answer my question now, from what is in this conversation. No tools are available for this reply: if the answer needs a part of a file that is not shown here, say so plainly.";
+export const FINAL_ANSWER_WITHOUT_TOOLS = "Answer my question now, from what is in this conversation. No tools are available for this reply: if the answer needs a part of a file that is not shown here, say so plainly. Answer in the language of my question.";
 /**
  * Added to the system instruction of an explorer model's requests: it gathers what the answer
  * needs, and the other model writes the answer.

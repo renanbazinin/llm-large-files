@@ -1,4 +1,5 @@
 import { safeErrorMessage } from "./errors.js";
+import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
 import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
 import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource, type LineMatch } from "./search.js";
@@ -8,6 +9,12 @@ import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
 import type { Budget, GenerateText, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
+/** Matching lines an exact or regex search shows: the default, and the most a call may ask for. */
+const DEFAULT_GREP_RESULTS = 20;
+const MAX_GREP_RESULTS = 50;
+/** Groups a search with `group_by` shows: the default, and the most a call may ask for. */
+const DEFAULT_GROUPS = 50;
+const MAX_GROUPS = 200;
 const MAX_READ_LINES = 600;
 /** The most pages one `view_pages` call shows. A page costs a model about 530 tokens. */
 export const MAX_VIEW_PAGES = 5;
@@ -42,16 +49,21 @@ const documentId = { type: "string" as const, description: "The document_id from
 const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
   search: {
     name: TOOL_NAMES.search,
-    description: "Search a large attached file. mode \"keywords\" returns the most relevant passages for a question; \"exact\" finds the lines that contain the text; \"regex\" finds the lines that match a JavaScript regular expression. For exact and regex, total_matching_lines counts every matching line, and the result shows the first max_results of them and the last one. Results include line numbers to read further with read_document.",
+    description: "Search a large attached file. mode \"keywords\" returns the most relevant passages for a question; \"exact\" finds the lines that contain the text; \"regex\" finds the lines that match a JavaScript regular expression (\\w and \\b know the letters of every language). For exact and regex, total_matching_lines counts every matching line, and the result shows the first max_results of them and the last one; search again from next_from_line for the ones after those shown, or with order \"last\" for the last ones. To count by group (per hour or day, per error code, per message shape), pass group_by: the result then counts each group, and shows no lines. from_line and to_line search part of the file. Results include line numbers to read further with read_document.",
     parameters: {
       type: "object",
       properties: {
         document_id: documentId,
         query: { type: "string", description: "Keywords, exact text, or a regex, depending on mode." },
         mode: { type: "string", enum: ["keywords", "exact", "regex"], description: "Defaults to keywords." },
-        max_results: { type: "integer", description: "Up to 50 for exact/regex (default 20), up to 10 passages for keywords (default 5)." },
+        max_results: { type: "integer", description: `Up to ${MAX_GREP_RESULTS} for exact/regex (default ${DEFAULT_GREP_RESULTS}), up to ${MAX_GROUPS} groups with group_by (default ${DEFAULT_GROUPS}), up to 10 passages for keywords (default 5).` },
         context_lines: { type: "integer", description: "exact/regex only: lines to show before and after each match, 0-5." },
         case_sensitive: { type: "boolean", description: "exact/regex only. Defaults to false." },
+        from_line: { type: "integer", description: "Search only from this line on (1-based). Pass a result's next_from_line to see the matches after those it shows." },
+        to_line: { type: "integer", description: "Search only up to this line." },
+        order: { type: "string", enum: ["first", "last"], description: "exact/regex only: \"last\" shows the last max_results matching lines, and the first one. Defaults to \"first\"." },
+        group_by: { type: "string", enum: [...GROUP_BY_VALUES], description: "exact/regex only: count the matching lines by group instead of showing them. \"capture\": by the text of the regex's first (group); \"minute\", \"hour\", \"day\": by the timestamp on the line; \"shape\": by the line with its numbers, IDs and quoted values taken out." },
+        whole_word: { type: "boolean", description: "exact only: match the text only as a whole word, not inside a longer one. Defaults to false." },
       },
       required: ["document_id", "query"],
     },
@@ -185,12 +197,16 @@ export function fitAnswer(result: ToolResult, limit: number): ToolResult {
 function firstAndLastMatches(base: ToolResult, first: LineMatch[], last: LineMatch, total: number, limit: number): ToolResult {
   const which = (kept: number) => (kept === 0 ? `the last (line ${last.line})` : `the first${kept > 1 ? ` ${kept}` : ""} and the last (line ${last.line})`);
   const shown = (kept: number) => `${kept + 1} of the ${total} matching lines`;
+  // Where a search for the ones in between goes on: after the last of the first ones shown.
+  const next = (kept: number) => (kept > 0 ? first[kept - 1]!.line + 1 : undefined);
+  const between = (kept: number) => (next(kept) !== undefined ? `To see the ones in between, search again with from_line ${next(kept)}, or count them with group_by.` : "Narrow the query or read specific lines.");
   const withFirst = (kept: number, cut: boolean): ToolResult => ({
     ...base,
     ...(cut
-      ? { note: `Showing ${shown(kept)} to stay within the size limit: ${which(kept)}. Narrow the query or read specific lines.` }
+      ? { note: `Showing ${shown(kept)} to stay within the size limit: ${which(kept)}. ${between(kept)}` }
       // When every match is shown, there is nothing to say.
-      : kept + 1 < total ? { note: `${shown(kept)} are shown: ${which(kept)}. To see the ones in between, narrow the search.` } : {}),
+      : kept + 1 < total ? { note: `${shown(kept)} are shown: ${which(kept)}. ${between(kept)}` } : {}),
+    ...(kept + 1 < total && next(kept) !== undefined ? { next_from_line: next(kept) } : {}),
     matches: [...first.slice(0, kept), last],
   });
   const whole = withFirst(first.length, false);
@@ -207,7 +223,83 @@ function firstAndLastMatches(base: ToolResult, first: LineMatch[], last: LineMat
   return fit(lastOnly, null, limit);
 }
 
+/**
+ * The result of a search with `order: "last"`: the first matching line, then the last ones. To fit
+ * `limit`, the earliest of the last ones are dropped first: the very last stays.
+ */
+function lastMatches(base: ToolResult, first: LineMatch | undefined, last: LineMatch[], total: number, limit: number): ToolResult {
+  const build = (kept: number, cut: boolean): ToolResult => {
+    const shownLast = last.slice(last.length - kept);
+    const count = shownLast.length + (first ? 1 : 0);
+    const which = `the first (line ${first?.line}) and the last ${shownLast.length}`;
+    const note = count < total
+      ? `${cut ? "Showing " : ""}${count} of the ${total} matching lines ${cut ? "to stay within the size limit" : "are shown"}: ${first ? which : `the last ${shownLast.length}`}.${cut ? " Narrow the query or read specific lines." : " To see others, search with from_line and to_line, or count them with group_by."}`
+      : undefined;
+    return { ...base, ...(note ? { note: typeof base.note === "string" ? `${base.note} ${note}` : note } : {}), matches: [...(first ? [first] : []), ...shownLast] };
+  };
+  const whole = build(last.length, false);
+  if (JSON.stringify(whole).length <= limit) return whole;
+  let kept = last.length;
+  while (kept > 1 && JSON.stringify(build(kept, true)).length > limit) kept--;
+  return fit(build(kept, true), null, limit);
+}
+
+/** The result of a search with `group_by`: the total, then up to `shown` groups, cut further to fit `limit`. */
+function groupedResult(base: ToolResult, counted: GroupResult, shown: number, limit: number): ToolResult {
+  const byTime = base.group_by === "minute" || base.group_by === "hour" || base.group_by === "day";
+  const all = counted.groups.map(({ key, count, firstLine, lastLine }) => ({ key, count, first_line: firstLine, last_line: lastLine }));
+  // By time, the groups shown are the largest, put back in time order.
+  const picked = byTime && all.length > shown
+    ? [...all].sort((left, right) => right.count - left.count).slice(0, shown).sort((left, right) => left.first_line - right.first_line)
+    : all.slice(0, shown);
+  const extra = {
+    total_groups: counted.totalGroups,
+    ...(counted.otherCount > 0 ? { other_count: counted.otherCount, other_note: `Lines of groups past the first ${MAX_GROUP_KEYS.toLocaleString("en-US")} found.` } : {}),
+    ...(counted.ungrouped > 0 ? { lines_without_group: counted.ungrouped } : {}),
+  };
+  const build = (kept: number, cut: boolean): ToolResult => {
+    const groups = picked.slice(0, kept);
+    const order = byTime ? (groups.length < all.length ? "the largest, in time order" : "in time order") : "the largest first";
+    const note = groups.length < counted.totalGroups ? `${cut ? "Showing " : ""}${groups.length} of the ${counted.totalGroups} groups${cut ? " to stay within the size limit" : " are shown"}, ${order}. Narrow the search, or use from_line and to_line, for the others.` : undefined;
+    return { ...base, ...extra, ...(note ? { note: typeof base.note === "string" ? `${base.note} ${note}` : note } : {}), groups };
+  };
+  const whole = build(picked.length, false);
+  if (JSON.stringify(whole).length <= limit) return whole;
+  let kept = picked.length;
+  while (kept > 1 && JSON.stringify(build(kept, true)).length > limit) kept--;
+  return fit(build(kept, true), null, limit);
+}
+
 const searchMode = (mode: unknown): "keywords" | "exact" | "regex" => (mode === "exact" || mode === "regex" ? mode : "keywords");
+
+/** `group_by` as the search reads it: undefined when not given. A value it does not know is an error. */
+function groupByOf(value: unknown): GroupBy | undefined {
+  if (value === undefined || value === null || value === "" || value === "none") return undefined;
+  if (typeof value === "string" && (GROUP_BY_VALUES as readonly string[]).includes(value)) return value as GroupBy;
+  throw new Error(`group_by must be one of ${GROUP_BY_VALUES.map((name) => `"${name}"`).join(", ")}.`);
+}
+
+/** A line number of a search's range, as the search reads it: undefined when not given. */
+const rangeLine = (value: unknown): number | undefined => (value === undefined || value === null || value === "" ? undefined : integer(value, 1, 1, Number.MAX_SAFE_INTEGER));
+
+/** The arguments of a search that choose which lines it looks at and how it shows them, as the search reads them. */
+function searchScope(args: Record<string, unknown>): { fromLine?: number; toLine?: number; order: "first" | "last"; groupBy?: GroupBy; wholeWord: boolean } {
+  const fromLine = rangeLine(args.from_line);
+  const toLine = rangeLine(args.to_line);
+  let groupBy: GroupBy | undefined;
+  try {
+    groupBy = groupByOf(args.group_by);
+  } catch {
+    groupBy = undefined;
+  }
+  return {
+    ...(fromLine !== undefined ? { fromLine } : {}),
+    ...(toLine !== undefined ? { toLine } : {}),
+    order: args.order === "last" ? "last" : "first",
+    ...(groupBy ? { groupBy } : {}),
+    wholeWord: args.whole_word === true,
+  };
+}
 
 /** The lines a `read_document` call asks for, as its handler reads them, before the end of the file is known. */
 function requestedLines(args: Record<string, unknown>): [number, number] {
@@ -226,9 +318,15 @@ export function toolCallKey(name: string, args: Record<string, unknown>): string
   if (name === TOOL_NAMES.search) {
     if (typeof args.query !== "string" || !args.query.trim()) return undefined;
     const mode = searchMode(args.mode);
+    const { fromLine, toLine, order, groupBy, wholeWord } = searchScope(args);
+    // The arguments of 0.8.0 are added only when given: a call without them has the key it had.
+    const scope = [
+      ...(fromLine !== undefined || toLine !== undefined ? [fromLine ?? 1, toLine ?? null] : []),
+      ...(mode !== "keywords" && (order === "last" || groupBy || wholeWord) ? [order, groupBy ?? null, mode === "exact" && wholeWord] : []),
+    ];
     return JSON.stringify(mode === "keywords"
-      ? [name, id, args.query, mode, integer(args.max_results, 5, 1, 10)]
-      : [name, id, args.query, mode, integer(args.max_results, 20, 1, 50), integer(args.context_lines, 0, 0, 5), args.case_sensitive === true]);
+      ? [name, id, args.query, mode, integer(args.max_results, 5, 1, 10), ...scope]
+      : [name, id, args.query, mode, groupBy ? integer(args.max_results, DEFAULT_GROUPS, 1, MAX_GROUPS) : integer(args.max_results, DEFAULT_GREP_RESULTS, 1, MAX_GREP_RESULTS), groupBy ? 0 : integer(args.context_lines, 0, 0, 5), args.case_sensitive === true, ...scope]);
   }
   if (name === TOOL_NAMES.read) return JSON.stringify([name, id, ...requestedLines(args)]);
   if (name === TOOL_NAMES.overview) return JSON.stringify([name, id]);
@@ -309,7 +407,8 @@ export function failureKind(call: { name: string; args: Record<string, unknown> 
 export function toolResultSummary(label: string, result: ToolResult): string {
   if (typeof result.error === "string") return ` — failed: ${result.error}`;
   if (typeof result.total_matching_lines === "number") {
-    return ` — ${result.total_matching_lines.toLocaleString("en-US")} ${plural(result.total_matching_lines, "matching line")}`;
+    const groups = typeof result.total_groups === "number" ? ` in ${result.total_groups.toLocaleString("en-US")} ${plural(result.total_groups, "group")}` : "";
+    return ` — ${result.total_matching_lines.toLocaleString("en-US")} ${plural(result.total_matching_lines, "matching line")}${groups}`;
   }
   if (Array.isArray(result.passages)) return ` — ${result.passages.length} ${plural(result.passages.length, "passage")}`;
   if (typeof result.parts_read === "number") {
@@ -449,13 +548,24 @@ export function createDocumentTools(options: {
       // Page numbers are added only for a PDF whose pages can be looked at: they are what
       // view_pages takes. Everything else gets the results of 0.2.0 unchanged.
       const paged = viewable.has(document.meta.id);
+      const groupBy = groupByOf(args.group_by);
+      const { fromLine, toLine, order, wholeWord } = searchScope(args);
+      const total = document.lineCount;
+      if (fromLine !== undefined && fromLine > total) throw new Error(`from_line ${fromLine} is past the end of the file, which has ${total} ${plural(total, "line")}.`);
+      if (toLine !== undefined && toLine < (fromLine ?? 1)) throw new Error(`to_line ${toLine} is before from_line ${fromLine ?? 1}.`);
+      const ranged = fromLine !== undefined || toLine !== undefined;
+      const range = { from: fromLine ?? 1, to: Math.min(total, toLine ?? total) };
+      // Said in the result when part of the file was searched: the counts are of those lines.
+      const searched = ranged ? { searched_lines: `${range.from}-${range.to}` } : {};
       if (mode === "keywords") {
+        if (groupBy) throw new Error("group_by counts the lines of an exact or regex search: use mode \"exact\" or \"regex\".");
         const topK = integer(args.max_results, 5, 1, 10);
-        const ranked = await rankSource(document, query, topK, options.signal);
+        const ranked = await rankSource(document, query, topK, options.signal, ranged ? range : undefined);
         const texts = await Promise.all(ranked.map((passage) => document.readLines(passage.from, passage.to)));
         return fit({
           document: document.meta.name,
           mode,
+          ...searched,
           passages: ranked.map((passage, index) => {
             const pages = paged ? document.pagesOfLines(passage.from, passage.to) : undefined;
             return {
@@ -469,6 +579,7 @@ export function createDocumentTools(options: {
         }, "passages", limit);
       }
       const regex = mode === "regex";
+      const shownGroups = integer(args.max_results, DEFAULT_GROUPS, 1, MAX_GROUPS);
       const grep = async () => {
         const regexLeft = regexBudget - regexClock.usedMs;
         if (regex && regexLeft <= 0) {
@@ -477,10 +588,14 @@ export function createDocumentTools(options: {
         return grepSource(document, query, {
           regex,
           caseSensitive: args.case_sensitive === true,
-          maxResults: integer(args.max_results, 20, 1, 50),
+          maxResults: integer(args.max_results, DEFAULT_GREP_RESULTS, 1, MAX_GREP_RESULTS),
           contextLines: integer(args.context_lines, 0, 0, 5),
           ...(regex ? { timeLimitMs: Math.min(REGEX_TIME_LIMIT_MS, regexLeft), regexClock } : {}),
           ...(options.signal ? { signal: options.signal } : {}),
+          ...(ranged ? { fromLine: range.from, toLine: range.to } : {}),
+          ...(order === "last" ? { order } : {}),
+          ...(groupBy ? { groupBy } : {}),
+          ...(wholeWord && !regex ? { wholeWord } : {}),
         });
       };
       const result = await (regex ? inRegexTurn(grep) : grep());
@@ -490,8 +605,13 @@ export function createDocumentTools(options: {
         const page = document.pageOfLine(line);
         return { line, ...(page ? { page } : {}), ...rest };
       };
-      const base = { document: document.meta.name, mode, total_matching_lines: result.totalMatchingLines };
+      const base = { document: document.meta.name, mode, ...searched, total_matching_lines: result.totalMatchingLines };
+      const stopped = result.stoppedEarly ? { note: "The scan stopped early; the counts are lower bounds." } : {};
+      if (result.groups) return groupedResult({ ...base, group_by: groupBy!, ...stopped }, result.groups, shownGroups, limit);
       const matches = result.matches.map(placed);
+      if (order === "last") {
+        return lastMatches({ ...base, order, ...stopped }, result.first ? placed(result.first) : undefined, matches, result.totalMatchingLines, limit);
+      }
       if (!result.stoppedEarly && result.totalMatchingLines >= 2) {
         // The last match is `last`, or, when every match is among the first ones, the last of them.
         return result.last
@@ -713,7 +833,10 @@ export function createDocumentTools(options: {
       }
       if (name === TOOL_NAMES.search) {
         const mode = args.mode === "exact" || args.mode === "regex" ? args.mode : "keywords";
-        return `Search ${file} (${mode}) for “${sliceWhole(String(args.query ?? ""), 80)}”`;
+        const { fromLine, toLine, order, groupBy } = searchScope(args);
+        const where = fromLine !== undefined || toLine !== undefined ? ` in lines ${fromLine ?? 1}-${toLine ?? "end"}` : "";
+        const how = mode === "keywords" ? "" : groupBy ? `, counted by ${groupBy}` : order === "last" ? ", the last ones" : "";
+        return `Search ${file} (${mode}) for “${sliceWhole(String(args.query ?? ""), 80)}”${where}${how}`;
       }
       if (name === TOOL_NAMES.read) {
         const start = integer(args.start_line, 1, 1, Number.MAX_SAFE_INTEGER);

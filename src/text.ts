@@ -73,9 +73,23 @@ export function breaksAtNextLine(text: string): boolean {
   return carriageReturn === -1 || carriageReturn >= end;
 }
 
-/** `removeInvisible`, after each U+0085 that ends a line is made a line break, when `nextLines`. */
+/** `removeInvisible`, after each U+0085 that ends a line is made a line break, when `nextLines`; then `composed`. */
 function cleanLines(text: string, nextLines: boolean): string {
-  return removeInvisible(nextLines && text.includes("\x85") ? text.replace(NEXT_LINE, "\n") : text);
+  return composed(removeInvisible(nextLines && text.includes("\x85") ? text.replace(NEXT_LINE, "\n") : text));
+}
+
+/** A character that Unicode normalization (NFC) may change: nothing below U+0300 does. */
+const MAY_COMPOSE = /[^\x00-\u02ff]/;
+
+/**
+ * `text` in Unicode's composed form (NFC): "e" followed by a combining acute accent becomes one
+ * "é", as a model writes it in a query. Text exported from macOS, from some PDF and Word files, and
+ * Vietnamese, often comes decomposed, and a search for the composed word found nothing in it. Text
+ * with no character from U+0300 on is returned as it is, without the cost of normalizing it.
+ * Hebrew and Arabic points are not composed by NFC: they stay as they are.
+ */
+export function composed(text: string): string {
+  return MAY_COMPOSE.test(text) ? text.normalize("NFC") : text;
 }
 
 /**
@@ -174,6 +188,8 @@ function cutsCleanly(text: string, at: number): boolean {
   const before = text.charCodeAt(at - 1);
   const after = text.charCodeAt(at);
   if (isHighSurrogate(before) && isLowSurrogate(after)) return false;
+  // NFC (`composed`) joins a mark to the letter before it, and Hangul jamo to each other.
+  if (composesWithBefore(text, at)) return false;
   if (before === 0xad && after === 0x0a) return false;
   if (after === 0x85 && before >= 0x80 && before <= 0xff) return false;
   // A flag is 14 units: U+1F3F4, then tag characters, each a pair that starts with U+DB40.
@@ -181,22 +197,54 @@ function cutsCleanly(text: string, at: number): boolean {
   return true;
 }
 
+/** A combining mark, or a Hangul vowel or final consonant: NFC may join it to what comes before. */
+const JOINS_BEFORE = /^[\p{M}\u1160-\u11ff\ud7b0-\ud7ff]/u;
+
+/** Whether the character at `at` may be joined by NFC to the one before it, so a cut there would change the result. */
+function composesWithBefore(text: string, at: number): boolean {
+  const after = text.charCodeAt(at);
+  if (after < 0x0300) return false;
+  return JOINS_BEFORE.test(text.slice(at, at + 2));
+}
+
+/**
+ * Characters that are written several ways for one meaning, each folded to the plain one for a
+ * search that ignores case: curly quotes and primes to `'` and `"`, Hebrew geresh (׳) and gershayim
+ * (״) too, which keyboards replace by them ("צה״ל", "צה\"ל"); hyphens, dashes, the minus sign and the
+ * Hebrew maqaf (־) to "-"; no-break, thin and other fixed-width spaces to a space; and the
+ * full-width forms of ASCII (Ａ, １) to ASCII. Each is one UTF-16 unit for one, so offsets keep.
+ */
+const SEARCH_FOLDS: Record<string, string> = {
+  "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'", "\u2032": "'", "\u05f3": "'", "\u02bc": "'",
+  "\u201c": "\"", "\u201d": "\"", "\u201e": "\"", "\u201f": "\"", "\u2033": "\"", "\u05f4": "\"",
+  "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2212": "-", "\u05be": "-",
+  "\u00a0": " ", "\u2007": " ", "\u2009": " ", "\u200a": " ", "\u202f": " ", "\u2002": " ", "\u2003": " ",
+  "\u03c2": "\u03c3",
+};
+const SEARCH_FOLD = /[\u2018\u2019\u201a\u201b\u2032\u05f3\u02bc\u201c\u201d\u201e\u201f\u2033\u05f4\u2010-\u2015\u2212\u05be\u00a0\u2007\u2009\u200a\u202f\u2002\u2003\u03c2\uff01-\uff5e]/g;
+
 /**
  * Lowercases for case-insensitive search without changing the string's length, so an offset in the
  * result points at the same character in the original. "İ" (U+0130) is the one character whose
- * lowercase form is longer; it is folded to "i".
+ * lowercase form is longer; it is folded to "i". Greek final sigma (ς) is folded to σ, as an upper
+ * case Σ is lowered to either depending on where it stands. Then the characters of `SEARCH_FOLDS`
+ * are folded, and the full-width forms of ASCII: a search for "don't" finds "don’t".
  */
 export function foldCase(text: string): string {
-  const lower = (text.includes("\u0130") ? text.replaceAll("\u0130", "i") : text).toLowerCase();
-  if (lower.length === text.length) return lower;
-  // Not expected with today's Unicode data. Fold unit by unit and keep any unit that would grow.
-  let out = "";
-  for (let index = 0; index < text.length; index++) {
-    const unit = text[index]!;
-    const folded = unit.toLowerCase();
-    out += folded.length === 1 ? folded : unit;
+  let lower = (text.includes("\u0130") ? text.replaceAll("\u0130", "i") : text).toLowerCase();
+  if (lower.length !== text.length) {
+    // Not expected with today's Unicode data. Fold unit by unit and keep any unit that would grow.
+    let out = "";
+    for (let index = 0; index < text.length; index++) {
+      const unit = text[index]!;
+      const folded = unit.toLowerCase();
+      out += folded.length === 1 ? folded : unit;
+    }
+    lower = out;
   }
-  return out;
+  SEARCH_FOLD.lastIndex = 0;
+  if (!SEARCH_FOLD.test(lower)) return lower;
+  return lower.replace(SEARCH_FOLD, (unit) => SEARCH_FOLDS[unit] ?? String.fromCharCode(unit.charCodeAt(0) - 0xfee0));
 }
 
 /** The first and the second half of a character outside the basic plane, as JavaScript holds it. */
