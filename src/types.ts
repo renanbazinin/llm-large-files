@@ -1,7 +1,7 @@
 // Public types. Everything a consumer touches is defined here, so the package can be
 // published without exposing internal module layout.
 
-export type DocumentFormat = "text" | "markdown" | "log" | "json" | "csv" | "pdf" | "docx" | "pptx";
+export type DocumentFormat = "text" | "markdown" | "log" | "json" | "csv" | "pdf" | "docx" | "pptx" | "xlsx" | "html";
 
 export type OutlineEntry = {
   /** 1-based line number in the extracted text. */

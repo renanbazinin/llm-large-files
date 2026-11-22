@@ -4,26 +4,85 @@ import type { DocumentFormat, LogIssue, LogProfile, OutlineEntry } from "./types
 
 const MAX_OUTLINE_ENTRIES = 400;
 const MAX_TEMPLATES = 50_000;
-const TIMESTAMP = /\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?/;
-const LINE_START_TIMESTAMP = /^\[?(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\d{2}\/\d{2}\/\d{4}|\w{3} {1,2}\d{1,2} \d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})/;
+/**
+ * Timestamps of logs: ISO 8601 (2026-11-10T14:03:17.120Z), nginx's error log (2026/11/10
+ * 14:03:17), the access logs of Apache and nginx (10/Nov/2026:14:03:17 +0000), and syslog (Nov 10
+ * 14:03:17).
+ */
+const TIMESTAMP = /\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?|\b\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2}|\b\d{2}\/[A-Z][a-z]{2}\/\d{4}:\d{2}:\d{2}:\d{2}(?: [+-]\d{4})?|\b[A-Z][a-z]{2} {1,2}\d{1,2} \d{2}:\d{2}:\d{2}/;
+const LINE_START_TIMESTAMP = /^\[?(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}|\d{2}\/\d{2}\/\d{4}|\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}|\w{3} {1,2}\d{1,2} \d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})/;
+/** Other shapes of log lines: an access log, a JSON log, klog, logfmt. */
+const LOG_LINE = /^(?:\d{1,3}(?:\.\d{1,3}){3} \S+ \S+ \[\d{2}\/\w{3}\/\d{4}:|\{.*"(?:level|severity|time|timestamp|ts|@timestamp)"\s*:|[IWEF]\d{4} \d{2}:\d{2}:\d{2}|(?:time|ts|level|lvl)=)/;
+/** A level word in upper case, anywhere on the line. */
 const LEVEL = /\b(FATAL|CRITICAL|ERROR|ERR|WARN|WARNING|INFO|DEBUG|TRACE)\b/;
-const LEVEL_NAMES: Record<string, string> = { ERR: "ERROR", WARNING: "WARN", CRITICAL: "FATAL" };
+/**
+ * A level in lower or mixed case, where logs put one: in brackets as nginx and Apache do
+ * ("[error]"), after `level=` as logfmt, zap and logrus do, or in a JSON field ("level":"warn").
+ */
+const MARKED_LEVEL = /(?:\[|\b(?:level|lvl|severity)=\s*"?|"(?:level|severity)"\s*:\s*")(fatal|critical|crit|emerg|alert|error|err|warning|warn|notice|info|debug|trace)\b/i;
+/** pino and bunyan write the level as a number. */
+const NUMBER_LEVEL = /"level"\s*:\s*(10|20|30|40|50|60)\b/;
+const NUMBER_LEVELS: Record<string, string> = { 10: "TRACE", 20: "DEBUG", 30: "INFO", 40: "WARN", 50: "ERROR", 60: "FATAL" };
+/** klog and glog start a line with the level's letter, then the month and day. */
+const LETTER_LEVEL = /^([IWEF])\d{4} \d{2}:\d{2}:\d{2}/;
+const LETTER_LEVELS: Record<string, string> = { I: "INFO", W: "WARN", E: "ERROR", F: "FATAL" };
+const LEVEL_NAMES: Record<string, string> = { ERR: "ERROR", WARNING: "WARN", CRITICAL: "FATAL", CRIT: "FATAL", EMERG: "FATAL", ALERT: "FATAL", NOTICE: "INFO" };
 
-/** Treats text as a log when most early lines start with a timestamp or a level. */
+/** The level of a log line, in upper case ("ERROR", "WARN"), or undefined. */
+export function levelOf(line: string): string | undefined {
+  const raw = LEVEL.exec(line)?.[1]
+    ?? MARKED_LEVEL.exec(line)?.[1]?.toUpperCase()
+    ?? NUMBER_LEVELS[NUMBER_LEVEL.exec(line)?.[1] ?? ""]
+    ?? LETTER_LEVELS[LETTER_LEVEL.exec(line)?.[1] ?? ""];
+  return raw === undefined ? undefined : LEVEL_NAMES[raw] ?? raw;
+}
+
+/** Treats text as a log when most early lines start with a timestamp or a level, or have the shape of a log line. */
 export function looksLikeLog(lines: string[]): boolean {
   const sample: string[] = [];
   for (let index = 0; index < lines.length && sample.length < 200; index++) if (lines[index]!.trim()) sample.push(lines[index]!);
   if (sample.length < 5) return false;
-  const hits = sample.filter((line) => LINE_START_TIMESTAMP.test(line.trim()) || /^\[?(FATAL|ERROR|WARN|WARNING|INFO|DEBUG|TRACE)\b/.test(line.trim())).length;
+  const hits = sample.filter((line) => {
+    const trimmed = line.trim();
+    return LINE_START_TIMESTAMP.test(trimmed) || LOG_LINE.test(trimmed) || /^\[?(FATAL|ERROR|WARN|WARNING|INFO|DEBUG|TRACE)\b/i.test(trimmed);
+  }).length;
   return hits / sample.length >= 0.4;
+}
+
+/** A line that opens or closes a fenced code block of Markdown: ``` or ~~~. */
+const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+
+/**
+ * Follows fenced code blocks line by line: a "# comment" in a block of shell or Python is not a
+ * heading. A fence closes with the same character, at least as long.
+ */
+class Fences {
+  private open: string | undefined;
+
+  /** Whether line `line` is inside a block, its fences included. */
+  inside(line: string): boolean {
+    const fence = FENCE.exec(line)?.[1];
+    if (this.open !== undefined) {
+      if (fence && fence[0] === this.open[0] && fence.length >= this.open.length && line.trim() === fence) this.open = undefined;
+      return true;
+    }
+    if (fence) {
+      this.open = fence;
+      return true;
+    }
+    return false;
+  }
 }
 
 /** Headings with line numbers: Markdown, slide/page markers, and common book and report patterns. */
 export function buildOutline(lines: string[], format: DocumentFormat): OutlineEntry[] {
   if (format === "log" || format === "json" || format === "csv") return [];
   const entries: OutlineEntry[] = [];
+  const fences = new Fences();
+  const hashes = hashHeadings(lines, format);
   for (let index = 0; index < lines.length; index++) {
-    const entry = outlineEntry(lines, index);
+    if (fences.inside(lines[index] ?? "")) continue;
+    const entry = outlineEntry(lines, index, hashes);
     if (entry) entries.push(entry);
   }
   return pickOutline(entries);
@@ -33,21 +92,61 @@ export function buildOutline(lines: string[], format: DocumentFormat): OutlineEn
 export async function buildOutlineInSlices(lines: string[], format: DocumentFormat, slicer: TimeSlicer): Promise<OutlineEntry[]> {
   if (format === "log" || format === "json" || format === "csv") return [];
   const entries: OutlineEntry[] = [];
+  const fences = new Fences();
+  const hashes = hashHeadings(lines, format);
   for (let index = 0; index < lines.length; index++) {
-    const entry = outlineEntry(lines, index);
-    if (entry) entries.push(entry);
     if ((index & 4095) === 4095) await slicer.maybePause();
+    if (fences.inside(lines[index] ?? "")) continue;
+    const entry = outlineEntry(lines, index, hashes);
+    if (entry) entries.push(entry);
   }
   return pickOutline(entries);
 }
 
+/** Whether a line is a "# " line: a Markdown heading, or a comment of a script or a configuration file. */
+const hashLine = (line: string | undefined) => /^\s*#{1,6}\s/.test(line ?? "");
+
+/** A line only code has: a shebang, an include, an import, a definition. One is enough. */
+const CODE_LINE = /^\s*(?:#!\/|#include\b|import\s+[\w{*"']|from\s+[\w.]+\s+import\b|def\s+\w+\s*\(|class\s+\w+[\s:({]|function\s*\w*\s*\(|package\s+[\w.]+;?\s*$|using\s+[\w.]+;\s*$)/;
+/** A line common in code and configuration files, and rarer in prose: three are needed. */
+const CODE_LIKE_LINE = /^\s*(?:(?:const|let|var|export|public|private|return)\s|(?:if|for|while)\s*\(|echo\s|set\s+-\w|[A-Za-z_][\w.-]*\s*=\s*\S|[}\])];?\s*$|.*[{;]\s*$)/;
+
+/**
+ * Whether a plain text file is a script, source code or a configuration file, where "# " starts
+ * a comment, not a heading: one of its first lines only code has, or three that code often has.
+ */
+function looksLikeCode(lines: string[]): boolean {
+  let likely = 0;
+  for (let index = 0; index < lines.length && index < 300; index++) {
+    const line = lines[index] ?? "";
+    if (CODE_LINE.test(line)) return true;
+    if (CODE_LIKE_LINE.test(line) && ++likely >= 3) return true;
+  }
+  return false;
+}
+
+/**
+ * Which "# " lines are headings: all of them in Markdown and the other formats; in a plain text
+ * file, none when it reads as code ("strict" is false then), and otherwise only one after a blank
+ * line that is not followed by another "# " line, as comments come in blocks.
+ */
+type HashHeadings = "all" | "strict" | "none";
+
+function hashHeadings(lines: string[], format: DocumentFormat): HashHeadings {
+  if (format !== "text") return "all";
+  return looksLikeCode(lines) ? "none" : "strict";
+}
+
 /** The heading on line `index` (0-based), if it is one. */
-function outlineEntry(lines: string[], index: number): OutlineEntry | undefined {
+function outlineEntry(lines: string[], index: number, hashes: HashHeadings = "all"): OutlineEntry | undefined {
   const line = (lines[index] ?? "").trim();
   if (!line || line.length > 120) return undefined;
   const previousBlank = index === 0 || !(lines[index - 1] ?? "").trim();
   const markdown = /^(#{1,6})\s+(.+)$/.exec(line);
-  if (markdown) return { line: index + 1, level: markdown[1]!.length, title: markdown[2]!.trim() };
+  if (markdown) {
+    if (hashes === "none" || (hashes === "strict" && (!previousBlank || hashLine(lines[index + 1])))) return undefined;
+    return { line: index + 1, level: markdown[1]!.length, title: markdown[2]!.trim() };
+  }
   // A lookahead, not \b: JavaScript's \b does not treat Hebrew letters as word characters.
   if (/^(chapter|part|book|section|appendix|פרק|חלק|נספח)(?=[\s:.\d]|$)/iu.test(line) && previousBlank) {
     return { line: index + 1, level: /^(part|book|חלק)(?=[\s:.\d]|$)/iu.test(line) ? 1 : 2, title: line };
@@ -122,9 +221,8 @@ class LogProfiler {
       this.firstTimestamp ??= stamp;
       this.lastTimestamp = stamp;
     }
-    const raw = LEVEL.exec(line)?.[1];
-    if (!raw) return;
-    const level = LEVEL_NAMES[raw] ?? raw;
+    const level = levelOf(line);
+    if (!level) return;
     this.levels[level] = (this.levels[level] ?? 0) + 1;
     if (level !== "ERROR" && level !== "FATAL" && level !== "WARN") return;
     const template = logTemplate(line);
