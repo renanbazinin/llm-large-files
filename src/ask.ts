@@ -1,5 +1,6 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
+import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type DocumentRef, type EventResult, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
@@ -38,7 +39,7 @@ import {
   toolResultSummary,
   unknownToolName,
 } from "./tools.js";
-import type { Budget, DocumentPlan, GenerateText, ToolCallLimits, ToolOutput, ToolResult } from "./types.js";
+import type { Budget, DocumentMeta, DocumentPlan, GenerateText, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find.";
@@ -137,12 +138,36 @@ export type AskOptions = {
    * the question can be sent a file, and changes nothing for a library that keeps no originals.
    */
   viewPages?: boolean;
-  /** Answer text as it arrives. The adapter streams when this is set and it can. */
+  /** Answer text as it arrives. The adapter streams when this is set and it can (see `streamText`). */
   onText?: (delta: string) => void;
+  /**
+   * Whether to ask the model for the answer as it is written (the adapter's streaming request).
+   * Defaults to true when `onText` is given, false otherwise; `askStream` defaults it to true. With
+   * it, a reply that fails after its first piece of text is not sent again. New in 0.7.0.
+   */
+  streamText?: boolean;
   /** Short-lived status, such as "Searching app.log for “timeout”…". */
   onActivity?: (text: string) => void;
   /** A finished step, such as "Search app.log (exact) for “timeout” — 12 matching lines". */
   onStep?: (text: string) => void;
+  /**
+   * Everything the question does, as typed events in order: the plan, each model request, tool
+   * call, piece of text and notice, and last `run.finish` or `run.error`. The callbacks above get
+   * the same strings as before. It does not change how the model is asked: without `streamText`
+   * (or `onText`), the text of a reply comes in its `text` events once the reply is in. A throw
+   * from it ends the question with that error (on `run.finish`, the answer is lost: `askWithFiles`
+   * throws it; on `run.error`, it replaces the question's own error). `askStream` gives the events
+   * as an async iterable. New in 0.7.0.
+   */
+  onEvent?: (event: AskEvent) => void;
+  /** The `runId` of the events. Defaults to one made for the question ("run_…"). */
+  runId?: string;
+  /**
+   * Put each tool result in its `tool.end` event (`result`), and the tool rounds in the result that
+   * `run.finish` and `run.error` carry (`toolTurns`). Off by default: results hold the text of the
+   * documents, and events are often sent on to a browser.
+   */
+  eventResults?: boolean;
   signal?: AbortSignal;
 };
 
@@ -197,6 +222,8 @@ const BYTES_PER_CHARACTER = 3;
 const ROUNDS_KEPT = [3, 2, 1];
 
 const NO_ROOM = "Not run: there is no room left in this conversation for another tool result. Answer now, from what the tools returned so far.";
+/** Why a request of a whole-file read that its read left behind ended with its call. */
+const CALL_ENDED = "The tool call ended before this request did.";
 
 type Size = { tokens: number; bytes: number };
 
@@ -418,6 +445,33 @@ const MOST_NUDGES = 2;
 /** The most requests sent again, smaller, after the provider refused one as too large. */
 const MOST_OVERFLOW_RECOVERIES = 2;
 
+/** Said, once, when a ceiling of `limits` stops the tools. */
+const BUDGET_REACHED = "No more tools: the question reached its limit of input tokens or requests.";
+
+/**
+ * What the tries of one question share for its events: where they go, and the counters of the ids
+ * of its requests and tool calls, which a question planned again goes on counting.
+ */
+type RunState = {
+  events: EventEmitter<AskEvent>;
+  requests: number;
+  calls: number;
+  /** True once "budget_reached" was said. */
+  budgetSaid: boolean;
+};
+
+/** A document as an event names it. */
+const documentRef = (meta: DocumentMeta): DocumentRef => ({
+  id: meta.id,
+  name: meta.name,
+  format: meta.format,
+  estimatedTokens: meta.estimatedTokens,
+  ...(meta.pages !== undefined ? { pages: meta.pages } : {}),
+});
+
+/** Which model a chat request goes to, and why. */
+type RequestKind = { role: RequestRole; purpose: RequestPurpose };
+
 /**
  * Answers a chat turn about large documents with any model that has an adapter.
  * Documents that fit go into the prompt whole; otherwise the model gets search and read tools and
@@ -425,15 +479,75 @@ const MOST_OVERFLOW_RECOVERIES = 2;
  * an answer. With an `explorer`, that model runs the tool loop and `model` writes the answer.
  */
 export async function askWithFiles(options: AskOptions): Promise<AskResult> {
+  const events = new EventEmitter<AskEvent>(options.runId ?? newRunId(), options.onEvent);
+  const state: RunState = { events, requests: 0, calls: 0, budgetSaid: false };
   try {
-    return await ask(options, undefined);
+    if (events.active) {
+      // Always first, whatever the options hold: they are checked after it, and a question whose
+      // options do not work ends with run.error like any other.
+      const { model, explorer, documentIds } = options as Partial<AskOptions>;
+      const other = explorer && explorer !== model ? explorer : undefined;
+      events.emit({
+        type: "run.start",
+        models: { answer: model?.id ?? "", ...(other ? { explorer: other.id } : {}) },
+        documentIds: Array.isArray(documentIds) ? [...documentIds] : [],
+      });
+    }
+    const result = await askPlanned(options, state);
+    if (events.active) events.emit({ type: "run.finish", result: eventResultOf(result, options.eventResults === true) });
+    return result;
+  } catch (error) {
+    if (events.active) {
+      const partial = partialResultOf(error);
+      events.emit({ type: "run.error", error: eventErrorOf(error), ...(partial ? { partial: eventResultOf(partial, options.eventResults === true) } : {}) });
+    }
+    throw error;
+  }
+}
+
+/**
+ * A result as `run.finish` and `run.error` carry it: a copy, so that a listener cannot change the
+ * caller's, without the tool rounds and with the plan naming documents only (both hold text of
+ * the documents: tool results, outline headings, the commonest lines of a log) unless `withTurns`.
+ */
+function eventResultOf(result: AskResult, withTurns: boolean): EventResult {
+  if (withTurns) return { ...result };
+  const { toolTurns: _toolTurns, plan, ...rest } = result;
+  return { ...rest, plan: { inline: plan.inline.map(documentRef), searchable: plan.searchable.map(documentRef) } };
+}
+
+/**
+ * `askWithFiles` as a stream of its events, for a page that shows the question as it goes: see
+ * `AskEvent`. Leaving the loop early (`break`) stops the question. `result` is what `askWithFiles`
+ * returns. `onEvent`, when given, gets each event too, after the stream. The model is asked for
+ * the answer as it is written unless `streamText` is false. New in 0.7.0.
+ */
+export function askStream(options: AskOptions): EventStream<AskEvent, AskResult> {
+  return eventStream<AskEvent, AskResult>((onEvent, signal) => askWithFiles({
+    ...options,
+    // A page that reads the events shows the text as it is written, unless told not to.
+    streamText: options.streamText !== false,
+    signal,
+    onEvent: (event) => {
+      // The stream first: a throw of the caller's listener cannot keep an event, the last one
+      // included, from the stream.
+      onEvent(event);
+      options.onEvent?.(event);
+    },
+  }), { signal: options.signal });
+}
+
+/** The question, planned again once when its first requests were too large for the model. */
+async function askPlanned(options: AskOptions, state: RunState): Promise<AskResult> {
+  try {
+    return await ask(options, undefined, state);
   } catch (error) {
     if (!(error instanceof Replan)) throw error;
     // The first requests were too large for the model, and nothing in them could be shortened: the
     // documents are planned again for the window the provider named, or a smaller one. Once. The
     // window is a limit of the model's, as one it declares: the application's budget is fitted to it.
     try {
-      return await ask(options, error.carried);
+      return await ask(options, error.carried, state);
     } catch (again) {
       // Failed before it sent anything (a budget of the application's that cannot work with the
       // smaller window): the provider's error, with what the first try found, is the one to report.
@@ -446,8 +560,9 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
   }
 }
 
-async function ask(options: AskOptions, carried: Carried | undefined): Promise<AskResult> {
+async function ask(options: AskOptions, carried: Carried | undefined, state: RunState): Promise<AskResult> {
   const { files, model, signal } = options;
+  const { events } = state;
   // A second model for the requests that use tools. The answering model itself is not one.
   const explorer = options.explorer && options.explorer !== model ? options.explorer : undefined;
   const toolModel = explorer ?? model;
@@ -521,19 +636,38 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
   let lastUsage: Record<string, unknown> | undefined;
   const steps: string[] = [];
   const evidence: Evidence[] = [];
-  const emit = (delta: string) => {
+  const emit = (delta: string, requestId: string) => {
     text += delta;
     options.onText?.(delta);
+    events.emit({ type: "text", requestId, delta });
   };
-  // A step can quote what the model sent: it is made one line of plain text before anyone sees it.
-  const step = (line: string) => {
+  /**
+   * A step can quote what the model sent: it is made one line of plain text before anyone sees it.
+   * A step that is not a tool call's is also a notice, with that code. Returns the line.
+   */
+  const step = (line: string, code?: NoticeCode): string => {
     const plain = stepLine(line);
     steps.push(plain);
     options.onStep?.(plain);
+    if (code) events.emit({ type: "notice", code, message: plain, display: "step" });
+    return plain;
+  };
+  /** Short-lived status that is also a notice. */
+  const activity = (code: NoticeCode, message: string) => {
+    options.onActivity?.(message);
+    events.emit({ type: "notice", code, message, display: "activity" });
+  };
+  /** A notice that earlier versions did not show. */
+  const notice = (code: NoticeCode, message: string) => events.emit({ type: "notice", code, message, display: "none" });
+  const budgetReached = () => {
+    if (state.budgetSaid) return;
+    state.budgetSaid = true;
+    notice("budget_reached", BUDGET_REACHED);
   };
   // What a first try that was planned again showed is part of this question; then why it was planned again.
   steps.push(...carried?.steps ?? []);
-  if (carried) step(carried.step);
+  if (carried) step(carried.step, "replanned");
+  if (events.active) events.emit({ type: "plan", inline: prepared.plan.inline.map(documentRef), searchable: prepared.plan.searchable.map(documentRef) });
 
   // A model turn in its provider's own form goes back only to the adapter it came from. Any other
   // model gets the tool calls alone: a thought signature belongs to the model that wrote it, and
@@ -569,39 +703,56 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
    */
   /** Chat requests of the question that were answered, those of a first try included: each took a tool turn. */
   let answeredRequests = carried?.answered ?? 0;
-  const request = async (adapter: ModelAdapter, body: ModelRequest, shown: boolean): Promise<ModelReply> => {
+  const streamText = options.streamText ?? options.onText !== undefined;
+  const request = async (adapter: ModelAdapter, body: ModelRequest, shown: boolean, kind: RequestKind): Promise<ModelReply> => {
     turns++;
+    const requestId = `req_${++state.requests}`;
+    const began = Date.now();
     let separated = text.length === 0;
     let got = "";
     const write = (delta: string) => {
       // Nothing more is shown once the question was stopped, by an adapter that goes on regardless.
       if (!delta || signal?.aborted) return;
       if (!separated) {
-        emit("\n\n");
+        emit("\n\n", requestId);
         separated = true;
       }
       got += delta;
-      emit(delta);
+      emit(delta, requestId);
     };
     const estimated = meter.estimate(body.messages).tokens;
-    const reply = await withRetry(() => {
-      // Nothing is sent once the question was stopped.
-      signal?.throwIfAborted();
-      const sending = adapter.send(body, {
-        ...(signal ? { signal } : {}),
-        ...(shown && options.onText ? { onText: write } : {}),
+    let reply: ModelReply;
+    try {
+      // In the try: a listener that throws on the start still gets its end.
+      events.emit({ type: "request.start", requestId, role: kind.role, purpose: kind.purpose, model: adapter.id, turn: turns, estimatedInputTokens: estimated });
+      reply = await withRetry(() => {
+        // Nothing is sent once the question was stopped.
+        signal?.throwIfAborted();
+        const sending = adapter.send(body, {
+          ...(signal ? { signal } : {}),
+          // The adapter streams only when the text is asked for as it is written: a listener of
+          // the events alone does not change how the model is asked.
+          ...(shown && streamText ? { onText: write } : {}),
+        });
+        // The question stops when the signal aborts, whether the adapter does or not: one that does
+        // not look at it would hold the question, and the user, until its request ends, if it ever
+        // does. That holds when the signal aborted while the adapter was called (its onText ran the
+        // caller's code): `until` then ends at once with the signal's reason.
+        return until(sending, signal);
+      }, {
+        retry: options.retry,
+        signal,
+        canRetry: () => got.length === 0,
+        onRetry: (retried) => {
+          const message = retryMessage(retried);
+          options.onActivity?.(message);
+          if (events.active) events.emit({ type: "retry", requestId, attempt: retried.attempt, delayMs: retried.delayMs, error: eventErrorOf(retried.error), message });
+        },
       });
-      // The question stops when the signal aborts, whether the adapter does or not: one that does
-      // not look at it would hold the question, and the user, until its request ends, if it ever
-      // does. That holds when the signal aborted while the adapter was called (its onText ran the
-      // caller's code): `until` then ends at once with the signal's reason.
-      return until(sending, signal);
-    }, {
-      retry: options.retry,
-      signal,
-      canRetry: () => got.length === 0,
-      onRetry: (notice) => options.onActivity?.(retryMessage(notice)),
-    });
+    } catch (error) {
+      if (events.active) events.emit({ type: "request.end", requestId, ms: Date.now() - began, outcome: "error", error: eventErrorOf(error) });
+      throw error;
+    }
     // Text the adapter did not pass on as it came (no streaming was asked for, or it cannot).
     if (shown && reply.text.length > got.length && reply.text.startsWith(got)) write(reply.text.slice(got.length));
     answeredRequests++;
@@ -613,6 +764,17 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     if (reply.blockReason) blockReason = reply.blockReason;
     finishReason = reply.finishReason ?? finishReason;
     lastUsage = reply.providerUsage ?? lastUsage;
+    events.emit({
+      type: "request.end",
+      requestId,
+      ms: Date.now() - began,
+      outcome: "ok",
+      ...(reply.usage ? { usage: reply.usage } : {}),
+      ...(reply.finish ? { finish: reply.finish } : {}),
+      ...(reply.finishReason !== undefined ? { finishReason: reply.finishReason } : {}),
+      toolCalls: reply.calls.length,
+    });
+    if (reply.blockReason) notice("blocked", `The provider refused the prompt: ${reply.blockReason}.`);
     return reply;
   };
   // What a model wrote before it was stopped by a refusal is not an answer.
@@ -805,11 +967,11 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
    * and nothing has happened yet in this question, the documents are planned again for a smaller
    * window (`Replan`). `build` makes the request from the conversation as it is then.
    */
-  const send = async (adapter: ModelAdapter, build: () => ModelRequest, shown: boolean): Promise<ModelReply> => {
+  const send = async (adapter: ModelAdapter, build: () => ModelRequest, shown: boolean, kind: RequestKind): Promise<ModelReply> => {
     for (let again = false; ; again = true) {
       const body = build();
       try {
-        return await request(adapter, body, shown);
+        return await request(adapter, body, shown, kind);
       } catch (error) {
         if (errorKindOf(error) !== "context_overflow" || signal?.aborted) throw error;
         if (!again && recoveries < MOST_OVERFLOW_RECOVERIES && makeRoom(adapter, body, error)) {
@@ -817,7 +979,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
           const period = rateAllowanceOf(error);
           step(period
             ? `The request was larger than the provider allows in a ${period}: older tool results were shortened, and it was sent again`
-            : "The request was larger than the model takes: older tool results were shortened, and it was sent again");
+            : "The request was larger than the model takes: older tool results were shortened, and it was sent again", "room_made");
           continue;
         }
         if (carried === undefined && callsAnswered === 0 && !text) {
@@ -855,12 +1017,21 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     return () => viewFor(toolModel);
   };
 
+  // The tool calls run with a signal of their own. The question's aborts it, and so does a turn
+  // that fails (a listener that threw): the calls still waiting for a slot, or running, stop. A
+  // failed turn ends the question, so one signal serves every turn, with the tool set that counts
+  // the whole-file reads of the question.
+  const halt = new AbortController();
+  const stopTools = () => halt.abort(signal?.reason);
+  if (signal?.aborted) halt.abort(signal.reason);
+  else signal?.addEventListener("abort", stopTools, { once: true });
+
   try {
     // Tools are needed for a file that is too large to send whole, and for a PDF whose pages can be
     // looked at: that one may have its whole text in the prompt and still hide a chart from the model.
     const { searchable } = prepared.plan;
     const { viewable } = prepared;
-    if (searchable.length === 0 && viewable.length === 0) return result(wrote(await send(model, () => ({ system, messages }), true)));
+    if (searchable.length === 0 && viewable.length === 0) return result(wrote(await send(model, () => ({ system, messages }), true, { role: "answer", purpose: "direct" })));
 
     // Reading a whole file in parts is exploring too: the explorer model's work, when there is one.
     const partReader = options.wholeDocumentAnalysis === false ? undefined : toolModel.generateText;
@@ -882,7 +1053,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     const tools = files.tools(searchable, {
       ...(generate ? { generate } : {}),
       onProgress: (event) => options.onActivity?.(`${event.message}…`),
-      ...(signal ? { signal } : {}),
+      signal: halt.signal,
       ...(viewable.length > 0 ? { viewPages: viewable } : {}),
       maxWholeDocumentReads: limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS,
       ...(options.retry ? { retry: options.retry } : {}),
@@ -895,7 +1066,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     const sentTools = JSON.stringify(declarations);
     meter.fixed.tokens += estimateTokens(sentTools) + (explorer ? estimateTokens(EXPLORER_INSTRUCTION) : 0);
     meter.fixed.bytes += Buffer.byteLength(sentTools) + (explorer ? EXPLORER_INSTRUCTION.length : 0);
-    if (searchable.length > 0) options.onActivity?.(`Too large to read at once: ${searchable.map((meta) => meta.name).join(", ")}. Searching instead…`);
+    if (searchable.length > 0) activity("searching_instead", `Too large to read at once: ${searchable.map((meta) => meta.name).join(", ")}. Searching instead…`);
 
     const maxTurns = Math.max(1, Math.trunc(limits.toolTurns ?? DEFAULT_TOOL_TURNS));
     const maxCalls = Math.max(1, Math.trunc(limits.callsPerTurn ?? DEFAULT_CALLS_PER_TURN));
@@ -962,9 +1133,16 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     // Tools run in at most maxTurns - 1 requests. The last request is the one below that must be
     // answered in text, so a model that never stops calling tools does not cost a request whose
     // calls are thrown away.
-    for (let round = 1 + (carried?.answered ?? 0); round < maxTurns && !outOfRoom && !spent(); round++) {
+    const toolRole: RequestRole = explorer ? "explorer" : "tools";
+    /** A call as one line of plain text. An unknown tool's name is quoted and cut: no step starts with what the model chose, at any length. */
+    const labelOf = (call: ToolCall): string => stepLine(tools.has(call.name) ? tools.describe(call.name, call.args) : `Call ${unknownToolName(call.name)}`);
+    for (let round = 1 + (carried?.answered ?? 0); round < maxTurns && !outOfRoom; round++) {
+      if (spent()) {
+        budgetReached();
+        break;
+      }
       const toolRequest = (): ModelRequest => ({ system: toolSystem, messages: viewFor(toolModel), tools: declarations, toolChoice: "auto" });
-      let reply = await send(toolModel, () => toolRequest(), !explorer);
+      let reply = await send(toolModel, () => toolRequest(), !explorer, { role: toolRole, purpose: "turn" });
       // A turn whose tool call could not be read, or a first reply with nothing in it, is asked
       // for once more, with a note that says what was wrong: the answer would otherwise be written
       // from the cards alone, and look like any other. The note is not kept in the conversation.
@@ -975,10 +1153,10 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
         if (malformed || empty) {
           nudges++;
           round++;
-          step(malformed ? "The model's tool call could not be read: it was asked to send it again" : "The model's first reply was empty: it was asked again");
+          step(malformed ? "The model's tool call could not be read: it was asked to send it again" : "The model's first reply was empty: it was asked again", "nudged");
           const note = malformed ? (explorer ? MALFORMED_EXPLORER_NUDGE : MALFORMED_CALL_NUDGE) : explorer ? EMPTY_EXPLORER_NUDGE : EMPTY_REPLY_NUDGE;
           const withIt = notedMessages(note);
-          reply = await send(toolModel, () => ({ system: toolSystem, messages: withIt(), tools: declarations, toolChoice: "auto" }), !explorer);
+          reply = await send(toolModel, () => ({ system: toolSystem, messages: withIt(), tools: declarations, toolChoice: "auto" }), !explorer, { role: toolRole, purpose: "nudge" });
         }
       }
       if (reply.calls.length === 0) {
@@ -1004,8 +1182,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
       /** The first call of this turn with each key: the same call made again in the turn is not run twice. */
       const seen = new Map<string, number>();
       const planned = run.map((call, index): Planned => {
-        // An unknown tool's name is quoted and cut: no step starts with what the model chose, at any length.
-        const label = stepLine(tools.has(call.name) ? tools.describe(call.name, call.args) : `Call ${unknownToolName(call.name)}`);
+        const label = labelOf(call);
         // A call that did not arrive whole is not run: the model is told, and can send it again.
         if (call.problem) return { call, label, refusal: call.problem };
         // A look at pages returns a file and a few words: the file has its own room, worked out when it runs.
@@ -1044,7 +1221,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
         }
       }
       if (dropped) {
-        step("Older tool results were shortened to make room in the request");
+        step("Older tool results were shortened to make room in the request", "results_shortened");
         // A result that was shortened is no longer shown in full: a call that pointed to it is run after all.
         for (const plan of planned) {
           if (!plan.earlier) continue;
@@ -1067,6 +1244,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
         const share = shares[index];
         const cap = most(plan.call);
         if (share === undefined) {
+          if (!outOfRoom) notice("no_room", "There is no room left in this conversation for another tool result.");
           outOfRoom = true;
           plan.refusal = NO_ROOM;
         } else if (plan.call.name === TOOL_NAMES.analyze) {
@@ -1087,19 +1265,135 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
         }
       }
 
+      // Each call of the turn, those over `maxCalls` too, has an id for its events, in call order.
+      const callIds = reply.calls.map(() => `call_${++state.calls}`);
+      /**
+       * The calls of this turn whose `tool.start` went out and whose `tool.end` has not, by index:
+       * when each started, and how to end the requests of a whole-file read still under way.
+       */
+      const openCalls = new Map<number, { began: number; requests: Set<(error: unknown) => void> }>();
+      /** True once the turn failed (the question was stopped): nothing more of it is reported. */
+      let turnFailed = false;
+      /**
+       * The first throw of a listener told of a whole-file read while it runs (`onEvent`,
+       * `onActivity`). It must reach the caller, not become the read's own failure: the calls of the
+       * question stop, and the turn ends with it.
+       */
+      let listenerError: { error: unknown } | undefined;
+      const tell = (told: () => void) => {
+        try {
+          told();
+        } catch (error) {
+          if (listenerError) return;
+          listenerError = { error };
+          halt.abort(error);
+        }
+      };
+      const startTool = (index: number, call: ToolCall, label: string) => {
+        if (turnFailed) return;
+        openCalls.set(index, { began: Date.now(), requests: new Set() });
+        if (!events.active) return;
+        events.emit({
+          type: "tool.start",
+          callId: callIds[index]!,
+          ...(call.id !== undefined ? { providerCallId: call.id } : {}),
+          tool: call.name,
+          args: call.args,
+          label,
+          ...(typeof call.args?.document_id === "string" ? { documentId: call.args.document_id } : {}),
+          round,
+        });
+      };
+      /** `sent`: the result as the model gets it. `line`: the step, as `onStep` got it. */
+      const endTool = (index: number, outcome: ToolOutcome, sent: ToolResult, line?: string, shown?: Evidence) => {
+        const open = openCalls.get(index);
+        openCalls.delete(index);
+        // A request of a whole-file read that its read left behind ends before its call does.
+        for (const end of [...open?.requests ?? []]) end(new Error(CALL_ENDED));
+        if (!events.active || turnFailed) return;
+        events.emit({
+          type: "tool.end",
+          callId: callIds[index]!,
+          outcome,
+          ms: open ? Date.now() - open.began : 0,
+          ...(line !== undefined ? { step: line } : {}),
+          ...(shown ? { evidence: { ...shown, callId: callIds[index]! } } : {}),
+          resultCharacters: JSON.stringify(sent).length,
+          ...(typeof sent.error === "string" ? { error: sent.error } : {}),
+          ...(options.eventResults === true ? { result: sent } : {}),
+        });
+      };
+      /** Ends every call of the turn still open, and its requests, in call order, when the turn failed. */
+      const failTurn = (error: unknown) => {
+        const open = [...openCalls].sort(([first], [second]) => first - second);
+        openCalls.clear();
+        turnFailed = true;
+        const why = events.active ? eventErrorOf(error).message : "";
+        for (const [index, call] of open) {
+          for (const end of [...call.requests]) end(error);
+          if (!events.active) continue;
+          events.emit({ type: "tool.end", callId: callIds[index]!, outcome: "error", ms: Date.now() - call.began, error: why, resultCharacters: 0 });
+        }
+      };
+      /** A model request of a whole-file read, for its events. */
+      const readerRequest = (index: number, start: ToolRequestStart): ToolRequestHandle => {
+        const open = openCalls.get(index);
+        // The call was ended already (the question was stopped): nothing more of it is reported.
+        if (!open) return { retry: () => undefined, end: () => undefined };
+        const requestId = `req_${++state.requests}`;
+        const began = Date.now();
+        let ended = false;
+        const end = (last: ToolRequestEnd) => {
+          if (ended) return;
+          ended = true;
+          open.requests.delete(abandon);
+          tell(() => events.emit({
+            type: "request.end",
+            requestId,
+            ms: Date.now() - began,
+            outcome: last.outcome,
+            ...(last.usage ? { usage: last.usage } : {}),
+            ...(last.error !== undefined ? { error: eventErrorOf(last.error) } : {}),
+          }));
+        };
+        const abandon = (error: unknown) => end({ outcome: "error", error });
+        // Before its start goes out: a listener that throws on the start still gets the end.
+        open.requests.add(abandon);
+        tell(() => events.emit({ type: "request.start", requestId, role: "reader", purpose: start.purpose, model: toolModel.id, callId: callIds[index]!, detail: start.detail }));
+        return {
+          retry: (retried) => {
+            if (!ended && events.active) tell(() => events.emit({ type: "retry", requestId, attempt: retried.attempt, delayMs: retried.delayMs, error: eventErrorOf(retried.error), message: retryMessage(retried) }));
+          },
+          end,
+        };
+      };
+      /**
+       * The listeners of one call: its progress goes to `onActivity` as before (in place of the
+       * tool set's shared listener) and is told apart by call in the events, with its requests.
+       */
+      const hooksFor = (index: number): ToolCallHooks => ({
+        onProgress: (event) => tell(() => {
+          options.onActivity?.(`${event.message}…`);
+          if (openCalls.has(index)) events.emit({ type: "tool.progress", callId: callIds[index]!, stage: event.kind, done: event.done, total: event.total, message: event.message });
+        }),
+        ...(events.active ? { onRequest: (start: ToolRequestStart) => readerRequest(index, start) } : {}),
+      });
+
       // The calls of a turn run together, a few at a time. Looks at pages take their turns, one
       // after another: each is given the room the ones before it left.
       const together = new Limiter(CALLS_AT_ONCE);
       let looks: Promise<unknown> = Promise.resolve();
       // The size of the request as it stands, worked out when the first look at pages in this turn needs it.
       let requestBytes: number | undefined;
-      const outputs = planned.map(({ call, label, refusal, pointer, limits: callLimits }): Promise<ToolOutput> => {
+      const runCall = ({ call, label, refusal, pointer, limits: callLimits }: Planned, index: number): Promise<ToolOutput> => {
+        if (refusal || pointer) startTool(index, call, label);
         if (refusal) return Promise.resolve({ result: { error: refusal }, files: [] });
         if (pointer) return Promise.resolve({ result: pointer, files: [] });
         if (call.name === TOOL_NAMES.view) {
           const look = looks.then(async () => {
-            signal?.throwIfAborted();
+            halt.signal.throwIfAborted();
             options.onActivity?.(`${label}…`);
+            startTool(index, call, label);
             if (requestBytes === undefined) {
               const waiting: ModelRequest = { system: toolSystem, messages: [...viewFor(toolModel), pending], tools: declarations, toolChoice: "auto" };
               requestBytes = toolModel.requestBytes?.(waiting) ?? meter.estimate(waiting.messages).bytes;
@@ -1113,75 +1407,105 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
           looks = look.catch(() => undefined);
           return look;
         }
-        return together.acquire(signal).then(async (release) => {
+        return together.acquire(halt.signal).then(async (release) => {
           try {
+            // The turn may have failed while this call waited for its slot.
+            halt.signal.throwIfAborted();
             options.onActivity?.(`${label}…`);
-            return await tools.executeWithFiles(call.name, call.args, callLimits);
+            startTool(index, call, label);
+            return await tools.executeWithFiles(call.name, call.args, callLimits, hooksFor(index));
           } finally {
             release();
           }
         });
-      });
-      // One that fails (the question was stopped) is reported below, in call order; the others must not go unheard.
-      for (const output of outputs) output.catch(() => undefined);
-
-      /**
-       * The room of each whole-file read of the turn: what the other results left, shared among the
-       * reads, the smaller answers first. Worked out when the first of them is reached, by which time
-       * the other calls, which are quick, have most often returned.
-       */
-      let lateRoom: Map<number, number> | undefined;
-      const roomOfReads = async (): Promise<Map<number, number>> => {
-        const sizes = await Promise.all(outputs.map(async (output) => JSON.stringify((await output).result).length));
-        const reads = planned.flatMap((plan, index) => (plan.late ? [index] : []));
-        let free = left - sizes.reduce((sum, size, index) => sum + (planned[index]!.late ? 0 : size), 0);
-        const shares = new Map<number, number>();
-        [...reads].sort((first, second) => sizes[first]! - sizes[second]!).forEach((index, position) => {
-          const share = Math.min(sizes[index]!, Math.floor(free / (reads.length - position)));
-          shares.set(index, share);
-          free -= share;
-        });
-        return shares;
       };
 
       const turnsLeft = outOfRoom ? 0 : maxTurns - round - 1;
       const answers: ToolAnswer[] = [];
-      for (const [index, { call, label, late, refusal, pointer }] of planned.entries()) {
-        let output = await outputs[index]!;
-        callsAnswered++;
-        if (late) {
-          lateRoom ??= await roomOfReads();
-          const share = lateRoom.get(index)!;
-          if (JSON.stringify(output.result).length > share) output = { ...output, result: fitAnswer(output.result, Math.max(LEAST_RESULT_CHARACTERS, share)) };
+      try {
+        const outputs: Array<Promise<ToolOutput>> = [];
+        for (const [index, plan] of planned.entries()) {
+          const output = runCall(plan, index);
+          // One that fails (the question was stopped) is reported below, in call order; the others must not go unheard.
+          output.catch(() => undefined);
+          outputs.push(output);
         }
-        if (pointer) {
-          step(`${label} — already shown above`);
-          answers.push({ call, result: { ...output.result, tool_turns_left: turnsLeft }, files: [] });
-          continue;
-        }
-        // Two searches in a row that failed in the same mode: the second says to try another way.
-        if (!refusal) {
-          const kind = failureKind(call);
-          if (kind === undefined) {
-            failing = undefined;
-          } else if (typeof output.result.error === "string") {
-            failing = failing?.kind === kind ? { kind, count: failing.count + 1 } : { kind, count: 1 };
-            if (failing.count >= 2) output = { ...output, result: { ...output.result, error: `${output.result.error} ${repeatedFailureHint(call)}` } };
-          } else {
-            failing = undefined;
+
+        /**
+         * The room of each whole-file read of the turn: what the other results left, shared among the
+         * reads, the smaller answers first. Worked out when the first of them is reached, by which time
+         * the other calls, which are quick, have most often returned.
+         */
+        let lateRoom: Map<number, number> | undefined;
+        const roomOfReads = async (): Promise<Map<number, number>> => {
+          const sizes = await Promise.all(outputs.map(async (output) => JSON.stringify((await output).result).length));
+          const reads = planned.flatMap((plan, index) => (plan.late ? [index] : []));
+          let free = left - sizes.reduce((sum, size, index) => sum + (planned[index]!.late ? 0 : size), 0);
+          const shares = new Map<number, number>();
+          [...reads].sort((first, second) => sizes[first]! - sizes[second]!).forEach((index, position) => {
+            const share = Math.min(sizes[index]!, Math.floor(free / (reads.length - position)));
+            shares.set(index, share);
+            free -= share;
+          });
+          return shares;
+        };
+
+        // The answers in call order. Each call's `tool.end` goes out here, in the same order.
+        for (const [index, { call, label, late, refusal, pointer }] of planned.entries()) {
+          let output = await outputs[index]!;
+          if (listenerError) throw listenerError.error;
+          callsAnswered++;
+          if (late) {
+            lateRoom ??= await roomOfReads();
+            const share = lateRoom.get(index)!;
+            if (JSON.stringify(output.result).length > share) output = { ...output, result: fitAnswer(output.result, Math.max(LEAST_RESULT_CHARACTERS, share)) };
           }
+          if (pointer) {
+            const line = step(`${label} — already shown above`);
+            const sent = { ...output.result, tool_turns_left: turnsLeft };
+            answers.push({ call, result: sent, files: [] });
+            endTool(index, "already_shown", sent, line);
+            continue;
+          }
+          // Two searches in a row that failed in the same mode: the second says to try another way.
+          if (!refusal) {
+            const kind = failureKind(call);
+            if (kind === undefined) {
+              failing = undefined;
+            } else if (typeof output.result.error === "string") {
+              failing = failing?.kind === kind ? { kind, count: failing.count + 1 } : { kind, count: 1 };
+              if (failing.count >= 2) output = { ...output, result: { ...output.result, error: `${output.result.error} ${repeatedFailureHint(call)}` } };
+            } else {
+              failing = undefined;
+            }
+          }
+          const line = step(`${label}${toolResultSummary(label, output.result)}`);
+          const shown = evidenceOf(call, output.result);
+          if (shown) evidence.push({ ...shown, callId: callIds[index]! });
+          const sent = { ...output.result, tool_turns_left: turnsLeft };
+          answers.push({ call, result: sent, files: output.files });
+          const outcome: ToolOutcome = call.problem ? "error" : refusal ? "refused" : typeof output.result.error === "string" ? "error" : "ok";
+          endTool(index, outcome, sent, line, shown);
         }
-        step(`${label}${toolResultSummary(label, output.result)}`);
-        const shown = evidenceOf(call, output.result);
-        if (shown) evidence.push(shown);
-        answers.push({ call, result: { ...output.result, tool_turns_left: turnsLeft }, files: output.files });
+        // A listener of a read that went on after its call returned (its progress).
+        if (listenerError) throw listenerError.error;
+      } catch (error) {
+        // The calls of the turn still waiting for a slot, or running, stop.
+        halt.abort(error);
+        failTurn(error);
+        throw error;
       }
-      for (const call of reply.calls.slice(maxCalls)) {
+      for (const [offset, call] of reply.calls.slice(maxCalls).entries()) {
         callsAnswered++;
-        answers.push({ call, result: { error: `Not run: one turn runs at most ${maxCalls} tool calls. Send this call again if you still need it.`, tool_turns_left: turnsLeft }, files: [] });
+        const sent = { error: `Not run: one turn runs at most ${maxCalls} tool calls. Send this call again if you still need it.`, tool_turns_left: turnsLeft };
+        answers.push({ call, result: sent, files: [] });
+        if (events.active) {
+          startTool(maxCalls + offset, call, labelOf(call));
+          endTool(maxCalls + offset, "not_run", sent);
+        }
       }
       const notRun = reply.calls.length - maxCalls;
-      if (notRun > 0) step(`${notRun} more tool ${notRun === 1 ? "call in this turn was" : "calls in this turn were"} not run (at most ${maxCalls} a turn)`);
+      if (notRun > 0) step(`${notRun} more tool ${notRun === 1 ? "call in this turn was" : "calls in this turn were"} not run (at most ${maxCalls} a turn)`, "calls_not_run");
       const done: ModelToolRound = { ...pending, answers };
       if (reply.raw !== undefined) rawOwner.set(done, toolModel);
       messages.push(done);
@@ -1191,7 +1515,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     // ask once more, for an answer in text. A blocked prompt would only be blocked again.
     // With an explorer model this request is always made: it is the one the answering model gets.
     if (!answered && !blockReason) {
-      options.onActivity?.("Writing the answer…");
+      activity("writing_answer", "Writing the answer…");
       let closing = searchable.length > 0 ? FINAL_ANSWER_REQUEST : FINAL_ANSWER_AFTER_PAGES;
       // No tool ran (the explorer needed none, the first reply was empty, or no turn was left for
       // tools): there is no tool result to answer from. The answering model gets the explorer's
@@ -1203,7 +1527,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
         tools: declarations,
         toolChoice: "none",
       });
-      let reply = await send(model, answerRequest(), true);
+      let reply = await send(model, answerRequest(), true, { role: "answer", purpose: "closing" });
       // A reply with no text (empty, or a tool call the model was told not to make, or one that
       // could not be read) is asked for once more, with a note that is not kept: otherwise the
       // question ends with nothing to show. Not after a refusal or a filter, which would come again,
@@ -1213,10 +1537,14 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
       const calledInstead = reply.calls.length > 0 || reply.finish === "malformed_call";
       const ceilingReached = (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
         || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
-      if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES && !ceilingReached) {
-        nudges++;
-        step(calledInstead ? "The model called a tool instead of answering: it was asked again for the answer" : "The model's answer was empty: it was asked again");
-        reply = await send(model, answerRequest(ANSWER_AGAIN_NOTE), true);
+      if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
+        if (ceilingReached) {
+          budgetReached();
+        } else {
+          nudges++;
+          step(calledInstead ? "The model called a tool instead of answering: it was asked again for the answer" : "The model's answer was empty: it was asked again", "answer_again");
+          reply = await send(model, answerRequest(ANSWER_AGAIN_NOTE), true, { role: "answer", purpose: "answer_again" });
+        }
       }
       answered = wrote(reply);
     }
@@ -1226,5 +1554,7 @@ async function ask(options: AskOptions, carried: Carried | undefined): Promise<A
     // a copy: a part reader that went on after the question was stopped may still report its own.
     if (!(error instanceof Replan) && error !== null && typeof error === "object") partialResults.set(error, { ...result(false), usage: structuredClone(usage.totals) });
     throw error;
+  } finally {
+    signal?.removeEventListener("abort", stopTools);
   }
 }

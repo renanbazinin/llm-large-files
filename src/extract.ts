@@ -5,7 +5,7 @@ import { findPicturePages, parsePdf, type PageGeometry } from "./pdf-pictures.js
 import { checkPageWork, HeavyPage } from "./pdf-work.js";
 import { formatBytes } from "./plan.js";
 import { MAX_LINE_CHARACTERS, plural, sliceWhole, utf8Bytes } from "./text.js";
-import type { DocumentFormat, ExtractedText, ExtractInput, Extractor } from "./types.js";
+import type { DocumentFormat, ExtractedText, ExtractInput, ExtractProgress, Extractor } from "./types.js";
 import { readZipDirectory } from "./zip-directory.js";
 
 const EXTENSION_FORMATS: Record<string, DocumentFormat> = {
@@ -97,10 +97,13 @@ const plainText: Extractor = async (bytes, input) => {
   const slicer = new TimeSlicer(input?.signal);
   const steps = decodeSteps(bytes);
   let step = steps.next();
+  // Only a file that is not UTF-8 takes steps: its decoding is told as one piece of progress, at the end.
+  const stepped = !step.done;
   while (!step.done) {
     await slicer.maybePause();
     step = steps.next();
   }
+  if (stepped) input?.onProgress?.({ stage: "decode", done: bytes.byteLength, total: bytes.byteLength, unit: "bytes" });
   const { text, encoding, replacedCharacters } = step.value;
   return { text, ...(encoding ? { encoding } : {}), ...(replacedCharacters ? { replacedCharacters } : {}) };
 };
@@ -695,7 +698,10 @@ const docx: Extractor = async (bytes, input) => {
   if (!names.includes("word/document.xml")) throw new Error("This DOCX does not contain word/document.xml.");
   const read = officeReader(archive, "DOCX", bytes.byteLength, input);
   const sections: string[] = [];
-  for (const name of names) sections.push((await read(name, "w")).paragraphs.join("\n"));
+  for (const [index, name] of names.entries()) {
+    sections.push((await read(name, "w")).paragraphs.join("\n"));
+    input?.onProgress?.({ done: index + 1, total: names.length, unit: "parts" });
+  }
   return { text: sections.filter(Boolean).join("\n\n") };
 };
 
@@ -710,11 +716,12 @@ const pptx: Extractor = async (bytes, input) => {
   if (names.length === 0) throw new Error("This PPTX does not contain any slides.");
   const read = officeReader(archive, "PPTX", bytes.byteLength, input);
   const slides: string[] = [];
-  for (const name of names) {
+  for (const [index, name] of names.entries()) {
     const { paragraphs, hiddenSlide } = await read(name, "a");
     const text = paragraphs.join("\n");
     // A hidden slide keeps its text, and says that the slide show skips it.
     slides.push(`## Slide ${slideNumber(name)}${hiddenSlide ? ` ${HIDDEN_SLIDE}` : ""}\n${text || "[No text on this slide]"}`);
+    input?.onProgress?.({ done: index + 1, total: names.length, unit: "parts" });
   }
   return { text: slides.join("\n\n"), pages: names.length };
 };
@@ -770,6 +777,30 @@ const PAGE_WITHOUT_TEXT = "[No text on this page. It may be a scan, a photo, or 
  * not the model is later given a way to look at the page.
  */
 export const PICTURE_ON_PAGE = "[Picture on this page. This text cannot show it.]";
+
+/**
+ * The progress of the pages of one stage of reading a PDF, for `ExtractInput.onProgress`. The page
+ * check and the picture marks give up quietly on an error of their own: an error of the listener is
+ * kept, and `rethrow` throws it once they are done, as it would anywhere else.
+ */
+function pageProgress(input: ExtractInput | undefined, stage: ExtractProgress["stage"]): { report?: (done: number, total: number) => void; rethrow(): void } {
+  const listener = input?.onProgress;
+  if (!listener) return { rethrow() {} };
+  let failed: { error: unknown } | undefined;
+  return {
+    report(done, total) {
+      try {
+        listener({ stage, done, total, unit: "pages" });
+      } catch (error) {
+        failed ??= { error };
+        throw error;
+      }
+    },
+    rethrow() {
+      if (failed) throw failed.error;
+    },
+  };
+}
 
 /**
  * Loads pdf.js through `unpdf`, and refuses a version of unpdf that cannot read PDFs on this
@@ -829,11 +860,13 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
     let parsed = checkPages || pictures ? await parsePdf(bytes, signal) : undefined;
     signal?.throwIfAborted();
     if (parsed && checkPages) {
+      const checked = pageProgress(input, "check");
       try {
-        await checkPageWork(parsed.library, parsed.document, bytes.byteLength, signal);
+        await checkPageWork(parsed.library, parsed.document, bytes.byteLength, signal, checked.report);
       } catch (error) {
         if (error instanceof HeavyPage) throw new Error(error.reason === "unreadable" ? UNREADABLE_PAGE(error.page) : error.reason === "file" ? HEAVY_FILE : HEAVY_PAGE(error.page));
         signal?.throwIfAborted();
+        checked.rethrow();
         // Anything else unusual in the file: the check is given up, and the text is read as before.
       }
     }
@@ -885,6 +918,7 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
       texts.push(text);
       geometry.push({ view: page.view, transform, tables: found });
       page.cleanup();
+      input?.onProgress?.({ done: number, total: document.numPages, unit: "pages" });
       await slicer.maybePause();
     }
     if (!hasText) {
@@ -897,8 +931,10 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
       }
     }
     // Which pages show a picture. Undefined when that could not be found out: then none is marked.
-    const pictured = pictures ? await findPicturePages(parsed, geometry, signal) : undefined;
+    const looked = pageProgress(input, "pictures");
+    const pictured = pictures ? await findPicturePages(parsed, geometry, signal, looked.report) : undefined;
     signal?.throwIfAborted();
+    looked.rethrow();
     const pages = texts.map((text, index) => `--- Page ${index + 1} ---\n${pictured?.[index] ? `${PICTURE_ON_PAGE}\n` : ""}${text || PAGE_WITHOUT_TEXT}`);
     return { text: pages.join("\n\n"), pages: document.numPages };
   };

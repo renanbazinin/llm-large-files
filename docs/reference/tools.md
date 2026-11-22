@@ -28,7 +28,8 @@ Contents:
 - [Stability](#stability)
 
 Related exports on other pages: [`LargeFiles`](./library.md#largefiles) (its `tools()` method),
-[`ToolOptions`](./library.md#tooloptions), [`PreparedContext`](./library.md#preparedcontext) and
+[`ToolOptions`](./library.md#tooloptions), [`ToolCallHooks`](./library.md#toolcallhooks) (the
+fourth argument of `executeWithFiles`), [`PreparedContext`](./library.md#preparedcontext) and
 [`Budget`](./library.md#budget) are in the [library reference](./library.md). `ToolCall`,
 `ToolAnswer`, `ToolTurn`, `evidenceOf`, `stubResult` and [`AskLimits`](./ask.md#asklimits) are in
 the [loop reference](./ask.md).
@@ -669,7 +670,7 @@ type ToolSet = {
   declarations: ToolDeclaration[];
   has(name: string): boolean;
   execute(name: string, args: Record<string, unknown>): Promise<ToolResult>;
-  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallLimits): Promise<ToolOutput>;
+  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallLimits, hooks?: ToolCallHooks): Promise<ToolOutput>;
   describe(name: string, args: Record<string, unknown>): string;
   resultCharacters(name: string): number;
 };
@@ -680,8 +681,8 @@ type ToolSet = {
 | `declarations` | The tools to declare to the model, in this order: `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`, `view_pages`, those that are [offered](#which-tools-are-offered). |
 | `has(name)` | `true` for each declared tool. Also `true` for `analyze_whole_document` when `generate` was given and the text tools are declared, even if it is not declared because no document is small enough: a call then gets the reason. Use it to tell the calls of this tool set from others. |
 | `execute(name, args)` | Runs a call and returns its JSON result, within the tool's own cap. Failures come back as `{ error }`, as listed above. `view_pages` answers with an error here: it returns a file. |
-| `executeWithFiles(name, args, limits?)` | Runs any call with [`ToolCallLimits`](#toolcalllimits), and returns the result with the files it produced (`files` is empty for every tool but `view_pages`). Use it in a loop that can send files to the model. |
-| `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters), `Read app.log lines 1200-1260` (`-1260` only when `end_line` is a number not below `start_line`), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A cut never splits an emoji. A file not yet known is "the file"; an unknown tool is its name, as it came (`askWithFiles` labels it `Call “NAME”` instead). The line quotes the model's words as they are: show it as plain text, or clean it as `askWithFiles` does its steps. |
+| `executeWithFiles(name, args, limits?, hooks?)` | Runs any call with [`ToolCallLimits`](#toolcalllimits), and returns the result with the files it produced (`files` is empty for every tool but `view_pages`). Use it in a loop that can send files to the model. `hooks` ([`ToolCallHooks`](./library.md#toolcallhooks), new in 0.7.0) are listeners for this call alone: the progress of a whole-file read, in place of `ToolOptions.onProgress`, and each of its model requests with their retries. Only `analyze_whole_document` calls them. |
+| `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters), `Read app.log lines 1200-1260` (`-1260` only when `end_line` is a number not below `start_line`), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A cut never splits an emoji. A file not yet known is "the file"; an unknown tool is its name, as it came (`askWithFiles` labels it `Call “NAME”` instead). The line quotes the model's words as they are: show it as plain text, or clean it as `askWithFiles` does its steps. In `askWithFiles`, this line, made one line of plain text, is the `label` of the call's `tool.start` event, the line `onActivity` gets with "…", and the start of its step. |
 | `resultCharacters(name)` | The most characters of a result of this tool: the larger of `toolResultCharacters` and 40,000 for `analyze_whole_document`, 600 for `view_pages` (its file is counted in bytes), and `toolResultCharacters` for any other name. What a loop sets aside in its request before it runs a call. |
 
 `execute` and `executeWithFiles` throw only when the tool set's `signal` was aborted: the error

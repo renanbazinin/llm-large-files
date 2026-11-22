@@ -1,7 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isStoreWriteFailure } from "../errors.js";
-import { checkOwner, toDocumentSummary, type LargeFiles } from "../library.js";
+import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
+import { checkOwner, toDocumentSummary, type IngestInput, type LargeFiles } from "../library.js";
 import { formatBytes } from "../plan.js";
+import type { DocumentMeta } from "../types.js";
+import { writeSseEvents } from "./sse.js";
 
 export type DocumentHandlerOptions = {
   /**
@@ -30,6 +33,12 @@ export type DocumentHandlers = {
    * POST: the body is the raw file. Name it with an `X-File-Name` header (URI-encoded) or `?name=`.
    * A file that cannot be read is answered with a 422 and the reason. A store that fails while it
    * writes is answered with a 500 that does not repeat its message, unless its error has a status.
+   *
+   * When the request's `Accept` header names `text/event-stream` (not with `q=0`, nor only through a
+   * wildcard), a file that passes the checks of the name, the owner and the size (which still
+   * answer with an HTTP error) is answered with a 200 and Server-Sent Events: the ingest's events (`ingest.start`, `ingest.progress`…), ending
+   * with `ingest.finish`, whose data is the summary a 201 would hold, or `ingest.error`, whose data
+   * is `{ error: { message, status } }` with the message and status a JSON answer would have.
    */
   upload(request: IncomingMessage, response: ServerResponse): Promise<void>;
   /** GET: the document's summary, or 404. */
@@ -63,18 +72,92 @@ function systemErrorCode(error: unknown): string | undefined {
 }
 
 /**
- * Answers a failed request. An error with a status keeps its status and message. Anything else is
- * the server's trouble: a 500 that says what failed and, for a system error, its code.
+ * The answer to a failed request. An error with a status keeps its status and message. Anything
+ * else is the server's trouble: a 500 that says what failed and, for a system error, its code.
  */
-function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string): void {
+function answerOf(error: unknown, failed: string, tooLarge: string): { status: number; message: string } {
   const status = statusOf(error);
   if (status !== undefined) {
-    const message = status === 413 ? tooLarge : error instanceof Error && error.message ? error.message : `${failed}.`;
-    send(response, status, { error: message });
-    return;
+    return { status, message: status === 413 ? tooLarge : error instanceof Error && error.message ? error.message : `${failed}.` };
   }
   const code = systemErrorCode(error);
-  send(response, 500, { error: code ? `${failed} (${code}).` : `${failed}.` });
+  return { status: 500, message: code ? `${failed} (${code}).` : `${failed}.` };
+}
+
+/** Answers a failed request with JSON (see `answerOf`). */
+function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string): void {
+  const { status, message } = answerOf(error, failed, tooLarge);
+  send(response, status, { error: message });
+}
+
+/**
+ * An error of `ingest` as the upload answers it. A file that cannot be read is the client's 422,
+ * with the reason. An error with a status keeps it, and a system error is the server's 500 with its
+ * code. A store that failed in another way is the server's 500 too, without its message: that is
+ * the store's own, and may name a database host. So is a value that is not an Error, whoever threw it.
+ */
+function ingestFailure(error: unknown): unknown {
+  if (statusOf(error) !== undefined || systemErrorCode(error) !== undefined) return error;
+  if (isStoreWriteFailure(error) || !(error instanceof Error)) return error;
+  return new HttpError(422, error.message);
+}
+
+/**
+ * Whether the client asked for the upload's progress as Server-Sent Events: its `Accept` header
+ * names `text/event-stream` itself, without `q=0`. A wildcard (`text/*`, or any type at all) keeps
+ * the JSON answer.
+ */
+function wantsEvents(request: IncomingMessage): boolean {
+  const accept = request.headers.accept;
+  return (Array.isArray(accept) ? accept.join(",") : accept ?? "").split(",").some((range) => {
+    const [type, ...parameters] = range.split(";").map((part) => part.trim().toLowerCase());
+    if (type !== "text/event-stream") return false;
+    const q = parameters.map((parameter) => parameter.split("=").map((part) => part.trim())).find(([name]) => name === "q");
+    return q === undefined || Number(q[1]) > 0;
+  });
+}
+
+/**
+ * Ingests the upload and answers with its events as Server-Sent Events. The last one is always
+ * `ingest.finish` or `ingest.error`, even with a `LargeFiles` of your own whose `ingest` sends no events.
+ */
+async function streamIngest(files: LargeFiles, input: IngestInput, response: ServerResponse, tooLarge: string): Promise<void> {
+  const runId = newRunId("ing");
+  const stream = eventStream<IngestEvent, DocumentMeta>(
+    (onEvent, signal) => files.ingest({ ...input, runId, onEvent, signal }),
+    { signal: input.signal },
+  );
+  // The error as a JSON answer would give it: the event's own may hold a store's message.
+  const answer = async (fallback: EventError): Promise<EventError> => {
+    try {
+      await stream.result;
+      return { message: fallback.message, ...(fallback.status !== undefined ? { status: fallback.status } : {}) };
+    } catch (error) {
+      return answerOf(ingestFailure(error), "Upload failed", tooLarge);
+    }
+  };
+  async function* events(): AsyncGenerator<IngestEvent> {
+    let seq = 0;
+    for await (const event of stream) {
+      seq = event.seq;
+      if (event.type === "ingest.error") {
+        yield { ...event, error: await answer(event.error) };
+        return;
+      }
+      yield event;
+      if (event.type === "ingest.finish") return;
+    }
+    // The ingest ended without a last event: a `LargeFiles` of your own whose ingest sends none.
+    const base = { seq: seq + 1, runId, time: Date.now() };
+    try {
+      yield { ...base, type: "ingest.finish", document: toDocumentSummary(await stream.result) };
+    } catch {
+      yield { ...base, type: "ingest.error", error: await answer({ message: "Upload failed." }) };
+    }
+  }
+  // Each message is the event itself, as for a question: `ingest.finish` holds the summary a 201
+  // answer would (`document`), `ingest.error` the message and status a JSON answer would (`error`).
+  await writeSseEvents(response, events());
 }
 
 function send(response: ServerResponse, status: number, value: unknown): void {
@@ -125,7 +208,8 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Uint8A
 
 /**
  * Upload, get, and delete handlers for any Node HTTP server (node:http, Express, Fastify via
- * `request.raw`/`reply.raw`, Next.js API routes on the Node runtime). Responses are JSON.
+ * `request.raw`/`reply.raw`, Next.js API routes on the Node runtime). Responses are JSON, except an upload that asks for
+ * `text/event-stream`: it is answered with its ingest events.
  */
 export function createDocumentHandlers(files: LargeFiles, options: DocumentHandlerOptions = {}): DocumentHandlers {
   const tooLarge = `The file is larger than the ${formatBytes(files.maxUploadBytes)} upload limit.`;
@@ -158,29 +242,27 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
         };
         response.once("close", onClose);
+        const input: IngestInput = {
+          name,
+          bytes,
+          ...(mimeType ? { mimeType } : {}),
+          ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
+          signal: gone.signal,
+        };
         let meta;
         try {
-          meta = await files.ingest({
-            name,
-            bytes,
-            ...(mimeType ? { mimeType } : {}),
-            ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
-            signal: gone.signal,
-          });
+          if (wantsEvents(request)) return await streamIngest(files, input, response, tooLarge);
+          meta = await files.ingest(input);
         } catch (error) {
-          // A file that cannot be read is the client's 422, with the reason. An error with a status
-          // keeps it, and a system error is the server's 500 with its code. A store that failed in
-          // another way is the server's 500 too, without its message: that is the store's own, and
-          // may name a database host. So is a value that is not an Error, whoever threw it.
-          if (statusOf(error) !== undefined || systemErrorCode(error) !== undefined) throw error;
-          if (isStoreWriteFailure(error) || !(error instanceof Error)) throw error;
-          throw new HttpError(422, error.message);
+          throw ingestFailure(error);
         } finally {
           response.off("close", onClose);
         }
         send(response, 201, toDocumentSummary(meta));
       } catch (error) {
         fail(response, error, "Upload failed", tooLarge);
+        // An event stream that failed after its headers were sent cannot answer with a status.
+        if (response.headersSent && !response.writableEnded) response.end();
       }
     },
 

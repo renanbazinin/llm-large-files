@@ -724,7 +724,8 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    matter here: `generate` (a `GenerateText`, which turns on `analyze_whole_document`; without it,
    plan with `wholeDocumentAnalysis: false` in step 1), `viewPages` (pass `prepared.viewable`, and
    only when your loop sends files to the model), `signal`, `onProgress` (progress of whole-file
-   reads), `maxWholeDocumentReads` (1 by default), `regexBudgetMs` (6,000), `retry` and `budget`.
+   reads, for every call; per call, see [`ToolCallHooks`](#progress-of-each-call-toolcallhooks)),
+   `maxWholeDocumentReads` (1 by default), `regexBudgetMs` (6,000), `retry` and `budget`.
    Make one tool set for each question: the count of whole-file reads and the time for regex
    searches belong to it. The full list is in the
    [library reference](../reference/library.md#tooloptions).
@@ -739,7 +740,7 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    `functionDeclarations` (`toGeminiTools`), the OpenAI-compatible adapter sends each as
    `{ type: "function", function: declaration }`, and the Claude adapter as
    `{ name, description, input_schema: parameters }`.
-5. **Run** each call with `tools.executeWithFiles(name, args, limits)`, which returns
+5. **Run** each call with `tools.executeWithFiles(name, args, limits, hooks?)`, which returns
    `{ result, files }`. It does not throw for a call that went wrong: an unknown tool, bad
    arguments, a document outside this tool set, a store that failed, or a whole-file read that
    failed all come back as `{ error }`, for the model to read. It throws only when your `signal`
@@ -965,6 +966,51 @@ into. Fill it from your own request, as the sample above does:
 The defaults, the floors and the errors a call answers with are in the
 [tools reference](../reference/tools.md#toolcalllimits).
 
+### Progress of each call: `ToolCallHooks`
+
+New in 0.7.0. `ToolOptions.onProgress` hears every whole-file read of the tool set, and its events
+do not say which call they belong to. When your loop runs calls at once and shows each one, pass
+listeners for one call as the fourth argument of `executeWithFiles`
+([`ToolCallHooks`](../reference/library.md#toolcallhooks)):
+
+- `onProgress`: the progress of this call's read, in place of the tool set's listener: "Reading
+  app.log: part 3 of 12", with `done` and `total`.
+- `onRequest(start)`: each model request of the read as it starts, with its `purpose` (`"part"`,
+  `"merge"`, `"final"`) and a `detail` such as `"part 3 of 12"`. Return a handle: the read calls
+  its `retry(notice)` before each retry of that request, and its `end({ outcome, usage, error })`
+  once when it ends. `usage` is what the part reader passed to `onUsage` for that request, so you
+  can show or count the cost of each read.
+
+Only `analyze_whole_document` calls them; the other tools ignore them.
+
+```ts
+import type { ToolCall, ToolCallHooks, ToolCallLimits, ToolOutput, ToolSet } from "llm-large-files";
+
+// show() is your own: it updates the line of one call on the page.
+declare function show(callId: string, text: string): void;
+
+/** Runs the calls of one turn at once, each with its own progress line. */
+async function runTurn(tools: ToolSet, calls: Array<ToolCall & { id: string }>, limits: ToolCallLimits): Promise<ToolOutput[]> {
+  return Promise.all(calls.map((call) => {
+    const hooks: ToolCallHooks = {
+      onProgress: (event) => show(call.id, `${event.message}…`),
+      onRequest: (start) => ({
+        retry: ({ attempt }) => show(call.id, `${start.detail}: trying again (${attempt})…`),
+        end: ({ outcome }) => {
+          if (outcome === "error") show(call.id, `${start.detail} could not be read`);
+        },
+      }),
+    };
+    return tools.executeWithFiles(call.name, call.args, limits, hooks);
+  }));
+}
+```
+
+Do not let the listeners throw: the read takes a throw from `onRequest` or a handle for a failed
+request, and a throw from `onProgress` ends the read with `{ error }`. To stop the question on an
+error of your own, abort the tool set's `signal`. `askWithFiles` uses these hooks for its
+`tool.progress`, `request.start`, `retry` and `request.end` events ([events](../reference/events.md)).
+
 ## Streams and retries in your own code
 
 The loop's own stream reader and retry rule are exported, for an adapter or a loop of yours.
@@ -1116,6 +1162,7 @@ export async function streamAnswer(prompt: string, write: (delta: string) => voi
   [`ModelCapabilities`](../reference/ask.md#modelcapabilities),
   [`ModelReply`](../reference/ask.md#modelreply), [`GenerateText`](../reference/ask.md#generatetext),
   [`ToolSet`](../reference/tools.md#toolset), [`ToolCallLimits`](../reference/tools.md#toolcalllimits),
+  [`ToolCallHooks`](../reference/library.md#toolcallhooks),
   [`PreparedContext`](../reference/library.md#preparedcontext),
   [`ModelRequestError`](../reference/errors-and-retries.md#modelrequesterror),
   [retries and streams](../reference/errors-and-retries.md), and the

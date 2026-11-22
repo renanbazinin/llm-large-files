@@ -574,10 +574,10 @@ describe("what a question read", () => {
     const first = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("Where is the first error?") });
     expect(first.evidence).toEqual([
       // The first two matches, and the last one of the file.
-      { tool: "search_document", documentId: meta.id, document: "app.log", lines: [[2, 4], [10, 12], [4_994, 4_996]], query: "worker-3] req=", mode: "exact", totalMatchingLines: 625 },
-      { tool: "search_document", documentId: meta.id, document: "app.log", lines: expect.any(Array), query: "orders 4999 took", mode: "keywords" },
-      { tool: "read_document", documentId: meta.id, document: "app.log", lines: [[95, 99]] },
-      { tool: "get_document_overview", documentId: meta.id, document: "app.log", lines: [[1, 30], [4_981, 5_000]] },
+      { tool: "search_document", documentId: meta.id, document: "app.log", lines: [[2, 4], [10, 12], [4_994, 4_996]], query: "worker-3] req=", mode: "exact", totalMatchingLines: 625, callId: "call_1" },
+      { tool: "search_document", documentId: meta.id, document: "app.log", lines: expect.any(Array), query: "orders 4999 took", mode: "keywords", callId: "call_2" },
+      { tool: "read_document", documentId: meta.id, document: "app.log", lines: [[95, 99]], callId: "call_3" },
+      { tool: "get_document_overview", documentId: meta.id, document: "app.log", lines: [[1, 30], [4_981, 5_000]], callId: "call_4" },
     ]);
     // Plain JSON, in the order of the rounds, with each result as the model had it.
     expect(first.toolTurns).toHaveLength(2);

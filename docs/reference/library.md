@@ -16,8 +16,9 @@ import {
 } from "llm-large-files";
 import type {
   LargeFilesOptions, LargeFiles, AccessOptions, IngestInput, PrepareOptions, ToolOptions, PreparedContext, DocumentPlan,
-  Budget, ModelLimits, DocumentStore, StoredDocument, PdfExtractorOptions, Extractor, ExtractInput, ExtractedText,
-  DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent, ProgressListener,
+  Budget, ModelLimits, DocumentStore, StoredDocument, PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
+  ExtractedText, DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent,
+  ProgressListener, ToolCallHooks, ToolRequestHandle, ToolRequestStart, ToolRequestEnd, IngestEvent,
 } from "llm-large-files";
 ```
 
@@ -41,7 +42,7 @@ Contents:
   [`MemoryDocumentStore`](#memorydocumentstore), [`FileDocumentStore`](#filedocumentstore),
   [`DOCUMENT_ID_PATTERN`](#document_id_pattern), [`DocumentStoreError`](#documentstoreerror)
 - [Extraction](#extraction): [`Extractor`](#extractor), [`ExtractInput`](#extractinput),
-  [`ExtractedText`](#extractedtext), [`defaultExtractors`](#defaultextractors),
+  [`ExtractProgress`](#extractprogress), [`ExtractedText`](#extractedtext), [`defaultExtractors`](#defaultextractors),
   [`createPdfExtractor(options?)`](#createpdfextractoroptions), [`PdfExtractorOptions`](#pdfextractoroptions),
   [`detectFormat(name, mimeType)`](#detectformatname-mimetype)
 - [Text sizes](#text-sizes): [`estimateTokens(text)`](#estimatetokenstext), [`utf8Bytes(text)`](#utf8bytestext),
@@ -50,11 +51,14 @@ Contents:
   [`DocumentFormat`](#documentformat), [`OutlineEntry`](#outlineentry), [`LogIssue`](#logissue),
   [`LogProfile`](#logprofile)
 - [Progress of whole-document reads](#progress-of-whole-document-reads): [`ProgressEvent`](#progressevent),
-  [`ProgressListener`](#progresslistener)
+  [`ProgressListener`](#progresslistener), [`ToolCallHooks`](#toolcallhooks),
+  [`ToolRequestHandle`](#toolrequesthandle), [`ToolRequestStart`](#toolrequeststart),
+  [`ToolRequestEnd`](#toolrequestend)
 
 The same entry point also exports the tool loop and the adapter contract ([ask.md](./ask.md)),
-errors, retries and streams ([errors-and-retries.md](./errors-and-retries.md)), and the tools the
-model sees ([tools.md](./tools.md)).
+errors, retries and streams ([errors-and-retries.md](./errors-and-retries.md)), the tools the
+model sees ([tools.md](./tools.md)), and the events of a question and of an ingest
+([events.md](./events.md)).
 
 ## The library
 
@@ -166,7 +170,8 @@ new document's [`DocumentMeta`](#documentmeta).
 1. The owner is checked (see [`IngestInput`](#ingestinput)), the name is cleaned, and the format
    is picked by [`detectFormat(name, mimeType)`](#detectformatname-mimetype).
 2. The extractor of that format turns the bytes into text. It receives the limits `maxTextBytes`
-   and `maxPdfPages` and the ingest's signal ([`ExtractInput`](#extractinput)). A text longer
+   and `maxPdfPages`, the ingest's signal, and, when someone listens to the ingest's events, an
+   `onProgress` to report how far it is ([`ExtractInput`](#extractinput)). A text longer
    than `maxTextBytes` is refused, whichever extractor made it. The extractor may say how the text
    was read ([`ExtractedText`](#extractedtext)): the built-in one reads a text file that is not
    valid UTF-8 in the older encoding its lines fit, when one does, and `encoding` and
@@ -197,6 +202,25 @@ They run under one signal, aborted by `IngestInput.signal` or after `ingestTimeo
 by default). When it aborts, `ingest` stops waiting for the extractor, throws, and writes nothing
 to the store. The writes of step 5 are not under the signal. One page of a PDF is read without a
 pause, and the signal is looked at only between pages.
+
+**Events.** New in 0.7.0. With `IngestInput.onEvent`, the ingest tells what it does as typed
+[`IngestEvent`](./events.md#ingestevent)s, in order: `ingest.start` first (the cleaned name, the
+format the name and type say, the size), even for a file that is then refused; `ingest.progress` for each stage
+that reports; and last `ingest.finish`, with the document's
+[`DocumentSummary`](#documentsummary), or `ingest.error`. The stages, in the order they run:
+`decode` (a text file that is not UTF-8, once, when it is decoded), `check` (the pages of a PDF
+checked before they are read, with `@cantoo/pdf-lib`), `extract` (the pages of a PDF, the parts of
+a DOCX or PPTX), `pictures` (the pages of a PDF looked at for pictures, with `@cantoo/pdf-lib`),
+`prepare` and `index` (characters of the text), and `store` (each write)
+([stages and units](./events.md#stages-and-units)). A stage sends at
+most one `ingest.progress` about every 12 ms, and its last one when it ends. An extractor of your
+own reports only what it passes to `onProgress`. The error of `ingest.error` is told in words for
+users: a store that failed to write is "The document could not be stored. Try again later.",
+whatever it threw, and the store's own error is the one `ingest` throws. A listener that throws
+ends the ingest with that error, and nothing is stored; a throw on `ingest.finish` removes the
+document that was just stored. `createDocumentHandlers` sends these events to a client that
+asks for them with `Accept: text/event-stream`
+([upload with progress](./node.md#upload-with-progress-accept-textevent-stream)).
 
 | It throws | When |
 |---|---|
@@ -368,7 +392,15 @@ The upload limit in effect: `options.maxUploadBytes`, or 104,857,600 (100 MB).
 ### `IngestInput`
 
 ```ts
-type IngestInput = { name: string; mimeType?: string; bytes: Uint8Array; owner?: string; signal?: AbortSignal };
+type IngestInput = {
+  name: string;
+  mimeType?: string;
+  bytes: Uint8Array;
+  owner?: string;
+  signal?: AbortSignal;
+  onEvent?: (event: IngestEvent) => void;
+  runId?: string;
+};
 ```
 
 The argument of [`files.ingest`](#filesingestinput).
@@ -380,6 +412,8 @@ The argument of [`files.ingest`](#filesingestinput).
 | `bytes` | `Uint8Array` | required | The file. A Node `Buffer` is one. Empty, or larger than `maxUploadBytes`, is refused. |
 | `owner` | `string` | none | The user or tenant the document belongs to. Every later call must pass the same owner. Without one, anyone who has the ID can use the document. It must be a string that is not empty or only spaces: `""`, spaces only and `null` throw a `TypeError` (see [`files.ingest`](#filesingestinput)), since each would be one owner shared by every caller without a user. A number from JavaScript is taken, as before. Reads with the owner `""` work as before. |
 | `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX and PPTX extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written changes nothing. `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
+| `onEvent` | `(event: IngestEvent) => void` | none | What the ingest does as it goes: `ingest.start`, `ingest.progress` for each stage, then `ingest.finish` or `ingest.error` (see [`files.ingest`](#filesingestinput) and [events](./events.md)). Progress is worked out only when it is given. New in 0.7.0. |
+| `runId` | `string` | `"ing_"` and 16 hex digits | The `runId` of those events. New in 0.7.0. |
 
 Guide: [web app](../guides/web-app.md).
 
@@ -941,6 +975,7 @@ type ExtractInput = {
   signal?: AbortSignal;
   maxTextBytes?: number;
   maxPages?: number;
+  onProgress?: (progress: ExtractProgress) => void;
 };
 ```
 
@@ -953,6 +988,51 @@ type ExtractInput = {
 | `signal` | `AbortSignal \| undefined` | The signal of the ingest: aborted after `ingestTimeoutMs`, or when `IngestInput.signal` aborts. Its `reason` is the error to throw. The PDF, DOCX and PPTX extractors stop between pages and pieces. The text extractor decodes valid UTF-8 and UTF-16 in one step, and a file that is not valid UTF-8 a step at a time, whatever it is read in, stopping between two steps. `ingest` sets it, and stops waiting for your extractor when it aborts, but cannot stop the work your extractor does: pass it on (to `fetch`, for example), or check it between steps with `signal.throwIfAborted()`. |
 | `maxTextBytes` | `number \| undefined` | `LargeFilesOptions.maxTextBytes`: the most text to keep, in UTF-8 bytes. `ingest` sets it, and refuses a larger text from any extractor once it returns. An extractor that refuses as soon as its text grows past it spares the memory. |
 | `maxPages` | `number \| undefined` | `LargeFilesOptions.maxPdfPages`: the most pages to read from one PDF. `ingest` sets it for every format; only the built-in PDF extractor uses it. `ingest` does not check it for you. |
+| `onProgress` | `((progress: ExtractProgress) => void) \| undefined` | Call it as the extraction goes on, so that `ingest` can report progress ([`ExtractProgress`](#extractprogress)). Set only when someone listens to the ingest's events (`IngestInput.onEvent`). The built-in extractors call it for each page of a PDF and each part of a DOCX or PPTX. An extractor of your own may ignore it: the ingest then sends no `extract` progress. What it reports after it returned is dropped. It can throw, when the listener of the events throws: let that error end the extraction. New in 0.7.0. |
+
+### `ExtractProgress`
+
+```ts
+type ExtractProgress = {
+  stage?: "extract" | "check" | "pictures" | "decode";
+  done: number;
+  total?: number;
+  unit: "pages" | "parts" | "bytes";
+};
+```
+
+New in 0.7.0. How far an extraction is, for `ExtractInput.onProgress`. Each call becomes an
+`ingest.progress` event of that stage, at most one about every 12 ms for each stage, and the last
+one when the stage ends. A call whose `stage` or `unit` is not one of these, or whose `done` is not
+a number of 0 or more, is left out.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `stage` | `"extract" \| "check" \| "pictures" \| "decode"`, optional | `"extract"` (the default): text read. `"check"`: pages checked before they are read. `"pictures"`: pages looked at for pictures. `"decode"`: bytes of a text file decoded. |
+| `done` | `number` | How many are done. |
+| `total` | `number`, optional | How many there are, when it is known. |
+| `unit` | `"pages" \| "parts" \| "bytes"` | What `done` and `total` count. |
+
+```ts
+import { createLargeFiles, MemoryDocumentStore, type Extractor } from "llm-large-files";
+
+// readPage is your own: the text of one page of a PDF, from an OCR service.
+declare function readPage(bytes: Uint8Array, page: number, signal?: AbortSignal): Promise<string>;
+declare function pageCount(bytes: Uint8Array): Promise<number>;
+
+const pdf: Extractor = async (bytes, input) => {
+  const pages = await pageCount(bytes);
+  const texts: string[] = [];
+  for (let page = 1; page <= pages; page++) {
+    input.signal?.throwIfAborted();
+    texts.push(`--- Page ${page} ---\n${await readPage(bytes, page, input.signal)}`);
+    input.onProgress?.({ done: page, total: pages, unit: "pages" }); // an ingest.progress of stage "extract"
+  }
+  return { text: texts.join("\n\n"), pages };
+};
+
+const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { pdf } });
+```
 
 ### `ExtractedText`
 
@@ -1274,13 +1354,114 @@ One step of a whole-document read (`analyze_whole_document`), for a status displ
 | `done` | `number` | The steps of this kind done so far (0 for the step that writes the answer). |
 | `total` | `number` | The steps of this kind (1 for the step that writes the answer). |
 
+It is not one of the events of `onEvent` ([events](./events.md)). In `askWithFiles`, each
+`ProgressEvent` of a whole-file read is also a `tool.progress` event, with the `callId` of its call
+and the same `done`, `total` and `message`, and `kind` as `stage`.
+
 ### `ProgressListener`
 
 ```ts
 type ProgressListener = (event: ProgressEvent) => void;
 ```
 
-The type of `ToolOptions.onProgress`. [`askWithFiles`](./ask.md#askwithfilesoptions) passes each
-event's message, followed by "…", to its own `onActivity` instead.
+The type of `ToolOptions.onProgress` and of `ToolCallHooks.onProgress`.
+[`askWithFiles`](./ask.md#askwithfilesoptions) passes each event's message, followed by "…", to its
+own `onActivity` instead.
+
+### `ToolCallHooks`
+
+```ts
+type ToolCallHooks = {
+  onProgress?: ProgressListener;
+  onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
+};
+```
+
+New in 0.7.0. Listeners for one tool call: the fourth argument of
+[`executeWithFiles`](./tools.md#toolset), next to its limits. With them, the progress and the model
+requests of two whole-file reads that run at once can be told apart. Only `analyze_whole_document`
+calls them; the other tools ignore them. `askWithFiles` passes its own for each call, and turns
+them into `tool.progress`, `request.start`, `retry` and `request.end` events
+([events in your own loop](./events.md#toolcallhooks)).
+
+| Field | Type | What it does |
+|---|---|---|
+| `onProgress` | [`ProgressListener`](#progresslistener), optional | Progress of this call, in place of `ToolOptions.onProgress` for it. Without it, the tool set's own listener is called. |
+| `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle`, optional | Called as each model request of this call starts ([`ToolRequestStart`](#toolrequeststart)). Return a [`ToolRequestHandle`](#toolrequesthandle): the read tells it of each retry of that request, and once when the request ends. |
+
+Do not let them throw. The read takes a throw from `onRequest` or from a handle for a failure of
+that request: the part is reported as not read, and a merge or the answer falls back to the notes.
+A throw from `onProgress` ends the read, and `executeWithFiles` returns it as the tool's
+`{ error }`. To end your question on an error of your listener, as `askWithFiles` does, catch it in
+the listener, keep it, and abort the tool set's `signal`.
+
+```ts
+import type { LargeFiles, ToolCall, ToolCallHooks } from "llm-large-files";
+
+// files is your createLargeFiles(); prepared comes from files.prepare(); generate is your GenerateText.
+declare const files: LargeFiles;
+declare const prepared: Awaited<ReturnType<LargeFiles["prepare"]>>;
+declare const generate: NonNullable<Parameters<LargeFiles["tools"]>[1]>["generate"];
+
+const tools = files.tools(prepared.plan.searchable, { ...(generate ? { generate } : {}) });
+
+// Each call reports apart: "call 2: Reading app.log: part 3 of 12".
+async function run(call: ToolCall, index: number) {
+  const hooks: ToolCallHooks = {
+    onProgress: (event) => console.log(`call ${index}: ${event.message}`),
+    onRequest: (start) => {
+      const began = Date.now();
+      return {
+        retry: ({ attempt, delayMs }) => console.log(`call ${index}: ${start.detail}, retry ${attempt} in ${delayMs} ms`),
+        end: ({ outcome, usage }) => console.log(`call ${index}: ${start.detail} ${outcome} in ${Date.now() - began} ms`, usage),
+      };
+    },
+  };
+  return tools.executeWithFiles(call.name, call.args, {}, hooks);
+}
+```
+
+### `ToolRequestHandle`
+
+```ts
+type ToolRequestHandle = {
+  retry(notice: { attempt: number; delayMs: number; error: unknown }): void;
+  end(end: ToolRequestEnd): void;
+};
+```
+
+New in 0.7.0. One model request of a tool call, as `ToolCallHooks.onRequest` returns it.
+
+| Member | What it is told |
+|---|---|
+| `retry(notice)` | The request failed and is sent again after `delayMs`, as a [`RetryNotice`](./errors-and-retries.md#retrynotice): `attempt` is 1 for the first retry, and `error` is the error as it was thrown. The retry of an error without a status, which has no wait, is not told. |
+| `end(end)` | The request ended, after any retries ([`ToolRequestEnd`](#toolrequestend)). Called once. |
+
+### `ToolRequestStart`
+
+```ts
+type ToolRequestStart = { purpose: "part" | "merge" | "final"; detail: string };
+```
+
+New in 0.7.0. A model request of a whole-file read, as it starts.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `purpose` | `"part" \| "merge" \| "final"` | `"part"`: a part of the file is read. `"merge"`: notes are combined. `"final"`: the answer of the read is written. |
+| `detail` | `string` | Which one: `"part 3 of 12"`, `"first half of part 3 of 12"` (a part read again in halves), `"round 2: 1 of 4"`, `"the answer"`. |
+
+### `ToolRequestEnd`
+
+```ts
+type ToolRequestEnd = { outcome: "ok" | "error"; usage?: GenerateUsage; error?: unknown };
+```
+
+New in 0.7.0. A model request of a tool call, as it ends.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `outcome` | `"ok" \| "error"` | `"error"` when the request failed in the end. A part that failed does not end the read: it is reported to the model. |
+| `usage` | [`GenerateUsage`](./ask.md#generateusage), optional | The tokens of the request, summed over what its part reader passed to `onUsage`. Absent when it passed nothing. |
+| `error` | `unknown`, optional | With `"error"`: the error as it was thrown. It can hold the provider's own words: keep it for your logs. |
 
 Guide: [web app](../guides/web-app.md).

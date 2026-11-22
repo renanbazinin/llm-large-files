@@ -123,8 +123,10 @@ What the parts do:
   adapter throws a request that failed. A function entry gets the request, its number (1 for the
   first) and the hooks, and returns the reply: use it when the reply depends on what was asked.
 - **`requests`.** A copy of each request as it was sent, failed attempts included.
-- **`onText`.** When your code passes `onText` to `askWithFiles`, the loop passes a hook to the
-  adapter, and the fake calls it with the text in two pieces, as a stream would arrive.
+- **`onText`.** When your code passes `onText` to `askWithFiles` (or `streamText: true`, or uses
+  `askStream`), the loop passes a hook to the adapter, and the fake calls it with the text in two
+  pieces, as a stream would arrive. With `onEvent` alone, it does not: the text then comes in one
+  `text` event, once the reply is in.
 - **The options.** `id` names the model in `usage.byModel`; give two fakes different ones. A
   `generateText` function offers `analyze_whole_document`, the whole-file read in parts; without it
   that tool is not offered. The capabilities make the fake look like a given model:
@@ -339,6 +341,52 @@ Some advice:
   library's prompts, not your application's. Check that your own `system` text is in it.
 - To test what your application does with `usage` (a cost per user, a ceiling), give the fake's
   replies round numbers of tokens, as above. See [Costs and limits](./costs-and-limits.md).
+
+### Events
+
+New in 0.7.0. To test what your application shows while a question runs, collect the events of a
+scripted question with `onEvent` (or read `askStream`), and assert their order and the fields your
+page reads. Compare `type`s, ids and outcomes, not whole events: `time` changes on every run, and
+the wording of a label or a notice is the library's.
+
+```ts
+// test/events.test.ts
+import { expect, it } from "vitest";
+import { askStream, createLargeFiles, MemoryDocumentStore, type AskEvent } from "llm-large-files";
+import { appLog, bytes, calls, fakeModel, says } from "./fake-model.js";
+
+it("shows the search, then the answer, in order", async () => {
+  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+  const meta = await files.ingest({ name: "app.log", bytes: bytes(appLog(400)) });
+  const search = { id: "s1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
+  const model = fakeModel([calls([search]), says("8 payments failed.")]);
+
+  const events: AskEvent[] = [];
+  const stream = askStream({ files, model, documentIds: [meta.id], messages: [{ role: "user", text: "How many failed?" }], runId: "run_test" });
+  for await (const event of stream) events.push(event);
+
+  // seq counts from 1 without gaps, every event names the run, and the run ends once, last.
+  expect(events.map((event) => event.seq)).toEqual(events.map((_, index) => index + 1));
+  expect(events.every((event) => event.runId === "run_test")).toBe(true);
+  expect(events.map((event) => event.type).filter((type) => type !== "text" && type !== "notice")).toEqual([
+    "run.start", "plan",
+    "request.start", "request.end", // the turn that calls the tool
+    "tool.start", "tool.end",
+    "request.start", "request.end", // the answer
+    "run.finish",
+  ]);
+  expect(events.find((event) => event.type === "tool.end")).toMatchObject({ callId: "call_1", outcome: "ok" });
+  // askStream streams by default: the fake passes the answer in two pieces, which join to the text.
+  const text = events.flatMap((event) => (event.type === "text" ? [event.delta] : []));
+  expect(text.join("")).toBe((await stream.result).text);
+});
+```
+
+To test a failure, script an `Error` entry, as in [Errors](#errors): the run ends with `run.error`,
+whose `error.message` is told in words for users, while `stream.result` rejects with the error as
+the fake threw it. The library's own tests check the same rules for every run: each
+`request.start` and `tool.start` has its end, and each `retry`, `text` and `tool.progress` falls
+between them.
 
 ### Output that 0.6.0 changed
 

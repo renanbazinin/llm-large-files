@@ -2,11 +2,11 @@
 
 This guide is for you if you add large files to a web chat: the browser uploads files, your server
 keeps them and asks the model, and the answer streams back to the page with its progress. It covers
-uploads with `createDocumentHandlers` or with a route of your own, the browser side of an upload, a
-Server-Sent Events route that streams the answer, cancelling, and reading the stream in the browser.
-The samples use Express 5 and Gemini on Vertex AI. The approach depends on neither: with Express 4,
-catch errors in async routes yourself, and with another model, call `askWithFiles` (see the end of
-[the chat route](#a-server-sent-events-route)).
+uploads with `createDocumentHandlers` or with a route of your own, the browser side of an upload
+with its progress, a Server-Sent Events route that streams the question's events, cancelling, and
+reading the stream in the browser. The samples use Express 5 and Gemini on Vertex AI. The approach
+depends on neither: with Express 4, catch errors in async routes yourself, and with another model,
+call `askStream` (see the end of [the chat route](#a-server-sent-events-route)).
 
 ## What you build
 
@@ -14,9 +14,9 @@ Three routes. Their paths are yours: the library mounts none.
 
 | Route | What it does | With |
 |---|---|---|
-| `POST /api/documents` | Takes one file, extracts and stores its text, and answers with a `DocumentSummary`. | `createDocumentHandlers(files).upload`, or `files.ingest` in a route of your own |
+| `POST /api/documents` | Takes one file, extracts and stores its text, and answers with a `DocumentSummary`, or with its progress and then the summary as Server-Sent Events. | `createDocumentHandlers(files).upload`, or `files.ingest` in a route of your own |
 | `GET` and `DELETE /api/documents/:id` | Looks a document up, or deletes it. | `get` and `remove` of the same handlers |
-| `POST /api/chat` | Asks the model about the chat's documents, and streams the answer, the progress and the result as Server-Sent Events. | `askGemini` or `askWithFiles`, with `onText`, `onActivity`, `onStep` and `signal` |
+| `POST /api/chat` | Asks the model about the chat's documents, and streams the question's events as Server-Sent Events: the tool calls, the answer, the result. | `writeSseEvents` with `askStream`, or with `eventStream` over `askGemini` |
 
 The ID an upload returns belongs to the chat session, not to one message: keep it with the session,
 and pass every document of the session on every question. A runnable server with uploads, a
@@ -532,9 +532,631 @@ export async function uploadFile(file: File): Promise<DocumentSummary> {
   "read as windows-1255", or "12 characters could not be read: save the file as UTF-8 and attach
   it again".
 
+### Upload with progress
+
+New in 0.7.0. A large PDF or DOCX can take a while to read once it has arrived. Send the same
+request with `Accept: text/event-stream`, and `upload` answers with the ingest's events as
+Server-Sent Events: how far each stage is, then the summary. The checks that run before the ingest
+(the name, `getOwner`, a body already parsed, the size) still answer with their status and JSON, so
+read the response as JSON when it is not `200`:
+
+```ts
+// upload-progress.ts: runs in the browser. readEvents is the function in "Reading the events in the browser".
+import type { DocumentSummary, IngestEvent, IngestStage } from "llm-large-files";
+import { readEvents } from "./chat-client.js";
+
+const STAGES: Record<IngestStage, string> = {
+  decode: "Decoding",
+  extract: "Reading",
+  check: "Checking the pages",
+  pictures: "Finding pictures",
+  prepare: "Preparing the text",
+  index: "Indexing",
+  store: "Saving",
+};
+
+/** Sends one file to POST /api/documents and reports how far the server has read it. Throws with a message you can show. */
+export async function uploadWithProgress(file: File, onProgress: (text: string) => void): Promise<DocumentSummary> {
+  const response = await fetch("/api/documents", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-File-Name": encodeURIComponent(file.name),
+      ...(file.type ? { "X-File-Type": file.type } : {}),
+      Accept: "text/event-stream",
+    },
+    body: file,
+  });
+  // A missing name, a refused owner or a file too large is still an HTTP error, in JSON.
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `The upload failed (HTTP ${response.status}).`);
+  }
+  let document: DocumentSummary | undefined;
+  let failure: string | undefined;
+  await readEvents(response, (data) => {
+    const event = data as IngestEvent;
+    if (event.type === "ingest.progress") {
+      const of = event.total !== undefined ? ` of ${event.total.toLocaleString()}` : "";
+      onProgress(`${STAGES[event.stage]}: ${event.done.toLocaleString()}${of} ${event.unit}…`);
+    } else if (event.type === "ingest.finish") {
+      document = event.document; // the summary a 201 answer holds: keep document.id with the chat session
+    } else if (event.type === "ingest.error") {
+      failure = event.error.message; // the message the JSON answer would have
+    }
+  });
+  if (document) return document;
+  throw new Error(failure ?? "The upload stopped before the file was read. Attach it again.");
+}
+```
+
+- **The events start once the whole file has arrived.** They report the server's work on it, not
+  the upload of its bytes: for that, use `XMLHttpRequest` and `upload.onprogress`, as above.
+- **`ingest.progress`** has a `stage` (`decode`, `extract`, `check`, `pictures`, `prepare`,
+  `index`, `store`), `done`, `total` when it is known, and a `unit` (`pages`, `parts`, `bytes`,
+  `characters`): see [stages and units](../reference/events.md#stages-and-units). A stage reports
+  at most about every 12 ms, and once more when it ends. Not every file goes through every stage,
+  and a stage with nothing to report may send nothing.
+- **The stream ends with one `ingest.finish` or one `ingest.error`.** `ingest.finish` holds in
+  `document` the summary a `201` holds. `ingest.error` holds in `error` the `message` and `status`
+  the JSON answer would have: `422` and "This file looks binary, not text. …", say. A store's own
+  message is never in it.
+- **Closing the page stops the ingest**, as it does for a JSON upload: nothing is stored.
+- **A wildcard does not ask for events.** `Accept: */*` or `text/*` keeps the `201` and JSON, and so
+  does `q=0`. The rules are in the [node reference](../reference/node.md#upload-with-progress-accept-textevent-stream).
+
 ## Streaming the answer
 
-### The three callbacks
+A question can take minutes: searches, reads, a whole-file read of many parts, then the answer.
+There are two ways to show it in the page as it goes:
+
+- **The event stream.** New in 0.7.0. Everything the question does comes as a typed event, in
+  order: the plan, each model request, each tool call with its progress and outcome, the text, and
+  the result. `writeSseEvents` sends the events to the browser as Server-Sent Events, one message
+  per event. Use it for a new page.
+- **The three callbacks** `onText`, `onActivity` and `onStep`. They get the same strings at the
+  same moments as in 0.6.0, and a route of your own writes them to the browser. Code that uses
+  them needs no change: see [the three callbacks](#the-three-callbacks-the-older-way).
+
+### The event stream
+
+`askStream(options)` takes the [`AskOptions`](../reference/ask.md#askoptions) of `askWithFiles` and
+returns the question's events as an async iterable:
+
+```ts
+import { askStream } from "llm-large-files";
+
+const stream = askStream({ files, model, documentIds, messages, owner });
+for await (const event of stream) {
+  if (event.type === "text") process.stdout.write(event.delta);
+  if (event.type === "run.error") console.log(event.error.message);
+}
+const result = await stream.result; // what askWithFiles returns, toolTurns included
+```
+
+| Member | What it is |
+|---|---|
+| The iterable | The events, in order. It ends after the last one. |
+| `result` | A promise of what `askWithFiles` returns, `toolTurns` included. It rejects with the question's error. Awaiting it is optional: it never goes unhandled. |
+| `abort(reason?)` | Stops the question. The events end after its `run.error`. |
+
+`askGemini` builds its models from the endpoint, explorer included. To stream it, wrap it in
+`eventStream`, which does the same for any function that takes an `onEvent` and a `signal`:
+
+```ts
+import { eventStream, type AskEvent, type AskResult } from "llm-large-files";
+import { askGemini } from "llm-large-files/gemini";
+
+const stream = eventStream<AskEvent, AskResult>(
+  (onEvent, signal) => askGemini({ files, endpoint, documentIds, messages, owner, streamText: true, onEvent, signal }),
+  { signal: deadline }, // optional: a signal of yours that stops the question too
+);
+```
+
+What to know about the stream:
+
+- **One run, in order.** Every event has its `type`, a `seq` (1, 2, 3… with no gaps), the `runId`
+  ("run_" and 16 hex digits, or the `runId` you pass) and its `time` (milliseconds since 1970).
+  `run.start` comes first. Exactly one event comes last: `run.finish` when the question returns,
+  `run.error` when it throws, an abort included. Nothing comes after it.
+- **The question runs at once.** Its events wait in memory until you read them. Read them once: a
+  second loop over the same stream throws a `TypeError`.
+- **Leaving the loop stops the question.** A `break`, a `return` or a throw in the loop aborts it.
+- **The loop never throws.** A question that fails ends the loop after its `run.error` event. Read
+  the error there, or await `result`, which rejects with it.
+- **Errors in events are safe to show.** An event's error is an `EventError`: `message`, and `kind`,
+  `status` and `name` when there are any. A model error is told by its kind and status ("The model
+  was busy (HTTP 429)."), never in the provider's words, which can name projects, hosts or keys. A
+  storage error is told by its code. The provider's words stay on the error that `result` rejects
+  with, for your log.
+- **Events hold no text of your documents.** They hold labels, steps, the arguments the model sent,
+  and the lines and pages each call showed (`evidence`), but not what the tools returned: `tool.end`
+  has no `result`, and the result in `run.finish` and `run.error` has no `toolTurns`.
+  `eventResults: true` puts both in. Leave it off for a stream to a browser.
+- **The answer streams.** `askStream` asks the model for the answer as it is written: `streamText`
+  is true unless you set it to false. `askGemini` and `askWithFiles` with `onEvent` alone do not:
+  `streamText` defaults to true only when `onText` is set, so the text of each reply then comes in
+  one `text` event once the reply is in. Pass `streamText: true`, as above. More in
+  [when the text streams](#when-the-text-streams).
+- **The callbacks still work.** Pass `onText`, `onActivity` and `onStep` too, and they get what they
+  always did. Each `notice` event says where its message went in the callbacks (`display`).
+- **Evidence names its call.** Each entry of `result.evidence` has a `callId` ("call_3"): the call
+  whose `tool.end` carries the same entry. A list of sources can point back to the list of tools.
+- **A listener that throws ends the question** with that error, as a callback that throws always
+  did. `askStream` gives each event to the stream before your own `onEvent`, so the stream still
+  gets the last one. Changed in 0.7.0: a throw from `onActivity` or `onEvent` while a whole-file
+  read runs now ends the question too; 0.6.0 made it that tool call's error and went on.
+
+Every event and its fields are in the [events reference](../reference/events.md#askevent), with
+the order they come in and how the callbacks map to them.
+
+### A Server-Sent Events route
+
+The route below streams one question of a chat with `writeSseEvents` from `llm-large-files/node`.
+It writes the event-stream headers, sends each event as one message, writes a keep-alive comment
+every 15 seconds, and stops the question when the browser goes away:
+
+```ts
+// chat-route.ts
+import type { Request, Response } from "express";
+import { eventStream, partialResultOf, type AskEvent, type AskResult, type ChatTurn, type ToolTurn, type UsageTotals } from "llm-large-files";
+import { askGemini } from "llm-large-files/gemini";
+import { sseMessageOf, writeSseEvents } from "llm-large-files/node";
+import { endpoint, files } from "./large-files.js";
+
+/** Your app's chats (in MongoDB, say). Conversations has what to keep and how to build the history. */
+export type ChatStore = {
+  /** The chat's documents and its history so far, when the chat is this user's. */
+  load(sessionId: string, userId: string): Promise<{ documentIds: string[]; history: Array<ChatTurn | ToolTurn> } | undefined>;
+  /** Keeps a question with its tool rounds, its answer when there is one, and what it used. */
+  save(sessionId: string, turn: { question: string; toolTurns: ToolTurn[]; answer?: string; usage: UsageTotals }): Promise<void>;
+};
+
+const TOO_LONG = "The question took too long. Ask again, or ask about less.";
+
+/** POST /api/chat with { sessionId, question }. */
+export function chatRoute(chats: ChatStore) {
+  return async (req: Request, res: Response): Promise<void> => {
+    // Everything that can be refused is refused before the stream starts, with a status.
+    const userId = currentUserId(req);
+    if (!userId) return void res.status(401).json({ error: "Sign in to ask." });
+    const { sessionId, question } = (req.body ?? {}) as { sessionId?: unknown; question?: unknown };
+    if (typeof sessionId !== "string" || typeof question !== "string" || !question.trim()) {
+      return void res.status(400).json({ error: "Send a sessionId and a question." });
+    }
+    const chat = await chats.load(sessionId, userId);
+    if (!chat) return void res.status(404).json({ error: "No such chat." });
+
+    // The question runs at once; its events wait until writeSseEvents reads them.
+    const deadline = AbortSignal.timeout(15 * 60 * 1000);
+    const stream = eventStream<AskEvent, AskResult>(
+      (onEvent, signal) => askGemini({
+        files,
+        endpoint,
+        owner: userId, // the owner the documents were uploaded with
+        documentIds: chat.documentIds, // every document of the chat, on every question
+        messages: [...chat.history, { role: "user", text: question }],
+        streamText: true, // the answer as it is written: without onText, askGemini asks for it only when told
+        onEvent,
+        signal, // aborts at the deadline, when the browser goes away, or on stream.abort()
+      }),
+      { signal: deadline },
+    );
+
+    // From here on the answer is a stream: its status is 200, whatever happens next.
+    await writeSseEvents(res, stream, {
+      end: false, // the response stays open until the question is kept, below
+      // Every event as it is, but the deadline in words of your own.
+      map: (event) => sseMessageOf(
+        event.type === "run.error" && deadline.aborted ? { ...event, error: { ...event.error, message: TOO_LONG } } : event,
+      ),
+    });
+
+    // The result with its toolTurns comes from here, never from the events.
+    let result: AskResult | undefined;
+    try {
+      result = await stream.result;
+    } catch (error) {
+      // The provider's own words are on this error: for your log, not for the page.
+      if (!(error instanceof DOMException && error.name === "AbortError")) console.error("A question failed", error);
+      // What a failed or stopped question read and paid for, so that asking again need not search again.
+      result = partialResultOf(error);
+    }
+    if (result) {
+      await chats.save(sessionId, {
+        question,
+        toolTurns: result.toolTurns,
+        ...(result.answered ? { answer: result.text } : {}),
+        usage: result.usage,
+      }).catch((error: unknown) => console.error("could not keep the question", error));
+    }
+    if (!res.writableEnded && !res.destroyed) res.end();
+  };
+}
+```
+
+Mount it after `express.json()`, next to the upload routes:
+
+```ts
+// server.ts, after the upload routes. chats is your ChatStore.
+app.post("/api/chat", chatRoute(chats));
+app.listen(3000);
+```
+
+What the route does, and why:
+
+- **It refuses before it streams.** A missing user, a bad body or an unknown chat gets a status and
+  a JSON error. Once `writeSseEvents` has sent the `200`, an error can only be a `run.error` event.
+- **`writeSseEvents` does the stream's work.** It writes `200` with
+  `Content-Type: text/event-stream; charset=utf-8`, `Cache-Control: no-cache, no-transform`,
+  `Connection: keep-alive` and `X-Accel-Buffering: no`, and flushes them at once, so the browser's
+  `fetch` resolves and the page can show that the question is under way. It waits when the browser
+  reads slower than the events come, and it resolves when the events end or the browser has gone.
+  Every option is in the [node reference](../reference/node.md#writesseeventsresponse-events-options).
+- **The events go as they are.** The error in `run.error` is already safe to show. The `map` only
+  puts the deadline in words of its own: without it, the page would read the deadline's own message
+  ("The operation was aborted due to timeout"). For your own words for every error, map on
+  `event.error.kind` (a [`ModelErrorKind`](../reference/errors-and-retries.md#modelerrorkind)) and
+  `event.error.name` ("DocumentsNotFoundError", "DocumentStoreError"), as the
+  [example server](#the-example-server-examplesserverts) does.
+- **The question is kept before the stream ends.** `end: false` keeps the response open after
+  `run.finish` while `chats.save` runs, and the route ends it after. A page that lets the user ask
+  again only once the stream has closed, as the one [below](#reading-the-events-in-the-browser)
+  does, never sends a follow-up before the last question is in the history.
+- **The tool rounds come from `stream.result`**, or from `partialResultOf(error)` when the question
+  failed or was stopped: see [where to keep `toolTurns`](#where-to-keep-toolturns).
+
+With another model, call `askStream({ files, model, explorer, ... })` in place of `eventStream` and
+`askGemini`: it takes the same `owner`, `documentIds`, `messages` and `signal`, streams the text
+without `streamText`, and its `result` is the same.
+
+### What the browser receives
+
+Each message is one event: its `seq` as the `id:`, its `type` as the `event:`, and the event itself
+as JSON in one `data:` line. The `data` carries `type`, `seq`, `runId` and `time` too, so a page
+can read the `data` alone:
+
+```text
+id: 7
+event: tool.start
+data: {"type":"tool.start","callId":"call_1","tool":"search_document","args":{"document_id":"doc_3f9c…","query":"timeout","mode":"exact"},"label":"Search app.log (exact) for “timeout”","documentId":"doc_3f9c…","round":1,"seq":7,"runId":"run_8d2c41f07a9e3b65","time":1795374541651}
+```
+
+Between events, a comment line `: keep-alive` comes every 15 seconds. The events a page uses:
+
+| `type` | Fields to read | Show it as |
+|---|---|---|
+| `run.start` | `models` (`answer`, and `explorer` when there is one), `documentIds` | Optional: the question is under way. |
+| `plan` | `inline` and `searchable`: the documents sent whole and those searched, each with `id`, `name`, `format`, `estimatedTokens` and `pages` | Optional: "Searching app.log". It comes again when the question is planned again. |
+| `tool.start` | `callId`, `tool`, `args`, `label`, `documentId`, `round` | A new line in the list of tools, and the status line: `label` and "…". |
+| `tool.progress` | `callId`, `stage` (`"map"` or `"reduce"`), `done`, `total`, `message` | A whole-file read: a counter on that call's line, and the status line: `message` and "…". |
+| `tool.end` | `callId`, `outcome` (`"ok"`, `"error"`, `"refused"`, `"already_shown"`, `"not_run"`), `ms`, `step`, `evidence`, `error` | The call's line, done: `step`, with a mark for the outcome. `step` is what `onStep` gets; it is absent for `"not_run"` and for a call ended because its turn failed. |
+| `text` | `delta`, `requestId` | The answer, growing. The deltas add up to the result's `text`. |
+| `notice` | `code`, `message`, `display` | `display` `"activity"`: the status line. `"step"`: a line in the list. `"none"`: notices earlier versions did not show, such as `budget_reached` and `blocked`; show them if you like. |
+| `retry` | `requestId`, `attempt`, `delayMs`, `error`, `message` | The status line: `message` ("The model did not answer (HTTP 503). Trying again in 2 s…"). |
+| `request.start`, `request.end` | `requestId`, `role`, `purpose`, `model`, `turn`; `ms`, `outcome`, `usage`, `error` | Usually not shown. For your logs and timings. |
+| `run.finish` | `result` (below) | The summary under the answer. Last. |
+| `run.error` | `error`, `partial` (below) | The error, and the answer so far marked as cut off. Last. |
+
+`writeSseEvents` sends every event as it is, except the last one, which it sends smaller
+([`sseMessageOf`](../reference/node.md#ssemessageofevent)):
+
+| Event | `data` besides `type`, `seq`, `runId` and `time` |
+|---|---|
+| `run.finish` | `result`: `answered`, `text`, `finishReason` and `blockReason` (when there are any), `steps`, `evidence`, `turns` and `usage`. Not `toolTurns`, `plan`, `budget` or `lastUsage`. |
+| `run.error` | `error`: `message`, and `kind`, `status` and `name` when there are any. `partial`: `steps`, `evidence` and `usage` of what the question found before it failed. `partial` is left out when there is none. |
+
+Labels, steps and messages are English sentences made by the library, one line of plain text each,
+with file names and the model's search words in them. Render them as plain text, never as markdown
+or HTML ([the three callbacks](#the-three-callbacks-the-older-way) says how they are cleaned).
+
+### Where to keep `toolTurns`
+
+On the server. The tool rounds of a question hold the text the tools returned, and the next
+question of the chat needs them in its history ([Conversations](./conversations.md)). The events
+do not carry them, so take them from what the question returns:
+
+- `await stream.result`, when the question returned;
+- `partialResultOf(error)`, when `stream.result` rejected: what a failed or stopped question read
+  and paid for, so that asking again need not search again.
+
+`eventResults: true` would put them in `run.finish`, but `writeSseEvents` leaves them out of what it
+sends anyway, and it would put each tool result in its `tool.end`, which it does send. Keep
+`eventResults` off in a route to a browser.
+
+### When the browser goes away
+
+The user presses Stop, closes the tab or loses the connection, and the response closes.
+`writeSseEvents` sees it at once, even while it waits for the next event: it stops reading, calls
+the stream's `return()`, and resolves. For an `askStream` or an `eventStream` passed in directly,
+that aborts the question: the request under way stops, and no other tool call starts.
+`stream.result` then rejects with an `AbortError` ("The events stopped being read."), and
+`partialResultOf` of it gives what the question found, which the route above keeps. Nothing more is
+written: the `run.error` of the stopped question is not sent.
+
+That holds only for the stream itself. An async generator that wraps it, to rename or skip events,
+is stopped only when it next yields, and a question waiting on a long model request goes on, and
+costs, until then. To change what is sent, use `map`, and return `undefined` from it to skip an
+event. If you do wrap the stream, stop the question yourself:
+`res.once("close", () => stream.abort())`. The
+[node reference](../reference/node.md#when-the-client-goes-away) has both.
+
+### Reading the events in the browser
+
+`EventSource` sends only `GET` requests without a body, so read a `POST` stream with `fetch`. This
+reader splits the stream into messages, joins the `data:` lines of each, and parses them as JSON:
+
+```ts
+// chat-client.ts: runs in the browser.
+import type { AskEvent, EventResult } from "llm-large-files";
+
+/** The result in run.finish, as sseMessageOf sends it. */
+export type FinishResult = Pick<EventResult, "answered" | "text" | "finishReason" | "blockReason" | "steps" | "evidence" | "turns" | "usage">;
+/** What run.error keeps of what the question found. */
+export type PartialResult = Pick<EventResult, "steps" | "evidence" | "usage">;
+/** The data of each message: the event itself, with run.finish and run.error made smaller. */
+export type ChatEvent =
+  | Exclude<AskEvent, { type: "run.finish" | "run.error" }>
+  | (Omit<Extract<AskEvent, { type: "run.finish" }>, "result"> & { result: FinishResult })
+  | (Omit<Extract<AskEvent, { type: "run.error" }>, "partial"> & { partial?: PartialResult });
+
+/**
+ * Calls `on` with the data of each message of an event stream, until the stream ends. Comments
+ * (keep-alive) are skipped, and so is a message that is not JSON.
+ */
+export async function readEvents(response: Response, on: (data: unknown) => void): Promise<void> {
+  const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    // A message ends at a blank line. Lines end in "\n" ("\r\n" through some proxies), never in
+    // U+2028 or U+2029: split on those two endings only.
+    let end: RegExpExecArray | null;
+    while ((end = /\r?\n\r?\n/.exec(buffer))) {
+      const block = buffer.slice(0, end.index);
+      buffer = buffer.slice(end.index + end[0].length);
+      const data = block.split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(line.startsWith("data: ") ? 6 : 5))
+        .join("\n");
+      if (!data) continue; // a comment: ": keep-alive"
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(data);
+      } catch (error) {
+        console.error("An event could not be read", error); // one bad message does not stop the others
+        continue;
+      }
+      on(parsed);
+    }
+  }
+}
+```
+
+A page that uses it builds four things from the events: a status line that the next activity
+replaces, a list of tool calls with their outcome and the progress of whole-file reads, the answer
+as it streams, and a summary when the question ends. It has a Stop button too:
+
+```ts
+// chat-page.ts: runs in the browser. readEvents and ChatEvent are above.
+import type { Evidence, ToolOutcome } from "llm-large-files";
+import { readEvents, type ChatEvent, type FinishResult } from "./chat-client.js";
+
+const statusView = document.querySelector<HTMLElement>("#status")!;
+const toolsView = document.querySelector<HTMLUListElement>("#tools")!;
+const answerView = document.querySelector<HTMLElement>("#answer")!;
+const summaryView = document.querySelector<HTMLElement>("#summary")!;
+const askButton = document.querySelector<HTMLButtonElement>("#ask")!;
+const stopButton = document.querySelector<HTMLButtonElement>("#stop")!;
+
+const MARKS: Record<ToolOutcome, string> = { ok: "✓", error: "✗", refused: "–", already_shown: "↺", not_run: "–" };
+
+/** "app.log lines 120-180, 300", or the pages of a PDF. */
+const sourceOf = (evidence: Evidence) => {
+  const ranges = evidence.lines ?? evidence.pages;
+  const where = ranges?.map(([from, to]) => (from === to ? `${from}` : `${from}-${to}`)).join(", ");
+  return `${evidence.document ?? evidence.documentId}${where ? ` ${evidence.lines ? "lines" : "pages"} ${where}` : ""}`;
+};
+
+/** One line under the answer: what was read, and what it took. */
+function summaryOf(result: FinishResult): string {
+  if (!result.answered) {
+    return result.blockReason ? "This question was blocked by the model's safety filters." : "No answer this time. Ask again, or ask more precisely.";
+  }
+  const sources = [...new Set(result.evidence.map(sourceOf))];
+  return `${sources.length ? `Sources: ${sources.join("; ")}. ` : ""}${result.usage.requests} model requests.`;
+}
+
+export async function showAnswer(sessionId: string, question: string): Promise<void> {
+  const controller = new AbortController();
+  stopButton.onclick = () => controller.abort(); // the server sees the connection close, and stops the question
+  askButton.disabled = true;
+  statusView.textContent = "Asking…";
+  toolsView.replaceChildren();
+  answerView.textContent = "";
+  summaryView.textContent = "";
+  const calls = new Map<string, { label: string; item: HTMLLIElement }>();
+  const listItem = (text: string, className?: string) => {
+    const item = document.createElement("li");
+    item.textContent = text; // text, never HTML: labels hold file names and the model's search words
+    if (className) item.className = className;
+    toolsView.append(item);
+    return item;
+  };
+  let answer = "";
+  let ended = false;
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, question }),
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      statusView.textContent = body.error ?? `The server answered HTTP ${response.status}.`;
+      return;
+    }
+    await readEvents(response, (data) => {
+      const event = data as ChatEvent;
+      switch (event.type) {
+        case "tool.start":
+          calls.set(event.callId, { label: event.label, item: listItem(`… ${event.label}`) });
+          statusView.textContent = `${event.label}…`;
+          break;
+        case "tool.progress": {
+          // A whole-file read: how many of its parts are read, or of its notes combined.
+          const call = calls.get(event.callId);
+          if (call) call.item.textContent = `… ${call.label} (${event.done}/${event.total})`;
+          statusView.textContent = `${event.message}…`;
+          break;
+        }
+        case "tool.end": {
+          const call = calls.get(event.callId);
+          if (call) {
+            call.item.textContent = `${MARKS[event.outcome]} ${event.step ?? call.label}`;
+            call.item.className = event.outcome;
+          }
+          break;
+        }
+        case "notice":
+          if (event.display === "activity") statusView.textContent = event.message;
+          if (event.display === "step") listItem(`· ${event.message}`);
+          break;
+        case "retry":
+          statusView.textContent = event.message;
+          break;
+        case "text":
+          answer += event.delta;
+          answerView.textContent = answer;
+          statusView.textContent = "";
+          break;
+        case "run.finish":
+          ended = true;
+          statusView.textContent = "";
+          summaryView.textContent = summaryOf(event.result);
+          if (!event.result.answered) answerView.textContent = "";
+          break;
+        case "run.error":
+          ended = true;
+          statusView.textContent = event.error.message; // safe to show: never the provider's own words
+          if (answer) answerView.textContent = `${answer}\n\n(The answer was cut off.)`;
+          break;
+      }
+    });
+    if (!ended) statusView.textContent = "The connection closed before the answer was complete. Ask again.";
+  } catch {
+    statusView.textContent = controller.signal.aborted ? "Stopped." : "The connection was lost. Ask again.";
+    if (answer) answerView.textContent = `${answer}\n\n(The answer was cut off.)`;
+  } finally {
+    // Only once the stream has closed: by then the server has kept the question.
+    askButton.disabled = false;
+  }
+}
+```
+
+- **The page reads `data` alone.** Every message's data is the event, with its `type`, so the
+  `event:` line is not needed. `import type` is erased when the page is built: the browser loads
+  nothing of the library.
+- **Line breaks.** The reader splits on `"\n"` and `"\r\n"` only. JSON may hold U+2028 and U+2029,
+  which some readers take for line breaks; `writeSseEvents` writes them as `\u2028` and `\u2029`,
+  so even such a reader gets each message whole.
+- **`JSON.parse` is in a `try`.** A message the page cannot read, from a proxy or a server of
+  another version, is logged and skipped, and the stream goes on.
+- **The text.** Without an explorer model, the text can hold a remark the model wrote before it
+  called a tool ("I'll search the log for the failed job."); the next reply's text then starts
+  after `"\n\n"`. With an [explorer model](./explorer-model.md), it is only the answer.
+- **`answered: false`** means the text is no answer: a blocked prompt, a reply cut off before its
+  first word, or an answer that had no text even when it was asked for once more. Show your own
+  message in its place, as above, and do not store it as the assistant's turn (the route does not).
+- **`run.error` after some text** leaves the text that arrived. Keep it, mark it as cut off, and let
+  the user ask again.
+- **Ask is enabled again only when the stream has closed**, not at `run.finish`: the route keeps the
+  question before it ends the response.
+- **Stop** aborts the `fetch`. The connection closes, the server stops the question, and the
+  reader rejects with an `AbortError`.
+- **A connection that drops** ends the stream without `run.finish` or `run.error`, or makes a read
+  fail. Either way the page says so: the question cannot be resumed.
+
+### When the text streams
+
+Whether the model is asked for the answer as it is written is `streamText`. It defaults to true when
+`onText` is set and in `askStream`, and to false otherwise: an `onEvent` alone does not change how
+the model is asked. When the text does not stream, each reply reaches `onText` and the `text`
+events once it is in: in one piece with `streamText` off, and with it on but an endpoint that
+cannot stream, in one piece too, or from Gemini, one piece for each text part. When it does,
+a reply that fails after its first piece of text is not sent again: the question throws, and
+`partialResultOf(error).text` holds what was shown.
+
+With `streamText` on, whether the provider streams:
+
+- **`askGemini` and `gemini()`**: when the endpoint has a `streamUrl`. `vertexAi()` and
+  `geminiApi()` set one; an endpoint of your own for a gateway needs it
+  ([Gemini and Vertex AI](./vertex-and-gemini.md)).
+- **`openAiCompatible()`**: unless `stream: false`
+  ([OpenAI-compatible endpoints](./openai-compatible.md)).
+- **`anthropic()`**: every chat request, unless `stream: false`, with `streamText` on or off; with
+  it off, the text is passed on once the reply is in ([Claude](./anthropic.md)).
+
+An OpenAI-compatible server or a Claude gateway that answers without a stream is read in one piece.
+An explorer model's requests are never shown: `gemini()` and `openAiCompatible()` do not stream
+them, and `anthropic()` streams them (unless `stream: false`) without showing any of it. So between
+the question and the first word, a page can get nothing but tool and request events for minutes:
+an explorer at work, a model that thinks before it writes (up to `firstByteTimeoutMs`, 600 s by
+default, for each request). Plan the stream for that silence
+([below](#keep-alive-comments-and-proxies)).
+
+### Keep-alive comments and proxies
+
+A load balancer or a proxy in front of your server may close a response on which nothing arrived
+for a while, or hold the events back in a buffer. A question can be silent for minutes (an explorer
+at work, a model that thinks, a whole-file read between two parts), so:
+
+- **Write a comment line now and then.** A line that starts with `:` is a comment in Server-Sent
+  Events: it keeps the connection busy, and the browser drops it. `writeSseEvents` writes
+  `: keep-alive` every 15 seconds; `heartbeatMs` changes that, and 0 turns it off.
+- **Turn off buffering for the route.** `writeSseEvents` sends `X-Accel-Buffering: no`, which asks
+  nginx to pass each event on at once, and `Cache-Control: no-cache, no-transform`: the Express
+  `compression` package skips a response marked `no-transform`, and so does a proxy that honors it.
+  A compression middleware that ignores it still holds events back; leave this route out of it.
+  `headers` adds headers of your own, or replaces these.
+- **Allow for the whole question in the proxy's timeout.** Keep-alives do not help against a limit
+  on the total time of a response. The route's own deadline (15 minutes above) should end first.
+
+Proxies, timeouts and several servers are in [Deployment](./deployment.md).
+
+### Cancelling
+
+A question stops when its signal aborts. The route above stops it in two cases:
+
+- **The browser goes away**: the user pressed Stop, closed the tab, or lost the connection.
+  `writeSseEvents` sees the response close and calls the stream's `return()`, which aborts the
+  question ([above](#when-the-browser-goes-away)). A route of your own without `writeSseEvents`
+  listens on the response, not on the request: the request's own `close` fires once its body has
+  been read, long before the answer is done.
+- **Your deadline passes**: `AbortSignal.timeout`, passed as the `signal` option of `eventStream`
+  (or of `askStream`). A question has no time limit of its own.
+
+The question stops at once, even with an adapter of your own that does not look at the signal:
+nothing more is sent, and text that such an adapter sends later is not shown. `usage` in
+`partialResultOf(error)` is what was counted when it stopped; a request still running then may be
+billed by the provider, and is not counted.
+
+What aborting stops, what a stopped question throws, how to tell your deadline from a user who
+left, and why to abort with an `Error` rather than a string are in
+[Errors and reliability](./errors-and-reliability.md#an-overall-deadline).
+
+There is no resuming: a question whose stream was cut off is over, and the user asks again. With the
+tool rounds of the stopped question kept, as the route does, the new question starts from what it
+had found.
+
+### The three callbacks: the older way
+
+The callbacks of earlier versions still work, unchanged: the same strings, at the same moments. A
+route that sends them to the browser names its own events and writes its own keep-alive. For a new
+page, use [the event stream](#the-event-stream), which says the same and more, as data.
 
 `askGemini` and `askWithFiles` take three callbacks for a UI:
 
@@ -586,35 +1208,23 @@ for each event ("Searching your files…"), and build a list of sources from `re
 the answer is done: it is the structured record of what each call showed, the document and the
 lines or pages.
 
+The same strings are in the events: an activity is a `tool.start` `label`, a `tool.progress`
+`message` or a `retry` `message` (the first two without the "…"), or a `notice` with `display`
+`"activity"`; a step is a `tool.end` `step`, or a `notice` with `display` `"step"`.
+
 **Whole-file reads.** `askGemini` and `askWithFiles` take no `onProgress`. The progress of a
 whole-file read, a `ProgressEvent` (`kind` "map" or "reduce", `message`, `done`, `total`), reaches
-`onActivity` as its `message` followed by "…". `ProgressEvent` and `onProgress` are for a loop of
-your own: `files.tools(documents, { onProgress })` ([Your own adapter and loop](./own-adapter-and-loop.md)).
+`onActivity` as its `message` followed by "…". The event stream tells it apart by call, as
+`tool.progress` events with the `callId` of the read. `ProgressEvent` and `onProgress` are for a
+loop of your own: `files.tools(documents, { onProgress })`
+([Your own adapter and loop](./own-adapter-and-loop.md)).
 
-### When the text streams
+### A route with the three callbacks
 
-`onText` is called whether or not the model streams. When it does not, each reply reaches `onText`
-once it is in: in one piece, or from Gemini, one piece for each text part. Whether it streams:
-
-- **`askGemini` and `gemini()`**: when `onText` is set and the endpoint has a `streamUrl`.
-  `vertexAi()` and `geminiApi()` set one; an endpoint of your own for a gateway needs it
-  ([Gemini and Vertex AI](./vertex-and-gemini.md)).
-- **`openAiCompatible()`**: when `onText` is set, unless `stream: false`
-  ([OpenAI-compatible endpoints](./openai-compatible.md)).
-- **`anthropic()`**: every chat request, unless `stream: false` ([Claude](./anthropic.md)).
-
-An OpenAI-compatible server or a Claude gateway that answers without a stream is read in one piece.
-An explorer model's requests are never shown: `gemini()` and `openAiCompatible()` do not stream
-them, and `anthropic()` streams them (unless `stream: false`) without showing any of it. So between
-the question and the first word, a page can get nothing but `activity` and `step` events for
-minutes: an explorer at work, a model that thinks before it writes (up to `firstByteTimeoutMs`,
-600 s by default, for each request). Plan the stream for that silence
-([below](#keep-alive-comments-and-proxies)).
-
-### A Server-Sent Events route
-
-The route below streams one question of a chat as Server-Sent Events. Each event is
-`event: <name>` and `data: <JSON>`:
+The route below is the one earlier versions of this guide had. It streams one question of a chat
+as Server-Sent Events that it writes itself, from the callbacks. Its event names and their data are
+its own, not those of the event stream: `text` here is a string, where the event stream's `text` is
+an event with a `delta`. Each event is `event: <name>` and `data: <JSON>`:
 
 | Event | `data` | When |
 |---|---|---|
@@ -627,7 +1237,7 @@ The route below streams one question of a chat as Server-Sent Events. Each event
 Every 15 seconds the route also writes a comment line, `: keep-alive`, which the browser ignores.
 
 ```ts
-// chat-route.ts
+// chat-route-callbacks.ts
 import type { Request, Response } from "express";
 import {
   DocumentsNotFoundError,
@@ -671,7 +1281,7 @@ function errorEvent(error: unknown, pastDeadline: boolean): { kind: string; mess
 }
 
 /** POST /api/chat with { sessionId, question }. */
-export function chatRoute(chats: ChatStore) {
+export function chatRouteWithCallbacks(chats: ChatStore) {
   return async (req: Request, res: Response): Promise<void> => {
     // Everything that can be refused is refused before the stream starts, with a status.
     const userId = currentUserId(req);
@@ -745,28 +1355,21 @@ export function chatRoute(chats: ChatStore) {
 }
 ```
 
-Mount it after `express.json()`, next to the upload routes:
-
-```ts
-// server.ts, after the upload routes. chats is your ChatStore.
-app.post("/api/chat", chatRoute(chats));
-app.listen(3000);
-```
+It is mounted as the route above is: `app.post("/api/chat", chatRouteWithCallbacks(chats))`.
 
 What the route does, and why:
 
-- **It refuses before it streams.** A missing user, a bad body or an unknown chat gets a status and
-  a JSON error. Once `writeHead(200)` is sent, an error can only be an `error` event.
+- **It refuses before it streams**, as the route above does. Once `writeHead(200)` is sent, an
+  error can only be an `error` event.
 - **Every `data` is JSON.** A piece of text can hold a blank line, which would end an event if it
   were written as it is. `JSON.stringify` keeps each event on one `data:` line.
 - **`flushHeaders()` sends the 200 at once**, so the browser's `fetch` resolves and the page can
-  show that the question is under way.
+  show that the question is under way. It writes its own keep-alive every 15 seconds, and stops
+  the question when the response closes ([cancelling](#cancelling)).
 - **The history comes from your store**, with the tool rounds of earlier questions in their place,
   and the question is kept with its `toolTurns`, and with its answer only when there is one
-  (`answered`). What to keep, and why, is in [Conversations](./conversations.md). If your page
-  keeps the history instead, as the example server does, send `toolTurns` in `done` and have the
-  page put them back between the question and its answer. They can be large, which is a reason to
-  keep them on the server.
+  (`answered`). What to keep, and why, is in [Conversations](./conversations.md). It is kept
+  before `done` is sent, so a follow-up question always finds it.
 - **`done` carries the result** the page needs: `answered` to know whether the text is an answer,
   `blockReason` and `finishReason` to say why not, `steps`, `evidence` for sources, and `usage`.
   Leave out what your users should not see. Counting `usage` per user or session is in
@@ -774,59 +1377,21 @@ What the route does, and why:
 - **`error` carries a kind and words for the user.** `kind` is the error's
   [`ModelErrorKind`](../reference/errors-and-retries.md#modelerrorkind) for a model error, and a
   name of the route's own otherwise. The messages follow
-  [Errors and reliability](./errors-and-reliability.md), which says what each error means.
+  [Errors and reliability](./errors-and-reliability.md), which says what each error means. The
+  provider's message is in the error the question throws: it goes to the log, never to the page.
   `incomplete` is true when some of the answer was already shown: the page keeps that text and
   marks it as cut off.
 
 With another model, call `askWithFiles({ files, model, ... })` in place of `askGemini`: it takes the
 same `owner`, `documentIds`, `messages`, `signal` and callbacks, and returns the same result.
 
-### Keep-alive comments and proxies
+### Reading that route's stream
 
-A load balancer or a proxy in front of your server may close a response on which nothing arrived
-for a while, or hold the events back in a buffer. A question can be silent for minutes (an explorer
-at work, a model that thinks, a whole-file read between two parts), so:
-
-- **Write a comment line now and then.** A line that starts with `:` is a comment in Server-Sent
-  Events: it keeps the connection busy, and the browser drops it. The route above writes one every
-  15 seconds.
-- **Turn off buffering for the route.** `X-Accel-Buffering: no` asks nginx to pass each event on
-  at once. A compression middleware also holds events back; leave this route out of it.
-- **Allow for the whole question in the proxy's timeout.** Keep-alives do not help against a limit
-  on the total time of a response. The route's own deadline (15 minutes above) should end first.
-
-Proxies, timeouts and several servers are in [Deployment](./deployment.md).
-
-### Cancelling
-
-A question stops when the `signal` you pass aborts. The route above aborts it in two cases:
-
-- **The browser goes away**: the user pressed Stop, closed the tab, or lost the connection. The
-  response's `close` event fires, and the route aborts its `AbortController`. Listen on the
-  response, not on the request: the request's own `close` fires once its body has been read, long
-  before the answer is done.
-- **Your deadline passes**: `AbortSignal.timeout`, joined with the first by `AbortSignal.any`. A
-  question has no time limit of its own.
-
-The question stops at once, even with an adapter of your own that does not look at the signal:
-nothing more is sent, and text that such an adapter sends later is not shown. `usage` in
-`partialResultOf(error)` is what was counted when it stopped; a request still running then may be
-billed by the provider, and is not counted.
-
-What aborting stops, what a stopped question throws, how to tell your deadline from a user who
-left, and why to abort with an `Error` rather than a string are in
-[Errors and reliability](./errors-and-reliability.md#an-overall-deadline).
-
-There is no resuming: a question whose stream was cut off is over, and the user asks again. With the
-tool rounds of the stopped question kept, as the route does, the new question starts from what it
-had found.
-
-### Reading the stream in the browser
-
-`EventSource` sends only `GET` requests without a body, so read a `POST` stream with `fetch`:
+The browser side of the route with the three callbacks reads its `text`, `activity`, `step`,
+`done` and `error` events with `fetch`:
 
 ```ts
-// chat-client.ts: runs in the browser.
+// chat-client-callbacks.ts: runs in the browser.
 import type { Evidence, UsageTotals } from "llm-large-files";
 
 /** The data of the `done` event. */
@@ -868,7 +1433,12 @@ export async function askStreamed(sessionId: string, question: string, on: Answe
         // A line that starts with ":" is a keep-alive comment.
       }
       if (!data) continue;
-      const payload: unknown = JSON.parse(data);
+      let payload: unknown;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        continue; // a message that is not JSON is skipped
+      }
       if (event === "text") on.text(payload as string);
       else if (event === "activity") on.activity(payload as string);
       else if (event === "step") on.step(payload as string);
@@ -960,41 +1530,60 @@ What it does:
 - **Uploads.** `createDocumentHandlers` on `node:http`: `POST /api/documents` to `upload`,
   `DELETE /api/documents/:id` to `remove`. `getOwner` returns `undefined`, so every upload is
   anonymous.
-- **The chat route.** `POST /api/chat` takes `{ messages, documentIds }` as JSON: the page keeps the
-  history and the ID of the last file uploaded (a new upload replaces it), and sends both with each
-  question. The route writes the event-stream headers, aborts an `AbortController` when the
-  response closes, and calls `askGemini` with `onText`, `onActivity` and `onStep`, each written as
-  an event (`text`, `activity`, `step`). It ends with `done`, or with `error` and a message, unless
-  the client has gone.
-- **The page.** A file input uploads with `fetch` (`application/octet-stream`, `X-File-Name`) and
-  shows the format, lines and estimated tokens of the summary. A question is posted to `/api/chat`,
-  and the response is read with a stream reader that splits it into events at blank lines, as
-  [above](#reading-the-stream-in-the-browser).
+- **The chat route.** `POST /api/chat` takes `{ chatId, question, documentIds }` as JSON, checked
+  before the stream starts (`400` or `413` otherwise). The server keeps each chat's turns, tool
+  rounds included, in a `Map` (for the demo only: in memory, the latest questions of the latest
+  chats). The route calls `askStream` with the model, and the explorer when `GEMINI_EXPLORER_MODEL`
+  names one, and passes the stream itself to `writeSseEvents`, so that the question stops as soon
+  as the page goes away. Its `map` puts `run.error` in the app's own words, by `error.name` and
+  `error.kind`. After the stream, it keeps `result.toolTurns` and the answer when there is one, or
+  the `toolTurns` of `partialResultOf(error)`.
+- **The page.** A file input uploads with `fetch` (`application/octet-stream`, `X-File-Name`,
+  `Accept: text/event-stream`), shows the ingest's progress, then the format, lines and estimated
+  tokens of the summary in `ingest.finish`. A question is posted to `/api/chat`, and the events
+  are read with a stream reader that splits them at blank lines, as
+  [above](#reading-the-events-in-the-browser). The page shows a status line, a list of tool calls
+  with a mark for each outcome and a counter for whole-file reads, the text as it streams, and the
+  usage in `run.finish` or the message of `run.error`.
+
+During the work on 0.7.0, the event stream was checked live against the Gemini API: the counts the
+events give, the roles of the requests of an explorer pair (`explorer` and `answer`), and this
+server's stream to the page, end to end.
 
 It is a demo, kept short. Before you build on it, check your server against this list, which this
 guide covers:
 
 - `getOwner` returns the signed-in user, and the chat route passes the same `owner`.
 - The JSON body is read and checked before the stream starts, and a bad one gets a `400`.
-- `done` carries `answered`, and the page shows its own message when it is false.
-- `toolTurns` are kept with each question, and passed back in the history.
-- Errors are told apart by their kind, and the provider's message goes to your log only.
+- The page shows its own message when `answered` in `run.finish` is false.
+- `toolTurns` are kept on the server with each question, from `stream.result` or
+  `partialResultOf(error)`, and passed back in the history. The page never handles them.
+- `eventResults` stays off, so no event carries the text of your documents.
+- `run.error` carries a message safe to show; map it to your own words by `kind` and `name` if you
+  like. The provider's message is on the thrown error, for your log only.
+- The stream is passed to `writeSseEvents` itself, or the route stops the question when the
+  response closes.
 - Keep-alive comments and a deadline keep long questions alive and bounded.
 - `files.sweep()` runs on a timer, so expired uploads leave the disk.
 
 ## Reference
 
 - [`llm-large-files/node`](../reference/node.md): `createDocumentHandlers`, `DocumentHandlerOptions`,
-  `DocumentHandlers`, and every route, status and body.
-- [The library](../reference/library.md): `IngestInput`, `toDocumentSummary`, `DocumentSummary`,
-  `DocumentMeta`, `ProgressEvent`, `ToolOptions`.
-- [The tool loop](../reference/ask.md): `askWithFiles`, `AskOptions` (`onText`, `onActivity`,
-  `onStep`, `signal`), `AskResult`, `partialResultOf`.
+  `DocumentHandlers`, every route, status and body, the upload's events, and `writeSseEvents`,
+  `sseMessageOf`, `SseMessage` and `SseWriteOptions`.
+- [The library](../reference/library.md): `IngestInput` (`onEvent`, `runId`), `toDocumentSummary`,
+  `DocumentSummary`, `DocumentMeta`, `ProgressEvent`, `ToolOptions`.
+- [Events](../reference/events.md): `AskEvent`, `IngestEvent`, `EventError`, `EventResult`,
+  `askStream`, `eventStream`, `streamText`, and how the callbacks map to events.
+- [The tool loop](../reference/ask.md): `askWithFiles`, `askStream`, `AskOptions` (`onEvent`,
+  `streamText`, `eventResults`, `runId`, `onText`, `onActivity`, `onStep`, `signal`), `AskResult`,
+  `partialResultOf`.
 - [`llm-large-files/gemini`](../reference/gemini.md): `askGemini` and its options.
 - [Errors, retries and streams](../reference/errors-and-retries.md): `ModelErrorKind`,
   `errorKindOf`, the default waits.
 
 Related guides: [Conversations](./conversations.md) for the history and `toolTurns`,
+[An explorer model](./explorer-model.md) for the second model whose requests the events tell apart,
 [Errors and reliability](./errors-and-reliability.md) for every error and deadline,
 [Storage](./storage.md) for owners and sessions, [Deployment](./deployment.md) for several servers
 and proxies, and [Testing](./testing.md) for running these routes without a real model.

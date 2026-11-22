@@ -5,7 +5,7 @@ import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type Document
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
 import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
-import type { Budget, GenerateText, ProgressListener, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
+import type { Budget, GenerateText, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
 const MAX_READ_LINES = 600;
@@ -434,7 +434,7 @@ export function createDocumentTools(options: {
     return document;
   }
 
-  const handlers: Record<string, (args: Record<string, unknown>, limits: ToolCallLimits) => Promise<ToolResult>> = {
+  const handlers: Record<string, (args: Record<string, unknown>, limits: ToolCallLimits, hooks: ToolCallHooks) => Promise<ToolResult>> = {
     async [TOOL_NAMES.search](args, limits) {
       const limit = limitOf(limits);
       const document = await documentFor(args);
@@ -556,7 +556,7 @@ export function createDocumentTools(options: {
       }, "outline", limit);
     },
 
-    async [TOOL_NAMES.analyze](args, limits) {
+    async [TOOL_NAMES.analyze](args, limits, hooks) {
       if (!options.generate) throw new Error("Whole-document analysis is not enabled.");
       const document = await documentFor(args);
       const task = text(args.task, "task");
@@ -582,7 +582,9 @@ export function createDocumentTools(options: {
           task,
           generate: options.generate,
           budget: options.budget,
-          onProgress: options.onProgress,
+          // The call's own listener, when it has one, in place of the tool set's.
+          onProgress: hooks.onProgress ?? options.onProgress,
+          ...(hooks.onRequest ? { onRequest: hooks.onRequest } : {}),
           signal: options.signal,
           ...(options.retry ? { retry: options.retry } : {}),
           ...(typeof limits.maxRequests === "number" && Number.isFinite(limits.maxRequests) ? { maxRequests: limits.maxRequests } : {}),
@@ -667,13 +669,13 @@ export function createDocumentTools(options: {
   // What a tool could not do goes to the model, and from there to a user's screen: never a server path.
   const failure = (error: unknown): ToolResult => ({ error: safeErrorMessage(error) });
 
-  async function execute(name: string, args: Record<string, unknown>, limits: ToolCallLimits = {}): Promise<ToolResult> {
+  async function execute(name: string, args: Record<string, unknown>, limits: ToolCallLimits = {}, hooks: ToolCallHooks = {}): Promise<ToolResult> {
     if (!known.has(name)) return { error: `Unknown tool ${unknownToolName(name)}.` };
     // The pages are a file, and this method returns only JSON. Saying that pages are attached
     // with nothing attached would be worse than saying that they could not be shown.
     if (name === TOOL_NAMES.view) return { error: FILES_NOT_DELIVERED };
     try {
-      return await handlers[name]!(args, limits);
+      return await handlers[name]!(args, limits, hooks);
     } catch (error) {
       if (options.signal?.aborted) throw error;
       return failure(error);
@@ -685,8 +687,8 @@ export function createDocumentTools(options: {
     has: (name) => known.has(name),
     execute: (name, args) => execute(name, args),
     resultCharacters: (name) => (name === TOOL_NAMES.analyze ? Math.max(cap, ANALYSIS_RESULT_CHARACTERS) : name === TOOL_NAMES.view ? LEAST_RESULT_CHARACTERS : cap),
-    async executeWithFiles(name, args, limits = {}) {
-      if (name !== TOOL_NAMES.view || !known.has(name)) return { result: await execute(name, args, limits), files: [] };
+    async executeWithFiles(name, args, limits = {}, hooks = {}) {
+      if (name !== TOOL_NAMES.view || !known.has(name)) return { result: await execute(name, args, limits, hooks), files: [] };
       try {
         return await viewPages(args, limits);
       } catch (error) {

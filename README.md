@@ -151,11 +151,32 @@ const response = await fetch("/api/documents", {
 const summary = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }; otherwise { error }
 ```
 
-When the user asks, pass the upload's `id` in `documentIds` and the same user as `owner`: a document
+When the user asks, stream the question to the page with `askStream` (new in 0.7.0): typed events
+in order, from `run.start` through each tool call, its progress and the text as it is written, to
+`run.finish` or `run.error`. Errors in events are told in words for users, and no text of the
+documents is in them:
+
+```ts
+import { askStream } from "llm-large-files";
+import { writeSseEvents } from "llm-large-files/node";
+
+app.post("/api/chat", express.json(), async (req, res) => {
+  const stream = askStream({
+    files, model: claude, // `claude` is the adapter of "Any model"
+    owner: (req as typeof req & { user?: { id: string } }).user?.id,
+    documentIds: [String(req.body.documentId)],
+    messages: [{ role: "user", text: String(req.body.question) }],
+  });
+  await writeSseEvents(res, stream); // one SSE message per event; stops the question if the page leaves
+});
+```
+
+Pass the upload's `id` in `documentIds` and the same user as `owner`: a document
 that has an owner is missing for anyone else. This `getOwner` returns `undefined` for an anonymous
 upload. Never return an empty string: it would be one owner shared by every caller without a user,
-and the upload is answered 500. Streaming the answer and its progress to the browser, and
-cancelling, are in the [web app guide](docs/guides/web-app.md). There's also a
+and the upload is answered 500. Reading the events in the browser, the upload's own progress, and
+cancelling are in the [web app guide](docs/guides/web-app.md); every event is in
+[Events](docs/reference/events.md). There's also a
 [one-file demo server](https://github.com/renanbazinin/llm-large-files/blob/main/examples/server.ts) and a [command-line script](https://github.com/renanbazinin/llm-large-files/blob/main/examples/ask-cli.ts): from a
 clone of this repository, run `npm install` and `npm run build`, then run them with Node 22.18 or a
 later 22.x, or Node 23.6 or later.
@@ -276,6 +297,7 @@ Reference, one page per module:
 - [`llm-large-files`: the tool loop](docs/reference/ask.md): `askWithFiles`, its options and result, the adapter contract.
 - [`llm-large-files`: errors, retries, streams](docs/reference/errors-and-retries.md): `ModelRequestError` and its kinds, `withRetry`, `parseSseJson`.
 - [`llm-large-files`: the tools](docs/reference/tools.md): every tool the model sees, its arguments, results and limits.
+- [`llm-large-files`: events](docs/reference/events.md): `askStream`, the events of a question and of an ingest, `eventStream`.
 - [`llm-large-files/gemini`](docs/reference/gemini.md): `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()`.
 - [`llm-large-files/openai`](docs/reference/openai.md): `openAiCompatible()` and its options.
 - [`llm-large-files/anthropic`](docs/reference/anthropic.md): `anthropic()` and its options.

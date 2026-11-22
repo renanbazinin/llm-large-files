@@ -18,7 +18,7 @@ import {
   retryAfterMs,
   withRetry,
 } from "llm-large-files";
-import type { IdleWaits, ModelErrorClass, ModelErrorKind, RetryNotice, RetryOptions, SseHooks } from "llm-large-files";
+import type { EventError, IdleWaits, ModelErrorClass, ModelErrorKind, RetryNotice, RetryOptions, SseHooks } from "llm-large-files";
 ```
 
 Contents:
@@ -26,10 +26,11 @@ Contents:
 - Errors: [`ModelRequestError`](#modelrequesterror), [`ModelErrorKind`](#modelerrorkind),
   [`ModelErrorClass`](#modelerrorclass),
   [`classifyModelError`](#classifymodelerrorstatus-message-signals),
-  [`errorKindOf`](#errorkindoferror), [other error classes](#other-error-classes)
+  [`errorKindOf`](#errorkindoferror), [other error classes](#other-error-classes),
+  [errors in events: `EventError`](#errors-in-events-eventerror)
 - Retries: [`withRetry`](#withretryrun-options), [`RetryOptions`](#retryoptions),
-  [`RetryNotice`](#retrynotice), [`isRetryableStatus`](#isretryablestatusstatus),
-  [`retryAfterMs`](#retryaftermsheaders-body-now)
+  [`RetryNotice`](#retrynotice), [retries in events](#retries-in-events),
+  [`isRetryableStatus`](#isretryablestatusstatus), [`retryAfterMs`](#retryaftermsheaders-body-now)
 - Waits on a reply: [`DEFAULT_FIRST_BYTE_TIMEOUT_MS`](#default_first_byte_timeout_ms),
   [`DEFAULT_IDLE_TIMEOUT_MS`](#default_idle_timeout_ms), [`IdleWaits`](#idlewaits)
 - Streams: [`parseSseJson`](#parsessejsonstream-hooks), [`SseHooks`](#ssehooks)
@@ -317,6 +318,27 @@ The adapters' errors are `ModelRequestError`s, so `instanceof ModelRequestError`
 | `DocumentsNotFoundError` | `llm-large-files`, `llm-large-files/gemini` | `Error` | `ids` | [ask.md](./ask.md#documentsnotfounderror) |
 | `DocumentStoreError` | `llm-large-files` | `Error` | `code`, `syscall`, and the caught error as `cause` | [library.md](./library.md#documentstoreerror) |
 
+### Errors in events: `EventError`
+
+```ts
+type EventError = { message: string; kind?: ModelErrorKind; status?: number; name?: string };
+```
+
+New in 0.7.0. An error as the events of a question or an ingest carry it ([events](./events.md)):
+in `retry`, in `request.end` with outcome `"error"`, in `run.error` and in `ingest.error`. It is
+plain data, safe to send to a browser. The error that is thrown is unchanged, the provider's words
+included: log that one.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `message` | `string` | Words your users may see. A model error is told by its kind and status, never in the provider's words, which can name projects, hosts or keys: "The model was busy (HTTP 429).", "The model's quota has run out (HTTP 429).", "The model could not be reached.", "The model refused the key or token it was sent (HTTP 401)." A Node system error is told by its code ("The file could not be read from storage (ENOENT)."), a `DocumentStoreError` by its own message, which names only its code, and a store that failed to write in `ingest.error` as "The document could not be stored. Try again later.". The library's own errors (a refused file, `DocumentsNotFoundError`, an abort, the error a listener threw) keep their message, and so does any other `Error` without a `kind` or a numeric `status`, such as one an adapter or a token function of your own throws: give such errors a status, or words of your own. A value that is not an `Error` is "Something went wrong.". |
+| `kind` | [`ModelErrorKind`](#modelerrorkind), optional | For a model error: its kind, as [`errorKindOf`](#errorkindoferror) reads it. |
+| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. |
+| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"GeminiRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`… |
+
+To show your own words, map the error by `kind`, `status` or `name`, as you would the thrown one
+(see [Errors and reliability](../guides/errors-and-reliability.md)).
+
 ## Retries
 
 ### withRetry(run, options)
@@ -341,8 +363,8 @@ as it is: build the request inside it.
 |---|---|---|---|
 | `retry` | [`RetryOptions`](#retryoptions) | the `RetryOptions` defaults: 3 retries, a base wait of 500 ms before the jitter, at most 60,000 ms | How many times, and how long the waits are. |
 | `signal` | `AbortSignal` | none | Once it has aborted, a failure is thrown as it is. A wait that is under way ends with the signal's reason. |
-| `canRetry` | `() => boolean` | always true | Asked after each failure. `false` throws the error as it is: return `false` once the attempt did something that must not happen twice. `askWithFiles` returns `false` once text of the reply was passed to `onText`. |
-| `onRetry` | `(notice: RetryNotice) => void` | none | Called before each wait with a [`RetryNotice`](#retrynotice): the error, `attempt` (the number of the retry to come, counting every retry made so far, the one of `unknownErrors` included: 1 for the first) and `delayMs` (the wait). Not called for the retry of an error without a status, which has no wait. `askWithFiles` turns it into an `onActivity` line such as "The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…". |
+| `canRetry` | `() => boolean` | always true | Asked after each failure. `false` throws the error as it is: return `false` once the attempt did something that must not happen twice. `askWithFiles` returns `false` once text of the reply was shown: passed to `onText` and the `text` events as it streamed (see [retries in events](#retries-in-events)). |
+| `onRetry` | `(notice: RetryNotice) => void` | none | Called before each wait with a [`RetryNotice`](#retrynotice): the error, `attempt` (the number of the retry to come, counting every retry made so far, the one of `unknownErrors` included: 1 for the first) and `delayMs` (the wait). Not called for the retry of an error without a status, which has no wait. `askWithFiles` turns it into an `onActivity` line such as "The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…", and into a `retry` event. |
 | `unknownErrors` | `"once" \| "never"` | `"never"` | An error without a numeric `status` (a bug in `run`, the abort error of a time limit of your own): `"once"` runs it once more at once, without a wait; any other value throws it. The part reads of a whole-file read use `"once"`; the chat requests of the loop do not. |
 
 What happens to an error, checked in this order:
@@ -470,6 +492,34 @@ const title = await withRetry(
   { onRetry: logRetry },
 );
 ```
+
+### Retries in events
+
+New in 0.7.0. With `onEvent` (or [`askStream`](./ask.md#askstreamoptions)), each retry of a question
+is a `retry` event, between the `request.start` and the `request.end` of its request:
+
+```ts
+{ type: "retry", requestId: "req_3", attempt: 1, delayMs: 2000,
+  error: { message: "The model failed on its side (HTTP 503).", kind: "server", status: 503, name: "GeminiRequestError" },
+  message: "The model did not answer (HTTP 503). Trying again in 2 s…", seq: 9, runId: "run_…", time: 1795000000000 }
+```
+
+- **Structured, and safe to show.** `attempt` and `delayMs` are those of the
+  [`RetryNotice`](#retrynotice). `error` is an [`EventError`](#errors-in-events-eventerror): told by
+  its kind and status, never in the provider's words. `message` is the line `onActivity` gets.
+- **The retries of whole-file reads are visible.** The requests of `analyze_whole_document` are
+  `request.start` events with `role: "reader"` and the `callId` of their call, and their retries
+  are `retry` events. Earlier versions, and `onActivity` still, did not tell them.
+- **A reply that fails after its first text is not sent again.** With `streamText` (on by default
+  with `onText`, and in `askStream`), the text comes as it is written, and once some of it was
+  shown the request is not retried: its `request.end` has outcome `"error"`, and the question
+  throws. With `streamText: false`, a reply's text comes once the reply is in, so a reply that
+  fails on its way is sent again by the rule above, at the cost of a longer wait for the first
+  word; the whole reply must then arrive within the adapter's `firstByteTimeoutMs`. A listener of
+  the events alone does not ask for streaming.
+- **The end tells the outcome.** `request.end` comes once for each request, after its retries,
+  with `ms` from its start, waits included. An overflow made smaller is a new request: the first
+  ends with an `EventError` of kind `"context_overflow"`.
 
 ### isRetryableStatus(status)
 

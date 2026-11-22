@@ -128,6 +128,11 @@ Each term links to the page that explains it. The defaults and limits are on tho
   document: which document, and which lines or pages, as ranges (`Evidence`). A whole-file read is
   marked `whole: true`. Keep it with the answer for citations or an audit trail. See
   [`AskResult`](./reference/ask.md#askresult).
+- **Events**: what a question or an ingest does as it runs, as typed data in order (`AskEvent`,
+  `IngestEvent`): each model request, tool call, piece of text and notice, numbered by `seq`, and
+  last `run.finish` or `run.error` (`ingest.finish` or `ingest.error`). Get them with `onEvent`,
+  or with `askStream` as an async iterable, and send them to a browser with `writeSseEvents`. New
+  in 0.7.0. See [events](./reference/events.md).
 - **Explorer model**: an optional second model (`explorer` in `askWithFiles`, `explorerModel` in
   `vertexAi()` and `geminiApi()`) that makes the tool calls and does the whole-file reads. The
   answering model then gets what the tools returned, not what the explorer wrote, and writes the
@@ -251,10 +256,11 @@ import from.
 | | [The tool loop and the adapter contract](./reference/ask.md) | `askWithFiles`, its options, limits and result, conversation types, the `ModelAdapter` contract, usage, evidence |
 | | [Errors, retries and streams](./reference/errors-and-retries.md) | `ModelRequestError` and error kinds, `withRetry`, timeouts, `parseSseJson` |
 | | [Tools](./reference/tools.md) | each tool the model sees: name, arguments, results, limits; `ToolSet` and its types |
+| | [Events](./reference/events.md) | `askStream`, `eventStream`, the events of a question (`AskEvent`) and of an ingest (`IngestEvent`), `EventError` |
 | `llm-large-files/gemini` | [Gemini](./reference/gemini.md) | `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()` and the other Gemini exports |
 | `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
-| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses |
+| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
 
 ## Internals and measurements
 

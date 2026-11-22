@@ -77,7 +77,7 @@ describe("askGemini since 0.5.0", () => {
       byModel: { "gemini-test": { requests: 2 + parts, inputTokens: 2_500 + parts * 40_000, cachedInputTokens: 900, outputTokens: 35 + parts * 100, thoughtTokens: 5 + parts * 70 } },
     });
     expect(result.lastUsage).toEqual({ promptTokenCount: 1_500, cachedContentTokenCount: 900, candidatesTokenCount: 10, thoughtsTokenCount: 5, totalTokenCount: 1_515 });
-    expect(result.evidence).toEqual([{ tool: "analyze_whole_document", documentId: meta.id, document: "app.log", whole: true, query: "List the errors." }]);
+    expect(result.evidence).toEqual([{ tool: "analyze_whole_document", documentId: meta.id, document: "app.log", whole: true, query: "List the errors.", callId: "call_1" }]);
   });
 
   it("sends a request again when Gemini was busy, after the wait Gemini asks for, and keeps the steps", async () => {

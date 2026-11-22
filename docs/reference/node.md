@@ -2,13 +2,15 @@
 
 This page lists every export of `llm-large-files/node`: `createDocumentHandlers`, its options, and
 the three HTTP handlers it returns, with the request each one expects and every status and body it
-can answer. It is for you if your server runs on Node and you want uploads, look-ups and deletes of
-documents without writing the routes yourself. How to mount them, what the browser sends, and how
-to stream answers are in the guide [web app](../guides/web-app.md).
+can answer; and `writeSseEvents` and `sseMessageOf`, which send the events of a question or an
+ingest to a browser as Server-Sent Events. It is for you if your server runs on Node and you want
+uploads, look-ups and deletes of documents without writing the routes yourself, or a streamed
+answer without writing the stream yourself. How to mount them, what the browser sends, and how to
+read the stream in the browser are in the guide [web app](../guides/web-app.md).
 
 ```ts
-import { createDocumentHandlers } from "llm-large-files/node";
-import type { DocumentHandlerOptions, DocumentHandlers } from "llm-large-files/node";
+import { createDocumentHandlers, sseMessageOf, writeSseEvents } from "llm-large-files/node";
+import type { DocumentHandlerOptions, DocumentHandlers, SseMessage, SseWriteOptions } from "llm-large-files/node";
 // What the signatures below use:
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LargeFiles } from "llm-large-files";
@@ -18,9 +20,13 @@ import type { LargeFiles } from "llm-large-files";
 
 - [`createDocumentHandlers()`](#createdocumenthandlersfiles-options)
 - [`DocumentHandlerOptions`](#documenthandleroptions)
-- [`DocumentHandlers`](#documenthandlers): [`upload()`](#uploadrequest-response),
+- [`DocumentHandlers`](#documenthandlers): [`upload()`](#uploadrequest-response) and
+  [its progress as events](#upload-with-progress-accept-textevent-stream),
   [`get()`](#getrequest-response-id), [`remove()`](#removerequest-response-id)
 - [How errors are answered](#how-errors-are-answered)
+- [Server-Sent Events](#server-sent-events): [`writeSseEvents()`](#writesseeventsresponse-events-options),
+  [`sseMessageOf()`](#ssemessageofevent), [`SseMessage`](#ssemessage),
+  [`SseWriteOptions`](#ssewriteoptions)
 
 ### createDocumentHandlers(files, options?)
 
@@ -45,8 +51,9 @@ store and throws nothing.
 
 The handlers do not check the method or the path of a request: route each request to the one you
 mean. Every response they write has the header `Content-Type: application/json; charset=utf-8`
-and a JSON body. When the response has already started (`response.headersSent`), they write
-nothing.
+and a JSON body, except an upload that asks for its progress as events
+([below](#upload-with-progress-accept-textevent-stream)). When the response has already started
+(`response.headersSent`), they write nothing.
 
 ```ts
 import { createServer } from "node:http";
@@ -122,7 +129,7 @@ promise resolves once the response is written; none rejects.
 
 | Handler | Route it for | What it does |
 |---|---|---|
-| [`upload(request, response)`](#uploadrequest-response) | `POST`, such as `/api/documents` | Reads the raw body and ingests it as a document of the request's owner. `201` with its summary. |
+| [`upload(request, response)`](#uploadrequest-response) | `POST`, such as `/api/documents` | Reads the raw body and ingests it as a document of the request's owner. `201` with its summary, or, with `Accept: text/event-stream`, `200` and the ingest's events ending with the summary. |
 | [`get(request, response, id)`](#getrequest-response-id) | `GET`, such as `/api/documents/:id` | `200` with the document's summary, or `404`. |
 | [`remove(request, response, id)`](#removerequest-response-id) | `DELETE`, such as `/api/documents/:id` | Deletes the document. `200` with `{ "deleted": true }` or `{ "deleted": false }`. |
 
@@ -144,6 +151,7 @@ The request:
 | `X-File-Type` header | Optional: the MIME type, URI-decoded. |
 | `Content-Type` header | The MIME type when there is no `X-File-Type`, unless it starts with `application/octet-stream`. The value is kept whole, parameters included: a `fetch` with a string body sends `text/plain;charset=UTF-8`, and that is the document's `mimeType`. A type with parameters does not set the format, so name the file with its extension. With neither header, the document's `mimeType` is `application/octet-stream`. Send `application/octet-stream`, which JSON and form parsers leave alone. |
 | `Content-Length` header | Optional. When it is larger than `maxUploadBytes`, the handler answers `413` before it reads anything. |
+| `Accept` header | Optional. When it names `text/event-stream`, the ingest is answered with its progress as Server-Sent Events: see [upload with progress](#upload-with-progress-accept-textevent-stream). New in 0.7.0. |
 
 `files.ingest` then keeps the last path segment of the name, without control characters and
 characters that show nothing, up to 255 characters and never cut in the middle of a character, and takes the format
@@ -171,7 +179,8 @@ What it does, in order:
    only when there are any. The `signal` aborts when the client closes the connection before the
    answer is sent: the ingest stops between two pages or pieces, and nothing is stored. The
    answer then goes to no one.
-5. Answers `201` with the document's summary.
+5. Answers `201` with the document's summary. With `Accept: text/event-stream`, steps 4 and 5 are
+   a stream of events instead ([below](#upload-with-progress-accept-textevent-stream)).
 
 The responses:
 
@@ -205,6 +214,65 @@ In a store of your own, log the failure and throw an error with a `status` (a `5
 message without hosts: every path keeps that status. An `ingest` of your own must copy the
 `status`, and a system error's `code` and `syscall`, onto the error it throws.
 [Storage](../guides/storage.md) has the rules for a store's errors.
+
+#### Upload with progress: `Accept: text/event-stream`
+
+New in 0.7.0. An upload whose `Accept` header names `text/event-stream` is answered with the
+ingest's events as Server-Sent Events, so that the page can show how far the server has read the
+file: the pages of a PDF, the parts of a DOCX, the writes to the store. Without that header,
+nothing changes: `201` and JSON, as above.
+
+The handler reads the `Accept` header this way:
+
+- The header is split at commas into media ranges. One of them must be `text/event-stream`
+  itself, in any case, with spaces allowed around it and its parameters
+  (`TEXT/Event-Stream ; q=0.5` counts).
+- Its `q`, when there is one, must be a number above 0. `q=0` and `q=0.0` keep the JSON answer, and
+  so does a `q` that is not a number.
+- A wildcard keeps the JSON answer: `*/*` and `text/*` do not ask for events. So does any other
+  type, such as `application/json`.
+- Other parameters, such as `charset=utf-8`, change nothing.
+
+What stays JSON: every check that runs before the ingest answers as it always did, with its status
+and `{ "error": "…" }`, because the stream has not started yet. That is a missing name (`400`), a
+refusal or a bad owner from `getOwner` (its status, or `500`), a body another middleware parsed
+(`400`), and a file over `maxUploadBytes` (`413`). Only a file that passes them is answered `200`
+with the event-stream headers of [`writeSseEvents()`](#writesseeventsresponse-events-options) and
+a `: keep-alive` comment every 15 seconds.
+
+Each message is `id: <seq>`, `event: <type>` and `data: <the event as JSON>`. The events are those
+of [`IngestEvent`](./events.md#ingestevent), stamped with `seq` (1, 2, 3… with no gaps), `runId`
+("ing_" and 16 hex digits) and `time` (milliseconds since 1970):
+
+| Event | `data` besides `type`, `seq`, `runId` and `time` | When |
+|---|---|---|
+| `ingest.start` | `name` (cleaned), `format` (what the name and the type say: a text file can still become a log), `bytes` | First. |
+| `ingest.progress` | `stage` (`"decode"`, `"extract"`, `"check"`, `"pictures"`, `"prepare"`, `"index"` or `"store"`), `done`, `total` (absent when not known), `unit` (`"pages"`, `"parts"`, `"bytes"` or `"characters"`) | At most about every 12 ms for a stage, and once more when the stage ends. A stage with nothing to report may send none ([stages and units](./events.md#stages-and-units)). |
+| `ingest.finish` | `document`: the [`DocumentSummary`](./library.md#documentsummary), the same fields as the body of a `201` | Last, when the document is stored. |
+| `ingest.error` | `error`: `{ "message": …, "status": … }`, the message and status the JSON answer would have | Last, when the ingest fails. |
+
+```text
+id: 4
+event: ingest.finish
+data: {"type":"ingest.finish","document":{"id":"doc_f6502d2f94694d709c7db2ec634c8397","name":"b.log","mimeType":"text/plain","format":"log","bytes":81000,"lines":3000,"estimatedTokens":74940,"expiresAt":"2026-11-25T19:09:01.650Z"},"seq":4,"runId":"ing_d19490eacdcd4546","time":1795374541651}
+```
+
+- **The stream always ends with one `ingest.finish` or one `ingest.error`.** A file the ingest
+  refuses at once (an empty file) still gets `ingest.start`, then `ingest.error`. When an `ingest`
+  of your own sends no events at all, the handler adds the last one: then that one event is the
+  whole stream, with `seq` 1.
+- **`ingest.error` holds what the JSON answer would.** A file that cannot be read gives
+  `{ "message": "This file looks binary, not text. …", "status": 422 }`. A store that failed is
+  `{ "message": "Upload failed.", "status": 500 }`, never the store's own message, which may name a
+  host. An error with a status keeps it. The error has no `kind` or `name` here, unlike the
+  `EventError` of `files.ingest`'s own events.
+- **The status is `200` whatever happens next.** Once the stream has started, a failure can only be
+  an `ingest.error` event.
+- **A client that goes away stops the ingest**, as in step 4: nothing is stored, and nothing more
+  is written.
+- **The handler still never rejects.**
+
+How to read the stream in the browser: [web app](../guides/web-app.md#upload-with-progress).
 
 #### get(request, response, id)
 
@@ -253,3 +321,208 @@ The three handlers answer an error by one rule:
 
 Guide: [errors and reliability](../guides/errors-and-reliability.md), for the errors of a question
 itself; [web app](../guides/web-app.md), for what to show in the browser.
+
+## Server-Sent Events
+
+New in 0.7.0. Two functions send the events of a question (`askStream`, or
+[`eventStream`](./events.md#eventstreamrun-options) over `askGemini`) or of an ingest to a browser,
+one Server-Sent Events message per event. The events themselves are in the
+[events reference](./events.md). The guide [web app](../guides/web-app.md#the-event-stream) has a
+whole route and the browser code that reads it.
+
+### writeSseEvents(response, events, options?)
+
+```ts
+declare function writeSseEvents<E extends { type: string; seq: number }>(
+  response: ServerResponse,
+  events: AsyncIterable<E>,
+  options?: SseWriteOptions<E>,
+): Promise<void>;
+```
+
+Sends `events` on `response` as Server-Sent Events, and ends the response after the last one. Any
+iterable of objects with a `type` and a `seq` works: an `askStream`, an `eventStream`, or an async
+generator of your own.
+
+| Parameter | Type | Default | What it does |
+|---|---|---|---|
+| `response` | `ServerResponse` | required | The response to write on. Express's `res` is one. |
+| `events` | `AsyncIterable<E>` | required | The events. Pass an `askStream` or an `eventStream` itself, not a generator around it: see [when the client goes away](#when-the-client-goes-away). |
+| `options` | [`SseWriteOptions<E>`](#ssewriteoptions) | `{}` | The keep-alive, extra headers, what to send for each event, and whether to end the response. |
+
+**What it writes.** When no headers are sent yet, it sets these and writes a `200` at once
+(`flushHeaders()`), so the browser's `fetch` resolves before the first event:
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `text/event-stream; charset=utf-8` |
+| `Cache-Control` | `no-cache, no-transform` |
+| `Connection` | `keep-alive` |
+| `X-Accel-Buffering` | `no` |
+
+Then `headers` from the options are set on top: a name replaces the header above whatever its case
+(`cache-control` replaces `Cache-Control`). A header you set on the response before the call
+(`res.setHeader`, a CORS middleware) is kept, unless it has one of these names. The status is
+always `200`. When the headers are already sent (you called `writeHead` yourself), it writes none
+and leaves yours as they are.
+
+Each event then becomes one message:
+
+```text
+id: 7
+event: tool.start
+data: {"type":"tool.start","callId":"call_1","tool":"search_document","args":{"document_id":"doc_3f9c…","query":"timeout","mode":"exact"},"label":"Search app.log (exact) for “timeout”","documentId":"doc_3f9c…","round":1,"seq":7,"runId":"run_8d2c41f07a9e3b65","time":1795374541651}
+```
+
+- `id` is the message's `id`, or else the event's `seq`.
+- `event` is the message's `event`, or else the event's `type`.
+- `data` is the message's `data` as JSON, always on one line. U+2028 and U+2029, which JSON leaves as
+  they are, are written `\u2028` and `\u2029`: the same JSON, which a client that splits the stream
+  on every Unicode line break still reads whole. `undefined` is sent as `null`.
+- A line break in an `id` or an `event` becomes a space, so that it cannot end the field early.
+
+What is sent for an event comes from `map`, [`sseMessageOf()`](#ssemessageofevent) by default. A
+`: keep-alive` comment goes out every `heartbeatMs` (15 seconds by default) while the stream is
+open; browsers and readers skip comments, and proxies see traffic. None is written while it waits
+for the client.
+
+**When the client reads slowly.** When `response.write()` returns false, it waits for `drain`
+before it takes the next event. The question or the ingest does not wait: its events wait in
+memory, in the `eventStream`, until they are read.
+
+**When it resolves, and when it rejects.**
+
+| What happens | What it does |
+|---|---|
+| The events end | Ends the response (unless `end: false`) and resolves. |
+| The client goes away, or someone else ends the response | Stops reading, calls the iterator's `return()` and resolves. Nothing more is written. |
+| The response is already ended or destroyed when it is called | Writes nothing, calls `return()` and resolves. |
+| `map` throws | Calls `return()`, ends the response (unless `end: false`), and rejects with that error. |
+| The iterable throws | Ends the response (unless `end: false`) and rejects with that error. It does not call `return()` of an iterator that failed. An `askStream` or an `eventStream` never throws: a run that fails ends with its `run.error` or `ingest.error` event, and the promise resolves. |
+| A header cannot be set (an invalid name or value in `headers`) | Calls `return()`, destroys the response without a status line, and rejects with that error. |
+
+#### When the client goes away
+
+When the response closes before the end (the user pressed Stop, closed the tab or lost the
+connection) or `finish`es because something else ended it, `writeSseEvents` stops reading at once,
+even while it waits for the next event, and calls `return()` on the iterator it was reading:
+
+- **An `askStream` or an `eventStream` passed in directly** stops its run at once: its signal
+  aborts with an `AbortError` ("The events stopped being read."), the request under way stops, and
+  no tool call starts. The stream's `result` rejects with that error, and
+  [`partialResultOf(error)`](./ask.md#partialresultoferror) gives what the question found. The
+  `run.error` event is not sent: nobody reads.
+- **An async generator that wraps one** (to rename events or skip some) is only stopped when it
+  next yields. A question that waits on a long model request goes on, and costs, until then. To
+  change what is sent, use `map` and pass the stream itself; return `undefined` from `map` to skip
+  an event. If you wrap it anyway, stop the run yourself:
+
+```ts
+import type { ServerResponse } from "node:http";
+import { askStream, type AskEvent, type AskOptions } from "llm-large-files";
+import { writeSseEvents } from "llm-large-files/node";
+
+export async function sendWithoutRequests(res: ServerResponse, options: AskOptions): Promise<void> {
+  const stream = askStream(options);
+  // The generator only notices the client left when it next yields: stop the question yourself.
+  res.once("close", () => stream.abort());
+  async function* withoutRequests(): AsyncGenerator<AskEvent> {
+    for await (const event of stream) if (!event.type.startsWith("request.")) yield event;
+  }
+  await writeSseEvents(res, withoutRequests());
+}
+```
+
+The same with `map`, which needs no listener of its own:
+
+```ts
+import type { ServerResponse } from "node:http";
+import { askStream, type AskOptions } from "llm-large-files";
+import { sseMessageOf, writeSseEvents } from "llm-large-files/node";
+
+export async function sendWithoutRequests(res: ServerResponse, options: AskOptions): Promise<void> {
+  await writeSseEvents(res, askStream(options), {
+    map: (event) => (event.type.startsWith("request.") ? undefined : sseMessageOf(event)),
+  });
+}
+```
+
+### sseMessageOf(event)
+
+```ts
+declare function sseMessageOf<E extends { type: string; seq: number }>(event: E): SseMessage;
+```
+
+The default `map` of [`writeSseEvents()`](#writesseeventsresponse-events-options): what is sent for
+an event. Call it from a `map` of your own to change one event and send the others as they are.
+
+It returns `{ event: <type>, id: <seq>, data }`. The `data` is the event itself, `type`, `seq`,
+`runId` and `time` included, for every event but two, which it sends smaller:
+
+| Event | `data` |
+|---|---|
+| `run.finish` | `{ type, seq, runId, time, result }`, where `result` holds only `answered`, `text`, `finishReason`, `blockReason`, `steps`, `evidence`, `turns` and `usage`. Not `toolTurns`, `plan`, `budget` or `lastUsage`. |
+| `run.error` | `{ type, seq, runId, time, error, partial }`, where `error` is the event's [`EventError`](./events.md#errors-eventerror) and `partial` holds only `steps`, `evidence` and `usage` of the partial result. Without a partial result, `partial` is left out of the JSON. |
+| Any other event, ingest events included | The event as it is. |
+
+A field that is `undefined`, such as `finishReason` or `blockReason`, is left out of the JSON.
+
+`toolTurns` are left out even when the question ran with `eventResults: true`: keep them on the
+server, from the stream's `result` or from `partialResultOf(error)`
+([conversations](../guides/conversations.md)). `eventResults: true` does put each tool result in
+its `tool.end` event (`result`), and `sseMessageOf` sends that event as it is: leave
+`eventResults` off for a stream to a browser, or drop `result` in a `map` of your own.
+
+```ts
+import type { AskEvent } from "llm-large-files";
+import { sseMessageOf, type SseMessage } from "llm-large-files/node";
+
+/** run.error in the app's own words; every other event as sseMessageOf sends it. */
+export function mapForPage(event: AskEvent): SseMessage {
+  if (event.type !== "run.error") return sseMessageOf(event);
+  const message = event.error.kind === "rate_limit" ? "The assistant is busy. Try again in a minute." : event.error.message;
+  return sseMessageOf({ ...event, error: { ...event.error, message } });
+}
+```
+
+### `SseMessage`
+
+```ts
+type SseMessage = {
+  event?: string;
+  data: unknown;
+  id?: string | number;
+};
+```
+
+One message, as a `map` returns it.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| `event` | `string` | the event's `type` | The `event:` field: the name a browser's `EventSource` dispatches on. |
+| `data` | `unknown` | required | Any JSON value, sent as JSON on one `data:` line. |
+| `id` | `string \| number` | the event's `seq` | The `id:` field. |
+
+### `SseWriteOptions`
+
+```ts
+type SseWriteOptions<E> = {
+  heartbeatMs?: number;
+  headers?: Record<string, string | number | string[]>;
+  map?: (event: E) => SseMessage | undefined;
+  end?: boolean;
+};
+```
+
+The options of [`writeSseEvents()`](#writesseeventsresponse-events-options).
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `heartbeatMs` | `number` | `15000` | Milliseconds between two `: keep-alive` comments, which keep proxies and load balancers from closing a quiet stream. 0 sends none. The timer does not keep the process alive. |
+| `headers` | `Record<string, string \| number \| string[]>` | none | Headers to send besides the event-stream ones, or in their place: a name replaces one of them whatever its case. Used only when no headers are sent yet. |
+| `map` | `(event: E) => SseMessage \| undefined` | [`sseMessageOf`](#ssemessageofevent) | What to send for an event. Return `undefined` to skip it. A throw stops the run and rejects. |
+| `end` | `boolean` | `true` | False keeps the response open after the last event, for something you write after it, or to end it yourself once the question is saved. You must then end it: `if (!res.writableEnded && !res.destroyed) res.end()`. |
+
+Guide: [web app](../guides/web-app.md), with the route, the browser code that reads the events,
+keep-alive comments and proxies; [deployment](../guides/deployment.md#streamed-answers-behind-proxies),
+for timeouts and buffering on the way to the browser.
