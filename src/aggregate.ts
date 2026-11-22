@@ -48,6 +48,12 @@ export type AggregateRequest = {
   metrics?: string[];
   /** "metric" (the default): the largest value of the first metric first; "key": by the groups' values, in order. */
   orderBy?: "metric" | "key";
+  /**
+   * How many rows at the top of the table are its header: 0 when it has none (columns are named by
+   * their letters in a workbook, "Column 1"… elsewhere), up to 5. Unset: one for a CSV file; for a
+   * sheet or a `| cell |` table it is found (see `aggregateTable`).
+   */
+  headerRows?: number;
   /** Groups shown, at most. Defaults to 50. */
   limit?: number;
 };
@@ -75,6 +81,13 @@ export type AggregateResult = {
   totalGroups: number;
   /** Rows of groups past `MAX_AGGREGATE_GROUPS`. */
   otherRows: number;
+  /** The rows taken for the header, and a title row above them that was left out. */
+  headerRows: number;
+  title?: string;
+  /** Rows the same as the header, found again inside the table (a header a PDF repeats on each page): left out. */
+  repeatedHeaders: number;
+  /** Rows with another number of cells than the header: read, and counted here, as a sign of a table read wrong. */
+  irregularRows: number;
   /** For each numeric metric, how many matched rows had a value in its column that is not a number (left out). */
   notNumbers: Record<string, number>;
 };
@@ -221,6 +234,11 @@ function columnOf(header: string[], given: string, letters: boolean): ColumnRef 
   }
   const wanted = valueKey(name);
   let index = header.findIndex((column) => valueKey(column) === wanted);
+  // A header of two rows joins its names ("Q2 / מאי"): the lower name alone finds the column when only one has it.
+  if (index === -1) {
+    const lower = header.flatMap((column, at) => (valueKey(column.split(" / ").at(-1) ?? "") === wanted ? [at] : []));
+    if (lower.length === 1) index = lower[0]!;
+  }
   if (index === -1 && letters && /^[A-Z]{1,3}$/i.test(name)) {
     let number = 0;
     for (const letter of name.toUpperCase()) number = number * 26 + letter.charCodeAt(0) - 64;
@@ -298,6 +316,13 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
   let rowsRead = 0;
   let rowsMatched = 0;
   let otherRows = 0;
+  // The first rows of the chosen table, held until its header is known.
+  const pending: Array<{ row: string[]; line: number }> = [];
+  let headerCount = 0;
+  let title: string | undefined;
+  let lastHeaderKey: string | undefined;
+  let repeatedHeaders = 0;
+  let irregularRows = 0;
   let notNumbers: number[] = [];
   // CSV: the separator, the first lines read to find it, and a record that spans lines.
   let separator: string | undefined;
@@ -343,18 +368,81 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
     return column.datePart === "year" ? date[1]! : column.datePart === "month" ? `${date[1]}-${date[2]}` : `${date[1]}-${date[2]}-${date[3]}`;
   };
 
+  /** Whether a row holds a value that is a number: a row of data. A year (1900-2100) in a header row is a name, not data. */
+  const hasNumber = (row: string[], first: boolean) => row.some((cell) => {
+    const number = parseNumber(cell);
+    return number !== undefined && !(first && Number.isInteger(number) && number >= 1900 && number <= 2100 && /^\d{4}$/.test(cell.trim()));
+  });
+  const filled = (row: string[]) => row.filter((cell) => cell.trim() !== "").length;
+
+  /**
+   * Decides the header from the first rows of the table, and reads the rest as data:
+   * - a first row with one value over a table of more (a title, "Sales 2026") is left out;
+   * - a CSV file has one header row;
+   * - a sheet or a `| cell |` table has as header the rows above its first row with a number, up
+   *   to 3 (a header of two rows: "Q1" over "January | February"); a first row with numbers means
+   *   no header. The header rows are joined column by column with " / ", a header cell left empty
+   *   by a merged cell taking the one to its left.
+   * `header_rows` says it outright.
+   */
+  const decideHeader = () => {
+    let start = 0;
+    if (pending.length > 1 && filled(pending[0]!.row) === 1 && filled(pending[1]!.row) > 1) {
+      title = pending[0]!.row.find((cell) => cell.trim() !== "")!.trim();
+      start = 1;
+    }
+    if (request.headerRows !== undefined) {
+      headerCount = Math.min(5, Math.max(0, Math.trunc(request.headerRows)));
+    } else if (kind === "csv") {
+      headerCount = 1;
+    } else {
+      const firstData = pending.findIndex((entry, index) => index >= start && hasNumber(entry.row, index === start));
+      headerCount = firstData === -1 ? 1 : Math.min(3, firstData - start);
+    }
+    headerCount = Math.min(headerCount, pending.length - start);
+    const rows = pending.slice(start, start + headerCount).map((entry) => entry.row);
+    if (rows.length === 0) {
+      letters = kind === "sheets";
+      resolve((pending[start]?.row ?? []).map(() => ""));
+    } else {
+      const width = Math.max(...rows.map((row) => row.length));
+      const upper = rows.slice(0, -1).map((row) => {
+        let left = "";
+        return Array.from({ length: width }, (_, index) => {
+          const cell = (row[index] ?? "").trim();
+          if (cell) left = cell;
+          return cell || left;
+        });
+      });
+      const names = Array.from({ length: width }, (_, index) => {
+        const parts = [...upper.map((row) => row[index]!), (rows.at(-1)![index] ?? "").trim()].filter(Boolean);
+        return [...new Set(parts)].join(" / ");
+      });
+      headerLine = pending[start + headerCount - 1]!.line;
+      lastHeaderKey = rows.at(-1)!.map(valueKey).join("\u0000");
+      resolve(names);
+    }
+    const rest = pending.splice(0).slice(start + headerCount);
+    for (const entry of rest) addRow(entry.row, entry.line);
+  };
+
   const addRow = (row: string[], line: number) => {
     if (!header) {
-      // An Excel sheet whose first row is all numbers has no header: its columns are its letters.
-      if (kind === "sheets" && row.every((cell) => cell === "" || parseNumber(cell) !== undefined)) {
-        letters = true;
-        resolve(row.map(() => ""));
-      } else {
-        headerLine = line;
-        resolve(row);
-        return;
+      pending.push({ row, line });
+      // The header is known once a row of data is seen, or enough rows are held to say there is none.
+      if ((kind !== "csv" && hasNumber(row, pending.length === 1)) || kind === "csv" || pending.length >= 20 || request.headerRows !== undefined) {
+        if (kind === "csv" && pending.length < 2 && request.headerRows === undefined) return;
+        decideHeader();
       }
+      return;
     }
+    // A header repeated inside the table (on each page of a PDF) is not a row.
+    if (lastHeaderKey !== undefined && row.map(valueKey).join("\u0000") === lastHeaderKey) {
+      repeatedHeaders++;
+      return;
+    }
+    // A value past the header's columns, or a CSV record of another length: the table is not as its header says.
+    if (row.slice(header.length).some((cell) => cell !== "") || (kind === "csv" && row.length !== header.length)) irregularRows++;
     rowsRead++;
     const cell = (column: ColumnRef) => row[column.index] ?? "";
     for (const filter of filters) if (!compare(cell(filter.column), filter)) return;
@@ -496,6 +584,8 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
     open = undefined;
     addRow(fields, started);
   }
+  // A table that ended before its header was decided (no row of data, fewer than 20 rows).
+  if (!header && pending.length > 0) decideHeader();
   if (!header) {
     if (tableNumber === 0) throw new Error("This file has no table to aggregate: aggregate_table reads CSV and TSV files, Excel sheets, and tables written as | cell | cell | rows. Use search_document instead.");
     throw new Error(wantedTable !== undefined
@@ -535,6 +625,10 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
     groups: results.slice(0, limit),
     totalGroups: groups.size,
     otherRows,
+    headerRows: headerCount,
+    ...(title !== undefined ? { title } : {}),
+    repeatedHeaders,
+    irregularRows,
     notNumbers: Object.fromEntries(metrics.flatMap((metric, index) => (notNumbers[index]! > 0 && (metric.op === "sum" || metric.op === "avg" || metric.op === "min" || metric.op === "max") ? [[metric.name, notNumbers[index]!]] : []))),
   };
 }

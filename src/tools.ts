@@ -125,6 +125,7 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
         },
         order_by: { type: "string", enum: ["metric", "key"], description: "\"metric\" (the default): the largest value of the first metric first; \"key\": by the values grouped by, in order (dates and months in time order)." },
         limit: { type: "integer", description: `Groups to show, up to ${MAX_SHOWN_GROUPS} (default 50).` },
+        header_rows: { type: "integer", description: "How many rows at the top of the table are its header, 0 to 5, when the result's columns show it was read wrong. Found by itself: a title row is skipped, and a header of two or three rows is joined (\"Q1 / January\")." },
       },
       required: ["document_id"],
     },
@@ -366,6 +367,7 @@ export function aggregateRequest(args: Record<string, unknown>): AggregateReques
     ...(metrics ? { metrics } : {}),
     orderBy: args.order_by === "key" ? "key" : "metric",
     limit: integer(args.limit, 50, 1, MAX_SHOWN_GROUPS),
+    ...(args.header_rows !== undefined && args.header_rows !== null && args.header_rows !== "" ? { headerRows: integer(args.header_rows, 1, 0, 5) } : {}),
   };
 }
 
@@ -831,12 +833,16 @@ export function createDocumentTools(options: {
         table: result.table,
         ...(result.tables > 1 ? { tables_in_file: result.tables } : {}),
         header_line: result.headerLine,
+        ...(result.headerRows !== 1 ? { header_rows: result.headerRows } : {}),
+        ...(result.title !== undefined ? { title: result.title } : {}),
         columns: result.columns.length > shownColumns.length ? [...shownColumns, `… ${result.columns.length - shownColumns.length} more`] : shownColumns,
         rows_read: result.rowsRead,
         rows_matched: result.rowsMatched,
         ...(result.totalGroups > 1 || (request.groupBy?.length ?? 0) > 0 ? { total_groups: result.totalGroups } : {}),
         ...(result.otherRows > 0 ? { other_rows: result.otherRows, other_note: `Rows of groups past the first ${MAX_GROUP_KEYS.toLocaleString("en-US")} found.` } : {}),
         ...(Object.keys(result.notNumbers).length > 0 ? { values_not_numbers: result.notNumbers, values_note: "Cells of these columns that are not numbers were left out of the metric." } : {}),
+        ...(result.repeatedHeaders > 0 ? { repeated_header_rows: result.repeatedHeaders } : {}),
+        ...(result.irregularRows > 0 ? { irregular_rows: result.irregularRows, irregular_note: "Rows with values past the header's columns: check columns and header_rows." } : {}),
       };
       const note = groups.length < result.totalGroups
         ? { note: `${groups.length} of the ${result.totalGroups} groups are shown, ${request.orderBy === "key" ? "in the order of their values" : "the largest first"}. Raise limit, or filter, for the others.` }

@@ -172,3 +172,45 @@ describe("the aggregate_table tool", () => {
     expect((await files.prepare([csv.id], { tokens: 0, bytes: 0 })).instruction).toContain("use aggregate_table: it reads every row");
   });
 });
+
+describe("headers of more than one row", () => {
+  it("skips a title row and joins a header of two rows, a merged cell taking the one to its left", async () => {
+    const text = [
+      "## Sheet 1: דוח",
+      "Row 1: | דוח מכירות 2026 |",
+      "Row 2: | אזור | Q1 |  | Q2 |  |",
+      "Row 3: |  | ינואר | פברואר | אפריל | מאי |",
+      "Row 4: | צפון | 10 | 20 | 30 | 40 |",
+      "Row 5: | דרום | 1 | 2 | 3 | 4 |",
+    ].join("\n");
+    const result = await aggregateTable(doc("xlsx", text), { metrics: ["sum:Q1 / פברואר", "sum:מאי"] });
+    expect(result.title).toBe("דוח מכירות 2026");
+    expect(result.headerRows).toBe(2);
+    expect(result.headerLine).toBe(4);
+    expect(result.columns).toEqual(["אזור", "Q1 / ינואר", "Q1 / פברואר", "Q2 / אפריל", "Q2 / מאי"]);
+    expect(result.groups[0]!.values).toEqual({ "sum:Q1 / פברואר": 22, "sum:Q2 / מאי": 44 });
+  });
+
+  it("takes years for column names, leaves out a header repeated inside the table, and counts odd rows", async () => {
+    const text = ["| Region | 2024 | 2025 |", "| East | 10 | 12 |", "| Region | 2024 | 2025 |", "| West | 5 | 6 |", "| North | 1 | 2 | 99 |"].join("\n");
+    const result = await aggregateTable(doc("pdf", text), { metrics: ["sum:2025"] });
+    expect(result.columns).toEqual(["Region", "2024", "2025"]);
+    expect(result.rowsRead).toBe(3);
+    expect(result.repeatedHeaders).toBe(1);
+    expect(result.irregularRows).toBe(1);
+    expect(result.groups[0]!.values).toEqual({ "sum:2025": 20 });
+  });
+
+  it("takes one header row for a table with no numbers, and follows header_rows when given", async () => {
+    const names = ["| Name | City |", "| Dana | Haifa |", "| Avi | Eilat |", "| Noa | Haifa |"].join("\n");
+    const counted = await aggregateTable(doc("docx", names), { groupBy: ["City"] });
+    expect(counted.columns).toEqual(["Name", "City"]);
+    expect(counted.groups.map((group) => [group.key.City, group.count])).toEqual([["Haifa", 2], ["Eilat", 1]]);
+    const none = await aggregateTable(doc("docx", names), { headerRows: 0, metrics: ["count"] });
+    expect(none.columns).toEqual(["Column 1", "Column 2"]);
+    expect(none.rowsRead).toBe(4);
+    const csv = await aggregateTable(doc("csv", "Report of March\nItem,Amount\nA,1\nB,2\n"), { metrics: ["sum:Amount"] });
+    expect(csv.title).toBe("Report of March");
+    expect(csv.groups[0]!.values).toEqual({ "sum:Amount": 3 });
+  });
+});
