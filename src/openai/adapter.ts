@@ -209,7 +209,13 @@ function detailText(detail: unknown): string | undefined {
   return detail.map((problem) => (typeof (problem as Json | null)?.msg === "string" ? (problem as Json).msg as string : "")).filter(Boolean).join("; ") || undefined;
 }
 
-/** An error event inside a stream that began with 200, with the server's own word for it. */
+/** The error a reply that came with 200 holds instead of choices, when it holds one. */
+function bodyError(data: unknown): unknown {
+  const body = (Array.isArray(data) ? data[0] : data) as Json | null | undefined;
+  return body && typeof body === "object" && body.error ? body.error : undefined;
+}
+
+/** An error event inside a stream, or a body, that began with 200, with the server's own word for it. */
 function streamFailure(failed: unknown): OpenAiRequestError {
   const named = failed && typeof failed === "object" ? failed as Json : {};
   return new OpenAiRequestError(typeof failed === "string" ? failed : String(named.message ?? "The model reported an error."), streamErrorStatus(failed), {
@@ -404,6 +410,10 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         response = await post(body(other), signal ? AbortSignal.any([signal, timeout]) : timeout, stopped);
       }
       const data = await readJson<Json>(response, stopped, unreachable, undefined, (error) => new OpenAiRequestError(notJsonMessage("The model's", response), response.status, { kind: "invalid", cause: error }));
+      // An error in a body that came with 200 (OpenRouter, once generation has started): thrown as
+      // a stream's error is, with its status, so that a 502 is sent again rather than read as no text.
+      const failed = bodyError(data);
+      if (failed) throw streamFailure(failed);
       const used = usageOf(data.usage);
       onUsage?.(used);
       const choice = data.choices?.[0];
@@ -548,6 +558,9 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       } else {
         // In one piece: no streaming was asked for, or the server answered without it.
         const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), lost, watch, notJson);
+        // An error in a body that came with 200, as a stream may send one: not an empty reply.
+        const failed = bodyError(data);
+        if (failed) throw streamFailure(failed);
         const choice = data.choices?.[0] as Json | undefined;
         message = (choice?.message ?? { role: "assistant", content: null }) as Json;
         finish = choice?.finish_reason;

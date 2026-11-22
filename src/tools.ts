@@ -410,6 +410,12 @@ export function createDocumentTools(options: {
     regexQueue = next.catch(() => undefined);
     return next;
   };
+  const givenReads: unknown = options.maxWholeDocumentReads;
+  // NaN failed every comparison, so it let a document be read whole any number of times.
+  if (givenReads !== undefined && (typeof givenReads !== "number" || Number.isNaN(givenReads))) {
+    const shown = typeof givenReads === "number" ? String(givenReads) : typeof givenReads === "string" ? JSON.stringify(givenReads) : typeof givenReads;
+    throw new (typeof givenReads === "number" ? RangeError : TypeError)(`maxWholeDocumentReads must be a number, and is ${shown}.`);
+  }
   const maxWholeReads = Math.max(0, Math.trunc(options.maxWholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS));
   /** Whole-document reads started, by document. */
   const wholeReads = new Map<string, number>();

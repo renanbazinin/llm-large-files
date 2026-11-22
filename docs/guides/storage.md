@@ -579,7 +579,7 @@ export class BlobDocumentStore implements DocumentStore {
   async get(id: string): Promise<StoredDocument | undefined> {
     const meta = await this.getMeta(id);
     const bytes = meta && await this.blobs.read(this.key(id, "txt"));
-    return meta && bytes ? { meta, text: new TextDecoder().decode(bytes) } : undefined;
+    return meta && bytes ? { meta, text: new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes) } : undefined;
   }
 
   /** UTF-8 bytes of the text exactly as `put` wrote it. Called only after getMeta found the document. */

@@ -109,7 +109,7 @@ The endpoint of a Gemini model on Vertex AI, signed in with an OAuth access toke
 | `project` | `string` | required | The Google Cloud project ID. URL-encoded into the path. |
 | `model` | `string` | required | The model that answers, under `publishers/google/models/`. Without an explorer it also makes the tool calls. |
 | `explorerModel` | `string \| undefined` | none | A second model that explores the documents, with the same rules as in [`geminiApi()`](#geminiapioptions). It is in the same project and location. |
-| `location` | `string` | `"global"` | Where the requests are served. It picks the host ([`vertexHost()`](#vertexhostlocation)) and is the `locations/{location}` segment of the path, as given. |
+| `location` | `string` | `"global"` | Where the requests are served. It picks the host ([`vertexHost()`](#vertexhostlocation)) and is the `locations/{location}` segment of the path. It must be lowercase letters, digits and single hyphens (`"global"`, `"us"`, `"europe-west4"`): anything else throws a `TypeError`, since 0.7.1. |
 | `accessToken` | `string \| (() => string \| Promise<string>)` | required | Sent as `Authorization: Bearer {token}`. A function is called before every request, chat requests and part reads of both models alike, so it can return a renewed token. |
 | `apiVersion` | `string` | `"v1"` | The version segment of the path. |
 
@@ -150,7 +150,10 @@ Guide: [Gemini API and Vertex AI](../guides/vertex-and-gemini.md), which covers 
 declare function vertexHost(location: string): string;
 ```
 
-The Vertex AI host of a location, as `vertexAi()` uses it. The location is not checked.
+The Vertex AI host of a location, as `vertexAi()` uses it. Since 0.7.1 the location is checked: one
+that is not lowercase letters and digits joined by single hyphens throws a `TypeError` ("location
+must be a Vertex AI location such as "global", "us" or "europe-west4", and is …"). With `/`, `?`,
+`#` or `@` in it, it would have named another host, and that host would have got the access token.
 
 | `location` | Host |
 |---|---|
@@ -583,6 +586,7 @@ first request to a `url` goes alone: requests to it that arrive meanwhile wait f
 | A body that is not JSON | `GeminiRequestError`: "Gemini's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the response's `status`, kind `"invalid"`, the `SyntaxError` as `cause`. Until 0.6.0, the `SyntaxError` itself. |
 | `timeoutMs` passed, or `signal` aborted | The abort error, as it is, with no status |
 | A reply with no text | `Error`: "The model returned no text." or, with its `finishReason`, "The model returned no text (SAFETY)." |
+| A prompt Gemini blocked: HTTP 200 with `promptFeedback.blockReason` and no candidate | `Error`: "The model returned no text (PROHIBITED_CONTENT).", with the block reason. It is not sent again: it would be blocked again. Before 0.7.1 it had no reason, and a whole-file read sent it once more. |
 
 A whole-file read tries a part once more after an error with no status. It tells the model why a
 part failed by the error's kind and status, never by Gemini's message: "The model took too long to

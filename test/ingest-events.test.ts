@@ -15,9 +15,15 @@ type Progress = Extract<IngestEvent, { type: "ingest.progress" }>;
 /** Collects the events of one ingest. */
 function recorder() {
   const events: IngestEvent[] = [];
+  /** When each event arrived, by `performance.now()`: the clock the library spaces progress with. */
+  const arrived = new Map<IngestEvent, number>();
   return {
     events,
-    onEvent: (event: IngestEvent) => void events.push(event),
+    arrived,
+    onEvent: (event: IngestEvent) => {
+      arrived.set(event, performance.now());
+      events.push(event);
+    },
     progress: (stage?: Progress["stage"]) => events.filter((event): event is Progress => event.type === "ingest.progress" && (stage === undefined || event.stage === stage)),
     /** The stages in the order they first reported. */
     stages: () => [...new Set(events.flatMap((event) => (event.type === "ingest.progress" ? [event.stage] : [])))],
@@ -208,8 +214,10 @@ describe("ingest events", () => {
     expectWellFormed(log.events);
     for (const stage of log.stages()) {
       const progress = log.progress(stage);
-      // Date.now() counts whole milliseconds: 12 ms apart can read as 11.
-      for (let index = 1; index < progress.length - 1; index++) expect(progress[index]!.time - progress[index - 1]!.time).toBeGreaterThanOrEqual(11);
+      // Measured as the library spaces them, by performance.now() (events are sent at once, so
+      // they arrive when they are sent): the wall clock of `time` can be moved on a busy machine,
+      // and read 7 ms between events sent 12 ms apart. 11 leaves room for the call between them.
+      for (let index = 1; index < progress.length - 1; index++) expect(log.arrived.get(progress[index]!)! - log.arrived.get(progress[index - 1]!)!).toBeGreaterThanOrEqual(11);
     }
   });
 

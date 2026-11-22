@@ -44,7 +44,9 @@ export const pieceKey = (id: string, at: number) => `${id}#${at}`;
 const BUILD_READ_BYTES = 4 * 1024 * 1024;
 /** A pass shared by several scans lets other work run after this much time on the main thread. */
 const YIELD_AFTER_MS = 15;
-const decoder = new TextDecoder("utf-8");
+// `ignoreBOM`: every decode is a stream of its own, and would drop a U+FEFF that starts it. A range
+// starts at a line, so a line that began with one lost it, and its piece no longer matched the index.
+const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 const gone = (id: string) => new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
 

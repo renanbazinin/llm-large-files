@@ -36,6 +36,113 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.7.1 — not released yet
+
+Fifteen small fixes from the code review of 0.5.0, none of which changes the API: usage counts
+that a Claude stream reset to 0, options and limits that NaN turned off or made hang, an error in a
+reply of 200 read as no text, partial results that questions sharing a signal gave each other,
+requests Vertex AI refused, a location that could send the access token to another host, a
+prototype key in the usage, an upload over the limit that held its connection, and an adapter
+class whose part reads all failed. Each has a test that failed before its fix.
+
+### Upgrading: what you need to change
+
+Code written for 0.7.0 compiles with 0.7.1 as it is: the public types did not change. Some values
+that were taken in silence and did not work are now refused. Check each point against your app:
+
+- **NaN in a number option of `createLargeFiles` throws.** `ttlMs`, `maxUploadBytes`,
+  `scannedPdfPages`, `cacheBytes`, `cacheSize`, `wholeDocumentBytes`, `scanChunkBytes` and
+  `maxConcurrentScans` throw a `RangeError` for NaN (what `Number(process.env.X)` gives for a
+  variable that is not set), and a `TypeError` for a value that is not a number, such as a string
+  read from the environment. `scanChunkBytes: Infinity` throws too. With NaN, `maxConcurrentScans`
+  made every search of a document read by range wait forever, `ttlMs` failed every upload with
+  "Invalid time value", and `maxUploadBytes` took off the upload limit.
+  **What to do:** nothing, unless you pass such values. Leave an option out for its default, or
+  read a variable with a fallback: `Number(process.env.SCANS ?? 4)`.
+- **NaN in `AskOptions.limits` throws, before any request.** A field of `limits` that is NaN throws
+  a `RangeError` ("limits.toolTurns must be a number, and is NaN. Leave it out for the default."),
+  and one that is not a number a `TypeError`. NaN used to give a question with no tool, refuse
+  every call, or take off the cap on whole-file reads and the ceilings on tokens and requests.
+  `ToolOptions.maxWholeDocumentReads` is checked the same way. `Infinity` still means no ceiling.
+  **What to do:** as above.
+- **`partialResultOf(error)` gives `undefined` for an error that several questions threw.** Questions
+  stopped by one shared signal all throw its one reason (`AbortSignal.any` passes it on as it is).
+  `partialResultOf` gave each the result of whichever failed last: another user's tool rounds and
+  usage. Now it gives none, and each question's `run.error` event still carries its own `partial`.
+  **What to do:** if you stop many questions with one signal and keep their partial results, give
+  each question an `AbortController` of its own that the shared signal aborts with a new reason.
+  See [`partialResultOf`](docs/reference/ask.md#partialresultoferror).
+- **`vertexAi()` and `vertexHost()` check `location`.** One that is not lowercase letters and digits
+  joined by single hyphens (`"global"`, `"us"`, `"europe-west4"`) throws a `TypeError`. With `/`,
+  `?`, `#` or `@`, it named another host, which got the access token.
+  **What to do:** nothing, unless a location comes from a user; then expect the `TypeError`.
+- **An upload answered before its body was read drains the rest, up to 8 MB.** The `413` of an
+  upload over `maxUploadBytes` (and every answer sent before the body was read to its end) is
+  written at once, and ends once the rest of the body has been read and dropped. A body that goes
+  on more than 8 MB past the limit is cut off by closing the connection.
+  **What to do:** nothing. See [`node`](docs/reference/node.md).
+- **An adapter of your own whose `capabilities` lack `pageTokens` or `toolFiles`.** A `pageTokens`
+  that is missing, NaN or negative counts as 1,000, and a `toolFiles` that is none of `"inside"`,
+  `"beside"` and `"none"` counts as `"none"`, so `view_pages` is not offered to that model. Both
+  fields are required by the type, so this concerns only an adapter written in JavaScript or cast.
+  **What to do:** declare both.
+
+### Fixed
+
+Models:
+
+- **A Claude stream no longer loses its input counts** (LLF-006). The input fields of the usage in
+  `message_delta` may be null, and replaced the numbers of `message_start`: `inputTokens` and
+  `cachedInputTokens` read 0, which also took `limits.inputTokens` and the room estimate off. Only
+  the numbers of `message_delta` are taken now.
+- **An OpenAI-compatible reply of 200 that holds an error throws it** (LLF-009). A body
+  `{ "error": { "code": 502, … } }` with no `choices` (OpenRouter, once generation has started)
+  was a reply with no text, and the question could end with no answer and no error. It is now an
+  `OpenAiRequestError` with the status the error names, sent again like any 502, in a chat request
+  and in a part read, as the same error in a stream already was.
+- **Gemini gets no empty text parts** (LLF-028). A stored answer that came back empty became
+  `{ "text": "" }`, which Vertex AI refuses with HTTP 400, so every later question of that
+  conversation failed. Empty text parts are left out, and a turn left with none.
+- **A whole-file part that Gemini blocks says why, and is not sent again** (LLF-030). A prompt
+  blocked with `promptFeedback.blockReason` failed with "The model returned no text." and was sent
+  once more; now "The model returned no text (PROHIBITED_CONTENT).", once.
+- **An adapter class whose `generateText` is a method can read whole files** (LLF-051). It was
+  called without its adapter, so a method that used `this` failed on every part.
+
+The loop:
+
+- **What a refusal showed lasts for the rest of the question** (LLF-040). After a request refused
+  as too large, the loop raises its estimate up to 8 times what it counted; the next good reply
+  brought it back to twice, the next turns filled the window again, and a question whose provider
+  counts more than twice the estimate could fail after two such refusals. The estimate no longer
+  falls below what the refusal showed, as [how it works](docs/how-it-works.md#a-request-too-large-for-the-model)
+  says.
+- **`limits` and the number options of `createLargeFiles` are checked** (LLF-007, LLF-008), and a
+  queue of scans always has at least one slot, whatever it is given: see **Upgrading**.
+- **A missing `pageTokens` no longer takes away the page limit and the room count** (LLF-041).
+- **Questions stopped by one signal no longer get each other's partial result** (LLF-010).
+- **`UsageMeter` keeps any adapter id as an entry of its own** (LLF-050). An id of `"__proto__"`
+  counted the usage into `Object.prototype`, which set `requests` and the token counts of every
+  object in the process to NaN; `"constructor"` and `"toString"` lost their usage.
+
+Documents and uploads:
+
+- **A document read by range whose line starts with U+FEFF can be searched** (LLF-013). Each range
+  was decoded as a stream of its own, which dropped a U+FEFF at its start: when such a line began a
+  piece, every search of the document failed ("did not match its index") and rebuilt the index in
+  vain. Ingest has dropped such characters since 0.6.0, so this concerned documents stored by
+  0.5.0. The store example in the [storage guide](docs/guides/storage.md) decodes the same way.
+- **An upload over the limit no longer holds its connection** (LLF-033). The handler stopped
+  reading at the limit and answered `413`, but the connection stayed open, with a client still
+  sending into it. The comment said the rest was drained, and now it is, up to 8 MB: the client
+  reads the `413` and can send its next request on the same connection. Past 8 MB the connection
+  is closed. Closing it at once was tried, and lost the answer on Windows, which resets a
+  connection closed while data still arrives.
+- **`vertexAi()` checks its location** (LLF-029): see **Upgrading**.
+- **The JSDoc of `ToolCallLimits.maxFileBytes`** gives its default as 3/8 of
+  (`maxRequestBytes` − 262,144), 3,651,696 bytes for the default budget, which the code uses
+  (LLF-062). It read as 3/8 of `maxRequestBytes`, less 262,144.
+
 ## 0.7.0 — 2026-11-22
 
 A question and an ingest now say what they do as typed events, in order: the plan, each model

@@ -235,8 +235,8 @@ export type ToolOutput = { result: ToolResult; files: ToolFile[] };
 export type ToolCallLimits = {
   /**
    * The most bytes the files of this call may have together. Give the room left in your request,
-   * times 3/4 when files are sent as base64. Defaults to 3/8 of `maxRequestBytes` less 262,144
-   * (the 256 KB the library keeps free in a request).
+   * times 3/4 when files are sent as base64. Defaults to 3/8 of (`maxRequestBytes` − 262,144), the
+   * 256 KB the library keeps free in a request taken off first: 3,651,696 bytes for the default budget.
    */
   maxFileBytes?: number;
   /** The most pages this call may show. Lower it as the pages already shown use up your token budget. */

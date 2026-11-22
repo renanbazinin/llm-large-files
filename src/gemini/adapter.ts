@@ -79,10 +79,14 @@ function callsTurn(calls: ToolCall[]): GeminiContent {
   return { role: "model", parts: calls.map((call) => ({ functionCall: { name: call.name, args: call.args, ...(call.id ? { id: call.id } : {}) } })) };
 }
 
-const textTurn = (message: ModelTextMessage): GeminiContent => ({
-  role: message.role === "user" ? "user" : "model",
-  parts: message.parts.map((part) => (part.native !== undefined ? part.native as GeminiPart : { text: part.text ?? "" })),
-});
+/**
+ * A turn of text, without its empty text parts: Vertex AI refuses an empty text parameter (a stored
+ * answer that came back empty is one). A native part stays, and a turn with no part left is none.
+ */
+const textTurn = (message: ModelTextMessage): GeminiContent[] => {
+  const parts = message.parts.flatMap((part): GeminiPart[] => (part.native !== undefined ? [part.native as GeminiPart] : part.text ? [{ text: part.text }] : []));
+  return parts.length > 0 ? [{ role: message.role === "user" ? "user" : "model", parts }] : [];
+};
 
 /**
  * Gemini `contents` as messages of `askWithFiles`: text parts as text, every other part (an image,
@@ -131,7 +135,7 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
     }
     return turns;
   };
-  const toContents = (messages: ModelMessage[]): GeminiContent[] => messages.flatMap((message) => (message.role === "tools" ? roundTurns(message) : [textTurn(message)]));
+  const toContents = (messages: ModelMessage[]): GeminiContent[] => messages.flatMap((message) => (message.role === "tools" ? roundTurns(message) : textTurn(message)));
   const bodyOf = (request: ModelRequest): Body => ({
     contents: toContents(request.messages),
     ...(request.system ? { systemInstruction: { parts: [{ text: request.system }] } } : {}),
