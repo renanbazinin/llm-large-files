@@ -327,7 +327,10 @@ When the abort comes just after a request failed, that request's error may be th
 test which signal aborted, as above, not the error.
 
 `partialResultOf(error)` works for a stopped question too, when the reason is an object. Abort with
-an `Error`, or with no reason, rather than a string. Its `usage` is what was counted when the
+an `Error`, or with no reason, rather than a string. When several questions share the signal, they
+all throw the same reason, and `partialResultOf` gives none of them a result for it (since 0.7.1;
+before, each got the result of the one that failed last): give each question an `AbortController`
+of its own that the shared signal aborts with a new reason. Its `usage` is what was counted when the
 question stopped: a request still running then, in an adapter that did not stop, may be billed by
 the provider, and is not counted.
 

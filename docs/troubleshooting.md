@@ -1384,7 +1384,10 @@ The question then throws the signal's reason, at once: since 0.6.0 also with an 
 that does not stop its request, and when the adapter fails with its own error as it stops. Nothing
 is sent after that, and text that arrives later is not shown. What it used until then was paid for:
 `partialResultOf(error)` gives its `usage` when the reason is an object, so abort with no reason or
-with an `Error`. A request still running when the question stopped may be billed by the provider,
+with an `Error`. Questions stopped by one shared signal all throw its one reason, and since 0.7.1
+`partialResultOf` gives none of them a result for it: give each question a controller of its own,
+or read `partial` from each question's `run.error` event (see
+[`partialResultOf`](./reference/ask.md#partialresultoferror)). A request still running when the question stopped may be billed by the provider,
 and is not counted there: pass the signal on to the request, as the built-in adapters do.
 
 See [Web app](./guides/web-app.md).

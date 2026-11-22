@@ -477,6 +477,19 @@ class IngestProgress {
 /** Default for `wholeDocumentBytes`. */
 export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
 
+/**
+ * A number option as it was given, or `fallback` when it was left out. NaN, which
+ * `Number(process.env.X)` gives for a variable that is not set, and a value that is not a number
+ * are an error: NaN passes every `Math.max` and fails every comparison, so it hung the scans or
+ * turned a limit off. `finite` refuses `Infinity` too, for an option that cannot be endless.
+ */
+function numberOption(name: string, value: unknown, fallback: number, finite = false): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number") throw new TypeError(`${name} must be a number, and is ${typeof value === "string" ? JSON.stringify(value) : typeof value}.`);
+  if (Number.isNaN(value) || (finite && !Number.isFinite(value))) throw new RangeError(`${name} must be a ${finite ? "finite " : ""}number, and is ${value}. Leave it out for the default.`);
+  return value;
+}
+
 export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   /** The fields the application set. The others follow the context window, whichever it is for a request. */
   const ownBudget = givenBudget(options.budget);
@@ -484,19 +497,19 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const budgetFor = (overrides?: Partial<Budget>, limits?: ModelLimits): Budget => (
     overrides || limits ? resolveBudget({ ...ownBudget, ...givenBudget(overrides) }, limits) : budget
   );
-  const ttlMs = options.ttlMs ?? 72 * 60 * 60 * 1000;
-  const maxUploadBytes = options.maxUploadBytes ?? 100 * 1024 * 1024;
+  const ttlMs = numberOption("ttlMs", options.ttlMs, 72 * 60 * 60 * 1000);
+  const maxUploadBytes = numberOption("maxUploadBytes", options.maxUploadBytes, 100 * 1024 * 1024);
   const given = (value: number | undefined, fallback: number) => (typeof value === "number" && !Number.isNaN(value) ? value : fallback);
   const maxTextBytes = Math.max(1, given(options.maxTextBytes, Math.max(maxUploadBytes, DEFAULT_MAX_TEXT_BYTES)));
   const maxPdfPages = Math.max(1, Math.trunc(given(options.maxPdfPages, DEFAULT_MAX_PDF_PAGES)));
   const ingestTimeoutMs = given(options.ingestTimeoutMs, DEFAULT_INGEST_TIMEOUT_MS);
   const now = options.now ?? (() => new Date());
   const { store } = options;
-  const cacheBytes = Math.max(0, options.cacheBytes ?? DEFAULT_CACHE_BYTES);
+  const cacheBytes = Math.max(0, numberOption("cacheBytes", options.cacheBytes, DEFAULT_CACHE_BYTES));
   /** Documents ready to search, and decoded pieces of documents read by range, in one memory budget. */
   const cache = new DocumentCache<Sized>(
     cacheBytes,
-    options.cacheSize === undefined ? Number.POSITIVE_INFINITY : Math.max(0, Math.trunc(options.cacheSize)),
+    Math.max(0, Math.trunc(numberOption("cacheSize", options.cacheSize, Number.POSITIVE_INFINITY))),
   );
   /** Forgets everything kept of a document: the document, and its pieces. */
   const forget = (id: string) => {
@@ -513,12 +526,12 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   } : undefined;
   /** The uploaded file of a document, when the store keeps such files. */
   const loadOriginal = store.getOriginal ? (id: string) => reading(() => store.getOriginal!(id)) : undefined;
-  const wholeDocumentBytes = Math.max(0, options.wholeDocumentBytes ?? DEFAULT_WHOLE_DOCUMENT_BYTES);
+  const wholeDocumentBytes = Math.max(0, numberOption("wholeDocumentBytes", options.wholeDocumentBytes, DEFAULT_WHOLE_DOCUMENT_BYTES));
   /** Documents whose saved index did not match their text: the next opening builds it from the text. */
   const rebuildIndex = new Set<string>();
   const scan: ScanSettings = {
-    chunkBytes: Math.max(1, Math.trunc(options.scanChunkBytes ?? 1024 * 1024)),
-    limiter: new Limiter(Math.max(1, Math.trunc(options.maxConcurrentScans ?? 4))),
+    chunkBytes: Math.max(1, Math.trunc(numberOption("scanChunkBytes", options.scanChunkBytes, 1024 * 1024, true))),
+    limiter: new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentScans", options.maxConcurrentScans, 4)))),
     onBroken: (id) => {
       rebuildIndex.add(id);
       forget(id);
@@ -532,7 +545,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
   };
   const keepOriginals = new Set<DocumentFormat>(options.keepOriginals ?? []);
-  const scannedPdfPages = Math.max(0, Math.trunc(options.scannedPdfPages ?? 30));
+  const scannedPdfPages = Math.max(0, Math.trunc(numberOption("scannedPdfPages", options.scannedPdfPages, 30)));
   /** Whether the uploaded file of a document of this format is kept. */
   const keeps = (format: DocumentFormat) => keepOriginals.has(format) && typeof options.store.putOriginal === "function";
 

@@ -762,7 +762,9 @@ end the question:
 
 - **Shorten and send again.** The loop takes the provider's numbers for the rest of the question:
   its count of the request raises the estimate (up to 8 times), and the window it names lowers the
-  limit of the room. It then replaces older results with stand-ins, the latest round too if needed,
+  limit of the room. A later report of the input tokens, which otherwise moves the estimate within
+  twice the estimate, does not take that back (since 0.7.1; before, the next good reply brought it
+  down to twice, and the turn after filled the window and was refused again). It then replaces older results with stand-ins, the latest round too if needed,
   and sends the request again. `steps` says "The request was larger than the model takes: older tool
   results were shortened, and it was sent again". That happens at most twice a question, and once
   for any one request. When any model of the question may only grow its conversation (Claude),

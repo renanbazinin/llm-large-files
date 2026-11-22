@@ -401,6 +401,21 @@ describe("Claude through the Messages API, since the review of 0.5.0", () => {
     expect((kept.raw as Json[]).map((block) => block.type)).toEqual(["text", "thinking"]);
   });
 
+  // LLF-006: the input fields of message_delta usage may be null; message_start's numbers stay.
+  it("keeps the input counts of message_start when message_delta sends them as null", async () => {
+    const events: Json[] = [
+      { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", content: [], usage: { input_tokens: 1_200, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 300, output_tokens: 1 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Done." } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 850, input_tokens: null, cache_creation_input_tokens: null, cache_read_input_tokens: null, server_tool_use: null } },
+      { type: "message_stop" },
+    ];
+    const reply = await anthropic({ model: "claude-test", apiKey: "k", fetch: fakeApi([sse(events)]).fetch }).send(request("?"));
+    expect(reply.usage).toEqual({ inputTokens: 1_200 + 300 + 150_000, cachedInputTokens: 150_000, outputTokens: 850, thoughtTokens: 0 });
+    expect(reply.providerUsage).toEqual({ input_tokens: 1_200, cache_read_input_tokens: 150_000, cache_creation_input_tokens: 300, output_tokens: 850 });
+  });
+
   it("gives calls of other providers and of earlier questions IDs the API takes, each once in a request", async () => {
     const api = fakeApi([message([text("ok")])]);
     const round = (id: string, from: number) => ({ role: "tools" as const, calls: [{ id, name: "read_document", args: { document_id: "doc_1", start_line: from } }], answers: [] as Array<{ call: Json; result: Json }> });

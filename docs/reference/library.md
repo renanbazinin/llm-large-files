@@ -129,6 +129,16 @@ type LargeFilesOptions = {
 | `maxConcurrentScans` | `number` | 4 | Reading by range: how many scans of whole documents (searches, counting the parts of a file) run at once in this library (each `createLargeFiles` call has its own queue). The others wait their turn. At least 1. |
 | `now` | `() => Date` | `() => new Date()` | The clock, for tests. It dates `createdAt` and `expiresAt`, decides whether a document has expired, and is passed to the store's `sweep`. |
 
+Since 0.7.1, `ttlMs`, `maxUploadBytes`, `scannedPdfPages`, `cacheBytes`, `cacheSize`,
+`wholeDocumentBytes`, `scanChunkBytes` and `maxConcurrentScans` are checked when the library is
+made: NaN, which `Number(process.env.X)` gives for a variable that is not set, throws a
+`RangeError` ("maxConcurrentScans must be a number, and is NaN. Leave it out for the default."),
+a value that is not a number throws a `TypeError`, and so does `Infinity` for `scanChunkBytes`. NaN
+used to pass through: `maxConcurrentScans` left every scan of a document read by range waiting
+forever, `ttlMs` failed every upload, `maxUploadBytes` took off the upload limit. A number below
+the least an option takes is raised to it, as before. `maxTextBytes`, `maxPdfPages` and
+`ingestTimeoutMs` take NaN as left out, as they have since 0.6.0.
+
 Guides: [storage](../guides/storage.md) for the store, owners and retention,
 [costs and limits](../guides/costs-and-limits.md) for the budget, [PDFs](../guides/pdfs.md) for
 `keepOriginals`, `scannedPdfPages`, `extractors` and the files the limits refuse,
@@ -477,7 +487,7 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 | `onProgress` | [`ProgressListener`](#progresslistener) | none | Progress of whole-document reads, for status messages. |
 | `signal` | `AbortSignal` | none | Stops searches and whole-document reads. Once it has aborted, a call that fails throws instead of answering `{ error }`. |
 | `regexBudgetMs` | `number` | [`REGEX_BUDGET_MS`](./tools.md#regex_budget_ms), 6,000 | The most time, in milliseconds, that the regex searches of this tool set may take together. Past it, a regex search answers with an error that tells the model to search another way. One search stops after 3,000 ms on its own. |
-| `maxWholeDocumentReads` | `number` | [`MAX_WHOLE_DOCUMENT_READS`](./tools.md#max_whole_document_reads), 1 | How many times each document may be read whole by this tool set. A call past it answers with an error that tells the model to use what it has. 0 turns whole reads off. |
+| `maxWholeDocumentReads` | `number` | [`MAX_WHOLE_DOCUMENT_READS`](./tools.md#max_whole_document_reads), 1 | How many times each document may be read whole by this tool set. A call past it answers with an error that tells the model to use what it has. 0 turns whole reads off. NaN throws a `RangeError`, and a value that is not a number a `TypeError` (since 0.7.1: NaN allowed any number of whole reads). |
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | 3 retries, a first wait of 250 to 500 ms (500 ms before the jitter) that doubles, 60 s at most | How a failed model request of a whole-document read is sent again. An error without an HTTP status is sent again once, at once. |
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for these tools: their result cap and part size. Use the budget you planned the request with. |
 | `viewPages` | `boolean \| DocumentMeta[]` | none | Offers `view_pages`, which hands the model real pages of a PDF as a file. `true` offers it for the PDFs among `documents`; a list offers it for exactly those, which may include PDFs whose text is already in the prompt: pass `prepared.viewable`. Only PDFs with `originalKept` count, and only with a store that has `getOriginal`. Turn it on only when your loop runs tools with `executeWithFiles` and sends the files to the model. |

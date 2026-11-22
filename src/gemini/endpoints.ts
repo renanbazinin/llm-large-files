@@ -54,8 +54,18 @@ export function geminiApi(options: {
   };
 }
 
-/** The host for a Vertex AI location: global, the us/eu multi-regions, or a single region. */
+/** A Vertex AI location: "global", "us", "eu", or a region such as "europe-west4". */
+const LOCATION = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * The host for a Vertex AI location: global, the us/eu multi-regions, or a single region. A location
+ * that is not one (with "/", "?", "#" or "@" it would name another host, which would get the access
+ * token) throws a TypeError.
+ */
 export function vertexHost(location: string): string {
+  if (typeof location !== "string" || !LOCATION.test(location)) {
+    throw new TypeError(`location must be a Vertex AI location such as "global", "us" or "europe-west4", and is ${JSON.stringify(location) ?? String(location)}.`);
+  }
   if (location === "global") return "https://aiplatform.googleapis.com";
   if (location === "us" || location === "eu") return `https://aiplatform.${location}.rep.googleapis.com`;
   return `https://${location}-aiplatform.googleapis.com`;
@@ -76,7 +86,7 @@ export function vertexAi(options: {
   apiVersion?: string;
 }): GeminiEndpoint {
   const location = options.location ?? "global";
-  const models = `${vertexHost(location)}/${options.apiVersion ?? "v1"}/projects/${encodeURIComponent(options.project)}/locations/${location}/publishers/google/models/`;
+  const models = `${vertexHost(location)}/${options.apiVersion ?? "v1"}/projects/${encodeURIComponent(options.project)}/locations/${encodeURIComponent(location)}/publishers/google/models/`;
   const base = `${models}${encodeURIComponent(options.model)}`;
   const explorer = explorerOf(options);
   const token = options.accessToken;

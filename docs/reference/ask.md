@@ -114,12 +114,13 @@ allowance as the window, and its steps say so.
 |---|---|---|
 | `Error`: "budget.… must be a number above 0, and is …", or "budget.reservedTokens (…) must be smaller than budget.contextTokens (…)…" (the same for `mapChunkTokens`) | A field of `options.budget` is not a number above 0, or the fields cannot work together. Before any request. See [`resolveBudget`](./library.md#resolvebudgetbudget-limits). | undefined |
 | `Error`: "The last message must be the user's." | `messages` is empty, or its last message is not a user turn. | undefined |
+| `RangeError`: "limits.… must be a number, and is NaN. Leave it out for the default.", or `TypeError`: "limits.… must be a number, and is …" | A field of `options.limits` is NaN, or not a number. Before any request. New in 0.7.1. | undefined |
 | [`DocumentStoreError`](./library.md#documentstoreerror) | The store could not be read while the documents were planned. The documents are not gone: try again. A store that fails during a tool call is not thrown: the model gets the message as the tool's `error`. | undefined |
 | [`DocumentsNotFoundError`](#documentsnotfounderror) | A document of `documentIds` was never stored, has expired or been deleted, or belongs to another `owner`. Before any request. | undefined |
 | [`ModelRequestError`](./errors-and-retries.md#modelrequesterror), or the adapter's subclass (`GeminiRequestError`, `OpenAiRequestError`, `AnthropicRequestError`) | A chat request failed, and was not worth another try, still failed after `retry.retries` more, asked for a longer wait than `retry.maxDelayMs`, or had already shown text. A `context_overflow` that the recovery above did not mend. | What the question had done |
 | Any other error of an adapter | Thrown as it came. An error without a numeric `status` is not sent again. | What the question had done |
 | What a listener threw | `onEvent`, `onText`, `onActivity` or `onStep` threw. The question stops: the calls of the turn still running stop, and no request follows. New in 0.7.0 for a throw during a whole-file read (`onActivity` on its progress, `onEvent` on its events): 0.6.0 reported it to the model as the tool's error, and went on. | What the question had done, when the error is an object and the question was under way |
-| The signal's reason | `signal` aborted. Nothing is sent or retried after that, no part of a whole-file read either. It is thrown at once, also while an adapter (or a part reader) that does not look at the signal is still at work, and also when the adapter then fails with its own error. Text that such an adapter sends later is not shown. | What the question had done, when the reason is an object |
+| The signal's reason | `signal` aborted. Nothing is sent or retried after that, no part of a whole-file read either. It is thrown at once, also while an adapter (or a part reader) that does not look at the signal is still at work, and also when the adapter then fails with its own error. Text that such an adapter sends later is not shown. | What the question had done, when the reason is an object that no other question threw too (see [`partialResultOf`](#partialresultoferror)) |
 
 When the documents were planned again after an overflow and the second plan fails before it sends
 anything, the first overflow error is thrown, with what the first try had done. A whole-file part
@@ -256,7 +257,11 @@ Guides: [conversations](../guides/conversations.md) (`messages`, `documentPlacem
 
 ### `AskLimits`
 
-The limits of one question: `AskOptions.limits`. Every field is optional.
+The limits of one question: `AskOptions.limits`. Every field is optional. A field that is NaN
+(what `Number(process.env.X)` gives for a variable that is not set) throws a `RangeError`, and one
+that is not a number a `TypeError`, before any request: since 0.7.1, as a budget field does. NaN
+used to fail every comparison, so it turned off the ceilings and the cap on whole-file reads, or
+every tool. `Infinity` sets no ceiling.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
@@ -310,6 +315,14 @@ or a part reader that did not stop at the signal) may be billed by the provider,
 counted. It returns `undefined` for an error that did not come from a question under way (a missing
 document, a budget that cannot work, a store that could not be read while planning) and for a
 value that is not an object. The sample under [`askWithFiles`](#askwithfilesoptions) uses it.
+
+One error object can be thrown by several questions: the reason of a signal they share, such as
+one controller for a batch, or a server's shutdown signal that each question joins with
+`AbortSignal.any` (it passes the reason on as it is). Since 0.7.1, `partialResultOf` then returns
+`undefined` for it, rather than the result of whichever question failed last, which held another
+user's tool rounds and usage. Each question's `run.error` event still carries its own `partial`.
+To get the result from `partialResultOf`, give each question a signal whose reason is its own:
+`const own = new AbortController(); shared.addEventListener("abort", () => own.abort(new DOMException("Stopped.", "AbortError")), { once: true });`.
 
 The `run.error` event carries the same result as `partial`, as an `EventResult`: without
 `toolTurns`, and with a plan that names the documents only (both hold text of the documents),
@@ -466,7 +479,7 @@ A model provider, as the tool loop sees it.
 | `capabilities` | yes | What the model can take: see [`ModelCapabilities`](#modelcapabilities). |
 | `send(request, hooks?)` | yes | One chat request. Returns a [`ModelReply`](#modelreply). Throw a [`ModelRequestError`](./errors-and-retries.md#modelrequesterror) for an HTTP error, with status 0 for a connection that failed. The loop reads `status`, `kind`, `retryAfterMs`, `limitTokens` and `requestedTokens` from the error, and sends again the ones worth it. |
 | `requestBytes?(request)` | no | The size in bytes of the body `send` would post for `request`. The loop calls it before it shows the pages of a PDF in a turn, with the turn whose calls are being run as a round with no `answers` yet. With it the room for the pages is exact; without it, it is estimated. |
-| `generateText` | no | A plain completion for the parts of a whole-file read: see [`GenerateText`](#generatetext). The one of the model that explores is used. Without it, `analyze_whole_document` is not offered. |
+| `generateText` | no | A plain completion for the parts of a whole-file read: see [`GenerateText`](#generatetext). The one of the model that explores is used. Without it, `analyze_whole_document` is not offered. It is called on its adapter, as `send` is, so a method of a class may use `this` (since 0.7.1; before, every part read of such a method failed). |
 | `estimateTokens?(text)` | no | Deprecated, and never called: `askWithFiles` sizes every request with the library's `estimateTokens`, scaled by `tokenScale`. Set `capabilities.tokenScale` for a model that counts differently. It is kept so that adapters that set it still compile, and a later version may remove it. |
 
 What `send` must do with the request:
@@ -531,8 +544,8 @@ reference page.
 |---|---|---|---|
 | `contextTokens` | `number` | none | The context window, in the model's tokens. The window of a question is the smallest of the library's `budget.contextTokens` and those its models declare. |
 | `maxRequestBytes` | `number` | none | The largest request body, in bytes. A question's `budget.maxRequestBytes` is the smallest of the library's and those its models declare. |
-| `toolFiles` | `"inside" \| "beside" \| "none"` | required | Where `send` puts a file that a tool returned (the pages of `view_pages`): `"inside"` the tool result, `"beside"` it in a user turn of its own, or `"none"` for a model that cannot be sent one. When any model of the question says `"none"`, `view_pages` is not offered. |
-| `pageTokens` | `number` | required | About what the model bills for one PDF page it is shown, in its tokens. The question counts the largest of its models': the pages of a question may take up to half of `budget.reservedTokens`. |
+| `toolFiles` | `"inside" \| "beside" \| "none"` | required | Where `send` puts a file that a tool returned (the pages of `view_pages`): `"inside"` the tool result, `"beside"` it in a user turn of its own, or `"none"` for a model that cannot be sent one. When any model of the question says `"none"`, `view_pages` is not offered. Since 0.7.1 a value that is none of the three (left out by an adapter written in JavaScript) counts as `"none"`. |
+| `pageTokens` | `number` | required | About what the model bills for one PDF page it is shown, in its tokens. The question counts the largest of its models': the pages of a question may take up to half of `budget.reservedTokens`. Since 0.7.1 a value that is missing, NaN, negative or not finite counts as 1,000, as `openAiCompatible()` declares by default: before, it took away the question's limit of pages and, once a page was shown, every count of the room left. |
 | `tokenScale` | `number` | 1 | How many of this model's tokens one token of the library's estimate (`estimateTokens`, fitted to Gemini) comes to. A model that counts a third more for the same text says 1.33, and its window is that much smaller in the library's tokens. The question uses the largest of its models'. A value that is not above 0 counts as 1. |
 | `outputTokens` | `number` | none | Tokens set aside for the reply, when they come out of the same window as the prompt (Claude's `max_tokens`). The largest of the models' is kept free, but at least a quarter of the window is left for the prompt. |
 | `appendOnly` | `boolean` | `false` | True for a model whose earlier turns may not be rewritten (Claude ties its thinking blocks to the turns they were written in). When any model of the question says so, old tool results are not shortened to make room: when the room runs out, the question is answered with what it has, and an overflow is mended only by planning the documents again. When the model that explores is append-only, a note the loop adds after an empty or broken reply stays in its conversation for the rest of the question. |

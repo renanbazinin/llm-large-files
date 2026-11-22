@@ -559,7 +559,10 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
           } else if (event.type === "message_delta") {
             stopReason = event.delta?.stop_reason ?? stopReason;
             stopDetails = (event.delta?.stop_details as Json | undefined) ?? stopDetails;
-            usage = { ...usage, ...event.usage };
+            // Only the numbers it has: the input fields of message_delta may be null, and the real
+            // ones are message_start's (the official SDK keeps them the same way).
+            usage = { ...usage };
+            for (const [key, value] of Object.entries((event.usage ?? {}) as Json)) if (value !== null && value !== undefined) usage[key] = value;
           }
         }
       } catch (error) {

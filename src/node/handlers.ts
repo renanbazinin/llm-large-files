@@ -195,11 +195,9 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Uint8A
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
     size += buffer.byteLength;
-    if (size > limit) {
-      // Stop buffering; drain the rest so the client can read the response.
-      request.resume();
-      throw new HttpError(413, "");
-    }
+    // Past the limit the rest is not read: leaving the loop ends the request stream. The answer
+    // then closes the connection (see `upload`), so the client is not left sending into it.
+    if (size > limit) throw new HttpError(413, "");
     chunks.push(buffer);
   }
   const body = Buffer.concat(chunks);
@@ -260,6 +258,10 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         }
         send(response, 201, toDocumentSummary(meta));
       } catch (error) {
+        // Answered before the body was read to its end (too large, no name): the rest of it is
+        // not read, so the connection is closed after the answer. Kept open, it would hold a
+        // client that is still sending, and its next request would be read as part of this body.
+        if (!request.complete && !response.headersSent) response.setHeader("Connection", "close");
         fail(response, error, "Upload failed", tooLarge);
         // An event stream that failed after its headers were sent cannot answer with a status.
         if (response.headersSent && !response.writableEnded) response.end();

@@ -421,7 +421,14 @@ export class UsageMeter {
   readonly totals: UsageTotals = { requests: 0, ...EMPTY_USAGE, byModel: {} };
 
   add(model: string, usage: Partial<ModelUsage> | undefined): void {
-    const of = (this.totals.byModel[model] ??= { requests: 0, ...EMPTY_USAGE });
+    const { byModel } = this.totals;
+    // An own entry only: an id such as "__proto__" or "constructor" found what every object
+    // inherits, and "__proto__" then counted the usage into Object.prototype.
+    let of = Object.hasOwn(byModel, model) ? byModel[model] : undefined;
+    if (!of) {
+      of = { requests: 0, ...EMPTY_USAGE };
+      Object.defineProperty(byModel, model, { value: of, enumerable: true, writable: true, configurable: true });
+    }
     for (const sum of [this.totals, of]) {
       sum.requests++;
       for (const key of Object.keys(EMPTY_USAGE) as Array<keyof ModelUsage>) {

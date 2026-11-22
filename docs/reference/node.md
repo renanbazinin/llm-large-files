@@ -170,11 +170,14 @@ What it does, in order:
    - an object with fields in `request.body` (`express.json()` on a JSON request) is answered
      `400`;
    - otherwise it reads the request stream. Past the limit it stops reading, and answers `413`.
-     The rest of the body is not read: a client that sent no `Content-Length` (a chunked upload)
-     and then sends its next request on the same keep-alive connection, as a `node:http` agent
-     does, gets no answer to that request. `fetch`, and a client that sends `Content-Length`, are
-     not affected. A stream that another middleware has already read gives no bytes, and the
-     upload is answered `422` as an empty file.
+     The rest of the body is not read, and the answer has `Connection: close`: the server closes
+     the connection once the answer is sent, rather than read megabytes nobody wants or leave the
+     client sending into a connection that is not read. `fetch` and a `node:http` client both
+     read the `413`; a `node:http` request that is still writing its body then gets `EPIPE` or
+     `ECONNRESET` on the request, after the response. The same holds for every answer sent before
+     the body was read to its end (no name, or a `Content-Length` over the limit). A stream that
+     another middleware has already read gives no bytes, and the upload is answered `422` as an
+     empty file.
 4. Ingests it: `files.ingest({ name, bytes, mimeType, owner, signal })`, `mimeType` and `owner`
    only when there are any. The `signal` aborts when the client closes the connection before the
    answer is sent: the ingest stops between two pages or pieces, and nothing is stored. The

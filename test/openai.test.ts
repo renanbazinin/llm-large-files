@@ -484,3 +484,28 @@ describe("the name of the output limit of a part read, as the final review of th
     expect((turn.raw as Json).tool_calls[0].function.arguments).toBe("{}");
   });
 });
+
+describe("an error in a body that came with 200 (LLF-009)", () => {
+  // OpenRouter answers 200 once generation has started, and puts a generation error in the body.
+  const failed = { error: { code: 502, message: "Provider returned error" } };
+
+  it("is thrown with its status by a reply that is not streamed, and by a part read", async () => {
+    const model = openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: fakeEndpoint([failed]).fetch });
+    const error = await model.send(request("Hi")).catch((thrown: unknown) => thrown);
+    expect(error).toBeInstanceOf(OpenAiRequestError);
+    expect(error).toMatchObject({ message: "Provider returned error", status: 502 });
+    const read = await model.generateText!({ system: "s", prompt: "p", maxOutputTokens: 100 }).catch((thrown: unknown) => thrown);
+    expect(read).toBeInstanceOf(OpenAiRequestError);
+    expect(read).toMatchObject({ message: "Provider returned error", status: 502 });
+  });
+
+  it("is sent again like any 502, and the answer that follows is used", async () => {
+    const endpoint = fakeEndpoint([failed, reply({ content: "Fine now." })]);
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "notes.txt", bytes: utf8("short notes") });
+    const result = await askWithFiles({ files, model: openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: endpoint.fetch }), documentIds: [meta.id], messages: question("?"), retry: { random: () => 1, sleep: async () => undefined } });
+    expect(endpoint.sent).toHaveLength(2);
+    expect(result).toMatchObject({ answered: true, text: "Fine now." });
+  });
+});
+

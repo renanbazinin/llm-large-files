@@ -1,9 +1,9 @@
 // Gemini (Generate Content REST) helpers. No SDK dependency: the caller supplies the URL and
 // auth headers, so this works with the Gemini API, Vertex AI, or an enterprise gateway.
 import type { ToolAnswer, ToolCall } from "../model.js";
-import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
+import { completeWithinLimit, noTextReason, type LimitedReply } from "../output-limit.js";
 import { readJson } from "../http.js";
-import { retryAfterMs } from "../retry.js";
+import { noteNoRetry, retryAfterMs } from "../retry.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
 import { finishOfGemini, geminiFailure, notJson, unreachable } from "./errors.js";
 
@@ -116,6 +116,8 @@ export function createGeminiGenerateText(options: {
   const fetchImpl = options.fetchImpl ?? fetch;
   const { url } = options;
   return async ({ system, prompt, maxOutputTokens, signal, onTruncated, onUsage }) => {
+    /** Set when Gemini blocked the prompt: sent again, it would be blocked again. */
+    let blocked = false;
     /** One request with an output limit: the text of the reply, why it ended, and what it thought. */
     const send = async (limit: number): Promise<LimitedReply> => {
       const timeout = AbortSignal.timeout(options.timeoutMs ?? 180_000);
@@ -142,6 +144,7 @@ export function createGeminiGenerateText(options: {
         error?: { message?: string };
         candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: unknown; thought?: boolean }> } }>;
         usageMetadata?: Record<string, unknown>;
+        promptFeedback?: { blockReason?: unknown };
       } | null;
       // An error may have no JSON body. A reply must: one whose body could not be read is a
       // connection that failed, and is sent again.
@@ -151,6 +154,13 @@ export function createGeminiGenerateText(options: {
       if (!response.ok) throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`);
       onUsage?.(usageOfGemini(data?.usageMetadata));
       const candidate = data?.candidates?.[0];
+      // A prompt Gemini blocked comes with 200, a reason and no candidate: the reply has no text,
+      // and says why ("The model returned no text (PROHIBITED_CONTENT).").
+      const blockReason = data?.promptFeedback?.blockReason;
+      if (!candidate && typeof blockReason === "string" && blockReason) {
+        blocked = true;
+        return { text: "", cutOff: false, stopped: true, reason: blockReason, thoughts: 0 };
+      }
       const text = (candidate?.content?.parts ?? [])
         .filter((part) => part.thought !== true && typeof part.text === "string")
         .map((part) => part.text as string)
@@ -165,6 +175,12 @@ export function createGeminiGenerateText(options: {
         thoughts: typeof thoughts === "number" ? thoughts : 0,
       };
     };
-    return completeWithinLimit(url, maxOutputTokens, send, { signal, onTruncated });
+    try {
+      return await completeWithinLimit(url, maxOutputTokens, send, { signal, onTruncated });
+    } catch (error) {
+      // A blocked prompt is not worth sending again: `withRetry` does not.
+      if (blocked && noTextReason(error) !== undefined) noteNoRetry(error as object);
+      throw error;
+    }
   };
 }

@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore, type DocumentStore } from "llm-large-files";
@@ -70,6 +70,43 @@ describe("createDocumentHandlers", () => {
     const big = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "x".repeat(5_000) });
     expect(big.status).toBe(413);
     expect((await big.json()).error).toBe("The file is larger than the 1000 B upload limit.");
+  });
+
+  // LLF-033: the rest of a body over the limit is not read, so the connection is closed after the
+  // 413. It was kept open, with the client still sending into it, and the next request on it was lost.
+  it("closes the connection after a 413 to a chunked upload that is still being sent", async () => {
+    const base = await start(1_000);
+    const url = new URL(base);
+    const answer = await new Promise<{ status?: number; connection?: string; body: string }>((resolve, reject) => {
+      const request = httpRequest({ host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "X-File-Name": "a.txt", "Transfer-Encoding": "chunked" } });
+      request.on("response", (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (piece: string) => (body += piece));
+        response.on("end", () => resolve({ status: response.statusCode, connection: response.headers.connection, body }));
+        response.on("error", reject);
+      });
+      // The server closes the connection while the client is still sending: that write fails.
+      request.on("error", () => {});
+      const piece = Buffer.alloc(64 * 1024, 120);
+      let sent = 0;
+      const pump = () => {
+        while (sent < 8 * 1024 * 1024 && !request.destroyed) {
+          sent += piece.byteLength;
+          if (!request.write(piece)) return void request.once("drain", pump);
+        }
+        request.end();
+      };
+      pump();
+    });
+    try {
+      expect(answer.status).toBe(413);
+      expect(JSON.parse(answer.body).error).toBe("The file is larger than the 1000 B upload limit.");
+      expect(answer.connection).toBe("close");
+      await expect.poll(() => new Promise<number>((resolve) => server!.getConnections((_error, count) => resolve(count)))).toBe(0);
+    } finally {
+      server!.closeAllConnections();
+    }
   });
 
   // The server below answers with `void documents.get(…)`: a handler that rejected would end the

@@ -640,8 +640,8 @@ describe("part reads, since the 0.6 review", () => {
       [openAi((async () => empty("content_filter")) as typeof globalThis.fetch).generateText!, "The model returned no text (content_filter)."],
       [claude((async () => json({ content: [], stop_reason: "refusal", usage: { input_tokens: 1, output_tokens: 0 } })) as typeof globalThis.fetch).generateText!, "The model returned no text (refusal)."],
       [geminiModel((async () => json({ candidates: [{ content: { role: "model", parts: [] }, finishReason: "SAFETY" }], usageMetadata: { promptTokenCount: 1 } })) as typeof globalThis.fetch).generateText!, "The model returned no text (SAFETY)."],
-      // A prompt that was blocked gives no reason.
-      [geminiModel((async () => json({ promptFeedback: { blockReason: "PROHIBITED_CONTENT" }, usageMetadata: { promptTokenCount: 1 } })) as typeof globalThis.fetch).generateText!, "The model returned no text."],
+      // A prompt that was blocked gives its block reason (since 0.7.1, LLF-030: before, none).
+      [geminiModel((async () => json({ promptFeedback: { blockReason: "PROHIBITED_CONTENT" }, usageMetadata: { promptTokenCount: 1 } })) as typeof globalThis.fetch).generateText!, "The model returned no text (PROHIBITED_CONTENT)."],
       // A gateway may put any words in its reason: only a plain word is told.
       [openAi((async () => empty("blocked by the policy of acme-prod-4471")) as typeof globalThis.fetch).generateText!, "The model returned no text."],
       // The same words from a generate of the app's own are not the package's, and are not told.

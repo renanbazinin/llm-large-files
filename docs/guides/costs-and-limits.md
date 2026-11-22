@@ -325,7 +325,9 @@ The documents are planned before the first request, with the scale the adapters 
 question, the input tokens each provider reports raise the loop's estimate of each request's size,
 and so leave less room, when they are higher than the scale says (up to twice the estimate). The
 latest report counts: a lower one brings the estimate back down, but never below what the scale
-says. A scale set too low makes requests that the provider can refuse as too large. A scale set too
+says, nor, since 0.7.1, below what a request the provider refused as too large showed (up to 8
+times the estimate, for the rest of the question: see
+[a request too large for the model](../how-it-works.md#a-request-too-large-for-the-model)). A scale set too low makes requests that the provider can refuse as too large. A scale set too
 high leaves part of the window unused.
 
 To find the scale of an OpenAI-compatible model, compare its count of a sample of a file like the

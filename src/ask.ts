@@ -230,6 +230,17 @@ type Size = { tokens: number; bytes: number };
 const count = (value: number) => Math.max(0, Math.round(value)).toLocaleString("en-US");
 /** How many of a model's tokens one token of the library's estimate comes to. */
 const scaleOf = (adapter: ModelAdapter): number => (adapter.capabilities.tokenScale && adapter.capabilities.tokenScale > 0 ? adapter.capabilities.tokenScale : 1);
+/** What a page costs when a model does not say: the OpenAI adapter's default. */
+const DEFAULT_PAGE_TOKENS = 1_000;
+/**
+ * What a page costs a model, in its tokens: its `pageTokens`, or `DEFAULT_PAGE_TOKENS` when that is
+ * missing or not a finite number (an adapter written in JavaScript). NaN took away the page limit
+ * of the question and every count of the room left once a page was shown.
+ */
+const pageTokensOf = (adapter: ModelAdapter): number => {
+  const declared: unknown = adapter.capabilities.pageTokens;
+  return typeof declared === "number" && Number.isFinite(declared) && declared >= 0 ? declared : DEFAULT_PAGE_TOKENS;
+};
 const isRound = (message: ModelMessage): message is ModelToolRound => message.role === "tools";
 
 /** How many pages a `view_pages` result showed: its `pages` is "12" or "12-14". */
@@ -287,6 +298,8 @@ class RequestMeter {
   private readonly sizes = new WeakMap<ModelToolRound, Size>();
   /** How much larger the provider counted the last request than the estimate did. Never below 1. */
   private factor = 1;
+  /** The least `factor` may be for the rest of the question: what a request refused as too large showed. */
+  private floor = 1;
 
   constructor(private readonly pageTokens: number) {}
 
@@ -336,20 +349,25 @@ class RequestMeter {
     return { tokens: Math.ceil(size.tokens * this.factor), bytes: size.bytes };
   }
 
-  /** Takes note of what the provider counted for a request that was estimated at `estimated` tokens. */
+  /**
+   * Takes note of what the provider counted for a request that was estimated at `estimated` tokens.
+   * A report raises the estimate up to twice; it never lowers it below what a refusal showed.
+   */
   observe(estimated: number, counted: number | undefined): void {
-    if (estimated > 0 && typeof counted === "number" && counted > 0) this.factor = Math.min(2, Math.max(1, counted / estimated));
+    if (estimated > 0 && typeof counted === "number" && counted > 0) this.factor = Math.max(this.floor, Math.min(2, Math.max(1, counted / estimated)));
   }
 
   /**
    * Takes note of a request the provider refused as too large: it counted `counted` tokens (in the
    * library's tokens by the model's scale) of one estimated at `estimated`, or, when it did not say,
    * a quarter more than the estimate. Unlike `observe`, nothing caps it at twice the estimate: the
-   * refusal is the provider's word that the estimate was too low.
+   * refusal is the provider's word that the estimate was too low, and it holds for the rest of the
+   * question: a later report does not take it back.
    */
   overflowed(estimated: number, counted: number | undefined): void {
     const ratio = estimated > 0 && typeof counted === "number" && counted > 0 ? counted / estimated : this.factor * 1.25;
     this.factor = Math.min(8, Math.max(this.factor, ratio));
+    this.floor = this.factor;
   }
 }
 
@@ -386,8 +404,25 @@ function retryMessage({ error, delayMs }: RetryNotice): string {
   return `${what}. Trying again${seconds}…`;
 }
 
-/** What the question had found when it failed: see `partialResultOf`. */
-const partialResults = new WeakMap<object, AskResult>();
+/**
+ * What the question had found when it failed, by the error it threw: see `partialResultOf`. With
+ * the question it came from, and no result once a second question threw the same error.
+ */
+const partialResults = new WeakMap<object, { owner: RunState; result: AskResult | undefined }>();
+
+/**
+ * Keeps what the question run with `owner` had done when it threw `error`. The same error can be
+ * thrown by several questions: the reason of a signal they share (`AbortSignal.any` passes the
+ * reason on as it is). Then `partialResultOf` gives none of them a result for it, rather than one
+ * question's tool rounds and usage for another's. The question's own `run.error` still has its own.
+ */
+function keepPartial(error: unknown, owner: RunState, result: AskResult): void {
+  if (error === null || typeof error !== "object") return;
+  owner.failed = { error, result };
+  const kept = partialResults.get(error);
+  const shared = kept !== undefined && (kept.owner !== owner || kept.result === undefined);
+  partialResults.set(error, { owner, result: shared ? undefined : result });
+}
 
 /**
  * What a question that failed had done before it failed: its tool steps, evidence, tool rounds and
@@ -398,7 +433,7 @@ const partialResults = new WeakMap<object, AskResult>();
  * question under way (a document that is missing, a budget that does not work).
  */
 export function partialResultOf(error: unknown): AskResult | undefined {
-  return error !== null && typeof error === "object" ? partialResults.get(error) : undefined;
+  return error !== null && typeof error === "object" ? partialResults.get(error)?.result : undefined;
 }
 
 /**
@@ -445,6 +480,21 @@ const MOST_NUDGES = 2;
 /** The most requests sent again, smaller, after the provider refused one as too large. */
 const MOST_OVERFLOW_RECOVERIES = 2;
 
+/**
+ * The limits of a question, checked. A field that is NaN (`Number(process.env.X)` of a variable
+ * that is not set) or not a number is an error, as a budget field is: NaN fails every comparison,
+ * so it turned off the ceilings and the cap on whole-file reads, or every tool.
+ */
+function checkedLimits(given: AskLimits | undefined): AskLimits {
+  for (const field of ["toolTurns", "callsPerTurn", "wholeDocumentReads", "inputTokens", "requests"] as const) {
+    const value: unknown = given?.[field];
+    if (value === undefined) continue;
+    if (typeof value !== "number") throw new TypeError(`limits.${field} must be a number, and is ${typeof value === "string" ? JSON.stringify(value) : typeof value}.`);
+    if (Number.isNaN(value)) throw new RangeError(`limits.${field} must be a number, and is NaN. Leave it out for the default.`);
+  }
+  return given ?? {};
+}
+
 /** Said, once, when a ceiling of `limits` stops the tools. */
 const BUDGET_REACHED = "No more tools: the question reached its limit of input tokens or requests.";
 
@@ -458,6 +508,8 @@ type RunState = {
   calls: number;
   /** True once "budget_reached" was said. */
   budgetSaid: boolean;
+  /** The error the question failed with, and what it had done: for its own `run.error`. */
+  failed?: { error: unknown; result: AskResult };
 };
 
 /** A document as an event names it. */
@@ -498,7 +550,8 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
     return result;
   } catch (error) {
     if (events.active) {
-      const partial = partialResultOf(error);
+      // The question's own, also when another question threw the same error (a shared signal's reason).
+      const partial = state.failed && state.failed.error === error ? state.failed.result : partialResultOf(error);
       events.emit({ type: "run.error", error: eventErrorOf(error), ...(partial ? { partial: eventResultOf(partial, options.eventResults === true) } : {}) });
     }
     throw error;
@@ -551,8 +604,9 @@ async function askPlanned(options: AskOptions, state: RunState): Promise<AskResu
     } catch (again) {
       // Failed before it sent anything (a budget of the application's that cannot work with the
       // smaller window): the provider's error, with what the first try found, is the one to report.
-      if (partialResultOf(again) === undefined && (again as { status?: unknown } | null)?.status === undefined) {
-        if (error.overflow !== null && typeof error.overflow === "object") partialResults.set(error.overflow, error.partial);
+      // (The question's own record: `partialResultOf` gives nothing for an error another question threw too.)
+      if (state.failed?.error !== again && (again as { status?: unknown } | null)?.status === undefined) {
+        keepPartial(error.overflow, state, error.partial);
         throw error.overflow;
       }
       throw again;
@@ -567,7 +621,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const explorer = options.explorer && options.explorer !== model ? options.explorer : undefined;
   const toolModel = explorer ?? model;
   const models = explorer ? [model, explorer] : [model];
-  const limits = options.limits ?? {};
+  const limits = checkedLimits(options.limits);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -587,8 +641,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(requestBytesLimit.length > 0 ? { maxRequestBytes: Math.min(...requestBytesLimit) } : {}),
   });
   // What a page costs, in the same terms. Pages are shown to every model of the question.
-  const pageTokens = Math.max(1, ...models.map((adapter) => adapter.capabilities.pageTokens)) / scale;
-  const canShowFiles = models.every((adapter) => adapter.capabilities.toolFiles !== "none");
+  const pageTokens = Math.max(1, ...models.map(pageTokensOf)) / scale;
+  // A value the type does not have (left out by an adapter in JavaScript) counts as "none".
+  const canShowFiles = models.every((adapter) => adapter.capabilities.toolFiles === "inside" || adapter.capabilities.toolFiles === "beside");
   // Every model must be able to take a conversation whose earlier turns were made shorter.
   const canShrink = models.every((adapter) => !adapter.capabilities.appendOnly);
   // A call made again is answered with a pointer to its earlier result only while that result stays
@@ -1034,7 +1089,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     if (searchable.length === 0 && viewable.length === 0) return result(wrote(await send(model, () => ({ system, messages }), true, { role: "answer", purpose: "direct" })));
 
     // Reading a whole file in parts is exploring too: the explorer model's work, when there is one.
-    const partReader = options.wholeDocumentAnalysis === false ? undefined : toolModel.generateText;
+    // Bound to its adapter: a class with a `generateText` method that uses `this` keeps it.
+    const partReader = options.wholeDocumentAnalysis === false ? undefined : toolModel.generateText?.bind(toolModel);
     const generate: GenerateText | undefined = partReader && (async (part) => {
       let reported = false;
       const text = await partReader({
@@ -1552,7 +1608,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   } catch (error) {
     // What the question found and paid for until it failed, for the application to keep. The usage is
     // a copy: a part reader that went on after the question was stopped may still report its own.
-    if (!(error instanceof Replan) && error !== null && typeof error === "object") partialResults.set(error, { ...result(false), usage: structuredClone(usage.totals) });
+    if (!(error instanceof Replan) && error !== null && typeof error === "object") keepPartial(error, state, { ...result(false), usage: structuredClone(usage.totals) });
     throw error;
   } finally {
     signal?.removeEventListener("abort", stopTools);

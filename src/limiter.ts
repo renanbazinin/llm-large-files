@@ -7,7 +7,12 @@ export class Limiter {
   private active = 0;
   private readonly waiting: Array<() => void> = [];
 
-  constructor(private readonly max: number) {}
+  private readonly max: number;
+
+  /** `max` is at least 1: with NaN or 0 no slot was ever free, and every task waited forever. */
+  constructor(max: number) {
+    this.max = Number.isNaN(max) ? 1 : Math.max(1, Math.trunc(max));
+  }
 
   /** Waits for a slot. Call the returned function once to give it back. */
   async acquire(signal?: AbortSignal): Promise<() => void> {
