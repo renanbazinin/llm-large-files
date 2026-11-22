@@ -107,7 +107,12 @@ See [Getting started](./getting-started.md).
 `files.ingest` throws one of these, and the upload handler answers `422` with it:
 
 - `Reading PDF files needs the optional dependency "unpdf".`
-- `Reading DOCX and PPTX files needs the optional dependency "jszip".`
+- `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` (until 0.8.0:
+  `Reading DOCX and PPTX files …`)
+
+A package that is installed but fails to load, such as a version this Node cannot run, says so
+since 0.8.0: `The optional dependency "unpdf" is installed but could not be loaded (…). Reinstall
+it, or install a version this Node can run.` Its code is `"missing_dependency"` all the same.
 
 A look at the pages of a PDF fails in `steps`, while uploads work:
 `Look at report.pdf pages 12-14 — failed: report.pdf: Showing PDF pages needs the optional dependency "@cantoo/pdf-lib".`
@@ -306,13 +311,16 @@ See [`DocumentHandlerOptions`](./reference/node.md#documenthandleroptions) and
 
 ### `422` for a file the library cannot read
 
-`files.ingest` throws an error written for your user, and the upload handler answers `422` with it.
-The common ones:
+`files.ingest` throws an [`IngestError`](./reference/library.md#ingesterror) written for your
+user, with a `code` for your app (`"not_text"`, `"compressed"`, `"no_text"`…), and the upload
+handler answers `422` with its message. The common ones:
 
 | Message | What the file is |
 |---|---|
-| `This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.` | An image, a legacy `.doc` or `.xls`, any other binary file. |
-| `This file is a ZIP archive. Extract it, then attach the text file you need.` | A ZIP, or a format that is a ZIP inside and is not DOCX or PPTX: XLSX, ODT. |
+| `This file looks binary, not text. Attach a text, log, PDF, Word, PowerPoint, Excel or HTML file.` | An image, an audio file, any other binary file. Until 0.8.0 the message ended `Attach a text, log, PDF, DOCX, or PPTX file.` |
+| `This is a Word, Excel or PowerPoint file of before 2007 (.doc, .xls, .ppt), an Outlook message (.msg), or an Office file protected by a password and stored that way. None of these can be read: save it as .docx, .xlsx, .pptx, PDF or text, without a password, and attach that.` | A legacy `.doc`, `.xls` or `.ppt`, a `.msg`, or a DOCX, PPTX or XLSX saved with a password. New in 0.8.0: the first were "binary", the last failed as damaged files. |
+| `This PDF is protected by a password, so it cannot be read. Open it, print it to a new PDF without the password, and attach that.` | A PDF with a password. New in 0.8.0: pdf.js said "No password given". |
+| `This file is a ZIP archive. Extract it, then attach the text file you need.` | A ZIP, or a format that is a ZIP inside and is not DOCX, PPTX or XLSX: ODT, ODS. Until 0.8.0 an XLSX got it too. |
 | `This file is gzip-compressed. Decompress it, then attach the text file inside.` | A compressed log, such as `app.log.gz`. |
 | `report.txt is empty.` | A file of 0 bytes. |
 | `report.docx did not contain any text.` | Nothing left once read: a DOCX of pictures, a file of blank lines. |
@@ -334,8 +342,10 @@ The common ones:
 **Fix.** Most messages say what the user can do. For a scanned PDF, keep PDFs
 (`keepOriginals: ["pdf"]`): a scan of up to `scannedPdfPages` (30) pages is then accepted, and the
 model reads it by looking at its pages. A longer scan needs OCR. To accept a format the library
-refuses, such as XLSX, convert it to text or CSV before `files.ingest`, or give a `text` extractor
-of your own that reads it: every file of a format the library does not know goes to that one.
+refuses, such as an OpenDocument file (ODT, ODS), convert it to text or CSV before `files.ingest`,
+or give a `text` extractor of your own that reads it: every file of a format the library does not
+know goes to that one. To tell users in your own words or language, map `error.code`
+([`IngestError`](./reference/library.md#ingesterror)).
 
 For a file past a limit, the user splits it and attaches the part the question is about. If your
 users need larger files, raise `maxPdfPages` or `maxTextBytes` in `createLargeFiles`: the numbers
@@ -388,11 +398,15 @@ A stream that unpacks to hundreds of MB takes that memory outside the heap, and 
 printed: a PDF of 1.6 KB was read with 20 MB of heap, while the process took 1.6 GB of memory and
 the server was held for 6 s. A container with less than that left runs out of memory.
 
-**Fix.** Ingest PDFs you do not trust in a child process with its own `--max-old-space-size`
-([Deployment](./guides/deployment.md#uploads-and-ingest)) and a memory limit of its own, such as a
-container of its own: the file then stops that process, the upload gets an error, and your server
-goes on. For their documents, do not offer `view_pages` (`viewPages: false`), or keep no PDF
-originals. A larger heap only moves the size of file that does it.
+**Fix.** Read PDFs you do not trust in child processes with a heap limit of their own: pass the
+`extractors` of [`createIsolatedExtractors`](./reference/node.md#createisolatedextractorsoptions) to
+`createLargeFiles`. Such a file then runs out of the child's heap, the upload is answered `422`
+"report.pdf needed more memory than is allowed for reading one file (512 MB). …" (code
+`"out_of_memory"`), and your server goes on. For the memory a stream takes outside the heap, give
+the server, or an ingest process of its own, a memory limit too, such as a container of its own
+([Deployment](./guides/deployment.md#uploads-and-ingest)). For their documents, do not offer
+`view_pages` (`viewPages: false`), or keep no PDF originals. A larger heap only moves the size of
+file that does it.
 
 See [Security](./security.md#uploads) and the [measurements](./measurements.md#the-server).
 
@@ -529,8 +543,9 @@ Log the result ([Start here](#start-here-what-to-log)) and look for one of these
   `[No text on this page. It may be a scan, a photo, or a chart.]` or
   `[Picture on this page. This text cannot show it.]`. Without `view_pages` the model cannot see it
   (see [below](#the-model-never-looks-at-a-page-or-says-it-cannot-see-it)).
-- **The library does not read that part.** Comments and speaker notes of DOCX and PPTX files are
-  not read, and neither are their pictures.
+- **The library does not read that part.** The pictures of DOCX and PPTX files are not read, nor
+  the charts of a workbook. Comments of a DOCX and speaker notes of a PPTX are read since 0.8.0:
+  a document ingested before keeps the text it had until it is uploaded again.
 - **The document was not in the question.** Only the `documentIds` of this question are planned
   and searchable.
 - **The server cut the prompt.** Some local servers shorten a prompt longer than the context they
@@ -1089,8 +1104,9 @@ See [Errors and reliability](./guides/errors-and-reliability.md) and [Web app](.
   `readTextRange`, as `FileDocumentStore` does. With a store of your own without it, and with
   `MemoryDocumentStore`, every document is loaded whole.
 - An upload is held in memory whole while it is read and extracted, with several copies of its
-  text, and the parsers of PDF, DOCX and PPTX take memory of their own while they read, in the
-  same heap as everything else.
+  text, and the parsers of PDF, DOCX, PPTX and XLSX take memory of their own while they read, in
+  the same heap as everything else, unless they run in the child processes of
+  `createIsolatedExtractors`.
 - `@cantoo/pdf-lib`, which reads PDFs for the page check, the picture marks and `view_pages`,
   keeps every name and every reference it has read for the life of the process. Real PDFs add
   little, as they share most of them, but each crafted one with other names or object numbers adds
@@ -1102,9 +1118,10 @@ See [Errors and reliability](./guides/errors-and-reliability.md) and [Web app](.
 **Fix.** Give a store of your own `readTextRange` (and `putIndex` and `getIndex`, so that no pass
 over the text is needed first). Lower `cacheBytes` and `maxConcurrentScans` to fit the memory of
 the server, and `maxUploadBytes` and `maxTextBytes` to the files you expect. To keep a file that
-needs too much memory from stopping the server, ingest in a process of its own with its own heap
-limit: a worker thread does not keep it apart. A process for each ingest also gives back what
-`@cantoo/pdf-lib` kept when it ends. For the documents of users you do not trust, do not offer
+needs too much memory from stopping the server, read it in a process of its own with its own heap
+limit, as `createIsolatedExtractors` does: a worker thread does not keep it apart. Its children,
+replaced after 50 files, also give back what `@cantoo/pdf-lib` kept, and so does a process for each
+ingest when it ends. For the documents of users you do not trust, do not offer
 `view_pages` (`viewPages: false`), or keep no PDF originals.
 
 See [Storage](./guides/storage.md) and [Deployment](./guides/deployment.md#uploads-and-ingest).

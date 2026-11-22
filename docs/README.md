@@ -1,12 +1,12 @@
 # llm-large-files documentation
 
 `llm-large-files` lets a language model answer questions about files larger than its context window
-or its request size limit: logs, books and other text, CSV, JSON, Word, PowerPoint and PDF files. A
-file that fits goes into the prompt whole; a larger one becomes a short card, and the model
-searches it, reads line ranges, reads all of it in parts or looks at the pages of a PDF, in one
-tool loop that works with Gemini and Vertex AI, OpenAI-compatible endpoints, Claude or a model of
-your own. This page is the map: where to start, which entry point to use, the words the other pages
-use, and every page in one line.
+or its request size limit: logs, books and other text, CSV, JSON, HTML, Word, PowerPoint, Excel and
+PDF files. A file that fits goes into the prompt whole; a larger one becomes a short card, and the
+model searches it, reads line ranges, reads all of it in parts or looks at the pages of a PDF, in
+one tool loop that works with Gemini and Vertex AI, OpenAI-compatible endpoints, Claude or a model
+of your own. This page is the map: where to start, which entry point to use, the words the other
+pages use, and every page in one line.
 
 ## Start here
 
@@ -252,7 +252,7 @@ import from.
 
 | Import from | Reference | What is there |
 |---|---|---|
-| `llm-large-files` | [The library and its documents](./reference/library.md) | `createLargeFiles`, `LargeFiles` and its options, the budget, stores, extractors, document types, text helpers |
+| `llm-large-files` | [The library and its documents](./reference/library.md) | `createLargeFiles`, `LargeFiles` and its options, `IngestError`, the budget, stores, extractors, document types, text helpers |
 | | [The tool loop and the adapter contract](./reference/ask.md) | `askWithFiles`, its options, limits and result, conversation types, the `ModelAdapter` contract, usage, evidence |
 | | [Errors, retries and streams](./reference/errors-and-retries.md) | `ModelRequestError` and error kinds, `withRetry`, timeouts, `parseSseJson` |
 | | [Tools](./reference/tools.md) | each tool the model sees: name, arguments, results, limits; `ToolSet` and its types |
@@ -260,7 +260,7 @@ import from.
 | `llm-large-files/gemini` | [Gemini](./reference/gemini.md) | `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()` and the other Gemini exports |
 | `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
-| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
+| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `createIsolatedExtractors`, files read in child processes; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
 
 ## Internals and measurements
 

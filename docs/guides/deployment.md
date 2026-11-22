@@ -98,7 +98,7 @@ The built-in stores:
 | Searches of documents read by range | A few MB each: `scanChunkBytes` (1 MB) of text read, decoded and lowercased, and the next piece read ahead | `maxConcurrentScans` (4) per `LargeFiles`. The others wait, and those waiting for the same file share one pass over it |
 | Decoded pieces of a document read by range | Up to its whole decoded text | Kept within `cacheBytes`, and only for a document whose decoded text takes at most a quarter of it |
 | An upload | The body, buffered whole | `maxUploadBytes`, 100 MB by default |
-| An ingest | Several copies of the text at once (below), and what the parsers of PDF, DOCX and PPTX take while they read. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing bounds what the PDF parsers build or unpack. One at a time, or in a process of its own with a memory limit of its own (below) |
+| An ingest | Several copies of the text at once (below), and what the parsers of PDF, DOCX, PPTX and XLSX take while they read. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing in the server bounds what the parsers build or unpack: read PDF and Office files with `createIsolatedExtractors`, in child processes with a heap limit of their own, or ingest in a process of its own with a memory limit of its own (below) |
 | A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects). A crafted file can take far more: a look at a PDF of 8 MB that is one array of numbers took 422 to 427 MB of heap, one of 16 MB ran a heap of 512 MB out of memory, and one at the PDF of 1.6 KB above took 1.1 GB outside the heap. What `@cantoo/pdf-lib` keeps after a look adds up from file to file, until the server restarts | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold. A crafted file of few objects passes that check. Ingested in a process of its own (below), with `@cantoo/pdf-lib` installed, a file that needs more than that process's heap fails there and is not stored; one that fits is parsed again by each look, which takes more than its ingest did (232 to 244 MB for that file of 8 MB). For the documents of users you do not trust, `viewPages: false`, or no PDF originals |
 | A question in flight | Its conversation, and each request it builds: up to `maxRequestBytes` (10 MB by default) of JSON, the pages it was shown included as base64 | The budget ([Costs and limits](./costs-and-limits.md)) |
 
@@ -116,9 +116,10 @@ more than 150,000 objects; the marks are also given up when finding the pictures
 [measurements](../measurements.md).
 
 Set the heap limit of Node yourself: about three quarters of the memory of the container when
-everything runs in one process, less when ingest runs in a process of its own. The limit is more
-than the flag. `--max-old-space-size` sets the old generation, and Node adds its young generation
-above it: 48 MB on Node 20 and 22, 192 MB on Node 24, and 96 MB on Node 26.
+everything runs in one process, less when files are read in child processes
+(`createIsolatedExtractors`) or ingest runs in a process of its own: each has a heap of its own. The
+limit is more than the flag. `--max-old-space-size` sets the old generation, and Node adds its young
+generation above it: 48 MB on Node 20 and 22, 192 MB on Node 24, and 96 MB on Node 26.
 `v8.getHeapStatistics().heap_size_limit` gives the sum. For three quarters of 2 GB, a limit of
 1,536 MB:
 
@@ -143,13 +144,14 @@ its own: one forked with `execArgv: ["--max-old-space-size=512"]` had 560 MB on 
 environment it inherits or without it.
 
 A starting point for a container of 2 GB, to check under your own load. The heaps are heap limits,
-not flags:
+not flags. `maxHeapMb` of `createIsolatedExtractors` is the flag of its children, so it takes the
+numbers of the last column:
 
-| Node | Main heap of 1 GB | Ingest heap of 512 MB |
+| Node | Main heap of 1 GB | Heap of 512 MB for the child that reads a file |
 |---|---|---|
-| 20 and 22 | `--max-old-space-size=976` | `--max-old-space-size=464` |
-| 24 | `--max-old-space-size=832` | `--max-old-space-size=320` |
-| 26 | `--max-old-space-size=928` | `--max-old-space-size=416` |
+| 20 and 22 | `--max-old-space-size=976` | `--max-old-space-size=464`, `maxHeapMb: 464` |
+| 24 | `--max-old-space-size=832` | `--max-old-space-size=320`, `maxHeapMb: 320` |
+| 26 | `--max-old-space-size=928` | `--max-old-space-size=416`, `maxHeapMb: 416` |
 
 The flags 1024 and 512 give heap limits of 1,216 and 704 MB on Node 24: 1,920 MB, which leaves
 about 128 MB of the container for the upload, its copy, files read from the store and two Node
@@ -158,11 +160,16 @@ processes. On Node 20 and 22 they give 1,072 and 560 MB.
 ```ts
 // large-files.ts: created once per process and imported by every route.
 // Run with a heap of 1 GB: NODE_OPTIONS=--max-old-space-size=832 on Node 24 (the table above has
-// the others). Ingests run in a process of their own (below).
+// the others). PDF and Office files are read in a child process (below).
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { createIsolatedExtractors } from "llm-large-files/node";
+
+// One file at a time, in a child with a heap limit of 512 MB on Node 24. Call isolated.close() on SIGTERM.
+export const isolated = createIsolatedExtractors({ maxHeapMb: 320, concurrency: 1 });
 
 export const files = createLargeFiles({
   store: new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents"),
+  extractors: isolated.extractors,   // PDF, DOCX, PPTX and XLSX
   keepOriginals: ["pdf"],            // view_pages: a look reads the whole PDF into this heap
   cacheBytes: 256 * 1024 * 1024,     // the default
   maxConcurrentScans: 4,             // the default
@@ -172,9 +179,9 @@ export const files = createLargeFiles({
 
 | Where 2 GB go | |
 |---|---|
-| The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF |
-| One ingest at a time, in a process with a heap of 512 MB | An ingest of a 95 MB log fitted in a heap of 256 MB. A process takes about 50 MB more for Node itself |
-| Outside the heaps | The upload being read (up to 100 MB) and its copy sent to the ingest process, files read from the store, Node itself. Also what the PDF parsers unpack, which no heap limit bounds: a crafted PDF of 1.6 KB took 1.6 GB at ingest and 1.1 GB at a look, far more than this row has left. For uploads you do not trust, give the ingest process a container of its own, and do not offer `view_pages` on their documents |
+| The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF, and the ingests: the text and its copies (an ingest of a 95 MB log fitted in a heap of 256 MB) |
+| One PDF or Office file at a time, read in a child process with a heap of 512 MB | What the parsers take. A process takes about 50 MB more for Node itself |
+| Outside the heaps | The upload being read (up to 100 MB) and its copy sent to the child process, files read from the store, Node itself. Also what the PDF parsers unpack, which no heap limit bounds: a crafted PDF of 1.6 KB took 1.6 GB at ingest and 1.1 GB at a look, far more than this row has left. For uploads you do not trust, ingest in a container of its own, and do not offer `view_pages` on their documents |
 
 Raise `cacheBytes` to spend memory on speed: at 1 GB, the decoded pieces of an ASCII log of up to
 about 125 MB are kept between searches. Lower `maxUploadBytes` if large uploads are not needed:
@@ -206,8 +213,9 @@ The first PDF a process reads also loads the PDF parsers, in one block that no p
 about 0.4 s for `@cantoo/pdf-lib` and 0.05 s for pdf.js, measured on Node 24. Since 0.6.0 it loads
 `@cantoo/pdf-lib` even with `pictures: false`, for the page check. An app that reads PDFs with
 `createPdfExtractor({ pictures: false, checkPages: false })` does not load it at ingest, but then no
-page is checked ([PDFs](./pdfs.md#pages-that-would-hold-the-server)). Load them when the server
-starts, before it takes requests:
+page is checked ([PDFs](./pdfs.md#pages-that-would-hold-the-server)). With
+`createIsolatedExtractors` (below), each child process loads them for itself, and the server is not
+held while it does. Otherwise, load them when the server starts, before it takes requests:
 
 ```ts
 // Before the server listens: the first upload of a PDF then does not hold it while they load.
@@ -223,15 +231,22 @@ What it does not do is keep its memory apart. The text and its copies, and what 
 `@cantoo/pdf-lib` and JSZip take while they read, are in your server's heap, with the cache and the
 questions in flight. A file that needs more than the heap has left stops the whole process, and
 every answer streaming on it. A step under way, such as one slow page of a PDF, also runs to its
-end after the time limit. Three ways to bound that:
+end after the time limit. Four ways to bound that:
 
-- **Accept one or two ingests at a time** per server, and answer the others with 503 (the sample
-  below does it): this bounds memory and keeps stalls from adding up.
-- **Ingest in a process of its own**, with a heap limit and a time limit: below. A process that
-  runs out of memory stops alone, and the upload is answered with an error. The heap limit does not
-  bound what a parser unpacks outside the heap: a crafted PDF of 1.6 KB took 1.6 GB that way
-  ([Security](../security.md#uploads)). For uploads you do not trust, give that process a memory
-  limit of its own too, such as a container or a cgroup of its own, or use a service of its own.
+- **Read PDF and Office files in child processes**, with `createIsolatedExtractors` from
+  `llm-large-files/node` (new in 0.8.0), as `large-files.ts` above does: below. Start here. The
+  parsers run in a child process with a heap limit (512 MB by default) and a kill timer (120 s), and
+  a file that runs the child out of memory is refused while the server goes on.
+- **Accept one or two ingests at a time** per server, and answer the others with 503: this bounds
+  memory and keeps stalls from adding up. `createIsolatedExtractors` does it for the files it reads
+  (`concurrency` and `maxQueue`); the recipe at the end of this section does it for whole ingests.
+- **Ingest in a process of its own**, the whole ingest, with a heap limit and a time limit: at the
+  end of this section. It also keeps the copies of the text off your server's heap, and runs an
+  extractor of your own, such as OCR, apart. A process that runs out of memory stops alone, and the
+  upload is answered with an error. The heap limit does not bound what a parser unpacks outside the
+  heap: a crafted PDF of 1.6 KB took 1.6 GB that way ([Security](../security.md#uploads)). For
+  uploads you do not trust, give that process a memory limit of its own too, such as a container
+  or a cgroup of its own, or use a service of its own.
 - **Ingest in a service of its own.** All the state is in the store, so an upload service with its
   own `createLargeFiles` and `createDocumentHandlers`, on servers sized for uploads, can write the
   documents that the chat servers read. Give it the options that apply at ingest, the same as the
@@ -239,6 +254,30 @@ end after the time limit. Three ways to bound that:
   `ingestTimeoutMs`, `extractors`, `keepOriginals` and `scannedPdfPages`. The chat servers need the
   options that apply to reading: `cacheBytes`, `cacheSize`, `wholeDocumentBytes`, `scanChunkBytes`,
   `maxConcurrentScans` and `budget`.
+
+**Child processes for the parsers.** With the `extractors` of `createIsolatedExtractors`, each PDF,
+DOCX, PPTX or XLSX file is copied to a child process, read there by the built-in extractor, and its
+text sent back; the text is then normalized, profiled, indexed and stored in your server, as
+before. Text files, HTML included, are read in the server, in slices. What a file can do from there:
+
+- run its child out of memory: the child stops, and the file is refused with an `IngestError` of
+  code `"out_of_memory"` (`422`, "report.pdf needed more memory than is allowed for reading one
+  file (320 MB). …"); the next file gets a new child;
+- take longer than `timeoutMs` (120 s): its child is killed, also in the middle of a PDF page, and
+  the file is refused as `"timeout"`;
+- arrive while `concurrency` files are read and `maxQueue` wait: it is refused at once as `"busy"`,
+  which the upload handler answers `503` with `Retry-After: 5`.
+
+A child reads one file at a time, is replaced after 50 files (what `@cantoo/pdf-lib` keeps goes
+with it) and stops after 30 s with nothing to read. `maxHeapMb` is the flag of the children, not
+their heap limit: Node adds its young generation above it, as the tables above show. The server's
+`NODE_OPTIONS` are not passed to the children, so the server's own heap flag does not replace
+theirs, as it does a worker's. The limit bounds the heap only: a PDF that unpacks a stream outside
+the heap takes the memory of the container all the same. For uploads you do not trust, give the
+server a memory limit with that in mind, or ingest in a container or a service of its own. Call
+`isolated.close()` when the server stops ([below](#stopping-a-server)), and read `isolated.stats()`
+for a health check. Every option and refusal:
+[`createIsolatedExtractors`](../reference/node.md#createisolatedextractorsoptions).
 
 **Not a worker thread.** For uploads you do not trust, the security page of 0.5.0 suggested a
 worker thread or a separate process, and a draft of this guide on GitHub, before 0.6.0, ran each
@@ -249,14 +288,23 @@ loop free, but it does not bound memory. The process's heap flag replaces the wo
 as that draft set it, that worker had 1,216 MB on Node 24, not 512. And a worker that runs out of
 memory can take the whole process down with it: in the 0.6 review, on the code before this release
 ([Measurements](../measurements.md#how-to-read-this-page)), a worker of 512 MB, with no heap flag
-on the process, did so on a hostile DOCX. A child process stops alone.
+on the process, did so on a hostile DOCX. A child process stops alone, which is why
+`createIsolatedExtractors` uses them.
 
-A process that runs one ingest, with the options of `large-files.ts` above:
+**The whole ingest in a process of its own.** For an extractor of your own that should not run in
+the server (`createIsolatedExtractors` runs the built-in ones), or to keep the copies of the text
+off its heap too, fork a process for each ingest. A process that runs one ingest, with the options
+of `large-files.ts` above that apply at ingest, and the built-in extractors, since the process
+itself is the isolation:
 
 ```ts
 // ingest-process.ts: one ingest, in a process of its own, forked by documents.ts below.
-import type { IngestInput } from "llm-large-files";
-import { files } from "./large-files.js"; // the same options as the chat routes
+import { createLargeFiles, FileDocumentStore, type IngestInput } from "llm-large-files";
+
+const files = createLargeFiles({
+  store: new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents"),
+  keepOriginals: ["pdf"],
+});
 
 process.once("message", async (message) => {
   try {
@@ -529,6 +577,10 @@ export function stopOnSigterm(server: Server, graceMs = 25_000): void {
 
 Abort with an `Error`, as here, not a string: `partialResultOf` needs an object to look the
 question up by. An upload cut by the restart leaves files that the sweep removes an hour later.
+With [`createIsolatedExtractors`](../reference/node.md#createisolatedextractorsoptions), call
+`isolated.close()` when the grace period ends, next to `stopping.abort`: it kills its child
+processes, and refuses the files still waiting or being read as `"busy"` (503 "The server is
+shutting down. Try again in a moment.").
 
 After a restart the cache is empty: the first tool calls read their documents from the store again,
 and a thinking model's first whole-file read in the new process may spend one request finding the
@@ -617,7 +669,7 @@ optional peer dependencies. Add the ones you need to the `dependencies` of your 
 | Package | Version | Needed for | Without it |
 |---|---|---|---|
 | `unpdf` | `^1.4.0 \|\| ^2.0.0`, in a version that runs on your Node: 1.7.0 on Node 20, a 1.x from 1.6.1 on Node 22, any on Node 24 and later ([PDFs](./pdfs.md#formats)) | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`). A version that does not run on your Node is refused too, with a message that says what to install: `The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` |
-| `jszip` | `^3.10.0` | DOCX and PPTX | The upload is refused: `Reading DOCX and PPTX files needs the optional dependency "jszip".` |
+| `jszip` | `^3.10.0` | DOCX, PPTX and XLSX | The upload is refused: `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | `@cantoo/pdf-lib` | `^2.11.1` | `view_pages`, the check of PDF pages that would hold the server, and the marks on PDF pages that show a picture | `view_pages` answers the model `report.pdf: Showing PDF pages needs the optional dependency "@cantoo/pdf-lib".` (with the file's name), and PDFs are ingested without the check and without the marks, with no error |
 
 The last one fails quietly at ingest, so an image without it ingests PDFs differently from your

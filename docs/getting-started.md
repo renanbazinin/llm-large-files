@@ -24,7 +24,7 @@ npm install jszip unpdf@1.7.0 @cantoo/pdf-lib  # Node 20
 
 | Package | What it enables |
 | --- | --- |
-| `jszip` | DOCX and PPTX files. |
+| `jszip` | DOCX, PPTX and XLSX files. |
 | `unpdf` | PDF files: their text, with tables rebuilt as rows. |
 | `@cantoo/pdf-lib` | The model can look at the pages of a PDF (`view_pages`, with `keepOriginals`). The text of a PDF also marks the pages that show a picture. |
 

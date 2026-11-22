@@ -47,14 +47,20 @@ question ─► plan the documents for the room left in the request, smallest fi
      `[No text on this page. It may be a scan, a photo, or a chart.]`.
    - **A PDF without any text** (a scan) is refused, unless its original is kept: then one of up
      to `scannedPdfPages` (30) pages is stored, to be read by looking at its pages.
-   - **PPTX**: a `## Slide N` heading for each slide, and the slide count as the document's
-     `pages`. A slide that the slide show skips is headed
+   - **PPTX**: a `## Slide N` heading for each slide, numbered in the order of the slide show,
+     with its tables as `| cell | cell |` rows and its speaker notes after `[Speaker notes]`, and
+     the slide count as the document's `pages`. A slide that the slide show skips is headed
      `## Slide N (hidden, not shown in the slide show)`, and its text is kept. **DOCX**: the body,
-     then the endnotes, footers, footnotes and headers (the other parts in the order of their
-     names). The text of a run that Word hides comes after the text of its paragraph that shows,
-     each of its lines starting with `[Hidden text, not shown in the document]`, and a long line is
-     cut into pieces, each marked. Text hidden through a style is not told apart
-     ([Security](./security.md#hidden-text-in-word-and-powerpoint)).
+     with its headings as Markdown headings, list numbers as Word shows them (`2.1`, `(a)`) and
+     tables as rows of cells, then the footnotes, endnotes, comments, headers and footers, each
+     under a heading of its own (a repeated header once). The text of a run that Word hides comes
+     after the text of its paragraph that shows, each of its lines starting with
+     `[Hidden text, not shown in the document]`, and a long line is cut into pieces, each marked.
+     Text hidden through a style is not told apart
+     ([Security](./security.md#hidden-text-in-word-and-powerpoint)). **XLSX**: a `## Sheet N: name`
+     section for each sheet, a `Columns:` line, then a line a row, `Row 12: | East | 1200.5 |`,
+     and the sheet count as `pages`. **HTML**: the text a browser shows, with headings, lists,
+     tables and the addresses of links. DOCX, PPTX and XLSX need the optional `jszip`.
    - **Text, logs, Markdown, JSON and CSV** are read as UTF-8, or as UTF-16 when they start with a
      byte-order mark or about half of their first bytes are zeros. A file that is not valid UTF-8
      is read in the older encoding it was saved in, or as UTF-8 with its characters that are not
@@ -64,15 +70,15 @@ question ─► plan the documents for the room left in the request, smallest fi
      read, and one whose page tree lists a page twice as soon as it does. With `@cantoo/pdf-lib`,
      the same reading of the file that finds the pictures first adds up what each page would make
      pdf.js run (its content, each form every time it is painted, the glyph programs of its Type3
-     fonts), and refuses a page that would hold the server for more than about 1.5 s, or 32
-     times the size of the file in content when that is more, before pdf.js reads any page
-     ([Pages that would hold the server](./guides/pdfs.md#pages-that-would-hold-the-server)). The text is counted as
-     it is read, a PDF page by page and a DOCX or PPTX paragraph by paragraph, and the file is
-     refused once it passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when that is
-     larger); a PDF also past 100 times its size in text (after the first 16 MB); a DOCX or PPTX
-     also past 32 million
-     characters of text, 1,000,000 paragraphs with text, paragraphs nested 32 deep, or 20,000
-     parts. The text of any other extractor, yours included, is checked when it returns.
+     fonts), and refuses a page that would hold the server for more than about 1.5 s, or 32 times
+     the size of the file in content when that is more, before pdf.js reads any page ([Pages that
+     would hold the server](./guides/pdfs.md#pages-that-would-hold-the-server)). The text is counted
+     as it is read, a PDF page by page and an Office file paragraph by paragraph or row by row, and
+     the file is refused once it passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when
+     that is larger); a PDF also past 100 times its size in text (after the first 16 MB); a DOCX,
+     PPTX or XLSX also past 32 million characters of text, 1,000,000 paragraphs with text,
+     paragraphs nested 32 deep, or 20,000 parts. The text of any other extractor, yours included, is
+     checked when it returns.
 
    Formats, tables, the picture line, the refusals and your own extractors:
    [PDFs and other formats](./guides/pdfs.md).
@@ -89,20 +95,22 @@ question ─► plan the documents for the room left in the request, smallest fi
      mainframe file converted to UTF-8, and is removed in any other text. Right after
      U+0080-U+00FF it is part of a UTF-8 letter read as Latin-1, and is removed there too.
 
-   No line break is added or removed, but for U+0085 in a text with no line feed. A text without
-   these characters is kept as it is, and a line of megabytes is cleaned in pieces of 256K
-   characters. Then lines over 2,000 characters are split, after a space or one of `,;}` near the
-   end of a piece when there is one. A line that lost characters can be split into fewer pieces
-   than 0.5.0 split it, which moves the lines after it. Every line-based tool then returns bounded
-   output. A file with no text left is refused:
-   "app.log did not contain any text."
+   Then the text is composed (NFC): "e" followed by a combining accent becomes "é", as a model
+   writes it in a query (since 0.8.0). No line break is added or removed, but for U+0085 in a text
+   with no line feed. A text without these characters is kept as it is, and a line of megabytes is
+   cleaned in pieces of 256K characters. Then lines over 2,000 characters are split, after a space
+   or one of `,;}` near the end of a piece when there is one. A line that lost characters can be
+   split into fewer pieces than 0.5.0 split it, which moves the lines after it. Every line-based
+   tool then returns bounded output. A file with no text left is refused: "app.log did not contain
+   any text."
 4. **Profile.**
    - Count lines and characters, [estimate tokens](#token-estimates), and measure two sizes: the
      UTF-8 bytes, and the bytes the text takes as a string in a JSON request body (`jsonBytes`),
      which is what a request limit counts. Quotes, backslashes, tabs and line breaks take two bytes
      there; the planner uses this size.
    - A file detected as plain text becomes a **log** when it has at least 5 non-empty lines and at
-     least 40% of the first 200 of them start with a timestamp or a level.
+     least 40% of the first 200 of them start with a timestamp or a level, or have the shape of an
+     access log, a JSON log line, klog or logfmt.
    - Build an **outline**: headings with their line numbers. Markdown headings; after a blank
      line, lines that start with Chapter, Part, Book, Section or Appendix, or the Hebrew words for
      chapter, part and appendix, numbered headings such as `2.1 Scope`, and short lines in
@@ -110,28 +118,31 @@ question ─► plan the documents for the room left in the request, smallest fi
      to 400 of them, each once and in order; otherwise 400 taken at even steps over the file,
      from the top-level headings when there are more than 400 of them, or from all the headings
      when there are fewer than 20 (see [`OutlineEntry`](./reference/library.md#outlineentry)).
-     Logs, JSON and CSV get no outline.
-   - For a log, build a **profile**: lines by level (ERR counts as ERROR, WARNING as WARN,
-     CRITICAL as FATAL), the first and last timestamp, and the ERROR, FATAL and WARN lines grouped
-     by shape. Timestamps are removed, and UUIDs, IP addresses, hex, quoted values and numbers
-     become `<id>`, `<ip>`, `<hex>`, `<s>` and `<n>`. So 81 timeouts to three hosts become one
-     entry, `[ERROR ×81, L6] ERROR Connection timeout after <n>ms to <ip>`: the level, the count,
-     the first line, and the template, which keeps the level word. The profile keeps 15 entries,
-     FATAL first, then ERROR, then WARN, each by count.
+     Logs, JSON and CSV get no outline. No heading is taken from a fenced code block, and in a
+     plain text file that reads as code (a script, a configuration file) a `#` line is a comment,
+     not a heading; in other plain text, only one after a blank line and not followed by another.
+   - For a log, build a **profile**: lines by level (ERR counts as ERROR, WARNING as WARN, CRITICAL
+     as FATAL; since 0.8.0 also a level in lower case in brackets, after `level=` or in a JSON
+     field, pino's numbers and klog's letter), the first and last timestamp, and the ERROR, FATAL
+     and WARN lines grouped by shape. Timestamps are removed, and UUIDs, IP addresses, hex, quoted
+     values and numbers become `<id>`, `<ip>`, `<hex>`, `<s>` and `<n>`. So 81 timeouts to three
+     hosts become one entry, `[ERROR ×81, L6] ERROR Connection timeout after <n>ms to <ip>`: the
+     level, the count, the first line, and the template, which keeps the level word. The profile
+     keeps 15 entries, FATAL first, then ERROR, then WARN, each by count.
 5. **Store**, in this order: the uploaded file (when its format is in `keepOriginals` and the store
    has `putOriginal`), the line index (when the store has `putIndex`), then the text and its
    metadata (`put`). A document exists once its metadata does; if a write fails, what was written
    is deleted. The ID is `doc_` and 32 hex characters, and `expiresAt` is `ttlMs` (72 hours) later.
 
-Steps 2 to 4 share the server with other requests. Each works in slices of about 12 ms, with a
-pause between two slices: the PDF extractor and the picture marks between pages, the DOCX and PPTX
+Steps 2 to 4 share the server with other requests. Each works in slices of about 12 ms, with a pause
+between two slices: the PDF extractor and the picture marks between pages, the DOCX, PPTX and XLSX
 extractors as they unpack, the text extractor as it decodes a file that is not UTF-8, and then the
-normalizing, the measures, the outline, the log profile and the line index. Ingests that run at
-once take turns, one slice each. They run under one signal, aborted by the caller's `signal` or
-after `ingestTimeoutMs` (2 minutes): `ingest` then throws, and nothing is stored. A step under way
-when it aborts, such as one page of pdf.js, runs to its end in the background, and holds the
-server while it runs: pdf.js reads a page without a pause. [Security](./security.md#uploads) has
-the limits and the stalls measured.
+normalizing, the measures, the outline, the log profile and the line index. Ingests that run at once
+take turns, one slice each. They run under one signal, aborted by the caller's `signal` or after
+`ingestTimeoutMs` (2 minutes): `ingest` then throws, and nothing is stored. A step under way when it
+aborts, such as one page of pdf.js, runs to its end in the background, and holds the server while it
+runs: pdf.js reads a page without a pause. [Security](./security.md#uploads) has the limits and the
+stalls measured.
 
 The **line index** holds, for each line, where it starts in the UTF-8 bytes and in the string, which
 lines start a passage for keyword search (about 1,500 characters or 40 lines), and which lines are
@@ -263,7 +274,7 @@ First lines:
 A card holds:
 
 - The name and `document_id`.
-- The format, size, line count, page count (a PDF's pages, a PPTX's slides) and estimated tokens.
+- The format, size, line count, page count (a PDF's pages, a PPTX's slides, an XLSX's sheets) and estimated tokens.
 - A line that says the file is not in the model's context. When a whole-file read would be refused
   (the file is estimated at more than `maxMapChunks` parts, with 5% leeway), it says instead that
   the file can be searched and read by line ranges, and is too large to be analyzed whole. When
@@ -393,7 +404,7 @@ characters per token is right for a novel and three times too low for a log. The
 | A run of ASCII punctuation | 0.85, for its first character only |
 | A line break | 2.2 |
 | A tab | 1 |
-| A space | 0 before a letter, 0.2 before anything else |
+| A space | 0 before a letter, 0.2 before anything else (once for a run of spaces). A run of spaces also costs 1 for each 16 spaces after its first, so 10,000 spaces are about 625 tokens; until 0.8.0 they cost nothing |
 | Latin letters with accents (é, ü, ß) | 0.6 |
 | Greek, Cyrillic | 0.4, 0.3 |
 | Hebrew, Arabic | 0.52, 0.41 |
@@ -436,12 +447,19 @@ rules every tool follows, are in the [tools reference](./reference/tools.md).
 
 - **`search_document`** finds lines. In `keywords` mode (the default) it ranks the passages of the
   line index by BM25, computed when the search runs from substring hits: there is no term index to
-  build or keep up to date, it works in any language, and "timeout" also matches "timeouts". In
+  build or keep up to date, it works in any language, and "timeout" also matches "timeouts". The
+  words of a query are split the way each script writes them (Chinese, Japanese and Thai have no
+  spaces), and a Hebrew word with prefix letters also searches its stem. In
   `exact` and `regex` modes it returns the first `max_results` matching lines and the last one in
   the file (with the lines around each when `context_lines` asks for them; none by default), and
   `total_matching_lines` counts every matching line in the file, not only those shown; a line with
-  several matches counts once. When not all are shown, a note says how many of how many:
-  `21 of the 442 matching lines are shown: the first 20 and the last (line 15269). To see the ones in between, narrow the search.`
+  several matches counts once. When not all are shown, a note says how many of how many, and
+  `next_from_line` where to go on:
+  `21 of the 442 matching lines are shown: the first 20 and the last (line 15269). To see the ones in between, search again with from_line 3108, or count them with group_by.`
+  It can also search a range of lines (`from_line`, `to_line`), show the last matches
+  (`order: "last"`), or count the matching lines per hour, per code or per message shape and show
+  none (`group_by`): a question about errors per hour is one call. In regex mode `\w` and `\b`
+  know the letters of every script.
   The last match is there for a question about when something last happened: shown only the first
   ones and the count, a model named a wrong line as the last
   ([Measurements](./measurements.md#reading-a-whole-file)). The count is exact unless the scan
@@ -588,9 +606,9 @@ output tokens it billed besides its text.
 a complete list or an exact count, `search_document` in exact or regex mode is the reliable tool: it
 reports `total_matching_lines`. The tool guide says so, and keeps the whole-file read for what
 needs meaning: a summary, a timeline, items that must be judged one by one. A search shows the
-first `max_results` matching lines (50 at most) and the last one, so a list longer than that
-needs narrower searches; a way to page through the rest is planned. The live checks are in
-[Measurements](./measurements.md).
+first `max_results` matching lines (50 at most) and the last one; a longer list is read on with
+`next_from_line`, its end with `order: "last"`, and counted by group with `group_by`, which shows
+up to 200 groups. The live checks are in [Measurements](./measurements.md).
 
 ## The loop (`askWithFiles`)
 

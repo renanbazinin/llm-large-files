@@ -8,7 +8,7 @@ an application or write a store, an extractor or a loop of their own.
 ```ts
 import {
   createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_MAX_TEXT_BYTES,
-  DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, isDocumentId, toDocumentSummary,
+  DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, isDocumentId, toDocumentSummary, IngestError, ingestErrorCodeOf,
   DEFAULT_BUDGET, resolveBudget,
   MemoryDocumentStore, FileDocumentStore, DOCUMENT_ID_PATTERN, DocumentStoreError,
   createPdfExtractor, defaultExtractors, detectFormat,
@@ -18,7 +18,7 @@ import type {
   LargeFilesOptions, LargeFiles, AccessOptions, IngestInput, PrepareOptions, ToolOptions, PreparedContext, DocumentPlan,
   Budget, ModelLimits, DocumentStore, StoredDocument, PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
   ExtractedText, DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent,
-  ProgressListener, ToolCallHooks, ToolRequestHandle, ToolRequestStart, ToolRequestEnd, IngestEvent,
+  ProgressListener, ToolCallHooks, ToolRequestHandle, ToolRequestStart, ToolRequestEnd, IngestEvent, IngestErrorCode,
 } from "llm-large-files";
 ```
 
@@ -29,6 +29,7 @@ Contents:
 
 - [The library](#the-library): [`createLargeFiles(options)`](#createlargefilesoptions),
   [`LargeFilesOptions`](#largefilesoptions), [`LargeFiles`](#largefiles), [`IngestInput`](#ingestinput),
+  [`IngestError`](#ingesterror), [`ingestErrorCodeOf(message)`](#ingesterrorcodeofmessage),
   [`AccessOptions`](#accessoptions), [`PrepareOptions`](#prepareoptions), [`ToolOptions`](#tooloptions),
   [`PreparedContext`](#preparedcontext), [`DocumentPlan`](#documentplan),
   [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
@@ -116,7 +117,7 @@ type LargeFilesOptions = {
 | `budget` | `Partial<Budget>` | [`DEFAULT_BUDGET`](#default_budget) | The limits of your model connection. Fields you leave out follow `contextTokens` (see [`Budget`](#budget)): for a model with a smaller window, setting `contextTokens` is enough. |
 | `ttlMs` | `number` | 72 hours (259,200,000) | How long a document is kept after it is ingested. `expiresAt` is set at ingest, and the library never extends it. `Infinity`, or any time that would end at or after the end of year 9999, keeps documents until they are deleted: `expiresAt` is then [`NEVER_EXPIRES`](#never_expires). |
 | `maxUploadBytes` | `number` | 100 MB (104,857,600) | The largest file `ingest` accepts. The upload handler of [`llm-large-files/node`](./node.md) reads no more than this. |
-| `maxTextBytes` | `number` | [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes), 100 MB, or `maxUploadBytes` when that is larger | The most text kept from one file, in UTF-8 bytes. A file's text can be larger than the file: a PDF of 3 KB built for it drew 107 MB. The PDF, DOCX and PPTX extractors refuse a file as soon as its text passes this (a PDF page by page, and also past 100 times its size after the first 16 MB; a DOCX or PPTX also past 32 million characters, whatever this allows), and `ingest` refuses a larger text from any other extractor, the text extractor and yours included. Your extractor receives it as `ExtractInput.maxTextBytes`. At least 1. |
+| `maxTextBytes` | `number` | [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes), 100 MB, or `maxUploadBytes` when that is larger | The most text kept from one file, in UTF-8 bytes. A file's text can be larger than the file: a PDF of 3 KB built for it drew 107 MB. The PDF, DOCX, PPTX and XLSX extractors refuse a file as soon as its text passes this (a PDF page by page, and also past 100 times its size after the first 16 MB; an Office file also past 32 million characters, whatever this allows), and `ingest` refuses a larger text from any other extractor, the text extractor and yours included. Your extractor receives it as `ExtractInput.maxTextBytes`. At least 1. |
 | `maxPdfPages` | `number` | [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), 5,000 | The most pages read from one PDF. A PDF with more is refused before any page is read. Your PDF extractor receives it as `ExtractInput.maxPages`. At least 1. |
 | `ingestTimeoutMs` | `number` | [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms), 120,000 (2 minutes) | The most time one `ingest` may take to extract the text, build its line index and profile it, in milliseconds. The store's writes are not counted. Past it, `ingest` throws `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.`, and stores nothing. 0 sets no limit, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days). Your extractor receives the limit as `ExtractInput.signal`. Within one page of a PDF the limit is not looked at: see [security](../security.md#uploads). |
 | `extractors` | `Partial<Record<DocumentFormat, Extractor>>` | the built-ins, [`defaultExtractors`](#defaultextractors) | An [`Extractor`](#extractor) per format, used in place of the built-in one. The formats are fixed ([`DocumentFormat`](#documentformat)): you can replace the extractor of a format, not add a format. |
@@ -189,24 +190,26 @@ new document's [`DocumentMeta`](#documentmeta).
    ([Text encodings](../guides/pdfs.md#text-encodings)).
 3. The text is normalized: a byte-order mark is removed, line endings become `\n`, and terminal
    escape sequences and control characters other than tab and newline are removed, C1 controls
-   (U+0080-U+009F) included. So are most characters that show nothing: Unicode tag characters
-   (the flags of England, Scotland and Wales are kept), the text-direction embeddings, overrides
-   and isolates (U+202A-U+202E, U+2066-U+2069), the zero-width space, the word joiner and the
-   invisible operators (U+200B, U+2060-U+2064), the deprecated format characters
-   (U+206A-U+206F), a byte-order mark inside the text, and a soft hyphen that is not at the end of
-   a line. The characters that scripts and emoji need are kept: LRM, RLM and ALM, zero-width
-   joiners and non-joiners, variation selectors. In a text with no other line break, U+0085 (next
-   line) ends a line, except right after U+0080-U+00FF; elsewhere it is removed. No other line
-   moves. Lines longer than 2,000 characters are split, so every line can be read by number
-   (`wrappedLines` counts them).
+   (U+0080-U+009F) included. So are most characters that show nothing: Unicode tag characters (the
+   flags of England, Scotland and Wales are kept), the text-direction embeddings, overrides and
+   isolates (U+202A-U+202E, U+2066-U+2069), the zero-width space, the word joiner and the invisible
+   operators (U+200B, U+2060-U+2064), the deprecated format characters (U+206A-U+206F), a byte-order
+   mark inside the text, and a soft hyphen that is not at the end of a line. The characters that
+   scripts and emoji need are kept: LRM, RLM and ALM, zero-width joiners and non-joiners, variation
+   selectors. In a text with no other line break, U+0085 (next line) ends a line, except right after
+   U+0080-U+00FF; elsewhere it is removed. No other line moves. The text is then composed (NFC), as
+   a model writes its queries: "e" followed by a combining accent becomes "é" (new in 0.8.0; line
+   counts do not change, and `characters` can be a little smaller). Lines longer than 2,000
+   characters are split, so every line can be read by number (`wrappedLines` counts them).
 4. A `text` document becomes a `log`, and gets a `logProfile`, when it has at least 5 non-blank
    lines and at least 40% of its first 200 non-blank lines start with a timestamp or a log level
-   (`ERROR`, `WARN`, `INFO`...).
+   (`ERROR`, `WARN`, `INFO`...), or have the shape of an access log of nginx or Apache, a JSON log
+   line, klog or logfmt (since 0.8.0).
 5. The store is written: the original file (when it is kept), then the line index (when the store
    has `putIndex`), then `put` last.
 
 Steps 2 to 4 work in slices of about 12 ms, with a pause for other requests between two slices:
-between the pages of a PDF, as a DOCX or PPTX is unpacked, and while the text is normalized,
+between the pages of a PDF, as a DOCX, PPTX or XLSX is unpacked, and while the text is normalized,
 measured, outlined, profiled and indexed. Ingests that run at once take turns, one slice each.
 They run under one signal, aborted by `IngestInput.signal` or after `ingestTimeoutMs` (2 minutes
 by default). When it aborts, `ingest` stops waiting for the extractor, throws, and writes nothing
@@ -215,48 +218,52 @@ pause, and the signal is looked at only between pages.
 
 **Events.** New in 0.7.0. With `IngestInput.onEvent`, the ingest tells what it does as typed
 [`IngestEvent`](./events.md#ingestevent)s, in order: `ingest.start` first (the cleaned name, the
-format the name and type say, the size), even for a file that is then refused; `ingest.progress` for each stage
-that reports; and last `ingest.finish`, with the document's
+format the name and type say, the size), even for a file that is then refused; `ingest.progress` for
+each stage that reports; and last `ingest.finish`, with the document's
 [`DocumentSummary`](#documentsummary), or `ingest.error`. The stages, in the order they run:
 `decode` (a text file that is not UTF-8, once, when it is decoded), `check` (the pages of a PDF
-checked before they are read, with `@cantoo/pdf-lib`), `extract` (the pages of a PDF, the parts of
-a DOCX or PPTX), `pictures` (the pages of a PDF looked at for pictures, with `@cantoo/pdf-lib`),
-`prepare` and `index` (characters of the text), and `store` (each write)
-([stages and units](./events.md#stages-and-units)). A stage sends at
-most one `ingest.progress` about every 12 ms, and its last one when it ends. An extractor of your
-own reports only what it passes to `onProgress`. The error of `ingest.error` is told in words for
-users: a store that failed to write is "The document could not be stored. Try again later.",
-whatever it threw, and the store's own error is the one `ingest` throws. A listener that throws
-ends the ingest with that error, and nothing is stored; a throw on `ingest.finish` removes the
-document that was just stored. `createDocumentHandlers` sends these events to a client that
-asks for them with `Accept: text/event-stream`
-([upload with progress](./node.md#upload-with-progress-accept-textevent-stream)).
+checked before they are read, with `@cantoo/pdf-lib`), `extract` (the pages of a PDF, the parts of a
+DOCX, the slides of a PPTX, the sheets of an XLSX), `pictures` (the pages of a PDF looked at for
+pictures, with `@cantoo/pdf-lib`), `prepare` and `index` (characters of the text), and `store` (each
+write) ([stages and units](./events.md#stages-and-units)). A stage sends at most one
+`ingest.progress` about every 12 ms, and its last one when it ends. An extractor of your own reports
+only what it passes to `onProgress`. The error of `ingest.error` is told in words for users, with
+the `code` of an [`IngestError`](#ingesterror) (new in 0.8.0): a store that failed to write is "The
+document could not be stored. Try again later.", whatever it threw, and the store's own error is the
+one `ingest` throws. A listener that throws ends the ingest with that error, and nothing is stored;
+a throw on `ingest.finish` removes the document that was just stored. `createDocumentHandlers` sends
+these events to a client that asks for them with `Accept: text/event-stream` ([upload with
+progress](./node.md#upload-with-progress-accept-textevent-stream)).
 
 | It throws | When |
 |---|---|
 | `TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.")` | `owner` is `""`, spaces only or `null`, or, from JavaScript, neither a string nor a finite number (an object, `true`, `NaN`). Before anything is read. New in 0.6.0: 0.5.0 accepted them. |
-| `Error("<name> is empty.")` | The file has no bytes. |
-| `Error("<name> is larger than the 100 MB upload limit.")` | The file is larger than `maxUploadBytes`. The message gives your limit. |
-| The extractor's `Error` | The extractor refused the file: a binary or compressed file, a PDF without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
-| `Error("<name> holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.")` | The text an extractor returned is larger than `maxTextBytes`. The message gives your limit. |
-| `Error("<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.")` | The ingest took longer than `ingestTimeoutMs`. The message gives your limit: "500 ms" below a second, "45 s" below 2 minutes, "2 min" from there. |
+| [`IngestError`](#ingesterror) `"empty"`: `<name> is empty.` | The file has no bytes. |
+| `IngestError` `"too_large"`: `<name> is larger than the 100 MB upload limit.` | The file is larger than `maxUploadBytes`. The message gives your limit. |
+| An `IngestError` with the extractor's message | The extractor refused the file: a binary or compressed file, an Office file of before 2007 or with a password, a PDF with a password or without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server; or a parser failed on a damaged file. The `code` comes from the message ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)), `"unreadable"` for one the library does not know, and the extractor's error is `cause`. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
+| `IngestError` `"too_much_text"`: `<name> holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | The text an extractor returned is larger than `maxTextBytes`. The message gives your limit. |
+| `IngestError` `"timeout"`: `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` | The ingest took longer than `ingestTimeoutMs`. The message gives your limit: "500 ms" below a second, "45 s" below 2 minutes, "2 min" from there. |
 | `signal.reason` | `IngestInput.signal` was aborted, before or during the ingest. |
-| `Error("<name> did not contain any text.")` | The extracted text is blank. |
+| `IngestError` `"no_text"`: `<name> did not contain any text.` | The extracted text is blank. |
+| What an extractor of your own threw | An error with a `status` or `statusCode`, a Node system error (one with a `code` and a `syscall`), and a value that is not an `Error`, as they are. Any other `Error` becomes an `IngestError`, as above. |
 | The store's own error | A write failed. `ingest` first calls `store.delete(id)` to remove what was written (an error of that call is ignored), then throws the store's error unchanged. It is not a `DocumentStoreError`. |
 
-The `TypeError` of an owner is a mistake of the server's code, not of the file: the upload handler
-of [`llm-large-files/node`](./node.md) checks the owner itself, and answers `500` before it reads
-the body. The errors of the file and the store's error are all plain `Error`s, with no class to
-tell them apart. The upload handler of [`llm-large-files/node`](./node.md) takes an error that carries an
-HTTP `status` or `statusCode` (400 to 599), or a Node system error (`code` and `syscall`), for the
-store's: it answers with that status, or with 500 and the code. `ingest` also keeps a mark of each
-error a store throws while it writes. The handler answers a marked error without a status or a
-code, and a thrown value that is not an `Error`, with 500 `{ "error": "Upload failed." }`, without
-its message. It answers any other `Error` with 422 and its message, as a file that cannot be read.
-The package does not export the mark: behind an `ingest` of your own that throws a new error, or in
-a route of your own, a store's error is answered as a file that cannot be read (see
-[the upload handler](./node.md#uploadrequest-response)). Give your store's write errors a `status`
-and a message of your own. See [errors and reliability](../guides/errors-and-reliability.md).
+Until 0.8.0 the refusals were plain `Error`s, with the same messages. The `TypeError` of an owner is
+a mistake of the server's code, not of the file: the upload handler of
+[`llm-large-files/node`](./node.md) checks the owner itself, and answers `500` before it reads the
+body. The store's error, a listener of the events that threw, and the reason of an aborted signal
+are thrown as they are, never as an `IngestError`. The upload handler of
+[`llm-large-files/node`](./node.md) takes an error that carries an HTTP `status` or `statusCode`
+(400 to 599), or a Node system error (`code` and `syscall`), for the store's: it answers with that
+status, or with 500 and the code. An `IngestError` carries a `status` too, and is answered with it:
+422, 413 for `"too_large"`, 503 with `Retry-After` for `"busy"`. `ingest` also keeps a mark of each
+error a store throws while it writes. The handler answers a marked error without a status or a code,
+and a thrown value that is not an `Error`, with 500 `{ "error": "Upload failed." }`, without its
+message. It answers any other `Error` with 422 and its message, as a file that cannot be read. The
+package does not export the mark: behind an `ingest` of your own that throws a new error, or in a
+route of your own, a store's error is answered as a file that cannot be read (see [the upload
+handler](./node.md#uploadrequest-response)). Give your store's write errors a `status` and a message
+of your own. See [errors and reliability](../guides/errors-and-reliability.md).
 
 Guides: [web app](../guides/web-app.md) for uploads, [PDFs](../guides/pdfs.md) for what PDF
 extraction writes.
@@ -421,11 +428,102 @@ The argument of [`files.ingest`](#filesingestinput).
 | `mimeType` | `string` | `"application/octet-stream"` | The MIME type, trimmed. Blank counts as absent. Used when the extension names no format. |
 | `bytes` | `Uint8Array` | required | The file. A Node `Buffer` is one. Empty, or larger than `maxUploadBytes`, is refused. |
 | `owner` | `string` | none | The user or tenant the document belongs to. Every later call must pass the same owner. Without one, anyone who has the ID can use the document. It must be a string that is not empty or only spaces: `""`, spaces only and `null` throw a `TypeError` (see [`files.ingest`](#filesingestinput)), since each would be one owner shared by every caller without a user. A number from JavaScript is taken, as before. Reads with the owner `""` work as before. |
-| `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX and PPTX extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written changes nothing. `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
+| `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX, PPTX, XLSX and HTML extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written changes nothing. `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
 | `onEvent` | `(event: IngestEvent) => void` | none | What the ingest does as it goes: `ingest.start`, `ingest.progress` for each stage, then `ingest.finish` or `ingest.error` (see [`files.ingest`](#filesingestinput) and [events](./events.md)). Progress is worked out only when it is given. New in 0.7.0. |
 | `runId` | `string` | `"ing_"` and 16 hex digits | The `runId` of those events. New in 0.7.0. |
 
 Guide: [web app](../guides/web-app.md).
+
+### `IngestError`
+
+```ts
+declare class IngestError extends Error {
+  readonly code: IngestErrorCode;
+  readonly status: number;
+  readonly retryAfterMs?: number;
+  constructor(code: IngestErrorCode, message: string, options?: { cause?: unknown; retryAfterMs?: number });
+}
+
+type IngestErrorCode =
+  | "empty" | "too_large" | "too_much_text" | "too_many_pages" | "not_text" | "compressed" | "legacy_office"
+  | "encrypted" | "no_text" | "hostile" | "timeout" | "out_of_memory" | "busy" | "missing_dependency" | "unreadable";
+```
+
+New in 0.8.0. [`files.ingest`](#filesingestinput) could not read a file. The message says why, in
+words for the person who uploaded it, as it did before; `code` says it for your application, so
+that it can tell the user in its own words or language. Until 0.8.0 the same refusals were plain
+`Error`s, with the same messages.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `name` | `string` | `"IngestError"`. |
+| `message` | `string` | The reason, written for a user: "app.log is empty.", "This PDF has no text layer (it may be scanned). …". |
+| `code` | `IngestErrorCode` | Why, as one of the codes below. |
+| `status` | `number` | The HTTP status the upload handler of [`llm-large-files/node`](./node.md#uploadrequest-response) answers with: 413 for `"too_large"`, 503 for `"busy"`, 422 for every other code. |
+| `retryAfterMs` | `number \| undefined` | For `"busy"`: how long to wait before trying again, in milliseconds (5,000 from `createIsolatedExtractors`). The upload handler sends it as `Retry-After`, in seconds. |
+| `cause` | `unknown` | The error of the extractor, the parser or the isolated reader, when there is one. Its message is in `message`. |
+
+| `code` | What the file is |
+|---|---|
+| `"empty"` | It has no bytes. |
+| `"too_large"` | It is larger than `maxUploadBytes`. |
+| `"too_much_text"` | It has more text than `maxTextBytes`, or more than one file is read for (an Office file of more than 32 million characters, or of more than 128 MB of XML). |
+| `"too_many_pages"` | A PDF with more pages than `maxPdfPages`. |
+| `"not_text"` | A binary file of a kind the library does not read. |
+| `"compressed"` | A gzip or ZIP archive, to extract first. |
+| `"legacy_office"` | A Word, Excel or PowerPoint file of before 2007 (`.doc`, `.xls`, `.ppt`), an Outlook message (`.msg`), or an Office file protected by a password: all are stored the same way, and none can be read. |
+| `"encrypted"` | A PDF protected by a password. |
+| `"no_text"` | Nothing to read: a PDF without a text layer (a scan), a deck without slides, a workbook without sheets, a file of white space. |
+| `"hostile"` | A file built the way files that exhaust a server are: a zip bomb, a PDF that draws far more text than its size or lists a page twice, pages that would hold the server, a structure no program writes. Most of these messages say "it may be built to exhaust the server" or "it may be a zip bomb". |
+| `"timeout"` | Reading it took longer than `ingestTimeoutMs`, or the kill timer of an isolated reader ([`createIsolatedExtractors`](./node.md#createisolatedextractorsoptions)). |
+| `"out_of_memory"` | An isolated reader ran out of the memory it is given (`maxHeapMb`). |
+| `"busy"` | Every isolated reader is busy and its queue is full, or it is shutting down: try again in a moment (`retryAfterMs`). |
+| `"missing_dependency"` | The optional dependency for the format is not installed, or is installed and could not be loaded. |
+| `"unreadable"` | Any other error of reading the file: it is damaged, or not of the type its name says. |
+
+`ingest.error` events carry the code as [`EventError.code`](./events.md#errors-eventerror).
+
+```ts
+import { IngestError, toDocumentSummary, type IngestErrorCode, type LargeFiles } from "llm-large-files";
+
+// Your words for some codes; the library's message for the others.
+const hebrew: Partial<Record<IngestErrorCode, string>> = {
+  too_large: "הקובץ גדול מדי.",
+  no_text: "אין בקובץ טקסט לקרוא.",
+  busy: "השרת עסוק. נסו שוב בעוד רגע.",
+};
+
+// `files` is your library.
+async function upload(files: LargeFiles, name: string, bytes: Uint8Array, owner: string) {
+  try {
+    return { status: 201, body: toDocumentSummary(await files.ingest({ name, bytes, owner })) };
+  } catch (error) {
+    if (!(error instanceof IngestError)) throw error; // the store, an abort, your own code
+    return { status: error.status, body: { error: hebrew[error.code] ?? error.message, code: error.code } };
+  }
+}
+```
+
+Guide: [errors and reliability](../guides/errors-and-reliability.md).
+
+### ingestErrorCodeOf(message)
+
+```ts
+declare function ingestErrorCodeOf(message: string): IngestErrorCode;
+```
+
+New in 0.8.0. The code of a refusal of the library, read from its message: `"hostile"` for
+"…It may be built to exhaust the server, so it is not read.", `"compressed"` for "This file is a ZIP
+archive. …", and so on. `"unreadable"` for any other message. `ingest` gives the plain `Error` of
+an extractor its code this way. Use it where only the message is left, such as a reply from a
+process of your own that ingests:
+
+```ts
+import { IngestError, ingestErrorCodeOf } from "llm-large-files";
+
+// `message` came back from your ingest process.
+const error = new IngestError(ingestErrorCodeOf(message), message);
+```
 
 ### `AccessOptions`
 
@@ -953,7 +1051,9 @@ type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedTe
 ```
 
 Turns the bytes of an uploaded file into text, for one format. To refuse a file, throw an `Error`
-whose message a user can read: `ingest` passes it on unchanged. The library then normalizes the
+whose message a user can read: `ingest` throws it as an [`IngestError`](#ingesterror) with the same
+message, the code its message gives (`"unreadable"` for words the library does not know), and your
+error as `cause`. Throw an `IngestError` yourself to choose the code. The library then normalizes the
 text, splits long lines and refuses blank text, as described under
 [`files.ingest`](#filesingestinput). For a PDF, write a line `--- Page N ---` before the text of
 each page, counting from 1, as the built-in one does: the page numbers in tool results and
@@ -962,11 +1062,11 @@ each page, counting from 1, as the built-in one does: the page numbers in tool r
 ```ts
 import { createLargeFiles, defaultExtractors, MemoryDocumentStore, type Extractor } from "llm-large-files";
 
-// An .html file is detected as "text". This extractor drops its tags before the text is stored.
+// An .xml file is detected as "text". This extractor drops its tags before the text is stored.
 const text: Extractor = async (bytes, input) => {
   const extracted = await defaultExtractors.text(bytes, input);
-  if (!input.name.toLowerCase().endsWith(".html")) return extracted;
-  return { text: extracted.text.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/gi, " ") };
+  if (!input.name.toLowerCase().endsWith(".xml")) return extracted;
+  return { ...extracted, text: extracted.text.replace(/<[^>]+>/g, " ") };
 };
 
 const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text } });
@@ -995,10 +1095,10 @@ type ExtractInput = {
 | `mimeType` | `string` | The MIME type, `"application/octet-stream"` when none was given. |
 | `format` | [`DocumentFormat`](#documentformat) | The format from `detectFormat`. A text file that turns out to be a log is still `"text"` here: logs are recognized after extraction. |
 | `scannedPages` | `number \| undefined` | Set for a PDF when one without any text may be accepted: `"pdf"` is in `keepOriginals`, the store has `putOriginal`, and `scannedPdfPages` is above 0. It is the most pages such a PDF may have. Unset, a PDF without text is to be refused. An extractor of your own may ignore it. |
-| `signal` | `AbortSignal \| undefined` | The signal of the ingest: aborted after `ingestTimeoutMs`, or when `IngestInput.signal` aborts. Its `reason` is the error to throw. The PDF, DOCX and PPTX extractors stop between pages and pieces. The text extractor decodes valid UTF-8 and UTF-16 in one step, and a file that is not valid UTF-8 a step at a time, whatever it is read in, stopping between two steps. `ingest` sets it, and stops waiting for your extractor when it aborts, but cannot stop the work your extractor does: pass it on (to `fetch`, for example), or check it between steps with `signal.throwIfAborted()`. |
+| `signal` | `AbortSignal \| undefined` | The signal of the ingest: aborted after `ingestTimeoutMs`, or when `IngestInput.signal` aborts. Its `reason` is the error to throw. The PDF, DOCX, PPTX, XLSX and HTML extractors stop between pages and pieces. The text extractor decodes valid UTF-8 and UTF-16 in one step, and a file that is not valid UTF-8 a step at a time, whatever it is read in, stopping between two steps. `ingest` sets it, and stops waiting for your extractor when it aborts, but cannot stop the work your extractor does: pass it on (to `fetch`, for example), or check it between steps with `signal.throwIfAborted()`. |
 | `maxTextBytes` | `number \| undefined` | `LargeFilesOptions.maxTextBytes`: the most text to keep, in UTF-8 bytes. `ingest` sets it, and refuses a larger text from any extractor once it returns. An extractor that refuses as soon as its text grows past it spares the memory. |
 | `maxPages` | `number \| undefined` | `LargeFilesOptions.maxPdfPages`: the most pages to read from one PDF. `ingest` sets it for every format; only the built-in PDF extractor uses it. `ingest` does not check it for you. |
-| `onProgress` | `((progress: ExtractProgress) => void) \| undefined` | Call it as the extraction goes on, so that `ingest` can report progress ([`ExtractProgress`](#extractprogress)). Set only when someone listens to the ingest's events (`IngestInput.onEvent`). The built-in extractors call it for each page of a PDF and each part of a DOCX or PPTX. An extractor of your own may ignore it: the ingest then sends no `extract` progress. What it reports after it returned is dropped. It can throw, when the listener of the events throws: let that error end the extraction. New in 0.7.0. |
+| `onProgress` | `((progress: ExtractProgress) => void) \| undefined` | Call it as the extraction goes on, so that `ingest` can report progress ([`ExtractProgress`](#extractprogress)). Set only when someone listens to the ingest's events (`IngestInput.onEvent`). The built-in extractors call it for each page of a PDF, each part of a DOCX, each slide of a PPTX and each sheet of an XLSX, and once when an HTML file is decoded. An extractor of your own may ignore it: the ingest then sends no `extract` progress. What it reports after it returned is dropped. It can throw, when the listener of the events throws: let that error end the extraction. New in 0.7.0. |
 
 ### `ExtractProgress`
 
@@ -1053,7 +1153,7 @@ type ExtractedText = { text: string; pages?: number; encoding?: string; replaced
 | Field | Type | What it holds |
 |---|---|---|
 | `text` | `string` | The text of the file. |
-| `pages` | `number \| undefined` | The number of pages (or slides), stored as `DocumentMeta.pages`. |
+| `pages` | `number \| undefined` | The number of pages (the slides of a PPTX, the sheets of an XLSX), stored as `DocumentMeta.pages`. |
 | `encoding` | `string \| undefined` | The older encoding the file was read in, when it is not UTF-8, such as `"windows-1255"`. Stored as `DocumentMeta.encoding` when it is a name (letters, digits, `.`, `_`, `:` and `-`, up to 40 characters) and not a name of UTF-8 or UTF-16 (`utf-8`, `utf8`, `unicode`, `utf-16be`…): a name `TextDecoder` does not know is kept. New in 0.6.0. |
 | `replacedCharacters` | `number \| undefined` | The characters that were not valid in the encoding the file was read in, each now U+FFFD (�). Stored as `DocumentMeta.replacedCharacters` when it is a whole number above 0. New in 0.6.0. |
 
@@ -1071,23 +1171,31 @@ The built-in extractor of each format, used for every format you do not replace 
 
 | Format | What the extractor does |
 |---|---|
-| `text`, `markdown`, `log`, `json`, `csv` | Decodes the bytes as UTF-8, or as UTF-16 when they start with a byte-order mark or look like little-endian UTF-16 without one. A file that is not valid UTF-8 is read as UTF-8 when it starts with a UTF-8 byte-order mark, when at least as many of its lines count as UTF-8 as count as not (a line counts as UTF-8 when it holds at least as many characters of more than one byte as characters that are not valid), or when at most one line in 200 is not UTF-8. Otherwise it is read in windows-1255, windows-1256, windows-1251, Shift_JIS or windows-1252 when its lines with letters fit one, its lines that are valid UTF-8 as UTF-8; and when none fits, as UTF-8, as 0.5.0 read it. Each character that is not valid in the encoding it is read in becomes U+FFFD. It returns `encoding` and `replacedCharacters` ([`ExtractedText`](#extractedtext)), and reads such a file a step at a time, with pauses for other requests. It never refuses a file for its encoding. It refuses gzip, ZIP and other binary files. See [Text encodings](../guides/pdfs.md#text-encodings). |
+| `text`, `markdown`, `log`, `json`, `csv` | Decodes the bytes as UTF-8, or as UTF-16 when they start with a byte-order mark or look like little-endian UTF-16 without one. A file that is not valid UTF-8 is read as UTF-8 when it starts with a UTF-8 byte-order mark, when at least as many of its lines count as UTF-8 as count as not (a line counts as UTF-8 when it holds at least as many characters of more than one byte as characters that are not valid), or when at most one line in 200 is not UTF-8. Otherwise it is read in windows-1255, windows-1256, windows-1251, Shift_JIS or windows-1252 when its lines with letters fit one, its lines that are valid UTF-8 as UTF-8; and when none fits, as UTF-8, as 0.5.0 read it. Each character that is not valid in the encoding it is read in becomes U+FFFD. It returns `encoding` and `replacedCharacters` ([`ExtractedText`](#extractedtext)), and reads such a file a step at a time, with pauses for other requests. It never refuses a file for its encoding. It refuses gzip, ZIP and other binary files, and the Office files of before 2007 or with a password. See [Text encodings](../guides/pdfs.md#text-encodings). |
 | `pdf` | [`createPdfExtractor()`](#createpdfextractoroptions). Needs the optional dependency `unpdf`, in a version that runs on this Node, and `@cantoo/pdf-lib` to mark pages with pictures and to refuse a page that would hold the server. |
-| `docx` | The paragraphs of the main document first, then those of its endnotes, footers, footnotes and headers (in the order of their part names), one line each, with a blank line between parts. A text box is read once. The text of a run that Word hides (`<w:vanish/>`) comes after the text of its paragraph that shows, each of its lines starting with `[Hidden text, not shown in the document]`: a carriage return, a U+0085 or a line separator in it starts a new marked line, a line of more than about 1,950 characters is cut into marked pieces, and the text of a run inside a hidden run (the reading of a ruby) is marked too. The marks count toward the limits of text. Text hidden through a style is read as ordinary text. Needs the optional dependency `jszip`. |
-| `pptx` | One `## Slide N` section per slide, in order, with `[No text on this slide]` for a slide without text. A slide that the slide show skips (`show="0"`) keeps its text, under `## Slide N (hidden, not shown in the slide show)`. `pages` is the number of slides. Needs `jszip`. |
+| `docx` | The paragraphs of the main document first, one line each. A paragraph of a heading style (`Heading 1` to `Heading 6`, also in a Hebrew document, whose styles keep English names), of the `Title` style or with an outline level is a Markdown heading (`## 2.1 Rent`). A paragraph of a list starts with the number Word shows before it, in Word's formats (`2.1`, `(a)`, roman numerals, Hebrew letters and numerals, `-` for a bullet, lists that restart). A table is a line a row, `\| cell \| cell \|  \|`, its empty cells kept, and a merged cell followed by an empty cell for each column it covers. Non-breaking hyphens and the characters of symbol fonts are kept. Then the footnotes, endnotes, comments, headers and footers, in that order, each part under a heading of its own (`# Footnotes`, `# Endnotes`, `# Comments`, `# Header`, `# Footer`), with a blank line between parts; a header or footer whose text repeats one already read is left out. A text box is read once. The text of a run that Word hides (`<w:vanish/>`) comes after the text of its paragraph that shows, each of its lines starting with `[Hidden text, not shown in the document]`: a carriage return, a U+0085 or a line separator in it starts a new marked line, a line of more than about 1,950 characters is cut into marked pieces, and the text of a run inside a hidden run (the reading of a ruby) is marked too. The marks count toward the limits of text. Text hidden through a style is read as ordinary text. Needs the optional dependency `jszip`. Headings, numbers, tables and comments are new in 0.8.0: documents ingested before keep their text until they are uploaded again. |
+| `pptx` | One `## Slide N` section per slide, numbered in the order of the slide show (the list in `ppt/presentation.xml`; the part names when it has none), with its text, its tables as rows of `\| cell \| cell \|`, and its speaker notes after a line `[Speaker notes]`. `[No text on this slide]` for a slide without text. A slide that the slide show skips (`show="0"`) keeps its text, under `## Slide N (hidden, not shown in the slide show)`. `pages` is the number of slides. Needs `jszip`. Until 0.8.0 slides were numbered in the order of their part names, without tables or notes. |
+| `xlsx` | New in 0.8.0. Excel workbooks (`.xlsx`, `.xlsm`, `.xltx`, `.xltm`). Each sheet, in the order of the workbook, is a section: `## Sheet 1: Sales` (with ` (hidden sheet)` for a hidden one), then a line `Columns: \| A \| B \| C \|` (`Columns: A to BZ` past 52 columns), then a line a row, `Row 12: \| East \| 2026-03-01 \| 1200.5 \|`, numbered as in Excel, its empty cells kept up to its last value. A cell holds the value Excel last computed (a formula without one is written as `=` and the formula); dates and times from their number formats (1900 and 1904 date systems), percentages as `12.5%`, numbers to 15 significant digits. Empty rows are left out, and a sheet without a value says `[No values on this sheet]`. Every row of every sheet is read, within the limits on text. `pages` is the number of sheets. Needs `jszip`. |
+| `html` | New in 0.8.0. The text a browser shows: scripts, styles and other content that is not read are dropped; headings become Markdown headings, list items `- item` (or `1. item`), table rows `\| cell \| cell \|`, a link `text (https://…)`, a picture its alt text. The title becomes a `#` heading when no heading of the page holds it. Entities are decoded: `AT&amp;T` is found as "AT&T". The bytes are decoded as a text file's are, in an older encoding when it is not UTF-8, and binary files are refused the same way. |
 
-The messages they refuse a file with, which `ingest` throws:
+The messages they refuse a file with, which `ingest` throws as [`IngestError`](#ingesterror)s, each
+with the code of its words ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)):
 
-- `This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.`
+- `This file looks binary, not text. Attach a text, log, PDF, Word, PowerPoint, Excel or HTML file.` (until 0.8.0: `… Attach a text, log, PDF, DOCX, or PPTX file.`)
 - `This file is gzip-compressed. Decompress it, then attach the text file inside.`
-- `This file is a ZIP archive. Extract it, then attach the text file you need.`
+- `This file is a ZIP archive. Extract it, then attach the text file you need.` (a ZIP whose name is not of a DOCX, PPTX or XLSX: `.zip`, `.odt`)
+- `This is a Word, Excel or PowerPoint file of before 2007 (.doc, .xls, .ppt), an Outlook message (.msg), or an Office file protected by a password and stored that way. None of these can be read: save it as .docx, .xlsx, .pptx, PDF or text, without a password, and attach that.` (new in 0.8.0: until then such a file was refused as binary, or failed as a damaged file)
+- `This PDF is protected by a password, so it cannot be read. Open it, print it to a new PDF without the password, and attach that.` (new in 0.8.0: pdf.js said "No password given")
 - `Reading PDF files needs the optional dependency "unpdf".`
+- `The optional dependency "<name>" is installed but could not be loaded (<the reason>). Reinstall it, or install a version this Node can run.` (new in 0.8.0: it was reported as missing; the failure is `cause`)
 - `The unpdf installed would stop the whole server at the first PDF file on Node <n>, so PDF files are not read.`, followed by what to install: before Node 22 `Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.`, on Node 22 and 23 `Install unpdf 1.6.1 or later, or run Node 24 or later.`, on a later Node `Install unpdf 1.6.1 or later.` (an `unpdf` from 1.5.0 to 1.6.0, which loads a pdf.js that calls `Promise.try` where Node does not have it; new in 0.6.0)
 - `The unpdf installed cannot read PDF files on Node <n> (<unpdf's message>). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` (before Node 22, an `unpdf` that cannot load its pdf.js: 1.9 and later, 2.x included; new in 0.6.0. From Node 22 on, unpdf's own error is thrown as it is.)
 - `This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.`
 - `This PDF has no text layer (it may be scanned) and <n> pages. Without text it can only be read by looking at its pages, which works for up to <m> pages. It needs OCR first.`
-- `Reading DOCX and PPTX files needs the optional dependency "jszip".`
-- `This DOCX does not contain word/document.xml.` and `This PPTX does not contain any slides.`
+- `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` (until 0.8.0: `Reading DOCX and PPTX files …`)
+- `This DOCX does not contain word/document.xml.`, `This PPTX does not contain any slides.`, `This XLSX does not contain xl/workbook.xml.` and `This XLSX does not contain any sheets with cells.`
+- `This XLSX has more than 2,097,152 different texts, more than a workbook holds. It may be built to exhaust the server, so it is not read.`
+- `This XLSX holds more text than is kept from one file. Split it, and attach the part you need.` (`maxTextBytes`; `… than is read from one file.` past 32 million characters)
 - `This DOCX unpacks to more than <n> MB, over 100 times its size. A file that grows that much is not read: it may be a zip bomb. Save it as text or PDF, and attach that.` (past the first 16 MB; `PPTX` for a presentation)
 - `This DOCX unpacks to more than 128 MB of XML, more than is read from one file. Save it as text or PDF, and attach that.`
 - `This PDF has <n> pages, more than the <m> read from one file. Split it, and attach the part you need.` (`maxPdfPages`, before any page is read)
@@ -1096,14 +1204,16 @@ The messages they refuse a file with, which `ingest` throws:
 - `This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.`
 - `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.` (from one Office file, whatever `maxTextBytes` allows; the marks of hidden text count)
 - `This DOCX holds more than <n> MB of text, more than is kept from one file. Split it, and attach the part you need.` (when `maxTextBytes` is below 32 million)
-- `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` (paragraphs with text)
+- `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` (paragraphs with text), or `… 1,000,000 paragraphs and table cells, …` when table cells, empty ones included, bring the count past it
+- `The XML has a tag far longer than any Office file writes. It may be built to exhaust the server, so it is not read.`
 - `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.`
 - `This DOCX has more than 20,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` (before JSZip reads the file: its ZIP directory is read the way JSZip will read it, record by record, whatever count of parts the file gives)
 - `This DOCX lists its parts in a way that no Office program does: reading the list would take far more memory or time than an Office document needs. It may be built to exhaust the server, so it is not read.` (more than 80,000 extra fields, or more than 8 MB of names, comments and extra-field data that JSZip would turn into text or go through byte by byte: a name is counted once for each part that points to it, and a field for all the data it says it has, even past its record)
 - `This DOCX ends with a ZIP64 record that cannot be read, and reading it could hold the server without end. It may be built to exhaust the server, so it is not read.` (a ZIP64 end record that says it is longer than its fields, which JSZip reads in a loop that does not move on)
 
-The Office messages say `PPTX` for a presentation. A PDF or an Office file that is damaged fails
-with the error of pdf.js or JSZip.
+The Office messages say `PPTX` for a presentation and `XLSX` for a workbook. A PDF or an Office
+file that is damaged fails with the message of pdf.js or JSZip, as an `IngestError` of code
+`"unreadable"` whose `cause` is their error.
 
 ### createPdfExtractor(options?)
 
@@ -1160,9 +1270,14 @@ then turns a `"text"` document that reads like a log into `"log"`.
 | `json` | `.json`, `.jsonl`, `.ndjson` | `application/json` |
 | `csv` | `.csv`, `.tsv` | `text/csv` |
 | `pdf` | `.pdf` | `application/pdf` |
-| `docx` | `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
-| `pptx` | `.pptx` | `application/vnd.openxmlformats-officedocument.presentationml.presentation` |
+| `docx` | `.docx`, `.docm` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` |
+| `pptx` | `.pptx`, `.pptm` | `application/vnd.openxmlformats-officedocument.presentationml.presentation` |
+| `xlsx` | `.xlsx`, `.xlsm`, `.xltx`, `.xltm` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `application/vnd.ms-excel.sheet.macroenabled.12` |
+| `html` | `.html`, `.htm`, `.xhtml` | `text/html`, `application/xhtml+xml` |
 | `text` | any other | any other |
+
+`xlsx` and `html` are new in 0.8.0: until then an `.xlsx` was refused as a ZIP archive, and an
+`.html` file was `text`, read with its tags.
 
 Guide: [PDFs](../guides/pdfs.md).
 
@@ -1249,8 +1364,8 @@ browser instead.
 | `lines` | `number` | The number of lines of the text. A final line break does not start another line. |
 | `estimatedTokens` | `number` | [`estimateTokens`](#estimatetokenstext) of the text. |
 | `wrappedLines` | `number` | How many lines longer than 2,000 characters were split into several, so that every line can be read by number. |
-| `pages` | `number \| undefined` | The pages of a PDF, the slides of a PPTX, or what your extractor returned. |
-| `encoding` | `string \| undefined` | The older encoding a text file was read in, because it is not UTF-8, as `TextDecoder` names it: `"windows-1255"` for a Hebrew CSV that Excel saved, or `"windows-1256"`, `"windows-1251"`, `"shift_jis"`, `"windows-1252"`. Lines of it that are valid UTF-8 are read as UTF-8 all the same. Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see `replacedCharacters`), for UTF-16, for PDF, DOCX and PPTX, and on documents from before 0.6.0. An extractor of your own may set another name ([`ExtractedText`](#extractedtext)). How the encoding is chosen: [Text encodings](../guides/pdfs.md#text-encodings). New in 0.6.0. |
+| `pages` | `number \| undefined` | The pages of a PDF, the slides of a PPTX, the sheets of an XLSX, or what your extractor returned. |
+| `encoding` | `string \| undefined` | The older encoding a text file was read in, because it is not UTF-8, as `TextDecoder` names it: `"windows-1255"` for a Hebrew CSV that Excel saved, or `"windows-1256"`, `"windows-1251"`, `"shift_jis"`, `"windows-1252"`. Lines of it that are valid UTF-8 are read as UTF-8 all the same. Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see `replacedCharacters`), for UTF-16, for PDF, DOCX, PPTX and XLSX, and on documents from before 0.6.0. An HTML file is decoded as a text file is, and can have one. An extractor of your own may set another name ([`ExtractedText`](#extractedtext)). How the encoding is chosen: [Text encodings](../guides/pdfs.md#text-encodings). New in 0.6.0. |
 | `replacedCharacters` | `number \| undefined` | The characters of a text file that were not valid in the encoding it was read in (UTF-8, or `encoding`), such as a character cut in two at the end of a UTF-8 log, or a byte that `encoding` does not have: each is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.0. New in 0.6.0. |
 | `originalKept` | `boolean \| undefined` | `true` when the uploaded file is kept in the store (`keepOriginals`). Absent otherwise. Documents ingested before you turned `keepOriginals` on have no original. |
 | `outline` | [`OutlineEntry[]`](#outlineentry) | The headings found in the text, at most 400. Empty for `log`, `json` and `csv`. |
@@ -1290,11 +1405,15 @@ Guide: [web app](../guides/web-app.md).
 ### `DocumentFormat`
 
 ```ts
-type DocumentFormat = "text" | "markdown" | "log" | "json" | "csv" | "pdf" | "docx" | "pptx";
+type DocumentFormat = "text" | "markdown" | "log" | "json" | "csv" | "pdf" | "docx" | "pptx" | "xlsx" | "html";
 ```
 
 The format of a document. It picks the extractor and decides whether a document gets an outline (not
-`log`, `json` or `csv`) and a log profile (`log` only). See [`detectFormat`](#detectformatname-mimetype).
+`log`, `json` or `csv`) and a log profile (`log` only). See [`detectFormat`](#detectformatname-mimetype),
+and for what each extractor writes, [`defaultExtractors`](#defaultextractors).
+
+`"xlsx"` (Excel workbooks) and `"html"` (web pages) are new in 0.8.0: an exhaustive `switch` on a
+document's format, or a `Record<DocumentFormat, …>` of your own, needs the two cases.
 
 ### `OutlineEntry`
 

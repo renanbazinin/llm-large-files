@@ -72,10 +72,10 @@ export async function ask(userId: string, documentIds: string[], question: strin
 **No limit throws.** A question that reaches a limit ends with a request for the answer, written
 from what the tools returned so far. That request usually ends with `FINAL_ANSWER_REQUEST`: "Stop
 using tools now. Answer my question using only what the tools returned above, with line citations.
-Say plainly what you could not find." When no tool ran (for example with `toolTurns: 1` or
-`requests: 1`), it ends with `FINAL_ANSWER_WITHOUT_TOOLS` instead. When pages were the only thing
-to look at, it ends with `FINAL_ANSWER_AFTER_PAGES`. `answered` is true when the reply has text and
-was not refused.
+Say plainly what you could not find. Answer in the language of my question." When no tool ran (for
+example with `toolTurns: 1` or `requests: 1`), it ends with `FINAL_ANSWER_WITHOUT_TOOLS` instead.
+When pages were the only thing to look at, it ends with `FINAL_ANSWER_AFTER_PAGES`. `answered` is
+true when the reply has text and was not refused.
 
 - **The answer is asked for once more when it comes back without text**: empty, or with a tool call
   the model was told not to make. The note "Your last reply had no text. No tool can be called in

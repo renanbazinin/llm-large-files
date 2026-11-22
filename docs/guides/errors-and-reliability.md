@@ -602,11 +602,15 @@ export async function askAndRecord(model: ModelAdapter, sessionId: string) {
 
 ## Errors of uploads and of the store
 
-`files.ingest` throws a plain `Error`, with a message written for the user, when it cannot take a
-file: it is empty, larger than `maxUploadBytes` (100 MB by default), has no text, is a gzip or ZIP
-archive, is binary, needs an optional dependency that is not installed (`jszip` for DOCX and PPTX,
-`unpdf` for PDF) or an `unpdf` that runs on this Node, or is a PDF without a text layer (see
-[PDFs](./pdfs.md)). Show its message. A text file is never refused for its encoding: one that is
+`files.ingest` throws an [`IngestError`](../reference/library.md#ingesterror), with a message
+written for the user and a `code` for your app, when it cannot take a file: it is empty
+(`"empty"`), larger than `maxUploadBytes` (100 MB by default, `"too_large"`), has no text
+(`"no_text"`), is a gzip or ZIP archive (`"compressed"`), is binary (`"not_text"`), is an Office
+file of before 2007 or with a password (`"legacy_office"`), needs an optional dependency that is not
+installed (`jszip` for DOCX, PPTX and XLSX, `unpdf` for PDF) or an `unpdf` that runs on this Node
+(`"missing_dependency"`), or is a PDF without a text layer (see [PDFs](./pdfs.md)). Show its
+message, or words of your own for its `code`. Until 0.8.0 it was a plain `Error`, with the same
+message. A text file is never refused for its encoding: one that is
 not UTF-8 is read in the encoding it was saved in, or as UTF-8 with the characters that are not
 valid counted ([Text encodings](./pdfs.md#text-encodings)).
 
@@ -615,10 +619,14 @@ the file. `createDocumentHandlers` answers it 500 `{ "error": "Upload failed (em
 `{ "error": "Upload failed (owner is not a string)." }` for an owner that is neither a string nor a
 finite number, before it reads the upload ([Storage](./storage.md#how-ownership-works)).
 
-A file the parser cannot read (a damaged DOCX, PPTX or PDF) throws the parser's own error (jszip's,
-or pdf.js's `InvalidPDFException`), and an extractor of your own throws its own. Their messages are
-not written for users: show "This file could not be read." for an error whose message you do not
-recognise.
+A file the parser cannot read (a damaged DOCX, PPTX, XLSX or PDF) throws an `IngestError` of code
+`"unreadable"` with the parser's message (jszip's, or that of pdf.js's `InvalidPDFException`), and
+the parser's error as `cause`; an extractor of your own that throws an `Error` gets the same, with
+the code its message gives. Those messages are not written for users: show "This file could not
+be read." for the code `"unreadable"`. With `createIsolatedExtractors`, a file whose reader ran out
+of memory or time is `"out_of_memory"` or `"timeout"`, and readers that are all busy give
+`"busy"`, answered `503` with `Retry-After`
+([node reference](../reference/node.md#createisolatedextractorsoptions)).
 
 A store that fails while it writes throws its own error, as it came: its message may name a path or
 a host, so log it and show a general message. `createDocumentHandlers` answers a file it cannot take

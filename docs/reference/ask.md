@@ -372,14 +372,14 @@ The user turn at the end of the request for the answer, when a document is reach
 and tool calls were answered:
 
 > Stop using tools now. Answer my question using only what the tools returned above, with line
-> citations. Say plainly what you could not find.
+> citations. Say plainly what you could not find. Answer in the language of my question.
 
 ### `FINAL_ANSWER_AFTER_PAGES`
 
 The same, when every document went in whole and the only tool was `view_pages`:
 
 > Stop using tools now. Answer my question from the text of the files and the pages you looked at.
-> Say plainly what you could not see or find.
+> Say plainly what you could not see or find. Answer in the language of my question.
 
 ### `FINAL_ANSWER_WITHOUT_TOOLS`
 
@@ -387,7 +387,12 @@ The same, when no tool call was answered in the question (an explorer called non
 was empty, or no turn was left for tools), so there is no tool result to answer from:
 
 > Answer my question now, from what is in this conversation. No tools are available for this reply:
-> if the answer needs a part of a file that is not shown here, say so plainly.
+> if the answer needs a part of a file that is not shown here, say so plainly. Answer in the language
+> of my question.
+
+The three end with "Answer in the language of my question." since 0.8.0: a model asked in Hebrew
+answered in English after an English closing request. To have answers in one language whatever
+the question, say so in `system`.
 
 None of the three is kept in the conversation or in `toolTurns`. Nor is the note of the answer's
 second try, which is not exported (new in 0.6.0): "Your last reply had no text. No tool can be

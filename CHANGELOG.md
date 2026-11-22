@@ -163,13 +163,20 @@ Some behavior is different. Check each point against your app:
   [`IngestError`](docs/reference/library.md#ingesterror).
 
   ```ts
-  import { IngestError } from "llm-large-files";
+  import { IngestError, type IngestErrorCode } from "llm-large-files";
+
+  // Your own words for some refusals; the library's message for the rest.
+  const hebrew: Partial<Record<IngestErrorCode, string>> = {
+    too_large: "הקובץ גדול מדי.",
+    no_text: "אין בקובץ טקסט לקריאה (ייתכן שהוא סרוק).",
+    busy: "השרת עסוק. נסו שוב בעוד רגע.",
+  };
 
   try {
     await files.ingest({ name, bytes, owner });
   } catch (error) {
-    if (error instanceof IngestError) return reply(error.status, messages.he[error.code] ?? error.message);
-    throw error; // the store, or your own code
+    if (!(error instanceof IngestError)) throw error; // the store, or your own code
+    console.log(error.status, hebrew[error.code] ?? error.message);
   }
   ```
 

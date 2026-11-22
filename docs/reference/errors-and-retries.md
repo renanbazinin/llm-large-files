@@ -308,7 +308,7 @@ errorKindOf({ kind: "quota" });                                 // "quota": any 
 ### Other error classes
 
 The adapters' errors are `ModelRequestError`s, so `instanceof ModelRequestError` and
-`errorKindOf` work for all three. The two errors of the documents are not, and have no `kind`.
+`errorKindOf` work for all three. The three errors of the documents are not, and have no `kind`.
 
 | Class | Exported from | Extends | Fields of its own | Reference |
 |---|---|---|---|---|
@@ -317,11 +317,12 @@ The adapters' errors are `ModelRequestError`s, so `instanceof ModelRequestError`
 | `AnthropicRequestError` | `llm-large-files/anthropic` | `ModelRequestError` | `type` | [anthropic.md](./anthropic.md) |
 | `DocumentsNotFoundError` | `llm-large-files`, `llm-large-files/gemini` | `Error` | `ids` | [ask.md](./ask.md#documentsnotfounderror) |
 | `DocumentStoreError` | `llm-large-files` | `Error` | `code`, `syscall`, and the caught error as `cause` | [library.md](./library.md#documentstoreerror) |
+| `IngestError` | `llm-large-files` | `Error` | `code`, `status`, `retryAfterMs`, and the extractor's error as `cause`. New in 0.8.0 | [library.md](./library.md#ingesterror) |
 
 ### Errors in events: `EventError`
 
 ```ts
-type EventError = { message: string; kind?: ModelErrorKind; status?: number; name?: string };
+type EventError = { message: string; kind?: ModelErrorKind; status?: number; name?: string; code?: IngestErrorCode };
 ```
 
 New in 0.7.0. An error as the events of a question or an ingest carry it ([events](./events.md)):
@@ -334,7 +335,8 @@ included: log that one.
 | `message` | `string` | Words your users may see. A model error is told by its kind and status, never in the provider's words, which can name projects, hosts or keys: "The model was busy (HTTP 429).", "The model's quota has run out (HTTP 429).", "The model could not be reached.", "The model refused the key or token it was sent (HTTP 401)." A Node system error is told by its code ("The file could not be read from storage (ENOENT)."), a `DocumentStoreError` by its own message, which names only its code, and a store that failed to write in `ingest.error` as "The document could not be stored. Try again later.". The library's own errors (a refused file, `DocumentsNotFoundError`, an abort, the error a listener threw) keep their message, and so does any other `Error` without a `kind` or a numeric `status`, such as one an adapter or a token function of your own throws: give such errors a status, or words of your own. A value that is not an `Error` is "Something went wrong.". |
 | `kind` | [`ModelErrorKind`](#modelerrorkind), optional | For a model error: its kind, as [`errorKindOf`](#errorkindoferror) reads it. |
 | `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. |
-| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"GeminiRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`… |
+| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"GeminiRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"IngestError"`… |
+| `code` | [`IngestErrorCode`](./library.md#ingesterror), optional | For a file `ingest` could not read: why (`"too_large"`, `"no_text"`, `"busy"`…). New in 0.8.0. |
 
 To show your own words, map the error by `kind`, `status` or `name`, as you would the thrown one
 (see [Errors and reliability](../guides/errors-and-reliability.md)).
