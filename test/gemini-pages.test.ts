@@ -55,13 +55,14 @@ async function pageTexts(bytes: Uint8Array): Promise<string[]> {
 // The tool guide, word for word, as a library that keeps no originals sends it: nothing of
 // view_pages in it. (0.2.0 sent it without the line on counting, and with "every occurrence" as a
 // task for analyze_whole_document, which misses items of a long list.)
-const GUIDE_0_2_0 = (names: string) => [
+const GUIDE_0_2_0 = (names: string, tables = false) => [
   `Some attached files are too large for your context: ${names}.`,
   "You see only a summary card for each. Read them through the tools:",
   "- search_document finds lines (exact or regex) or the most relevant passages (keywords).",
   "- To count or list what can be matched as text (a word, an ID, an error code, a log level, a pattern), use search_document in exact or regex mode: its total_matching_lines is exact.",
   "- To count per group (per hour or day, per error code or ID with a regex group, per message shape), pass group_by: one call gives every count. For more matches than a result shows, search again from its next_from_line, or with order \"last\" for the last ones.",
   "- Search for the bare form of a word: a search matches inside longer words, so \"timeout\" also finds \"timeouts\", and a Hebrew word without its prefix letters (חוזה, not בחוזה) finds every form of it.",
+  ...(tables ? ["- To add up, average, count or group the rows of a table (a CSV, an Excel sheet, a | cell | table), use aggregate_table: it reads every row, and its numbers are exact. Do not add numbers up from rows you read."] : []),
   "- read_document reads a line range. Read around search hits before you rely on them.",
   "- get_document_overview returns the outline, log profile, and the start and end of a file.",
   "- analyze_whole_document reads the entire file in parts. Use it only when the task needs all of the file and cannot be done by matching text: a full summary, a timeline, or items that must be judged by meaning. It is slow and costly, and it can miss items of a long list.",
@@ -122,11 +123,11 @@ describe("askGemini with PDFs whose pages can be shown", () => {
     const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], messages: question("What is on page 4?"), onActivity: (value) => activity.push(value) });
     const [first, second] = gemini.bodies;
     expect(result.plan.searchable.map((document) => document.name)).toEqual(["report.pdf"]);
-    expect(toolNames(first!)).toEqual(["search_document", "read_document", "get_document_overview", "analyze_whole_document", "view_pages"]);
+    expect(toolNames(first!)).toEqual(["search_document", "read_document", "get_document_overview", "aggregate_table", "analyze_whole_document", "view_pages"]);
     expect(first!.contents[0].parts[0].text).toContain("To see a picture, a chart or the layout of a page, look at the page with view_pages.");
     // Both parts of the guide: the one of 0.2.0, then the one about pages.
     const system = systemOf(first!);
-    expect(system.startsWith(GUIDE_0_2_0(`"report.pdf" (document_id ${meta.id})`))).toBe(true);
+    expect(system.startsWith(GUIDE_0_2_0(`"report.pdf" (document_id ${meta.id})`, true))).toBe(true);
     expect(system).toContain("You can look at the real pages of these PDFs with view_pages");
     expect(activity[0]).toBe("Too large to read at once: report.pdf. Searching instead…");
 
@@ -338,7 +339,7 @@ describe("prepare with viewPages", () => {
 
     const plain = await files.prepare(ids, base, { owner: "alice" });
     expect(plain.viewable).toEqual([]);
-    expect(plain.instruction).toBe(GUIDE_0_2_0(`"large.pdf" (document_id ${large.id})`));
+    expect(plain.instruction).toBe(GUIDE_0_2_0(`"large.pdf" (document_id ${large.id})`, true));
     expect(plain.blocks.get(large.id)).not.toContain("view_pages");
 
     const prepared = await files.prepare(ids, base, { owner: "alice", viewPages: true });

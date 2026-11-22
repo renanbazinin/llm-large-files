@@ -1,4 +1,5 @@
 import { safeErrorMessage } from "./errors.js";
+import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
 import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
@@ -42,6 +43,7 @@ export const TOOL_NAMES = {
   overview: "get_document_overview",
   analyze: "analyze_whole_document",
   view: "view_pages",
+  aggregate: "aggregate_table",
 } as const;
 
 const documentId = { type: "string" as const, description: "The document_id from the file's card." };
@@ -96,6 +98,35 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
         task: { type: "string", description: "What to find or produce from the whole file, stated completely." },
       },
       required: ["document_id", "task"],
+    },
+  },
+  aggregate: {
+    name: TOOL_NAMES.aggregate,
+    description: "Count, sum, average, or find the minimum or maximum over the rows of a table in an attached file: a CSV or TSV file, a sheet of an Excel workbook, or a table written as | cell | rows (in Word, PowerPoint, PDF or HTML files). It can keep only the rows that match filters, and group them by up to 3 columns (a date column by year, month or day). Its numbers are exact, as it reads every row: use it instead of reading rows to add them up or count them. Columns are named as in the table's header row; a letter (C) or a number (3) works too. Each group lists the lines of its first rows, to cite.",
+    parameters: {
+      type: "object",
+      properties: {
+        document_id: documentId,
+        table: { type: "string", description: "Which table: a sheet's name or number in a workbook, or a table's number in other files (1 is the first). Defaults to the first." },
+        metrics: { type: "array", items: { type: "string" }, description: "What to compute: \"count\", or an operation and a column: \"sum:Revenue\", \"avg:Price\", \"min:Date\", \"max:Amount\", \"count_distinct:Customer\". Defaults to [\"count\"]." },
+        group_by: { type: "array", items: { type: "string" }, description: "Up to 3 columns to group the rows by. A date column may end in \":year\", \":month\" or \":day\": \"Date:month\"." },
+        filters: {
+          type: "array",
+          description: "Keep only the rows that match all of these. Numbers compare as numbers, ISO dates (2026-03-01) as text, other text ignoring case.",
+          items: {
+            type: "object",
+            properties: {
+              column: { type: "string" },
+              op: { type: "string", enum: [...FILTER_OPS] },
+              value: { type: "string", description: "Not needed for empty and not_empty." },
+            },
+            required: ["column", "op"],
+          },
+        },
+        order_by: { type: "string", enum: ["metric", "key"], description: "\"metric\" (the default): the largest value of the first metric first; \"key\": by the values grouped by, in order (dates and months in time order)." },
+        limit: { type: "integer", description: `Groups to show, up to ${MAX_SHOWN_GROUPS} (default 50).` },
+      },
+      required: ["document_id"],
     },
   },
   view: {
@@ -306,6 +337,38 @@ function groupedResult(base: ToolResult, counted: GroupResult, shown: number, li
   return fit(build(kept, true), null, limit);
 }
 
+/** A list of strings the model sent: an array, or one string (which a model sometimes sends for a list of one). */
+function stringList(value: unknown, name: string): string[] | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const list = Array.isArray(value) ? value : [value];
+  return list.map((item) => {
+    if (typeof item !== "string" && typeof item !== "number") throw new Error(`${name} must be a list of strings.`);
+    return String(item);
+  });
+}
+
+/** The arguments of an `aggregate_table` call as the tool reads them. */
+export function aggregateRequest(args: Record<string, unknown>): AggregateRequest {
+  const rawFilters = args.filters === undefined || args.filters === null ? [] : Array.isArray(args.filters) ? args.filters : [args.filters];
+  const filters = rawFilters.map((filter) => {
+    const { column, op, value } = (filter ?? {}) as { column?: unknown; op?: unknown; value?: unknown };
+    if (typeof column !== "string" && typeof column !== "number") throw new Error("Each filter needs a column.");
+    if (typeof op !== "string" || !(FILTER_OPS as readonly string[]).includes(op)) throw new Error(`A filter's op must be one of ${FILTER_OPS.map((name) => `"${name}"`).join(", ")}.`);
+    return { column: String(column), op: op as FilterOp, ...(value !== undefined && value !== null ? { value: typeof value === "number" ? value : String(value) } : {}) };
+  });
+  const table = typeof args.table === "number" || (typeof args.table === "string" && args.table.trim()) ? args.table as string | number : undefined;
+  const groupBy = stringList(args.group_by, "group_by");
+  const metrics = stringList(args.metrics, "metrics");
+  return {
+    ...(table !== undefined ? { table } : {}),
+    ...(filters.length > 0 ? { filters } : {}),
+    ...(groupBy ? { groupBy } : {}),
+    ...(metrics ? { metrics } : {}),
+    orderBy: args.order_by === "key" ? "key" : "metric",
+    limit: integer(args.limit, 50, 1, MAX_SHOWN_GROUPS),
+  };
+}
+
 const searchMode = (mode: unknown): "keywords" | "exact" | "regex" => (mode === "exact" || mode === "regex" ? mode : "keywords");
 
 /** `group_by` as the search reads it: undefined when not given. A value it does not know is an error. */
@@ -375,6 +438,13 @@ export function toolCallKey(name: string, args: Record<string, unknown>): string
       : [name, id, args.query, mode, groupBy ? integer(args.max_results, DEFAULT_GROUPS, 1, MAX_GROUPS) : integer(args.max_results, DEFAULT_GREP_RESULTS, 1, MAX_GREP_RESULTS), groupBy ? 0 : integer(args.context_lines, 0, 0, 5), caseSensitive, ...scope]);
   }
   if (name === TOOL_NAMES.read) return JSON.stringify([name, id, ...requestedLines(args)]);
+  if (name === TOOL_NAMES.aggregate) {
+    try {
+      return JSON.stringify([name, id, aggregateRequest(args)]);
+    } catch {
+      return undefined;
+    }
+  }
   if (name === TOOL_NAMES.overview) return JSON.stringify([name, id]);
   return undefined;
 }
@@ -460,6 +530,10 @@ export function toolResultSummary(label: string, result: ToolResult): string {
     return ` — ${result.total_matching_lines.toLocaleString("en-US")} ${plural(result.total_matching_lines, "matching line")}${groups}`;
   }
   if (Array.isArray(result.passages)) return ` — ${result.passages.length} ${plural(result.passages.length, "passage")}`;
+  if (typeof result.rows_matched === "number") {
+    const groups = typeof result.total_groups === "number" ? `, ${result.total_groups.toLocaleString("en-US")} ${plural(result.total_groups, "group")}` : "";
+    return ` — ${result.rows_matched.toLocaleString("en-US")} ${plural(result.rows_matched, "row")}${groups}`;
+  }
   if (typeof result.parts_read === "number") {
     const incomplete = result.notes_only ? ", notes only" : result.notes_cut_short || result.answer_cut_short ? ", incomplete" : "";
     return ` — ${result.parts_read} ${plural(result.parts_read, "part")}, ${String(result.parts_with_relevant_content ?? 0)} relevant${incomplete}`;
@@ -527,6 +601,11 @@ export function createDocumentTools(options: {
   viewableIds?: string[];
   /** Loads the uploaded file of a document, for `view_pages`. */
   loadOriginal?(documentId: string): Promise<Uint8Array | undefined>;
+  /**
+   * True when a document may hold a table (a CSV, a workbook, a document with `| cell |` rows):
+   * `aggregate_table` is then declared. A call of it is answered either way. Defaults to false.
+   */
+  tables?: boolean;
 }): ToolSet {
   const allowed = new Set(options.documentIds);
   const viewable = new Set(options.loadOriginal ? options.viewableIds ?? [] : []);
@@ -534,10 +613,12 @@ export function createDocumentTools(options: {
   // The text tools are left out only when there are pages to look at and no document to search.
   const textTools = allowed.size > 0 || viewable.size === 0;
   const declarations = [
-    ...(textTools ? [DECLARATIONS.search, DECLARATIONS.read, DECLARATIONS.overview, ...(options.generate && options.wholeReads !== false ? [DECLARATIONS.analyze] : [])] : []),
+    ...(textTools ? [DECLARATIONS.search, DECLARATIONS.read, DECLARATIONS.overview, ...(options.tables ? [DECLARATIONS.aggregate] : []), ...(options.generate && options.wholeReads !== false ? [DECLARATIONS.analyze] : [])] : []),
     ...(viewable.size > 0 ? [DECLARATIONS.view] : []),
   ];
   const known = new Set(declarations.map((declaration) => declaration.name));
+  // Answered for any document, declared or not: a model may know the tool from earlier in the conversation.
+  if (textTools) known.add(TOOL_NAMES.aggregate);
   // Not declared for files that are all too large for it, but still answered: with the reason, not "unknown tool".
   if (textTools && options.generate) known.add(TOOL_NAMES.analyze);
   const cap = options.budget.toolResultCharacters;
@@ -733,6 +814,36 @@ export function createDocumentTools(options: {
       }, "outline", limit);
     },
 
+    async [TOOL_NAMES.aggregate](args, limits) {
+      const limit = limitOf(limits);
+      const document = await documentFor(args);
+      const request = aggregateRequest(args);
+      const result = await aggregateTable(document, request, options.signal);
+      const groups = result.groups.map((group) => ({
+        ...(Object.keys(group.key).length > 0 ? { group: group.key } : {}),
+        ...group.values,
+        ...(group.values.count === undefined ? { rows: group.count } : {}),
+        lines: group.lines,
+      }));
+      const shownColumns = result.columns.slice(0, 60);
+      const base = {
+        document: document.meta.name,
+        table: result.table,
+        ...(result.tables > 1 ? { tables_in_file: result.tables } : {}),
+        header_line: result.headerLine,
+        columns: result.columns.length > shownColumns.length ? [...shownColumns, `… ${result.columns.length - shownColumns.length} more`] : shownColumns,
+        rows_read: result.rowsRead,
+        rows_matched: result.rowsMatched,
+        ...(result.totalGroups > 1 || (request.groupBy?.length ?? 0) > 0 ? { total_groups: result.totalGroups } : {}),
+        ...(result.otherRows > 0 ? { other_rows: result.otherRows, other_note: `Rows of groups past the first ${MAX_GROUP_KEYS.toLocaleString("en-US")} found.` } : {}),
+        ...(Object.keys(result.notNumbers).length > 0 ? { values_not_numbers: result.notNumbers, values_note: "Cells of these columns that are not numbers were left out of the metric." } : {}),
+      };
+      const note = groups.length < result.totalGroups
+        ? { note: `${groups.length} of the ${result.totalGroups} groups are shown, ${request.orderBy === "key" ? "in the order of their values" : "the largest first"}. Raise limit, or filter, for the others.` }
+        : {};
+      return fit({ ...base, ...note, groups }, "groups", limit);
+    },
+
     async [TOOL_NAMES.analyze](args, limits, hooks) {
       if (!options.generate) throw new Error("Whole-document analysis is not enabled.");
       const document = await documentFor(args);
@@ -895,6 +1006,20 @@ export function createDocumentTools(options: {
         return `Read ${file} lines ${start}${end}`;
       }
       if (name === TOOL_NAMES.overview) return `Overview of ${file}`;
+      if (name === TOOL_NAMES.aggregate) {
+        const request = (() => {
+          try {
+            return aggregateRequest(args);
+          } catch {
+            return {} as AggregateRequest;
+          }
+        })();
+        const metrics = (request.metrics?.length ? request.metrics : ["count"]).join(", ");
+        const by = request.groupBy?.length ? ` by ${request.groupBy.join(", ")}` : "";
+        const where = request.filters?.length ? ` where ${request.filters.map((filter) => `${filter.column} ${filter.op}${filter.value !== undefined && filter.value !== "" ? ` ${filter.value}` : ""}`).join(" and ")}` : "";
+        const table = request.table !== undefined && request.table !== "" ? ` (${typeof request.table === "number" ? `table ${request.table}` : request.table})` : "";
+        return sliceWhole(`Aggregate ${file}${table}: ${metrics}${by}${where}`, 200);
+      }
       if (name === TOOL_NAMES.analyze) return `Read all of ${file} for “${sliceWhole(String(args.task ?? ""), 100)}”`;
       return name;
     },

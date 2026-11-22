@@ -1,5 +1,8 @@
 import { plural, sliceWhole, wellFormed } from "./text.js";
-import type { Budget, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.js";
+import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.js";
+
+/** Formats whose documents may hold a table that `aggregate_table` reads. */
+export const TABLE_FORMATS: ReadonlySet<DocumentFormat> = new Set<DocumentFormat>(["csv", "xlsx", "docx", "pptx", "pdf", "html", "markdown"]);
 
 /** Bytes kept free for document cards, the tool declarations, and JSON framing. */
 export const REQUEST_BYTES_MARGIN = 256 * 1024;
@@ -199,6 +202,7 @@ export function documentToolsInstruction(searchable: DocumentMeta[], viewable: D
       "- To count or list what can be matched as text (a word, an ID, an error code, a log level, a pattern), use search_document in exact or regex mode: its total_matching_lines is exact.",
       "- To count per group (per hour or day, per error code or ID with a regex group, per message shape), pass group_by: one call gives every count. For more matches than a result shows, search again from its next_from_line, or with order \"last\" for the last ones.",
       "- Search for the bare form of a word: a search matches inside longer words, so \"timeout\" also finds \"timeouts\", and a Hebrew word without its prefix letters (חוזה, not בחוזה) finds every form of it.",
+      ...(searchable.some((meta) => TABLE_FORMATS.has(meta.format)) ? ["- To add up, average, count or group the rows of a table (a CSV, an Excel sheet, a | cell | table), use aggregate_table: it reads every row, and its numbers are exact. Do not add numbers up from rows you read."] : []),
       "- read_document reads a line range. Read around search hits before you rely on them.",
       "- get_document_overview returns the outline, log profile, and the start and end of a file.",
       ...(wholeReads ? ["- analyze_whole_document reads the entire file in parts. Use it only when the task needs all of the file and cannot be done by matching text: a full summary, a timeline, or items that must be judged by meaning. It is slow and costly, and it can miss items of a long list."] : []),

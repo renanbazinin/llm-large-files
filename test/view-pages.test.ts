@@ -63,7 +63,9 @@ async function withPdf(bytes: Uint8Array, name = "report.pdf") {
 }
 
 const names = (tools: { declarations: Array<{ name: string }> }) => tools.declarations.map((declaration) => declaration.name);
-const TEXT_TOOLS = ["search_document", "read_document", "get_document_overview"];
+const BASE_TOOLS = ["search_document", "read_document", "get_document_overview"];
+// A PDF may hold tables: aggregate_table is offered for it.
+const TEXT_TOOLS = [...BASE_TOOLS, "aggregate_table"];
 
 // ---------- When the tool is on offer ----------
 
@@ -100,7 +102,7 @@ describe("view_pages: when it is declared", () => {
     expect((await viewOnly.executeWithFiles("view_pages", { document_id: report.id, from_page: 1 })).files).toHaveLength(1);
     // A searched log next to it: the text tools are for the log, the pages for the PDF.
     const both = files.tools([log], { viewPages: [report], generate: async () => "" });
-    expect(names(both)).toEqual([...TEXT_TOOLS, "analyze_whole_document", "view_pages"]);
+    expect(names(both)).toEqual([...BASE_TOOLS, "analyze_whole_document", "view_pages"]);
     expect(await both.execute("search_document", { document_id: report.id, query: "Page" })).toEqual({ error: expect.stringContaining("Unknown document_id") });
     expect((await both.executeWithFiles("view_pages", { document_id: log.id, from_page: 1 })).result).toEqual({ error: "The pages of app.log cannot be shown: only its text was kept. Answer from the text." });
   });
@@ -120,7 +122,7 @@ describe("view_pages: when it is declared", () => {
     expect(names(files.tools([{ ...meta, originalKept: true }], { viewPages: true }))).toEqual(TEXT_TOOLS);
     // The same one level down: a list of PDFs to show is worth nothing without a way to load them.
     const direct = createDocumentTools({ load: async () => undefined, documentIds: [meta.id], viewableIds: [meta.id], budget: files.budget });
-    expect(names(direct)).toEqual(TEXT_TOOLS);
+    expect(names(direct)).toEqual(BASE_TOOLS);
     expect(await direct.executeWithFiles("view_pages", { document_id: meta.id, from_page: 1 })).toEqual({ result: { error: "Unknown tool “view_pages”." }, files: [] });
   });
 });
