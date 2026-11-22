@@ -349,7 +349,7 @@ export async function openRangedDocument(
     if (!index) return undefined;
     // An index that disagrees with the metadata describes a text that is not what was ingested.
     // It is used, since it is what the store holds, but not saved.
-    if (store.putIndex && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters) {
+    if (store.putIndex && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && (meta.textBytes === undefined || index.textBytes === meta.textBytes)) {
       await store.putIndex(meta.id, serializeTextIndex(index)).catch(() => undefined);
     }
   }

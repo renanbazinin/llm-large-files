@@ -1,4 +1,5 @@
 import { LEGACY_OFFICE } from "./decode.js";
+import { importPeer } from "./peers.js";
 import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 import { MAX_LINE_CHARACTERS, sliceWhole } from "./text.js";
@@ -809,12 +810,7 @@ const MAX_ZIP_EXTRA_FIELDS = 4 * MAX_ZIP_ENTRIES;
 const MAX_ZIP_TEXT_BYTES = 8 * 1024 * 1024;
 
 export async function loadZip(bytes: Uint8Array, kind: OfficeKind): Promise<ZipArchive> {
-  let JSZip: { loadAsync(data: Uint8Array): Promise<ZipArchive> };
-  try {
-    JSZip = (await import("jszip")).default as unknown as typeof JSZip;
-  } catch {
-    throw new Error("Reading DOCX, PPTX and XLSX files needs the optional dependency \"jszip\".");
-  }
+  const JSZip = (await importPeer("jszip", () => import("jszip"), "Reading DOCX, PPTX and XLSX files needs the optional dependency \"jszip\".")).default as unknown as { loadAsync(data: Uint8Array): Promise<ZipArchive> };
   // The directory is read first, as JSZip will read it: the count of parts it gives may say
   // anything.
   const directory = readZipDirectory(bytes, { parts: MAX_ZIP_ENTRIES, extraFields: MAX_ZIP_EXTRA_FIELDS, textBytes: MAX_ZIP_TEXT_BYTES });

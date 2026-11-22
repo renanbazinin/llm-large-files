@@ -124,7 +124,7 @@ export class IngestError extends Error {
 const REFUSALS: Array<[RegExp, IngestErrorCode]> = [
   [/ is empty\.$/, "empty"],
   [/larger than the .* upload limit/, "too_large"],
-  [/needs the optional dependency/, "missing_dependency"],
+  [/needs the optional dependency|is installed but could not be loaded/, "missing_dependency"],
   [/needed more memory than/, "out_of_memory"],
   [/took too long to read|took longer than/, "timeout"],
   [/may be built to exhaust the server|may be a zip bomb|cannot be checked before it is read|lists the same page more than once|far longer than any Office file writes/, "hostile"],

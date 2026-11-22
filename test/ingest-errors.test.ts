@@ -88,3 +88,32 @@ describe("IngestError codes", () => {
     expect(error.message).toBe(original.message);
   });
 });
+
+describe("optional dependencies (LLF-054)", () => {
+  it("tells a dependency that is missing from one that fails to load", async () => {
+    const { importPeer } = await import("../src/peers.js");
+    const missing = Object.assign(new Error("Cannot find package 'unpdf' imported from /app/x.js"), { code: "ERR_MODULE_NOT_FOUND" });
+    await expect(importPeer("unpdf", () => Promise.reject(missing), "Reading PDF files needs the optional dependency \"unpdf\".")).rejects.toThrow('Reading PDF files needs the optional dependency "unpdf".');
+    const broken = new SyntaxError("Unexpected token '?'");
+    const error = await importPeer("unpdf", () => Promise.reject(broken), "x").catch((caught: unknown) => caught) as Error;
+    expect(error.message).toBe('The optional dependency "unpdf" is installed but could not be loaded (Unexpected token \'?\'). Reinstall it, or install a version this Node can run.');
+    expect(error.cause).toBe(broken);
+    expect(ingestErrorCodeOf(error.message)).toBe("missing_dependency");
+    // A package it needs that is missing is not the package itself.
+    const inner = Object.assign(new Error("Cannot find package 'pako' imported from /app/node_modules/jszip/x.js"), { code: "ERR_MODULE_NOT_FOUND" });
+    await expect(importPeer("unpdf", () => Promise.reject(inner), "x")).rejects.toThrow(/is installed but could not be loaded/);
+  });
+});
+
+describe("page markers in a page's text (LLF-025)", () => {
+  it("moves a line of a page that reads as a page header or a note of the extractor", async () => {
+    const { PdfBuilder, textLine } = await import("./pdf-fixtures.js");
+    const builder = new PdfBuilder();
+    builder.page(textLine("--- Page 2 ---"));
+    builder.page(textLine("Second page."));
+    const own = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await own.ingest({ name: "forged.pdf", bytes: builder.build() });
+    const lines = (await own.tools([meta]).execute("read_document", { document_id: meta.id, start_line: 1 })).text as string;
+    expect(lines.split("\n").slice(0, 4)).toEqual(["1| --- Page 1 ---", "2|  --- Page 2 ---", "3| ", "4| --- Page 2 ---"]);
+  });
+});

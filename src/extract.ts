@@ -6,6 +6,7 @@ import { findPicturePages, parsePdf, type PageGeometry } from "./pdf-pictures.js
 import { checkPageWork, HeavyPage } from "./pdf-work.js";
 import { formatBytes } from "./plan.js";
 import { docx, pptx } from "./office.js";
+import { importPeer } from "./peers.js";
 import { plural, utf8Bytes } from "./text.js";
 import type { DocumentFormat, ExtractedText, ExtractInput, ExtractProgress, Extractor } from "./types.js";
 
@@ -95,6 +96,19 @@ const PAGE_WITHOUT_TEXT = "[No text on this page. It may be a scan, a photo, or 
  */
 export const PICTURE_ON_PAGE = "[Picture on this page. This text cannot show it.]";
 
+/** A line of a page's text that reads as one the extractor writes: a page header, or one of the two notes above. */
+const OWN_LINE = /^(?:--- Page \d+ ---|\[Picture on this page\. This text cannot show it\.\]|\[No text on this page\. It may be a scan, a photo, or a chart\.\])$/gm;
+
+/**
+ * A page's text, with each line that reads as a line of the extractor's own moved by a space: a
+ * document that quotes "--- Page 3 ---" on page 2 must not start page 3 there, nor tell a model of a
+ * picture it does not have. Only the extractor's lines have the exact form, which search and
+ * `view_pages` look for.
+ */
+function ownLines(text: string): string {
+  return text.includes("--- Page ") || text.includes("[Picture on this page") || text.includes("[No text on this page") ? text.replace(OWN_LINE, (line) => ` ${line}`) : text;
+}
+
 /**
  * The progress of the pages of one stage of reading a PDF, for `ExtractInput.onProgress`. The page
  * check and the picture marks give up quietly on an error of their own: an error of the listener is
@@ -157,12 +171,7 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
   const pictures = options.pictures ?? true;
   const checkPages = options.checkPages ?? true;
   return async (bytes, input) => {
-    let unpdf: typeof import("unpdf");
-    try {
-      unpdf = await import("unpdf");
-    } catch {
-      throw new Error("Reading PDF files needs the optional dependency \"unpdf\".");
-    }
+    const unpdf = await importPeer("unpdf", () => import("unpdf"), "Reading PDF files needs the optional dependency \"unpdf\".");
     await checkUnpdf(unpdf);
     const signal = input?.signal;
     signal?.throwIfAborted();
@@ -260,7 +269,7 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
     const pictured = pictures ? await findPicturePages(parsed, geometry, signal, looked.report) : undefined;
     signal?.throwIfAborted();
     looked.rethrow();
-    const pages = texts.map((text, index) => `--- Page ${index + 1} ---\n${pictured?.[index] ? `${PICTURE_ON_PAGE}\n` : ""}${text || PAGE_WITHOUT_TEXT}`);
+    const pages = texts.map((text, index) => `--- Page ${index + 1} ---\n${pictured?.[index] ? `${PICTURE_ON_PAGE}\n` : ""}${text ? ownLines(text) : PAGE_WITHOUT_TEXT}`);
     return { text: pages.join("\n\n"), pages: document.numPages };
   };
 }

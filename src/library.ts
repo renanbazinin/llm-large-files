@@ -730,7 +730,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       // Never, for a time to live without end (or one that runs past what a date can hold).
       expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
     };
-    const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters
+    const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && index.textBytes === meta.textBytes
       ? serializeTextIndex(index)
       : undefined;
     // Each write is reported once done. What the listener of the events throws is not the store's failure.

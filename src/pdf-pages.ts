@@ -9,6 +9,7 @@
  * - a wanted page gets its own resource dictionary, without the images it does not paint.
  */
 import { getHeapStatistics } from "node:v8";
+import { importPeer } from "./peers.js";
 import type { PDFContext, PDFDict, PDFObject, PDFObjectCopier, PDFPage, PDFPageLeaf, PDFRef } from "@cantoo/pdf-lib";
 import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
@@ -208,11 +209,7 @@ export function latin1(bytes: Uint8Array): string {
 }
 
 export async function loadPdfLibrary(): Promise<PdfLibrary> {
-  try {
-    return await import("@cantoo/pdf-lib");
-  } catch {
-    throw new Error("Showing PDF pages needs the optional dependency \"@cantoo/pdf-lib\".");
-  }
+  return importPeer("@cantoo/pdf-lib", () => import("@cantoo/pdf-lib"), "Showing PDF pages needs the optional dependency \"@cantoo/pdf-lib\".");
 }
 
 /**

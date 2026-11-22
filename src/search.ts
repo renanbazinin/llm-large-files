@@ -164,15 +164,6 @@ export class SearchableDocument implements DocumentSource {
     return this.passages;
   }
 
-  passageRange(index: number): { from: number; to: number } {
-    const starts = this.passages;
-    return { from: starts[index]!, to: (starts[index + 1] ?? this.lines.lineCount + 1) - 1 };
-  }
-
-  passageOfLine(line: number): number {
-    return positionOf(this.passages, line) - 1;
-  }
-
   /**
    * The page a line is on, from the "--- Page N ---" lines the PDF extractor writes. Undefined for
    * a text without them, and for lines above the first one. Only markers that count up from 1 are
