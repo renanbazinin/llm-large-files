@@ -1,7 +1,7 @@
 // What a question or an ingest does while it runs, as typed data in order. The callbacks of
 // earlier versions (onText, onActivity, onStep) still get the same strings, at the same moments.
 import type { AskResult } from "./ask.js";
-import { DocumentStoreError } from "./errors.js";
+import { DocumentStoreError, IngestError, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
 import type { ModelErrorKind, ModelReply, ModelUsage, ToolTurn } from "./model.js";
@@ -41,6 +41,11 @@ export type EventError = {
   status?: number;
   /** The error's class name: "ModelRequestError", "AbortError", "DocumentsNotFoundError"… */
   name?: string;
+  /**
+   * For a file `ingest` could not read: why, as `IngestError.code` ("too_large", "no_text",
+   * "busy"…), so a page can say it in its own words. New in 0.8.0.
+   */
+  code?: IngestErrorCode;
 };
 
 /**
@@ -299,6 +304,10 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
   // It never throws: an error whose fields throw when read (a getter, a proxy) is told plainly.
   try {
     const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown };
+    if (error instanceof IngestError) {
+      // Its status is the upload's answer, not a model's.
+      return { message: message ?? error.message, name: error.name, code: error.code, ...(error.code === "busy" || error.code === "too_large" ? { status: error.status } : {}) };
+    }
     const out: EventError = { message: message ?? userMessageOf(error) };
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
     if (typeof record.status === "number") out.status = record.status;

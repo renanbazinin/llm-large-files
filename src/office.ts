@@ -1,3 +1,4 @@
+import { LEGACY_OFFICE } from "./decode.js";
 import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 import { MAX_LINE_CHARACTERS, sliceWhole } from "./text.js";
@@ -830,6 +831,16 @@ export async function loadZip(bytes: Uint8Array, kind: OfficeKind): Promise<ZipA
   return JSZip.loadAsync(bytes);
 }
 
+/**
+ * Opens an Office file, or refuses it in words for its user: an Office file of before 2007, or one
+ * protected by a password, is not a ZIP archive but a compound file, and JSZip says only that it
+ * found no ZIP in it.
+ */
+export async function openOffice(bytes: Uint8Array, kind: OfficeKind): Promise<ZipArchive> {
+  if (bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0) throw new Error(LEGACY_OFFICE);
+  return loadZip(bytes, kind);
+}
+
 /** The parts of a DOCX read after the document itself, in this order, each under a heading of its own. */
 const WORD_SECTIONS: Array<{ part: RegExp; title: string }> = [
   { part: /^word\/footnotes\.xml$/i, title: "Footnotes" },
@@ -850,7 +861,7 @@ const partNumber = (name: string) => Number(/(\d+)\.xml$/i.exec(name)?.[1] ?? 0)
  */
 export const docx: Extractor = async (bytes, input) => {
   input?.signal?.throwIfAborted();
-  const archive = await loadZip(bytes, "DOCX");
+  const archive = await openOffice(bytes, "DOCX");
   input?.signal?.throwIfAborted();
   if (!archive.file("word/document.xml")) throw new Error("This DOCX does not contain word/document.xml.");
   const parts = Object.keys(archive.files);
@@ -918,7 +929,7 @@ async function notesOf(read: OfficeParts, slide: string): Promise<string | undef
  */
 export const pptx: Extractor = async (bytes, input) => {
   input?.signal?.throwIfAborted();
-  const archive = await loadZip(bytes, "PPTX");
+  const archive = await openOffice(bytes, "PPTX");
   input?.signal?.throwIfAborted();
   const read = officeReader(archive, "PPTX", bytes.byteLength, input);
   const names = await slideOrder(read, Object.keys(archive.files));

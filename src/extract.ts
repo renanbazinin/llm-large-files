@@ -167,7 +167,15 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
     const signal = input?.signal;
     signal?.throwIfAborted();
     // pdf.js may detach the buffer it reads, so give it a copy.
-    const document = await unpdf.getDocumentProxy(new Uint8Array(bytes));
+    let document: Awaited<ReturnType<typeof unpdf.getDocumentProxy>>;
+    try {
+      document = await unpdf.getDocumentProxy(new Uint8Array(bytes));
+    } catch (error) {
+      if ((error as { name?: unknown } | null)?.name === "PasswordException") {
+        throw new Error("This PDF is protected by a password, so it cannot be read. Open it, print it to a new PDF without the password, and attach that.", { cause: error });
+      }
+      throw error;
+    }
     const maxPages = input?.maxPages;
     if (maxPages !== undefined && document.numPages > maxPages) {
       throw new Error(`This PDF has ${document.numPages.toLocaleString("en-US")} pages, more than the ${maxPages.toLocaleString("en-US")} read from one file. Split it, and attach the part you need.`);

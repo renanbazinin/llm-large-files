@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
-import { DocumentStoreError, noteStoreWriteFailure } from "./errors.js";
+import { DocumentStoreError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type IngestEvent, type IngestStage } from "./events.js";
 import { detectFormat, extractText } from "./extract.js";
 import { Limiter } from "./limiter.js";
@@ -779,7 +779,17 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
     async ingest(input) {
       // The events first, so that every ingest that throws, even on what it was given, ends with ingest.error.
-      const events = new EventEmitter<IngestEvent>(input?.runId ?? newRunId("ing"), input?.onEvent);
+      // What the caller's listener throws is passed on as it is, not told as a file that could not be read.
+      let listenerFailure: { error: unknown } | undefined;
+      const listener = input?.onEvent;
+      const events = new EventEmitter<IngestEvent>(input?.runId ?? newRunId("ing"), listener && ((event: IngestEvent) => {
+        try {
+          listener(event);
+        } catch (error) {
+          listenerFailure ??= { error };
+          throw error;
+        }
+      }));
       let storeFailed = false;
       try {
         if (events.active) events.emit({ type: "ingest.start", ...startOf(input) });
@@ -789,7 +799,15 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const format = detectFormat(name, mimeType);
         // Progress is worked out only for someone who listens.
         const progress = events.active ? new IngestProgress(events) : undefined;
-        const meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true));
+        let meta: DocumentMeta;
+        try {
+          meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true));
+        } catch (error) {
+          // A store that failed, and a caller that gave up (its own reason), are passed on as they
+          // are; a file that could not be read is told with a code.
+          if (storeFailed || (input.signal?.aborted && error === input.signal.reason) || isStoreWriteFailure(error) || (listenerFailure && error === listenerFailure.error)) throw error;
+          throw toIngestError(error);
+        }
         try {
           events.emit({ type: "ingest.finish", document: toDocumentSummary(meta) });
         } catch (error) {

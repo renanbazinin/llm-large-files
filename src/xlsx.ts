@@ -1,4 +1,4 @@
-import { loadZip, officeReader, type OfficeParts } from "./office.js";
+import { officeReader, openOffice, type OfficeParts } from "./office.js";
 import type { Extractor } from "./types.js";
 import { readRelationships, readXml, XmlStream, type XmlAttributes } from "./xml-stream.js";
 
@@ -302,7 +302,7 @@ function sheetReader(workbook: Workbook, strings: string[], line: (text: string)
 
 export const xlsx: Extractor = async (bytes, input) => {
   input?.signal?.throwIfAborted();
-  const archive = await loadZip(bytes, "XLSX");
+  const archive = await openOffice(bytes, "XLSX");
   input?.signal?.throwIfAborted();
   const read = officeReader(archive, "XLSX", bytes.byteLength, input);
   const parts = new Set(Object.keys(archive.files));

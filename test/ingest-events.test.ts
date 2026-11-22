@@ -150,7 +150,7 @@ describe("ingest events", () => {
     await expect(files.ingest({ name: "app.log.gz", bytes: gzipSync(encoder.encode("hello")), onEvent: record.onEvent })).rejects.toThrow(/gzip/);
     expectWellFormed(record.events);
     expect(record.events.map((event) => event.type)).toEqual(["ingest.start", "ingest.error"]);
-    expect(record.events.at(-1)).toMatchObject({ error: { message: expect.stringMatching(/gzip-compressed/), name: "Error" } });
+    expect(record.events.at(-1)).toMatchObject({ error: { message: expect.stringMatching(/gzip-compressed/), name: "IngestError", code: "compressed" } });
 
     const empty = recorder();
     await expect(files.ingest({ name: "empty.txt", bytes: new Uint8Array(0), onEvent: empty.onEvent })).rejects.toThrow(/empty/);

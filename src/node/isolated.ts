@@ -1,0 +1,335 @@
+import { fork, type ChildProcess } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { IngestError } from "../errors.js";
+import type { PdfExtractorOptions } from "../extract.js";
+import type { DocumentFormat, ExtractedText, ExtractInput, Extractor } from "../types.js";
+import type { ChildJob, ChildMessage } from "./ingest-child.js";
+
+export type IsolatedExtractorOptions = {
+  /**
+   * The heap of each child process, in MB: a file that needs more is refused ("out_of_memory"),
+   * and the server goes on. Defaults to 512. The server's own `NODE_OPTIONS` are not passed to the
+   * children: a heap flag there would replace this one.
+   */
+  maxHeapMb?: number;
+  /**
+   * The most time one file may take, in milliseconds: past it, its child process is killed and the
+   * file refused ("timeout"). Defaults to 120,000. 0 sets none. `ingestTimeoutMs` of the library
+   * stops a file too; this one holds even for a page that pdf.js reads in one block.
+   */
+  timeoutMs?: number;
+  /** How many files are read at once, each in a child process of its own. Defaults to 2. */
+  concurrency?: number;
+  /**
+   * How many files may wait for a child process. Past it, a file is refused at once with
+   * `IngestError` "busy" (`retryAfterMs`), which the upload handler answers with 503 and
+   * `Retry-After`. Defaults to 8.
+   */
+  maxQueue?: number;
+  /**
+   * The formats read in child processes. Defaults to the ones whose parsers a hostile file can
+   * exhaust: "pdf", "docx", "pptx" and "xlsx". Text formats are read in the server, in slices.
+   */
+  formats?: DocumentFormat[];
+  /** Options of the built-in PDF extractor in the children (see `createPdfExtractor`). */
+  pdf?: PdfExtractorOptions;
+  /**
+   * How many files one child process reads before it is replaced by a new one. Defaults to 50.
+   * Some parsers keep memory for the life of their process (pdf-lib keeps every name it reads).
+   */
+  maxFilesPerChild?: number;
+  /** A child process with nothing to read is stopped after this many milliseconds. Defaults to 30,000. */
+  idleMs?: number;
+  /** Further Node options for the children, beside the heap limit. */
+  execArgv?: string[];
+  /** The script the children run. Defaults to the one shipped next to this module. For a bundler that moves files. */
+  childScript?: string | URL;
+};
+
+export type IsolatedExtractors = {
+  /** Pass them to `createLargeFiles({ extractors })`. */
+  extractors: Partial<Record<DocumentFormat, Extractor>>;
+  /** Files being read, files waiting, and child processes running: for a health check or a metric. */
+  stats(): { running: number; queued: number; children: number };
+  /** Stops every child process, and refuses the files waiting. Files sent later start new ones. */
+  close(): Promise<void>;
+};
+
+/** What the out-of-memory death of a child process writes on its standard error. */
+const OUT_OF_MEMORY = /heap out of memory|Reached heap limit|allocation failed/i;
+/** The last characters kept of a child's standard error, to tell why it died. */
+const STDERR_KEPT = 4_096;
+/** How long to wait before trying again, when every reader is busy. */
+const BUSY_RETRY_MS = 5_000;
+
+const DEFAULT_FORMATS: DocumentFormat[] = ["pdf", "docx", "pptx", "xlsx"];
+
+type Job = {
+  id: number;
+  bytes: Uint8Array;
+  input: ExtractInput;
+  resolve(result: ExtractedText): void;
+  reject(error: unknown): void;
+  /** Takes the job out of the queue when its caller gives up while it waits. */
+  cancel?: () => void;
+};
+
+type Child = {
+  process: ChildProcess;
+  ready: Promise<void>;
+  job: Job | undefined;
+  files: number;
+  stderr: string;
+  idle: ReturnType<typeof setTimeout> | undefined;
+  /** Set when this module killed it, and why. */
+  killedFor?: unknown;
+};
+
+function positive(name: string, value: number | undefined, fallback: number, zeroAllowed = false): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || Number.isNaN(value) || value < 0 || (!zeroAllowed && value === 0)) {
+    throw new RangeError(`${name} must be a number above ${zeroAllowed ? "or equal to " : ""}0, and is ${String(value)}.`);
+  }
+  return value;
+}
+
+const formatDuration = (ms: number) => (ms >= 60_000 && ms % 60_000 === 0 ? `${ms / 60_000} ${ms === 60_000 ? "minute" : "minutes"}` : `${Math.round(ms / 1_000)} seconds`);
+
+/**
+ * Extractors that read files in child processes, each with a heap limit and a kill timer, so that
+ * a hostile upload (a zip bomb, a PDF that draws gigabytes) is refused while the server goes on:
+ * a worker thread does not reliably contain running out of memory, a process does. At most
+ * `concurrency` files are read at once, and at most `maxQueue` wait; past that a file is refused
+ * as "busy". Use them in place of the built-in extractors for files from users:
+ *
+ * ```ts
+ * const isolated = createIsolatedExtractors({ maxHeapMb: 512, concurrency: 2 });
+ * const files = createLargeFiles({ store, extractors: isolated.extractors });
+ * process.on("SIGTERM", () => isolated.close());
+ * ```
+ *
+ * A file costs its bytes copied to the child and its text copied back. The children load the same
+ * optional dependencies (`unpdf`, `jszip`, `@cantoo/pdf-lib`) the server would.
+ */
+export function createIsolatedExtractors(options: IsolatedExtractorOptions = {}): IsolatedExtractors {
+  const maxHeapMb = Math.trunc(positive("maxHeapMb", options.maxHeapMb, 512));
+  const timeoutMs = positive("timeoutMs", options.timeoutMs, 120_000, true);
+  const concurrency = Math.max(1, Math.trunc(positive("concurrency", options.concurrency, 2)));
+  const maxQueue = Math.trunc(positive("maxQueue", options.maxQueue, 8, true));
+  const maxFiles = Math.max(1, Math.trunc(positive("maxFilesPerChild", options.maxFilesPerChild, 50)));
+  const idleMs = positive("idleMs", options.idleMs, 30_000, true);
+  const script = options.childScript ?? new URL("./ingest-child.js", import.meta.url);
+  const scriptPath = script instanceof URL ? fileURLToPath(script) : script;
+  const children: Child[] = [];
+  const queue: Job[] = [];
+  let nextId = 1;
+  let closed = false;
+
+  const environment = () => {
+    const env = { ...process.env };
+    delete env.NODE_OPTIONS;
+    return env;
+  };
+
+  function spawn(): Child {
+    const child = fork(scriptPath, [], {
+      execArgv: [`--max-old-space-size=${maxHeapMb}`, ...(options.execArgv ?? [])],
+      env: environment(),
+      serialization: "advanced",
+      stdio: ["ignore", "ignore", "pipe", "ipc"],
+    });
+    let markReady: () => void = () => undefined;
+    const entry: Child = { process: child, ready: new Promise((resolve) => (markReady = resolve)), job: undefined, files: 0, stderr: "", idle: undefined };
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      entry.stderr = (entry.stderr + chunk).slice(-STDERR_KEPT);
+    });
+    child.on("message", (message: ChildMessage) => {
+      if (message.type === "ready") {
+        markReady();
+        return;
+      }
+      const job = entry.job;
+      if (!job || message.id !== job.id) return;
+      if (message.type === "progress") {
+        try {
+          job.input.onProgress?.(message.progress);
+        } catch (error) {
+          finish(entry, () => job.reject(error), true);
+        }
+        return;
+      }
+      finish(entry, () => (message.type === "done" ? job.resolve(message.result) : job.reject(new Error(message.message))));
+    });
+    child.on("exit", (code, signal) => {
+      clearTimeout(entry.idle);
+      const index = children.indexOf(entry);
+      if (index !== -1) children.splice(index, 1);
+      markReady();
+      const job = entry.job;
+      entry.job = undefined;
+      if (job) job.reject(entry.killedFor ?? deathOf(entry, job, code, signal));
+      pump();
+    });
+    child.on("error", () => {
+      // A child that cannot start ends with "exit" too, which refuses its file.
+    });
+    children.push(entry);
+    return entry;
+  }
+
+  /** Why a child process died while it read a file. */
+  function deathOf(entry: Child, job: Job, code: number | null, signal: NodeJS.Signals | null): IngestError {
+    if (OUT_OF_MEMORY.test(entry.stderr) || signal === "SIGABRT" || code === 134) {
+      return new IngestError("out_of_memory", `${job.input.name} needed more memory than is allowed for reading one file (${maxHeapMb} MB). It may be built to exhaust the server, so it is not read. Split it, or save it as plain text, and attach that.`);
+    }
+    return new IngestError("unreadable", `${job.input.name} could not be read: its reader stopped (${signal ?? `exit code ${code}`}).`);
+  }
+
+  /** Ends the job of a child: settles it, and gives the child the next job, or replaces it. */
+  function finish(entry: Child, settle: () => void, kill = false): void {
+    const job = entry.job;
+    if (!job) return;
+    entry.job = undefined;
+    job.cancel?.();
+    entry.process.channel?.unref();
+    settle();
+    if (kill || entry.files >= maxFiles) stop(entry);
+    pump();
+  }
+
+  /** Kills a child. `reason`: what its job, if it has one, is refused with. */
+  function stop(entry: Child, reason?: unknown): void {
+    if (reason !== undefined) entry.killedFor = reason;
+    const index = children.indexOf(entry);
+    if (index !== -1) children.splice(index, 1);
+    clearTimeout(entry.idle);
+    entry.process.kill("SIGKILL");
+  }
+
+  /** Gives waiting jobs to idle children, starting new ones up to `concurrency`. */
+  function pump(): void {
+    while (queue.length > 0) {
+      let entry = children.find((child) => !child.job);
+      if (!entry) {
+        if (children.length >= concurrency) return;
+        entry = spawn();
+      }
+      const job = queue.shift()!;
+      job.cancel?.();
+      start(entry, job);
+    }
+    for (const child of children) {
+      if (child.job || child.idle || idleMs === 0) continue;
+      child.process.unref();
+      child.idle = setTimeout(() => {
+        child.idle = undefined;
+        if (!child.job) stop(child);
+      }, idleMs);
+      child.idle.unref?.();
+    }
+  }
+
+  function start(entry: Child, job: Job): void {
+    clearTimeout(entry.idle);
+    entry.idle = undefined;
+    entry.job = job;
+    entry.files++;
+    entry.process.ref();
+    entry.process.channel?.ref();
+    const signal = job.input.signal;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => stop(entry, signal!.reason);
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const { resolve, reject } = job;
+    job.resolve = (result) => {
+      cleanup();
+      resolve(result);
+    };
+    job.reject = (error) => {
+      cleanup();
+      reject(error);
+    };
+    if (signal?.aborted) {
+      stop(entry, signal.reason);
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => stop(entry, new IngestError("timeout", `${job.input.name} took too long to read (more than ${formatDuration(timeoutMs)}). Split it, or save it as plain text, and attach that.`)), timeoutMs);
+    }
+    const { name, mimeType, format, scannedPages, maxTextBytes, maxPages } = job.input;
+    const message: ChildJob = {
+      type: "extract",
+      id: job.id,
+      bytes: job.bytes,
+      input: {
+        name, mimeType, format,
+        ...(scannedPages !== undefined ? { scannedPages } : {}),
+        ...(maxTextBytes !== undefined && Number.isFinite(maxTextBytes) ? { maxTextBytes } : {}),
+        ...(maxPages !== undefined ? { maxPages } : {}),
+        progress: typeof job.input.onProgress === "function",
+      },
+      ...(options.pdf ? { pdf: options.pdf } : {}),
+    };
+    entry.ready.then(() => {
+      if (entry.job !== job || !entry.process.connected) return;
+      entry.process.send(message, (error) => {
+        if (error && entry.job === job) stop(entry, new IngestError("unreadable", `${name} could not be read: its reader could not be reached.`, { cause: error }));
+      });
+    }, () => undefined);
+  }
+
+  const extract: Extractor = (bytes, input) => new Promise<ExtractedText>((resolve, reject) => {
+    if (closed) {
+      reject(new IngestError("busy", "The server is shutting down. Try again in a moment.", { retryAfterMs: BUSY_RETRY_MS }));
+      return;
+    }
+    input.signal?.throwIfAborted();
+    const job: Job = { id: nextId++, bytes, input, resolve, reject };
+    const idle = children.some((child) => !child.job) || children.length < concurrency;
+    if (!idle && queue.length >= maxQueue) {
+      reject(new IngestError("busy", "The server is reading other files right now. Try again in a moment.", { retryAfterMs: BUSY_RETRY_MS }));
+      return;
+    }
+    // A caller that gives up while its file waits takes it out of the queue.
+    const signal = input.signal;
+    if (signal) {
+      const onAbort = () => {
+        const index = queue.indexOf(job);
+        if (index !== -1) {
+          queue.splice(index, 1);
+          reject(signal.reason);
+        }
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      job.cancel = () => signal.removeEventListener("abort", onAbort);
+    }
+    queue.push(job);
+    pump();
+  });
+
+  const formats = options.formats ?? DEFAULT_FORMATS;
+  return {
+    extractors: Object.fromEntries(formats.map((format) => [format, extract])) as Partial<Record<DocumentFormat, Extractor>>,
+    stats: () => ({ running: children.filter((child) => child.job).length, queued: queue.length, children: children.length }),
+    async close() {
+      closed = true;
+      const waiting = queue.splice(0);
+      for (const job of waiting) {
+        job.cancel?.();
+        job.reject(new IngestError("busy", "The server is shutting down. Try again in a moment.", { retryAfterMs: BUSY_RETRY_MS }));
+      }
+      const exits = children.map((child) => new Promise<void>((resolve) => {
+        if (child.process.exitCode !== null || child.process.signalCode !== null) resolve();
+        else child.process.once("exit", () => resolve());
+      }));
+      for (const child of [...children]) stop(child, new IngestError("busy", "The server is shutting down. Try again in a moment.", { retryAfterMs: BUSY_RETRY_MS }));
+      await Promise.all(exits);
+      closed = false;
+    },
+  };
+}
