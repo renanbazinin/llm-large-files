@@ -16,5 +16,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Only the tests of this checkout: not those of a worktree or a copy kept inside it.
+    include: ["test/**/*.test.ts"],
   },
 });
