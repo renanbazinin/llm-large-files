@@ -228,15 +228,15 @@ describe("searching part of a file, and the last matches (M3)", () => {
     expect((await tools.execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact", from_line: 50, to_line: 10 })).error).toBe("to_line 10 is before from_line 50.");
   });
 
-  it("shows the last matches and the first with order \"last\", with the lines around them", async () => {
+  it("shows the last matches with order \"last\", in file order, with the lines around them", async () => {
     for (const { files, meta, how } of await bothWays("app.log", LOG)) {
       const tools = files.tools([meta]);
       const result = await tools.execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact", order: "last", max_results: 3, context_lines: 1 });
-      expect(linesOf(result), how).toEqual([1, 582, 589, 596]);
-      expect(result.note, how).toBe("4 of the 86 matching lines are shown: the first (line 1) and the last 3. To see others, search with from_line and to_line, or count them with group_by.");
+      expect(linesOf(result), how).toEqual([582, 589, 596]);
+      expect(result.note, how).toBe("These are the last 3 of the 86 matching lines, in the order of the file: the last match is on line 596, and the first on line 1.");
       const matches = result.matches as Array<{ line: number; before: string[]; after: string[] }>;
-      expect(matches[3]!.before, how).toEqual([`595| ${LOG.split("\n")[594]}`]);
-      expect(matches[0]!.after, how).toEqual([`2| ${LOG.split("\n")[1]}`]);
+      expect(matches[2]!.before, how).toEqual([`595| ${LOG.split("\n")[594]}`]);
+      expect(matches[0]!.after, how).toEqual([`583| ${LOG.split("\n")[582]}`]);
     }
   });
 });
@@ -328,5 +328,14 @@ describe("the key of a search call", () => {
     ]);
     expect(keys.size).toBe(6);
     expect(toolCallKey("search_document", { document_id: "doc_1", query: "x" })).toBe(JSON.stringify(["search_document", "doc_1", "x", "keywords", 5]));
+  });
+});
+
+describe("the token estimate of runs of spaces (LLF-046)", () => {
+  it("charges a long run of spaces, and leaves indentation as it was", async () => {
+    const { estimateTokens } = await import("../src/text.js");
+    expect(estimateTokens(" ".repeat(10_000))).toBeGreaterThanOrEqual(600);
+    expect(estimateTokens(`a${" ".repeat(1_000)}b`)).toBeGreaterThan(60);
+    expect(estimateTokens("    indented line")).toBe(estimateTokens("indented line") + 0);
   });
 });

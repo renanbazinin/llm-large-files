@@ -257,6 +257,9 @@ Search and documents:
   read cut short, without an error.
 - **An optional dependency that fails to load is not reported as missing** (LLF-054): the message
   says it is installed but could not be loaded, with the reason, and keeps the failure as `cause`.
+- **A long run of spaces is counted in the token estimate** (LLF-046): about a token for each 16
+  spaces after the first. 10,000 spaces were estimated at 0 tokens, so a padded or fixed-width
+  report could be planned inline and refused by the provider. Indentation is priced as before.
 - Unused code in `search.ts` is gone (LLF-060).
 
 From 0.7.1:

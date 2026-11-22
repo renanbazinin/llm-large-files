@@ -357,6 +357,7 @@ const PUNCTUATION = 0.85; // The first of a run of ASCII punctuation; the rest o
 const NEWLINE = 2.2;
 const TAB = 1;
 const LOOSE_SPACE = 0.2; // A space before anything but a letter. A space before a word is free.
+const SPACE_RUN = 16; // A run of spaces costs a token for each this many after its first.
 const LATIN_EXTENDED = 0.6; // é, ü, ß
 const GREEK = 0.4;
 const CYRILLIC = 0.3;
@@ -393,8 +394,10 @@ function tokensIn(text: string, from: number, to: number, tokens: number): numbe
   let capitalsInARow = 0;
   let previousWasLower = false;
   let previous = 0; // 1 = space, 2 = ASCII punctuation, 0 = anything else
+  let spaces = 0; // the length of the current run of spaces
   for (let index = from; index < to; index++) {
     const code = text.charCodeAt(index);
+    if (code !== 32) spaces = 0;
     if ((code >= 97 && code <= 122) || (code >= 65 && code <= 90)) {
       const capital = code <= 90;
       if (piece === 0) tokens += WORD;
@@ -414,6 +417,10 @@ function tokensIn(text: string, from: number, to: number, tokens: number): numbe
     capitalsInARow = 0;
     previousWasLower = false;
     if (code === 32) {
+      // Tokenizers have tokens for runs of spaces up to a length: a long run costs about one token
+      // for every SPACE_RUN spaces after the first. Fixed-width reports and padded tables were
+      // planned at almost nothing, then refused by the provider.
+      if (++spaces > 1 && (spaces - 1) % SPACE_RUN === 0) tokens += 1;
       previous = 1;
       continue;
     }
