@@ -226,7 +226,7 @@ export type GrepResult = {
    * scan stopped early: the last line it found need not be the last of the document.
    */
   last?: LineMatch;
-  /** With `order: "last"`: the first matching line, when it is not among `matches`. */
+  /** With `order: "last"`: the first matching line, when it is not among `matches` (without the lines around it). */
   first?: LineMatch;
   /** With `groupBy`: the matching lines counted by group. `matches` is then empty. */
   groups?: GroupResult;
@@ -599,7 +599,6 @@ class LineSearch {
     if (this.lastOnes && !this.lastOnesShown) {
       this.lastOnesShown = true;
       for (const hit of this.hits) this.showAround(hit.line);
-      if (this.firstHit && this.firstHit.line < (this.hits[0]?.line ?? 0)) this.showAround(this.firstHit.line);
     }
     if (this.last && !this.lastShown && !this.stoppedEarly) {
       this.lastShown = true;

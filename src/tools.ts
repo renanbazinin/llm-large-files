@@ -61,7 +61,7 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
         case_sensitive: { type: "boolean", description: "exact/regex only. Defaults to false." },
         from_line: { type: "integer", description: "Search only from this line on (1-based). Pass a result's next_from_line to see the matches after those it shows." },
         to_line: { type: "integer", description: "Search only up to this line." },
-        order: { type: "string", enum: ["first", "last"], description: "exact/regex only: \"last\" shows the last max_results matching lines, and the first one. Defaults to \"first\"." },
+        order: { type: "string", enum: ["first", "last"], description: "exact/regex only: \"last\" shows the last max_results matching lines (in file order) instead of the first. Defaults to \"first\"." },
         group_by: { type: "string", enum: [...GROUP_BY_VALUES], description: "exact/regex only: count the matching lines by group instead of showing them. \"capture\": by the text of the regex's first (group); \"minute\", \"hour\", \"day\": by the timestamp on the line; \"shape\": by the line with its numbers, IDs and quoted values taken out." },
         whole_word: { type: "boolean", description: "exact only: match the text only as a whole word, not inside a longer one. Defaults to false." },
       },
@@ -224,18 +224,21 @@ function firstAndLastMatches(base: ToolResult, first: LineMatch[], last: LineMat
 }
 
 /**
- * The result of a search with `order: "last"`: the first matching line, then the last ones. To fit
- * `limit`, the earliest of the last ones are dropped first: the very last stays.
+ * The result of a search with `order: "last"`: the last matching lines, in the order of the file,
+ * with a note that says so, and on which line the first match is. To fit `limit`, the earliest of
+ * them are dropped first: the very last stays.
  */
 function lastMatches(base: ToolResult, first: LineMatch | undefined, last: LineMatch[], total: number, limit: number): ToolResult {
   const build = (kept: number, cut: boolean): ToolResult => {
-    const shownLast = last.slice(last.length - kept);
-    const count = shownLast.length + (first ? 1 : 0);
-    const which = `the first (line ${first?.line}) and the last ${shownLast.length}`;
-    const note = count < total
-      ? `${cut ? "Showing " : ""}${count} of the ${total} matching lines ${cut ? "to stay within the size limit" : "are shown"}: ${first ? which : `the last ${shownLast.length}`}.${cut ? " Narrow the query or read specific lines." : " To see others, search with from_line and to_line, or count them with group_by."}`
+    const shown = last.slice(last.length - kept);
+    const end = shown.at(-1)?.line;
+    const note = shown.length < total
+      // A cut result's note starts with "Showing ", as `alreadyShown` looks for: a call made later may have more room.
+      ? cut
+        ? `Showing the last ${shown.length} of the ${total} matching lines to stay within the size limit, in the order of the file: the last match is on line ${end}${first ? `, and the first on line ${first.line}` : ""}. Narrow the query or read specific lines.`
+        : `These are the last ${shown.length} of the ${total} matching lines, in the order of the file: the last match is on line ${end}${first ? `, and the first on line ${first.line}` : ""}.`
       : undefined;
-    return { ...base, ...(note ? { note: typeof base.note === "string" ? `${base.note} ${note}` : note } : {}), matches: [...(first ? [first] : []), ...shownLast] };
+    return { ...base, ...(note ? { note: typeof base.note === "string" ? `${base.note} ${note}` : note } : {}), matches: shown };
   };
   const whole = build(last.length, false);
   if (JSON.stringify(whole).length <= limit) return whole;

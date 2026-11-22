@@ -339,3 +339,17 @@ describe("the token estimate of runs of spaces (LLF-046)", () => {
     expect(estimateTokens("    indented line")).toBe(estimateTokens("indented line") + 0);
   });
 });
+
+describe("a result of order \"last\" cut to its room", () => {
+  it("says so with a note that starts with \"Showing \", so a later call is run again", async () => {
+    const { alreadyShown } = await import("../src/tools.js");
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(LOG) });
+    const args = { document_id: meta.id, query: "ERROR", mode: "exact", order: "last", max_results: 50, context_lines: 5 };
+    const cut = (await files.tools([meta]).executeWithFiles("search_document", args, { maxResultCharacters: 3_000 })).result;
+    expect(JSON.stringify(cut).length).toBeLessThanOrEqual(3_000);
+    expect(cut.note).toMatch(/^Showing the last \d+ of the 86 matching lines to stay within the size limit, in the order of the file: the last match is on line 596, and the first on line 1\./);
+    expect(linesOf(cut).at(-1)).toBe(596);
+    expect(alreadyShown({ name: "search_document", args }, { call: { name: "search_document", args }, result: cut })).toBeUndefined();
+  });
+});
