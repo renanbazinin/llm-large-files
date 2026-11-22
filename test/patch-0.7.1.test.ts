@@ -151,6 +151,7 @@ describe("LLF-008: the limits of a question", () => {
   it("refuses a maxWholeDocumentReads of NaN in a tool set, which allowed any number of whole reads", async () => {
     const { files, meta } = await largeLog(2_000);
     expect(() => files.tools([meta], { maxWholeDocumentReads: Number.NaN })).toThrow(new RangeError("maxWholeDocumentReads must be a number, and is NaN."));
+    expect(() => files.tools([meta], { maxWholeDocumentReads: "2" as unknown as number })).toThrow(new TypeError('maxWholeDocumentReads must be a number, and is "2".'));
   });
 });
 

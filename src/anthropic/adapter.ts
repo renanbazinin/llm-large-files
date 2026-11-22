@@ -561,8 +561,8 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
             stopDetails = (event.delta?.stop_details as Json | undefined) ?? stopDetails;
             // Only the numbers it has: the input fields of message_delta may be null, and the real
             // ones are message_start's (the official SDK keeps them the same way).
-            usage = { ...usage };
-            for (const [key, value] of Object.entries((event.usage ?? {}) as Json)) if (value !== null && value !== undefined) usage[key] = value;
+            // (As own properties, whatever their names: no key of the provider's sets a prototype.)
+            usage = { ...usage, ...Object.fromEntries(Object.entries((event.usage ?? {}) as Json).filter(([, value]) => value !== null && value !== undefined)) };
           }
         }
       } catch (error) {
