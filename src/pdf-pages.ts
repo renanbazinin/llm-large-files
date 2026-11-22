@@ -267,15 +267,27 @@ export function tooManyObjects(original: Uint8Array, most = MAX_OBJECTS): number
   return objects > most || objects * BYTES_PER_OBJECT > free * 0.6 ? objects : undefined;
 }
 
-/** A PDF name as the characters it stands for, so that "#20" and a space are the same name. */
-export function canonicalName(raw: string): string {
+/**
+ * Decodings that may still change a name. A library may keep an escape it did not decode as
+ * literal characters, so a name is decoded again; no writer escapes a name more deeply than that.
+ */
+const NAME_DECODINGS = 3;
+
+/**
+ * A PDF name as the characters it stands for, so that "#20" and a space are the same name.
+ * Undefined for a name that still changes after `NAME_DECODINGS` decodings: only a file built to
+ * hold the server writes one ("#2323...2341" loses one level a decoding, and decoding it until
+ * nothing changed took 20 s for 400,000 characters). Callers treat it as a name they cannot read.
+ */
+export function canonicalName(raw: string): string | undefined {
   let name = raw;
-  // Until nothing changes: a library may keep an escape it did not decode as literal characters.
-  for (;;) {
+  for (let decoding = 0; decoding <= NAME_DECODINGS; decoding++) {
+    if (!name.includes("#")) return name;
     const next = name.replace(/#([0-9a-fA-F]{2})/g, (_match, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
     if (next === name) return name;
     name = next;
   }
+  return undefined;
 }
 
 const REGULAR_CHARACTER = "[^\\x00\\t\\n\\f\\r /\\[\\]<>(){}%]";
@@ -299,14 +311,21 @@ function dropUnusedImages(library: PdfLibrary, context: PDFContext, page: PDFPag
   if (!(xobjects instanceof PDFDict)) return;
   const entries = xobjects.entries();
   if (entries.length < 2) return;
-  const byName = new Map(entries.map(([name, value]) => [canonicalName(name.asString().slice(1)), value]));
+  const names = entries.map(([name]) => canonicalName(name.asString().slice(1)));
+  // A name that cannot be read cannot be matched with what the content paints: keep every image.
+  if (names.includes(undefined)) return;
+  const byName = new Map(entries.map(([, value], index) => [names[index]!, value]));
 
   let readable = true;
   /** Names found in content that looks them up in this page's dictionary, still to be followed. */
   const found: string[] = [];
   const decode = (stream: PDFObject | undefined) => decodeContent(library, context, stream, MAX_CONTENT_BYTES);
   const read = (text: string) => {
-    for (const match of text.matchAll(PAINTED)) found.push(canonicalName(match[1]!));
+    for (const match of text.matchAll(PAINTED)) {
+      const name = canonicalName(match[1]!);
+      if (name === undefined) readable = false;
+      else found.push(name);
+    }
   };
   const readStream = (stream: PDFObject | undefined) => {
     const text = decode(stream);
@@ -389,7 +408,7 @@ function dropUnusedImages(library: PdfLibrary, context: PDFContext, page: PDFPag
   }
   if (!readable) return;
 
-  const kept = entries.filter(([name]) => painted.has(canonicalName(name.asString().slice(1))));
+  const kept = entries.filter((_entry, index) => painted.has(names[index]!));
   if (kept.length === entries.length) return;
   const fewer = context.obj({});
   for (const [name, value] of kept) fewer.set(name, value);

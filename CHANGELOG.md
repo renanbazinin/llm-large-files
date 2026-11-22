@@ -1076,6 +1076,16 @@ and Office code is that of 0.5.0):
   20 ms (Windows, Node 24). A cut is the same to the byte as before (65 cuts of 50 PDFs compared).
   Each look still reads and parses the whole file, and the first look of a process loads
   `@cantoo/pdf-lib` in one block (about 0.4 s, unless the server loads it when it starts).
+- **A PDF name escaped again and again no longer holds the server.** A name such as
+  `/#2323...2341` loses one level each time it is decoded, and both the page check and a look at
+  the pages decoded every name of a page until nothing changed, in one block: time grew with the
+  square of its length. A name is now decoded at most three times, and one that would still
+  change is taken as a name that cannot be read: the page check counts it as naming any drawing,
+  and a look keeps every image of the page. Measured on one machine (Linux, Node 22), the ingest
+  of a 0.4 MB PDF with one such name of 400,000 characters in its resources ran over 90 s and now
+  takes 0.27 s, and a look at its page ran over 90 s and now takes under 0.2 s; a PDF of under 20 KB whose content paints 40 such
+  names of 30,000 characters went from 11.7 s to 0.41 s. Names that real files write are read as
+  before.
 
 Access:
 

@@ -171,6 +171,12 @@ class Scan {
     for (const match of text.matchAll(TOKEN)) {
       if (match[1] !== undefined) {
         const name = canonicalName(match[1]);
+        if (name === undefined) {
+          // A name that cannot be read may be any of them.
+          this.names = null;
+          this.seen = null;
+          continue;
+        }
         if (this.names && this.names.add(name).size > MAX_NAMES) this.names = null;
         if (this.seen && this.seen.add(name).size > MAX_NAMES) this.seen = null;
       } else {
@@ -318,7 +324,10 @@ class PageWork {
     for (const [key, value] of group.entries()) {
       const object = this.lookup(value);
       if (object === undefined) continue;
-      const name = canonicalName(key.asString().slice(1));
+      // A key that cannot be read keeps its escapes: no name read from content (which has none
+      // left) can be the same, so only content that may name anything reaches it.
+      const raw = key.asString().slice(1);
+      const name = canonicalName(raw) ?? raw;
       let set = sets.get(name);
       if (!set) sets.set(name, (set = new Set()));
       set.add(object);
