@@ -32,6 +32,12 @@ const integerOf = (value: string | undefined): number | undefined => {
   return Number.isFinite(number) ? number : undefined;
 };
 
+/** A start value of a list, within what Word allows (0 to 32,767): a file may say anything. */
+const startOf = (value: string | undefined): number | undefined => {
+  const number = integerOf(value);
+  return number === undefined ? undefined : Math.min(32_767, Math.max(0, number));
+};
+
 /** Reads `w:style` elements: names, the style each is based on, and the numbering and outline level in its paragraph properties. */
 function readStyles(xml: string | undefined): Map<string, StyleInfo> {
   const styles = new Map<string, StyleInfo>();
@@ -87,7 +93,7 @@ function readNumbering(xml: string | undefined): { abstracts: Map<string, Level[
         level = { start: 1, format: "decimal", text: `%${index + 1}.` };
         if (index >= 0 && index < LEVELS) abstract[index] = level;
       } else if (level && name === "w:start") {
-        level.start = integerOf(attribute(attributes, "val")) ?? 1;
+        level.start = startOf(attribute(attributes, "val")) ?? 1;
       } else if (level && name === "w:numFmt") {
         level.format = attribute(attributes, "val") ?? "decimal";
       } else if (level && name === "w:lvlText") {
@@ -102,7 +108,7 @@ function readNumbering(xml: string | undefined): { abstracts: Map<string, Level[
       } else if (num && name === "w:lvlOverride") {
         overrideLevel = integerOf(attribute(attributes, "ilvl"));
       } else if (num && overrideLevel !== undefined && name === "w:startOverride") {
-        const start = integerOf(attribute(attributes, "val"));
+        const start = startOf(attribute(attributes, "val"));
         if (start !== undefined) num.starts.set(overrideLevel, start);
       }
     },
@@ -119,6 +125,8 @@ function readNumbering(xml: string | undefined): { abstracts: Map<string, Level[
 const ROMAN: Array<[number, string]> = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"], [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];
 
 function roman(value: number): string {
+  // Roman numerals end at 3999; past it Word writes the number.
+  if (value < 1 || value > 3_999) return String(value);
   let rest = value;
   let out = "";
   for (const [size, letters] of ROMAN) {
@@ -132,6 +140,8 @@ function roman(value: number): string {
 
 /** a, b, … z, aa, bb, …: Word repeats the letter. */
 function letters(value: number): string {
+  // Past "zzzzzzzzzz" (260) the letters would only grow: the number is written.
+  if (value < 1 || value > 260) return String(value);
   const letter = String.fromCharCode(97 + ((value - 1) % 26));
   return letter.repeat(Math.floor((value - 1) / 26) + 1);
 }
@@ -143,6 +153,7 @@ const HEBREW_LETTERS = "אבגדהוזחטיכלמנסעפצקרשת";
 
 /** Hebrew numerals (hebrew1): א, ב, … י, יא, … טו and טז for 15 and 16, as Word writes them. */
 function hebrewNumeral(value: number): string {
+  if (value < 1) return String(value);
   let rest = value % 1000;
   let out = "";
   while (rest >= 400) {
@@ -165,7 +176,7 @@ export function formatNumber(value: number, format: string): string {
     case "upperRoman": return roman(value).toUpperCase();
     case "decimalZero": return value < 10 ? `0${value}` : String(value);
     case "hebrew1": return hebrewNumeral(value);
-    case "hebrew2": return HEBREW_LETTERS[(value - 1) % HEBREW_LETTERS.length]!;
+    case "hebrew2": return value < 1 ? String(value) : HEBREW_LETTERS[(value - 1) % HEBREW_LETTERS.length]!;
     case "none": return "";
     default: return String(value);
   }

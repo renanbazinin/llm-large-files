@@ -130,6 +130,21 @@ describe("createIsolatedExtractors", () => {
     }
   }, 60_000);
 
+  it("refuses a file whose reader cannot start, and frees its slot", async () => {
+    const isolated = node.createIsolatedExtractors({ concurrency: 1, childScript: path.join(OUT, "node", "no-such-child.js") });
+    try {
+      const files = createFromIsolated(isolated);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const error = await files.ingest({ name: "a.xlsx", bytes: await workbook(3) }).catch((caught: unknown) => caught);
+        expect((error as InstanceType<Library["IngestError"]>).code).toBe("unreadable");
+        expect((error as Error).message).toMatch(/^a\.xlsx could not be read: its reader stopped \(exit code 1\)\.$/);
+      }
+      expect(isolated.stats()).toEqual({ running: 0, queued: 0, children: 0 });
+    } finally {
+      await isolated.close();
+    }
+  }, 60_000);
+
   it("checks its options", () => {
     expect(() => node.createIsolatedExtractors({ maxHeapMb: Number.NaN })).toThrow(RangeError);
     expect(() => node.createIsolatedExtractors({ concurrency: 0 })).toThrow("concurrency must be a number above 0, and is 0.");

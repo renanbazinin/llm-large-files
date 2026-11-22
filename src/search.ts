@@ -338,7 +338,9 @@ function separatedRepeat(body: string): boolean {
 export function unsafeRegexReason(pattern: string): string | null {
   if (pattern.length > 300) return "Regex is longer than 300 characters.";
   for (const [, body] of pattern.matchAll(NESTED_QUANTIFIER)) {
-    if (!separatedRepeat(body!)) return "Regex has a nested quantifier like (a+)+, which can hang on large files. Simplify it.";
+    // Checked with \\w and \\W as the pattern is compiled, for letters of every script: (\\w+é)+ is
+    // not separated, though é is not an ASCII word character.
+    if (!separatedRepeat(unicodeWordPattern(body!, false) ?? body!)) return "Regex has a nested quantifier like (a+)+, which can hang on large files. Simplify it.";
   }
   try {
     new RegExp(pattern);
@@ -356,7 +358,7 @@ const WORD_CLASS = "\\p{L}\\p{M}\\p{N}_";
  * in JavaScript, `\bחוזה\b` matches nothing and `\w+` stops at "é". Undefined when the pattern
  * cannot be rewritten that way (`\W` inside a class): it is then compiled as it is.
  */
-export function unicodeWordPattern(pattern: string): string | undefined {
+export function unicodeWordPattern(pattern: string, boundaries = true): string | undefined {
   let out = "";
   let inClass = false;
   for (let at = 0; at < pattern.length; at++) {
@@ -373,9 +375,9 @@ export function unicodeWordPattern(pattern: string): string | undefined {
         out += `[${WORD_CLASS}]`;
       } else if (next === "W") {
         out += `[^${WORD_CLASS}]`;
-      } else if (next === "b") {
+      } else if (next === "b" && boundaries) {
         out += `(?:(?<=[${WORD_CLASS}])(?![${WORD_CLASS}])|(?<![${WORD_CLASS}])(?=[${WORD_CLASS}]))`;
-      } else if (next === "B") {
+      } else if (next === "B" && boundaries) {
         out += `(?:(?<=[${WORD_CLASS}])(?=[${WORD_CLASS}])|(?<![${WORD_CLASS}])(?![${WORD_CLASS}]))`;
       } else {
         out += `\\${next}`;
@@ -740,18 +742,23 @@ class LineSearch {
     const from = next;
     const slice = Math.min(this.timeLeft, REGEX_SLICE_MS);
     const started = performance.now();
+    // Only the matching runs inside the time limit, which can stop it anywhere: what was found is
+    // kept in a list there, and recorded after, so a stop never leaves a count or a list half done.
+    // A line found twice (the slice ended after it was listed, before it was passed) is recorded once.
+    const last = Math.min(lines.lineCount, this.toLine - firstLine + 1);
+    const found: Array<{ line: number; index: number; text: string; capture: string | undefined }> = [];
     const finished = withinTimeLimit(() => {
-      for (; next <= lines.lineCount && !this.done; next++) {
-        const line = firstLine + next - 1;
+      for (; next <= last; next++) {
         const text = lines.line(next);
         const match = pattern.exec(text);
-        // A line is recorded once, also when a slice ended while it was being recorded and it is looked at again.
-        if (match && line > this.lastLine) {
-          this.lastLine = line;
-          this.record(line, match.index, text, match[1]);
-        }
+        if (match) found.push({ line: firstLine + next - 1, index: match.index, text, capture: match[1] });
       }
     }, slice);
+    for (const { line, index, text, capture } of found) {
+      if (line <= this.lastLine || this.done) continue;
+      this.lastLine = line;
+      this.record(line, index, text, capture);
+    }
     const spent = performance.now() - started;
     this.timeLeft -= spent;
     if (this.settings.regexClock) this.settings.regexClock.usedMs += spent;
@@ -923,12 +930,18 @@ class PassageRank {
 
   add(chunk: TextChunk): void {
     if (this.empty) return;
+    const range = this.range;
+    // A piece outside the lines ranked has nothing to count.
+    if (range && (chunk.firstLine > range.to || chunk.firstLine + chunk.lines.lineCount - 1 < range.from)) return;
     const haystack = chunk.lower();
     for (const entry of this.terms) {
       for (const term of entry.variants) {
         for (let at = haystack.indexOf(term); at !== -1 && entry.seen < MAX_OCCURRENCES_PER_TERM; at = haystack.indexOf(term, at + term.length)) {
+          const line = chunk.firstLine + chunk.lines.lineAt(at) - 1;
+          // Only hits in the lines ranked count, toward the cap too: a term rare in them stays a term.
+          if (range && (line < range.from || line > range.to)) continue;
           entry.seen++;
-          const passage = this.passageOf(chunk.firstLine + chunk.lines.lineAt(at) - 1);
+          const passage = this.passageOf(line);
           entry.frequency.set(passage, (entry.frequency.get(passage) ?? 0) + 1);
           if (!this.lengths.has(passage)) this.lengths.set(passage, this.lengthOf(passage, chunk));
         }

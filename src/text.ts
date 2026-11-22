@@ -89,7 +89,30 @@ const MAY_COMPOSE = /[^\x00-\u02ff]/;
  * Hebrew and Arabic points are not composed by NFC: they stay as they are.
  */
 export function composed(text: string): string {
-  return MAY_COMPOSE.test(text) ? text.normalize("NFC") : text;
+  if (!MAY_COMPOSE.test(text)) return text;
+  return (LONG_MARK_RUN.test(text) ? streamSafe(text) : text).normalize("NFC");
+}
+
+/**
+ * More marks in a row than any script writes on one letter. NFC orders the marks of a run by
+ * their class, in time that grows with the square of the run: 600 KB of marks of two classes in
+ * turn held the server 80 seconds. Unicode's stream-safe form (UAX #15) bounds the run instead.
+ */
+const MAX_MARKS = 30;
+const LONG_MARK_RUN = new RegExp(`\\p{M}{${MAX_MARKS + 1},}`, "u");
+const LONG_MARK_RUNS = new RegExp(LONG_MARK_RUN.source, "gu");
+
+/**
+ * A run of marks in the stream-safe form: a combining grapheme joiner (U+034F, which shows nothing
+ * and is a starter) after every 30 marks, so no run NFC orders is longer than that.
+ */
+function streamSafe(text: string): string {
+  return text.replace(LONG_MARK_RUNS, (run) => {
+    const marks = [...run];
+    const pieces: string[] = [];
+    for (let at = 0; at < marks.length; at += MAX_MARKS) pieces.push(marks.slice(at, at + MAX_MARKS).join(""));
+    return pieces.join("\u034f");
+  });
 }
 
 /**

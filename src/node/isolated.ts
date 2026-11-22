@@ -159,23 +159,42 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
         }
         return;
       }
-      finish(entry, () => (message.type === "done" ? job.resolve(message.result) : job.reject(new Error(message.message))));
+      finish(entry, () => (message.type === "done" ? job.resolve(message.result) : job.reject(childError(message))));
     });
-    child.on("exit", (code, signal) => {
+    // A child that dies ends with "exit"; one that could not start (EAGAIN, EMFILE, ENOENT) only
+    // with "error". Either way it is gone once, and its file is refused.
+    let gone = false;
+    const end = (code: number | null, signal: NodeJS.Signals | null, error?: unknown) => {
+      if (gone) return;
+      gone = true;
       clearTimeout(entry.idle);
       const index = children.indexOf(entry);
       if (index !== -1) children.splice(index, 1);
       markReady();
       const job = entry.job;
       entry.job = undefined;
-      if (job) job.reject(entry.killedFor ?? deathOf(entry, job, code, signal));
+      if (job) job.reject(entry.killedFor ?? (error !== undefined ? unstarted(job, error) : deathOf(entry, job, code, signal)));
       pump();
-    });
-    child.on("error", () => {
-      // A child that cannot start ends with "exit" too, which refuses its file.
+    };
+    child.on("exit", (code, signal) => end(code, signal));
+    child.on("error", (error) => {
+      if (child.pid === undefined) end(null, null, error);
     });
     children.push(entry);
     return entry;
+  }
+
+  /** The refusal of a file whose reader could not be started. */
+  function unstarted(job: Job, error: unknown): IngestError {
+    const code = (error as { code?: unknown } | null)?.code;
+    return new IngestError("busy", `${job.input.name} could not be read now: a reader could not be started${typeof code === "string" ? ` (${code})` : ""}. Try again in a moment.`, { cause: error, retryAfterMs: BUSY_RETRY_MS });
+  }
+
+  /** The error a child sent back: a system error keeps its code, so it is not told to a user as a file that cannot be read. */
+  function childError(message: Extract<ChildMessage, { type: "error" }>): Error {
+    const error = new Error(message.message);
+    if (message.code !== undefined) Object.assign(error, { code: message.code, ...(message.syscall !== undefined ? { syscall: message.syscall } : {}) });
+    return error;
   }
 
   /** Why a child process died while it read a file. */
@@ -213,15 +232,28 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
       let entry = children.find((child) => !child.job);
       if (!entry) {
         if (children.length >= concurrency) return;
-        entry = spawn();
+        try {
+          entry = spawn();
+        } catch (error) {
+          // fork can throw at once (out of process slots or file handles): the waiting files are told to try again.
+          for (const job of queue.splice(0)) {
+            job.cancel?.();
+            job.reject(unstarted(job, error));
+          }
+          return;
+        }
       }
       const job = queue.shift()!;
       job.cancel?.();
       start(entry, job);
     }
     for (const child of children) {
-      if (child.job || child.idle || idleMs === 0) continue;
+      if (child.job || child.idle) continue;
+      // An idle child, its channel and its pipe hold the server open no longer.
       child.process.unref();
+      child.process.channel?.unref();
+      (child.process.stderr as { unref?: () => void } | null)?.unref?.();
+      if (idleMs === 0) continue;
       child.idle = setTimeout(() => {
         child.idle = undefined;
         if (!child.job) stop(child);
@@ -237,6 +269,7 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
     entry.files++;
     entry.process.ref();
     entry.process.channel?.ref();
+    (entry.process.stderr as { ref?: () => void } | null)?.ref?.();
     const signal = job.input.signal;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onAbort = () => stop(entry, signal!.reason);

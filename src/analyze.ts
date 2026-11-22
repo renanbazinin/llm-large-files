@@ -107,9 +107,9 @@ export async function buildOutlineInSlices(lines: string[], format: DocumentForm
 const hashLine = (line: string | undefined) => /^\s*#{1,6}\s/.test(line ?? "");
 
 /** A line only code has: a shebang, an include, an import, a definition. One is enough. */
-const CODE_LINE = /^\s*(?:#!\/|#include\b|import\s+[\w{*"']|from\s+[\w.]+\s+import\b|def\s+\w+\s*\(|class\s+\w+[\s:({]|function\s*\w*\s*\(|package\s+[\w.]+;?\s*$|using\s+[\w.]+;\s*$)/;
+const CODE_LINE = /^(?:#!\/|#include\b|import\s+[\w{*"']|from\s+[\w.]+\s+import\b|def\s+\w+\s*\(|class\s+\w+[\s:({]|function\s*\w*\s*\(|package\s+[\w.]+;?\s*$|using\s+[\w.]+;\s*$)/;
 /** A line common in code and configuration files, and rarer in prose: three are needed. */
-const CODE_LIKE_LINE = /^\s*(?:(?:const|let|var|export|public|private|return)\s|(?:if|for|while)\s*\(|echo\s|set\s+-\w|[A-Za-z_][\w.-]*\s*=\s*\S|[}\])];?\s*$|.*[{;]\s*$)/;
+const CODE_LIKE_LINE = /^(?:(?:const|let|var|export|public|private|return)\s|(?:if|for|while)\s*\(|echo\s|set\s+-\w|[A-Za-z_][\w.-]*\s*=\s*\S|[}\])];?$)/;
 
 /**
  * Whether a plain text file is a script, source code or a configuration file, where "# " starts
@@ -118,9 +118,10 @@ const CODE_LIKE_LINE = /^\s*(?:(?:const|let|var|export|public|private|return)\s|
 function looksLikeCode(lines: string[]): boolean {
   let likely = 0;
   for (let index = 0; index < lines.length && index < 300; index++) {
-    const line = lines[index] ?? "";
+    // Trimmed first, and the end looked at apart: a regex over the leading spaces backtracked by their square.
+    const line = (lines[index] ?? "").trim();
     if (CODE_LINE.test(line)) return true;
-    if (CODE_LIKE_LINE.test(line) && ++likely >= 3) return true;
+    if ((CODE_LIKE_LINE.test(line) || line.endsWith("{") || line.endsWith(";")) && ++likely >= 3) return true;
   }
   return false;
 }

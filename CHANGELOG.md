@@ -92,7 +92,10 @@ Some behavior is different. Check each point against your app:
   word), and the closing requests. The provider's prompt cache misses once after the upgrade.
   **What to do:** nothing. See **Changed** for what models now do.
 - **Text is composed (NFC) at ingest.** "e" followed by a combining accent becomes "é". Line counts
-  do not change; `characters` and the sizes of such a text can be a little smaller.
+  do not change; `characters` and the sizes of such a text can be a little smaller. A run of more
+  than 30 marks on one letter, which no script writes, gets an invisible combining grapheme joiner
+  (U+034F) after each 30, as Unicode's stream-safe form does: composing such a run took time by its
+  square, and 600 KB of them held the server 80 seconds.
   **What to do:** nothing.
 - **More files are taken for logs.** A `.txt` of nginx or Apache access lines, JSON log lines,
   klog or logfmt is now format `"log"`, with a log profile; levels in lower case, in brackets,

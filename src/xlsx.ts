@@ -34,8 +34,10 @@ type ValueKind = "date" | "time" | "percent" | "number";
 
 /** What a number format shows, from its code: a date, a time, a percentage, or a number. */
 export function formatKind(code: string): ValueKind {
-  // Quoted text, escaped characters, colours and locales ([Red], [$-409]) hold no date part.
-  const bare = code.replace(/"[^"]*"/g, "").replace(/\\./g, "").replace(/\[(?!h\]|m\]|s\])[^\]]*\]/gi, "").toLowerCase();
+  // Quoted text, escaped characters, colours and locales ([Red], [$-409]) hold no date part. A
+  // format of Excel has at most 255 characters; a bracket body stops at the next bracket, so an
+  // unclosed "[" costs no scan to the end of the code.
+  const bare = code.slice(0, 255).replace(/"[^"]*"/g, "").replace(/\\./g, "").replace(/\[(?!h\]|m\]|s\])[^[\]]*\]/gi, "").toLowerCase();
   if (bare === "general" || bare === "") return "number";
   if (/[yd]/.test(bare) || /(^|[^a-z])m{3,}/.test(bare)) return "date";
   if (/[hs]/.test(bare)) return "time";
@@ -67,17 +69,13 @@ const pad = (value: number) => String(value).padStart(2, "0");
  * 1904 system (`date1904`) days count from 1 January 1904.
  */
 export function excelDate(serial: number, kind: "date" | "time", date1904 = false): string {
-  const days = Math.floor(serial);
-  let milliseconds = Math.round((serial - days) * 86_400_000);
-  let whole = days;
-  if (milliseconds >= 86_400_000) {
-    whole++;
-    milliseconds -= 86_400_000;
-  }
-  const seconds = Math.round(milliseconds / 1_000);
+  // Rounded to the second first, then split into days and seconds: 23:59:59.6 is the next day's 00:00.
+  const total = Math.round(serial * 86_400);
+  const whole = Math.floor(total / 86_400);
+  const seconds = total - whole * 86_400;
   const time = `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}${seconds % 60 !== 0 ? `:${pad(seconds % 60)}` : ""}`;
-  // A time of day alone, as a format that shows no date writes it.
-  if (kind === "time" && whole === 0) return time;
+  // A time of day alone, as a format that shows no date writes it: 23:59:59.7 rounds to 00:00.
+  if (kind === "time" && Math.floor(serial) === 0) return whole === 0 ? time : "00:00";
   const base = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, whole >= 61 ? 30 : 31);
   const date = new Date(base + whole * 86_400_000);
   if (Number.isNaN(date.getTime())) return String(serial);
@@ -122,18 +120,19 @@ async function readWorkbook(read: OfficeParts, parts: Set<string>): Promise<Work
 /** The kind of value each cell style shows, from the number format it names. */
 function readCellStyles(xml: string | undefined): ValueKind[] {
   if (!xml) return [];
-  const custom = new Map<number, string>();
+  /** The kind of each custom format, worked out once: a workbook may name one in thousands of styles. */
+  const custom = new Map<number, ValueKind>();
   const styles: ValueKind[] = [];
   let inCellStyles = false;
   readXml(xml, {
     open(name, attributes) {
       const local = name.slice(name.indexOf(":") + 1);
-      if (local === "numFmt") custom.set(Number(attributes.numFmtId), attributes.formatCode ?? "");
+      if (local === "numFmt") custom.set(Number(attributes.numFmtId), formatKind(attributes.formatCode ?? ""));
       else if (local === "cellXfs") inCellStyles = true;
       else if (inCellStyles && local === "xf") {
         const id = Number(attributes.numFmtId ?? 0);
-        const code = custom.get(id);
-        styles.push(code !== undefined ? formatKind(code)
+        const kind = custom.get(id);
+        styles.push(kind !== undefined ? kind
           : BUILT_IN_DATES.has(id) ? "date"
             : BUILT_IN_TIMES.has(id) ? "time"
               : BUILT_IN_PERCENT.has(id) ? "percent" : "number");
@@ -157,7 +156,10 @@ async function readSharedStrings(read: OfficeParts): Promise<string[]> {
     open(name, _attributes, empty) {
       const local = name.slice(name.indexOf(":") + 1);
       if (local === "si" && !empty) current = [];
-      else if (local === "si") strings.push("");
+      else if (local === "si") {
+        if (strings.length >= MAX_SHARED_STRINGS) throw new Error(`This XLSX has more than ${MAX_SHARED_STRINGS.toLocaleString("en-US")} different texts, more than a workbook holds. It may be built to exhaust the server, so it is not read.`);
+        strings.push("");
+      }
       else if (local === "rPh" && !empty) inPhonetic++;
       else if (local === "t" && !empty) inText = true;
     },

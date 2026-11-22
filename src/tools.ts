@@ -228,10 +228,18 @@ function firstAndLastMatches(base: ToolResult, first: LineMatch[], last: LineMat
  * with a note that says so, and on which line the first match is. To fit `limit`, the earliest of
  * them are dropped first: the very last stays.
  */
-function lastMatches(base: ToolResult, first: LineMatch | undefined, last: LineMatch[], total: number, limit: number): ToolResult {
+function lastMatches(base: ToolResult, first: LineMatch | undefined, last: LineMatch[], total: number, limit: number, stoppedEarly = false): ToolResult {
   const build = (kept: number, cut: boolean): ToolResult => {
     const shown = last.slice(last.length - kept);
     const end = shown.at(-1)?.line;
+    // A scan that stopped early found these last: later lines of the file were not looked at.
+    if (stoppedEarly) {
+      return {
+        ...base,
+        note: `${cut ? "Showing" : "These are"} the last ${shown.length} matching lines found before the search stopped early (out of time, or past its limit on matches), in the order of the file. The file may have later ones, after line ${end ?? 0}: search again with from_line ${(end ?? 0) + 1}.`,
+        matches: shown,
+      };
+    }
     const note = shown.length < total
       // A cut result's note starts with "Showing ", as `alreadyShown` looks for: a call made later may have more room.
       ? cut
@@ -321,6 +329,12 @@ export function toolCallKey(name: string, args: Record<string, unknown>): string
   if (name === TOOL_NAMES.search) {
     if (typeof args.query !== "string" || !args.query.trim()) return undefined;
     const mode = searchMode(args.mode);
+    // A group_by the search refuses: the call answers with an error, and is not compared.
+    try {
+      groupByOf(args.group_by);
+    } catch {
+      return undefined;
+    }
     const { fromLine, toLine, order, groupBy, wholeWord } = searchScope(args);
     // The arguments of 0.8.0 are added only when given: a call without them has the key it had.
     const scope = [
@@ -613,7 +627,7 @@ export function createDocumentTools(options: {
       if (result.groups) return groupedResult({ ...base, group_by: groupBy!, ...stopped }, result.groups, shownGroups, limit);
       const matches = result.matches.map(placed);
       if (order === "last") {
-        return lastMatches({ ...base, order, ...stopped }, result.first ? placed(result.first) : undefined, matches, result.totalMatchingLines, limit);
+        return lastMatches({ ...base, order }, result.first ? placed(result.first) : undefined, matches, result.totalMatchingLines, limit, result.stoppedEarly);
       }
       if (!result.stoppedEarly && result.totalMatchingLines >= 2) {
         // The last match is `last`, or, when every match is among the first ones, the last of them.

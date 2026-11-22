@@ -34,14 +34,43 @@ export function decodeEntities(value: string): string {
   });
 }
 
-const ATTRIBUTE = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+/** White space, as XML and HTML count it between attributes. */
+const isSpace = (code: number) => code === 32 || code === 9 || code === 10 || code === 13 || code === 12;
 
-/** The attributes in the inside of a tag, after its name. */
+/**
+ * The attributes in the inside of a tag, after its name: `name="value"` or `name='value'`, in one
+ * pass. A regular expression backtracked from every position of a tag with no "=": a 64 K tag
+ * took 6.5 s. A name without a value, or with an unquoted one (HTML's `href=x`), is read too.
+ */
 export function parseAttributes(inside: string): XmlAttributes {
   const attributes: XmlAttributes = Object.create(null) as XmlAttributes;
-  ATTRIBUTE.lastIndex = 0;
-  for (let match = ATTRIBUTE.exec(inside); match; match = ATTRIBUTE.exec(inside)) {
-    attributes[match[1]!] = decodeEntities(match[2] ?? match[3] ?? "");
+  const length = inside.length;
+  let at = 0;
+  while (at < length) {
+    while (at < length && (isSpace(inside.charCodeAt(at)) || inside[at] === "/")) at++;
+    const start = at;
+    while (at < length && !isSpace(inside.charCodeAt(at)) && inside[at] !== "=" && inside[at] !== "/" && inside[at] !== ">") at++;
+    const name = inside.slice(start, at);
+    while (at < length && isSpace(inside.charCodeAt(at))) at++;
+    if (inside[at] !== "=") {
+      if (name) attributes[name] = "";
+      if (at === start) at++;
+      continue;
+    }
+    at++;
+    while (at < length && isSpace(inside.charCodeAt(at))) at++;
+    const quote = inside[at];
+    let value: string;
+    if (quote === "\"" || quote === "'") {
+      const end = inside.indexOf(quote, at + 1);
+      value = inside.slice(at + 1, end === -1 ? length : end);
+      at = end === -1 ? length : end + 1;
+    } else {
+      const begin = at;
+      while (at < length && !isSpace(inside.charCodeAt(at)) && inside[at] !== ">") at++;
+      value = inside.slice(begin, at);
+    }
+    if (name) attributes[name] = decodeEntities(value);
   }
   return attributes;
 }

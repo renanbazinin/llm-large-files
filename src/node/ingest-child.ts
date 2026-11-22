@@ -18,7 +18,7 @@ export type ChildMessage =
   | { type: "ready" }
   | { type: "progress"; id: number; progress: ExtractProgress }
   | { type: "done"; id: number; result: ExtractedText }
-  | { type: "error"; id: number; message: string; name: string };
+  | { type: "error"; id: number; message: string; name: string; code?: string; syscall?: string };
 
 const send = (message: ChildMessage) => {
   process.send?.(message);
@@ -45,7 +45,16 @@ async function run(job: ChildJob): Promise<void> {
     const { text, pages, encoding, replacedCharacters } = result;
     send({ type: "done", id: job.id, result: { text, ...(pages !== undefined ? { pages } : {}), ...(encoding !== undefined ? { encoding } : {}), ...(replacedCharacters !== undefined ? { replacedCharacters } : {}) } });
   } catch (error) {
-    send({ type: "error", id: job.id, message: error instanceof Error ? error.message : String(error), name: error instanceof Error ? error.name : "Error" });
+    // A system error keeps its code and system call: the server tells it apart from a file that cannot be read.
+    const { code, syscall } = (error ?? {}) as { code?: unknown; syscall?: unknown };
+    send({
+      type: "error",
+      id: job.id,
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : "Error",
+      ...(typeof code === "string" ? { code } : {}),
+      ...(typeof syscall === "string" ? { syscall } : {}),
+    });
   }
 }
 

@@ -892,6 +892,7 @@ async function slideOrder(read: OfficeParts, parts: string[]): Promise<string[]>
   if (!presentation || !relationshipsXml) return byName;
   const relationships = readRelationships(relationshipsXml, "ppt");
   const ordered: string[] = [];
+  const listed = new Set<string>();
   const existing = new Set(parts);
   let inList = false;
   readXml(presentation, {
@@ -899,7 +900,10 @@ async function slideOrder(read: OfficeParts, parts: string[]): Promise<string[]>
       if (name === "p:sldIdLst") inList = true;
       else if (inList && name === "p:sldId") {
         const target = relationships.get(attributes["r:id"] ?? "")?.target;
-        if (target && existing.has(target) && !ordered.includes(target)) ordered.push(target);
+        if (target && existing.has(target) && !listed.has(target)) {
+          listed.add(target);
+          ordered.push(target);
+        }
       }
     },
     close(name) {
