@@ -59,9 +59,9 @@ export function decodeHtmlEntities(text: string): string {
       if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return "�";
       return String.fromCodePoint(code);
     }
-    const named = ENTITIES[entity];
-    // Without its ";", only a known name is decoded: "AT&T" and "?a=1&b=2" stay as they are.
-    return named !== undefined && (match.endsWith(";") || entity in ENTITIES) ? named : match;
+    // Only a name of the table, not one an object has from its prototype ("&constructor;").
+    // "AT&T" and "?a=1&b=2" stay as they are.
+    return Object.hasOwn(ENTITIES, entity) ? ENTITIES[entity]! : match;
   });
 }
 

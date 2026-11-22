@@ -306,6 +306,8 @@ describe("HTML pages (F13)", () => {
 
   it("decodes entities, and leaves an ampersand that is not one", () => {
     expect(decodeHtmlEntities("AT&amp;T &lt;b&gt; &#x5D0;&#1489; &copy; &bogus; a=1&b=2 &amp")).toBe("AT&T <b> אב © &bogus; a=1&b=2 &");
+    // Names an object has from its prototype are not entities.
+    expect(decodeHtmlEntities("&constructor; &toString; &__proto__; &hasOwnProperty;")).toBe("&constructor; &toString; &__proto__; &hasOwnProperty;");
   });
 
   it("is detected and ingested, and an older encoding is read as text files are", async () => {
