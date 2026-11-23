@@ -39,23 +39,34 @@ const MIME_FORMATS: Record<string, DocumentFormat> = {
 };
 
 /**
- * Picks a format from the file name, then the MIME type. Unknown text-like files are "text". Both
+ * The format a file's name, then its MIME type, say, and whether its bytes are to be looked at
+ * (`sniff`): a name and a type that say nothing more than text, without a ".txt" extension. Both
  * come from the upload: only the tables' own keys count, not "constructor" or "__proto__", which
  * every object has.
  */
-export function detectFormat(name: string, mimeType: string, bytes?: Uint8Array): DocumentFormat {
+export function namedFormat(name: string, mimeType: string): { format: DocumentFormat; sniff: boolean } {
   const extension = name.toLowerCase().split(".").at(-1) ?? "";
   const mime = mimeType.toLowerCase();
-  const named = (Object.hasOwn(EXTENSION_FORMATS, extension) ? EXTENSION_FORMATS[extension] : undefined)
+  const format = (Object.hasOwn(EXTENSION_FORMATS, extension) ? EXTENSION_FORMATS[extension] : undefined)
     ?? (Object.hasOwn(MIME_FORMATS, mime) ? MIME_FORMATS[mime] : undefined)
     ?? "text";
   // A name that says text ("notes.txt") is taken at its word.
-  return named === "text" && bytes && extension !== "txt" ? sniffFormat(bytes) ?? named : named;
+  return { format, sniff: format === "text" && extension !== "txt" };
 }
 
-/** Where the part names of an Office file are looked for: its directory at the end, and its first parts. */
-const SNIFFED_HEAD = 64 * 1024;
-const SNIFFED_TAIL = 1024 * 1024;
+/** Picks a format from the file name, then the MIME type, then the bytes, when they are given and the name and type say nothing. Unknown text-like files are "text". */
+export function detectFormat(name: string, mimeType: string, bytes?: Uint8Array): DocumentFormat {
+  const { format, sniff } = namedFormat(name, mimeType);
+  return sniff && bytes ? sniffFormat(bytes) ?? format : format;
+}
+
+/**
+ * The bytes the format of a file is told by (`sniffFormat`): its first KB, and for a ZIP (an Office
+ * file) the names of its parts, in its first 64 KB and its directory, in its last MB.
+ */
+export const SNIFFED_FIRST = 1_024;
+export const SNIFFED_HEAD = 64 * 1024;
+export const SNIFFED_TAIL = 1024 * 1024;
 
 /**
  * The format of a file whose name and type say nothing (no extension, "application/octet-stream"),
@@ -64,11 +75,22 @@ const SNIFFED_TAIL = 1024 * 1024;
  * extension was told "This file is a ZIP archive".
  */
 export function sniffFormat(bytes: Uint8Array): DocumentFormat | undefined {
-  const head = latin1(bytes.subarray(0, 1_024));
-  const start = head.replace(/^\xef\xbb\xbf/, "").trimStart();
+  return sniffParts(bytes.subarray(0, SNIFFED_HEAD), bytes.subarray(Math.max(SNIFFED_HEAD, bytes.length - SNIFFED_TAIL)));
+}
+
+/** Whether the bytes start as a ZIP archive does: an Office file is one. */
+export const isZip = (head: Uint8Array) => head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04;
+
+/**
+ * `sniffFormat`, from the parts of a file it looks at, as they are read from a path without reading
+ * the rest: `head`, the file from its start (its first KB, or for a ZIP its first 64 KB), and
+ * `tail`, for a ZIP, the file from 64 KB (or its last MB, when it is larger) to its end.
+ */
+export function sniffParts(head: Uint8Array, tail: Uint8Array): DocumentFormat | undefined {
+  const start = latin1(head.subarray(0, SNIFFED_FIRST)).replace(/^\xef\xbb\xbf/, "").trimStart();
   if (start.startsWith("%PDF-")) return "pdf";
-  if (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
-    const names = latin1(bytes.subarray(0, SNIFFED_HEAD)) + latin1(bytes.subarray(Math.max(SNIFFED_HEAD, bytes.length - SNIFFED_TAIL)));
+  if (isZip(head)) {
+    const names = latin1(head.subarray(0, SNIFFED_HEAD)) + latin1(tail);
     if (names.includes("word/document.xml")) return "docx";
     if (names.includes("ppt/presentation.xml") || names.includes("ppt/slides/")) return "pptx";
     if (names.includes("xl/workbook.xml")) return "xlsx";
@@ -320,11 +342,15 @@ export const defaultExtractors: Record<DocumentFormat, Extractor> = {
   html,
 };
 
+/** The extractor of a format: the application's own (`LargeFilesOptions.extractors`), or the built-in one. */
+export function extractorFor(format: DocumentFormat, extractors: Partial<Record<DocumentFormat, Extractor>> = {}): Extractor {
+  return extractors[format] ?? defaultExtractors[format];
+}
+
 export async function extractText(
   bytes: Uint8Array,
   input: ExtractInput,
   extractors: Partial<Record<DocumentFormat, Extractor>> = {},
 ): Promise<ExtractedText> {
-  const extractor = extractors[input.format] ?? defaultExtractors[input.format];
-  return extractor(bytes, input);
+  return extractorFor(input.format, extractors)(bytes, input);
 }

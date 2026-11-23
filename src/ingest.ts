@@ -5,13 +5,14 @@ import { checkMetaVersion, checkOwner, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQ
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type IngestEvent, type IngestStage } from "./events.js";
-import { detectFormat, extractText } from "./extract.js";
-import type { IngestInput } from "./library.js";
+import { detectFormat, extractorFor, extractText, isZip, namedFormat, sniffParts, SNIFFED_FIRST, SNIFFED_HEAD, SNIFFED_TAIL } from "./extract.js";
+import type { IngestFromSource, IngestInput } from "./library.js";
 import type { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
 import { checkScope } from "./scope.js";
+import { isSha256, readRanges, readSource, sha256InSlices, statSource } from "./source.js";
 import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
 import { measureText, prepareText, removeInvisible, sliceWhole } from "./text.js";
@@ -34,8 +35,13 @@ export type IngestContext = {
   readonly ingests: Limiter;
   /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
   readonly slotCapMs: number;
-  /** Whether the uploaded file of a document of this format is kept. */
-  readonly keeps: (format: DocumentFormat) => boolean;
+  /**
+   * Whether the uploaded file of a document of this format is kept: by its ref (`IngestInput.original`,
+   * read by `LargeFilesOptions.originals`), or else as a copy in the store (`putOriginal`).
+   */
+  readonly keeps: (format: DocumentFormat, byRef: boolean) => boolean;
+  /** Whether the library reads uploaded files that the application keeps (`LargeFilesOptions.originals`). */
+  readonly readsRefs: boolean;
   /** Forgets everything kept in memory of a document, in every scope: the document, and its pieces. */
   readonly forget: (id: string) => void;
   /** What every call must name (`requireOwner`, `requireScope`). */
@@ -68,7 +74,7 @@ type Target = {
 const ID_SHAPE = 'id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN), and not a name Windows keeps for a device (con, nul, com1…).';
 
 /** The ID, `ifExists`, owner and scope of an ingest, checked (the owner already is). */
-function targetOf(input: IngestInput, rules: AccessRules): Target {
+function targetOf(input: IngestInput | IngestFromSource, rules: AccessRules): Target {
   if (rules.requireOwner && input.owner === undefined) throw new TypeError(OWNER_REQUIRED);
   // Null is no scope, as a database gives a field that was left out.
   const scope = checkScope(input.scope ?? undefined);
@@ -216,6 +222,74 @@ export function cleanMimeType(raw: unknown): string {
   return type.length <= MAX_MIME_TYPE && MIME_TYPE.test(type) ? type : OCTET_STREAM;
 }
 
+/** The longest `IngestInput.original.ref`, in UTF-16 units. */
+const MAX_REF_LENGTH = 1_024;
+
+/**
+ * The path of an ingest from a path (`IngestFromSource.source`), checked; undefined for an ingest
+ * of bytes. A source of null is none, as a database gives a field that was left out.
+ */
+function sourcePathOf(input: IngestInput | IngestFromSource): string | undefined {
+  const source: unknown = (input as { source?: unknown }).source;
+  if (source === undefined || source === null) return undefined;
+  if ((input as { bytes?: unknown }).bytes !== undefined) throw new TypeError("Give the file as bytes or as source, not both.");
+  const path: unknown = typeof source === "object" ? (source as { path?: unknown }).path : undefined;
+  if (typeof path !== "string" || path.length === 0 || path.includes("\0")) throw new TypeError("source.path must be the path of a file: a string that is not empty.");
+  return path;
+}
+
+/**
+ * The ref of the uploaded file the application keeps (`IngestInput.original`), checked. It needs
+ * a reader (`LargeFilesOptions.originals`): without one, the file could never be read back.
+ */
+function originalRefOf(input: IngestInput | IngestFromSource, readsRefs: boolean): string | undefined {
+  const original: unknown = input.original;
+  if (original === undefined || original === null) return undefined;
+  const ref: unknown = typeof original === "object" ? (original as { ref?: unknown }).ref : undefined;
+  if (typeof ref !== "string" || ref.length === 0 || ref.length > MAX_REF_LENGTH) throw new TypeError("original.ref must be a string of 1 to 1,024 characters.");
+  if (!readsRefs) throw new TypeError("original needs LargeFilesOptions.originals, which reads the file from its ref.");
+  return ref;
+}
+
+/** The refusal of a file of no bytes. */
+const emptyFile = (name: string) => new Error(`${name} is empty.`);
+/** The refusal of a file larger than `maxUploadBytes`. */
+const tooLarge = (name: string, maxUploadBytes: number) => new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
+
+/** `size`, the size of the file of an ingest, once it is neither empty nor larger than the upload limit. */
+function checkedSize(name: string, size: number, maxUploadBytes: number): number {
+  if (size === 0) throw emptyFile(name);
+  if (size > maxUploadBytes) throw tooLarge(name, maxUploadBytes);
+  return size;
+}
+
+const NO_BYTES = new Uint8Array(0);
+
+/**
+ * The format of a file at a path: the one its name and type say, or, when they say nothing, the
+ * one its bytes say (`sniffParts`), from reads of the parts looked at and not the rest: its first
+ * KB, and for a ZIP its first 64 KB and its last MB.
+ */
+async function formatAtPath(name: string, mimeType: string, path: string, size: number): Promise<DocumentFormat> {
+  const { format, sniff } = namedFormat(name, mimeType);
+  if (!sniff) return format;
+  const [first = NO_BYTES] = await readRanges(path, [[0, Math.min(size, SNIFFED_FIRST)]]);
+  if (!isZip(first)) return sniffParts(first, NO_BYTES) ?? format;
+  const [head = NO_BYTES, tail = NO_BYTES] = await readRanges(path, [[0, Math.min(size, SNIFFED_HEAD)], [Math.max(SNIFFED_HEAD, size - SNIFFED_TAIL), size]]);
+  return sniffParts(head, tail) ?? format;
+}
+
+/**
+ * What an extractor that reads paths read (`ExtractedText.file`), when it said so in the shape it
+ * is kept in: a whole number of bytes, and a SHA-256 of 64 lowercase hex digits.
+ */
+function fileOf(extracted: ExtractedText): { bytes: number; sha256: string } | undefined {
+  const file: unknown = extracted.file;
+  if (typeof file !== "object" || file === null) return undefined;
+  const { bytes, sha256 } = file as { bytes?: unknown; sha256?: unknown };
+  return typeof bytes === "number" && Number.isSafeInteger(bytes) && bytes >= 0 && isSha256(sha256) ? { bytes, sha256 } : undefined;
+}
+
 /**
  * The `expiresAt` of a document that never expires (`ttlMs: Infinity`): the last instant of the
  * year 9999. A date, so that every comparison, and a server of an older version, reads it as any other.
@@ -336,12 +410,15 @@ const EXTRACT_STAGES = new Set<unknown>(["extract", "check", "pictures", "decode
 const EXTRACT_UNITS = new Set<unknown>(["pages", "parts", "bytes"]);
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
-/** What `ingest.start` says of an ingest, worked out from whatever it was given: the checks come after it. */
-function startOf(input: IngestInput | undefined): { name: string; format: DocumentFormat; bytes: number } {
+/**
+ * What `ingest.start` says of an ingest, worked out from whatever it was given: the checks come
+ * after it. `statSize`: the size of a file at a path, as `lstat` gave it.
+ */
+function startOf(input: IngestInput | IngestFromSource | undefined, statSize: number | undefined): { name: string; format: DocumentFormat; bytes: number } {
   try {
     const name = typeof input?.name === "string" ? cleanFileName(input.name) : "";
     const mimeType = cleanMimeType(input?.mimeType);
-    const bytes = input?.bytes?.byteLength;
+    const bytes = statSize ?? input?.bytes?.byteLength;
     return { name, format: detectFormat(name, mimeType), bytes: isCount(bytes) ? bytes : 0 };
   } catch {
     return { name: "", format: "text", bytes: 0 };
@@ -421,6 +498,12 @@ type IngestWork = {
 };
 
 /**
+ * Where the file of an ingest is: `path` for one from a path (`IngestFromSource`), else its bytes
+ * (`IngestInput.bytes`); and `ref`, where the application keeps it (`IngestInput.original`).
+ */
+type Upload = { readonly path: string | undefined; readonly ref: string | undefined };
+
+/**
  * The caller left (`IngestInput.signal`) while the document was written: once the writes have
  * ended, what they wrote is removed, while it is this ingest's own (`removeOwn`), and within the time
  * the writes were given; the caller gets its own reason. Before 0.9.0, a client that left during the
@@ -445,7 +528,7 @@ async function removeAbandoned(context: IngestContext, target: Target, meta: Doc
  */
 async function ingestFile(
   context: IngestContext,
-  input: IngestInput,
+  input: IngestInput | IngestFromSource,
   target: Target,
   name: string,
   mimeType: string,
@@ -453,13 +536,27 @@ async function ingestFile(
   progress: IngestProgress | undefined,
   storeFailed: () => void,
   work: IngestWork,
+  upload: Upload,
 ): Promise<DocumentMeta> {
-  const { store, now, ttlMs, maxTextBytes, maxPdfPages, ingestTimeoutMs, scannedPdfPages, extractors, slotCapMs, keeps, forget } = context;
+  const { store, now, ttlMs, maxUploadBytes, maxTextBytes, maxPdfPages, ingestTimeoutMs, scannedPdfPages, extractors, slotCapMs, keeps, forget } = context;
+  const { path, ref } = upload;
+  const byRef = ref !== undefined;
   let format = detected;
+  // A file kept in the store (`putOriginal`, without a ref) needs its bytes in the server. A text
+  // may turn out to be a log once it is read.
+  const mayCopy = !byRef && (keeps(format, false) || (format === "text" && keeps("log", false)));
+  // A file at a path that its extractor reads itself (an isolated reader) is not read here at all.
+  const extractorReads = path !== undefined && extractorFor(format, extractors).readsPath === true && !mayCopy;
   const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
   // Each long step works in slices, with pauses for other requests: one large upload no longer
   // holds the whole server while it is read.
   const slicer = new TimeSlicer(signal);
+  /** The bytes of the file, while they are needed: until it is extracted, or kept in the store. */
+  let bytes: Uint8Array | undefined;
+  let size = 0;
+  let sha256 = "";
+  /** The bytes to keep in the store (`putOriginal`), until they are written. */
+  let copy: Uint8Array | undefined;
   let pages: number | undefined;
   let reading: ReturnType<typeof readingOf>;
   let text: string;
@@ -472,6 +569,18 @@ async function ingestFile(
   let index: Awaited<ReturnType<typeof buildTextIndexInSlices>> | undefined;
   try {
     signal.throwIfAborted();
+    // The file is read once, at its turn, and never past the upload limit: one that has grown
+    // since it was looked at is refused. Its SHA-256 is taken as it is read, a slice at a time.
+    if (path === undefined) {
+      bytes = (input as IngestInput).bytes;
+      size = bytes.byteLength;
+      sha256 = await sha256InSlices(bytes, slicer);
+    } else if (!extractorReads) {
+      const got = await readSource(path, maxUploadBytes, { keep: true, slicer, signal });
+      size = checkedSize(name, got.size, maxUploadBytes);
+      bytes = got.bytes;
+      sha256 = got.sha256;
+    }
     // In a function of its own, so that the text as extracted is let go once it is prepared:
     // the steps after it hold only the prepared text.
     const read = async () => {
@@ -482,12 +591,14 @@ async function ingestFile(
       try {
         // Kept, so that an ingest that stops waiting for it (its time is up, its caller left)
         // keeps its turn until the extractor is done too: it still holds memory.
-        const extraction = extractText(input.bytes, {
+        const extraction = extractText(bytes ?? NO_BYTES, {
           name,
           mimeType,
           format,
           // A scan is worth storing only if its pages can be shown later: that needs the file itself.
-          ...(format === "pdf" && keeps(format) && scannedPdfPages > 0 ? { scannedPages: scannedPdfPages } : {}),
+          ...(format === "pdf" && keeps(format, byRef) && scannedPdfPages > 0 ? { scannedPages: scannedPdfPages } : {}),
+          // The extractor reads the file from its path, once, within the upload limit.
+          ...(extractorReads ? { path, maxUploadBytes } : {}),
           signal,
           maxTextBytes,
           maxPages: maxPdfPages,
@@ -503,12 +614,27 @@ async function ingestFile(
       // A character is at least one byte: a text this long is too large whatever it holds.
       if (extracted.text.length > maxTextBytes) throw tooMuchText(name, maxTextBytes);
       await slicer.pauseNow();
-      return { pages: extracted.pages, reading: readingOf(extracted), ...await prepareText(extracted.text, slicer, progress && ((done, total) => progress.report("prepare", done, total, "characters"))) };
+      return { pages: extracted.pages, reading: readingOf(extracted), file: fileOf(extracted), ...await prepareText(extracted.text, slicer, progress && ((done, total) => progress.report("prepare", done, total, "characters"))) };
     };
-    ({ pages, reading, text, wrapped, lines } = await read());
+    const done = await read();
+    ({ pages, reading, text, wrapped, lines } = done);
     progress?.end();
+    if (path !== undefined && extractorReads) {
+      // What the extractor read of the file: its size and SHA-256. One that did not say is hashed
+      // here, a slice at a time, and nothing of it is kept.
+      let hashed = done.file;
+      if (!hashed) {
+        const got = await readSource(path, maxUploadBytes, { keep: false, slicer, signal });
+        hashed = { bytes: got.size, sha256: got.sha256 };
+      }
+      size = checkedSize(name, hashed.bytes, maxUploadBytes);
+      sha256 = hashed.sha256;
+    }
     if (!text.trim()) throw new Error(`${name} did not contain any text.`);
     if (format === "text" && looksLikeLog(lines)) format = "log";
+    // The bytes are let go once the text is read, unless the store keeps them.
+    if (keeps(format, byRef) && !byRef) copy = bytes;
+    bytes = undefined;
     measured = await measureText(text, slicer);
     if (measured.utf8 > maxTextBytes) throw tooMuchText(name, maxTextBytes);
     outline = await buildOutlineInSlices(lines, format, slicer);
@@ -527,7 +653,8 @@ async function ingestFile(
   }
   const created = now();
   const expires = created.getTime() + ttlMs;
-  const keepOriginal = keeps(format);
+  // Kept by its ref, or as a copy in the store, which has the bytes to write.
+  const keepOriginal = byRef ? keeps(format, true) : copy !== undefined;
   // A copy: the outline's headings and the log's timestamps are pieces of the text, and a piece
   // keeps the whole text in memory as long as it is held. A meta an application kept held its
   // text: 25 MB of heap for a log of 10 MB in Hebrew, 194 MB for one of 100 MB. Copied through
@@ -538,10 +665,13 @@ async function ingestFile(
     ...(input.owner !== undefined ? { owner: input.owner } : {}),
     // Never sent to the model, nor in a summary or an event.
     ...(target.scope !== undefined ? { scope: [...target.scope] } : {}),
+    // Nor these: the SHA-256 of the file, and where the application keeps it.
+    sha256,
+    ...(keepOriginal && byRef ? { original: { ref, bytes: size, sha256 } } : {}),
     name,
     mimeType,
     format,
-    bytes: input.bytes.byteLength,
+    bytes: size,
     textBytes: measured.utf8,
     jsonBytes: measured.json,
     characters: text.length,
@@ -562,7 +692,7 @@ async function ingestFile(
     ? serializeTextIndex(index)
     : undefined;
   // Each write is reported once done. What the listener of the events throws is not the store's failure.
-  const writes = (keepOriginal ? 1 : 0) + (savedIndex ? 1 : 0) + 1;
+  const writes = (copy ? 1 : 0) + (savedIndex ? 1 : 0) + 1;
   let written = 0;
   let listenerFailed: { error: unknown } | undefined;
   const wrote = (last: boolean) => {
@@ -586,8 +716,9 @@ async function ingestFile(
       await store.delete(meta.id, target.context);
       forget(meta.id);
     }
-    if (keepOriginal) {
-      await store.putOriginal!(meta.id, input.bytes, target.context);
+    if (copy) {
+      await store.putOriginal!(meta.id, copy, target.context);
+      copy = undefined;
       wrote(false);
     }
     if (savedIndex) {
@@ -639,7 +770,7 @@ async function ingestFile(
 }
 
 /** `files.ingest` of the library that `context` describes. */
-export async function ingestDocument(context: IngestContext, input: IngestInput): Promise<DocumentMeta> {
+export async function ingestDocument(context: IngestContext, input: IngestInput | IngestFromSource): Promise<DocumentMeta> {
   const { maxUploadBytes, ingests, slotCapMs, forget, ingesting } = context;
   // The events first, so that every ingest that throws, even on what it was given, ends with ingest.error.
   // What the caller's listener throws is passed on as it is, not told as a file that could not be read.
@@ -658,22 +789,34 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
   let holding: string | undefined;
   const work: IngestWork = {};
   try {
-    if (events.active) events.emit({ type: "ingest.start", ...startOf(input) });
+    // A file at a path is looked at first, without being read, so that ingest.start gives its size.
+    // The library never writes, moves or deletes it.
+    let quietPath: string | undefined;
+    try {
+      quietPath = sourcePathOf(input);
+    } catch {
+      // Told once ingest.start is out.
+    }
+    const stated = quietPath === undefined ? undefined : await statSource(quietPath).then((size) => ({ size }), (error: unknown) => ({ size: undefined, error }));
+    if (events.active) events.emit({ type: "ingest.start", ...startOf(input, stated?.size) });
     checkOwner(input.owner);
     const target = targetOf(input, context.rules);
+    const path = sourcePathOf(input);
+    const ref = originalRefOf(input, context.readsRefs);
     const name = cleanFileName(input.name);
     const mimeType = cleanMimeType(input.mimeType);
-    // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
-    const format = detectFormat(name, mimeType, input.bytes instanceof Uint8Array ? input.bytes : undefined);
     // Progress is worked out only for someone who listens.
     const progress = events.active ? new IngestProgress(events) : undefined;
     let meta: DocumentMeta;
     try {
-      // Refused at once, without waiting for a turn.
-      if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
-      if (input.bytes.byteLength > maxUploadBytes) {
-        throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
-      }
+      // A path that is not there, a link or a folder: the server's trouble, passed on as it is.
+      if (stated && "error" in stated) throw stated.error;
+      // Refused at once, without waiting for a turn, and without reading a file at a path.
+      checkedSize(name, path !== undefined ? stated!.size! : (input as IngestInput).bytes.byteLength, maxUploadBytes);
+      // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
+      // Of a file at a path, only the parts looked at are read.
+      const bytes = (input as IngestInput).bytes;
+      const format = path !== undefined ? await formatAtPath(name, mimeType, path, stated!.size!) : detectFormat(name, mimeType, bytes instanceof Uint8Array ? bytes : undefined);
       if (target.id !== undefined) {
         // An ID another ingest of this library is storing: refused, whoever's it is to be.
         if (ingesting.has(target.id)) throw exists(name);
@@ -693,7 +836,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
       // with AsyncLocalStorage made pdf.js about five times slower on Node 22, for every PDF.)
       const slot = new IngestSlot(await ingests.acquire(input.signal), slotCapMs);
       try {
-        meta = await ingestFile(context, input, target, name, mimeType, format, progress, () => (storeFailed = true), work);
+        meta = await ingestFile(context, input, target, name, mimeType, format, progress, () => (storeFailed = true), work, { path, ref });
       } finally {
         slot.end(work.abandoned);
       }

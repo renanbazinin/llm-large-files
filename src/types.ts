@@ -197,6 +197,13 @@ export type ExtractedText = {
   encoding?: string;
   /** Characters that were not valid in the encoding the file was read in, each now U+FFFD. Kept as `DocumentMeta.replacedCharacters`. */
   replacedCharacters?: number;
+  /**
+   * What an extractor that reads paths (`Extractor.readsPath`) read from `ExtractInput.path`: how
+   * many bytes the file has, and their SHA-256, as 64 lowercase hex digits. Kept as
+   * `DocumentMeta.bytes` and `DocumentMeta.sha256`. Without it, `ingest` reads the file once more
+   * to hash it, a slice at a time. Other extractors leave it out. New in 0.9.0.
+   */
+  file?: { bytes: number; sha256: string };
 };
 
 export type ExtractInput = {
@@ -232,10 +239,14 @@ export type ExtractInput = {
    */
   onProgress?: (progress: ExtractProgress) => void;
   /**
-   * The path of the file, when it is ingested from a path (`IngestInput.source`) and the extractor
-   * reads the file itself (`readsPath`): the bytes it is given are then empty. New in 0.9.0.
+   * The path of the file, when it is ingested from a path (`IngestFromSource`) and the extractor
+   * reads the file itself (`Extractor.readsPath`): the bytes it is given are then empty. Read it
+   * once, at most `maxUploadBytes + 1` bytes, refuse it when it has more than `maxUploadBytes`, and
+   * return its size and SHA-256 in `ExtractedText.file`. Never write, move or delete it. New in 0.9.0.
    */
   path?: string;
+  /** With `path`: the most bytes the file may have (`maxUploadBytes`). New in 0.9.0. */
+  maxUploadBytes?: number;
 };
 
 /** How far an extraction is, for `ExtractInput.onProgress`. */
@@ -249,9 +260,11 @@ export type ExtractProgress = {
 };
 
 /**
- * Reads the text of a file. `readsPath`: the extractor reads a file ingested from a path itself,
- * from `ExtractInput.path`, so the library does not read it first (an isolated reader does). New in
- * 0.9.0. A plain function is an extractor, as before.
+ * Reads the text of a file. A plain function is an extractor, as before. `readsPath`, new in 0.9.0:
+ * the extractor reads a file ingested from a path itself, from `ExtractInput.path`, so the server
+ * does not read it first (`createIsolatedExtractors` sets it: its child processes read the file).
+ * It is then given empty bytes, unless the file is kept in the store (`keepOriginals` without
+ * `IngestInput.original`), which needs its bytes in the server.
  */
 export type Extractor = ((bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>) & { readsPath?: boolean };
 
