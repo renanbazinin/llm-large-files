@@ -47,7 +47,11 @@ export type ErrorInfo = {
 export const STORE_RETRY_AFTER_MS = 5_000;
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
-const UNREADABLE = "This file could not be read. It may be damaged, or not of the type its name says.";
+/**
+ * What a user is told of an "unreadable" file, whose message is a parser's or an extractor's of
+ * your own (which may name a host): by `errorInfoOf`, and by the upload handlers.
+ */
+export const UNREADABLE_MESSAGE = "This file could not be read. It may be damaged, or not of the type its name says.";
 const CHAT_GONE = "This chat no longer exists.";
 
 /** The HTTP status of a model error, by its kind: the answer of a server that asked a model for its user. */
@@ -106,7 +110,7 @@ function ingestInfo(code: string, status: unknown, retryAfterMs: unknown, messag
     retryable: code === "busy",
     ...(code === "busy" && isWait(retryAfterMs) ? { retryAfterMs } : {}),
     // An unreadable file has the parser's message, or that of an extractor of your own: not words for a user.
-    message: code === "unreadable" || typeof message !== "string" || !message ? UNREADABLE : message,
+    message: code === "unreadable" || typeof message !== "string" || !message ? UNREADABLE_MESSAGE : message,
   };
 }
 

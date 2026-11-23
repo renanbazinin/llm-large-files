@@ -626,7 +626,9 @@ A file the parser cannot read (a damaged DOCX, PPTX, XLSX or PDF) throws an `Ing
 `"unreadable"` with the parser's message (jszip's, or that of pdf.js's `InvalidPDFException`), and
 the parser's error as `cause`; an extractor of your own that throws an `Error` gets the same, with
 the code its message gives. Those messages are not written for users: show "This file could not
-be read." for the code `"unreadable"`. With `createIsolatedExtractors`, a file whose reader ran out
+be read." for the code `"unreadable"`. Since 0.9.0 the upload handlers, `uploadAnswerOf` and
+`errorInfoOf` do: "This file could not be read. It may be damaged, or not of the type its name
+says.". With `createIsolatedExtractors`, a file whose reader ran out
 of memory or time is `"out_of_memory"` or `"timeout"`, readers that are all busy give `"busy"`,
 answered `503` with `Retry-After`, and a reader that could not start at all (a `childScript` that
 is not there) is not an `IngestError`, but an `Error` with `status` 500
@@ -637,7 +639,8 @@ A store that fails while it writes is a `DocumentStoreError` since 0.9.0: operat
 `"sweep"` in `files.sweep`. Its status is 503, its message ("The document could not be stored
 (EIO). Try again.") names no path or host and can be shown, and the store's own error is `cause`:
 log that one. Before 0.9.0 the store's error came out as it was. `createDocumentHandlers` answers a
-file it cannot take (an `IngestError`) with 422 and the error's message, and a store that failed
+file it cannot take (an `IngestError`) with 422 and the error's message (fixed words for
+`"unreadable"`), and a store that failed
 with 503, `Retry-After: 5` and the `DocumentStoreError`'s message (it was a 500). Since 0.9.0 any
 other error without a status is answered 500 "Upload failed.", without its message: a `LargeFiles`
 of your own whose `ingest` throws a plain `Error` no longer sends its words, which may name a host,

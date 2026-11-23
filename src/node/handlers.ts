@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { errorInfoOf, STORE_RETRY_AFTER_MS } from "../error-info.js";
+import { errorInfoOf, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE } from "../error-info.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, type IngestErrorCode } from "../errors.js";
 import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
 import { checkOwner, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles } from "../library.js";
@@ -186,7 +186,9 @@ function answerFor(error: unknown, failed: string): UploadAnswer {
       const status = isErrorStatus(error.status) ? error.status : 422;
       return {
         status,
-        error: typeof error.message === "string" && error.message ? error.message : plain.error,
+        // An unreadable file has the words of a parser, or of an extractor of your own, which may
+        // name a host: not words for a user (as for errorInfoOf).
+        error: error.code === "unreadable" ? UNREADABLE_MESSAGE : typeof error.message === "string" && error.message ? error.message : plain.error,
         code: error.code,
         ...(status === 503 && isWait(error.retryAfterMs) ? { retryAfterMs: error.retryAfterMs } : {}),
       };
@@ -219,7 +221,9 @@ const retryOf = (value: unknown): { retryAfterMs?: number } => (isWait(value) ? 
  * How the upload handler answers an error, for a route of your own that ingests files and should
  * answer as it does:
  * - an `IngestError` (a file that could not be read): its status (422; 413, 409, or 503 for "busy"
- *   with its `retryAfterMs`), its message and its `code`. Only an `IngestError` is a 422;
+ *   with its `retryAfterMs`), its message and its `code`. Only an `IngestError` is a 422. An
+ *   "unreadable" file is told in fixed words, as `errorInfoOf` tells it: its own message is a
+ *   parser's, or that of an extractor of your own;
  * - a `DocumentStoreError`: 503, its message (which names no path or host), and 5 s to wait;
  * - a `DocumentScopeError` "scope_missing": 404 "This chat no longer exists."; the other codes
  *   are the server's mistake: 500 "Upload failed.";

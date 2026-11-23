@@ -479,15 +479,34 @@ describe("errors as the upload answers them (S12)", () => {
     const other = await import("../src/errors.js");
     expect(other.IngestError).not.toBe(IngestError);
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    let thrown: unknown = new IngestError("unreadable", "report.docx could not be read.");
+    let thrown: unknown = new IngestError("encrypted", "report.docx is protected by a password.");
     const base = await serve({ ...files, ingest: async () => { throw thrown; } });
     const answer = async () => {
       const response = await upload(base, {});
       return { status: response.status, body: await response.json() };
     };
-    expect(await answer()).toEqual({ status: 422, body: { error: "report.docx could not be read." } });
+    expect(await answer()).toEqual({ status: 422, body: { error: "report.docx is protected by a password." } });
     thrown = new other.IngestError("no_text", "scan.pdf has no text layer.");
     expect(await answer()).toEqual({ status: 422, body: { error: "scan.pdf has no text layer." } });
+  });
+
+  // An "unreadable" file has the words of a parser, or of an extractor of your own, which may name
+  // a host: they were the 422's. errorInfoOf already gave fixed words for it.
+  it("answers an unreadable file 422 with fixed words, never those of an extractor of your own", async () => {
+    const files = createLargeFiles({
+      store: new MemoryDocumentStore(),
+      extractors: { pdf: async () => { throw new Error("OCR service at ocr-prod.internal.corp:8443 refused"); } },
+    });
+    const base = await serve(files);
+    const unreadable = "This file could not be read. It may be damaged, or not of the type its name says.";
+    const response = await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf" }, body: "%PDF-1.4 hello" });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ error: unreadable });
+    const events = await (await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf", Accept: "text/event-stream" }, body: "%PDF-1.4 hello" })).text();
+    expect(events).not.toContain("ocr-prod");
+    expect(parse(events).at(-1)).toMatchObject({ event: "ingest.error", data: { error: { message: unreadable, status: 422, code: "unreadable" } } });
+    expect(uploadAnswerOf(new IngestError("unreadable", "Corrupted zip: end of central directory not found"))).toEqual({ status: 422, error: unreadable, code: "unreadable" });
+    expect(errorInfoOf(new IngestError("unreadable", "x")).message).toBe(unreadable);
   });
 
   it("uploadAnswerOf: each IngestErrorCode gets its status and code", () => {
@@ -510,7 +529,9 @@ describe("errors as the upload answers them (S12)", () => {
       exists: 409,
     } satisfies Record<IngestErrorCode, number>;
     for (const [code, status] of Object.entries(statuses) as Array<[IngestErrorCode, number]>) {
-      expect(uploadAnswerOf(new IngestError(code, `a.txt: ${code}.`)), code).toEqual({ status, error: `a.txt: ${code}.`, code });
+      // An unreadable file's own words are a parser's: see below.
+      const error = code === "unreadable" ? "This file could not be read. It may be damaged, or not of the type its name says." : `a.txt: ${code}.`;
+      expect(uploadAnswerOf(new IngestError(code, `a.txt: ${code}.`)), code).toEqual({ status, error, code });
     }
     expect(uploadAnswerOf(new IngestError("busy", "Busy.", { retryAfterMs: 5_000 }))).toEqual({ status: 503, error: "Busy.", code: "busy", retryAfterMs: 5_000 });
   });

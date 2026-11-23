@@ -307,7 +307,9 @@ status and body is in the [node reference](../reference/node.md#uploadrequest-re
 
 The rule is `uploadAnswerOf` from `llm-large-files/node`
 ([reference](../reference/node.md#how-errors-are-answered)). Since 0.9.0, only an `IngestError` is a
-`422` with its message. A store that fails while it writes is a `DocumentStoreError`: `503`,
+`422` with its message, and a file of code `"unreadable"` gets fixed words instead ("This file could
+not be read. It may be damaged, or not of the type its name says."): its own message is a parser's,
+or an extractor's of your own, which may name a host. A store that fails while it writes is a `DocumentStoreError`: `503`,
 `Retry-After: 5`, and words that name no path or host. Any other error without a status is a `500`
 "Upload failed.", without its message, which may name your hosts: a `LargeFiles` of your own whose
 `ingest` throws a plain `Error` is answered so, and should throw `new IngestError(code, message)` for

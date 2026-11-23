@@ -1016,9 +1016,11 @@ The handler also adds `Retry-After: 5`.
 S12, closed in 0.9.0: the upload handler answered any `Error` without a status `422` with its
 message, as a file that could not be read. A `LargeFiles` of your own whose `ingest` threw a
 database driver's error (`MongoServerSelectionError: connect ECONNREFUSED mongo-prod.internal…:27017`)
-sent that host to the browser. Now only an `IngestError` is a `422` with its message. Any other
-error without a status is a `500` `{ "error": "Upload failed." }`, a system error adds only its
-code, and a model's error is told by its kind, never in the provider's words. The rule is
+sent that host to the browser. Now only an `IngestError` is a `422` with its message, and an
+`IngestError` of code `"unreadable"` is told in fixed words: its message is a parser's, or that of
+an extractor of your own, which may name a host (an OCR service's). Any other error without a
+status is a `500` `{ "error": "Upload failed." }`, a system error adds only its code, and a model's
+error is told by its kind, never in the provider's words. The rule is
 `uploadAnswerOf` from `llm-large-files/node`: answer with it in a route of your own around
 `files.ingest` ([Web app](./guides/web-app.md#filesingest-and-its-errors)). An `ingest` of your own
 that refuses a file throws `new IngestError(code, message)`, as `ingestInProcess` in
