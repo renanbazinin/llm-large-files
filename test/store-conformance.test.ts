@@ -165,6 +165,53 @@ describe("documentStoreChecks", () => {
     expect(await run(readCaching, /two stores over one storage/)).toMatch(/getMeta from the first store after the second deleted the document: expected undefined, got \{/);
   });
 
+  it("pass a shared store whose get gives a field more, and name the text when only the text is the old one", async () => {
+    const storages = new Map<string, MemoryDocumentStore>();
+    const over = (make: (inner: MemoryDocumentStore) => DocumentStore): DocumentStoreChecksOptions => ({
+      create: ({ now, storage }) => {
+        const inner = storages.get(storage) ?? new MemoryDocumentStore({ now });
+        storages.set(storage, inner);
+        return make(inner);
+      },
+      dispose: (_store, { storage }) => {
+        storages.delete(storage);
+      },
+      skip: ["ranges", "index"],
+    });
+    /** Each method of `inner`, with the context passed on. */
+    const forward = (inner: MemoryDocumentStore) => ({
+      put: (document: StoredDocument, context?: DocumentContext) => inner.put(document, context),
+      getMeta: (id: string, context?: DocumentContext) => inner.getMeta(id, context),
+      delete: (id: string, context?: DocumentContext) => inner.delete(id, context),
+      putOriginal: (id: string, bytes: Uint8Array, context?: DocumentContext) => inner.putOriginal(id, bytes, context),
+      getOriginal: (id: string, context?: DocumentContext) => inner.getOriginal(id, context),
+      sweep: (now?: Date, context?: DocumentContext) => inner.sweep(now, context),
+    });
+    // A database row spread into the result: { meta, text, _id }.
+    const withRow = over((inner) => ({
+      ...forward(inner),
+      get: async (id: string, context?: DocumentContext) => {
+        const document = await inner.get(id, context);
+        return document && Object.assign(document, { _id: id });
+      },
+    }));
+    expect(await run(withRow, /two stores over one storage/)).toBeUndefined();
+    // A store that reads the metadata fresh, and keeps the text it read once, on each server.
+    const keepsText = over((inner) => {
+      const texts = new Map<string, string>();
+      return {
+        ...forward(inner),
+        get: async (id: string, context?: DocumentContext) => {
+          const document = await inner.get(id, context);
+          if (!document) return undefined;
+          if (!texts.has(id)) texts.set(id, document.text);
+          return { meta: document.meta, text: texts.get(id)! };
+        },
+      };
+    });
+    expect(await run(keepsText, /two stores over one storage/)).toMatch(/^The store failed the check: get\(id\)\.text from the first store after the second put a new document under the ID: expected "/);
+  });
+
   it("fail a sweep that leaves the original or the index of an expired document in storage", async () => {
     // A sweep apart from delete that leaves a part of each expired document in storage. Its
     // getOriginal and getIndex look at the metadata first, so the part shows only once a document

@@ -617,7 +617,11 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
       const replaced = metaFor("check-shared", text, start, start + 2 * DAY, { name: "again.txt" });
       await must(() => other.put({ meta: replaced, text }, context()), "put from the second store");
       same(await store.getMeta("check-shared", context()), replaced, "getMeta from the first store after the second put a new document under the ID");
-      same(await store.get("check-shared", context()), { meta: replaced, text }, "get from the first store after the second put a new document under the ID");
+      // The parts apart, as in the other checks: a store may give more fields, and the message
+      // then says which part is not the new one.
+      const got = await store.get("check-shared", context());
+      same(got?.meta, replaced, "get(id).meta from the first store after the second put a new document under the ID");
+      same(got?.text, text, "get(id).text from the first store after the second put a new document under the ID");
       if (ranges(store)) {
         const size = utf8(text).length;
         same(bytesOf(await store.readTextRange!("check-shared", size - 6, size, context()), "readTextRange"), utf8("server"), "readTextRange from the first store after the second put a new document under the ID");
