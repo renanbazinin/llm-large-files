@@ -407,7 +407,8 @@ What happens to a file of one of its formats:
    `createLargeFiles` (`maxTextBytes`, `maxPdfPages`, `scannedPdfPages`). The child reads it with the
    built-in extractor of its format, and sends its progress and then its text back. A file ingested
    from a path ([`IngestFromSource`](./library.md#ingestfromsource), new in 0.9.0) is sent as its
-   path instead: the extractors have `readsPath`, so the child reads the file itself, once, at most
+   path instead, made absolute when `ingest` was called (the child's own working folder plays no
+   part): the extractors have `readsPath`, so the child reads the file itself, once, at most
    `maxUploadBytes + 1` bytes (a larger one is refused as `"too_large"`), opened without following
    a link at its name, and sends back its size and SHA-256 with the text. The server reads none of
    the file, and holds none of it while it waits for a child. When the store keeps a copy of the

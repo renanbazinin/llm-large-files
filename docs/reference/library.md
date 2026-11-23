@@ -227,7 +227,8 @@ of your own whose `ingest` takes `IngestInput` only still compiles, since `inges
    the MIME type are cleaned, and the format is picked by
    [`detectFormat(name, mimeType)`](#detectformatname-mimetype-bytes). A file at a path is looked
    at with `lstat` first, and nothing of it is read before its turn but the parts that tell a
-   format, when its name and type say nothing.
+   format, when its name and type say nothing. Those looks are given up on when `signal` is
+   aborted, and fail after `ingestTimeoutMs` (2 minutes when it is 0) when the volume does not answer.
    With an `id`, the store is asked whether a document of that ID is there
    ([`ifExists`](#ingestinput)), before the file is read. That question is given the same time
    as the writes (`ingestTimeoutMs`), and an aborted `signal` stops waiting for it. An `id` that
@@ -239,7 +240,7 @@ of your own whose `ingest` takes `IngestInput` only still compiles, since `inges
    extractor is done with them, so the ingests of one turn reach it in the order they came. It receives the limits `maxTextBytes`
    and `maxPdfPages`, the ingest's signal, and, when someone listens to the ingest's events, an
    `onProgress` to report how far it is ([`ExtractInput`](#extractinput)). The bytes read from a
-   path are let go once the text is read, unless the store keeps a copy. A text longer
+   path are let go as soon as the extractor returns, unless the store keeps a copy. A text longer
    than `maxTextBytes` is refused, whichever extractor made it. The extractor may say how the text
    was read ([`ExtractedText`](#extractedtext)): the built-in one reads a text file that is not
    valid UTF-8 in the older encoding its lines fit, when one does, and `encoding` and
@@ -311,7 +312,7 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | `IngestError` `"exists"`: `<name>: a document with this ID already exists.` | A document of `id` is there and `ifExists` does not let it be replaced; or another ingest of this library is storing `id` at the moment, whatever `ifExists` says; or a write failed and the document under `id` by then is another owner's or scope's, and has not expired (stored by another server). Status 409. It says nothing of the document that has the ID, but it does say that the ID is taken ([Application IDs](../guides/storage.md#application-ids)). New in 0.9.0. |
 | `TypeError("Give the file as bytes or as source, not both.")`, `TypeError("source.path must be the path of a file: a string that is not empty.")` | An input with both `bytes` and `source`, or a `source` whose `path` is not a string that is not empty (or holds a NUL). New in 0.9.0. |
 | `TypeError("original.ref must be a string of 1 to 1,024 characters.")`, `TypeError("original needs LargeFilesOptions.originals, which reads the file from its ref.")` | `original` has no ref of that length, or the library has no `originals` to read it back. New in 0.9.0. |
-| An error with a system error's `code` and `syscall` | A file at a path that is not there (`ENOENT`), cannot be opened (`EACCES`), is a link (`ELOOP`, from `lstat`, or from the read at its turn when a link was put in its place), a folder (`EISDIR`), or not a file at all (`EINVAL`: a pipe, a device). Passed on as it is, not as an `IngestError`: it is the server's trouble, not the file's. The messages of the library's own (`ELOOP`, `EISDIR`, `EINVAL`) name no path; Node's do. New in 0.9.0. |
+| An error with a system error's `code` and `syscall` | A file at a path that is not there (`ENOENT`), cannot be opened (`EACCES`), is a link (`ELOOP`, from `lstat`, or from the read at its turn when a link was put in its place), a folder (`EISDIR`), or not a file at all (`EINVAL`: a pipe, a device). Or a volume that did not answer the look before the turn within `ingestTimeoutMs` (`ETIMEDOUT`, `syscall` `"lstat"` or `"read"`): `The file to ingest did not answer within 2 min.` Passed on as it is, not as an `IngestError`: it is the server's trouble, not the file's. The messages of the library's own (`ELOOP`, `EISDIR`, `EINVAL`, `ETIMEDOUT`) name no path; Node's do. New in 0.9.0. |
 | [`IngestError`](#ingesterror) `"empty"`: `<name> is empty.` | The file has no bytes. A file at a path is refused from its `lstat` size, before its turn and without being read. |
 | `IngestError` `"too_large"`: `<name> is larger than the 100 MB upload limit.` | The file is larger than `maxUploadBytes`. The message gives your limit. A file at a path is refused from its `lstat` size, before its turn and without being read; one that has grown past the limit by its turn is refused once `maxUploadBytes + 1` bytes are read. |
 | An `IngestError` with the extractor's message | The extractor refused the file: a binary or compressed file, an Office file of before 2007 or with a password, a PDF with a password or without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server; or a parser failed on a damaged file. The `code` comes from the message ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)), `"unreadable"` for one the library does not know, and the extractor's error is `cause`. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
@@ -569,15 +570,20 @@ export const meta = await files.ingest({ name: "report.pdf", source: { path: "/s
 - **Before its turn**, the path is looked at with `lstat`, and nothing of the file is read. A link
   is refused, not followed (an error with code `"ELOOP"`), and so is a folder or anything that is
   not a file. An empty file, or one larger than `maxUploadBytes`, is refused at once
-  (`IngestError` `"empty"`, `"too_large"`). `ingest.start` gives that size.
+  (`IngestError` `"empty"`, `"too_large"`). `ingest.start` gives that size. The ingest's time
+  (`ingestTimeoutMs`) begins at its turn, but this look, and the reads for its format (below), are
+  not waited for past it either (2 minutes when it is 0): a volume that does not answer fails the
+  ingest with an error of code `"ETIMEDOUT"` and `syscall` `"lstat"` or `"read"`, which names no
+  path. A caller that aborts `signal` meanwhile gets its own reason at once.
 - **Its format**: from its name and type, as for bytes. When they say nothing (no extension,
   `application/octet-stream`), from its first KB, and for a ZIP from its first 64 KB and its last
   MB, read for that alone: a DOCX without its extension is still a DOCX.
 - **At its turn**, the file is read once, opened without following a link at its name (not on
   Windows), and at most `maxUploadBytes + 1` bytes: a file that has grown past the limit since it
   was looked at is refused as `"too_large"`. Its SHA-256 is taken as it is read
-  (`DocumentMeta.sha256`), and `bytes` is the size read. The bytes are let go once the text is read,
-  unless the store keeps a copy (`keepOriginals` without `original`).
+  (`DocumentMeta.sha256`), and `bytes` is the size read. The bytes are let go as soon as the
+  extractor returns, before the text is prepared, indexed and stored, unless the store keeps a copy
+  (`keepOriginals` without `original`).
 - **An extractor that reads paths** (`Extractor.readsPath`, as those of
   [`createIsolatedExtractors`](./node.md#createisolatedextractorsoptions) do) reads the file itself,
   and the server reads none of it. When the store keeps a copy, the server reads it all the same,
@@ -585,9 +591,11 @@ export const meta = await files.ingest({ name: "report.pdf", source: { path: "/s
 - **The library never writes, moves or deletes the file.** Remove it yourself when you no longer
   need it, or keep it and give `original: { ref }` so that its pages can be shown without a copy in
   the store.
-- A path is a path on the server that ingests it. A relative path is taken from the process's
-  working folder. Never build it from what a client sends: the library reads any file the process
-  can read.
+- A path is a path on the server that ingests it. A relative path is made absolute once, against
+  the process's working folder when `ingest` is called (`path.resolve`): every read of the file, at
+  its turn and in the child process of an isolated reader, reads the file named then, even when the
+  working folder has changed since. An absolute path is used as it is. Never build it from what a
+  client sends: the library reads any file the process can read.
 
 ### `OriginalsReader`
 
@@ -1536,7 +1544,7 @@ const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: {
 
 `readsPath`, new in 0.9.0: the extractor reads a file ingested from a path
 ([`IngestFromSource`](#ingestfromsource)) itself, so the server does not read it first. It is then
-given empty bytes and `ExtractInput.path` and `maxUploadBytes`: read the file once, at most
+given empty bytes and `ExtractInput.path` (always absolute) and `maxUploadBytes`: read the file once, at most
 `maxUploadBytes + 1` bytes, refuse it past `maxUploadBytes` with the library's message
 (`<name> is larger than the 100 MB upload limit.`), never write, move or delete it, and return its
 size and SHA-256 in `ExtractedText.file`. Without `file`, `ingest` reads the file once more to hash
@@ -1574,7 +1582,7 @@ type ExtractInput = {
 | `maxTextBytes` | `number \| undefined` | `LargeFilesOptions.maxTextBytes`: the most text to keep, in UTF-8 bytes. `ingest` sets it, and refuses a larger text from any extractor once it returns. An extractor that refuses as soon as its text grows past it spares the memory. |
 | `maxPages` | `number \| undefined` | `LargeFilesOptions.maxPdfPages`: the most pages to read from one PDF. `ingest` sets it for every format; only the built-in PDF extractor uses it. `ingest` does not check it for you. |
 | `onProgress` | `((progress: ExtractProgress) => void) \| undefined` | Call it as the extraction goes on, so that `ingest` can report progress ([`ExtractProgress`](#extractprogress)). Set only when someone listens to the ingest's events (`IngestInput.onEvent`). The built-in extractors call it for each page of a PDF, each part of a DOCX, each slide of a PPTX and each sheet of an XLSX, and once when an HTML file is decoded. An extractor of your own may ignore it: the ingest then sends no `extract` progress. What it reports after it returned is dropped. It can throw, when the listener of the events throws: let that error end the extraction. New in 0.7.0. |
-| `path` | `string \| undefined` | Set only for an extractor that reads paths (`readsPath`) and a file ingested from a path: where the file is. The bytes are then empty. New in 0.9.0. |
+| `path` | `string \| undefined` | Set only for an extractor that reads paths (`readsPath`) and a file ingested from a path: where the file is, as an absolute path (a relative `source.path` is made absolute when `ingest` is called). The bytes are then empty. New in 0.9.0. |
 | `maxUploadBytes` | `number \| undefined` | Set with `path`: `LargeFilesOptions.maxUploadBytes`, the most bytes the file may have. New in 0.9.0. |
 
 ### `ExtractProgress`

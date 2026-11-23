@@ -223,10 +223,13 @@ proxy.
 
 **Ingest from a path.** New in 0.9.0. Code that saves an upload to disk before it ingests it (to
 keep it, or to take it off the heap while it waits) can give `files.ingest` the path in place of the
-bytes ([`IngestFromSource`](../reference/library.md#ingestfromsource)). The path is looked at with
-`lstat` when `ingest` is called, which refuses an empty file or one over `maxUploadBytes` at once,
-and the file is read when the ingest's turn comes (`maxConcurrentIngests`): once, and at most
-`maxUploadBytes + 1` bytes. So ingests that wait for their turn hold none of their files. Measured
+bytes ([`IngestFromSource`](../reference/library.md#ingestfromsource)). A relative path is made
+absolute when `ingest` is called. The path is looked at with `lstat` then, which refuses an empty
+file or one over `maxUploadBytes` at once. That look is given up on when the caller's `signal`
+aborts, and fails after `ingestTimeoutMs` when the volume does not answer. The file is read when
+the ingest's turn comes (`maxConcurrentIngests`): once, and at most `maxUploadBytes + 1` bytes.
+The bytes are let go as soon as the extractor returns: they are not held while the text is
+prepared and stored. So ingests that wait for their turn hold none of their files. Measured
 on Node 22 with 100 ingests of 2 MB logs waiting behind one that held the turn: the process held
 73 MB (RSS) with paths, against 282 to 286 MB with the bytes given, 200 MB of which were the
 uploads. With all 100 run, two at a time (the default), the peak was 159 to 160 MB with paths,
