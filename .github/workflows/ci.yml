@@ -97,7 +97,8 @@ jobs:
       - run: node scripts/check-tarball.mjs llm-large-files-*.tgz
 
   coverage:
-    # What the unit tests cover of src/ (npm run coverage). It reports, and sets no threshold yet.
+    # What the unit tests cover of src/ (npm run coverage). A failing test, or a total under its
+    # threshold (coverage.thresholds in vitest.config.ts), fails the job.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,14 +109,12 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: npm run coverage
         id: coverage
-        # Until the thresholds are set, a failing test here does not turn the job red: under V8
-        # coverage a test can run past a timeout of its own (--testTimeout does not raise those),
-        # and the totals are still written. The test jobs above are the ones that must pass.
-        continue-on-error: true
         run: npm run coverage
       - name: Coverage in the summary of the job
-        # Runs whenever the job was not cancelled. With no coverage summary at all, coverage itself
-        # is broken (a config error, a vitest and coverage-v8 mismatch, a crash): the job fails.
+        # Runs whenever the job was not cancelled, also after npm run coverage failed: the totals are
+        # written even when a test fails or a total is under its threshold. With no coverage summary
+        # at all, coverage itself is broken (a config error, a vitest and coverage-v8 mismatch, a
+        # crash): the step fails too.
         if: ${{ !cancelled() }}
         run: |
           if [ ! -f coverage/coverage-summary.json ]; then
@@ -126,5 +125,5 @@ jobs:
             const total = require("./coverage/coverage-summary.json").total;
             console.log("| src/ | Covered | |\n|---|---|---|");
             for (const name of ["lines", "statements", "functions", "branches"]) console.log(`| ${name} | ${total[name].pct}% | ${total[name].covered} of ${total[name].total} |`);
-            if (process.argv[1] !== "success") console.log("\nA test failed under coverage (see the step npm run coverage); the figures count the tests that ran.");
+            if (process.argv[1] !== "success") console.log("\nnpm run coverage failed: a test failed, or a total is under its threshold in vitest.config.ts (see that step). The figures count the tests that ran.");
           ' "${{ steps.coverage.outcome }}" >> "$GITHUB_STEP_SUMMARY"

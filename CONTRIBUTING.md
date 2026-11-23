@@ -24,10 +24,12 @@ npm run test:watch   # the tests again on every save
 
 `npm run coverage` runs the `unit` project with V8 coverage of `src/`, without the tests of
 `test/timing/`, and prints the share of lines, statements, functions and branches the tests run
-(`coverage/coverage-summary.json` holds them). Counting makes the tests several times slower, so
-it gives each test 60 s. A test that sets a timeout of its own keeps it under coverage, and fails
-past it (the `coverage` job in CI reports such a failure without failing): raise each such
-timeout to fit the test's time there ([Tests](#tests)). It sets no threshold yet.
+(`coverage/coverage-summary.json` holds them). It fails when a test fails, or when a total is
+under its threshold (`coverage.thresholds` in `vitest.config.ts`). The thresholds are 1 point under
+the totals of the 0.9.0 suite, rounded down: raise them as the totals rise, and lower one only on
+purpose, saying why in the pull request. Counting makes the tests several times slower, so it
+gives each test 60 s. A test that sets a timeout of its own keeps it under coverage, and fails
+past it: raise each such timeout to fit the test's time there ([Tests](#tests)).
 `@vitest/coverage-v8` asks for the exact version of `vitest`: raise both together.
 `node scripts/check-tarball.mjs` builds and packs the package, and checks the tarball as npm
 installs it ([publishing](docs/publishing.md#what-the-release-workflow-does)); it needs the network.
@@ -46,7 +48,8 @@ and 26, on Ubuntu and on Windows, where a rename can fail for a moment while ano
 the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`). Each job runs
 `npm ci`, the typecheck, the tests, the build and `npm pack --dry-run`. Two more jobs run on
 Ubuntu: `package` (Node 22 and 26) runs `scripts/check-tarball.mjs` on the packed tarball, and
-`coverage` (Node 24) runs `npm run coverage`. Files use LF line endings (`.gitattributes`).
+`coverage` (Node 24) runs `npm run coverage`, which fails the job when a test fails or a total is
+under its threshold. Files use LF line endings (`.gitattributes`).
 
 ## Rules the code keeps
 
