@@ -256,11 +256,19 @@ all, and an XLSX was refused as a ZIP archive.
 
 `files.ingest` throws an [`IngestError`](../reference/library.md#ingesterror) whose message is
 meant for the user, with a `code` for your application. `createDocumentHandlers` answers it with
-HTTP 422 and that message, except a file over `maxUploadBytes`, which the upload route refuses
-before reading it all: HTTP 413, `The file is larger than the 100 MB upload limit.`
-([node reference](../reference/node.md)). For a damaged file the message is the reader's own, from
-pdf.js or jszip, and not written for a user, with the code `"unreadable"`: an application that
-wants friendlier wording maps the codes itself.
+HTTP 422 and that message, with two exceptions:
+
+- A file over `maxUploadBytes`, which the upload route refuses before reading it all: HTTP 413,
+  `The file is larger than the 100 MB upload limit.` ([node reference](../reference/node.md)).
+- A file of code `"unreadable"`: a damaged file, whose message is the reader's own (from pdf.js or
+  jszip, and not written for a user), a DOCX or XLSX without its main part, and an error of an
+  extractor of your own that the library does not know. Since 0.9.0 the upload route,
+  `uploadAnswerOf` and `errorInfoOf` answer it in fixed words: `This file could not be read. It may
+  be damaged, or not of the type its name says.` The message below stays on the error, for your
+  log.
+
+An application that wants other wording maps the codes itself
+([`errorInfoOf`](./errors-and-reliability.md#your-users-words-errorinfoof)).
 
 | What | Message |
 |---|---|
@@ -292,11 +300,11 @@ wants friendlier wording maps the codes itself.
 | A file that takes longer than `ingestTimeoutMs` to read (2 minutes by default) | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` |
 | A PDF without text on any page | See [Scanned PDFs](#scanned-pdfs). |
 | A PDF that needs a password to open | `This PDF is protected by a password, so it cannot be read. Open it, print it to a new PDF without the password, and attach that.` Until 0.8.0, `No password given`, the message of pdf.js. |
-| A damaged PDF | The message of pdf.js, such as `Invalid PDF structure.` |
-| A damaged DOCX, PPTX or XLSX, or one that is not a ZIP | The message of jszip, such as `Can't find end of central directory : is this a zip file ? …` |
-| A DOCX without `word/document.xml` | `This DOCX does not contain word/document.xml.` |
+| A damaged PDF | The message of pdf.js, such as `Invalid PDF structure.` Code `"unreadable"`: the upload route answers in fixed words (above). |
+| A damaged DOCX, PPTX or XLSX, or one that is not a ZIP | The message of jszip, such as `Can't find end of central directory : is this a zip file ? …` Code `"unreadable"`: the upload route answers in fixed words. |
+| A DOCX without `word/document.xml` | `This DOCX does not contain word/document.xml.` Code `"unreadable"`: the upload route answers in fixed words. |
 | A PPTX without slides | `This PPTX does not contain any slides.` |
-| An XLSX without `xl/workbook.xml`, or without sheets | `This XLSX does not contain xl/workbook.xml.`, `This XLSX does not contain any sheets with cells.` |
+| An XLSX without `xl/workbook.xml`, or without sheets | `This XLSX does not contain xl/workbook.xml.` (code `"unreadable"`: the upload route answers in fixed words), `This XLSX does not contain any sheets with cells.` |
 | A DOCX, PPTX or XLSX without `jszip` installed | `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | A PDF without `unpdf` installed | `Reading PDF files needs the optional dependency "unpdf".` |
 | A PDF, with `unpdf` 1.5.0 to 1.6.0 on Node 22 or 23, which would stop the whole process at the first PDF (0.5.0 did stop) | `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |

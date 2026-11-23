@@ -293,7 +293,7 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | `IngestError` `"exists"`: `<name>: a document with this ID already exists.` | A document of `id` is there and `ifExists` does not let it be replaced; or another ingest of this library is storing `id` at the moment, whatever `ifExists` says; or a write failed and the document under `id` by then is another owner's or scope's, and has not expired (stored by another server). Status 409. It says nothing of the document that has the ID, but it does say that the ID is taken ([Application IDs](../guides/storage.md#application-ids)). New in 0.9.0. |
 | [`IngestError`](#ingesterror) `"empty"`: `<name> is empty.` | The file has no bytes. |
 | `IngestError` `"too_large"`: `<name> is larger than the 100 MB upload limit.` | The file is larger than `maxUploadBytes`. The message gives your limit. |
-| An `IngestError` with the extractor's message | The extractor refused the file: a binary or compressed file, an Office file of before 2007 or with a password, a PDF with a password or without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server; or a parser failed on a damaged file. The `code` comes from the message ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)), `"unreadable"` for one the library does not know, and the extractor's error is `cause`. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
+| An `IngestError` with the extractor's message | The extractor refused the file: a binary or compressed file, an Office file of before 2007 or with a password, a PDF with a password or without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server; or a parser failed on a damaged file. The `code` comes from the message ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)), `"unreadable"` for one the library does not know, and the extractor's error is `cause`. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. The upload handlers answer code `"unreadable"` in fixed words, not with its message (new in 0.9.0, [`Extractor`](#extractor)). |
 | `IngestError` `"too_much_text"`: `<name> holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | The text an extractor returned is larger than `maxTextBytes`. The message gives your limit. |
 | `IngestError` `"timeout"`: `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` | The ingest took longer than `ingestTimeoutMs`. The message gives your limit: "500 ms" below a second, "45 s" below 2 minutes, "2 min" from there. |
 | `signal.reason` | `IngestInput.signal` was aborted, before or during the ingest. |
@@ -1416,7 +1416,22 @@ type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedTe
 Turns the bytes of an uploaded file into text, for one format. To refuse a file, throw an `Error`
 whose message a user can read: `ingest` throws it as an [`IngestError`](#ingesterror) with the same
 message, the code its message gives (`"unreadable"` for words the library does not know), and your
-error as `cause`. Throw an `IngestError` yourself to choose the code. The library then normalizes the
+error as `cause`. Throw an `IngestError` yourself to choose the code.
+
+The upload handlers ([`createDocumentHandlers`](./node.md#createdocumenthandlersfiles-options)),
+[`uploadAnswerOf`](./node.md#uploadansweroferror) and
+[`errorInfoOf`](./errors-and-retries.md#errorinfooferror) do not show the message of code
+`"unreadable"`: since 0.9.0 they answer "This file could not be read. It may be damaged, or not of
+the type its name says.", since that message is most often a parser's, and may name a host. Your
+message stays on the error, for your log. To have your own words shown:
+
+- Throw an `IngestError` with the code that fits: `new IngestError("no_text", "scan.pdf has no text
+  layer. Run OCR on it first.")`. The handlers answer it 422 with your message, and `errorInfoOf`
+  gives it as its `message`.
+- Or throw an `Error` with a `status` from 400 to 599: the handlers answer with that status and your
+  message. `errorInfoOf` reads such an error as a model's, though, and does not show its words.
+
+The library then normalizes the
 text, splits long lines and refuses blank text, as described under
 [`files.ingest`](#filesingestinput). For a PDF, write a line `--- Page N ---` before the text of
 each page, counting from 1, as the built-in one does: the page numbers in tool results and
