@@ -233,9 +233,10 @@ of your own whose `ingest` takes `IngestInput` only still compiles, since `inges
    as the writes (`ingestTimeoutMs`), and an aborted `signal` stops waiting for it. An `id` that
    another ingest of this library is storing is refused at once.
 2. At its turn, a file at a path is read once, at most `maxUploadBytes + 1` bytes, and the SHA-256
-   of the file is taken as it is read (of bytes given, before they are read), a megabyte at a time
-   (new in 0.9.0). The extractor of that format turns the bytes into text: an extractor that
-   reads paths (`readsPath`, as the isolated readers do) reads the file itself instead. It receives the limits `maxTextBytes`
+   of the file is taken as it is read, a megabyte at a time (new in 0.9.0). The extractor of that
+   format turns the bytes into text: an extractor that reads paths (`readsPath`, as the isolated
+   readers do) reads the file itself instead. Bytes given are hashed, a megabyte at a time, once the
+   extractor is done with them, so the ingests of one turn reach it in the order they came. It receives the limits `maxTextBytes`
    and `maxPdfPages`, the ingest's signal, and, when someone listens to the ingest's events, an
    `onProgress` to report how far it is ([`ExtractInput`](#extractinput)). The bytes read from a
    path are let go once the text is read, unless the store keeps a copy. A text longer
