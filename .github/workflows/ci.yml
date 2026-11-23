@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Each action is pinned by the full SHA of the commit its release tag points to, with the tag in a
+# comment: a tag can be moved to other code, a commit cannot. To move to a new release, look up the
+# commit of its tag (an annotated tag points to a tag object: follow it to the commit):
+#   gh api repos/actions/checkout/git/ref/tags/v7.0.1 --jq .object
+# and use the same SHA in release.yml.
 jobs:
   test:
     # Windows too: the file store has rename handling for it. (The tests make a rename fail on
@@ -23,8 +28,8 @@ jobs:
           - { os: ubuntu-latest, node: "22.12.0" }
           - { os: ubuntu-latest, node: "22.13.0" }
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -51,8 +56,8 @@ jobs:
           - { node: 26, unpdf: "^2" }
           - { node: 22, unpdf: "1.6.0", refused: true }
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -66,3 +71,47 @@ jobs:
         run: npx vitest run test/unpdf-versions.test.ts
         env:
           UNPDF_EXPECT: refused
+
+  package:
+    # The package as npm installs it, from the tarball: import and require() of every subpath, an
+    # ingest in a child process, a consumer compiled under NodeNext, Bundler and Node10, PDF and
+    # DOCX with the peers installed, publint and attw (scripts/check-tarball.mjs). The release
+    # workflow runs the same script on the tarball it publishes. On the oldest major that engines
+    # allows, and the newest.
+    name: Package on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      # No install scripts, as in the release workflow: nothing in the tree needs one.
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm pack
+      - run: node scripts/check-tarball.mjs llm-large-files-*.tgz
+
+  coverage:
+    # What the unit tests cover of src/ (npm run coverage). It reports, and sets no threshold yet.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run coverage
+      - name: Coverage in the summary of the job
+        if: ${{ !cancelled() && hashFiles('coverage/coverage-summary.json') != '' }}
+        run: |
+          node -e '
+            const total = require("./coverage/coverage-summary.json").total;
+            console.log("| src/ | Covered | |\n|---|---|---|");
+            for (const name of ["lines", "statements", "functions", "branches"]) console.log(`| ${name} | ${total[name].pct}% | ${total[name].covered} of ${total[name].total} |`);
+          ' >> "$GITHUB_STEP_SUMMARY"
