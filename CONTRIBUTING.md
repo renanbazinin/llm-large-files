@@ -24,8 +24,9 @@ npm run test:watch   # the tests again on every save
 
 `npm run coverage` runs the `unit` project with V8 coverage of `src/`, and prints the share of
 lines, statements, functions and branches the tests run (`coverage/coverage-summary.json` holds
-them). Counting makes the tests several times slower, so it gives each test 20 s. It sets no
-threshold yet. `@vitest/coverage-v8` asks for the exact version of `vitest`: raise both together.
+them). Counting makes the tests several times slower, so it gives each test 20 s; a test that
+sets a timeout of its own keeps it, and can run past it under coverage (the `coverage` job in CI
+reports such a failure without failing). It sets no threshold yet. `@vitest/coverage-v8` asks for the exact version of `vitest`: raise both together.
 `node scripts/check-tarball.mjs` builds and packs the package, and checks the tarball as npm
 installs it ([publishing](docs/publishing.md#what-the-release-workflow-does)); it needs the network.
 

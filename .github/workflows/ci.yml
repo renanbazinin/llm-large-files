@@ -106,7 +106,13 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run coverage
+      - name: npm run coverage
+        id: coverage
+        # Until the thresholds are set, a failing test here does not turn the job red: under V8
+        # coverage a test can run past a timeout of its own (--testTimeout does not raise those),
+        # and the totals are still written. The test jobs above are the ones that must pass.
+        continue-on-error: true
+        run: npm run coverage
       - name: Coverage in the summary of the job
         if: ${{ !cancelled() && hashFiles('coverage/coverage-summary.json') != '' }}
         run: |
@@ -114,4 +120,5 @@ jobs:
             const total = require("./coverage/coverage-summary.json").total;
             console.log("| src/ | Covered | |\n|---|---|---|");
             for (const name of ["lines", "statements", "functions", "branches"]) console.log(`| ${name} | ${total[name].pct}% | ${total[name].covered} of ${total[name].total} |`);
-          ' >> "$GITHUB_STEP_SUMMARY"
+            if (process.argv[1] !== "success") console.log("\nA test failed under coverage (see the step npm run coverage); the figures count the tests that ran.");
+          ' "${{ steps.coverage.outcome }}" >> "$GITHUB_STEP_SUMMARY"
