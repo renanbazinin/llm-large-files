@@ -318,6 +318,17 @@ function settleWithin<T>(work: Promise<T>, ms: number, late: () => Error): Promi
 }
 
 /**
+ * A look at a file at a path before the ingest's turn (its lstat, the parts read for its format):
+ * given up on with the caller's reason when the caller leaves, and failed, as the server's trouble
+ * (a system error, which names no path), when the volume does not answer within `ms`. The look
+ * itself cannot be stopped; it holds no turn.
+ */
+function lookWithin<T>(look: Promise<T>, signal: AbortSignal | undefined, ms: number, syscall: "lstat" | "read"): Promise<T> {
+  return settleWithin(signal ? untilAborted(look, signal) : look, ms, () =>
+    Object.assign(new Error(`The file to ingest did not answer within ${formatDuration(ms)}.`), { code: "ETIMEDOUT", syscall }));
+}
+
+/**
  * The turn of one ingest (`maxConcurrentIngests`). It is given back when the ingest ends; when the
  * ingest gave up on work that goes on (an extractor that does not stop on the signal, such as a
  * PDF being parsed when its caller left), once that work ends, or `capMs` later when it does not.
@@ -818,7 +829,11 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
     } catch {
       // Told once ingest.start is out.
     }
-    const stated = quietPath === undefined ? undefined : await statSource(quietPath).then((size) => ({ size }), (error: unknown) => ({ size: undefined, error }));
+    // Given up on when the caller leaves, and failed when the volume does not answer in the time the
+    // ingest's store calls are given: the ingest's own time begins at its turn.
+    const stated = quietPath === undefined
+      ? undefined
+      : await lookWithin(statSource(quietPath), input.signal, slotCapMs, "lstat").then((size) => ({ size }), (error: unknown) => ({ size: undefined, error }));
     if (events.active) events.emit({ type: "ingest.start", ...startOf(input, stated?.size) });
     checkOwner(input.owner);
     const target = targetOf(input, context.rules);
@@ -837,9 +852,10 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
       // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
       // Of a file at a path, only the parts looked at are read.
       const bytes = (input as IngestInput).bytes;
-      // The parts read to tell the format are given up on, with the caller's reason, when the caller leaves.
+      // The parts read to tell the format are given up on, with the caller's reason, when the caller
+      // leaves, and fail the ingest when they do not answer in time, as the lstat does.
       const sniffed = path !== undefined ? formatAtPath(name, mimeType, path, stated!.size!) : undefined;
-      const format = sniffed ? await (input.signal ? untilAborted(sniffed, input.signal) : sniffed) : detectFormat(name, mimeType, bytes instanceof Uint8Array ? bytes : undefined);
+      const format = sniffed ? await lookWithin(sniffed, input.signal, slotCapMs, "read") : detectFormat(name, mimeType, bytes instanceof Uint8Array ? bytes : undefined);
       if (target.id !== undefined) {
         // An ID another ingest of this library is storing: refused, whoever's it is to be.
         if (ingesting.has(target.id)) throw exists(name);

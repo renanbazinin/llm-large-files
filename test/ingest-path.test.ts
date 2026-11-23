@@ -14,11 +14,19 @@ import { serviceLog, utf8 } from "./fake-model.js";
 
 /**
  * What the server read, file by file: each opening of a file, and the bytes read through it. The
- * reads of the file `stuck` do not answer until `unstick()`, as a volume that hangs.
+ * reads of the file `stuck`, and the lstat of the file `stuckStat`, do not answer until
+ * `unstick()`, as a volume that hangs. `looked`: each path the server gave lstat.
  */
-const reads = vi.hoisted(() => ({ opens: [] as Array<{ file: string; bytes: number }>, stuck: undefined as string | undefined, waiting: [] as Array<() => void> }));
+const reads = vi.hoisted(() => ({
+  opens: [] as Array<{ file: string; bytes: number }>,
+  looked: [] as string[],
+  stuck: undefined as string | undefined,
+  stuckStat: undefined as string | undefined,
+  waiting: [] as Array<() => void>,
+}));
 const unstick = () => {
   reads.stuck = undefined;
+  reads.stuckStat = undefined;
   for (const release of reads.waiting.splice(0)) release();
 };
 
@@ -37,7 +45,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     };
     return handle;
   };
-  return { ...actual, open, default: { ...actual, open } };
+  const lstat = (async (...args: Parameters<typeof actual.lstat>) => {
+    reads.looked.push(String(args[0]));
+    if (String(args[0]) === reads.stuckStat) await new Promise<void>((resolve) => reads.waiting.push(resolve));
+    return actual.lstat(...args);
+  }) as typeof actual.lstat;
+  return { ...actual, open, lstat, default: { ...actual, open, lstat } };
 });
 
 /** The bytes the server read from `file`, through every opening of it. */
@@ -52,6 +65,7 @@ let directory: string;
 beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), "llf-path-"));
   reads.opens.length = 0;
+  reads.looked.length = 0;
 });
 afterEach(async () => {
   unstick();
@@ -281,6 +295,38 @@ describe("ingest from a path", () => {
     while (opened(at) === 0) await settle();
     controller.abort(new Error("Left."));
     await expect(ingest).rejects.toThrow("Left.");
+  });
+
+  it("gives up a look at the file that does not answer (lstat), with the caller's reason, when the caller leaves", async () => {
+    const at = await file("a.txt", "hello\n");
+    reads.stuckStat = at;
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 60_000 });
+    const controller = new AbortController();
+    const reason = new Error("Left.");
+    const events: string[] = [];
+    const ingest = files.ingest({ name: "a.txt", source: { path: at }, signal: controller.signal, onEvent: (event) => events.push(event.type) }).catch((error: unknown) => error);
+    while (!reads.looked.includes(at)) await settle();
+    setTimeout(() => controller.abort(reason), 50);
+    const result = await Promise.race([ingest, new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2_000))]);
+    expect(result).toBe(reason);
+    expect(events).toEqual(["ingest.start", "ingest.error"]);
+    expect(opened(at)).toBe(0);
+  });
+
+  it("fails, as the server's trouble, when a look at the file before its turn does not answer in time, with no signal", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 100 });
+    // The lstat.
+    const at = await file("a.txt", "hello\n");
+    reads.stuckStat = at;
+    const stat = await Promise.race([files.ingest({ name: "a.txt", source: { path: at } }).catch((error: unknown) => error), new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2_000))]);
+    expect(stat).not.toBeInstanceOf(IngestError);
+    expect(stat).toMatchObject({ code: "ETIMEDOUT", syscall: "lstat", message: "The file to ingest did not answer within 100 ms." });
+    // The parts read for the format of a file whose name says nothing.
+    const noname = await file("noname", "%PDF-1.4");
+    reads.stuck = noname;
+    const sniff = await Promise.race([files.ingest({ name: "noname", source: { path: noname } }).catch((error: unknown) => error), new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2_000))]);
+    expect(sniff).not.toBeInstanceOf(IngestError);
+    expect(sniff).toMatchObject({ code: "ETIMEDOUT", syscall: "read", message: "The file to ingest did not answer within 100 ms." });
   });
 
   it("reads a second name of a file (a hard link) as the file it is", async () => {
