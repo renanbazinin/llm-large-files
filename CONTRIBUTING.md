@@ -6,7 +6,7 @@ models, the changelog and the docs. Releasing a version to npm is in
 
 ## Set up and run the checks
 
-You need Node 20.19 or later.
+You need Node 22.12 or later.
 
 ```bash
 npm install
@@ -31,8 +31,8 @@ you run the examples, they load `dist/`: run `npm run build` first. They need No
 The dev dependencies include the optional peers `jszip`, `unpdf` and `@cantoo/pdf-lib`, so the
 DOCX, PPTX and PDF tests run.
 
-CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: Node 20, 22
-and 24, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
+CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: Node 22, 24
+and 26, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
 the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`). Each job runs `npm ci`, the typecheck, the tests, the build and `npm pack --dry-run`. Files
 use LF line endings (`.gitattributes`).
 
@@ -50,6 +50,13 @@ use LF line endings (`.gitattributes`).
   Load a peer with `await import(...)` where it is needed, and its types with `import type`, so
   that the package works without it. When it is missing, throw an error that names it, as
   `Reading PDF files needs the optional dependency "unpdf".` does. Discuss before adding a peer.
+- **The types are Node's, without the DOM.** `tsconfig.json` has `"lib": ["ES2023"]` and no
+  `"DOM"`, as a server app compiles: `fetch`, `Response`, `TextDecoder` and `AbortSignal` come from
+  `@types/node`. A type that only the DOM library declares (`TextDecoderOptions`, `HeadersInit`)
+  does not compile: name it through the value, as `ConstructorParameters<typeof TextDecoder>[1]`
+  does. `@types/node` follows the floor in `engines`: its range starts at the oldest Node supported
+  (`^22.12.0` for `>=22.12`), so the code cannot use the API of a later major. Raise both in one
+  pull request.
 - **Tool names, arguments and result fields are public API; the rest of the text the model sees
   changes answers.** Models are prompted with the tool names, arguments and
   result fields, and the loop parses the calls they make. The tool descriptions (`src/tools.ts`),

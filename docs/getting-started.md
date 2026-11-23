@@ -9,17 +9,15 @@ adding the library to an app. Each step is short and links to the guide that exp
 npm install llm-large-files
 ```
 
-The library needs Node.js 20.19 or later. It is an ES module, and its TypeScript types come with
-it. From CommonJS code, `require("llm-large-files")` works on the Node versions that load ES
-modules with `require()` by default: 20.19 and later in Node 20, 22.12 and later, and 23 and later.
-On Node 21 and on 22.0 to 22.11, load it with `import("llm-large-files")`.
+The library needs Node.js 22.12 or later (20.19 until 0.9.0). It is an ES module, and its
+TypeScript types come with it. From CommonJS code, `require("llm-large-files")` works: Node 22.12
+and later load ES modules with `require()` by default.
 
 Text, Markdown, logs, JSON and CSV need nothing more. Three optional packages add the rest:
 
 ```bash
 npm install jszip unpdf @cantoo/pdf-lib        # Node 24 and later
 npm install jszip unpdf@1 @cantoo/pdf-lib      # Node 22
-npm install jszip unpdf@1.7.0 @cantoo/pdf-lib  # Node 20
 ```
 
 | Package | What it enables |
@@ -34,9 +32,9 @@ turn on `keepOriginals`: without it, every look at a page fails. The details are
 [PDFs](./guides/pdfs.md).
 
 On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24. On Node 22,
-install `unpdf@1`, and on Node 20, `unpdf@1.7.0`. An unpdf that cannot read PDFs on your version
-of Node is refused at the first PDF, with a message that says what to install, such as
-`The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.`
+install `unpdf@1`. An unpdf that would stop the server on your version of Node is refused at the
+first PDF, with a message that says what to install:
+`The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.`
 
 The Vertex AI samples on this page also use Google's auth library, which is not a dependency of
 this package:

@@ -608,8 +608,8 @@ written for the user and a `code` for your app, when it cannot take a file: it i
 (`"no_text"`), is a gzip or ZIP archive (`"compressed"`), is binary (`"not_text"`), is an Office
 file of before 2007 or with a password (`"legacy_office"`), needs an optional dependency that is not
 installed (`jszip` for DOCX, PPTX and XLSX, `unpdf` for PDF) or an `unpdf` that runs on this Node
-(`"missing_dependency"`: the setup of the server, not the file, as in "The unpdf installed cannot
-read PDF files on Node 20 (…). …"), or is a PDF without a text layer (see [PDFs](./pdfs.md)). Show
+(`"missing_dependency"`: the setup of the server, not the file, as in "The unpdf installed would
+stop the whole server at the first PDF file on Node 22, …"), or is a PDF without a text layer (see [PDFs](./pdfs.md)). Show
 its message, or words of your own for its `code`. Until 0.8.0 it was a plain `Error`, with the same
 message. A text file is never refused for its encoding: one that is
 not UTF-8 is read in the encoding it was saved in, or as UTF-8 with the characters that are not

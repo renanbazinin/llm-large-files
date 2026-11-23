@@ -1,7 +1,7 @@
 import { Agent, createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { createLargeFiles, MemoryDocumentStore, type DocumentStore } from "llm-large-files";
+import { createLargeFiles, MemoryDocumentStore, type DocumentStore, type DocumentSummary } from "llm-large-files";
 import { createDocumentHandlers, type DocumentHandlerOptions } from "llm-large-files/node";
 
 let server: Server | undefined;
@@ -37,22 +37,22 @@ describe("createDocumentHandlers", () => {
       body: "2026-01-01 10:00:00 INFO a\n".repeat(10),
     });
     expect(response.status).toBe(201);
-    const summary = await response.json();
+    const summary = (await response.json()) as DocumentSummary;
     expect(summary).toMatchObject({ name: "יומן.log", format: "log", lines: 10 });
     expect(Object.keys(summary)).not.toContain("owner");
-    expect((await (await fetch(`${base}/${summary.id}`)).json()).name).toBe("יומן.log");
+    expect(((await (await fetch(`${base}/${summary.id}`)).json()) as DocumentSummary).name).toBe("יומן.log");
   });
 
   it("accepts the name as a query parameter", async () => {
     const base = await start();
     const response = await fetch(`${base}?name=notes.md`, { method: "POST", body: "# Notes" });
-    expect((await response.json()).format).toBe("markdown");
+    expect(((await response.json()) as DocumentSummary).format).toBe("markdown");
   });
 
   it("keeps each user's uploads private", async () => {
     const base = await start();
     const upload = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt", "X-User": "alice" }, body: "alice's notes" });
-    const { id } = await upload.json();
+    const { id } = (await upload.json()) as DocumentSummary;
     expect((await fetch(`${base}/${id}`, { headers: { "X-User": "bob" } })).status).toBe(404);
     expect(await (await fetch(`${base}/${id}`, { method: "DELETE", headers: { "X-User": "bob" } })).json()).toEqual({ deleted: false });
     expect((await fetch(`${base}/${id}`, { headers: { "X-User": "alice" } })).status).toBe(200);
@@ -63,13 +63,13 @@ describe("createDocumentHandlers", () => {
     const base = await start(1_000);
     const unnamed = await fetch(base, { method: "POST", body: "x" });
     expect(unnamed.status).toBe(400);
-    expect((await unnamed.json()).error).toMatch(/X-File-Name/);
+    expect(((await unnamed.json()) as { error: string }).error).toMatch(/X-File-Name/);
     const binary = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.bin" }, body: new Uint8Array(500) });
     expect(binary.status).toBe(422);
-    expect((await binary.json()).error).toMatch(/binary/);
+    expect(((await binary.json()) as { error: string }).error).toMatch(/binary/);
     const big = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "x".repeat(5_000) });
     expect(big.status).toBe(413);
-    expect((await big.json()).error).toBe("The file is larger than the 1000 B upload limit.");
+    expect(((await big.json()) as { error: string }).error).toBe("The file is larger than the 1000 B upload limit.");
   });
 
   // LLF-033: the rest of a body over the limit is drained after the 413, up to 8 MB, so that a
@@ -210,7 +210,7 @@ describe("createDocumentHandlers", () => {
     expect(await empty.json()).toEqual({ error: "blank.txt did not contain any text." });
   });
 
-  // On Node 20 and 22 the client's fetch keeps the aborted connection about 4 s.
+  // On Node 22 the client's fetch keeps the aborted connection about 4 s.
   it("stops reading an upload when the client goes away", { timeout: 15_000 }, async () => {
     let started!: () => void;
     const reading = new Promise<void>((resolve) => (started = resolve));

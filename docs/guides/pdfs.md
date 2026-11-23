@@ -12,7 +12,7 @@ on every server that ingests files:
 
 ```bash
 npm install jszip              # DOCX, PPTX and XLSX
-npm install unpdf              # PDF text (on Node 20 and 22, name a version: see below)
+npm install unpdf              # PDF text (on Node 22, name a version: see below)
 npm install @cantoo/pdf-lib    # PDF picture marks, page check, and view_pages
 ```
 
@@ -20,12 +20,11 @@ They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.
 and `@cantoo/pdf-lib` ^2.11.1.
 
 Not every `unpdf` runs on every Node. unpdf 2 asks for Node 24, and on Node 24 and later
-`npm install unpdf` installs it. On Node 20 and 22, install a version that runs there:
+`npm install unpdf` installs it. On Node 22, install a version that runs there:
 
 | Node | `unpdf` to install | Refused at the first PDF ([What is refused](#what-is-refused)) |
 |---|---|---|
-| 20 | 1.4.0, or 1.6.1 to 1.8.1: `npm install unpdf@1.7.0`. 1.7.0 is the last that does not ask for Node 22. | 1.5.0 to 1.6.0, which would stop the whole process; 1.9 and later, 2.x included, which cannot load pdf.js on Node 20 |
-| 22 | 1.4.0, or 1.6.1 or a later 1.x: `npm install unpdf@1` | 1.5.0 to 1.6.0 |
+| 22 | 1.4.0, or 1.6.1 or a later 1.x: `npm install unpdf@1` | 1.5.0 to 1.6.0, which would stop the whole process |
 | 24 and later | Any version from 1.4.0, 2.x included: `npm install unpdf` | None |
 
 The 12 test PDFs of the package give the same text, pages, picture marks and page cuts with every
@@ -301,8 +300,6 @@ wants friendlier wording maps the codes itself.
 | A DOCX, PPTX or XLSX without `jszip` installed | `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | A PDF without `unpdf` installed | `Reading PDF files needs the optional dependency "unpdf".` |
 | A PDF, with `unpdf` 1.5.0 to 1.6.0 on Node 22 or 23, which would stop the whole process at the first PDF (0.5.0 did stop) | `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
-| The same on Node 20 | `The unpdf installed would stop the whole server at the first PDF file on Node 20, so PDF files are not read. Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.` |
-| A PDF, with `unpdf` 1.9 or later (2.x included) on Node 20, which cannot load pdf.js there | `The unpdf installed cannot read PDF files on Node 20 (Serverless PDF.js bundle could not be resolved: ReferenceError: Iterator is not defined). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` The part in parentheses is unpdf's own message: with unpdf 2 it is `PDF.js could not be resolved: ReferenceError: Iterator is not defined`. |
 
 A missing dependency, or an `unpdf` that does not run on your Node, is your server's fault, but it
 reaches the user as a 422, a file that cannot be read. Install the dependencies wherever the upload

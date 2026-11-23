@@ -121,17 +121,17 @@ Set the heap limit of Node yourself: about three quarters of the memory of the c
 everything runs in one process, less when files are read in child processes
 (`createIsolatedExtractors`) or ingest runs in a process of its own: each has a heap of its own. The
 limit is more than the flag. `--max-old-space-size` sets the old generation, and Node adds its young
-generation above it: 48 MB on Node 20 and 22, 192 MB on Node 24, and 96 MB on Node 26.
+generation above it: 48 MB on Node 22, 192 MB on Node 24, and 96 MB on Node 26.
 `v8.getHeapStatistics().heap_size_limit` gives the sum. For three quarters of 2 GB, a limit of
 1,536 MB:
 
 | Node | Flag for a heap limit of 1,536 MB | What `--max-old-space-size=1536` gives |
 |---|---|---|
-| 20 and 22 | `NODE_OPTIONS=--max-old-space-size=1488` | 1,584 MB |
+| 22 | `NODE_OPTIONS=--max-old-space-size=1488` | 1,584 MB |
 | 24 | `NODE_OPTIONS=--max-old-space-size=1344` | 1,728 MB, 84% of 2 GB |
 | 26 | `NODE_OPTIONS=--max-old-space-size=1440` | 1,632 MB |
 
-Checked with `heap_size_limit` on Node 20.19, 22.12, 24.19 and 26.13. Upload bodies and files read
+Checked with `heap_size_limit` on Node 22.12, 24.19 and 26.13. Upload bodies and files read
 from the store are `Buffer`s, which live outside the heap and need the rest. The check that refuses
 a PDF too large to cut pages from compares it with the free heap, so a heap set to fit the
 container makes that check right.
@@ -139,9 +139,9 @@ container makes that check right.
 A worker thread does not get a heap limit of its own when the process has one: a
 `--max-old-space-size` on the command line or in `NODE_OPTIONS` replaces the
 `resourceLimits.maxOldGenerationSizeMb` of every worker. With `--max-old-space-size=1024`, a worker
-given 512 MB had the process's limit: 1,072 MB on Node 20 and 22, 1,216 MB on Node 24, 1,120 MB on
+given 512 MB had the process's limit: 1,072 MB on Node 22, 1,216 MB on Node 24, 1,120 MB on
 Node 26. Setting `execArgv: []` or `env` on the worker did not change it. A forked process does get
-its own: one forked with `execArgv: ["--max-old-space-size=512"]` had 560 MB on Node 20 and 22,
+its own: one forked with `execArgv: ["--max-old-space-size=512"]` had 560 MB on Node 22,
 704 MB on Node 24 and 608 MB on Node 26, with `NODE_OPTIONS=--max-old-space-size=1024` in the
 environment it inherits or without it.
 
@@ -151,13 +151,13 @@ numbers of the last column:
 
 | Node | Main heap of 1 GB | Heap of 512 MB for the child that reads a file |
 |---|---|---|
-| 20 and 22 | `--max-old-space-size=976` | `--max-old-space-size=464`, `maxHeapMb: 464` |
+| 22 | `--max-old-space-size=976` | `--max-old-space-size=464`, `maxHeapMb: 464` |
 | 24 | `--max-old-space-size=832` | `--max-old-space-size=320`, `maxHeapMb: 320` |
 | 26 | `--max-old-space-size=928` | `--max-old-space-size=416`, `maxHeapMb: 416` |
 
 The flags 1024 and 512 give heap limits of 1,216 and 704 MB on Node 24: 1,920 MB, which leaves
 about 128 MB of the container for the upload, its copy, files read from the store and two Node
-processes. On Node 20 and 22 they give 1,072 and 560 MB.
+processes. On Node 22 they give 1,072 and 560 MB.
 
 ```ts
 // large-files.ts: created once per process and imported by every route.
@@ -238,8 +238,8 @@ await import("@cantoo/pdf-lib");
 await (await import("unpdf")).getResolvedPDFJS();
 ```
 
-`getResolvedPDFJS()` rejects when the `unpdf` installed cannot load pdf.js on this Node (unpdf 1.9
-and later on Node 20), and the server then does not start: install the version for your Node
+`getResolvedPDFJS()` rejects when the `unpdf` installed cannot load pdf.js on this Node, and the
+server then does not start: install the version for your Node
 ([PDFs and other formats](./pdfs.md#formats)).
 
 What it does not do is keep its memory apart. The text and its copies, and what pdf.js,
@@ -647,19 +647,16 @@ same conversations.
 
 ## Node.js, ESM and `require()`
 
-- **Node.js 20.19 or newer** (`engines` in `package.json`). The tests run on Node 20, 22 and 24,
-  and again with unpdf 1.7.0 on Node 20, the newest 1.x on Node 22 and 24, and the newest 2.x on
-  Node 24. Pick the `unpdf` for your Node ([PDFs and other formats](./pdfs.md#formats)).
+- **Node.js 22.12 or newer** (`engines` in `package.json`; 20.19 until 0.9.0). The tests run on
+  Node 22, 24 and 26, and again with the newest unpdf 1.x on Node 22 and 24, and the newest 2.x on
+  Node 24 and 26. Pick the `unpdf` for your Node ([PDFs and other formats](./pdfs.md#formats)).
 - **The package is ESM only.** It has `"type": "module"` and an `exports` map with `types` and
   `default`; there is no CommonJS build. An ESM application imports it as it is.
-- **A CommonJS application can `require()` it** on Node 20.19 and newer in the 20 line, and on Node
-  22.12 and newer: those load an ES module with `require()`, and the library has no top-level
-  `await`. On Node 22.0 to 22.11, load it with `import()` from an async function: a CommonJS file
-  has no top-level `await`, so write `const { createLargeFiles } = await import("llm-large-files");`
-  inside `async function main() { ... }`.
+- **A CommonJS application can `require()` it**: Node 22.12 and newer load an ES module with
+  `require()`, and the library has no top-level `await`.
 
   ```js
-  // CommonJS, Node 20.19+ or 22.12+
+  // CommonJS
   const { createLargeFiles, FileDocumentStore } = require("llm-large-files");
   const { askGemini, vertexAi } = require("llm-large-files/gemini");
   const { createDocumentHandlers } = require("llm-large-files/node");
@@ -703,14 +700,14 @@ optional peer dependencies. Add the ones you need to the `dependencies` of your 
 
 | Package | Version | Needed for | Without it |
 |---|---|---|---|
-| `unpdf` | `^1.4.0 \|\| ^2.0.0`, in a version that runs on your Node: 1.7.0 on Node 20, a 1.x from 1.6.1 on Node 22, any on Node 24 and later ([PDFs](./pdfs.md#formats)) | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`). A version that does not run on your Node is refused too, with a message that says what to install: `The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` |
+| `unpdf` | `^1.4.0 \|\| ^2.0.0`, in a version that runs on your Node: a 1.x from 1.6.1 on Node 22, any on Node 24 and later ([PDFs](./pdfs.md#formats)) | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`). A version that would stop the server on your Node is refused too, with a message that says what to install: `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
 | `jszip` | `^3.10.0` | DOCX, PPTX and XLSX | The upload is refused: `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | `@cantoo/pdf-lib` | `^2.11.1` | `view_pages`, the check of PDF pages that would hold the server, and the marks on PDF pages that show a picture | `view_pages` answers the model `report.pdf: Showing PDF pages needs the optional dependency "@cantoo/pdf-lib".` (with the file's name), and PDFs are ingested without the check and without the marks, with no error |
 
 The last one fails quietly at ingest, so an image without it ingests PDFs differently from your
 machine, and lets through the pages the check would refuse. On Node 24 and later,
-`npm install unpdf` installs unpdf 2, which does not run on Node 20: for an image on Node 20 or 22,
-name the version in your `dependencies`. Check at startup that the image has what your application
+`npm install unpdf` installs unpdf 2, which asks for Node 24: for an image on Node 22, name the
+version in your `dependencies`. Check at startup that the image has what your application
 uses:
 
 ```ts

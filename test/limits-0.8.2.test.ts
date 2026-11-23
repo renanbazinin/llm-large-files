@@ -16,7 +16,7 @@ const collectGarbage = runInNewContext("gc") as () => void;
 
 /**
  * The heap in use after full collections, once pending timers have run. Three, a turn of the loop
- * apart: on Node 20 one collection right after an ingest left 14 MB of its garbage for the next.
+ * apart: one collection right after an ingest has left 14 MB of its garbage for the next (Node 20).
  */
 async function heapKept(): Promise<number> {
   for (let round = 0; round < 3; round++) {

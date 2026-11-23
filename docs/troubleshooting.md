@@ -91,9 +91,9 @@ What each error and `kind` means, and what to tell your user, is in
 ### `require("llm-large-files")` throws `ERR_REQUIRE_ESM`
 
 **Cause.** The package is an ES module only. CommonJS code can load it with `require()` only on the
-Node versions that load ES modules that way by default: 20.19 and later in Node 20, 22.12 and later
-in Node 22, and 23 and later. Node 21 and Node 22.0 to 22.11 refuse. The library needs Node 20.19
-or later in any case.
+Node versions that load ES modules that way by default: 22.12 and later in Node 22, and 23 and
+later. Node 22.0 to 22.11 refuse. The library needs Node 22.12 or later in any case (20.19 until
+0.9.0).
 
 **Fix.** Upgrade Node, or load the package from CommonJS with `await import("llm-large-files")`
 (and `import("llm-large-files/gemini")` and so on for the other entry points). In TypeScript this
@@ -123,10 +123,9 @@ as `devDependencies` and left out of the production install, or missing from the
 bundle you deploy.
 
 **Fix.** Install them as dependencies of the application that runs the upload route and the
-questions: `npm install jszip unpdf @cantoo/pdf-lib` on Node 24 and later. On Node 20 and 22, name
-a version of `unpdf` that runs there: `npm install jszip unpdf@1 @cantoo/pdf-lib` on Node 22, and
-`npm install jszip unpdf@1.7.0 @cantoo/pdf-lib` on Node 20 (see
-[below](#a-pdf-upload-fails-the-unpdf-installed-cannot-read-pdf-files-or-would-stop-the-whole-server)).
+questions: `npm install jszip unpdf @cantoo/pdf-lib` on Node 24 and later. On Node 22, name a
+version of `unpdf` that runs there: `npm install jszip unpdf@1 @cantoo/pdf-lib` (see
+[below](#a-pdf-upload-fails-the-unpdf-installed-would-stop-the-whole-server)).
 Install `@cantoo/pdf-lib` before PDFs are uploaded: without it nothing fails at upload, but the
 text of a PDF is written without the line that marks a page with a picture
 (`[Picture on this page. This text cannot show it.]`), and a document keeps the text it was
@@ -134,41 +133,35 @@ ingested with.
 
 See [PDFs and other formats](./guides/pdfs.md).
 
-### A PDF upload fails: "The unpdf installed cannot read PDF files" or "would stop the whole server"
+### A PDF upload fails: "The unpdf installed would stop the whole server"
 
-`files.ingest` throws one of these, and the upload handler answers `422` with it:
+`files.ingest` throws this, and the upload handler answers `422` with it:
 
-- `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.`
-- `The unpdf installed would stop the whole server at the first PDF file on Node 20, so PDF files are not read. Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.`
-- `The unpdf installed cannot read PDF files on Node 20 (Serverless PDF.js bundle could not be resolved: ReferenceError: Iterator is not defined). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.`
-  The text in brackets is unpdf's own message, and differs between its versions.
+`The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.`
 
 The number is the major version of the Node that runs the server. DOCX, PPTX and text files are
 read as before.
 
-**Cause.** The version of `unpdf` that is installed cannot read PDFs on this version of Node, and
-0.6.0 checks it before it reads a PDF:
+**Cause.** unpdf 1.5.0 to 1.6.0 load a pdf.js that calls `Promise.try`, which Node 22 does not
+have. In 0.5.0 the first PDF stopped the whole process, with a `TypeError` that nothing could
+catch. Since 0.6.0 the library checks it before it reads a PDF.
 
-- unpdf 1.5.0 to 1.6.0 load a pdf.js that calls `Promise.try`, which Node 20 and 22 do not have. In
-  0.5.0 the first PDF stopped the whole process, with a `TypeError` that nothing could catch.
-- unpdf 1.9 and later, 2.x included, load a pdf.js that needs Node 22. On Node 20, every PDF failed
-  with unpdf's message alone.
+unpdf 2 asks for Node 24, and on Node 24 a plain `npm install unpdf` installs it. A pdf.js that
+cannot be loaded for another reason fails with unpdf's own message. (Until 0.9.0, on Node 20, that
+failure came as `The unpdf installed cannot read PDF files on Node 20 (…)`. Node 20 is no longer
+supported.)
 
-unpdf 2 asks for Node 24, and on Node 24 a plain `npm install unpdf` installs it. On Node 22 and
-later, a pdf.js that cannot be loaded for another reason fails with unpdf's message, as before.
-
-**Fix.** Install the `unpdf` that runs on your Node, or move to the Node the message names:
+**Fix.** Install the `unpdf` that runs on your Node, or move to Node 24:
 
 | Node | `unpdf` to install |
 |---|---|
-| 20 | 1.4.0, or 1.6.1 to 1.8.1: `npm install unpdf@1.7.0`. 1.7.0 is the last that does not ask for Node 22. |
 | 22 | 1.4.0, or 1.6.1 or a later 1.x: `npm install unpdf@1`. |
 | 24 and later | Any version from 1.4.0, 2.x included: `npm install unpdf`. |
 
 If the server loads pdf.js when it starts, as [Deployment](./guides/deployment.md#uploads-and-ingest)
-shows, an `unpdf` that cannot load pdf.js on that Node (1.9 and later on Node 20) makes the start
-fail instead. With unpdf 1.5.0 to 1.6.0 on Node 20 or 22, pdf.js loads and the server starts: PDFs
-are then refused at upload, with one of the `would stop the whole server` messages above.
+shows, an `unpdf` that cannot load pdf.js on that Node makes the start fail instead. With unpdf
+1.5.0 to 1.6.0 on Node 22, pdf.js loads and the server starts: PDFs are then refused at upload,
+with the message above.
 
 See [PDFs and other formats](./guides/pdfs.md#formats).
 
@@ -350,7 +343,7 @@ handler answers `422` with its message. The common ones:
 | `report.txt is empty.` | A file of 0 bytes. |
 | `report.docx did not contain any text.` | Nothing left once read: a DOCX of pictures, a file of blank lines. |
 | `This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.` | A scan, while PDFs are not kept. |
-| `The unpdf installed would stop the whole server at the first PDF file on Node 22, …` or `The unpdf installed cannot read PDF files on Node 20 (…). …` | Any PDF, while the `unpdf` installed cannot run on this Node. See [above](#a-pdf-upload-fails-the-unpdf-installed-cannot-read-pdf-files-or-would-stop-the-whole-server). |
+| `The unpdf installed would stop the whole server at the first PDF file on Node 22, …` | Any PDF, while the `unpdf` installed cannot run on this Node. See [above](#a-pdf-upload-fails-the-unpdf-installed-would-stop-the-whole-server). |
 | `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` | A PDF of more than `maxPdfPages` pages (5,000 by default). Refused before any page is read. |
 | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | A PDF whose text passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when that is larger). |
 | `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | The same, from the text extractor or one of your own: a UTF-16 file can grow by half in UTF-8. |

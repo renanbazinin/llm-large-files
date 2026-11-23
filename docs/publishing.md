@@ -108,7 +108,7 @@ Pushing the tag starts the release workflow.
    `examples/` and `test/` are not published.
 
 4. Commit, push, and open a pull request titled "Release 0.6.0: what the version is about". Wait
-   for CI (Node 20, 22 and 24, on Ubuntu and Windows), then squash-merge it.
+   for CI (Node 22, 24 and 26, on Ubuntu and Windows), then squash-merge it.
 
 5. Tag the merged commit and push the tag:
 
@@ -305,5 +305,5 @@ These are public, and a change to them can need a change in someone's code:
 - The routes, requests, responses and statuses of the HTTP handlers in `llm-large-files/node`.
 - What a store already holds: a new version reads documents an older one stored. (0.4.0 gave
   documents stored by older versions their line index the first time they were used.)
-- The supported Node versions (`engines`: 20.19 or later) and the version ranges of the optional
+- The supported Node versions (`engines`: 22.12 or later) and the version ranges of the optional
   peers `jszip`, `unpdf` and `@cantoo/pdf-lib`.
