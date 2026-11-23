@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.8.0 — not released yet
+## 0.8.0 — 2026-11-23
 
 Files from an enterprise, read with their structure, and counted exactly. Word files keep their
 headings, clause numbers and tables; PowerPoint decks their order, tables and speaker notes; Excel
