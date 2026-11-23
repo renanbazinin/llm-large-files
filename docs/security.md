@@ -137,7 +137,8 @@ before its body is read: `{ "error": "Upload failed (empty owner)." }` when `get
 when it returns something that is neither a string nor a finite number, such as the user object in
 place of its ID. Nothing is logged. Where every upload needs a signed-in user, throw a 401 as
 below. Return `undefined` only where anonymous uploads are meant (`user?.id || undefined`). GET and
-DELETE pass such an owner on as before.
+DELETE pass such an owner on as before, except under `requireOwner`, where the library refuses it
+on every call: they answer the same 500 then, "(empty owner)", without calling it (new in 0.9.0).
 
 ```ts
 import type { IncomingMessage } from "node:http";

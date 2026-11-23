@@ -433,6 +433,51 @@ describe("requireOwner and requireScope in the handlers", () => {
     const empty = await serve(files, { getOwner: () => "" });
     expect(await (await upload(empty, {})).json()).toEqual({ error: "Upload failed (empty owner)." });
   });
+
+  // An owner of "" (`req.user?.id ?? ""`) is refused by the library's checkOwner: the upload said
+  // so, "(empty owner)", but GET and DELETE passed it on, and the library's TypeError was a bare 500.
+  it("answers an empty owner, and an empty scope, the same 500 on every route under requireOwner, before the library", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: true });
+    const reached: string[] = [];
+    const own: LargeFiles = {
+      ...files,
+      ingest: (input) => (reached.push("ingest"), files.ingest(input)),
+      getMeta: (id, access) => (reached.push("getMeta"), files.getMeta(id, access)),
+      delete: (id, access) => (reached.push("delete"), files.delete(id, access)),
+    };
+    let owner: unknown;
+    let scope: unknown;
+    const base = await serve(own, { getOwner: () => owner as string, getScope: () => scope as DocumentScope });
+    const item = `${base}/doc_0123456789abcdef0123456789abcdef`;
+    /** The three answers, upload, GET and DELETE, as [status, body]. */
+    const answers = async () => Promise.all([upload(base, {}), fetch(item), fetch(item, { method: "DELETE" })].map(async (pending) => {
+      const answer = await pending;
+      return [answer.status, await answer.json()];
+    }));
+    for (const empty of ["", "   "]) {
+      owner = empty;
+      expect(await answers(), JSON.stringify(empty)).toEqual([
+        [500, { error: "Upload failed (empty owner)." }],
+        [500, { error: "The file could not be looked up (empty owner)." }],
+        [500, { error: "The file could not be deleted (empty owner)." }],
+      ]);
+    }
+    owner = "alice";
+    for (const empty of ["", [""], []]) {
+      scope = empty;
+      expect(await answers(), JSON.stringify(empty)).toEqual([
+        [500, { error: "Upload failed (invalid scope)." }],
+        [500, { error: "The file could not be looked up (invalid scope)." }],
+        [500, { error: "The file could not be deleted (invalid scope)." }],
+      ]);
+    }
+    expect(reached).toEqual([]);
+    // Without requireOwner, GET and DELETE still pass "" on, so that documents of 0.5.0 stored with
+    // the owner "" stay readable.
+    const before = await serve(createLargeFiles({ store: new MemoryDocumentStore() }), { getOwner: () => "" });
+    expect((await fetch(`${before}/doc_0123456789abcdef0123456789abcdef`)).status).toBe(404);
+    expect(await (await fetch(`${before}/doc_0123456789abcdef0123456789abcdef`, { method: "DELETE" })).json()).toEqual({ deleted: false });
+  });
 });
 
 describe("getScope", () => {

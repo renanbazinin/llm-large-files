@@ -64,7 +64,9 @@ export type DocumentHandlerOptions = {
    *
    * When the library requires an owner (`requireOwner`), it is required here: the handlers cannot
    * be made without it, and an undefined owner (or null, from JavaScript) is answered 401
-   * `{"error":"Sign in first."}` before the body is read, on every route (new in 0.9.0).
+   * `{"error":"Sign in first."}` before the body is read, on every route (new in 0.9.0). An empty
+   * owner is then a 500 on every route too: `get` and `remove` answer
+   * `{"error":"The file could not be looked up (empty owner)."}` without calling the library.
    *
    * To refuse a request, throw an error with a `status` (or `statusCode`) between 400 and 599, as
    * the `http-errors` package makes: the handler answers with that status and the error's message.
@@ -592,9 +594,10 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
 
   /**
    * Who is asking: the owner and the scope of the request, checked, before its body is read. Under
-   * `requireOwner`, a request without an owner is answered 401. A scope that is not valid, or none
-   * under `requireScope`, is the server's mistake: a 500 that says which, and nothing else.
-   * `failed` says what failed ("Upload failed").
+   * `requireOwner`, a request without an owner is answered 401. An owner the library refuses (on
+   * the upload, or on every route under `requireOwner`), a scope that is not valid, or none under
+   * `requireScope`, is the server's mistake: a 500 that says which, and nothing else. `failed` says
+   * what failed ("Upload failed").
    */
   async function callerOf(request: IncomingMessage, failed: string, checkOwnerShape: boolean): Promise<Caller> {
     const owner = await options.getOwner?.(request);
@@ -602,9 +605,11 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
     if (requireOwner && (owner === undefined || owner === null)) throw new HttpError(401, "Sign in first.");
     // An owner that `ingest` would refuse ("", or an object such as `req.user` from JavaScript) is
     // the server's mistake, answered with a 500 before the body is read. Its message says which, so
-    // that the operator knows where to look; it says nothing else. (`get` and `remove` pass it on,
-    // as before, so that documents of 0.5.0 with the owner "" stay readable.)
-    if (checkOwnerShape) {
+    // that the operator knows where to look; it says nothing else. (Without `requireOwner`, `get`
+    // and `remove` pass it on, as before, so that documents of 0.5.0 with the owner "" stay
+    // readable. Under it, the library refuses such an owner on every call: so do they, in the same
+    // words as the upload.)
+    if (checkOwnerShape || requireOwner) {
       try {
         checkOwner(owner);
       } catch {

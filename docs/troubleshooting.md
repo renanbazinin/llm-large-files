@@ -317,7 +317,10 @@ others. 0.5.0 accepted it.
   an array.
 
 A numeric owner is accepted, as before. `get`, `remove` and questions that pass the owner `""` work
-as before, so documents that 0.5.0 stored with that owner stay readable until they expire.
+as before, so documents that 0.5.0 stored with that owner stay readable until they expire. Under
+`requireOwner` the library refuses that owner on every call: `get` and `remove` then answer
+"The file could not be looked up (empty owner)." and "The file could not be deleted (empty owner).",
+also `500` (new in 0.9.0).
 
 **Fix.** Return the user's ID, not the user object. Where every upload needs a signed-in user,
 throw an error with `status: 401` for a request without one. Only where anonymous uploads are

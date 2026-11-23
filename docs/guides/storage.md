@@ -186,7 +186,8 @@ await files.delete(meta.id, { owner: "user-42" });   // true
   signed-in user, throw an error with `status: 401` from `getOwner`; return `undefined` only where
   anonymous uploads are meant (`user?.id || undefined`); and return the user's ID, not the user.
   Under `requireOwner`, `undefined` and `null` are a request that is not signed in: `401`
-  `{ "error": "Sign in first." }` on every route (new in 0.9.0).
+  `{ "error": "Sign in first." }` on every route, and `""` or spaces only a `500` "(empty owner)" on
+  every route (new in 0.9.0).
 - A document of another owner looks exactly like one that does not exist, so a caller cannot learn
   that an ID is in use. There is one exception: `ingest` with an
   [application's ID](#application-ids) answers 409 when the ID is taken, whoever has it.
