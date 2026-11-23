@@ -308,8 +308,10 @@ export async function deleteChat(userId: string, sessionId: string): Promise<voi
 
 - Ask with `owner: userId`, `scope: [userId, sessionId]` and
   `documentIds: await documentsFor(userId, sessionId)`. When documents have expired, the question
-  throws `DocumentsNotFoundError` with their IDs: [Conversations](./conversations.md) shows how to
-  take them off the chat and ask the user for them again.
+  throws `DocumentsNotFoundError` with their IDs, or, with `onMissingDocuments: "drop"` (new in
+  0.9.0), is answered without them and lists them in `result.missing`:
+  [Conversations](./conversations.md#documents-that-are-gone) shows how to take them off the chat
+  and ask the user for them again.
 - `files.delete` gives false for a document that has already expired or been deleted. There is
   nothing left to do for it.
 - The `upload` handler of `createDocumentHandlers` answers the request itself, so it cannot record
@@ -412,7 +414,9 @@ setInterval(() => {
   provider keeps is in [Security](../security.md).
 
 A chat that lives longer than `ttlMs` loses its documents, and its next question throws
-`DocumentsNotFoundError`. To keep documents as long as their chat:
+`DocumentsNotFoundError`, unless it is asked with `onMissingDocuments` (new in 0.9.0): `"drop"`
+answers without them, and a function can ingest them again from the uploads you kept
+([missing documents](../reference/ask.md#missing-documents)). To keep documents as long as their chat:
 
 - Set a `ttlMs` longer than your chats live.
 - Or set `ttlMs: Infinity`, and delete the documents yourself: with their chat (`deleteChat` above),

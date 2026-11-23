@@ -296,6 +296,7 @@ outcome that says so.
 | `code` | [`NoticeCode`](#noticecode-and-noticedisplay) | What happened. |
 | `message` | `string` | One line of plain text, word for word what the callback got when there was one. |
 | `display` | [`NoticeDisplay`](#noticecode-and-noticedisplay) | Where it went in the callbacks: `"activity"`, `"step"` or `"none"`. |
+| `documentIds` | `string[]`, optional | The documents the notice is about: those left out (`"documents_missing"`), the one found gone (`"document_gone"`), the one whose pages were not looked at (`"page_looks_busy"`). New in 0.9.0. |
 
 #### `run.finish`
 
@@ -407,8 +408,16 @@ to `onStep` and `AskResult.steps`, `"none"` to neither. The `"none"` notices are
 | `"budget_reached"` | none | `limits.inputTokens` or `limits.requests` was reached, so no more tools run, or the answer is not asked for again. Once a question. | "No more tools: the question reached its limit of input tokens or requests." |
 | `"no_room"` | none | There is no room left in the conversation for another tool result. Once a question. | "There is no room left in this conversation for another tool result." |
 | `"blocked"` | none | The provider refused the prompt (`AskResult.blockReason`). | "The provider refused the prompt: SAFETY." |
+| `"documents_missing"` | none | Documents of `documentIds` were missing, and the question is answered without them (`onMissingDocuments: "drop"`, see [missing documents](./ask.md#missing-documents)). Before the `plan` event, once a question. `documentIds` names them; `AskResult.missing` lists them too. New in 0.9.0. | "1 of the attached files is no longer available: the question is answered without it." |
+| `"document_gone"` | none | A tool call found a document gone during the question: deleted or expired since it was planned. The model was told so in the call's result ("‹id› is no longer available on the server. Ask the user to attach the file again."). Once for each document. `documentIds` names it. New in 0.9.0. | "app.log is no longer available on the server." |
+| `"page_looks_busy"` | none | A look at pages waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`, [library](./library.md#largefilesoptions)) and was not run. The model was told the server is busy. `documentIds` names the PDF. New in 0.9.0. | "The pages of report.pdf were not looked at: the server was busy with other looks at pages." |
 
 The messages are written for people and may change between versions. Test `code`, not `message`.
+
+New codes come with new versions: 0.9.0 added `"documents_missing"`, `"document_gone"` and
+`"page_looks_busy"`. In TypeScript, a `switch` over `NoticeCode` that must handle every code (one
+with a `never` check in its `default`) no longer compiles until it handles them. Give such a switch
+a `default` that shows nothing, or the message.
 
 ### How the callbacks map to events
 
@@ -480,6 +489,8 @@ text of the documents:
   document as a [`DocumentRef`](#plan) (id, name, format, estimated tokens, pages) instead of its
   full `DocumentMeta`, which holds the `owner`, the headings of the outline and, for a log, the
   templates of its most frequent lines.
+
+`missing` (new in 0.9.0) is there as in `AskResult`: the IDs of the documents left out.
 
 ```ts
 type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
@@ -941,6 +952,8 @@ executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallL
 type ToolCallHooks = {
   onProgress?: ProgressListener;
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
+  onDocumentGone?: (documentId: string) => void; // new in 0.9.0
+  onPagesBusy?: (documentId: string) => void; // new in 0.9.0
 };
 type ToolRequestStart = { purpose: "part" | "merge" | "final"; detail: string };
 type ToolRequestHandle = {
@@ -954,8 +967,12 @@ type ToolRequestEnd = { outcome: "ok" | "error"; usage?: GenerateUsage; error?: 
 |---|---|---|
 | `onProgress` | `ProgressListener` | Progress of this call, in place of `ToolOptions.onProgress` for it: `{ kind: "map" \| "reduce", message, done, total }`. |
 | `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle` | Called as each model request of this call starts, with its `purpose` and `detail` (`"part 3 of 12"`, `"first half of part 3 of 12"`, `"round 2: 1 of 4"`, `"the answer"`). The handle you return is told of each retry of that request, and once of its end, with the usage its part reader reported (summed over its sends) and, on an error, the error. |
+| `onDocumentGone` | `(documentId: string) => void` | Called when the document the call names is no longer in the store: deleted or expired since it was planned, or not the caller's. The call's result is the error the model is told. `askWithFiles` makes it a `"document_gone"` notice. New in 0.9.0. |
+| `onPagesBusy` | `(documentId: string) => void` | Called when a look at pages (`view_pages`) waited longer than `pageLookWaitMs` for its turn and was not run. The call's result is the error the model is told. `askWithFiles` makes it a `"page_looks_busy"` notice. New in 0.9.0. |
 
-Only `analyze_whole_document` uses them; the other tools ignore them, and `view_pages` too.
+`onProgress` and `onRequest` are used only by `analyze_whole_document`; the other tools ignore
+them, and `view_pages` too. `onDocumentGone` is called by every tool, and `onPagesBusy` by
+`view_pages`.
 `execute()` takes no hooks. A `ToolSet` of your own may take the fourth argument and ignore it;
 code that implements `ToolSet` for 0.6.0 still compiles. Do not throw from the hooks: a throw
 becomes a failed part, or the tool's error result, as a throw of `ToolOptions.onProgress` does.

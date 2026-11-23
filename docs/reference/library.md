@@ -113,6 +113,8 @@ type LargeFilesOptions = {
   scanChunkBytes?: number;
   maxConcurrentScans?: number;
   maxConcurrentIngests?: number;
+  maxConcurrentPageLooks?: number; // new in 0.9.0
+  pageLookWaitMs?: number; // new in 0.9.0
   requireOwner?: boolean; // new in 0.9.0
   requireScope?: boolean; // new in 0.9.0
   now?: () => Date;
@@ -137,13 +139,15 @@ type LargeFilesOptions = {
 | `scanChunkBytes` | `number` | 1 MB (1,048,576) | Reading by range: about how many bytes of text are read and searched at a time. At least 1. |
 | `maxConcurrentScans` | `number` | 4 | Reading by range: how many scans of whole documents (searches, counting the parts of a file) run at once in this library (each `createLargeFiles` call has its own queue). The others wait their turn. At least 1. |
 | `maxConcurrentIngests` | `number` | 2 | How many ingests do their work at once in this library. The others wait their turn, in the order they came; their `ingestTimeoutMs` starts when their turn comes, and a caller that aborts its `signal` while it waits gets its own reason, with nothing stored. An empty file, or one over `maxUploadBytes`, is refused without waiting. An ingest holds about five times its file in memory while it works, and the steps it runs in your server's thread share that thread with the others: more of them at once do not finish sooner (100 logs of 2 MB: all answered in 28 to 42 s all at once, 28 to 33 s two at a time, with a peak of 817 to 830 MB of memory against 329 to 356 MB). An ingest keeps its turn until its work ends: when its time is up or its caller left while an extractor goes on (one that does not stop on the signal, such as the parse of a PDF by `@cantoo/pdf-lib`), until that extractor ends; such an extractor that never ends gives the turn back after `ingestTimeoutMs` more (2 minutes when that is 0), and a store write that never ends fails the ingest after `ingestTimeoutMs` (above). An extractor of your own must not wait on an ingest of the same library (to store the parts of an archive, say): that ingest waits for a turn like any other, and with every turn held by such extractors, each waits on itself until its time is up. With [`createIsolatedExtractors`](./node.md#createisolatedextractorsoptions), at most this many files reach its readers at once from this library. `Infinity` for no limit, as before 0.8.2. At least 1. New in 0.8.2. |
+| `maxConcurrentPageLooks` | `number` | 1 | How many looks at pages (`view_pages`) run at once in this library, over all its questions. The others wait their turn, in order, before their PDF is loaded: a look that waits holds none of its bytes. A look parses the whole PDF on the thread your server shares: more at once do not finish sooner, they only hold more memory (six at once held 352 MB more than one, and each took four times as long). `Infinity` for no limit, as before 0.9.0. At least 1. New in 0.9.0. |
+| `pageLookWaitMs` | `number` | 30,000 | How long a look at pages waits for its turn, in milliseconds. Past it, the look is not run: the model reads "‹file›: The pages cannot be looked at right now; the server is busy. Answer from the text, or look again later.", and `askWithFiles` gives a `"page_looks_busy"` notice. A question that is stopped stops waiting at once. `Infinity` waits without end; 0 does not wait. New in 0.9.0. |
 | `requireOwner` | `boolean` | `false` | Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles`, `askStream` and `askGemini`, and `tools`, which then needs `access`. A call without one throws `TypeError("owner is required: requireOwner is on")`, before the store is asked anything. An owner that `ingest` would refuse (`""`, spaces only) is refused too. A document stored without an owner reads as missing. Use it on a server where every document belongs to a signed-in user: a call that forgot the owner fails, rather than reaching every document stored without one. New in 0.9.0. |
 | `requireScope` | `boolean` | `false` | The same for scopes ([`DocumentScope`](#documentscope)): a call without one throws `TypeError("scope is required: requireScope is on")`, and a document stored without a scope reads as missing. `files.sweep()` without a scope is still allowed: it is upkeep, not a user's access. New in 0.9.0. |
 | `now` | `() => Date` | `() => new Date()` | The clock, for tests. It dates `createdAt` and `expiresAt`, decides whether a document has expired, and is passed to the store's `sweep`. |
 
 Since 0.7.1, `ttlMs`, `maxUploadBytes`, `scannedPdfPages`, `cacheBytes`, `cacheSize`,
 `wholeDocumentBytes`, `scanChunkBytes` and `maxConcurrentScans` (and `maxConcurrentIngests`, new in
-0.8.2) are checked when the library is
+0.8.2, and `maxConcurrentPageLooks` and `pageLookWaitMs`, new in 0.9.0) are checked when the library is
 made: NaN, which `Number(process.env.X)` gives for a variable that is not set, throws a
 `RangeError` ("maxConcurrentScans must be a number, and is NaN. Leave it out for the default."),
 a value that is not a number throws a `TypeError`, and so does `Infinity` for `scanChunkBytes`. NaN
@@ -156,7 +160,7 @@ Guides: [storage](../guides/storage.md) for the store, owners and retention,
 [costs and limits](../guides/costs-and-limits.md) for the budget, [PDFs](../guides/pdfs.md) for
 `keepOriginals`, `scannedPdfPages`, `extractors` and the files the limits refuse,
 [security](../security.md#uploads) for `maxTextBytes`, `maxPdfPages` and `ingestTimeoutMs`, and
-[deployment](../guides/deployment.md) for the memory settings.
+[deployment](../guides/deployment.md) for the memory settings and the looks at pages.
 
 ### `LargeFiles`
 
@@ -1715,20 +1719,24 @@ own `onActivity` instead.
 type ToolCallHooks = {
   onProgress?: ProgressListener;
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
+  onDocumentGone?: (documentId: string) => void; // new in 0.9.0
+  onPagesBusy?: (documentId: string) => void; // new in 0.9.0
 };
 ```
 
 New in 0.7.0. Listeners for one tool call: the fourth argument of
 [`executeWithFiles`](./tools.md#toolset), next to its limits. With them, the progress and the model
 requests of two whole-file reads that run at once can be told apart. Only `analyze_whole_document`
-calls them; the other tools ignore them. `askWithFiles` passes its own for each call, and turns
-them into `tool.progress`, `request.start`, `retry` and `request.end` events
-([events in your own loop](./events.md#toolcallhooks)).
+calls `onProgress` and `onRequest`; the other tools ignore them. `askWithFiles` passes its own for
+each call, and turns them into `tool.progress`, `request.start`, `retry` and `request.end` events,
+and `"document_gone"` and `"page_looks_busy"` notices ([events in your own loop](./events.md#toolcallhooks)).
 
 | Field | Type | What it does |
 |---|---|---|
 | `onProgress` | [`ProgressListener`](#progresslistener), optional | Progress of this call, in place of `ToolOptions.onProgress` for it. Without it, the tool set's own listener is called. |
 | `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle`, optional | Called as each model request of this call starts ([`ToolRequestStart`](#toolrequeststart)). Return a [`ToolRequestHandle`](#toolrequesthandle): the read tells it of each retry of that request, and once when the request ends. |
+| `onDocumentGone` | `(documentId: string) => void`, optional | Called by any tool when the document the call names is no longer in the store: deleted or expired since it was planned, or not readable by the caller, which looks the same. The model gets "‹id› is no longer available on the server. Ask the user to attach the file again." New in 0.9.0. |
+| `onPagesBusy` | `(documentId: string) => void`, optional | Called by `view_pages` when the look waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`) and was not run. New in 0.9.0. |
 
 Do not let them throw. The read takes a throw from `onRequest` or from a handle for a failure of
 that request: the part is reported as not read, and a merge or the answer falls back to the notes.

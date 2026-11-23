@@ -296,10 +296,13 @@ the conversation they were written in, so an earlier turn that is rewritten make
 invalid. The loop therefore never rewrites a turn of a question in which a model that is
 append-only takes part: Claude alone, Claude answering, or Claude exploring. Three things change.
 
-**Old results are never replaced by stand-ins.** With other models, when the room in the request
-runs short, the loop replaces the results of older tool rounds with short stand-ins, and `steps`
-says "Older tool results were shortened to make room in the request". With Claude every result
-stays as it was. When the calls of a turn do not all fit, the last ones are answered "Not run:
+**Old results are never replaced by stand-ins during a question.** With other models, when the
+room in the request runs short, the loop replaces the results of older tool rounds with short
+stand-ins, and `steps` says "Older tool results were shortened to make room in the request". With
+Claude every result of the question stays as it was. The stored rounds of earlier questions are
+the exception (new in 0.9.0): when they make the first request of a question larger than its
+room, their results are replaced before that request is sent. They hold no thinking blocks, and
+nothing of the question was sent yet. Before, such a question was refused and failed. When the calls of a turn do not all fit, the last ones are answered "Not run:
 there is no room left in this conversation for another tool result. Answer now, from what the
 tools returned so far.", and the next request is the answer. This holds for the whole question:
 with Claude answering and Gemini exploring, the explorer's rounds are not shortened either.
@@ -334,9 +337,10 @@ What this means for your application:
 - **Set `contextTokens`** to your model's window, and keep `maxTokens` no larger than you need. A
   right budget is what keeps Claude's requests inside its window.
 - **Keep the history in check between questions.** The library shortens no plain turn of the
-  history, for any model, and with Claude it shortens no stored tool round either. A long history
-  leaves less room for each new question: its documents become cards sooner, fewer results fit,
-  and at last its first request is too large. Between two questions the history you pass is yours
+  history, for any model. With Claude it shortens the stored tool rounds only before the first
+  request, and only as far as the request needs (since 0.9.0). A long history leaves less room
+  for each new question: its documents become cards sooner, fewer results fit, the stored rounds
+  are sent as stand-ins, and at last its plain turns alone are too large. Between two questions the history you pass is yours
   to shorten: it holds no thinking blocks, and the rule above is about the turns of one question.
   Keeping the text of every turn and the `toolTurns` of the last few questions is a simple rule.
   The prompt cache misses once from the first turn you change. See
@@ -571,7 +575,7 @@ What the pair changes:
   Gemini's scale, Claude's by Claude's, so the estimate rises when either model counted more than
   its scale says. Before 0.6.0 every count was read by the largest scale, and a Gemini explorer's
   could not raise it.
-- **No result is shortened.** Claude is append-only, so the rule
+- **No result of the question is shortened.** Claude is append-only, so the rule
   [above](#a-conversation-that-may-only-grow) holds for the explorer's rounds too.
 - **Claude gets the calls and what they returned**, in its own form: an assistant turn of
   `tool_use` blocks and a user turn of `tool_result` blocks. A call that came without an ID is

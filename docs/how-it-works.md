@@ -552,6 +552,14 @@ models), against half of
 out, the tool says so and the model answers from what it has. The looks of one turn run one after
 another, each with the room the one before it left.
 
+The looks of all questions of a library take their turns too (new in 0.9.0). A look parses the
+whole PDF on the one thread the questions share: six at once each took about four times as long,
+and held 352 MB more than one. By default one look runs at a time (`maxConcurrentPageLooks`), and
+the others wait in order, before their PDF is loaded, so a look that waits holds none of its bytes.
+The memory check above is made once the turn comes. A look that waits longer than
+`pageLookWaitMs` (30 s) is not run: the model reads that the server is busy and to answer from the
+text, and the question gets a `page_looks_busy` notice.
+
 Pages are not kept in `toolTurns`: the stored round says that they were shown. Setting this up,
 scanned PDFs and `toolFilePlacement`: [PDFs and other formats](./guides/pdfs.md).
 
@@ -628,7 +636,10 @@ once, in the core. `askGemini` is this loop with Gemini adapters ([below](#gemin
 
 A question goes like this:
 
-1. Fit the budget to the models, and [plan the documents](#how-the-plan-is-made).
+1. Fit the budget to the models, and [plan the documents](#how-the-plan-is-made). Documents that
+   are missing are settled by `onMissingDocuments`: by default the question fails before any
+   request; with `"drop"` it is answered without them, with one line in the system instruction
+   that says how many files are no longer available.
 2. Send a request with the tools (`toolChoice: "auto"`) to the model that explores.
 3. A reply without tool calls ends the tool requests. Its text is the answer, unless it is empty,
    the prompt was blocked, or it comes from an explorer. A reply with calls is a turn: its calls run, each result gets
@@ -697,7 +708,12 @@ provider has answered, by the provider's own count ([Token estimates](#token-est
   all but the last two, then all but the last one, as far as needed. `steps` then holds "Older tool
   results were shortened to make room in the request". When any model of the question, the
   answering model or the explorer, may only grow its conversation (`capabilities.appendOnly`:
-  Claude), nothing is replaced, for either model.
+  Claude), nothing is replaced during the question, for either model.
+- **Before the first request** (new in 0.9.0), when the stored rounds of earlier questions make it
+  larger than the room it has, their results are replaced the same way, as far as needed, before
+  it is sent. Nothing of the question was sent yet, and a stored round has no thinking in it, so
+  this is done for an append-only model too. The request is what an overflow would have had sent
+  again ([below](#a-request-too-large-for-the-model)), without the refused request before it.
 - **No room left.** Calls that still cannot each get 1,500 characters (or their cap, when it is
   smaller) are answered "Not run: there is no room left in this conversation for another tool
   result. Answer now, from what the tools returned so far.", the last calls of the turn first, and
@@ -708,7 +724,9 @@ provider has answered, by the provider's own count ([Token estimates](#token-est
 A stand-in is a short result in place of one that was dropped to make room. It keeps which document
 it was about and what it showed, says `dropped: true`, and tells the model how to get it back. What
 each tool's stand-in keeps, and which results are too small to replace, is in
-[`stubResult`](./reference/ask.md#stubresultcall-result-hadfiles). The tool rounds a question
+[`stubResult`](./reference/ask.md#stubresultcall-result-hadfiles). Since 0.9.0 a result is never
+replaced by a stand-in as large as itself or larger: a search counted by group, or an
+`aggregate_table` result, of a few short groups stays as it is. The tool rounds a question
 returns in `toolTurns` hold stand-ins for pages, since a file cannot be kept as JSON
 ([Conversations](./guides/conversations.md)).
 
@@ -796,7 +814,10 @@ end the question:
   and sends the request again. `steps` says "The request was larger than the model takes: older tool
   results were shortened, and it was sent again". That happens at most twice a question, and once
   for any one request. When any model of the question may only grow its conversation (Claude),
-  nothing is shortened.
+  nothing is shortened. Since 0.9.0 the first request of a question is checked against the loop's
+  own estimate first, and the stored rounds of earlier questions are shortened before it is sent
+  ([making room](#room-in-the-request)): a history that grew past the window no longer costs a
+  refused request, and no longer fails a question on Claude.
 - **Plan again.** When it happens to the first requests of a question, before any tool call was
   answered or any text shown, the documents are planned again for a smaller window, once, as for a
   model that declares it. The window is the one the provider named, or seven tenths of the window
@@ -948,7 +969,7 @@ Where the events of a question come from:
 | `retry` | the retry rule ([Retries and waits](#retries-and-waits)) | Before each wait, between the request's start and end. |
 | `text` | the answering model's replies | As the text arrives with `streamText`; otherwise once each reply is in. The same text as `onText`. |
 | `tool.start`, `tool.progress`, `tool.end` | the calls of a turn ([The calls of a turn](#the-calls-of-a-turn)) | A call starts when it runs, so starts and ends of one turn interleave; ends come in call order. `tool.progress` is the progress of a whole-file read. |
-| `notice` | the loop | What it did that is not a request or a call: `searching_instead`, `writing_answer`, `replanned`, `room_made`, `nudged`, `results_shortened`, `answer_again`, `calls_not_run`, and three that the callbacks never got: `budget_reached`, `no_room`, `blocked`. |
+| `notice` | the loop | What it did that is not a request or a call: `searching_instead`, `writing_answer`, `replanned`, `room_made`, `nudged`, `results_shortened`, `answer_again`, `calls_not_run`, and those that the callbacks never got: `budget_reached`, `no_room`, `blocked`, and, new in 0.9.0, `documents_missing`, `document_gone` and `page_looks_busy`. |
 | `run.finish`, `run.error` | `askWithFiles` | Last, once. Nothing comes after them, not even a part read still running. |
 
 The events tell a model error by its kind and status, never in the provider's words, and carry no
@@ -1003,7 +1024,7 @@ What differs is in the adapters:
 | `tokenScale` | 1 | 1 by default (`tokenScale`) | 1.35 by default (`tokenScale`) |
 | Kept free in the window for the reply | nothing | nothing | `maxTokens`, 64,000 by default |
 | Request size declared | none, unless you set `maxRequestBytes` | none, unless you set `maxRequestBytes` | 32,000,000 bytes by default (`maxRequestBytes`) |
-| Old results shortened for room | yes, unless Claude is the other model of the question | yes, unless Claude is the other model of the question | no: the conversation may only grow (`appendOnly`); with Claude as the answering model or the explorer, nothing is shortened for either |
+| Old results shortened for room | yes, unless Claude is the other model of the question | yes, unless Claude is the other model of the question | no: the conversation may only grow (`appendOnly`); with Claude as the answering model or the explorer, nothing is shortened for either during the question. The stored rounds of earlier questions are, before its first request, when they make it too large (since 0.9.0) |
 | Prompt cache | the provider's own | the provider's own | `cache_control` on each request: 5 minutes, `cache: "1h"`, or `false` for none |
 | Streams the chat | when the loop asks for the text as it is written (`streamText`: with `onText`, or in `askStream`) and the endpoint has a `streamUrl` | when the loop asks for the text as it is written, unless `stream: false` | always, unless `stream: false` |
 | A whole stream ends with | a chunk with a `finishReason` | a `finish_reason`, or `[DONE]` | a stop reason |
@@ -1037,8 +1058,9 @@ explorer (`explorerUrl`, which `explorerModel` of `geminiApi()` and `vertexAi()`
 second `gemini()` for it, called with the same headers, without streaming, with
 `explorerGenerationConfig` or else `generationConfig`. `maxToolTurns` and `maxToolCallsPerTurn` are
 the names that `limits.toolTurns` and `limits.callsPerTurn` had before 0.5.0; `limits` wins.
-`contents` are converted to messages with `fromGeminiContents`. Everything above applies; what is
-Gemini's own:
+`contents` are converted to messages with `fromGeminiContents`: since 0.9.0 the tool rounds that
+`geminiToolTurns` wrote come back as stored rounds, so pointers and stand-ins apply to them, and any
+other function part is sized by its JSON. Everything above applies; what is Gemini's own:
 
 - **The model's turns go back unchanged**, so Gemini 3 thought signatures stay intact. A signature
   belongs to the model that wrote it: with an explorer, the answering model gets the explorer's

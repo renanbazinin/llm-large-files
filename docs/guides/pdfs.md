@@ -656,6 +656,21 @@ block:
 A look runs on the server that answers the question, not where the file was ingested
 ([Deployment](./deployment.md#pages-of-pdfs)).
 
+**Looks take their turns** (new in 0.9.0). Looks share the thread of your server, so more of them
+at once do not finish sooner: six at once each took about four times as long, and held 352 MB more
+than one. So one look runs at a time in a library, over all its questions, and the others wait in
+order, before their PDF is loaded:
+
+| Option (`createLargeFiles`) | Default | What it does |
+|---|---|---|
+| `maxConcurrentPageLooks` | 1 | How many looks run at once. `Infinity` for no limit, as before 0.9.0. |
+| `pageLookWaitMs` | 30,000 | How long a look waits for its turn. Past it, it is not run. |
+
+A look that waited too long tells the model "report.pdf: The pages cannot be looked at right now;
+the server is busy. Answer from the text, or look again later.", and the question gets a
+`page_looks_busy` notice ([events](../reference/events.md#noticecode-and-noticedisplay)). A
+question that is stopped stops waiting at once, and loads nothing.
+
 ### Limits and cost
 
 | Limit | Value | When it is reached |

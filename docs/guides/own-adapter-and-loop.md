@@ -709,7 +709,9 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    `analyze_whole_document`, and the cards do not offer a whole-file read. The result is a
    `PreparedContext`:
    - `missing`: IDs that were never uploaded, were deleted, have expired, or belong to another
-     owner or scope. Stop and ask for them again. `askWithFiles` throws `DocumentsNotFoundError` here.
+     owner or scope. Stop and ask for them again. `askWithFiles` throws `DocumentsNotFoundError`
+     here, unless its `onMissingDocuments` says to answer without them (the plan you got is already
+     made without them) or brings them back (plan again).
    - `blocks`: for each document, its whole text or its card. Put them at the start of the first
      user turn, in the order of your IDs.
    - `instruction`: the guide to the tools, for the system prompt. Empty when there is nothing to
@@ -985,7 +987,14 @@ listeners for one call as the fourth argument of `executeWithFiles`
   once when it ends. `usage` is what the part reader passed to `onUsage` for that request, so you
   can show or count the cost of each read.
 
-Only `analyze_whole_document` calls them; the other tools ignore them.
+Only `analyze_whole_document` calls them; the other tools ignore them. Two more, new in 0.9.0,
+are called by any tool:
+
+- `onDocumentGone(documentId)`: the document was deleted or expired after you planned the request.
+  The call's result tells the model so. Tell the user, or take it off the chat.
+- `onPagesBusy(documentId)`: a look at pages waited longer than `pageLookWaitMs` for its turn
+  (`maxConcurrentPageLooks` of the library) and was not run. The result tells the model the server
+  is busy.
 
 ```ts
 import type { ToolCall, ToolCallHooks, ToolCallLimits, ToolOutput, ToolSet } from "llm-large-files";

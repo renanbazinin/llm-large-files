@@ -41,7 +41,7 @@ failed question found, check `answered`, and set an overall deadline.
 
 | Error | When | Fields to use | `partialResultOf` |
 |---|---|---|---|
-| `DocumentsNotFoundError` | A document ID was never uploaded, has expired, was deleted, or belongs to another `owner`. Thrown before any model request. | `ids`: the IDs that are missing. | No |
+| `DocumentsNotFoundError` | A document ID was never uploaded, has expired, was deleted, or belongs to another `owner` or scope. Thrown before any model request, unless `onMissingDocuments` says to answer without it or brings it back (new in 0.9.0, [below](#documents-that-are-gone)). | `ids`: the IDs that are missing. | No |
 | `DocumentStoreError` | The store could not be read while the question planned its documents: a volume that did not answer, a database that is down. The documents are not gone, and the same question may work a moment later. | `code` (`EIO`, `EMFILE`) and `syscall` when a system error is behind it; `cause`, the error that was caught. | No |
 | `ModelRequestError`: a `GeminiRequestError`, `OpenAiRequestError` or `AnthropicRequestError` | A model request failed in a way that was not worth sending again, or still failed after the retries. A reply of HTTP 200 whose body is not JSON (a gateway's page in the model's place) is one too, of kind `invalid`, with status 200 and the `SyntaxError` as `cause`; it is not sent again. A reply of HTTP 200 whose body is empty is of kind `unreachable`, status 0, and is sent again first. | `kind`, `status` (0 when no answer came, or the reply stopped on its way), `retryAfterMs`, `limitTokens`, `requestedTokens`, `cause`. `OpenAiRequestError` adds `param` and `code`; `AnthropicRequestError` adds `type`. | Yes |
 | The reason of your `signal` | You stopped the question, or your deadline ran out. See [An overall deadline](#an-overall-deadline). | Test your signals, not the error. | Yes, for a reason that is an object |
@@ -647,7 +647,24 @@ Every read of the store goes through the library: `prepare`, `getMeta`, `getOrig
 What the store throws there becomes a `DocumentStoreError`, which does not mean the document is
 gone. A store's own `delete` and `sweep` pass on its error as it came. A document that is gone, or
 of another owner, is not an error of the store: `prepare` lists it in `missing`, and `askWithFiles`
-throws `DocumentsNotFoundError` for it. What a store must do is in [Storage](./storage.md).
+throws `DocumentsNotFoundError` for it, unless `onMissingDocuments` says otherwise (below). What a
+store must do is in [Storage](./storage.md).
+
+## Documents that are gone
+
+A document expires `ttlMs` after its upload (72 hours by default), and a chat can outlive it. By
+default the next question then fails whole, before any model request, with
+`DocumentsNotFoundError`. New in 0.9.0, `onMissingDocuments` settles it in the question
+([missing documents](../reference/ask.md#missing-documents)):
+
+| `onMissingDocuments` | What the question does |
+|---|---|
+| `"throw"` (the default) | Throws `DocumentsNotFoundError`, as before. |
+| `"drop"` | Answers without them. One line of the system instruction tells the model how many files are no longer available. `result.missing` lists their IDs; take them off the chat, and tell the user. |
+| A function | Gets the missing IDs, with the question's `owner`, `scope` and `signal`, and returns `"throw"`, `"drop"`, `{ retry: true }` after it ingested them again under the same IDs, or `{ replace: { [oldId]: newId } }`. A retry or a replace plans the question again once; an ID still missing then throws `DocumentsNotFoundError`. What it throws fails the question. |
+
+A document deleted while a question runs is not an error of the question: the tool tells the model
+it is no longer available, and the question gets a `document_gone` notice.
 
 ## Putting it together: a chat route
 
@@ -664,6 +681,7 @@ type Failure = { status: number; message: string; retryAfterSeconds?: number };
 
 /** What to tell the user about an error of a question, and the HTTP status to answer with. */
 export function toUserError(error: unknown): Failure {
+  // With onMissingDocuments: "drop", a question answers without its missing files instead.
   if (error instanceof DocumentsNotFoundError) {
     return { status: 404, message: "A file of this chat is no longer available. Attach it again." };
   }

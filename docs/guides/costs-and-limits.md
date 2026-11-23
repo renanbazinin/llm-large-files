@@ -687,13 +687,21 @@ What the library changes:
   names the files that are searched, changes with it.
 - Within a question, when room runs short, older tool results are replaced by short stand-ins. The
   request changes from the first round replaced. A model whose conversation may only grow (Claude)
-  has nothing replaced.
-- The tool rounds of an earlier question are sent without their `tool_turns_left`. So the first
-  request of a follow-up question differs from the requests of the question before it from that
-  question's first tool round on, and the cache misses from there, once in each follow-up
-  question: those rounds are billed at the full price in that request (with Claude's
-  `cache_control`, as a cache write). The rounds of older questions were already sent without it,
-  and still match. The documents and cards before them are still read from the cache.
+  has nothing of the question replaced. Since 0.9.0 the stored rounds of earlier questions are
+  replaced before the first request when they make it larger than its room, for every model: the
+  request changes from the first stored round replaced, as it did in 0.8 after the provider refused
+  the request, but without the refused request.
+- The tool rounds of an earlier question are not sent as they were in their own question, for two
+  reasons. Their results go without `tool_turns_left`. And their model turns go as the calls alone:
+  a stored round keeps no thought signatures (Gemini) or thinking blocks (Claude), which the
+  requests of its own question sent back. So the first request of a follow-up question differs
+  from the requests of the question before it from that question's first tool round on, and the
+  cache misses from there, once in each follow-up question: those rounds are billed at the full
+  price in that request (with Claude's `cache_control`, as a cache write). The rounds of older
+  questions were already sent that way, and still match. The documents and cards before them are
+  still read from the cache. Pages up to 0.8.2 named `tool_turns_left` alone; with a model that
+  thinks, the signatures make the miss on their own. Keeping the model's own turns is planned for
+  0.10.0.
 - An upgrade that changes the library's prompts misses the cache once in each conversation. 0.6.0
   changed the tool guide, the descriptions of `search_document` and `analyze_whole_document`, and
   the frame lines of a file sent whole. The first request after the upgrade shares with what 0.5.0
