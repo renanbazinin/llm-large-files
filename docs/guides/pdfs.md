@@ -679,13 +679,15 @@ the text." Give your store's `getOriginal` a time limit of its own: the read goe
 
 How long a question can wait for turns:
 
-- A tool turn waits once. After a look of the turn was told the server is busy, the other looks
-  of that turn do not wait: each runs if a turn is free at that moment, and is told the server is
-  busy if not.
-- So a tool turn waits at most `pageLookWaitMs` (30 s) for turns. A question waits at most once in
-  each of its tool turns: 12 turns of 30 s, 6 minutes, with the defaults, when other questions hold
-  the turn all that time.
-- Lower `pageLookWaitMs` for a chat that must answer sooner.
+- A look waits at most `pageLookWaitMs` (30 s) for its turn. A wait that ends with "busy" happens
+  at most once in a tool turn: after a look of the turn was told the server is busy, the other
+  looks of that turn do not wait. Each runs if a turn is free at that moment, and is told the
+  server is busy if not.
+- A look that gets its turn may still have waited for it up to `pageLookWaitMs`. So when other
+  questions hold the turn all that time, a tool turn can wait up to `pageLookWaitMs` for each of its
+  looks: 8 looks of 30 s, 4 minutes, with the defaults (`callsPerTurn` 8), and a question waits that
+  in each tool turn that looks at pages.
+- Lower `pageLookWaitMs`, or raise `maxConcurrentPageLooks`, for a chat that must answer sooner.
 
 ### Limits and cost
 

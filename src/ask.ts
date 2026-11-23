@@ -1662,7 +1662,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
             const output = await tools.executeWithFiles(call.name, call.args, {
               maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4),
               maxPages: pagesLeft,
-              // A tool turn waits for a look's turn once: after a busy look, the others run only when a turn is free now.
+              // A wait that ends busy comes once in a tool turn: after a busy look, the others run only when a turn is free now.
               ...(pagesBusy ? { maxWaitMs: 0 } : {}),
             }, hooksFor(index));
             for (const file of output.files) requestBytes += Math.ceil(file.bytes.length / 3) * 4 + 512;

@@ -738,7 +738,8 @@ type ModelPart = { text: string; native?: undefined } | { native: unknown; text?
 
 One piece of a message: plain text, or something in the provider's own form (an image, an inline
 PDF) that only its adapter reads. A native part may carry the text it holds in `text`: the loop
-then sizes it by that text; otherwise by the size of its JSON. Each built-in adapter passes a native
+then counts its tokens from that text, and its bytes from the larger of the text and the part's
+JSON (since 0.9.0; before, from the text alone); otherwise it sizes it by the size of its JSON. Each built-in adapter passes a native
 part on to its provider as it is, and the loop sends it to every model of the question, so with an
 explorer of another provider, that model gets it too.
 

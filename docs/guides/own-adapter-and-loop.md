@@ -970,7 +970,8 @@ into. Fill it from your own request, as the sample above does:
   this still makes all of them, the merges of their notes and an answer.
 - `maxWaitMs` (new in 0.9.0): the most a look at pages waits for its turn, when that is less than
   the library's `pageLookWaitMs`. `askWithFiles` gives 0 to the looks of a turn after one was told
-  the server is busy (`onPagesBusy`, below), so that a turn waits once. Do the same in your loop.
+  the server is busy (`onPagesBusy`, below), so that a wait that ends busy comes once in a turn. Do
+  the same in your loop.
 
 The defaults, the floors and the errors a call answers with are in the
 [tools reference](../reference/tools.md#toolcalllimits).

@@ -559,7 +559,8 @@ the others wait in order, before their PDF is loaded, so a look that waits holds
 The memory check above is made once the turn comes. A look that waits longer than
 `pageLookWaitMs` (30 s) is not run: the model reads that the server is busy and to answer from the
 text, and the question gets a `page_looks_busy` notice. The other looks of that tool turn then do
-not wait: they run only when a turn is free at once, so a turn waits once. A look holds its turn
+not wait: they run only when a turn is free at once, so a wait that ends busy comes once in a
+turn. A look holds its turn
 while it reads the PDF from the store for at most `ingestTimeoutMs` (2 minutes by default), and a
 question that is stopped gives its turn back at once.
 

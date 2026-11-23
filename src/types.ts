@@ -328,7 +328,7 @@ export type ToolCallLimits = {
    * The most milliseconds a look at pages (`view_pages`) of this call waits for its turn, when that
    * is less than the library's `pageLookWaitMs`. 0: it runs only when a turn is free now, and is
    * told the server is busy if not. `askWithFiles` gives 0 to the looks of a turn after one of them
-   * came back busy, so that a turn waits once. New in 0.9.0.
+   * came back busy, so that a wait that ends busy comes once in a turn. New in 0.9.0.
    */
   maxWaitMs?: number;
 };
