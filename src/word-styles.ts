@@ -1,3 +1,4 @@
+import { sliceWhole } from "./text.js";
 import { readXml, type XmlAttributes } from "./xml-stream.js";
 
 /**
@@ -17,13 +18,42 @@ export type ParagraphStyle = {
   outlineLevel?: number;
 };
 
-type Level = { start: number; format: string; text: string };
+/**
+ * A level of a list: its start, its number format, its number text cut into the text between the
+ * numbers and the level of each number (`"%1.%2"` is `[0, ".", 1]`), and whether it writes the
+ * numbers of all levels in Arabic digits (`w:isLgl`, Word's "legal style numbering").
+ */
+type Level = { start: number; format: string; parts: Array<string | number>; legal: boolean };
+/**
+ * A list definition (`w:abstractNum`): its levels, the list style it defines (`w:styleLink`), and
+ * the list style it takes its levels from instead (`w:numStyleLink`). Word writes a list made with
+ * a list style, as its "1 / 1.1 / 1.1.1" or "Article / Section", as a definition with no levels.
+ */
+type ListDefinition = { levels: Level[]; styleLink?: string; numStyleLink?: string };
+/** A list (`w:num`): its definition, and the levels it starts at another number. */
+type Num = { abstractId: string; starts: Map<number, number> };
 type StyleInfo = { name: string; basedOn?: string; numId?: string; ilvl?: number; outlineLevel?: number };
+/** What a paragraph style and the styles it is based on give its paragraphs: a list and level, a heading level, an outline level. */
+type Resolved = { numId?: string; ilvl?: number; heading?: number; outline?: number };
+/** A list as it numbers paragraphs: the definition whose counts it shares, its levels, and its start overrides. */
+type List = { key: string; levels: Level[]; starts: Map<number, number> };
+/**
+ * A paragraph counted in its list, as `WordNumbering.count` gives it to `labelOf`: the levels of
+ * its list, its level, and the counts of the list.
+ */
+type Counted ={ levels: Level[]; level: number; counts: Array<number | undefined> };
 
 /** Levels of numbering a list may have in Word. */
 const LEVELS = 9;
-/** The characters of a level's number text kept: Word's dialog takes far fewer. */
+/**
+ * The characters of a level's number text kept, and of the number written from it: Word's dialog
+ * takes far fewer. Each `%n` of the text may be a Roman numeral of 15 letters, and the number is
+ * written before every paragraph of the list.
+ */
 const MAX_LABEL = 64;
+/** Links from a list definition to a list style, and on to the definition of that style, followed at most: Word makes one. */
+const MAX_LIST_LINKS = 4;
+const NOTHING: Resolved = {};
 
 const attribute = (attributes: XmlAttributes, name: string) => attributes[`w:${name}`] ?? attributes[name];
 const integerOf = (value: string | undefined): number | undefined => {
@@ -38,10 +68,15 @@ const startOf = (value: string | undefined): number | undefined => {
   return number === undefined ? undefined : Math.min(32_767, Math.max(0, number));
 };
 
-/** Reads `w:style` elements: names, the style each is based on, and the numbering and outline level in its paragraph properties. */
-function readStyles(xml: string | undefined): Map<string, StyleInfo> {
+/**
+ * Reads `w:style` elements: names, the style each is based on, and the numbering and outline level
+ * in its paragraph properties. Paragraph styles and list styles (`w:type="numbering"`, whose list a
+ * list definition may take its levels from) are kept apart.
+ */
+function readStyles(xml: string | undefined): { styles: Map<string, StyleInfo>; listStyles: Map<string, StyleInfo> } {
   const styles = new Map<string, StyleInfo>();
-  if (!xml) return styles;
+  const listStyles = new Map<string, StyleInfo>();
+  if (!xml) return { styles, listStyles };
   let current: StyleInfo | undefined;
   let inParagraphProperties = 0;
   let inChange = 0;
@@ -50,8 +85,9 @@ function readStyles(xml: string | undefined): Map<string, StyleInfo> {
       if (name === "w:style") {
         const id = attribute(attributes, "styleId");
         const type = attribute(attributes, "type");
-        current = id && (type === undefined || type === "paragraph") ? { name: "" } : undefined;
-        if (current && id) styles.set(id, current);
+        const kept = type === undefined || type === "paragraph" ? styles : type === "numbering" ? listStyles : undefined;
+        current = id && kept ? { name: "" } : undefined;
+        if (current && id) kept?.set(id, current);
         return;
       }
       if (!current) return;
@@ -70,35 +106,54 @@ function readStyles(xml: string | undefined): Map<string, StyleInfo> {
       else if (name === "w:pPr" && inParagraphProperties > 0) inParagraphProperties--;
     },
   });
-  return styles;
+  return { styles, listStyles };
+}
+
+/** `"%1.%2."` as `[0, ".", 1, "."]`: the text of a level, with the level of each number in it. */
+function partsOf(text: string): Array<string | number> {
+  const parts: Array<string | number> = [];
+  let from = 0;
+  for (const match of text.matchAll(/%([1-9])/g)) {
+    if (match.index > from) parts.push(text.slice(from, match.index));
+    parts.push(Number(match[1]) - 1);
+    from = match.index + match[0].length;
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return parts;
 }
 
 /** Reads `w:abstractNum` and `w:num` elements. */
-function readNumbering(xml: string | undefined): { abstracts: Map<string, Level[]>; nums: Map<string, { abstractId: string; starts: Map<number, number> }> } {
-  const abstracts = new Map<string, Level[]>();
-  const nums = new Map<string, { abstractId: string; starts: Map<number, number> }>();
+function readNumbering(xml: string | undefined): { abstracts: Map<string, ListDefinition>; nums: Map<string, Num> } {
+  const abstracts = new Map<string, ListDefinition>();
+  const nums = new Map<string, Num>();
   if (!xml) return { abstracts, nums };
-  let abstract: Level[] | undefined;
+  let abstract: ListDefinition | undefined;
   let level: Level | undefined;
-  let num: { abstractId: string; starts: Map<number, number> } | undefined;
+  let num: Num | undefined;
   let overrideLevel: number | undefined;
   readXml(xml, {
     open(name, attributes, empty) {
       if (name === "w:abstractNum" && !empty) {
-        abstract = [];
+        abstract = { levels: [] };
         const id = attribute(attributes, "abstractNumId");
         if (id !== undefined) abstracts.set(id, abstract);
       } else if (abstract && name === "w:lvl" && !empty) {
         const index = integerOf(attribute(attributes, "ilvl")) ?? 0;
-        level = { start: 1, format: "decimal", text: `%${index + 1}.` };
-        if (index >= 0 && index < LEVELS) abstract[index] = level;
+        level = { start: 1, format: "decimal", parts: [index, "."], legal: false };
+        if (index >= 0 && index < LEVELS) abstract.levels[index] = level;
       } else if (level && name === "w:start") {
         level.start = startOf(attribute(attributes, "val")) ?? 1;
       } else if (level && name === "w:numFmt") {
         level.format = attribute(attributes, "val") ?? "decimal";
       } else if (level && name === "w:lvlText") {
         // Word writes a few characters here ("%1.%2."); a long one would be copied before every paragraph.
-        level.text = (attribute(attributes, "val") ?? "").slice(0, MAX_LABEL);
+        level.parts = partsOf(sliceWhole(attribute(attributes, "val") ?? "", MAX_LABEL));
+      } else if (level && name === "w:isLgl") {
+        level.legal = !["0", "false", "off"].includes(attribute(attributes, "val") ?? "");
+      } else if (abstract && !level && name === "w:styleLink") {
+        abstract.styleLink = attribute(attributes, "val");
+      } else if (abstract && !level && name === "w:numStyleLink") {
+        abstract.numStyleLink = attribute(attributes, "val");
       } else if (name === "w:num" && !empty) {
         num = { abstractId: "", starts: new Map() };
         const id = attribute(attributes, "numId");
@@ -107,7 +162,7 @@ function readNumbering(xml: string | undefined): { abstracts: Map<string, Level[
         num.abstractId = attribute(attributes, "val") ?? "";
       } else if (num && name === "w:lvlOverride") {
         overrideLevel = integerOf(attribute(attributes, "ilvl"));
-      } else if (num && overrideLevel !== undefined && name === "w:startOverride") {
+      } else if (num && overrideLevel !== undefined && overrideLevel >= 0 && overrideLevel < LEVELS && name === "w:startOverride") {
         const start = startOf(attribute(attributes, "val"));
         if (start !== undefined) num.starts.set(overrideLevel, start);
       }
@@ -187,21 +242,36 @@ const PRIVATE_USE = /[-]/u;
 
 /**
  * Numbers the paragraphs of one document in order, as Word does: one count for each list and level,
- * shared by the lists made from one definition, restarted by a list that says where to start, and
- * the deeper levels started again when a level counts up.
+ * shared by the lists made from one definition (or from one list style), restarted by a list that
+ * says where to start, and the deeper levels started again when a level counts up.
+ *
+ * Every paragraph of a list is counted, an empty one too, but its number is written only when it
+ * has text (`count`, then `labelOf`), and what a style gives is worked out once a style: a file of
+ * 312,500 empty paragraphs of a style based on 19 others, in a list whose number was 480
+ * characters long, took 25 seconds for 45 KB.
  */
 export class WordNumbering {
   private readonly styles: Map<string, StyleInfo>;
-  private readonly abstracts: Map<string, Level[]>;
-  private readonly nums: Map<string, { abstractId: string; starts: Map<number, number> }>;
+  private readonly listStyles: Map<string, StyleInfo>;
+  private readonly abstracts: Map<string, ListDefinition>;
+  private readonly nums: Map<string, Num>;
+  /** The list definition that defines each list style (`w:styleLink`). */
+  private readonly styleLinks = new Map<string, string>();
   /** The counts of each list definition, by level: undefined for a level not counted since it was last started again. */
   private readonly counts = new Map<string, Array<number | undefined>>();
   /** Lists whose start override has been applied. */
   private readonly started = new Set<string>();
+  /** What each paragraph style gives, worked out at its first paragraph: the styles of a document do not change. */
+  private readonly resolved = new Map<string, Resolved>();
+  /** Each list found so far, by its `numId`; null for one with no levels. */
+  private readonly lists = new Map<string, List | null>();
 
   constructor(stylesXml: string | undefined, numberingXml: string | undefined) {
-    this.styles = readStyles(stylesXml);
+    ({ styles: this.styles, listStyles: this.listStyles } = readStyles(stylesXml));
     ({ abstracts: this.abstracts, nums: this.nums } = readNumbering(numberingXml));
+    for (const [id, definition] of this.abstracts) {
+      if (definition.styleLink !== undefined && !this.styleLinks.has(definition.styleLink)) this.styleLinks.set(definition.styleLink, id);
+    }
   }
 
   /** A style and the styles it is based on, nearest first, at most 20 deep. */
@@ -216,56 +286,135 @@ export class WordNumbering {
   }
 
   /**
-   * The level of a heading, 1 to 6, for a paragraph of a heading style ("heading 2", or a style
-   * whose name Word gives in English even in a Hebrew document), of the title style, or with an
-   * outline level. Undefined for body text.
+   * What a paragraph style gives: the nearest list, level and outline level in its chain, and the
+   * level of its nearest heading style ("heading 2", or a style whose name Word gives in English
+   * even in a Hebrew document) or title style. Kept only for the styles the file defines, which
+   * bounds what is kept.
+   */
+  private resolve(styleId: string | undefined): Resolved {
+    if (styleId === undefined || !this.styles.has(styleId)) return NOTHING;
+    let resolved = this.resolved.get(styleId);
+    if (resolved) return resolved;
+    resolved = {};
+    for (const style of this.chain(styleId)) {
+      resolved.numId ??= style.numId;
+      resolved.ilvl ??= style.ilvl;
+      resolved.outline ??= style.outlineLevel;
+      if (resolved.heading === undefined) {
+        const named = /^heading (\d)$/.exec(style.name);
+        if (named) resolved.heading = Math.min(6, Math.max(1, Number(named[1])));
+        else if (style.name === "title") resolved.heading = 1;
+      }
+    }
+    this.resolved.set(styleId, resolved);
+    return resolved;
+  }
+
+  /**
+   * The level of a heading, 1 to 6, for a paragraph of a heading style, of the title style, or with
+   * an outline level. Undefined for body text.
    */
   headingLevel(paragraph: ParagraphStyle): number | undefined {
-    let outline = paragraph.outlineLevel;
-    for (const style of this.chain(paragraph.styleId)) {
-      const named = /^heading (\d)$/.exec(style.name);
-      if (named) return Math.min(6, Math.max(1, Number(named[1])));
-      if (style.name === "title") return 1;
-      outline ??= style.outlineLevel;
-    }
+    const style = this.resolve(paragraph.styleId);
+    if (style.heading !== undefined) return style.heading;
+    const outline = paragraph.outlineLevel ?? style.outline;
     return outline !== undefined && outline >= 0 && outline < 6 ? outline + 1 : undefined;
   }
 
-  /** The number Word writes before the paragraph ("2.1.", "(a)", "-" for a bullet), or undefined. */
-  label(paragraph: ParagraphStyle): string | undefined {
-    let numId = paragraph.numId;
-    let ilvl = paragraph.ilvl;
-    for (const style of this.chain(paragraph.styleId)) {
-      numId ??= style.numId;
-      ilvl ??= style.ilvl;
-    }
-    if (numId === undefined || numId === "0") return undefined;
+  /** The list a `numId` names, found at its first paragraph; undefined when the file defines none, or it has no levels. */
+  private list(numId: string): List | undefined {
+    const known = this.lists.get(numId);
+    if (known !== undefined) return known ?? undefined;
+    // A numId the file does not define is not kept: the paragraphs may name any number of them.
     const num = this.nums.get(numId);
-    const levels = num ? this.abstracts.get(num.abstractId) : undefined;
-    if (!num || !levels) return undefined;
-    const level = Math.min(LEVELS - 1, Math.max(0, ilvl ?? 0));
-    const definition = levels[level];
+    if (!num) return undefined;
+    const found = this.definitionOf(num.abstractId);
+    const list = found ? { key: found.id, levels: found.definition.levels, starts: num.starts } : null;
+    this.lists.set(numId, list);
+    return list ?? undefined;
+  }
+
+  /**
+   * The list definition whose levels and counts a definition uses: itself, or for one that takes
+   * them from a list style (`w:numStyleLink`), the definition of that style: the one that names it
+   * in `w:styleLink`, or that of the list in the style's own properties. A file may link them in a
+   * circle, so a few links are followed; a definition linked back to itself keeps its own levels.
+   */
+  private definitionOf(abstractId: string): { id: string; definition: ListDefinition } | undefined {
+    let id = abstractId;
+    for (let link = 0; link <= MAX_LIST_LINKS; link++) {
+      const definition = this.abstracts.get(id);
+      if (!definition) return undefined;
+      const style = definition.numStyleLink;
+      if (style === undefined) return { id, definition };
+      const styleNumId = this.listStyles.get(style)?.numId;
+      const linked = this.styleLinks.get(style) ?? (styleNumId === undefined ? undefined : this.nums.get(styleNumId)?.abstractId);
+      if (linked === undefined || linked === id) return { id, definition };
+      id = linked;
+    }
+    return undefined;
+  }
+
+  /**
+   * Counts a paragraph in its list, as Word counts every paragraph of a list, an empty one too. It
+   * gives what `labelOf` needs to write the paragraph's number, until the next paragraph is
+   * counted, or undefined for a paragraph of no list.
+   */
+  count(paragraph: ParagraphStyle): Counted | undefined {
+    const style = this.resolve(paragraph.styleId);
+    const numId = paragraph.numId ?? style.numId;
+    if (numId === undefined || numId === "0") return undefined;
+    const list = this.list(numId);
+    if (!list) return undefined;
+    const level = Math.min(LEVELS - 1, Math.max(0, paragraph.ilvl ?? style.ilvl ?? 0));
+    const definition = list.levels[level];
     if (!definition) return undefined;
-    let counts = this.counts.get(num.abstractId);
+    let counts = this.counts.get(list.key);
     if (!counts) {
       counts = new Array<number | undefined>(LEVELS).fill(undefined);
-      this.counts.set(num.abstractId, counts);
+      this.counts.set(list.key, counts);
     }
     if (!this.started.has(numId)) {
       this.started.add(numId);
-      for (const [overridden, start] of num.starts) if (overridden >= 0 && overridden < LEVELS) counts[overridden] = start - 1;
+      for (const [overridden, start] of list.starts) counts[overridden] = start - 1;
     }
     const count = counts[level];
     counts[level] = count === undefined ? definition.start : count + 1;
     for (let deeper = level + 1; deeper < LEVELS; deeper++) counts[deeper] = undefined;
+    return { levels: list.levels, level, counts };
+  }
+
+  /**
+   * The number Word writes before a paragraph that `count` has just counted ("2.1.", "(a)", "-"
+   * for a bullet), or undefined. It is cut after `MAX_LABEL` characters.
+   */
+  labelOf({ levels, level, counts }: Counted): string | undefined {
+    const definition = levels[level];
+    if (!definition) return undefined;
     if (definition.format === "bullet") return "-";
-    const text = definition.text.replace(/%([1-9])/g, (_, digit: string) => {
-      const index = Number(digit) - 1;
-      const own = levels[index];
-      const value = counts[index] ?? own?.start ?? 1;
-      return formatNumber(value, own?.format ?? "decimal");
-    });
+    let text = "";
+    for (const part of definition.parts) {
+      if (typeof part === "string") {
+        text += part;
+      } else {
+        const own = levels[part];
+        const format = own?.format ?? "decimal";
+        // A legal level writes the number of every level in Arabic digits. Word keeps the zero of
+        // decimalZero: "Section 1.01" of its "Article I. / Section 1.01" list is a legal level.
+        text += formatNumber(counts[part] ?? own?.start ?? 1, definition.legal && format !== "decimalZero" ? "decimal" : format);
+      }
+      if (text.length >= MAX_LABEL) {
+        text = sliceWhole(text, MAX_LABEL);
+        break;
+      }
+    }
     if (PRIVATE_USE.test(text)) return "-";
     return text.trim() || undefined;
+  }
+
+  /** Counts a paragraph (`count`), and gives the number Word writes before it (`labelOf`), or undefined. */
+  label(paragraph: ParagraphStyle): string | undefined {
+    const counted = this.count(paragraph);
+    return counted && this.labelOf(counted);
   }
 }

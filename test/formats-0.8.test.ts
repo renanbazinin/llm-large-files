@@ -106,7 +106,7 @@ describe("Word files (F4, F5, LLF-024)", () => {
       "| Region | Q1 | Q2 | Q3 |",
       "| Sales | 120 |  | 140 |",
       "| Merged |  | x \\| y | z |",
-      "| Last | 1 | 2 |  |",
+      "| Last | 1 | 2 | hidden |",
     ]);
     expect(lines[17]).toBe("After the table.");
   });
@@ -167,7 +167,7 @@ async function deck(): Promise<Uint8Array> {
     "ppt/slides/slide1.xml": slide(shape("Second in the show")),
     "ppt/slides/slide2.xml": slide(`${shape("First in the show")}<p:graphicFrame><a:graphic><a:graphicData><a:tbl><a:tr>${drawingCell("Name")}${drawingCell("Total", ' gridSpan="2"')}${drawingCell("", ' hMerge="1"')}</a:tr><a:tr>${drawingCell("East")}${drawingCell("10")}${drawingCell("")}</a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>`),
     "ppt/slides/_rels/slide1.xml.rels": `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/notesSlide" Target="../notesSlides/notesSlide1.xml"/></Relationships>`,
-    "ppt/notesSlides/notesSlide1.xml": `<p:notes ${P}><p:cSld><p:spTree>${shape("Mention the Q3 numbers.")}${shape("2")}</p:spTree></p:cSld></p:notes>`,
+    "ppt/notesSlides/notesSlide1.xml": `<p:notes ${P}><p:cSld><p:spTree>${shape("Mention the Q3 numbers.")}<p:sp><p:nvSpPr><p:nvPr><p:ph type="sldNum" idx="5"/></p:nvPr></p:nvSpPr><p:txBody><a:p><a:r><a:t>2</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>`,
   });
 }
 
