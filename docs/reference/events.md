@@ -191,7 +191,7 @@ and then `run.error`.
 | `name` | `string` | The file name. |
 | `format` | `DocumentFormat` | `"text"`, `"log"`, `"pdf"`… |
 | `estimatedTokens` | `number` | The library's estimate of the document's tokens. |
-| `pages` | `number`, optional | For a PDF or a PPTX. |
+| `pages` | `number`, optional | For a PDF, a PPTX or an XLSX (its sheets). |
 
 #### `request.start`
 
@@ -436,7 +436,8 @@ An error in an event is plain data, safe to send to a browser:
 | `message` | `string` | A message your users may see. |
 | `kind` | `ModelErrorKind`, optional | For a model error: what kind it is (`errorKindOf`): `"rate_limit"`, `"timeout"`, `"auth"`… |
 | `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. |
-| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`… |
+| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"IngestError"`… |
+| `code` | `IngestErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. |
 
 How `message` is written:
 
@@ -453,6 +454,12 @@ How `message` is written:
   or give them a `status`.
 - **Anything that is not an `Error`** is told as "Something went wrong.".
 
+An [`IngestError`](./library.md#ingesterror) is told by its message, with `name: "IngestError"` and
+its `code`, and with its `status` only for `"too_large"` (413) and `"busy"` (503): that status is the
+answer of an upload, not of a model, and the others are all 422. Until 0.8.0 the same refusals were
+plain `Error`s, and their events said `name: "Error"`; a test that expects that needs
+`"IngestError"`. A store that failed, an abort and a listener that threw have no `code`.
+
 Where errors appear: `retry.error`, `request.end.error`, `run.error.error` and `ingest.error.error`
 are `EventError`s. `tool.end.error` is a string: the error the model was sent, or, for a call
 ended because its turn failed, the `message` of the turn's error. An ingest whose store failed to
@@ -460,7 +467,7 @@ write the document says only "The document could not be stored. Try again later.
 store threw.
 
 To show your own words, map the error by `kind` and `name`, as `examples/server.ts` does in its
-`userMessage`. [Errors and reliability](../guides/errors-and-reliability.md) says what each kind
+`userMessage`, and the error of an ingest by `code`. [Errors and reliability](../guides/errors-and-reliability.md) says what each kind
 means.
 
 ### Documents: `eventResults` and `EventResult`
@@ -792,9 +799,9 @@ this order, and each stage ends before the next starts:
 | Stage | Unit | `total` | What it counts | When |
 |---|---|---|---|---|
 | `"check"` | pages | the pages | Pages checked before their text is read. | A PDF, with `@cantoo/pdf-lib` installed and `checkPages` on. |
-| `"extract"` | pages, or parts | the pages, or the parts | Text read: each page of a PDF; each part of a DOCX (body, headers, footers…) or each slide of a PPTX. | A PDF, DOCX or PPTX, or an extractor of your own that reports it. Not a text file. |
+| `"extract"` | pages, or parts | the pages, or the parts | Text read: each page of a PDF; each part of a DOCX (body, footnotes, headers…), each slide of a PPTX or each sheet of an XLSX. | A PDF, DOCX, PPTX or XLSX, or an extractor of your own that reports it. Not a text file. |
 | `"pictures"` | pages | the pages | Pages looked at for pictures. | A PDF, with `@cantoo/pdf-lib` installed and `pictures` on. |
-| `"decode"` | bytes | the bytes | One event when the file is decoded. | A text file that is not UTF-8. |
+| `"decode"` | bytes | the bytes | One event when the file is decoded. | A text file that is not UTF-8, and every HTML file. |
 | `"prepare"` | characters | the characters | The text cleaned before it is cut into lines. | Every file. |
 | `"index"` | characters | the characters | The line index built. | A store with `putIndex`, such as `FileDocumentStore`. |
 | `"store"` | parts | the writes | Each write to the store, once done: the original file (`keepOriginals`), the line index, then the text. | Every file. |
@@ -826,7 +833,8 @@ not only through a wildcard such as `*/*` or `text/*`.
    - `ingest.error`, whose `error` is `{ message, status }`, the message and status a JSON answer
      would have: `422` with the reason for a file that cannot be read ("empty.txt is empty."),
      `500` "Upload failed." for a store that failed, and so on, as in the
-     [node reference](./node.md#uploadrequest-response).
+     [node reference](./node.md#uploadrequest-response). For a file that could not be read, it also
+     has `code`, the `IngestError` code (`"empty"`, `"busy"`…; new in 0.8.0).
 3. When the client goes away, the ingest stops and nothing is stored.
 
 It always ends with `ingest.finish` or `ingest.error`, even with a `LargeFiles` of your own whose

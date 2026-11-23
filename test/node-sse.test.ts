@@ -468,7 +468,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     const response = await upload(url, "a.bin", binary);
     expect(response.status).toBe(200);
     const { messages } = parse(await response.text());
-    expect(messages.at(-1)).toEqual({ id: String(messages.length), event: "ingest.error", data: expect.objectContaining({ type: "ingest.error", seq: messages.length, error: { message: error, status: 422 } }) });
+    expect(messages.at(-1)).toEqual({ id: String(messages.length), event: "ingest.error", data: expect.objectContaining({ type: "ingest.error", seq: messages.length, error: { message: error, status: 422, code: "not_text" } }) });
     expect(error).toMatch(/binary/);
   });
 
@@ -488,7 +488,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     const finished = parse(await (await upload(url, "notes.md", "# Notes")).text()).messages;
     expect(finished).toEqual([{ id: "1", event: "ingest.finish", data: expect.objectContaining({ type: "ingest.finish", seq: 1, document: expect.objectContaining({ name: "notes.md", format: "markdown" }) }) }]);
     const failed = parse(await (await upload(url, "a.bin", new Uint8Array(500))).text()).messages;
-    expect(failed).toEqual([{ id: "1", event: "ingest.error", data: expect.objectContaining({ type: "ingest.error", seq: 1, error: { message: expect.stringMatching(/binary/), status: 422 } }) }]);
+    expect(failed).toEqual([{ id: "1", event: "ingest.error", data: expect.objectContaining({ type: "ingest.error", seq: 1, error: { message: expect.stringMatching(/binary/), status: 422, code: "not_text" } }) }]);
   });
 
   it("does not repeat a store's own message in ingest.error", async () => {

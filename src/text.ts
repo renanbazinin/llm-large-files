@@ -73,9 +73,100 @@ export function breaksAtNextLine(text: string): boolean {
   return carriageReturn === -1 || carriageReturn >= end;
 }
 
-/** `removeInvisible`, after each U+0085 that ends a line is made a line break, when `nextLines`. */
+/** `removeInvisible`, after each U+0085 that ends a line is made a line break, when `nextLines`; then `composed`. */
 function cleanLines(text: string, nextLines: boolean): string {
-  return removeInvisible(nextLines && text.includes("\x85") ? text.replace(NEXT_LINE, "\n") : text);
+  return composed(removeInvisible(nextLines && text.includes("\x85") ? text.replace(NEXT_LINE, "\n") : text));
+}
+
+/** A character that Unicode normalization (NFC) may change: nothing below U+0300 does. */
+const MAY_COMPOSE = /[^\x00-\u02ff]/;
+
+/**
+ * `text` in Unicode's composed form (NFC): "e" followed by a combining acute accent becomes one
+ * "é", as a model writes it in a query. Text exported from macOS, from some PDF and Word files, and
+ * Vietnamese, often comes decomposed, and a search for the composed word found nothing in it. Text
+ * with no character from U+0300 on is returned as it is, without the cost of normalizing it.
+ * Hebrew and Arabic points are not composed by NFC: they stay as they are.
+ */
+export function composed(text: string): string {
+  const first = text.search(MAY_COMPOSE);
+  if (first === -1) return text;
+  return streamSafe(text, first).text.normalize("NFC");
+}
+
+/**
+ * More marks in a row than any script writes on one letter. NFC orders the marks of a run by
+ * their class, in time that grows with the square of the run: 600 KB of marks of two classes in
+ * turn held the server 80 seconds. Unicode's stream-safe form (UAX #15) bounds the run instead.
+ */
+const MAX_MARKS = 30;
+/** A mark (\p{M}): a character that NFC may order with the marks next to it. */
+const MARK = /\p{M}/u;
+const MARK_RUNS = /\p{M}+/gu;
+/** The combining grapheme joiner: a mark that is a starter, so NFC orders no marks across it. */
+const GRAPHEME_JOINER = 0x034f;
+/** Code points below this are looked up in `marks`; the few marks above it, with `MARK`. */
+const TABLE_END = 0x20000;
+/** Which code points below `TABLE_END` are marks, filled in a block of 4,096 the first time a character of the block is looked up. */
+const marks = new Uint8Array(TABLE_END);
+const markBlocks = new Uint8Array(TABLE_END >> 12);
+
+/** Whether code point `point` is a mark. A look at a table: far quicker than a regex test. */
+function isMark(point: number): boolean {
+  if (point >= TABLE_END) return MARK.test(String.fromCodePoint(point));
+  const block = point >> 12;
+  if (markBlocks[block] === 0) {
+    markBlocks[block] = 1;
+    const points: number[] = [];
+    for (let at = block << 12; at < (block + 1) << 12; at++) if (at < 0xd800 || at > 0xdfff) points.push(at);
+    for (const [run] of String.fromCodePoint(...points).matchAll(MARK_RUNS)) for (const character of run) marks[character.codePointAt(0)!] = 1;
+  }
+  return marks[point] === 1;
+}
+
+/**
+ * `text` in the stream-safe form: a combining grapheme joiner (U+034F, which shows nothing and is
+ * a starter) after every 30 marks of a run, so no run NFC orders is longer than that. `first` is
+ * where the first character from U+0300 on is: nothing before it is a mark. `carried`: the marks
+ * that end the text before this one, for a text worked on in pieces; `run` is those that end this
+ * one. One pass, a look at a table for each character: a regex for long runs tried a match at each
+ * mark of a run, and took 1.3 microseconds a mark on runs of 30, more than NFC itself; on a run of
+ * millions of marks its greedy repeat ran out of stack, and the upload was refused with the
+ * engine's "Maximum call stack size exceeded".
+ */
+function streamSafe(text: string, first: number, carried = 0): { text: string; run: number } {
+  let pieces: string[] | undefined;
+  let copied = 0;
+  let run = first === 0 ? carried : 0;
+  const length = text.length;
+  for (let at = first; at < length; at++) {
+    const code = text.charCodeAt(at);
+    if (code < 0x0300) {
+      run = 0;
+      continue;
+    }
+    // A pair of surrogates is one character, outside the basic plane.
+    const low = code >= 0xd800 && code <= 0xdbff ? text.charCodeAt(at + 1) : 0;
+    const pair = low >= 0xdc00 && low <= 0xdfff;
+    if (pair ? !isMark(((code - 0xd800) << 10) + (low - 0xdc00) + 0x10000) : code === GRAPHEME_JOINER || !isMark(code)) {
+      run = 0;
+      if (pair) at++;
+      continue;
+    }
+    // These four become two marks each under NFC (UAX #15 counts the marks of the decomposition):
+    // counted as one, a run of 30 grew past 30 once composed, and composing it again changed it.
+    const weight = code === 0x0344 || code === 0x0f73 || code === 0x0f75 || code === 0x0f81 ? 2 : 1;
+    if (run + weight > MAX_MARKS) {
+      (pieces ??= []).push(text.slice(copied, at), "\u034f");
+      copied = at;
+      run = 0;
+    }
+    run += weight;
+    if (pair) at++;
+  }
+  if (!pieces) return { text, run };
+  pieces.push(text.slice(copied));
+  return { text: pieces.join(""), run };
 }
 
 /**
@@ -134,17 +225,25 @@ async function withoutEscapesInPieces(text: string, slicer: TimeSlicer, piece: n
 /**
  * `normalizeLines`, a piece of about `piece` characters at a time, with a pause between pieces. A
  * line with no break for megabytes can hold millions of characters or escape sequences to remove,
- * which take seconds in one go. The escape sequences are found in order, as in one go, and the
- * pieces of the last step (`cleanLines`) end where `cutsCleanly` says, so the result is the same.
+ * which take seconds in one go. The steps of `cleanLines` are taken on each piece in turn, so the
+ * result is the same as in one go: the escape sequences are found in order; the invisible
+ * characters are removed from pieces that end where `removesCleanly` says; the stream-safe form
+ * counts the marks of a run across pieces; and the text is composed up to the last place where
+ * NFC joins nothing across (`composesCleanly`), the rest with the next piece. A run of millions of
+ * marks has such a place after every 30 marks, where the stream-safe form puts a grapheme joiner:
+ * composed in one go, it held the server for seconds.
  */
 export async function normalizeInPieces(raw: string, slicer: TimeSlicer, nextLines: boolean, piece = SLICE_CHARACTERS): Promise<string> {
   const text = await withoutEscapesInPieces(raw.replace(/\r\n?/g, "\n"), slicer, piece);
   const parts: string[] = [];
+  // The marks in a row that end the text cleaned so far, and the end of that text, not yet composed.
+  let run = 0;
+  let tail = "";
   for (let from = 0; from < text.length;) {
     let to = Math.min(text.length, from + piece);
     // Where the next piece starts.
     let next = to;
-    while (to < text.length && !cutsCleanly(text, to)) {
+    while (to < text.length && !removesCleanly(text, to)) {
       if (text.charCodeAt(to) === 0x85) {
         // A run of U+0085 after U+0080-U+00FF, which no place may cut. `cleanLines` removes all of
         // it, and gives the same on the text before it and after it alone: the run is left out.
@@ -155,7 +254,20 @@ export async function normalizeInPieces(raw: string, slicer: TimeSlicer, nextLin
       }
       next = ++to;
     }
-    parts.push(cleanLines(text.slice(from, to), nextLines));
+    const slice = text.slice(from, to);
+    const safe = streamSafe(removeInvisible(nextLines && slice.includes("\x85") ? slice.replace(NEXT_LINE, "\n") : slice), 0, run);
+    run = safe.run;
+    const cleaned = tail + safe.text;
+    // The last piece is composed whole; another, up to a place where what follows joins nothing
+    // before it. Its very end is not one: the next piece may start with a mark.
+    let cut = cleaned.length;
+    if (next < text.length) {
+      cut = Math.max(0, cut - 1);
+      while (cut > 0 && !composesCleanly(cleaned, cut)) cut--;
+    }
+    const done = cleaned.slice(0, cut);
+    parts.push(MAY_COMPOSE.test(done) ? done.normalize("NFC") : done);
+    tail = cleaned.slice(cut);
     from = next;
     await slicer.maybePause();
   }
@@ -163,14 +275,14 @@ export async function normalizeInPieces(raw: string, slicer: TimeSlicer, nextLin
 }
 
 /**
- * Whether `cleanLines` gives the same result on `text` cut before `at` as on it whole. It does
- * unless the cut is between the two halves of a character outside the basic plane, inside a flag,
- * between a soft hyphen and a line break, or before a U+0085 right after U+0080-U+00FF. Only
- * these places are kept whole: a rule that never cut after a soft hyphen or half of a pair would
- * never cut a line of soft hyphens, or of tag characters and emoji in turn, and such a line
- * would be cleaned in one go again.
+ * Whether `removeInvisible`, after U+0085 is made a line break where it ends a line, gives the same
+ * result on `text` cut before `at` as on it whole. It does unless the cut is between the two halves
+ * of a character outside the basic plane, inside a flag, between a soft hyphen and a line break,
+ * or before a U+0085 right after U+0080-U+00FF. Only these places are kept whole: a rule that
+ * never cut after a soft hyphen or half of a pair would never cut a line of soft hyphens, or of
+ * tag characters and emoji in turn, and such a line would be cleaned in one go again.
  */
-function cutsCleanly(text: string, at: number): boolean {
+function removesCleanly(text: string, at: number): boolean {
   const before = text.charCodeAt(at - 1);
   const after = text.charCodeAt(at);
   if (isHighSurrogate(before) && isLowSurrogate(after)) return false;
@@ -182,22 +294,80 @@ function cutsCleanly(text: string, at: number): boolean {
 }
 
 /**
+ * Whether NFC gives the same result on a text in the stream-safe form cut before `at` as on it
+ * whole: the cut is not inside a character, and NFC joins nothing across it. It joins a mark to the
+ * letter before it, and orders the marks of a run, but neither across a grapheme joiner, which is
+ * a starter and joins with nothing. It joins a Hangul vowel to an initial consonant, and a final
+ * consonant to a syllable of the two, or to a vowel that will join the consonant before it.
+ */
+function composesCleanly(text: string, at: number): boolean {
+  const before = text.charCodeAt(at - 1);
+  const after = text.charCodeAt(at);
+  if (isHighSurrogate(before) && isLowSurrogate(after)) return false;
+  if (after < 0x0300 || before === GRAPHEME_JOINER) return true;
+  if (after >= 0x1161 && after <= 0x1175) return !(before >= 0x1100 && before <= 0x1112);
+  if (after >= 0x11a8 && after <= 0x11c2) return !((before >= 0x1161 && before <= 0x1175) || (before >= 0xac00 && before <= 0xd7a3 && (before - 0xac00) % 28 === 0));
+  const low = isHighSurrogate(after) ? text.charCodeAt(at + 1) : 0;
+  return !isMark(isLowSurrogate(low) ? ((after - 0xd800) << 10) + (low - 0xdc00) + 0x10000 : after);
+}
+
+/**
+ * Characters that are written several ways for one meaning, each folded to the plain one for a
+ * search that ignores case: curly quotes and primes to `'` and `"`, Hebrew geresh (׳) and gershayim
+ * (״) too, which keyboards replace by them ("צה״ל", "צה\"ל"); hyphens, dashes, the minus sign and the
+ * Hebrew maqaf (־) to "-"; no-break, thin and other fixed-width spaces to a space; and the
+ * full-width forms of ASCII (Ａ, １) to ASCII. Each is one UTF-16 unit for one, so offsets keep.
+ */
+const SEARCH_FOLDS: Record<string, string> = {
+  "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'", "\u2032": "'", "\u05f3": "'", "\u02bc": "'",
+  "\u201c": "\"", "\u201d": "\"", "\u201e": "\"", "\u201f": "\"", "\u2033": "\"", "\u05f4": "\"",
+  "\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-", "\u2015": "-", "\u2212": "-", "\u05be": "-",
+  "\u00a0": " ", "\u2007": " ", "\u2009": " ", "\u200a": " ", "\u202f": " ", "\u2002": " ", "\u2003": " ",
+  "\u03c2": "\u03c3",
+};
+const SEARCH_FOLD = /[\u2018\u2019\u201a\u201b\u2032\u05f3\u02bc\u201c\u201d\u201e\u201f\u2033\u05f4\u2010-\u2015\u2212\u05be\u00a0\u2007\u2009\u200a\u202f\u2002\u2003\u03c2\uff01-\uff5e]/g;
+
+/**
  * Lowercases for case-insensitive search without changing the string's length, so an offset in the
  * result points at the same character in the original. "İ" (U+0130) is the one character whose
- * lowercase form is longer; it is folded to "i".
+ * lowercase form is longer; it is folded to "i". Greek final sigma (ς) is folded to σ, as an upper
+ * case Σ is lowered to either depending on where it stands. Then the characters of `SEARCH_FOLDS`
+ * are folded, and the full-width forms of ASCII: a search for "don't" finds "don’t".
  */
 export function foldCase(text: string): string {
-  const lower = (text.includes("\u0130") ? text.replaceAll("\u0130", "i") : text).toLowerCase();
-  if (lower.length === text.length) return lower;
-  // Not expected with today's Unicode data. Fold unit by unit and keep any unit that would grow.
-  let out = "";
-  for (let index = 0; index < text.length; index++) {
-    const unit = text[index]!;
-    const folded = unit.toLowerCase();
-    out += folded.length === 1 ? folded : unit;
+  let lower = (text.includes("\u0130") ? text.replaceAll("\u0130", "i") : text).toLowerCase();
+  if (lower.length !== text.length) {
+    // Not expected with today's Unicode data. Fold unit by unit and keep any unit that would grow.
+    let out = "";
+    for (let index = 0; index < text.length; index++) {
+      const unit = text[index]!;
+      const folded = unit.toLowerCase();
+      out += folded.length === 1 ? folded : unit;
+    }
+    lower = out;
   }
-  return out;
+  SEARCH_FOLD.lastIndex = 0;
+  if (!SEARCH_FOLD.test(lower)) return lower;
+  // One pass over the character codes, with a table: a replace with a callback for each character
+  // took seconds on a text full of curly quotes and dashes, which counted against a search's time.
+  const codes = new Uint16Array(lower.length);
+  for (let index = 0; index < lower.length; index++) {
+    const code = lower.charCodeAt(index);
+    codes[index] = FOLDED[code] || code;
+  }
+  // From the codes a block at a time: a decoder would make a lone half of a surrogate pair U+FFFD.
+  const parts: string[] = [];
+  for (let at = 0; at < codes.length; at += 8_192) parts.push(String.fromCharCode(...codes.subarray(at, at + 8_192)));
+  return parts.join("");
 }
+
+/** For each UTF-16 unit, the unit `foldCase` makes of it, or 0 when it keeps it. */
+const FOLDED = (() => {
+  const table = new Uint16Array(0x10000);
+  for (const [from, to] of Object.entries(SEARCH_FOLDS)) table[from.charCodeAt(0)] = to.charCodeAt(0);
+  for (let code = 0xff01; code <= 0xff5e; code++) table[code] = code - 0xfee0;
+  return table;
+})();
 
 /** The first and the second half of a character outside the basic plane, as JavaScript holds it. */
 const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
@@ -309,6 +479,7 @@ const PUNCTUATION = 0.85; // The first of a run of ASCII punctuation; the rest o
 const NEWLINE = 2.2;
 const TAB = 1;
 const LOOSE_SPACE = 0.2; // A space before anything but a letter. A space before a word is free.
+const SPACE_RUN = 16; // A run of spaces costs a token for each this many after its first.
 const LATIN_EXTENDED = 0.6; // é, ü, ß
 const GREEK = 0.4;
 const CYRILLIC = 0.3;
@@ -345,8 +516,10 @@ function tokensIn(text: string, from: number, to: number, tokens: number): numbe
   let capitalsInARow = 0;
   let previousWasLower = false;
   let previous = 0; // 1 = space, 2 = ASCII punctuation, 0 = anything else
+  let spaces = 0; // the length of the current run of spaces
   for (let index = from; index < to; index++) {
     const code = text.charCodeAt(index);
+    if (code !== 32) spaces = 0;
     if ((code >= 97 && code <= 122) || (code >= 65 && code <= 90)) {
       const capital = code <= 90;
       if (piece === 0) tokens += WORD;
@@ -366,6 +539,10 @@ function tokensIn(text: string, from: number, to: number, tokens: number): numbe
     capitalsInARow = 0;
     previousWasLower = false;
     if (code === 32) {
+      // Tokenizers have tokens for runs of spaces up to a length: a long run costs about one token
+      // for every SPACE_RUN spaces after the first. Fixed-width reports and padded tables were
+      // planned at almost nothing, then refused by the provider.
+      if (++spaces > 1 && (spaces - 1) % SPACE_RUN === 0) tokens += 1;
       previous = 1;
       continue;
     }
@@ -579,6 +756,20 @@ export class LineIndex {
   line(line: number): string {
     if (line < 1 || line > this.lineCount) return "";
     return this.text.slice(this.startOf(line), this.endOf(line));
+  }
+
+  /**
+   * Lines `first` to `last`, which must exist, as a text of their own with its index: their text,
+   * with the line break after the last one when there is one, as a document read by range gives
+   * a piece of itself. Offsets in it are counted from `startOf(first)`.
+   */
+  piece(first: number, last: number): { text: string; lines: LineIndex } {
+    const start = this.startOf(first);
+    const end = last < this.lineCount ? this.starts[last]! : this.text.length;
+    const starts = new Uint32Array(last - first + 1);
+    for (let line = 0; line < starts.length; line++) starts[line] = this.starts[first - 1 + line]! - start;
+    const text = this.text.slice(start, end);
+    return { text, lines: new LineIndex(text, starts) };
   }
 
   /** Lines `from`..`to` inclusive, each prefixed with its number. */

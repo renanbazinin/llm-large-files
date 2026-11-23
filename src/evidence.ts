@@ -108,6 +108,8 @@ const SMALL_RESULT_CHARACTERS = 700;
 /** What is kept of the answer of a whole-file read, which cannot be asked for again. */
 const KEPT_ANSWER_CHARACTERS = 6_000;
 const MOST_RANGES = 60;
+/** The groups kept of a search with `group_by`, the largest (or, by time, the first) ones. */
+const KEPT_GROUPS = 30;
 
 const rangeText = ([from, to]: NumberRange) => (to > from ? `${from}-${to}` : String(from));
 
@@ -139,6 +141,10 @@ export function stubResult(call: ToolCall, result: ToolResult, hadFiles = false)
         ...(typeof call.args.query === "string" ? { query: sliceWhole(call.args.query, 200) } : {}),
         ...(typeof result.total_matching_lines === "number" ? { total_matching_lines: result.total_matching_lines } : {}),
         ...(lines && lines.length > 0 ? { lines_shown: lines } : {}),
+        // Counts by group show no lines to read again: the largest groups are kept as they are.
+        ...(typeof result.group_by === "string" ? { group_by: result.group_by } : {}),
+        ...(typeof result.total_groups === "number" ? { total_groups: result.total_groups } : {}),
+        ...(Array.isArray(result.groups) ? { groups: result.groups.slice(0, KEPT_GROUPS) } : {}),
         note: "The results of this search were shown to you earlier and were dropped from the conversation to make room. Read the lines listed here with read_document, or search again, if you need them.",
       };
     case TOOL_NAMES.analyze: {

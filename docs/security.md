@@ -215,7 +215,7 @@ What limits the damage:
   tag characters, zero-width spaces, the controls that reorder what a person sees
   ([Characters that show nothing](#characters-that-show-nothing)).
 - **Text of hidden runs in Word, and slides the slide show skips, are marked** as such; text hidden
-  in other ways is not ([Hidden text in Word and PowerPoint](#hidden-text-in-word-and-powerpoint)).
+  in other ways is not ([Hidden text in Word, PowerPoint and HTML](#hidden-text-in-word-powerpoint-and-html)).
 - **A file name cannot add lines to the instruction.** At ingest it is reduced to one printable line
   without most characters that show nothing (see [Uploads](#uploads)), and the system instruction
   and the frame quote it as a JSON string. It is still text the model reads, like the file's
@@ -235,7 +235,7 @@ What a hostile file can still do:
 - **Hide text from a person, but not from the model**, in what the cleaning and the marks leave:
   characters that scripts and emoji need, Word text hidden by a style, a text file in an older
   encoding that an editor shows as � ([Characters that show nothing](#characters-that-show-nothing),
-  [Hidden text in Word and PowerPoint](#hidden-text-in-word-and-powerpoint),
+  [Hidden text in Word, PowerPoint and HTML](#hidden-text-in-word-powerpoint-and-html),
   [Text files that were not UTF-8](#text-files-that-were-not-utf-8)).
 - **Reach every model of the question**, an explorer model included.
 - **Stay in the conversation.** The `toolTurns` you store hold the text the tools returned,
@@ -326,10 +326,10 @@ into fewer pieces than 0.5.0 split it, which moves the lines after it. Documents
 earlier version keep their text until they expire. Steps and activity lines drop the same
 characters ([What the library logs](#what-the-library-logs)).
 
-### Hidden text in Word and PowerPoint
+### Hidden text in Word, PowerPoint and HTML
 
-A DOCX can hold text that Word does not show, and a PPTX slides that the slide show skips. Their
-text is kept, and marked:
+A DOCX can hold text that Word does not show, a PPTX slides that the slide show skips, and an HTML
+page text that a browser does not show. Their text is kept, and marked:
 
 - **Text of a hidden run** (`<w:vanish/>` in the run's own properties) comes after the text of its
   paragraph that shows, and each of its lines starts with
@@ -339,6 +339,12 @@ text is kept, and marked:
   as the reading of a ruby, is marked too, and so is the rest of the hidden run after it.
 - **A hidden slide** (`show="0"`) has the heading
   `## Slide 2 (hidden, not shown in the slide show)`. Its text is kept.
+- **Text an HTML page hides** (an element with the `hidden` attribute, or an inline style of
+  `display: none` or `visibility: hidden` or `collapse`) is marked the same way, line by line and
+  in pieces. Hidden text inside a line that shows comes after that line, not where it stood. A row
+  of a table that the page hides is written marked, in its place. The hiding ends where the element
+  does; an element the page never closes hides the rest of its parent. A `hidden` attribute or a
+  style is read in the first 4,096 characters of its value.
 
 The attributes of `w:vanish` and of a slide's `p:sld` are read however long the tag is, and by
 their exact names, as XML reads them: `W:VAL="0"` is another attribute, and the run stays hidden.
@@ -347,15 +353,20 @@ The mark is a hint, not a filter. Text without it may still be hidden, and a doc
 can write the mark. Not told apart, and read as text that shows:
 
 - text hidden through a character or paragraph style, and white or tiny text;
+- in HTML, text hidden by a style sheet, a class, a script, `opacity`, a position off the page or
+  a `<template>` (dropped, like scripts), and an `aria-hidden` element, which a browser shows;
 - hidden shapes on a slide that shows;
 - the content of `mc:Choice`, which the library reads where Word may show `mc:Fallback` instead
   (the Fallback is not read);
 - tags written with a namespace prefix other than `w:` or `p:`, and a text box inside a hidden run;
 - a `show` value written as a character reference (`show="&#48;"`); the same in a `w:val` marks
   text that shows as hidden;
-- parts that no relationship references, such as an orphan header or slide.
+- parts that no relationship references, such as an orphan header (a slide that
+  `ppt/presentation.xml` does not list is not read, unless the deck lists none).
 
-Speaker notes are not read at all. The marks count toward `maxTextBytes` and the limit of 32 million
+Speaker notes are read since 0.8.0, after a line `[Speaker notes]` under their slide, and so are
+the comments of a DOCX, under `# Comments`: they are text a reader of the slide show or the page
+does not see either. The marks count toward `maxTextBytes` and the limit of 32 million
 characters.
 
 ### Text files that were not UTF-8
@@ -476,18 +487,20 @@ What bounds them:
   stream inside it that declares more. `@cantoo/pdf-lib` makes an entry for each object such a
   stream declares, whatever it holds: in a file of 8.7 KB, a million of them took 0.7 s, and four
   million ran a heap of 512 MB out of memory.
-- **Memory kept.** `@cantoo/pdf-lib` keeps every name and every reference it reads, for the life
-  of the process: in the server that ingests, and in the one that answers `view_pages`. After the
+- **Memory kept.** `@cantoo/pdf-lib` keeps every name and every reference it reads, for the life of
+  the process: in the server that ingests, and in the one that answers `view_pages`. After the
   document was dropped, 2 MB of different names still took 37 MB of heap, and the million entries
   above about 140 MB. A file read again adds nothing, and real PDFs add little: names such as
   `/Type`, and references to the same object numbers, are kept once for all files. But each file
-  with other names or other object numbers adds its own: files of 9 KB that each declared a
-  million new objects added about 140 MB each, and the fourth ingest ran a heap of 512 MB out of
-  memory. On the server that answers `view_pages`, the seventh look at such files ran a heap of
-  1 GB out of memory, and that memory comes back only when the server restarts. A process of its
-  own for each ingest, as [Deployment](./guides/deployment.md#uploads-and-ingest) shows, gives it
-  all back when it ends. For the documents of users you do not trust, do not offer `view_pages`
-  (`viewPages: false`), or keep no PDF originals.
+  with other names or other object numbers adds its own: files of 9 KB that each declared a million
+  new objects added about 140 MB each, and the fourth ingest ran a heap of 512 MB out of memory. On
+  the server that answers `view_pages`, the seventh look at such files ran a heap of 1 GB out of
+  memory, and that memory comes back only when the server restarts. A process of its own for each
+  ingest, as [Deployment](./guides/deployment.md#uploads-and-ingest) shows, gives it all back when
+  it ends, and so do the child processes of
+  [`createIsolatedExtractors`](./reference/node.md#createisolatedextractorsoptions), each replaced
+  after 50 files and stopped when idle. For the documents of users you do not trust, do not offer
+  `view_pages` (`viewPages: false`), or keep no PDF originals.
 - **Time.** Reading cannot be interrupted once it has started, not even by the question's `signal`.
   It pauses so that other requests get a turn after every 12 ms of work, or up to 40 ms where a
   pause itself takes long, as a timer does on Windows. (Until 0.6.0 it paused every 4,000 objects,
@@ -511,7 +524,8 @@ To turn them off: without `keepOriginals` for PDFs, `view_pages` is never offere
 (`viewPages: false` turns it off for one question). Picture marks and the page check are turned off
 in the PDF extractor, or by not installing `@cantoo/pdf-lib`; a `view_pages` call then fails too,
 so keep no PDF originals either. Without the page check, a page that is slow to read holds the
-server for as long as pdf.js takes ([Uploads](#uploads)): ingest in a process of its own.
+server for as long as pdf.js takes ([Uploads](#uploads)): read PDFs in child processes with
+`createIsolatedExtractors`, whose kill timer stops such a page, or ingest in a process of its own.
 
 ```ts
 import { createLargeFiles, createPdfExtractor, FileDocumentStore } from "llm-large-files";
@@ -525,18 +539,29 @@ const files = createLargeFiles({
 ```
 
 For uploads you do not trust, parse them in a process of their own, with a memory limit and a
-timeout: run ingest there. If you keep their PDFs for `view_pages`, run the questions there too
-(the tool loop of each question, in a process you fork), or do not offer `view_pages` on their
-documents (`viewPages: false`). The parsers of
-PDF text and of DOCX and PPTX files then run there as well ([Uploads](#uploads)). The limits of the library bound
+timeout. Since 0.8.0 the library does it: the `extractors` of
+[`createIsolatedExtractors`](./reference/node.md#createisolatedextractorsoptions), from
+`llm-large-files/node`, read PDF, DOCX, PPTX and XLSX files in child processes, each with a heap
+flag (`maxHeapMb`, 512 by default: a heap limit of 560 to 704 MB, depending on the version of Node,
+[The heap limit](./reference/node.md#createisolatedextractorsoptions)) and a kill timer
+(`timeoutMs`, 120 s). A file that runs its child out of memory is refused with the code
+`"out_of_memory"`, one that takes too long with `"timeout"`, and your server goes on
+([Uploads](#uploads)). To run the whole ingest apart, an
+extractor of your own included, fork a process for it
+([Deployment](./guides/deployment.md#uploads-and-ingest)). If you keep their PDFs for
+`view_pages`, run the questions in a process of their own too (the tool loop of each question, in a
+process you fork), or do not offer `view_pages` on their documents (`viewPages: false`): a look
+parses the file again, in the server that answers. The limits of the library bound
 what a file can make it keep, but not the memory a parser takes for its own work, and in your
 server that memory is the server's heap. Choose the isolation with care:
 
 - **A child process contains running out of memory.** A process started with `child_process.fork`,
-  or a service of its own, with its own `--max-old-space-size`, stops alone, and your server goes
-  on. That flag bounds the heap only. What a parser unpacks is held outside it: a PDF of 1.6 KB
-  took 1.6 GB of memory at ingest with 20 MB of heap ([Objects of a PDF](#uploads)). Give that
-  process a memory limit of its own too, such as a container or a cgroup of its own.
+  as `createIsolatedExtractors` starts its children, or a service of its own, with its own
+  `--max-old-space-size`, stops alone, and your server goes on. `createIsolatedExtractors` does not
+  pass the server's `NODE_OPTIONS` to its children, so a heap flag there does not replace theirs.
+  That flag bounds the heap only. What a parser unpacks is held outside it: a PDF of 1.6 KB took 1.6
+  GB of memory at ingest with 20 MB of heap ([Objects of a PDF](#uploads)). Give that process a
+  memory limit of its own too, such as a container or a cgroup of its own.
 - **A worker thread does not reliably contain it.** In the 0.6 review, on the code before this
   release ([Measurements](./measurements.md#how-to-read-this-page)), a worker given
   `resourceLimits: { maxOldGenerationSizeMb: 512 }` ran out of memory on a hostile DOCX and took
@@ -560,29 +585,32 @@ server that memory is the server's heap. Choose the isolation with care:
 - **Memory.** The handlers buffer the whole upload, up to `maxUploadBytes`, before reading its
   text, and an ingest then holds several copies of the text at once (several times the size of the
   text), in your server's heap. Cap concurrent uploads in front (a reverse proxy, a rate limiter),
-  or ingest in a process of its own: [Deployment](./guides/deployment.md) has measurements and
-  recipes.
-- **Text.** A small file can hold far more text than its size: a PDF of 3 KB whose page tree
-  listed one dense page 150 times drew 107 MB of text in 0.5.0. `maxTextBytes` (100 MB by
-  default, or `maxUploadBytes` when that is larger) bounds the text kept from one file, in UTF-8 bytes. The PDF extractor
-  counts it page by page, and DOCX and PPTX as they are unpacked; each refuses the file as soon as
-  it passes. The text of any other extractor is checked when it returns. A PDF whose page tree
-  lists one page more than once is refused before its text grows: "This PDF lists the same page
-  more than once. A file built that way can hold far more text than its size, so it is not read.
-  Print it to a new PDF, and attach that." A PDF whose pages paint forms inside forms draws the
-  text of the innermost one each time it is painted: past the first 16 MB, a PDF that draws more
-  than 100 times its size in text is refused as it is read ("This PDF draws more than 16 MB of
-  text, over 100 times its size. …"), whatever `maxTextBytes` allows.
+  or read PDF and Office files with `createIsolatedExtractors`, whose `concurrency` (2) and
+  `maxQueue` (8) bound how many are read and wait, or ingest in a process of its own:
+  [Deployment](./guides/deployment.md) has measurements and recipes.
+- **Text.** A small file can hold far more text than its size: a PDF of 3 KB whose page tree listed
+  one dense page 150 times drew 107 MB of text in 0.5.0. `maxTextBytes` (100 MB by default, or
+  `maxUploadBytes` when that is larger) bounds the text kept from one file, in UTF-8 bytes. The PDF
+  extractor counts it page by page, and DOCX, PPTX and XLSX as they are unpacked; each refuses the
+  file as soon as it passes. The text of any other extractor is checked when it returns. A PDF whose
+  page tree lists one page more than once is refused before its text grows: "This PDF lists the same
+  page more than once. A file built that way can hold far more text than its size, so it is not
+  read. Print it to a new PDF, and attach that." A PDF whose pages paint forms inside forms draws
+  the text of the innermost one each time it is painted: past the first 16 MB, a PDF that draws more
+  than 100 times its size in text is refused as it is read ("This PDF draws more than 16 MB of text,
+  over 100 times its size. …"), whatever `maxTextBytes` allows.
 - **Pages.** A PDF of more than `maxPdfPages` pages (5,000 by default) is refused before any page
   is read.
 - **Time.** One ingest may take `ingestTimeoutMs` (2 minutes by default) to extract, index and
   profile the text. Past it, `ingest` throws "report.pdf took too long to read (more than 2 min).
   …", and nothing is stored. `IngestInput.signal` stops it sooner, when your route knows that the
   uploader left; the upload handler of `createDocumentHandlers` aborts it when the client closes
-  the connection. The PDF, DOCX and PPTX extractors stop between two pages or two pieces. At the
-  limit, `ingest` stops waiting, but a step already under way (one page of pdf.js, JSZip reading
+  the connection. The PDF, DOCX, PPTX and XLSX extractors stop between two pages or two pieces. At
+  the limit, `ingest` stops waiting, but a step already under way (one page of pdf.js, JSZip reading
   the directory of a ZIP, a parse of `@cantoo/pdf-lib`, an extractor of your own that does not
-  look at `ExtractInput.signal`) runs on to its end in the background.
+  look at `ExtractInput.signal`) runs on to its end in the background. With
+  `createIsolatedExtractors`, the child process that reads the file is killed then, step and all,
+  and also at its own `timeoutMs`.
 - **Work of a PDF page.** pdf.js reads the text of a page in one block that neither the time limit
   nor a signal cuts short, and a page can be built to make it run far more than its file holds: a
   3 KB page that paints a form that paints another, 50 times at each of three levels, held the
@@ -617,9 +645,10 @@ server that memory is the server's heap. Choose the isolation with care:
   check, in under 0.07 s. A check of each object before it is built is not in 0.6.0:
   pdf.js reads an object where the cross-reference table points, also inside what reads as the
   data of a stream, and the object streams of an encrypted file cannot be unpacked before they are
-  decrypted, so such a check would be easy to get around. Ingest files you do not trust in a
-  process of their own, with a memory limit of its own as well as a heap limit, such as a
-  container of its own ([Deployment](./guides/deployment.md#uploads-and-ingest)). A look at their
+  decrypted, so such a check would be easy to get around. Read files you do not trust with
+  `createIsolatedExtractors`, whose children have a heap limit, and for what a stream unpacks
+  outside the heap, ingest in a container of its own with a memory limit of its own
+  ([Deployment](./guides/deployment.md#uploads-and-ingest)). A look at their
   pages parses the file again on the server that answers the question: do not offer `view_pages`
   on their documents (`viewPages: false`), or keep no PDF originals
   ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)).
@@ -645,29 +674,32 @@ server that memory is the server's heap. Choose the isolation with care:
     32 MB ([Objects of a PDF](#uploads)).
   - A stream that pdf.js unpacks to reach an object: 6.1 to 6.4 s for an object stream that
     unpacks to 512 MB, in a file of 1.6 KB. `@cantoo/pdf-lib` took 1.0 s for it at a look.
-  - A piece of a DOCX or PPTX packed hundreds of times tighter than documents are, about 0.2 s at a
-    time while JSZip unpacks it.
+  - A piece of a DOCX, PPTX or XLSX packed hundreds of times tighter than documents are, about
+    0.2 s at a time while JSZip unpacks it.
 
-  Ingest files you do not trust in a process of their own
-  ([Deployment](./guides/deployment.md#uploads-and-ingest)): only that process waits, and it is
+  Read files you do not trust with `createIsolatedExtractors`, or ingest them in a process of their
+  own ([Deployment](./guides/deployment.md#uploads-and-ingest)): only that process waits, and it is
   stopped at its time limit.
-- **Parsers.** PDF text is read with `unpdf` (pdf.js), pages, pictures and the page check with `@cantoo/pdf-lib`,
-  and DOCX and PPTX are unpacked with `jszip`. They are optional dependencies, and they run on
-  untrusted input in your process. Keep them updated, and for high-risk deployments move extraction
-  to a process of its own or a sandbox ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)
-  says why a worker thread is not enough).
-- **Zip bombs.** A DOCX or PPTX is unpacked a piece at a time, and refused as it grows past 100
-  times its size (after the first 16 MB) or past 128 MB of XML: "This DOCX unpacks to more than
-  16 MB, over 100 times its size. A file that grows that much is not read: it may be a zip bomb. Save
-  it as text or PDF, and attach that." Only the parts that hold text are unpacked (in a DOCX the
-  document, its headers, footers, footnotes and endnotes; in a PPTX the slides, not their speaker
-  notes). Pictures and fonts stay packed. What is kept in memory is bounded by the text, not by the
-  XML: each paragraph becomes one string when it closes, and an empty one is dropped. A file is
-  refused with more than 32 million characters of text (or `maxTextBytes`, when that is smaller), more than
-  1,000,000 paragraphs with text, paragraphs nested more than 32 deep, or more than 20,000 parts in
-  its ZIP directory. In 0.5.0, a DOCX of 1.5 MB that held 120 MB of empty paragraphs ran a heap of
-  512 MB out of memory and stopped the server; it is now refused with the process at 115 MB.
-- **The ZIP directory of a DOCX or PPTX** is read before JSZip reads it, the way JSZip 3.10 will
+- **Parsers.** PDF text is read with `unpdf` (pdf.js), pages, pictures and the page check with
+  `@cantoo/pdf-lib`, and DOCX, PPTX and XLSX are unpacked with `jszip`. They are optional
+  dependencies, and they run on untrusted input in your process, or in the child processes of
+  `createIsolatedExtractors`. Keep them updated, and for high-risk deployments move extraction out
+  of the server: into those child processes, a container of its own or a sandbox ([Reading PDFs for
+  pages and pictures](#reading-pdfs-for-pages-and-pictures) says why a worker thread is not enough).
+- **Zip bombs.** A DOCX, PPTX or XLSX is unpacked a piece at a time, and refused as it grows past
+  100 times its size (after the first 16 MB) or past 128 MB of XML: "This DOCX unpacks to more than
+  16 MB, over 100 times its size. A file that grows that much is not read: it may be a zip bomb.
+  Save it as text or PDF, and attach that." Only the parts that hold text are unpacked (in a DOCX
+  the document, its footnotes, endnotes, comments, headers and footers, and its styles and
+  numbering; in a PPTX the slides and their speaker notes; in an XLSX the workbook, its styles, its
+  shared strings and its sheets). Pictures and fonts stay packed. What is kept in memory is bounded
+  by the text, not by the XML: each paragraph becomes one string when it closes, and an empty one is
+  dropped. A file is refused with more than 32 million characters of text (or `maxTextBytes`, when
+  that is smaller), more than 1,000,000 paragraphs with text, paragraphs nested more than 32 deep,
+  or more than 20,000 parts in its ZIP directory. In 0.5.0, a DOCX of 1.5 MB that held 120 MB of
+  empty paragraphs ran a heap of 512 MB out of memory and stopped the server; it is now refused with
+  the process at 115 MB.
+- **The ZIP directory of a DOCX, PPTX or XLSX** is read before JSZip reads it, the way JSZip 3.10 will
   read it: from where JSZip finds it (the last end record of the file, and for a ZIP64 file the
   last locator and the record it points to), record by record, each by its own lengths. JSZip reads
   every record of the directory into memory before it unpacks any part, and the count of parts that
@@ -700,7 +732,16 @@ server that memory is the server's heap. Choose the isolation with care:
   that is not at the end (0.2 s for 100 MB built of near signatures), before JSZip searches the
   file again ([Measurements](./measurements.md#the-server)).
 - **Binary files are refused**, with a message for the user: "This file looks binary, not text…".
-  Compressed ones (`.gz`, `.zip`) get a message that says to decompress first.
+  Compressed ones (`.gz`, `.zip`) get a message that says to decompress first, and an Office file
+  of before 2007, an Outlook message or an Office file with a password one that says to save it
+  again (since 0.8.0).
+- **Refusals carry a code.** Since 0.8.0 `ingest` throws every refusal as an
+  [`IngestError`](./reference/library.md#ingesterror), and `ingest.error` events carry its `code`.
+  The files built the way files that exhaust a server are, which the checks above recognize (a zip
+  bomb, a ZIP directory or a tag no Office program writes, a PDF that lists a page twice, draws far
+  more text than its size or has a page that would hold the server), have the code `"hostile"`:
+  count or log them apart, by user. `"out_of_memory"` and `"timeout"` from the child processes of
+  `createIsolatedExtractors` can be such files too.
 - **Scanned PDFs** (no text at all) are refused, unless PDF originals are kept (`keepOriginals`
   includes `"pdf"` and the store has `putOriginal`) and the file has at most `scannedPdfPages` pages
   (30 by default): their pages can then be shown.
@@ -749,8 +790,11 @@ The model writes the regex, and the model reads untrusted file text, so a file c
 pattern. These bound the cost:
 
 - **Refused up front:** a pattern longer than 300 characters, one that is not valid, and one with a
-  nested quantifier such as `(a+)+`. The model reads why. The nested-quantifier check is a quick
-  filter, not a guarantee: `(a|a)+$` and `((a+))+$` pass it.
+  nested quantifier such as `(a+)+`. The model reads why. Since 0.8.0 a repeated group whose
+  repeats end at a literal character that none of its quantified parts can match, as in
+  `(\d{1,3}\.){3}\d{1,3}` or `(\w+\.)+com`, passes: each repeat ends at the next such character,
+  so it takes time in proportion to the line. The nested-quantifier check is a quick filter, not a
+  guarantee: `(a|a)+$` and `((a+))+$` pass it.
 - **3 seconds for one search.** Node's `vm` timeout interrupts a match that is still backtracking.
   The search returns what it found, with the note "The scan stopped early; the total is a lower
   bound, and the last match in the file is not known."
@@ -918,7 +962,8 @@ What you log is your choice, and some of what the library hands you holds user d
 - Keep the limits on one file (`maxTextBytes`, `maxPdfPages`, `ingestTimeoutMs`) as low as your
   users allow ([Uploads](#uploads)).
 - For untrusted uploads, parse them in a process of their own with a memory limit, not in a worker
-  thread ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)), and keep
+  thread: pass the `extractors` of `createIsolatedExtractors` to `createLargeFiles`
+  ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)), and keep
   `unpdf`, `@cantoo/pdf-lib` and `jszip` updated.
 - Render answers as untrusted text, and steps and activity lines as plain text
   ([What the library logs](#what-the-library-logs)).

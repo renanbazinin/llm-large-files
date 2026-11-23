@@ -7,11 +7,11 @@ own, OCR among them. Exact signatures are in the [library reference](../referenc
 
 ## Formats
 
-The readers of DOCX, PPTX and PDF files are optional dependencies. Install the ones you need on
-every server that ingests files:
+The readers of DOCX, PPTX, XLSX and PDF files are optional dependencies. Install the ones you need
+on every server that ingests files:
 
 ```bash
-npm install jszip              # DOCX and PPTX
+npm install jszip              # DOCX, PPTX and XLSX
 npm install unpdf              # PDF text (on Node 20 and 22, name a version: see below)
 npm install @cantoo/pdf-lib    # PDF picture marks, page check, and view_pages
 ```
@@ -37,40 +37,44 @@ back to llm-large-files 0.5.0 must go back to unpdf 1 in the same command
 | Format | Detected by | Needs | What the text holds |
 |---|---|---|---|
 | `text` | Anything not below | | The file decoded as UTF-8, or as UTF-16 with a byte-order mark. Without the mark, only little-endian UTF-16 of mostly ASCII text is recognised. A file that is not UTF-8 is read in windows-1255, windows-1256, windows-1251, Shift_JIS or windows-1252 when its letters show which one (`meta.encoding`), and as UTF-8 otherwise ([Text encodings](#text-encodings)). Characters that are not valid are stored as U+FFFD (�) and counted (`meta.replacedCharacters`). |
-| `log` | `.log`, `.out`, `.err`; or a `text` file in which at least 40% of the first 200 non-empty lines (5 at least) start with a timestamp or a level | | As `text`, plus a log profile: levels, time range, most frequent errors. |
+| `log` | `.log`, `.out`, `.err`; or a `text` file in which at least 40% of the first 200 non-empty lines (5 at least) start with a timestamp or a level, or have the shape of an access log, a JSON log line, klog or logfmt | | As `text`, plus a log profile: levels, time range, most frequent errors. |
 | `markdown` | `.md`, `.markdown`, `text/markdown` | | As `text`. Its `#` headings form the outline. |
 | `json` | `.json`, `.jsonl`, `.ndjson`, `application/json` | | As `text`. Minified JSON becomes lines of at most 2,000 characters. |
 | `csv` | `.csv`, `.tsv`, `text/csv` | | As `text`. |
 | `pdf` | `.pdf`, `application/pdf` | `unpdf`; `@cantoo/pdf-lib` for picture marks, the page check and `view_pages` | A `--- Page N ---` line before each page, tables rebuilt as rows of cells, a line for a page without text and for a page with a picture ([PDF text](#pdf-text)). |
-| `docx` | `.docx`, or the Word MIME type | `jszip` | The body, then the endnotes, footers, footnotes and headers, in that order. Text that Word hides comes after the text of its paragraph that shows, each of its lines starting `[Hidden text, not shown in the document]` ([DOCX and PPTX](#docx-and-pptx)). |
-| `pptx` | `.pptx`, or the PowerPoint MIME type | `jszip` | `## Slide N` before each slide, `## Slide N (hidden, not shown in the slide show)` for a slide that the slide show skips, `[No text on this slide]` for a slide without text. |
+| `docx` | `.docx`, `.docm`, or the Word MIME type | `jszip` | The body, with headings as Markdown headings (`## 2.1 Rent`), list numbers as Word shows them and tables as rows of `\| cell \| cell \|  \|`; then the footnotes, endnotes, comments, headers and footers, in that order, each under a heading of its own. Text that Word hides comes after the text of its paragraph that shows, each of its lines starting `[Hidden text, not shown in the document]` ([DOCX and PPTX](#docx-and-pptx)). |
+| `pptx` | `.pptx`, `.pptm`, or the PowerPoint MIME type | `jszip` | `## Slide N` before each slide, in the order of the slide show, with its tables and its speaker notes after `[Speaker notes]`; `## Slide N (hidden, not shown in the slide show)` for a slide that the slide show skips, `[No text on this slide]` for a slide without text. |
+| `xlsx` | `.xlsx`, `.xlsm`, `.xltx`, `.xltm`, or the Excel MIME types | `jszip` | `## Sheet N: name` before each sheet, a `Columns: \| A \| B \|` line, then a line a row, `Row 12: \| East \| 2026-03-01 \| 1200.5 \|`, with the values Excel last computed, dates, times and percentages as Excel shows them. New in 0.8.0 ([XLSX and HTML](#xlsx-and-html)). |
+| `html` | `.html`, `.htm`, `.xhtml`, `text/html`, `application/xhtml+xml` | | The text a browser shows: headings, lists, tables as rows of cells, `text (https://…)` for a link, the alt text of a picture; no scripts or styles. New in 0.8.0. |
 
 `detectFormat(name, mimeType)` picks the format: a known extension first, then the MIME type, then
 `text`. So `report` with no extension, sent as `application/pdf`, is a PDF, and `data.txt` sent as
-`application/json` is JSON, since `.txt` is not one of the known extensions. HTML, XML, YAML and
-source code are `text`. The MIME type is compared whole: `application/json; charset=utf-8` is not
-JSON. Send the bare type (or `X-File-Type: application/json` to the upload route of
-`createDocumentHandlers`, which takes it before `Content-Type`).
+`application/json` is JSON, since `.txt` is not one of the known extensions. XML, YAML and source
+code are `text`; HTML is `html` since 0.8.0. The MIME type is compared whole:
+`application/json; charset=utf-8` is not JSON. Send the bare type (or
+`X-File-Type: application/json` to the upload route of `createDocumentHandlers`, which takes it
+before `Content-Type`).
 
 Whatever the format, the text is then made uniform: line breaks become `\n`, colour codes and other
 control characters are removed, and lines longer than 2,000 characters are split, so every line can
-be read by its number. Most characters that show nothing are removed too: tag characters,
-zero-width spaces, word joiners, a soft hyphen inside a line, and the text-direction controls that
-reorder what a person sees. Those that scripts and emoji need are kept: the marks of right-to-left
-text (U+200E, U+200F, U+061C), the joiners of emoji and Persian, variation selectors, Hangul
-fillers, and the line and paragraph separators (U+2028, U+2029). A crafted file can still carry
-text that a person does not see in them ([Security](../security.md#characters-that-show-nothing)
-lists them all). In a text with no other line break, such as a mainframe file converted to UTF-8,
-U+0085 (next line) ends a line, except right after a character from U+0080 to U+00FF, where it is
-taken for half of a UTF-8 letter and removed; anywhere else it is removed with the other control
-characters. That is text in UTF-8: the same export converted to ISO-8859-1 is read as
-windows-1252, where its byte 0x85 is "…", and stays one long line, so convert it to UTF-8
-instead. No other line break is added or removed, but a line of more than 2,000 characters
-that lost some of these characters can be split into fewer pieces than 0.5.0 split it, which
-moves the lines after it. Every format but log, JSON and CSV gets an outline from its
-headings: Markdown `#` lines (`## Slide N` among them), chapter and numbered section lines, and
-short lines in capitals. `meta.pages` is the number of pages of a PDF and of slides of a PPTX.
-[How it works](../how-it-works.md) follows ingest from there.
+be read by its number. Most characters that show nothing are removed too: tag characters, zero-width
+spaces, word joiners, a soft hyphen inside a line, and the text-direction controls that reorder what
+a person sees. Those that scripts and emoji need are kept: the marks of right-to-left text (U+200E,
+U+200F, U+061C), the joiners of emoji and Persian, variation selectors, Hangul fillers, and the line
+and paragraph separators (U+2028, U+2029). A crafted file can still carry text that a person does
+not see in them ([Security](../security.md#characters-that-show-nothing) lists them all). In a text
+with no other line break, such as a mainframe file converted to UTF-8, U+0085 (next line) ends a
+line, except right after a character from U+0080 to U+00FF, where it is taken for half of a UTF-8
+letter and removed; anywhere else it is removed with the other control characters. That is text in
+UTF-8: the same export converted to ISO-8859-1 is read as windows-1252, where its byte 0x85 is "…",
+and stays one long line, so convert it to UTF-8 instead. No other line break is added or removed,
+but a line of more than 2,000 characters that lost some of these characters can be split into fewer
+pieces than 0.5.0 split it, which moves the lines after it. Since 0.8.0 the text is also composed
+(NFC): "e" and a combining accent become "é". Every format but log, JSON and CSV gets an outline
+from its headings: Markdown `#` lines (`## Slide N` and `## Sheet N: name` among them; not in a
+fenced code block, nor the comments of a text file that reads as code), chapter and numbered section
+lines, and short lines in capitals. `meta.pages` is the number of pages of a PDF, of slides of a
+PPTX and of sheets of an XLSX. [How it works](../how-it-works.md) follows ingest from there.
 
 ### Text encodings
 
@@ -183,10 +187,23 @@ file again.
 
 - A text box is read once, after the paragraph it is anchored in. Word stores it twice, the second
   time for older programs.
-- A table comes out one cell per line, and an empty cell leaves no line at all, so a row with an
-  empty cell reads like a shorter row. PDF tables are rebuilt with their empty cells
-  ([PDF tables](#pdf-tables)): if those matter, the PDF of the same document reads better.
-- Comments and speaker notes are not read.
+- A heading of Word (a paragraph of a heading style, of the title style, or with an outline level)
+  is a Markdown heading, `#` to `######`, also in a Hebrew document, whose styles keep English
+  names. A numbered paragraph starts with the number Word shows: `2.1`, `(a)`, roman numerals,
+  Hebrew letters and numerals, `-` for a bullet, and lists that restart. So "clause 2.2" can be
+  searched, and the document has an outline.
+- A table is a line a row, `| cell | cell |  |`, with its empty cells, as PDF tables are
+  ([PDF tables](#pdf-tables)). A merged cell is followed by an empty cell for each column it
+  covers, so every row keeps its columns. Until 0.8.0 a table came out one cell per line.
+- Non-breaking hyphens and the characters of symbol fonts are kept: "555-0199" no longer reads
+  "5550199".
+- The footnotes, endnotes, comments, headers and footers come after the body, each under its own
+  heading (`# Footnotes`, `# Endnotes`, `# Comments`, `# Header`, `# Footer`); a header or footer
+  that repeats one already read is left out.
+- The slides of a PPTX are numbered in the order of the slide show, the list in
+  `ppt/presentation.xml`, not in the order of their part names: "Slide 5" is the fifth slide shown.
+  A table of a slide is a line a row, and its speaker notes follow a line `[Speaker notes]`.
+- Documents ingested before 0.8.0 keep the text they had until they are uploaded again.
 - Text that Word hides (a run marked `<w:vanish/>`) is kept, after the text of its paragraph that
   shows, and each of its lines starts with `[Hidden text, not shown in the document]`, so the model
   can tell it from what a reader sees. A carriage return, a U+0085 or a line separator in it starts
@@ -199,31 +216,63 @@ file again.
   through a style, a hidden shape on a slide that shows, white or 1-point text, a text box inside a
   hidden run, tags written with a prefix other than `w:` or `p:`, a `show` value written as a
   character reference (`show="&#48;"`), and parts that nothing in the file refers to (an orphan
-  header or slide). Of `mc:AlternateContent`, the `mc:Choice` is read, where Word may show the
-  `mc:Fallback`. And a document's own text can write the mark. A `w:val` written as a character
-  reference does the opposite: `<w:vanish w:val="&#48;"/>`, which Word reads as 0, marks text that
-  Word shows.
+  header; an orphan slide only in a deck whose `ppt/presentation.xml` lists no slide). Of
+  `mc:AlternateContent`, the `mc:Choice` is read, where Word may show the `mc:Fallback`. And a
+  document's own text can write the mark. A `w:val` written as a character reference does the
+  opposite: `<w:vanish w:val="&#48;"/>`, which Word reads as 0, marks text that Word shows.
 - Pictures are not marked, and `view_pages` works on PDFs only. For a deck of charts, the PDF
   export of the deck lets the model look at the slides.
 
+### XLSX and HTML
+
+New in 0.8.0. An Excel workbook (`.xlsx`, `.xlsm`) is read with `jszip`, as a DOCX is. Each sheet,
+in the order of the workbook, is a section:
+
+```text
+## Sheet 1: Sales
+Columns: | A | B | C |
+Row 1: | Region | Date | Amount |
+Row 12: | East | 2026-03-01 | 1200.5 |
+```
+
+- A row keeps its number in the sheet, so an answer can name the row a person finds in Excel, and
+  its empty cells up to its last value. Empty rows are left out; a sheet without a value says
+  `[No values on this sheet]`, and a hidden sheet says ` (hidden sheet)` after its name.
+- A cell holds the value Excel last computed for it; a formula Excel never computed is written as
+  `=` and the formula. Dates and times follow their number formats, in the 1900 and the 1904 date
+  systems (`2026-03-01`, `2026-03-01 14:30`), percentages read `12.5%`, and numbers have up to 15
+  significant digits. Shared and inline strings are both read.
+- Every row of every sheet is read, within `maxTextBytes`. A sheet past 52 columns lists them as
+  `Columns: A to BZ`.
+
+An HTML page (`.html`, `.htm`) is read as the text a browser shows. Scripts, styles, forms' option
+lists and other content that is not read are dropped. Headings become Markdown headings, list
+items `- item` or `1. item`, each table row `| cell | cell |`, a link `text (https://…)`, and a
+picture its alt text. The page's title is a `#` heading when no heading holds it. Entities are
+decoded, so "AT&T" written `AT&amp;T` is found. A page saved in an older encoding is read as a
+text file is ([Text encodings](#text-encodings)). Until 0.8.0 an HTML file was `text`, tags and
+all, and an XLSX was refused as a ZIP archive.
+
 ### What is refused
 
-`files.ingest` throws an `Error` whose message is meant for the user. `createDocumentHandlers`
-answers it with HTTP 422 and that message, except a file over `maxUploadBytes`, which the upload
-route refuses before reading it all: HTTP 413, `The file is larger than the 100 MB upload limit.`
-([node reference](../reference/node.md)). For a damaged or locked file the message is the reader's
-own, from pdf.js or jszip, and not written for a user: an application that wants friendlier wording
-maps these messages itself.
+`files.ingest` throws an [`IngestError`](../reference/library.md#ingesterror) whose message is
+meant for the user, with a `code` for your application. `createDocumentHandlers` answers it with
+HTTP 422 and that message, except a file over `maxUploadBytes`, which the upload route refuses
+before reading it all: HTTP 413, `The file is larger than the 100 MB upload limit.`
+([node reference](../reference/node.md)). For a damaged file the message is the reader's own, from
+pdf.js or jszip, and not written for a user, with the code `"unreadable"`: an application that
+wants friendlier wording maps the codes itself.
 
 | What | Message |
 |---|---|
 | An empty file | `report.pdf is empty.` |
 | A file over `maxUploadBytes` (100 MB by default) | `report.pdf is larger than the 100 MB upload limit.` |
 | A gzip file, such as `app.log.gz` | `This file is gzip-compressed. Decompress it, then attach the text file inside.` |
-| A ZIP archive, and the Office files other than DOCX and PPTX that are ZIPs inside (XLSX, for example) | `This file is a ZIP archive. Extract it, then attach the text file you need.` |
-| Any other binary file: images, legacy `.doc` and `.xls` | `This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.` |
+| A ZIP archive, and the files other than DOCX, PPTX and XLSX that are ZIPs inside (ODT, ODS) | `This file is a ZIP archive. Extract it, then attach the text file you need.` |
+| A Word, Excel or PowerPoint file of before 2007, an Outlook message, or an Office file with a password | `This is a Word, Excel or PowerPoint file of before 2007 (.doc, .xls, .ppt), an Outlook message (.msg), or an Office file protected by a password and stored that way. None of these can be read: save it as .docx, .xlsx, .pptx, PDF or text, without a password, and attach that.` |
+| Any other binary file: images, audio | `This file looks binary, not text. Attach a text, log, PDF, Word, PowerPoint, Excel or HTML file.` |
 | A file that holds no text once read | `report.docx did not contain any text.` |
-| A DOCX or PPTX that unpacks to more than 100 times its size (past the first 16 MB), or to more than 128 MB of XML | `This DOCX unpacks to more than …`, which ends `Save it as text or PDF, and attach that.` |
+| A DOCX, PPTX or XLSX that unpacks to more than 100 times its size (past the first 16 MB), or to more than 128 MB of XML | `This DOCX unpacks to more than …`, which ends `Save it as text or PDF, and attach that.` |
 | A PDF of more than `maxPdfPages` pages (5,000 by default), before any page is read | `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` |
 | A PDF whose text passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when that is larger), counted page by page | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
 | A PDF whose page tree lists one page more than once | `This PDF lists the same page more than once. A file built that way can hold far more text than its size, so it is not read. Print it to a new PDF, and attach that.` |
@@ -233,7 +282,9 @@ maps these messages itself.
 | A PDF with a page whose content is stored with a filter that only images use (JPEG, JPEG 2000, JBIG2, CCITT), or decodes to more than 64 MB through LZW, ASCII85, ASCIIHex or RunLength | `Page 1 of this PDF stores its content in a way that cannot be checked before it is read, so it is not read. Print it to a new PDF, and attach that.` |
 | A DOCX or PPTX of more than 32 million characters of text | `This DOCX holds more than 32 million characters of text, more than is read from one file. Split it, and attach the part you need.` |
 | A DOCX or PPTX whose text passes `maxTextBytes`, when that is below 32 million | `This DOCX holds more than 10 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
-| A DOCX or PPTX of more than 1,000,000 paragraphs with text | `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.` |
+| A DOCX or PPTX of more than 1,000,000 paragraphs with text, or of more than 1,000,000 paragraphs and table cells, empty ones included | `This DOCX has more than 1,000,000 paragraphs, more than a document holds. It may be built to exhaust the server, so it is not read.`, or `… paragraphs and table cells, …` |
+| An XLSX of more than 2,097,152 different texts | `This XLSX has more than 2,097,152 different texts, more than a workbook holds. It may be built to exhaust the server, so it is not read.` |
+| An XLSX whose text passes `maxTextBytes`, or 32 million characters | `This XLSX holds more text than is kept from one file. Split it, and attach the part you need.` (`… than is read from one file.` past 32 million characters) |
 | A DOCX or PPTX with paragraphs nested more than 32 deep | `This DOCX nests paragraphs more than 32 deep, which no document does. It may be built to exhaust the server, so it is not read.` |
 | A DOCX or PPTX of more than 20,000 parts, counted the way JSZip will read them, whatever count the file gives | `This DOCX has more than 20,000 parts, more than an Office document has. It may be built to exhaust the server, so it is not read.` |
 | A DOCX or PPTX with more than 80,000 extra fields, or more than 8 MB of names, comments and extra-field data that JSZip would turn into text or go through byte by byte | `This DOCX lists its parts in a way that no Office program does: reading the list would take far more memory or time than an Office document needs. It may be built to exhaust the server, so it is not read.` |
@@ -241,12 +292,13 @@ maps these messages itself.
 | A file of any format whose text, from an extractor of your own or the text extractor, passes `maxTextBytes` | `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` |
 | A file that takes longer than `ingestTimeoutMs` to read (2 minutes by default) | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` |
 | A PDF without text on any page | See [Scanned PDFs](#scanned-pdfs). |
-| A PDF that needs a password to open | `No password given`, the message of pdf.js. |
+| A PDF that needs a password to open | `This PDF is protected by a password, so it cannot be read. Open it, print it to a new PDF without the password, and attach that.` Until 0.8.0, `No password given`, the message of pdf.js. |
 | A damaged PDF | The message of pdf.js, such as `Invalid PDF structure.` |
-| A damaged DOCX or PPTX, or one that is not a ZIP | The message of jszip, such as `Can't find end of central directory : is this a zip file ? …` |
+| A damaged DOCX, PPTX or XLSX, or one that is not a ZIP | The message of jszip, such as `Can't find end of central directory : is this a zip file ? …` |
 | A DOCX without `word/document.xml` | `This DOCX does not contain word/document.xml.` |
 | A PPTX without slides | `This PPTX does not contain any slides.` |
-| A DOCX or PPTX without `jszip` installed | `Reading DOCX and PPTX files needs the optional dependency "jszip".` |
+| An XLSX without `xl/workbook.xml`, or without sheets | `This XLSX does not contain xl/workbook.xml.`, `This XLSX does not contain any sheets with cells.` |
+| A DOCX, PPTX or XLSX without `jszip` installed | `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | A PDF without `unpdf` installed | `Reading PDF files needs the optional dependency "unpdf".` |
 | A PDF, with `unpdf` 1.5.0 to 1.6.0 on Node 22 or 23, which would stop the whole process at the first PDF (0.5.0 did stop) | `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
 | The same on Node 20 | `The unpdf installed would stop the whole server at the first PDF file on Node 20, so PDF files are not read. Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.` |
@@ -257,14 +309,14 @@ reaches the user as a 422, a file that cannot be read. Install the dependencies 
 route runs, in versions that run on its Node ([Formats](#formats)). The messages name the major
 version of Node only.
 
-The numbers in the messages are your limits: `maxPdfPages`, `maxTextBytes` and `ingestTimeoutMs`
-of `createLargeFiles` ([`LargeFilesOptions`](../reference/library.md#largefilesoptions)). A size
-below 1 MB is given in KB, and below 1 KB in B; a time below a second in ms, below 2 minutes in s,
-and from there in min. An Office message says `PPTX` for a presentation. An Office file is
-refused past 32 million characters of text even when `maxTextBytes` is larger. The ZIP directory
-of a DOCX or PPTX is read before JSZip reads it, the way JSZip will read it, record by record:
-the count of parts that the file gives is not used, and the parts are not counted past 20,000
-([Security](../security.md#uploads)).
+The numbers in the messages are your limits: `maxPdfPages`, `maxTextBytes` and `ingestTimeoutMs` of
+`createLargeFiles` ([`LargeFilesOptions`](../reference/library.md#largefilesoptions)). A size below
+1 MB is given in KB, and below 1 KB in B; a time below a second in ms, below 2 minutes in s, and
+from there in min. An Office message says `PPTX` for a presentation and `XLSX` for a workbook. An
+Office file is refused past 32 million characters of text even when `maxTextBytes` is larger. The
+ZIP directory of a DOCX, PPTX or XLSX is read before JSZip reads it, the way JSZip will read it,
+record by record: the count of parts that the file gives is not used, and the parts are not counted
+past 20,000 ([Security](../security.md#uploads)).
 
 What the user can do:
 
@@ -802,14 +854,14 @@ Pass yours in `extractors`, by format. The other formats keep the built-in extra
 | `maxTextBytes` | `maxTextBytes` of `createLargeFiles`: the most text kept from one file, in UTF-8 bytes. | Refuse the file as soon as your text passes it, with a message for the user. `ingest` refuses a larger text when you return it, but by then it is all in memory. |
 | `maxPages` | `maxPdfPages` of `createLargeFiles`: the most pages read from one PDF. | In a PDF extractor, refuse a file with more pages before you read them. `ingest` does not check it for you. |
 
-The built-in PDF, DOCX and PPTX extractors honour all three, so an extractor that wraps one, as the
-OCR example below does, gets them by passing `input` on. The text extractor decodes a valid UTF-8
-file in one step, and a file in another encoding in steps that stop when `signal` aborts; its text
-is checked against `maxTextBytes` when it returns.
+The built-in PDF, DOCX, PPTX and XLSX extractors honour all three, so an extractor that wraps one,
+as the OCR example below does, gets them by passing `input` on. The text extractor decodes a valid
+UTF-8 file in one step, and a file in another encoding in steps that stop when `signal` aborts; its
+text is checked against `maxTextBytes` when it returns.
 
-The eight formats are fixed: you can replace the extractor of a format, not add a format. A file of
-another kind, such as HTML or XLSX, is detected as `text`, so it goes to the `text` extractor: check
-the name or the MIME type there ([Other formats](#other-formats)).
+The ten formats are fixed: you can replace the extractor of a format, not add a format. A file of
+another kind, such as XML, RTF or an OpenDocument file, is detected as `text`, so it goes to the
+`text` extractor: check the name or the MIME type there ([Other formats](#other-formats)).
 
 What the library does with what you return:
 
@@ -826,7 +878,8 @@ What the library does with what you return:
   `toDocumentSummary` ([Text encodings](#text-encodings)).
 - A `text` file whose lines look like a log becomes `log`.
 
-An error you throw is the answer to the upload. `createDocumentHandlers` answers 422 with its
+An error you throw is the answer to the upload. `ingest` throws it as an `IngestError` with the
+same message (and your error as `cause`), and `createDocumentHandlers` answers 422 with its
 message, unless the error has a `status` (or `statusCode`) from 400 to 599: then it answers that
 status, with your message. A status of 413 is answered with the upload-limit message instead of
 yours. An error with a Node system `code` and `syscall` (from `fs` or a socket) is answered 500,
@@ -932,21 +985,22 @@ background job, and tell the user when the file is ready ([Web app](./web-app.md
 
 ### Other formats
 
-A file the library does not know arrives at the `text` extractor. This one converts HTML to text,
-with the `html-to-text` package here (any converter works), and leaves every other file to the
-built-in extractor:
+A file the library does not know arrives at the `text` extractor. Since 0.8.0 HTML and XLSX have
+extractors of their own. This one reads OpenDocument text (`.odt`) with a converter of yours, and
+leaves every other file to the built-in extractor:
 
 ```ts
-import { convert } from "html-to-text";
 import { createLargeFiles, defaultExtractors, FileDocumentStore, type Extractor } from "llm-large-files";
 
+// Assumed: odtToText() is your converter of OpenDocument text, with a package or a LibreOffice service.
+declare function odtToText(bytes: Uint8Array, signal?: AbortSignal): Promise<string>;
+
 const text: Extractor = async (bytes, input) => {
+  // An .odt is a ZIP inside: the built-in extractor would refuse it as a ZIP archive.
+  if (/\.odt$/i.test(input.name)) return { text: await odtToText(bytes, input.signal) };
   // The built-in extractor decodes UTF-8 and UTF-16, reads Hebrew, Arabic, Cyrillic, Japanese and
   // Western files in their older encodings, and refuses binary files.
-  const decoded = await defaultExtractors.text(bytes, input);
-  const html = /\.html?$/i.test(input.name) || input.mimeType.startsWith("text/html");
-  // `...decoded` keeps `encoding` and `replacedCharacters`: the model is told how the file was read.
-  return html ? { ...decoded, text: convert(decoded.text, { wordwrap: false }) } : decoded;
+  return defaultExtractors.text(bytes, input);
 };
 
 export const files = createLargeFiles({
@@ -955,8 +1009,7 @@ export const files = createLargeFiles({
 });
 ```
 
-Its format stays `text`. To read XLSX, test for its name the same way, before the built-in
-extractor, which refuses ZIP files, and write each sheet as lines of text.
+Its format stays `text`.
 
 ## Your own tool loop
 

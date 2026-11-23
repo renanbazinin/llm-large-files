@@ -192,8 +192,10 @@ PDF in one block, about 0.1 to 0.35 s for each MB of it. Neither it nor pdf.js c
 an object takes before building it: a crafted PDF of 732 bytes, whose object stream unpacks to
 4 MB of empty dictionaries, ran a heap of 512 MB out of memory at ingest. What a stream unpacks to
 is outside the heap: one of 1.6 KB took 1.6 GB of memory with 20 MB of heap. If your users can
-upload files you do not trust, ingest them in a child process with its own heap limit, memory
-limit and timer, as [Deployment](docs/guides/deployment.md#uploads-and-ingest) shows, and do not
+upload files you do not trust, read them in child processes with a heap limit and a kill timer:
+pass `createIsolatedExtractors().extractors`, from `llm-large-files/node`, to `createLargeFiles`
+([isolated ingest](docs/reference/node.md#createisolatedextractorsoptions)). Give the server a
+memory limit too, as [Deployment](docs/guides/deployment.md#uploads-and-ingest) shows, and do not
 offer `view_pages` on their documents. What is refused, and what still holds the server:
 [Security](docs/security.md#uploads).
 
@@ -252,7 +254,7 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 
 | | |
 |---|---|
-| **Formats** | Text, Markdown, logs (UTF-8 and UTF-16, and Hebrew, Arabic, Cyrillic, Japanese and Western European text in its older encoding), JSON/JSONL, CSV/TSV, DOCX, PPTX, PDF (text layer, with tables rebuilt so empty cells stay empty; pages with a picture are marked, and the model can look at the pages themselves; scans of up to 30 pages when PDFs are kept) |
+| **Formats** | Text, Markdown, logs (UTF-8 and UTF-16, and Hebrew, Arabic, Cyrillic, Japanese and Western European text in its older encoding), JSON/JSONL, CSV/TSV, HTML (the text a browser shows), DOCX (headings, clause numbers, tables, notes and comments), PPTX (slides in show order, tables, speaker notes), XLSX (every sheet, a line per row, with its row number), PDF (text layer, with tables rebuilt so empty cells stay empty; pages with a picture are marked, and the model can look at the pages themselves; scans of up to 30 pages when PDFs are kept) |
 | **Logs** | Detected automatically; the card shows level counts, the time range, and the most frequent errors grouped by shape (`timeout after <n>ms to <ip>`) |
 | **Books and documents** | An outline of headings with line numbers, including Markdown, "Chapter 12", numbered sections, and Hebrew chapter titles |
 | **Limits** | One budget covers tokens *and* request bytes, so files fit both your context window and your connector's payload limit. It assumes 1M tokens and 10 MB: set `budget.contextTokens` for your model's window (an adapter's `contextTokens` can only make it smaller) |
@@ -260,7 +262,7 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 | **Models** | Gemini and Vertex AI, any OpenAI-compatible endpoint, Claude, or an adapter of your own. Two models of different providers can share a question |
 | **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and input tokens |
 | **Privacy** | Documents can belong to an `owner`; other users can't plan, read, or delete them |
-| **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused when the checks recognize them; ingest pauses for other requests between pages and slices. Not every hostile file is refused, parsing shares your server's heap, and some steps hold the server for a while: ingest untrusted uploads in a process of their own ([Security](docs/security.md#uploads)) |
+| **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused when the checks recognize them, with a code (`"hostile"`); ingest pauses for other requests between pages and slices. Not every hostile file is refused, and some steps hold the server for a while: read untrusted uploads in child processes with `createIsolatedExtractors`, which refuses a file that runs out of memory or time while the server goes on ([Security](docs/security.md#uploads)) |
 | **Storage** | In memory, on disk with expiry, or your own store (Redis, S3, a database) |
 
 ## Live results
@@ -301,7 +303,7 @@ Reference, one page per module:
 - [`llm-large-files/gemini`](docs/reference/gemini.md): `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()`.
 - [`llm-large-files/openai`](docs/reference/openai.md): `openAiCompatible()` and its options.
 - [`llm-large-files/anthropic`](docs/reference/anthropic.md): `anthropic()` and its options.
-- [`llm-large-files/node`](docs/reference/node.md): `createDocumentHandlers`, its routes and responses.
+- [`llm-large-files/node`](docs/reference/node.md): `createDocumentHandlers`, its routes and responses, `createIsolatedExtractors`.
 
 [Changelog](CHANGELOG.md): what each version changed, and what to change in your code when you upgrade.
 
@@ -312,9 +314,9 @@ maintainers: [Contributing](https://github.com/renanbazinin/llm-large-files/blob
 ## Requirements
 
 Node.js 20.19 or newer. The package is ESM; CommonJS code can `require()` it on Node 20.19+ and
-22.12+. For DOCX/PPTX install `jszip`, for PDF install `unpdf`, and to mark and show the pages of a
-PDF, and refuse a page built to hold the server before it is read, install `@cantoo/pdf-lib`. All
-three are optional:
+22.12+. For DOCX, PPTX and XLSX install `jszip`, for PDF install `unpdf`, and to mark and show the
+pages of a PDF, and refuse a page built to hold the server before it is read, install
+`@cantoo/pdf-lib`. All three are optional:
 
 ```bash
 npm install jszip unpdf @cantoo/pdf-lib        # Node 24 and later

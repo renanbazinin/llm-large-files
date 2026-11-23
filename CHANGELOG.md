@@ -36,58 +36,266 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.7.1 — not released yet
+## 0.8.0 — not released yet
 
-Fifteen small fixes from the code review of 0.5.0, none of which changes the API: usage counts
-that a Claude stream reset to 0, options and limits that NaN turned off or made hang, an error in a
-reply of 200 read as no text, partial results that questions sharing a signal gave each other,
-requests Vertex AI refused, a location that could send the access token to another host, a
-prototype key in the usage, an upload over the limit that held its connection, and an adapter
-class whose part reads all failed. Each has a test that failed before its fix.
+Files from an enterprise, read with their structure, and counted exactly. Word files keep their
+headings, clause numbers and tables; PowerPoint decks their order, tables and speaker notes; Excel
+workbooks and HTML pages are read for the first time. Search works in every script (Hebrew with
+its prefix letters, Hindi, Thai, Chinese, text composed or decomposed), can search part of a file,
+show the last matches, and count matching lines per hour, per code or per message shape in one
+call. Untrusted PDF and Office files can be read in child processes with a memory limit and a kill
+timer, and every refusal says why with a code. 0.7.1 was never published: its fifteen fixes ship
+here, and its points are part of this entry. Checked live with the Gemini API on
+`gemini-3.5-flash-lite` and `gemini-3.8-flash`: hourly counts and the last line of a log in one
+search, a clause of a Hebrew lease answered in Hebrew, a row of a workbook, a table of an HTML page.
 
 ### Upgrading: what you need to change
 
-Code written for 0.7.0 compiles with 0.7.1 as it is: the public types did not change. Some values
-that were taken in silence and did not work are now refused. Check each point against your app:
+Code written for 0.7.0 compiles with 0.8.0, with one exception: `DocumentFormat` has two new
+members, `"xlsx"` and `"html"`. An exhaustive `switch` on a document's format, or a
+`Record<DocumentFormat, …>` of your own, needs the two cases. Every other change to the public
+types is an addition: `IngestError`, `ingestErrorCodeOf` and the type `IngestErrorCode` in
+`llm-large-files`; `createIsolatedExtractors` and the types `IsolatedExtractorOptions` and
+`IsolatedExtractors` in `llm-large-files/node`; an optional `code` in `EventError`.
 
-- **NaN in a number option of `createLargeFiles` throws.** `ttlMs`, `maxUploadBytes`,
-  `scannedPdfPages`, `cacheBytes`, `cacheSize`, `wholeDocumentBytes`, `scanChunkBytes` and
-  `maxConcurrentScans` throw a `RangeError` for NaN (what `Number(process.env.X)` gives for a
-  variable that is not set), and a `TypeError` for a value that is not a number, such as a string
-  read from the environment. `scanChunkBytes: Infinity` throws too. With NaN, `maxConcurrentScans`
-  made every search of a document read by range wait forever, `ttlMs` failed every upload with
-  "Invalid time value", and `maxUploadBytes` took off the upload limit.
-  **What to do:** nothing, unless you pass such values. Leave an option out for its default, or
-  read a variable with a fallback: `Number(process.env.SCANS ?? 4)`.
-- **NaN in `AskOptions.limits` throws, before any request.** A field of `limits` that is NaN throws
-  a `RangeError` ("limits.toolTurns must be a number, and is NaN. Leave it out for the default."),
-  and one that is not a number a `TypeError`. NaN used to give a question with no tool, refuse
-  every call, or take off the cap on whole-file reads and the ceilings on tokens and requests.
-  `ToolOptions.maxWholeDocumentReads` is checked the same way. `Infinity` still means no ceiling.
-  **What to do:** as above.
-- **`partialResultOf(error)` gives `undefined` for an error that several questions threw.** Questions
-  stopped by one shared signal all throw its one reason (`AbortSignal.any` passes it on as it is).
-  `partialResultOf` gave each the result of whichever failed last: another user's tool rounds and
-  usage. Now it gives none, and each question's `run.error` event still carries its own `partial`.
-  **What to do:** if you stop many questions with one signal and keep their partial results, give
-  each question an `AbortController` of its own that the shared signal aborts with a new reason.
-  See [`partialResultOf`](docs/reference/ask.md#partialresultoferror).
-- **`vertexAi()` and `vertexHost()` check `location`.** One that is not lowercase letters and digits
-  joined by single hyphens (`"global"`, `"us"`, `"europe-west4"`) throws a `TypeError`. With `/`,
-  `?`, `#` or `@`, it named another host, which got the access token.
-  **What to do:** nothing, unless a location comes from a user; then expect the `TypeError`.
-- **An upload answered before its body was read drains the rest, up to 8 MB.** The `413` of an
-  upload over `maxUploadBytes` (and every answer sent before the body was read to its end) is
-  written at once, and ends once the rest of the body has been read and dropped. A body that goes
-  on more than 8 MB past the limit is cut off by closing the connection.
-  **What to do:** nothing. See [`node`](docs/reference/node.md).
-- **An adapter of your own whose `capabilities` lack `pageTokens` or `toolFiles`.** A `pageTokens`
-  that is missing, NaN or negative counts as 1,000, and a `toolFiles` that is none of `"inside"`,
-  `"beside"` and `"none"` counts as `"none"`, so `view_pages` is not offered to that model. Both
-  fields are required by the type, so this concerns only an adapter written in JavaScript or cast.
-  **What to do:** declare both.
+Some behavior is different. Check each point against your app:
+
+- **Excel and HTML files are read.** An `.xlsx` (and `.xlsm`) upload was refused with "This file is
+  a ZIP archive"; it is now a document of format `"xlsx"`. An `.html` or `.htm` file was read as
+  text, tags and all, with format `"text"`; it is now format `"html"`, with the text a browser
+  shows. Both need nothing new: XLSX uses the optional `jszip`, as DOCX does.
+  **What to do:** if your app lists the formats it accepts, add them. See
+  [formats](docs/reference/library.md#documentformat).
+- **Word and PowerPoint files are read with their structure.** A DOCX heading is written as a
+  Markdown heading, a numbered paragraph with its number (`## 2.1 Rent`, `(a) the flat`), a table
+  as rows of `| cell | cell |  |` with its empty cells, and the footnotes, endnotes, comments,
+  headers and footers each under a heading of its own (a repeated header once). A PPTX is numbered
+  in the order of its slide show, with its tables and its speaker notes. Documents ingested by
+  0.7.0 keep the text they have until they are uploaded again.
+  **What to do:** nothing, unless your tests compare the text of a DOCX or PPTX: update them.
+- **`ingest` throws `IngestError` for a file it cannot read.** It is an `Error` with the same
+  message as before, a `code` (`"too_large"`, `"no_text"`, `"hostile"`…), the HTTP `status` the
+  upload handler answers with, and the extractor's error as `cause`. A store that failed, a caller
+  that gave up, a listener that threw and a system error from an extractor of your own are thrown
+  as before. `ingest.error` events carry the `code`, and name `"IngestError"` where they named
+  `"Error"`.
+  **What to do:** nothing; to tell users in your own words (another language), map `error.code`.
+  A test that expects `name: "Error"` in an `ingest.error` event needs `"IngestError"`.
+- **The answer is asked for in the language of the question.** The three closing requests
+  (`FINAL_ANSWER_REQUEST`, `FINAL_ANSWER_AFTER_PAGES`, `FINAL_ANSWER_WITHOUT_TOOLS`) end with
+  "Answer in the language of my question." A model asked in Hebrew answered in English after an
+  English closing request.
+  **What to do:** nothing; to have answers in one language whatever the question, say so in
+  `system`.
+- **The text the model is sent changed:** the description of `search_document` (its new
+  arguments), the tool guide (two lines: counts by group and paging; searching the bare form of a
+  word), and the closing requests. The provider's prompt cache misses once after the upgrade.
+  **What to do:** nothing. See **Changed** for what models now do.
+- **Text is composed (NFC) at ingest.** "e" followed by a combining accent becomes "é". Line counts
+  do not change; `characters` and the sizes of such a text can be a little smaller. A run of more
+  than 30 marks on one letter, which no script writes, gets an invisible combining grapheme joiner
+  (U+034F) after each 30, as Unicode's stream-safe form does: composing such a run took time by its
+  square, and 600 KB of them held the server 80 seconds.
+  **What to do:** nothing.
+- **More files are taken for logs.** A `.txt` of nginx or Apache access lines, JSON log lines,
+  klog or logfmt is now format `"log"`, with a log profile; levels in lower case, in brackets,
+  after `level=`, in a JSON field or as pino numbers are counted.
+  **What to do:** nothing, unless your app switches on `format === "text"` for such files.
+- **From 0.7.1** (never published), some values that were taken in silence and did not work are
+  refused:
+
+  - **NaN in a number option of `createLargeFiles` throws.** `ttlMs`, `maxUploadBytes`,
+    `scannedPdfPages`, `cacheBytes`, `cacheSize`, `wholeDocumentBytes`, `scanChunkBytes` and
+    `maxConcurrentScans` throw a `RangeError` for NaN (what `Number(process.env.X)` gives for a
+    variable that is not set), and a `TypeError` for a value that is not a number, such as a string
+    read from the environment. `scanChunkBytes: Infinity` throws too. With NaN, `maxConcurrentScans`
+    made every search of a document read by range wait forever, `ttlMs` failed every upload with
+    "Invalid time value", and `maxUploadBytes` took off the upload limit.
+    **What to do:** nothing, unless you pass such values. Leave an option out for its default, or
+    read a variable with a fallback: `Number(process.env.SCANS ?? 4)`.
+  - **NaN in `AskOptions.limits` throws, before any request.** A field of `limits` that is NaN throws
+    a `RangeError` ("limits.toolTurns must be a number, and is NaN. Leave it out for the default."),
+    and one that is not a number a `TypeError`. NaN used to give a question with no tool, refuse
+    every call, or take off the cap on whole-file reads and the ceilings on tokens and requests.
+    `ToolOptions.maxWholeDocumentReads` is checked the same way. `Infinity` still means no ceiling.
+    **What to do:** as above.
+  - **`partialResultOf(error)` gives `undefined` for an error that several questions threw.** Questions
+    stopped by one shared signal all throw its one reason (`AbortSignal.any` passes it on as it is).
+    `partialResultOf` gave each the result of whichever failed last: another user's tool rounds and
+    usage. Now it gives none, and each question's `run.error` event still carries its own `partial`.
+    **What to do:** if you stop many questions with one signal and keep their partial results, give
+    each question an `AbortController` of its own that the shared signal aborts with a new reason.
+    See [`partialResultOf`](docs/reference/ask.md#partialresultoferror).
+  - **`vertexAi()` and `vertexHost()` check `location`.** One that is not lowercase letters and digits
+    joined by single hyphens (`"global"`, `"us"`, `"europe-west4"`) throws a `TypeError`. With `/`,
+    `?`, `#` or `@`, it named another host, which got the access token.
+    **What to do:** nothing, unless a location comes from a user; then expect the `TypeError`.
+  - **An upload answered before its body was read drains the rest, up to 8 MB.** The `413` of an
+    upload over `maxUploadBytes` (and every answer sent before the body was read to its end) is
+    written at once, and ends once the rest of the body has been read and dropped. A body that goes
+    on more than 8 MB past the limit is cut off by closing the connection.
+    **What to do:** nothing. See [`node`](docs/reference/node.md).
+  - **An adapter of your own whose `capabilities` lack `pageTokens` or `toolFiles`.** A `pageTokens`
+    that is missing, NaN or negative counts as 1,000, and a `toolFiles` that is none of `"inside"`,
+    `"beside"` and `"none"` counts as `"none"`, so `view_pages` is not offered to that model. Both
+    fields are required by the type, so this concerns only an adapter written in JavaScript or cast.
+    **What to do:** declare both.
+
+### New: what you can add
+
+- **`createIsolatedExtractors(options?)`** in `llm-large-files/node`: PDF, DOCX, PPTX and XLSX files
+  read in child processes, each with a heap flag (`maxHeapMb`, 512), a kill timer (120 s), at most
+  `concurrency` (2) at once and `maxQueue` (8) waiting. A file that exhausts its child's memory is
+  refused (`"out_of_memory"`) and the server goes on; a full queue refuses at once (`"busy"`), and
+  the upload handler answers that with 503 and `Retry-After`. Children are replaced after 50 files
+  and stopped when idle. A reader that cannot start (a missing `childScript`, an `execArgv` Node
+  does not know) is the server's trouble: an `Error` with `status` 500, not an `IngestError`; one
+  that cannot be started for want of process slots is `"busy"`. For a server that bundles its code,
+  `llm-large-files/node/ingest-child.js` is exported, and `childScript` takes a path or a file
+  URL. See [isolated ingest](docs/reference/node.md#createisolatedextractorsoptions).
+
+  ```ts
+  import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+  import { createIsolatedExtractors } from "llm-large-files/node";
+
+  const isolated = createIsolatedExtractors({ maxHeapMb: 512, concurrency: 2 });
+  const files = createLargeFiles({ store: new FileDocumentStore("./data"), extractors: isolated.extractors });
+  // A SIGTERM listener replaces Node's own exit: stop your HTTP server there too, or it goes on serving.
+  process.once("SIGTERM", () => {
+    server.close();
+    void isolated.close();
+  });
+  ```
+
+- **`IngestError`**, with `code`, `status` and, for `"busy"`, `retryAfterMs`; and
+  `ingestErrorCodeOf(message)`. The codes: `empty`, `too_large`, `too_much_text`,
+  `too_many_pages`, `not_text`, `compressed`, `legacy_office`, `encrypted`, `no_text`, `hostile`,
+  `timeout`, `out_of_memory`, `busy`, `missing_dependency`, `unreadable`. See
+  [`IngestError`](docs/reference/library.md#ingesterror).
+
+  ```ts
+  import { IngestError, type IngestErrorCode } from "llm-large-files";
+
+  // Your own words for some refusals; the library's message for the rest.
+  const hebrew: Partial<Record<IngestErrorCode, string>> = {
+    too_large: "הקובץ גדול מדי.",
+    no_text: "אין בקובץ טקסט לקריאה (ייתכן שהוא סרוק).",
+    busy: "השרת עסוק. נסו שוב בעוד רגע.",
+  };
+
+  try {
+    await files.ingest({ name, bytes, owner });
+  } catch (error) {
+    if (!(error instanceof IngestError)) throw error; // the store, or your own code
+    console.log(error.status, hebrew[error.code] ?? error.message);
+  }
+  ```
+
+- **`search_document` arguments** (see [`search_document`](docs/reference/tools.md#search_document)):
+  - `from_line` and `to_line`: search part of a file, in every mode; the result says
+    `searched_lines`.
+  - `next_from_line` in a result of exact or regex search that shows the first matches of more:
+    search again from it for the ones after.
+  - `order: "last"`: the last `max_results` matching lines, in file order.
+  - `group_by`: count the matching lines by group and show none: `"capture"` (the regex's first
+    group), `"minute"`, `"hour"`, `"day"` (the timestamp of the line: ISO, nginx, Apache, syslog,
+    klog, epoch times of JSON logs) or `"shape"` (the line with its numbers and IDs taken out). The
+    result has `groups` of `{ key, count, first_line, last_line }`, `total_groups`, and the lines
+    of further groups or with no key apart. Up to 200 groups are shown (`max_results`, default 50).
+  - `whole_word`: exact text only as a whole word, letters of every script counted.
+- **`EventError.code`**: the `IngestError` code in `ingest.error` events and in the
+  `ingest.error` of an upload with `Accept: text/event-stream`.
+
+### Changed: what works differently
+
+Search:
+
+- **Every script.** Keyword terms keep a mark with its letter (Hindi, Bengali, Tamil, Thai and
+  pointed Hebrew lost their words), split Chinese, Japanese and Thai into words, and drop the
+  points of a Hebrew query word, which then finds the word with or without points in the text
+  (בראשית finds בְּרֵאשִׁית). A Hebrew word with prefix letters (בחוזה, והחוזה) also searches its
+  stem (חוזה), and one that ends in a final letter its plain form too (כסף finds כספים); an acronym
+  keeps its gershayim or geresh (ש״ח, עו״ד are one term each).
+- **One way to write a character.** Queries are composed as the text is; a search that ignores
+  case also folds Greek final sigma, curly quotes and primes, dashes and the minus sign, no-break
+  and thin spaces, Hebrew geresh, gershayim and maqaf, and full-width forms: "don't" finds
+  "don’t", צה"ל finds צה״ל.
+- **Regex `\w`, `\W`, `\b` and `\B` know the letters of every script**: `\bחוזה\b` matched
+  nothing, and `\w+` stopped at "é". Emoji variation selectors and enclosing marks are not word
+  characters, for them and for `whole_word`. A repeated group whose repeats a literal character separates,
+  as in `(\d{1,3}\.){3}\d{1,3}` or `(\w+\.)+com`, is no longer refused as a nested quantifier.
+- **Exact search counts every line where a text across lines starts** ("a\na" in "a\na\na" was
+  counted once), and skips the rest of a line once it is counted: a short common text costs what
+  its lines do, not its occurrences. It runs in slices with pauses, as a regex search does, and
+  its count stays whole; with `whole_word` or `group_by`, whose work grows with each occurrence,
+  it stops after 3 seconds (the result then says the counts are lower bounds). A document held in
+  memory is scanned in pieces too.
+- **`case_sensitive` and `whole_word` given as text or as 1** ("true", "1", 1) are read as true; in
+  0.7.0, `case_sensitive: "true"` searched ignoring case. A search of this kind stored by 0.7.0 is
+  run again, not answered from what was stored.
+- **A cut list of matches says how to see the rest**: "search again with from_line 1941, or count
+  them with group_by", where it said "narrow the search".
+- **Models count by group.** Live, asked for PAY-5031 errors per hour and the last one, both models
+  made one search with `group_by: "hour"` and gave every hourly count and the last line right.
+
+Documents:
+
+- **Word:** headings from paragraph styles (also in documents written in Hebrew, whose styles keep
+  English names), list numbers in Word's formats (decimal, letters, roman numerals, Hebrew letters
+  and numerals, bullets as "-", restarted lists), tables with empty and merged cells kept in their
+  columns (text another program left in a continued merged cell is kept), lists defined through a
+  list style, legal numbering (`w:isLgl`: "Section 1.01"), non-breaking hyphens ("555-0199" read
+  "5550199") and symbol characters.
+- **PowerPoint:** slides in the order of `presentation.xml`, numbered by position ("Slide 5" for the
+  third slide is gone); tables; speaker notes after `[Speaker notes]`, the notes' own text only (not
+  the slide number, date and footer of the notes page).
+- **Excel:** each sheet a section, `## Sheet 1: Sales`, then `Columns: | A | B | C |` and a line a
+  row, `Row 12: | East | 2026-03-01 | 1200.5 |`, with shared and inline strings, the values Excel
+  last computed for formulas, dates and times from number formats (1900 and 1904 systems),
+  percentages, durations of a day or more (`[h]:mm`: 36:00), Excel's `_x000D_` escapes, and hidden
+  sheets marked. Every row of every sheet is read, within the text limit.
+- **HTML:** scripts and styles dropped, headings, lists, tables (`colspan` and `rowspan` keep the
+  cells in their columns), `text (https://…)` for links, alt text for images, entities decoded
+  ("AT&T" is found), text a page hides (`hidden`, an inline `display: none`) marked as Word's hidden
+  text is, older encodings read as text files are.
+- **Logs:** the profile reads more timestamps (nginx's error log, access logs, syslog) and levels
+  (see **Upgrading**).
+- **Outlines** take no heading from a fenced code block, nor from the `#` comments of a text file
+  that reads as code (a script, a configuration file).
+- **Refusals in words for the person:** an Office file of before 2007, an Outlook message or an
+  Office file with a password ("This is a Word, Excel or PowerPoint file of before 2007…"), where
+  it said "looks binary"; and a PDF with a password, where pdf.js said "No password given".
 
 ### Fixed
+
+Search and documents:
+
+- **Keyword queries in scripts with marks found nothing** (LLF-014): see **Changed**.
+- **A common query word no longer skews keyword ranking toward the start of a file** (LLF-015). A
+  term counted only up to 200,000 hits gave passages before the cap a score passages after it
+  could not get; such a term is now not scored.
+- **Overlapping texts across lines are all counted** (LLF-042), and repeated occurrences on a
+  counted line cost nothing (LLF-044, exact search).
+- **Common safe regexes are accepted** (LLF-043): IPv4 addresses, domains, dashed numbers.
+- **Case-insensitive search finds what case-sensitive search finds** (LLF-045): an upper-case
+  word that ends in Σ, and composed against decomposed text.
+- **`#` comments in code blocks and scripts are no longer headings** (LLF-016).
+- **Logs with lower-case levels get a profile** (LLF-017).
+- **Slides are numbered in the order of the show** (LLF-023), **non-breaking hyphens and symbols of
+  Word are kept** (LLF-024).
+- **Page text can no longer forge a page line** (LLF-025): a line of a PDF page that reads
+  "--- Page 3 ---", or one of the extractor's notes, is moved by a space, so search, page numbers
+  and `view_pages` are not sent to the wrong page.
+- **A saved line index whose text size is not the document's is not used** (LLF-047): the last line
+  read cut short, without an error.
+- **An optional dependency that fails to load is not reported as missing** (LLF-054): the message
+  says it is installed but could not be loaded, with the reason, and keeps the failure as `cause`.
+- **A long run of spaces is counted in the token estimate** (LLF-046): about a token for each 16
+  spaces after the first. 10,000 spaces were estimated at 0 tokens, so a padded or fixed-width
+  report could be planned inline and refused by the provider. Indentation is priced as before.
+- Unused code in `search.ts` is gone (LLF-060).
+
+From 0.7.1:
 
 Models:
 
@@ -142,6 +350,9 @@ Documents and uploads:
 - **The JSDoc of `ToolCallLimits.maxFileBytes`** gives its default as 3/8 of
   (`maxRequestBytes` − 262,144), 3,651,696 bytes for the default budget, which the code uses
   (LLF-062). It read as 3/8 of `maxRequestBytes`, less 262,144.
+
+Tests: vitest 4.1.12 in place of 3.2.7, whose advisories are fixed (LLF-019); `npm audit` is
+clean. The tests run only from `test/`.
 
 ## 0.7.0 — 2026-11-22
 
@@ -1255,7 +1466,7 @@ Ingest:
   million characters of a DOCX. The mark is a hint, not a filter: text hidden through a style,
   white or 1-point text, and a few rarer forms are read as ordinary text, and a document's own
   text can write the mark. See
-  [Hidden text in Word and PowerPoint](docs/security.md#hidden-text-in-word-and-powerpoint).
+  [Hidden text in Word and PowerPoint](docs/security.md#hidden-text-in-word-powerpoint-and-html).
 - **A hidden slide says so.** The heading of a slide that the slide show skips (`show="0"`) reads
   `## Slide 2 (hidden, not shown in the slide show)`. Its text is kept. Shapes hidden on a slide
   that shows are read as ordinary text. See [DOCX and PPTX](docs/guides/pdfs.md#docx-and-pptx).

@@ -440,7 +440,11 @@ A test that pins the library's exact output breaks when that output changes. The
   nothing changed, unless the result is cut to the room it has: the last match then stays, matches
   are dropped from the end of the first ones, and the note is new,
   `Showing 4 of the 10 matching lines to stay within the size limit: the first 3 and the last (line 1000). Narrow the query or read specific lines.`
-  where 0.5.0 said `Showing 4 of 10 results to stay within the size limit. …`.
+  where 0.5.0 said `Showing 4 of 10 results to stay within the size limit. …`. Since 0.8.0 both
+  notes end `To see the ones in between, search again with from_line N, or count them with group_by.`,
+  where N is the line after the last of the first ones (below line 15269 in the first note, and
+  below line 1000 in the second), and the result has `next_from_line` with that line
+  ([`search_document`](../reference/tools.md#search_document)).
 - **Steps with a count of one** are singular: ` — 1 matching line`, ` — 1 passage`,
   ` — 1 part, 1 relevant`, and `1 more tool call in this turn was not run (at most 8 a turn)`.
 - **A call to a tool that does not exist** has the step `Call “do_magic” — failed: Unknown tool “do_magic”.`,

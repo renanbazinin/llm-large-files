@@ -2,18 +2,22 @@
 
 This page lists every export of `llm-large-files/node`: `createDocumentHandlers`, its options, and
 the three HTTP handlers it returns, with the request each one expects and every status and body it
-can answer; and `writeSseEvents` and `sseMessageOf`, which send the events of a question or an
-ingest to a browser as Server-Sent Events. It is for you if your server runs on Node and you want
-uploads, look-ups and deletes of documents without writing the routes yourself, or a streamed
-answer without writing the stream yourself. How to mount them, what the browser sends, and how to
-read the stream in the browser are in the guide [web app](../guides/web-app.md).
+can answer; `createIsolatedExtractors`, which reads PDF and Office files in child processes with a
+memory limit and a kill timer; and `writeSseEvents` and `sseMessageOf`, which send the events of a
+question or an ingest to a browser as Server-Sent Events. It is for you if your server runs on Node
+and you want uploads, look-ups and deletes of documents without writing the routes yourself, files
+from users read apart from your server, or a streamed answer without writing the stream yourself.
+How to mount them, what the browser sends, and how to read the stream in the browser are in the
+guide [web app](../guides/web-app.md).
 
 ```ts
-import { createDocumentHandlers, sseMessageOf, writeSseEvents } from "llm-large-files/node";
-import type { DocumentHandlerOptions, DocumentHandlers, SseMessage, SseWriteOptions } from "llm-large-files/node";
+import { createDocumentHandlers, createIsolatedExtractors, sseMessageOf, writeSseEvents } from "llm-large-files/node";
+import type {
+  DocumentHandlerOptions, DocumentHandlers, IsolatedExtractorOptions, IsolatedExtractors, SseMessage, SseWriteOptions,
+} from "llm-large-files/node";
 // What the signatures below use:
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { LargeFiles } from "llm-large-files";
+import type { DocumentFormat, Extractor, LargeFiles, PdfExtractorOptions } from "llm-large-files";
 ```
 
 ## Contents
@@ -24,6 +28,8 @@ import type { LargeFiles } from "llm-large-files";
   [its progress as events](#upload-with-progress-accept-textevent-stream),
   [`get()`](#getrequest-response-id), [`remove()`](#removerequest-response-id)
 - [How errors are answered](#how-errors-are-answered)
+- [Isolated ingest](#isolated-ingest): [`createIsolatedExtractors()`](#createisolatedextractorsoptions),
+  [`IsolatedExtractorOptions`](#isolatedextractoroptions), [`IsolatedExtractors`](#isolatedextractors)
 - [Server-Sent Events](#server-sent-events): [`writeSseEvents()`](#writesseeventsresponse-events-options),
   [`sseMessageOf()`](#ssemessageofevent), [`SseMessage`](#ssemessage),
   [`SseWriteOptions`](#ssewriteoptions)
@@ -135,7 +141,7 @@ promise resolves once the response is written; none rejects.
 
 The summary is a [`DocumentSummary`](./library.md#documentsummary), the fields of a document that
 are safe to send to a browser: `id`, `name`, `mimeType`, `format`, `bytes`, `lines`,
-`estimatedTokens`, `pages` (for a PDF or a PPTX), `encoding` and `replacedCharacters` (for a text
+`estimatedTokens`, `pages` (for a PDF, a PPTX or an XLSX), `encoding` and `replacedCharacters` (for a text
 file that was not valid UTF-8, since 0.6.0) and `expiresAt`. It holds no `owner`.
 
 #### upload(request, response)
@@ -197,7 +203,8 @@ The responses:
 | `400` | `{ "error": "Name the file with an X-File-Name header or a ?name= query parameter." }` | No name. |
 | `400` | `{ "error": "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream." }` | `request.body` is an object with fields. |
 | `413` | `{ "error": "The file is larger than the 100 MB upload limit." }`, with your `maxUploadBytes` in its place (`512 KB`, `1000 B`) | `Content-Length`, the bytes read, or the `Buffer` in `request.body` are over `maxUploadBytes`. |
-| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, DOCX, or PPTX file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", a PDF with no text layer, and a PDF, DOCX or PPTX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf".") or, for a PDF, cannot run on this Node ("The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.", see [defaultExtractors](./library.md#defaultextractors)). A text file is never refused for its encoding. A file past the limits of `createLargeFiles`: more text than `maxTextBytes`, more pages than `maxPdfPages`, longer to read than `ingestTimeoutMs` ("report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that."), or built to exhaust the server ([every message](../guides/pdfs.md#what-is-refused)). An extractor of your own that throws an `Error` gives its message here too. |
+| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read: `files.ingest` threw an [`IngestError`](./library.md#ingesterror), whose `status` is 422. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, Word, PowerPoint, Excel or HTML file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", an Office file of before 2007 or with a password, a PDF with a password or with no text layer, and a PDF, DOCX, PPTX or XLSX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf".") or, for a PDF, cannot run on this Node ("The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.", see [defaultExtractors](./library.md#defaultextractors)). A text file is never refused for its encoding. A file past the limits of `createLargeFiles`: more text than `maxTextBytes`, more pages than `maxPdfPages`, longer to read than `ingestTimeoutMs` ("report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that."), or built to exhaust the server ([every message](../guides/pdfs.md#what-is-refused)). With [`createIsolatedExtractors`](#createisolatedextractorsoptions), also a file whose reader ran out of memory or time. An extractor of your own that throws an `Error` gives its message here too. |
+| `503` | `{ "error": "The server is reading other files right now. Try again in a moment." }`, with `Retry-After: 5` | The isolated readers of [`createIsolatedExtractors`](#createisolatedextractorsoptions) are all busy and their queue is full: an `IngestError` of code `"busy"`. The header is its `retryAfterMs` in seconds, rounded up, at least 1. While they shut down (`close()`): "The server is shutting down. Try again in a moment." New in 0.8.0. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, an extractor or the store threw an error with that `status` or `statusCode`. |
 | `500` | `{ "error": "Upload failed (empty owner)." }` | `getOwner` returned `""`, spaces only or `null`. The body is not read. New in 0.6.0. |
 | `500` | `{ "error": "Upload failed (owner is not a string)." }` | `getOwner` returned, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array. The body is not read. New in 0.6.0. |
@@ -256,7 +263,7 @@ of [`IngestEvent`](./events.md#ingestevent), stamped with `seq` (1, 2, 3… with
 | `ingest.start` | `name` (cleaned), `format` (what the name and the type say: a text file can still become a log), `bytes` | First. |
 | `ingest.progress` | `stage` (`"decode"`, `"extract"`, `"check"`, `"pictures"`, `"prepare"`, `"index"` or `"store"`), `done`, `total` (absent when not known), `unit` (`"pages"`, `"parts"`, `"bytes"` or `"characters"`) | At most about every 12 ms for a stage, and once more when the stage ends. A stage with nothing to report may send none ([stages and units](./events.md#stages-and-units)). |
 | `ingest.finish` | `document`: the [`DocumentSummary`](./library.md#documentsummary), the same fields as the body of a `201` | Last, when the document is stored. |
-| `ingest.error` | `error`: `{ "message": …, "status": … }`, the message and status the JSON answer would have | Last, when the ingest fails. |
+| `ingest.error` | `error`: `{ "message": …, "status": … }`, the message and status the JSON answer would have, and for a file that could not be read `"code"`, the [`IngestError`](./library.md#ingesterror) code (new in 0.8.0) | Last, when the ingest fails. |
 
 ```text
 id: 4
@@ -269,10 +276,13 @@ data: {"type":"ingest.finish","document":{"id":"doc_f6502d2f94694d709c7db2ec634c
   of your own sends no events at all, the handler adds the last one: then that one event is the
   whole stream, with `seq` 1.
 - **`ingest.error` holds what the JSON answer would.** A file that cannot be read gives
-  `{ "message": "This file looks binary, not text. …", "status": 422 }`. A store that failed is
-  `{ "message": "Upload failed.", "status": 500 }`, never the store's own message, which may name a
-  host. An error with a status keeps it. The error has no `kind` or `name` here, unlike the
-  `EventError` of `files.ingest`'s own events.
+  `{ "message": "This file looks binary, not text. …", "status": 422, "code": "not_text" }`, and
+  isolated readers that are all busy `{ "message": "The server is reading other files right now. Try
+  again in a moment.", "status": 503, "code": "busy" }`, with no `Retry-After` (the headers are
+  sent). A store that failed is `{ "message": "Upload failed.", "status": 500 }`, never the store's
+  own message, which may name a host. An error with a status keeps it. The error has no `kind` or
+  `name` here, unlike the `EventError` of `files.ingest`'s own events; `code` is new in 0.8.0, so
+  that a page can say why in its own words.
 - **The status is `200` whatever happens next.** Once the stream has started, a failure can only be
   an `ingest.error` event.
 - **A client that goes away stops the ingest**, as in step 4: nothing is stored, and nothing more
@@ -316,7 +326,8 @@ The three handlers answer an error by one rule:
   from 400 to 599 is answered with that status and `{ "error": <its message> }`. With an empty
   message, the body says what failed instead ("Upload failed.", "The file could not be looked
   up.", "The file could not be deleted."). A `413` is always answered with the size message of
-  `upload`.
+  `upload`. An [`IngestError`](./library.md#ingesterror) carries its `status` (422, 413 or 503),
+  and a `503` whose error has a `retryAfterMs` also gets a `Retry-After` header, in seconds.
 - **Any other error** is the server's trouble: `500`, with what failed and, for a Node system error
   (one with a `code` and a `syscall`), its code: "Upload failed (ENOSPC).". The error's own message
   is never sent, since it can name paths and hosts of your server.
@@ -328,6 +339,166 @@ The three handlers answer an error by one rule:
 
 Guide: [errors and reliability](../guides/errors-and-reliability.md), for the errors of a question
 itself; [web app](../guides/web-app.md), for what to show in the browser.
+
+## Isolated ingest
+
+New in 0.8.0. The built-in extractors read a file in your server's process, in its heap: a file
+built to exhaust a server (a zip bomb, a PDF whose objects take gigabytes) can run that heap out of
+memory and stop every answer streaming on the server. `createIsolatedExtractors` reads PDF, DOCX,
+PPTX and XLSX files in child processes instead, each with a heap limit and a kill timer, so that
+such a file is refused and the server goes on. A worker thread does not reliably contain running
+out of memory; a process does ([Security](../security.md#reading-pdfs-for-pages-and-pictures)).
+
+### createIsolatedExtractors(options?)
+
+```ts
+declare function createIsolatedExtractors(options?: IsolatedExtractorOptions): IsolatedExtractors;
+```
+
+Starts nothing yet: a child process starts with the first file it is given. Pass its `extractors`
+to `createLargeFiles`. Everything else stays as it is: `files.ingest`, the upload handler, events
+and progress.
+
+```ts
+import { createServer } from "node:http";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { createDocumentHandlers, createIsolatedExtractors } from "llm-large-files/node";
+
+const isolated = createIsolatedExtractors({ maxHeapMb: 512, concurrency: 2 });
+const files = createLargeFiles({ store: new FileDocumentStore("./data"), extractors: isolated.extractors });
+const documents = createDocumentHandlers(files);
+const server = createServer(/* your routes, with documents.upload */).listen(3000);
+
+// A SIGTERM listener replaces Node's own exit: stop the server there too, or it goes on serving.
+// (On Windows no SIGTERM arrives: a kill ends the process.)
+process.once("SIGTERM", () => {
+  server.close(); // no new connections; requests under way go on
+  void isolated.close(); // kills the children: the files they read are refused as "busy"
+});
+```
+
+With nothing else open (a database pool, a timer of your own), the process then exits once the
+requests under way end. To let the uploads under way finish before the children are killed, call
+`close()` later, when the grace period of your platform runs out, as in
+[Stopping a server](../guides/deployment.md#stopping-a-server).
+
+What happens to a file of one of its formats:
+
+1. `files.ingest` calls the isolated extractor, as it would the built-in one. When `concurrency`
+   files are being read, the file waits, up to `maxQueue` files; past that it is refused at once
+   as `"busy"`.
+2. Its bytes are copied to a child process, with its name, MIME type, format and the limits of
+   `createLargeFiles` (`maxTextBytes`, `maxPdfPages`, `scannedPdfPages`). The child reads it with the
+   built-in extractor of its format, and sends its progress and then its text back.
+3. The rest of the ingest runs in your server, as without it: the text is normalized, profiled,
+   indexed and stored. A file costs its bytes copied to the child and its text copied back.
+4. A child reads one file at a time. It is replaced by a new one after `maxFilesPerChild` files,
+   since some parsers keep memory for the life of their process (`@cantoo/pdf-lib` keeps every name
+   it reads), and stopped after `idleMs` with nothing to read. An idle child does not keep your
+   process alive.
+
+When the ingest's signal aborts (`ingestTimeoutMs`, or a client that went away), the child that
+reads the file is killed, and a file that waits leaves the queue. The children load the same
+optional dependencies (`unpdf`, `jszip`, `@cantoo/pdf-lib`) the server would, so install them on
+the server. Text formats, HTML included, are read in the server, in slices, by default.
+
+The refusals of the children. Each is an [`IngestError`](./library.md#ingesterror), with your
+numbers in its message:
+
+| `code` | Message | When |
+|---|---|---|
+| `"out_of_memory"` | `report.pdf needed more memory than is allowed for reading one file (512 MB). It may be built to exhaust the server, so it is not read. Split it, or save it as plain text, and attach that.` | The child ran out of its heap, `maxHeapMb`: its standard error says so, or it ended with `SIGABRT` or exit code 134. |
+| `"timeout"` | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` | The file took longer than `timeoutMs`. The child is killed, even in the middle of a PDF page that pdf.js reads in one block, which `ingestTimeoutMs` cannot cut short. |
+| `"busy"` | `The server is reading other files right now. Try again in a moment.` | `concurrency` files are being read and `maxQueue` wait. `retryAfterMs` is 5,000: the upload handler answers `503` with `Retry-After: 5` ([upload](#uploadrequest-response)). |
+| `"busy"` | `The server is shutting down. Try again in a moment.` | `close()` was called while the file waited or was read, or before it was sent. |
+| `"unreadable"` | `report.pdf could not be read: its reader stopped (SIGSEGV).`, or `(exit code 1)` | The child ended another way. |
+| `"unreadable"` | `report.pdf could not be read: its reader could not be reached.` | The file could not be sent to the child. |
+
+A child that stops before it is ready to read, so before it was sent the file, is the server's
+trouble, not the file's: a `childScript` that is not there, an `execArgv` that Node does not know.
+Such a file is refused with an `Error` that is not an `IngestError`, with `status` 500:
+`The server could not start a reader for report.pdf (exit code 1).` The upload handler answers it
+`500` with that message. The end of the child's standard error, which names paths of the server, is
+its `cause` only. The upload handler answers the error itself, so to log the cause there, wrap the
+extractors before you hand them to `createLargeFiles`:
+
+```ts
+const isolated = createIsolatedExtractors();
+const extractors = Object.fromEntries(Object.entries(isolated.extractors).map(([format, extract]) => [
+  format,
+  (bytes: Uint8Array, input: ExtractInput) => extract!(bytes, input).catch((error: unknown) => {
+    if ((error as { status?: unknown }).status === 500) console.error("reader did not start", (error as Error).cause);
+    throw error;
+  }),
+]));
+const files = createLargeFiles({ store, extractors });
+```
+
+A file the built-in extractor refuses in the child is refused with the same message as in the
+server, and the code of its words: a zip bomb or a PDF that would hold the server is `"hostile"`, a
+PDF without text `"no_text"`, and so on ([`IngestError`](./library.md#ingesterror)).
+
+**The heap limit.** Each child runs with `--max-old-space-size` set to `maxHeapMb`, and Node adds
+its young generation above it: with 512, a heap limit of 560 MB on Node 20 and 22, 704 MB on Node
+24 and 608 MB on Node 26 ([Deployment](../guides/deployment.md#memory-on-each-server)). The
+server's own `NODE_OPTIONS` are not passed to the children: a `--max-old-space-size` there would
+replace this one. The rest of its environment is. The limit bounds the heap only: what a parser
+unpacks outside it, such as a stream of a PDF, is not bounded by it. For uploads you do not trust,
+give the server a memory limit of its own too, such as that of its container
+([Security](../security.md#uploads)).
+
+### `IsolatedExtractorOptions`
+
+```ts
+type IsolatedExtractorOptions = {
+  maxHeapMb?: number;
+  timeoutMs?: number;
+  concurrency?: number;
+  maxQueue?: number;
+  formats?: DocumentFormat[];
+  pdf?: PdfExtractorOptions;
+  maxFilesPerChild?: number;
+  idleMs?: number;
+  execArgv?: string[];
+  childScript?: string | URL;
+};
+```
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `maxHeapMb` | `number` | 512 | The heap of each child process, in MB, given as `--max-old-space-size`. A file that needs more is refused (`"out_of_memory"`), and the server goes on. From 1 to 1,048,576, and finite; a fraction is cut to a whole number. Node reads `--max-old-space-size=0` as its default heap, so a value below 1 is refused rather than cut to 0. |
+| `timeoutMs` | `number` | 120,000 | The most time one file may take, in milliseconds. Past it, its child is killed and the file refused (`"timeout"`). 0 sets none, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days), `Infinity` included, as for `ingestTimeoutMs`. With both at their defaults, the `ingestTimeoutMs` of `createLargeFiles` usually ends the ingest first, and its signal kills the child too. |
+| `concurrency` | `number` | 2 | How many files are read at once, each in a child process of its own. At least 1. |
+| `maxQueue` | `number` | 8 | How many files may wait for a child. Past it, a file is refused at once as `"busy"`. 0: none waits. |
+| `formats` | `DocumentFormat[]` | `["pdf", "docx", "pptx", "xlsx"]` | The formats read in child processes: by default those whose parsers a hostile file can exhaust. `extractors` has an entry for each. |
+| `pdf` | [`PdfExtractorOptions`](./library.md#pdfextractoroptions) | `{}` | Options of the built-in PDF extractor in the children, as for [`createPdfExtractor`](./library.md#createpdfextractoroptions). |
+| `maxFilesPerChild` | `number` | 50 | How many files one child reads before it is replaced by a new one. At least 1. |
+| `idleMs` | `number` | 30,000 | A child with nothing to read is stopped after this many milliseconds. 0, or a value past what a timer can wait (`Infinity` included), keeps the children until `close()`. Either way an idle child does not keep your process alive. |
+| `execArgv` | `string[]` | `[]` | Further Node options for the children, after the heap limit. |
+| `childScript` | `string \| URL` | The `ingest-child.js` shipped next to the module | The script the children run: a path, a `file:` URL, or a string of one. For a bundler that moves files: `import.meta.resolve("llm-large-files/node/ingest-child.js")` gives the one in the installed package ([Bundlers](../guides/deployment.md#nodejs-esm-and-require)). |
+
+A number option that is not a number, NaN, below 0, or 0 where it must be above 0, throws a
+`RangeError` when `createIsolatedExtractors` is called: "maxHeapMb must be a number above 0, and is
+NaN.", or "timeoutMs must be a number above or equal to 0, and is -1.". So does a `maxHeapMb` below
+1, above 1,048,576 (1 TB, past which Node reads the flag wrong) or not finite: "maxHeapMb must be a
+number from 1 to 1,048,576 (1 TB), and is 0.5.". A heap below about 32 MB cannot start a reader
+that reads ordinary files: every file is then refused.
+
+### `IsolatedExtractors`
+
+```ts
+type IsolatedExtractors = {
+  extractors: Partial<Record<DocumentFormat, Extractor>>;
+  stats(): { running: number; queued: number; children: number };
+  close(): Promise<void>;
+};
+```
+
+| Member | What it is |
+|---|---|
+| `extractors` | One extractor for each of `formats`, to pass to `createLargeFiles({ extractors })`. To add one of your own for another format: `{ ...isolated.extractors, text: myText }`. |
+| `stats()` | The files being read (`running`), the files waiting (`queued`) and the child processes alive (`children`): for a health check or a metric. |
+| `close()` | Kills every child process, and refuses the files waiting, those being read and those sent while it runs as `"busy"` ("The server is shutting down. Try again in a moment."). Resolves once the children have exited, also when nothing else keeps your process open, so code after `await isolated.close()` runs. Files sent after that start new children. Call it when the server stops, next to the server's own `close()`: a SIGTERM listener replaces Node's own exit ([above](#createisolatedextractorsoptions)). |
 
 ## Server-Sent Events
 

@@ -38,7 +38,7 @@ the [loop reference](./ask.md).
 
 | Tool | What it does |
 |---|---|
-| `search_document` | Finds lines that contain a text or match a regex, with an exact count, the first of them and the last one; or the passages that match keywords best. |
+| `search_document` | Finds lines that contain a text or match a regex, with an exact count, the first of them and the last one, the last ones, or a count for each group (hour, code, message shape); or the passages that match keywords best. In all of a file or in a range of its lines. |
 | `read_document` | Reads a range of lines, numbered, up to 600 a call. |
 | `get_document_overview` | The outline, the log profile, the first 30 and last 20 lines, and what a whole-file read would take. |
 | `analyze_whole_document` | Reads the whole file in parts with other model calls (map-reduce) and answers a task that needs all of it. |
@@ -92,7 +92,10 @@ whole numbers; a value that is neither a number nor a numeric string takes the d
 blank string counts as 0, so it is clamped to the minimum); line numbers and counts out of range
 are clamped, not refused. Page numbers are the exception: `view_pages` refuses a page that is not a
 number of 1 or more. A `mode` other than `"exact"` or `"regex"` is `"keywords"`, and
-`case_sensitive` is on only when it is `true`.
+`case_sensitive` and `whole_word` are on only when they are `true`, `1`, or the same as text
+(`"true"` in any case, or `"1"`), and off for any other value. Until 0.8.0, `case_sensitive: "true"`
+was off. An `order` other than `"last"` is `"first"`. A `group_by` that is missing, `null`, `""` or `"none"` counts no groups; any other
+value that is not one of its five is refused.
 
 **Scope.** A call reaches only the documents its tool set was made for. A `document_id` outside
 them is refused with the IDs the model may use, so that the next call is right (`view_pages`
@@ -131,7 +134,9 @@ lower the cap of one call with [`ToolCallLimits.maxResultCharacters`](#toolcalll
   not known. Showing K of N results to stay within the size limit. Narrow the query or read
   specific lines."
 - An exact or regex search that read the whole file and has 2 matches or more is cut its own way:
-  it loses matches from the end of the first ones, and keeps the last one (see
+  it loses matches from the end of the first ones, and keeps the last one. With `order: "last"` it
+  loses the earliest of the last ones, and keeps the very last; with `group_by` it loses the
+  smallest groups, and keeps at least one, and by time the groups it keeps stay in time order (see
   [`search_document`](#search_document)).
 - When even one entry is too large, the result becomes
   `{ "truncated": true, "partial": "<the start of the result as JSON text>", "note": "Result cut to the size limit. Ask for a smaller range." }`.
@@ -150,28 +155,57 @@ The description the model sees:
 
 > Search a large attached file. mode "keywords" returns the most relevant passages for a question;
 > "exact" finds the lines that contain the text; "regex" finds the lines that match a JavaScript
-> regular expression. For exact and regex, total_matching_lines counts every matching line, and the
-> result shows the first max_results of them and the last one. Results include line numbers to read
-> further with read_document.
+> regular expression (\w and \b know the letters of every language). For exact and regex,
+> total_matching_lines counts every matching line, and the result shows the first max_results of
+> them and the last one; search again from next_from_line for the ones after those shown, or with
+> order "last" for the last ones. To count by group (per hour or day, per error code, per message
+> shape), pass group_by: the result then counts each group, and shows no lines. from_line and
+> to_line search part of the file. Results include line numbers to read further with read_document.
 
 Until 0.6.0 it said that `exact` "returns every line containing the text", while the result showed
 the first lines only: a model asked when something last happened named the last line it was shown.
+0.8.0 added `from_line`, `to_line`, `order`, `group_by` and `whole_word`, and the sentences that
+name them.
 
 | Argument | Type | Required | Default and limits | Meaning |
 |---|---|---|---|---|
 | `document_id` | string | yes | | The `document_id` from the file's card. |
 | `query` | string | yes | Not blank (`query is required.`) | Keywords, exact text, or a regex, by `mode`. |
 | `mode` | `"keywords"` \| `"exact"` \| `"regex"` | no | `"keywords"` | How to search. |
-| `max_results` | integer | no | keywords: 5, from 1 to 10. exact and regex: 20, from 1 to 50 | Passages, or matching lines, returned. It does not limit the count. exact and regex also show the last matching line after them, when it is not among them. |
-| `context_lines` | integer | no | 0, from 0 to 5 | exact and regex: lines shown before and after each match. |
+| `max_results` | integer | no | keywords: 5, from 1 to 10. exact and regex: 20, from 1 to 50. With `group_by`: 50 groups, from 1 to 200 | Passages, matching lines or groups returned. It does not limit the count. exact and regex also show the last matching line after them, when it is not among them. |
+| `context_lines` | integer | no | 0, from 0 to 5 | exact and regex: lines shown before and after each match. None with `group_by`. |
 | `case_sensitive` | boolean | no | `false` | exact and regex: match case. Keywords never do. |
+| `from_line` | integer | no | 1. Past the last line: refused | Search only from this line on, in every mode. Pass a result's `next_from_line` to see the matches after those it shows. New in 0.8.0. |
+| `to_line` | integer | no | The last line. Past it: the last line. Before `from_line`: refused | Search only up to this line, in every mode. New in 0.8.0. |
+| `order` | `"first"` \| `"last"` | no | `"first"` | exact and regex: `"last"` shows the last `max_results` matching lines, in file order, in place of the first ones. New in 0.8.0. |
+| `group_by` | `"capture"` \| `"minute"` \| `"hour"` \| `"day"` \| `"shape"` | no | none | exact and regex: count the matching lines by group, and show none ([below](#counts-by-group-group_by)). `"capture"` needs mode `regex`. `order` and `context_lines` are ignored with it. New in 0.8.0. |
+| `whole_word` | boolean | no | `false` | exact only: match the text only as a whole word, not inside a longer one. Ignored in regex mode, where `\b` does it. New in 0.8.0. |
+
+With `from_line` or `to_line`, the counts are of the lines searched, and the result says which in
+`searched_lines` (`"1941-3000"`). In keywords mode, the passages ranked are those with at least one
+line in the range, each with all its lines. The errors of these arguments:
+
+| Error | When |
+|---|---|
+| `from_line 9000 is past the end of the file, which has 3000 lines.` | `from_line` is past the last line. |
+| `to_line 20 is before from_line 100.` | `to_line` is before `from_line` (1 when it is not given). |
+| `group_by counts the lines of an exact or regex search: use mode "exact" or "regex".` | `group_by` in keywords mode. |
+| `group_by "capture" counts by the first group of a regex: use mode "regex" with a group, as in PAY-(\d+).` | `group_by: "capture"` in exact mode. |
+| `group_by must be one of "capture", "minute", "hour", "day", "shape".` | Any other `group_by`. |
 
 **`keywords`** ranks passages with BM25, computed at query time from substring hits: no index, any
 language.
 
-- The query is lowercased and split at anything that is not a letter, a digit or `_`. Terms of
-  fewer than 2 characters and common English and Hebrew words are dropped; at most 12 distinct
-  terms are kept. A term also matches inside longer words: "timeout" matches "timeouts".
+- The query is composed (NFC) and folded as exact search folds it (see below), then split at
+  anything that is not a letter, a mark, a digit or `_`, so a mark stays with its letter (Hindi,
+  Bengali, Tamil, Thai, pointed Hebrew). A run of Chinese, Japanese, Thai, Lao, Khmer or Myanmar
+  text is split into words with `Intl.Segmenter`. Terms of fewer than 2 characters (a Han or kana
+  word may have one) and common English and Hebrew words are dropped; at most 12 distinct terms are
+  kept. A term also matches inside longer words: "timeout" matches "timeouts".
+- A Hebrew term loses its points. One that starts with prefix letters (ו ה ב כ ל מ ש: בחוזה,
+  והחוזה) also searches its stem without them (חוזה), up to three letters off while three are
+  left, so passages with the word as written rank first. One that ends in a final letter also
+  matches its plain form, as inside a longer word: כסף finds כספים. New in 0.8.0.
 - A passage is a run of whole lines of about 1,500 characters, or 40 lines at most. A passage that
   contains the whole query as a phrase (more than one term, up to 200 characters) is ranked higher.
 - Passages come best first. `score` is rounded to two decimals and only orders the results.
@@ -179,18 +213,28 @@ language.
   these keywords. Try other words, synonyms, or exact mode."
 
 **`exact`** finds every line that contains the text. A line counts once, however many times it
-contains the text. A text with a line break matches across lines and counts on the line where it
-starts. The scan stops after 1,000,000 matching lines.
+contains the text. A text with a line break matches across lines and counts on each line where it
+starts, overlapping ones included: "a\na" counts 2 lines of "a\na\na" (1 until 0.8.0). The scan
+stops after 1,000,000 matching lines, and with `whole_word` or `group_by` after 3 seconds. The query is composed (NFC), as the text is at ingest, so
+"é" typed as "e" and an accent finds "é". Without `case_sensitive`, both sides are folded: lower
+case, Greek final sigma as σ, curly quotes and primes as `'` and `"`, dashes and the minus sign as
+`-`, no-break and thin spaces as a space, Hebrew geresh, gershayim and maqaf as `'`, `"` and `-`,
+and full-width forms as ASCII. So "don't" finds "don’t", and צה"ל finds צה״ל (new in 0.8.0). With
+`whole_word`, a match must not touch a letter, mark, digit or `_` of any script where the text
+starts or ends with one.
 
 **`regex`** tests a JavaScript regular expression against each line on its own, so a match cannot
 span lines. It runs with the `i` flag unless `case_sensitive` is `true`, and with the `u` flag when
 the pattern is valid with it (so `\p{L}` means a letter); a pattern valid only without it, such as
-`[\w-.]`, runs without it. Limits:
+`[\w-.]`, runs without it. With the `u` flag, `\w`, `\W`, `\b` and `\B` know the letters, marks and
+digits of every script: `\bחוזה\b` finds the word, and `\w+` does not stop at "é" (new in 0.8.0;
+a pattern with `\W` inside a class is run as written). The pattern is composed (NFC) first. The
+folds of exact search do not apply. Limits:
 
 | Limit | Value | When it is reached |
 |---|---|---|
 | Pattern length | 300 characters | Refused: `Regex is longer than 300 characters.` |
-| Nested quantifier, such as `(a+)+` | Refused up front | `Regex has a nested quantifier like (a+)+, which can hang on large files. Simplify it.` |
+| Nested quantifier, such as `(a+)+` | Refused up front, unless each repeat ends at a literal character that none of its quantified parts can match, as in `(\d{1,3}\.){3}\d{1,3}` or `(\w+\.)+com` (accepted since 0.8.0) | `Regex has a nested quantifier like (a+)+, which can hang on large files. Simplify it.` |
 | Invalid pattern | | `Invalid regex: ` and the engine's message. |
 | One search | 3,000 ms of matching, or what is left of the tool set's time when that is less | The scan stops; the result has the lines found so far and the note below. |
 | A line the pattern cannot get past | Two whole slices of 250 ms on the same line | The scan stops there, the same way. |
@@ -206,9 +250,12 @@ Results of `exact` and `regex`:
 |---|---|---|
 | `document` | string | The file name. |
 | `mode` | `"exact"` \| `"regex"` | The mode that ran. |
-| `total_matching_lines` | number | Every matching line in the file, not only those shown. This is the number to count with. |
-| `note` | string, optional | When more lines match than are shown: "N of the M matching lines are shown: the first K and the last (line L). To see the ones in between, narrow the search." ("the first and the last" when K is 1). When the scan stopped (1,000,000 lines, or a regex limit): "The scan stopped early; the total is a lower bound, and the last match in the file is not known." Or a size-limit note (below). Absent when every match is shown. |
-| `matches` | array | The first `max_results` matching lines, in file order, then the last matching line of the file when it is not among them. A scan that stopped early shows no last line, since it did not reach the end. |
+| `searched_lines` | string, optional | With `from_line` or `to_line`: the lines searched, as `"1941-3000"`. The counts are of those lines. Keyword results have it too. New in 0.8.0. |
+| `total_matching_lines` | number | Every matching line in the file (or in `searched_lines`), not only those shown. This is the number to count with. |
+| `order` | `"last"`, optional | With `order: "last"` ([below](#the-last-matches-order-last)). |
+| `note` | string, optional | When more lines match than are shown: "N of the M matching lines are shown: the first K and the last (line L). To see the ones in between, search again with from_line F, or count them with group_by." ("the first and the last" when K is 1). Until 0.8.0 it ended "narrow the search." When the scan stopped (1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit): "The scan stopped early; the total is a lower bound, and the last match in the file is not known." Or a size-limit note (below). Absent when every match is shown. |
+| `next_from_line` | number, optional | When matches between the first ones and the last one are not shown: the line after the last of the first ones (F above). A search with `from_line` set to it shows the ones after. Absent when every match is shown, when the scan stopped early, with `order: "last"` and with `group_by`. New in 0.8.0. |
+| `matches` | array | The first `max_results` matching lines, in file order, then the last matching line of the file when it is not among them. A scan that stopped early shows no last line, since it did not reach the end. With `order: "last"`, the last `max_results` matching lines, in file order. |
 | `matches[].line` | number | The line number. |
 | `matches[].page` | number, optional | The page of the line, for a PDF whose pages can be shown. |
 | `matches[].text` | string | The line. A line longer than 400 characters is cut to 400 around the match, with `…` where it was cut. |
@@ -221,7 +268,8 @@ A search with `max_results: 1` and `context_lines: 1`:
   "document": "app.log",
   "mode": "exact",
   "total_matching_lines": 51,
-  "note": "2 of the 51 matching lines are shown: the first and the last (line 4987). To see the ones in between, narrow the search.",
+  "note": "2 of the 51 matching lines are shown: the first and the last (line 4987). To see the ones in between, search again with from_line 1204, or count them with group_by.",
+  "next_from_line": 1204,
   "matches": [
     {
       "line": 1203,
@@ -244,7 +292,8 @@ has 2 matches or more loses matches from the end of the first ones, and keeps th
 note is then one of:
 
 - "Showing N of the M matching lines to stay within the size limit: the first K and the last (line
-  L). Narrow the query or read specific lines." (N is K + 1; "the first and the last" when K is 1);
+  L). To see the ones in between, search again with from_line F, or count them with group_by."
+  (N is K + 1; "the first and the last" when K is 1), with `next_from_line` F;
 - "Showing 1 of the M matching lines to stay within the size limit: the last (line L). Narrow the
   query or read specific lines.", when only the last one fits;
 - "Showing 1 of the M matching lines: the last (line L). Narrow the search.", when the last one
@@ -255,12 +304,99 @@ When not even that fits, the result is cut as text, as any other (see
 "Showing " marks a result that was cut: a call made again runs again. A result with the note "N of
 the M matching lines are shown" is whole, and a call made again gets a pointer to it.
 
+### The last matches: `order: "last"`
+
+New in 0.8.0. With `order: "last"`, an exact or regex search shows the last `max_results` matching
+lines, in file order, and no others: unlike a search in the default order, it adds no match from
+the other end of the file. When not every match is shown, the note names the line of the last
+match and of the first. A search with `max_results: 2`:
+
+```json
+{
+  "document": "app.log",
+  "mode": "exact",
+  "total_matching_lines": 51,
+  "order": "last",
+  "note": "These are the last 2 of the 51 matching lines, in the order of the file: the last match is on line 4987, and the first on line 1203.",
+  "matches": [
+    { "line": 4410, "text": "2026-05-01 13:12:30 ERROR payment-service: timeout after 4410ms calling ledger" },
+    { "line": 4987, "text": "2026-05-01 13:22:47 ERROR payment-service: timeout after 4987ms calling ledger" }
+  ]
+}
+```
+
+To fit its room, it loses the earliest of them first, and keeps the very last. The note is then
+"Showing the last N of the M matching lines to stay within the size limit, in the order of the
+file: the last match is on line L, and the first on line F. Narrow the query or read specific
+lines."
+
+When the scan stopped early (1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit), the lines shown are the last of
+those it found, and the line of the first match is not named. The note is then "The scan stopped
+early; the total is a lower bound. These are the last N matching lines it found, in the order of
+the file. There may be later ones, after line L: search again with from_line F." (F is L + 1;
+" and to_line T" follows it when the call gave `to_line`, T being the last line searched). Cut to
+its room, the second sentence is "Showing the last N matching lines it found to stay within the
+size limit, in the order of the file." When L is the last line searched, the last sentence is left
+out. When the scan found no matching line before it stopped (a regex out of time), the note is
+"The scan stopped early, out of time, before it found a matching line: the lines it did not reach
+may have some. Try a simpler pattern, mode "exact", or fewer lines with from_line and to_line."
+Like every note that starts with "The scan stopped early", it marks a result that a call made
+again runs again: a later question has time of its own.
+
+### Counts by group: `group_by`
+
+New in 0.8.0. With `group_by`, an exact or regex search counts its matching lines by group, and
+shows no line. One call answers "how many errors per hour" or "which codes, how often":
+
+| `group_by` | The key of a line |
+|---|---|
+| `"capture"` | The text of the regex's first group: `PAY-(\d+)` counts each code. A line where that group took no part has no key. Regex mode only. |
+| `"minute"`, `"hour"`, `"day"` | The first timestamp on the line, as written there (an offset such as `+02:00` or `Z` is not applied): `"2026-11-10 14:03"`, `"2026-11-10 14:00"`, `"2026-11-10"`. Read: ISO 8601 (`2026-11-10T14:03:17Z`, `2026-11-10 14:03:17,123`), nginx's error log (`2026/11/10 14:03:17`), the access logs of Apache and nginx (`10/Nov/2026:14:03:17 +0000`), epoch times in a JSON field `time`, `ts`, `timestamp` or `@timestamp` (10 or 13 digits, as UTC), `10.11.2026 14:03` (day first), `10/11/2026 14:03` (kept as `"10/11/2026"`, since day and month cannot be told apart), syslog (`Nov 10 14:03:17`) and klog (`I1110 14:03:17.123456`), the last two without a year (`"11-10 14:00"`). A line without one has no key. |
+| `"shape"` | The line with its timestamp taken out, and its UUIDs, IP addresses, hex, quoted values and numbers replaced by `<id>`, `<ip>`, `<hex>`, `<s>` and `<n>`, as the log profile groups problems. |
+
+Keys are cut at 120 characters. At most 10,000 groups are counted one by one; the lines of further
+groups are counted together in `other_count`. Results, besides `document`, `mode`, `searched_lines`
+and `total_matching_lines`:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `group_by` | string | The grouping that ran. |
+| `total_groups` | number | The groups counted, at most 10,000. |
+| `other_count` | number, optional | Matching lines of groups past the first 10,000, with `other_note`: "Lines of groups past the first 10,000 found." |
+| `lines_without_group` | number, optional | Matching lines with no key: no timestamp, or a regex group that took no part. |
+| `note` | string, optional | When not every group is shown: "K of the N groups are shown, the largest first. Narrow the search, or use from_line and to_line, for the others." By time, "the largest, in time order". A result cut to its room says "Showing K of the N groups to stay within the size limit, …". After the note of a scan that stopped early, when there is one. |
+| `groups` | array | Up to `max_results` groups (50 by default, 200 at most). By `capture` and `shape`, the largest first. By time, in time order; when there are more groups than are shown, the largest of them, in time order. A result cut to its room keeps the largest groups as well: by `capture` and `shape` it loses the end of its list, and by time the smallest groups, keeping the others in time order. |
+| `groups[].key` | string | The group. |
+| `groups[].count` | number | Its matching lines. |
+| `groups[].first_line`, `groups[].last_line` | number | Its first and last matching line, to read with `read_document`. |
+
+A search for `PAY-5031` with `group_by: "hour"`:
+
+```json
+{
+  "document": "payments.log",
+  "mode": "exact",
+  "total_matching_lines": 214,
+  "group_by": "hour",
+  "total_groups": 3,
+  "groups": [
+    { "key": "2026-11-10 13:00", "count": 9, "first_line": 40211, "last_line": 41876 },
+    { "key": "2026-11-10 14:00", "count": 187, "first_line": 42003, "last_line": 47950 },
+    { "key": "2026-11-10 15:00", "count": 18, "first_line": 48012, "last_line": 48990 }
+  ]
+}
+```
+
+Its step reads `Search payments.log (exact) for “PAY-5031”, counted by hour — 214 matching lines in
+3 groups`.
+
 Results of `keywords`:
 
 | Field | Type | Meaning |
 |---|---|---|
 | `document` | string | The file name. |
 | `mode` | `"keywords"` | |
+| `searched_lines` | string, optional | With `from_line` or `to_line`: the lines searched, as `"1941-3000"`. New in 0.8.0. |
 | `passages` | array | The best passages, best first. |
 | `passages[].lines` | string | `"412-436"`: the passage's first and last line. |
 | `passages[].pages` | string, optional | `"37"` or `"37-38"`, for a PDF whose pages can be shown. |
@@ -484,6 +620,13 @@ your own adds it to its system prompt). In short, it tells the model:
 - what each text tool is for, and this rule: "To count or list what can be matched as text (a word,
   an ID, an error code, a log level, a pattern), use search_document in exact or regex mode: its
   total_matching_lines is exact.";
+- since 0.8.0, how to count by group and see the rest of a list: "To count per group (per hour or
+  day, per error code or ID with a regex group, per message shape), pass group_by: one call gives
+  every count. For more matches than a result shows, search again from its next_from_line, or with
+  order "last" for the last ones.";
+- since 0.8.0, what to search for: "Search for the bare form of a word: a search matches inside
+  longer words, so "timeout" also finds "timeouts", and a Hebrew word without its prefix letters
+  (חוזה, not בחוזה) finds every form of it.";
 - to read around search hits before relying on them;
 - to use `analyze_whole_document` only when the task needs all of the file and cannot be done by
   matching text (a full summary, a timeline, items judged by meaning), and that it is slow, costly,
@@ -640,7 +783,7 @@ throws.
 | The result has | The suffix |
 |---|---|
 | `error` | ` — failed:` and the error, as in ` — failed: Unknown tool “do_magic”.` |
-| `total_matching_lines` (exact, regex) | ` — 1,203 matching lines` (numbers in en-US form), ` — 1 matching line` for one |
+| `total_matching_lines` (exact, regex) | ` — 1,203 matching lines` (numbers in en-US form), ` — 1 matching line` for one. With `total_groups` (`group_by`): ` — 214 matching lines in 3 groups`, ` in 1 group` for one |
 | `passages` (keywords) | ` — 5 passages`, ` — 1 passage` for one |
 | `parts_read` (whole-file read) | ` — 9 parts, 3 relevant` (` — 1 part, 1 relevant` for one), then `, notes only` with `notes_only`, or `, incomplete` with `notes_cut_short` or `answer_cut_short` |
 | `lines` and `total_lines` (read) | ` — got 1200-1342` when the label does not end with the lines shown, else `""` |
@@ -682,7 +825,7 @@ type ToolSet = {
 | `has(name)` | `true` for each declared tool. Also `true` for `analyze_whole_document` when `generate` was given and the text tools are declared, even if it is not declared because no document is small enough: a call then gets the reason. Use it to tell the calls of this tool set from others. |
 | `execute(name, args)` | Runs a call and returns its JSON result, within the tool's own cap. Failures come back as `{ error }`, as listed above. `view_pages` answers with an error here: it returns a file. |
 | `executeWithFiles(name, args, limits?, hooks?)` | Runs any call with [`ToolCallLimits`](#toolcalllimits), and returns the result with the files it produced (`files` is empty for every tool but `view_pages`). Use it in a loop that can send files to the model. `hooks` ([`ToolCallHooks`](./library.md#toolcallhooks), new in 0.7.0) are listeners for this call alone: the progress of a whole-file read, in place of `ToolOptions.onProgress`, and each of its model requests with their retries. Only `analyze_whole_document` calls them. |
-| `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters), `Read app.log lines 1200-1260` (`-1260` only when `end_line` is a number not below `start_line`), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A cut never splits an emoji. A file not yet known is "the file"; an unknown tool is its name, as it came (`askWithFiles` labels it `Call “NAME”` instead). The line quotes the model's words as they are: show it as plain text, or clean it as `askWithFiles` does its steps. In `askWithFiles`, this line, made one line of plain text, is the `label` of the call's `tool.start` event, the line `onActivity` gets with "…", and the start of its step. |
+| `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters; since 0.8.0 followed by ` in lines 1941-end` with `from_line` or `to_line`, and by `, counted by hour` with `group_by` or `, the last ones` with `order: "last"` in exact and regex mode), `Read app.log lines 1200-1260` (`-1260` only when `end_line` is a number not below `start_line`), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A cut never splits an emoji. A file not yet known is "the file"; an unknown tool is its name, as it came (`askWithFiles` labels it `Call “NAME”` instead). The line quotes the model's words as they are: show it as plain text, or clean it as `askWithFiles` does its steps. In `askWithFiles`, this line, made one line of plain text, is the `label` of the call's `tool.start` event, the line `onActivity` gets with "…", and the start of its step. |
 | `resultCharacters(name)` | The most characters of a result of this tool: the larger of `toolResultCharacters` and 40,000 for `analyze_whole_document`, 600 for `view_pages` (its file is counted in bytes), and `toolResultCharacters` for any other name. What a loop sets aside in its request before it runs a call. |
 
 `execute` and `executeWithFiles` throw only when the tool set's `signal` was aborted: the error
@@ -881,3 +1024,8 @@ a question with files to search, that is nothing where the tools come first (Cla
 OpenAI-compatible endpoints), and at most your own system text on Gemini, where the guide follows
 it in the system instruction. For a question whose files are all sent whole, it is your own system
 text, and `view_pages` with its guide when the pages of a PDF can be looked at.
+
+0.8.0 changed the description of `search_document` (its new arguments), the guide (two lines: counts
+by group and paging; searching the bare form of a word) and the closing requests
+([`FINAL_ANSWER_REQUEST`](./ask.md#final_answer_request) and the two others), so the cache misses
+once after upgrading to it too, the same way.

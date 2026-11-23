@@ -211,7 +211,7 @@ const ascending = (list: Uint32Array, first: number, last: number): boolean => {
  * another version, or does not describe the text of `meta`: the caller then builds it again from
  * the text. An index is only a faster way to the same text, so a doubtful one is never used.
  */
-export function parseTextIndex(bytes: Uint8Array, meta?: Pick<DocumentMeta, "lines" | "characters">): TextIndex | undefined {
+export function parseTextIndex(bytes: Uint8Array, meta?: Pick<DocumentMeta, "lines" | "characters"> & { textBytes?: number }): TextIndex | undefined {
   if (bytes.length < HEADER || MAGIC.some((byte, at) => bytes[at] !== byte)) return undefined;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.getUint32(4, true) !== VERSION) return undefined;
@@ -222,7 +222,9 @@ export function parseTextIndex(bytes: Uint8Array, meta?: Pick<DocumentMeta, "lin
   const characters = view.getFloat64(32, true);
   if (bytes.length !== HEADER + 4 * (2 * lineCount + passageCount + pageCount)) return undefined;
   if (!Number.isSafeInteger(textBytes) || !Number.isSafeInteger(characters) || lineCount < 1 || passageCount < 1) return undefined;
-  if (meta && (meta.lines !== lineCount || meta.characters !== characters)) return undefined;
+  // The size of the text too: with a smaller one, the last line would be read cut short; with a
+  // larger one, a store would be asked for that many bytes before the mismatch was seen.
+  if (meta && (meta.lines !== lineCount || meta.characters !== characters || (typeof meta.textBytes === "number" && meta.textBytes !== textBytes))) return undefined;
   const lineStarts = readList(bytes, HEADER, lineCount);
   const characterStarts = readList(bytes, HEADER + 4 * lineCount, lineCount);
   const passageStarts = readList(bytes, HEADER + 8 * lineCount, passageCount);

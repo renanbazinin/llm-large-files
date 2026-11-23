@@ -203,10 +203,11 @@ A successful upload answers `201` with a `DocumentSummary`:
   "expiresAt": "2026-11-22T07:43:14.435Z" }
 ```
 
-`pages` is there too for a PDF or a PPTX. For a text file that was not valid UTF-8, `encoding` names
-the older encoding it was read in (`"windows-1255"`), and `replacedCharacters` counts the
-characters stored as � ([Text encodings](./pdfs.md#text-encodings)). Your page can show "read as
-windows-1255", or warn that some characters could not be read and ask for the file saved as UTF-8.
+`pages` is there too for a PDF, a PPTX or an XLSX (its sheets). For a text file that was not valid
+UTF-8, `encoding` names the older encoding it was read in (`"windows-1255"`), and
+`replacedCharacters` counts the characters stored as � ([Text encodings](./pdfs.md#text-encodings)).
+Your page can show "read as windows-1255", or warn that some characters could not be read and ask
+for the file saved as UTF-8.
 
 Everything else is JSON `{ "error": "…" }`, with a message you can show: `400` for a missing name or
 a body another middleware already parsed, `413` over `maxUploadBytes`, `422` for a file that cannot
@@ -253,7 +254,8 @@ input, an [`IngestInput`](../reference/library.md#ingestinput):
 Answer the browser with `toDocumentSummary(meta)`, not with `meta`: the summary holds the fields that
 are safe to return to a browser, while `meta` also holds the owner, the outline and the log profile.
 
-`ingest` throws a plain `Error`, with a message written for the user, when it cannot take the file:
+`ingest` throws an [`IngestError`](../reference/library.md#ingesterror) (a plain `Error` until
+0.8.0), with a message written for the user and a `code`, when it cannot take the file:
 the cases of the `422` above (an empty, binary or compressed file, no text, a missing optional
 dependency, a file past `maxTextBytes` or `maxPdfPages`, one that took longer than
 `ingestTimeoutMs`), and a file larger than `maxUploadBytes` ("app.log is larger than the 100 MB
@@ -1516,10 +1518,9 @@ GEMINI_API_KEY=... node examples/server.ts   # then open http://localhost:3000
 ```
 
 It needs Node 22.18 or a later 22.x, or Node 23.6 or later (24, for example), which run TypeScript
-files directly. `npm install` also installs the
-optional dependencies, which the repository has as dev dependencies, so PDF, DOCX and PPTX uploads
-work. `GEMINI_MODEL` names the model, and `GEMINI_EXPLORER_MODEL`, when set, an
-[explorer model](./explorer-model.md).
+files directly. `npm install` also installs the optional dependencies, which the repository has as
+dev dependencies, so PDF, DOCX, PPTX and XLSX uploads work. `GEMINI_MODEL` names the model, and
+`GEMINI_EXPLORER_MODEL`, when set, an [explorer model](./explorer-model.md).
 
 What it does:
 

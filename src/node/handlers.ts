@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isStoreWriteFailure } from "../errors.js";
+import { IngestError, isStoreWriteFailure } from "../errors.js";
 import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
 import { checkOwner, toDocumentSummary, type IngestInput, type LargeFiles } from "../library.js";
 import { formatBytes } from "../plan.js";
@@ -84,9 +84,13 @@ function answerOf(error: unknown, failed: string, tooLarge: string): { status: n
   return { status: 500, message: code ? `${failed} (${code}).` : `${failed}.` };
 }
 
-/** Answers a failed request with JSON (see `answerOf`). */
+/** Answers a failed request with JSON (see `answerOf`). A refusal that says when to try again (a busy reader) sets `Retry-After`. */
 function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string, unread?: IncomingMessage): void {
   const { status, message } = answerOf(error, failed, tooLarge);
+  const retryAfterMs = (error as { retryAfterMs?: unknown } | null)?.retryAfterMs;
+  if (status === 503 && typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && !response.headersSent) {
+    response.setHeader("Retry-After", String(Math.max(1, Math.ceil(retryAfterMs / 1_000))));
+  }
   send(response, status, { error: message }, unread);
 }
 
@@ -133,7 +137,9 @@ async function streamIngest(files: LargeFiles, input: IngestInput, response: Ser
       await stream.result;
       return { message: fallback.message, ...(fallback.status !== undefined ? { status: fallback.status } : {}) };
     } catch (error) {
-      return answerOf(ingestFailure(error), "Upload failed", tooLarge);
+      const failure = ingestFailure(error);
+      // A file that could not be read also says why, for a page that tells it in its own words.
+      return { ...answerOf(failure, "Upload failed", tooLarge), ...(failure instanceof IngestError ? { code: failure.code } : {}) };
     }
   };
   async function* events(): AsyncGenerator<IngestEvent> {
