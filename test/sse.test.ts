@@ -124,7 +124,8 @@ describe("parseSseJson", () => {
     }
   });
 
-  it("takes a maxEventLength that is not a positive number for the default, and Infinity for no limit", async () => {
+  // About 2 s with one test file at a time, 3.5 s beside the other files on a busy machine.
+  it("takes a maxEventLength that is not a positive number for the default, and Infinity for no limit", { timeout: 20_000 }, async () => {
     /** A comment of 65,011,714 characters, then an event: its pieces are made as they are read. */
     const long = () => {
       const megabyte = new Uint8Array(1_048_576).fill(0x78);

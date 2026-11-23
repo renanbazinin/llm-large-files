@@ -41,7 +41,8 @@ async function folder(): Promise<string> {
 }
 
 describe("the meta that ingest returns (0.8.2)", () => {
-  it("does not keep the text in memory through the log's timestamps or the outline's headings", async () => {
+  // About 2 s with one test file at a time, 5.5 s beside the other files on a busy machine.
+  it("does not keep the text in memory through the log's timestamps or the outline's headings", { timeout: 20_000 }, async () => {
     const files = createLargeFiles({ store: new FileDocumentStore(await folder()) });
     // About 4 MB of a log in Hebrew: held, its text took about 8 MB of heap (two bytes a character).
     const log: string[] = [];

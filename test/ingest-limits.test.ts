@@ -42,7 +42,8 @@ describe("ingest work in slices gives the results of 0.5.0", () => {
     }
   });
 
-  it("builds the same log profile, outline and line index", async () => {
+  // About 3 s with one test file at a time, 8 s beside the other files on a busy machine.
+  it("builds the same log profile, outline and line index", { timeout: 20_000 }, async () => {
     const log = serviceLog(30_000).split("\n");
     expect(await buildLogProfileInSlices(log, new TimeSlicer())).toEqual(buildLogProfile(log));
     const book = Array.from({ length: 30_000 }, (_, n) => (n % 7 === 0 ? `## Chapter ${n}` : n % 7 === 1 ? "" : `Line ${n} of the book.`));
@@ -274,7 +275,8 @@ describe("the parts of a DOCX or PPTX are counted as JSZip reads them, before it
     expect((await files.ingest({ name: "prefixed.docx", bytes: prefixed })).lines).toBe(1);
   });
 
-  it("refuses more than 20,000 parts, when the end record says fewer", async () => {
+  // About 1.7 s with one test file at a time, 4.7 s beside the other files on a busy machine.
+  it("refuses more than 20,000 parts, when the end record says fewer", { timeout: 20_000 }, async () => {
     // 20,001 parts, with an end record that says 2, or 0.
     const parts = docxParts(20_000);
     for (const count of [2, 0]) {
@@ -455,7 +457,8 @@ describe("a PDF page that would hold the server is refused before pdf.js reads i
     await expect(files.ingest({ name: "jpeg.pdf", bytes: jpeg })).rejects.toThrow("Page 1 of this PDF stores its content in a way that cannot be checked before it is read, so it is not read.");
   });
 
-  it("reads such a page with checkPages: false", async () => {
+  // About 4.5 s with one test file at a time, 7 s beside the other files on a busy machine.
+  it("reads such a page with checkPages: false", { timeout: 20_000 }, async () => {
     // 14,400 paints of a form with text: past the limit, and about 1.1 s of pdf.js.
     const bomb = formsInForms(2, 120);
     await expect(files.ingest({ name: "forms.pdf", bytes: bomb })).rejects.toThrow(heavy);

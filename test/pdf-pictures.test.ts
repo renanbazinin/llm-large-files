@@ -229,7 +229,8 @@ describe("picture marks in real files", () => {
     expect(marked(await read(fixture("powerpoint-pictures.pdf")))).toEqual([1, 2]);
   });
 
-  it("marks none of the files that hold only text and tables", async () => {
+  // About 1.2 s with one test file at a time, 2.3 s beside the other files on a busy machine.
+  it("marks none of the files that hold only text and tables", { timeout: 20_000 }, async () => {
     const names = readdirSync(new URL("./fixtures/pdf/", import.meta.url)).filter((name) => name.endsWith(".pdf") && !name.includes("pictures"));
     expect(names).toHaveLength(9);
     for (const name of names) {

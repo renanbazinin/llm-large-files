@@ -8,7 +8,8 @@ import { excelDate } from "../src/xlsx.js";
 import { utf8 } from "./fake-model.js";
 
 describe("search", () => {
-  it("counts every match of a regex search with groups or the last matches, whatever the time slices cut", () => {
+  // About 1.2 s with one test file at a time, 2.3 s beside the other files on a busy machine.
+  it("counts every match of a regex search with groups or the last matches, whatever the time slices cut", { timeout: 20_000 }, () => {
     const text = Array.from({ length: 400_000 }, (_, index) => (index % 3 === 0 ? `ERROR code=${index % 11} took ${index}ms` : `INFO ok ${index}`)).join("\n");
     const document = new SearchableDocument({ meta: { id: "doc_big", name: "big.log" } as never, text });
     const grouped = grep(document, "ERROR code=(\\d+)", { regex: true, maxResults: 20, contextLines: 0, groupBy: "shape" });
@@ -18,7 +19,8 @@ describe("search", () => {
     expect(last.matches.map((match) => match.line)).toEqual([399_994, 399_997, 400_000]);
   });
 
-  it("says that the last matches of a search that stopped early are the last it found", async () => {
+  // About 2.5 s with one test file at a time, 3.5 s beside the other files on a busy machine.
+  it("says that the last matches of a search that stopped early are the last it found", { timeout: 20_000 }, async () => {
     const text = Array.from({ length: 300_000 }, (_, index) => `line ${index} ${"ab".repeat(30)}`).join("\n");
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "slow.txt", bytes: utf8(text) });

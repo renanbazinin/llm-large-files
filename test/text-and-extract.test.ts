@@ -253,7 +253,8 @@ describe("analysis", () => {
     ]);
   });
 
-  it("builds an outline for a file with hundreds of thousands of heading-like lines", () => {
+  // Under a second with one test file at a time, 2.1 s beside the other files on a busy machine.
+  it("builds an outline for a file with hundreds of thousands of heading-like lines", { timeout: 20_000 }, () => {
     const lines = Array.from({ length: 600_000 }, (_, index) => (index % 2 === 0 ? `ITEM NUMBER ${index}` : ""));
     const outline = buildOutline(lines, "text");
     expect(outline).toHaveLength(400);

@@ -151,7 +151,8 @@ describe("invisible characters in the text (S4, S15)", () => {
     expect(pauses).toBeGreaterThanOrEqual(12);
   });
 
-  it("cleans a line in pieces as in one go, wherever a piece ends", async () => {
+  // Under a second with one test file at a time, 2.4 s beside the other files on a busy machine.
+  it("cleans a line in pieces as in one go, wherever a piece ends", { timeout: 20_000 }, async () => {
     const slicer = new TimeSlicer();
     const same = async (text: string, piece: number) => {
       const label = JSON.stringify({ text, piece });

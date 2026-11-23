@@ -54,13 +54,14 @@ async function bothWays(name: string, text: string, scanChunkBytes = 64): Promis
 const errorLog = (count: number) => Array.from({ length: count }, (_, index) => `2026-11-10T14:${String(index % 60).padStart(2, "0")}:17Z ERROR job ${index} failed at 10.0.${index % 256}.1 id=${(index * 7919).toString(16)}`).join("\n");
 
 describe("a document held in memory is searched in pieces, within a time limit (6, 50)", () => {
+  // Under a second with one test file at a time, 2.3 s beside the other files on a busy machine.
   it("stops an exact search at its time limit, and says the counts are lower bounds", () => {
     const document = doc(errorLog(250_000));
     const result = grep(document, "ERROR", { maxResults: 5, contextLines: 0, groupBy: "shape", timeLimitMs: 20 });
     expect(result.stoppedEarly).toBe(true);
     expect(result.totalMatchingLines).toBeLessThan(250_000);
     expect(grep(document, "ERROR", { maxResults: 5, contextLines: 0, timeLimitMs: 60_000 }).totalMatchingLines).toBe(250_000);
-  });
+  }, BUSY_TIMEOUT_MS);
 
   it("keeps nothing for each line a regex slice finds", async () => {
     const document = doc(Array.from({ length: 1_500_000 }, (_, index) => `ln${String(index).padStart(10, "0")}x`).join("\n"));
