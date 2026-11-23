@@ -781,7 +781,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     // A copy: the outline's headings and the log's timestamps are pieces of the text, and a piece
     // keeps the whole text in memory as long as it is held. A meta an application kept held its
     // text: 25 MB of heap for a log of 10 MB in Hebrew, 194 MB for one of 100 MB. Copied through
-    // JSON, as a store that keeps it as JSON gives it back: structuredClone kept the text on Node 20.
+    // JSON, as a store that keeps it as JSON gives it back.
     const meta: DocumentMeta = jsonCopy<DocumentMeta>({
       id: `doc_${randomUUID().replaceAll("-", "")}`,
       ...(input.owner !== undefined ? { owner: input.owner } : {}),

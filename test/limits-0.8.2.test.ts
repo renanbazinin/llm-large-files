@@ -14,10 +14,15 @@ import { fakeModel, says, utf8 } from "./fake-model.js";
 setFlagsFromString("--expose-gc");
 const collectGarbage = runInNewContext("gc") as () => void;
 
-/** The heap in use after a full collection, once pending timers have run. */
+/**
+ * The heap in use after full collections, once pending timers have run. Three, a turn of the loop
+ * apart: on Node 20 one collection right after an ingest left 14 MB of its garbage for the next.
+ */
 async function heapKept(): Promise<number> {
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  collectGarbage();
+  for (let round = 0; round < 3; round++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    collectGarbage();
+  }
   return process.memoryUsage().heapUsed;
 }
 
