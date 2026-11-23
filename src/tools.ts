@@ -3,6 +3,7 @@ import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, ty
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
 import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
 import { cutPdfPages } from "./pdf-pages.js";
+import { DocumentGoneError } from "./ranged.js";
 import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource, type LineMatch } from "./search.js";
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
@@ -677,6 +678,9 @@ export const unknownToolName = (name: string): string => `“${sliceWhole(name, 
  */
 const shownId = (id: string): string => (id.length > 64 ? `${sliceWhole(id, 64)}…` : id);
 
+/** A document that a call names is no longer in the store, as a read by range finds it: its message is the model's. */
+const gone = (id: string) => new DocumentGoneError(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+
 export function createDocumentTools(options: {
   /** Loads a document the tools may access. Return undefined for anything out of scope. */
   load(documentId: string): Promise<DocumentSource | undefined>;
@@ -769,7 +773,7 @@ export function createDocumentTools(options: {
         : `Unknown document_id ${shownId(id)}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
     }
     const document = await options.load(id);
-    if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+    if (!document) throw gone(id);
     names.set(id, document.meta.name);
     return document;
   }
@@ -1035,7 +1039,7 @@ export function createDocumentTools(options: {
         : `Unknown document_id ${shownId(id)}. Use the document_id of an attached PDF.`);
     }
     const document = await options.load(id);
-    if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+    if (!document) throw gone(id);
     const file = document.meta.name;
     names.set(id, file);
     const from = pageNumber(args.from_page, "from_page");
@@ -1073,8 +1077,15 @@ export function createDocumentTools(options: {
     };
   }
 
-  // What a tool could not do goes to the model, and from there to a user's screen: never a server path.
-  const failure = (error: unknown): ToolResult => ({ error: safeErrorMessage(error) });
+  /**
+   * What a tool could not do goes to the model, and from there to a user's screen: never a server
+   * path. A document found gone is also told to the call's hooks.
+   */
+  const failure = (error: unknown, args: Record<string, unknown>, hooks: ToolCallHooks): ToolResult => {
+    // Found gone when the call began, or while a read by range went through its text.
+    if (error instanceof DocumentGoneError && typeof args.document_id === "string") hooks.onDocumentGone?.(args.document_id);
+    return { error: safeErrorMessage(error) };
+  };
 
   async function execute(name: string, args: Record<string, unknown>, limits: ToolCallLimits = {}, hooks: ToolCallHooks = {}): Promise<ToolResult> {
     if (!known.has(name)) return { error: `Unknown tool ${unknownToolName(name)}.` };
@@ -1085,7 +1096,7 @@ export function createDocumentTools(options: {
       return await handlers[name]!(args, limits, hooks);
     } catch (error) {
       if (options.signal?.aborted) throw error;
-      return failure(error);
+      return failure(error, args, hooks);
     }
   }
 
@@ -1100,7 +1111,7 @@ export function createDocumentTools(options: {
         return await viewPages(args, limits);
       } catch (error) {
         if (options.signal?.aborted) throw error;
-        return { result: failure(error), files: [] };
+        return { result: failure(error, args, hooks), files: [] };
       }
     },
     describe(name, args) {

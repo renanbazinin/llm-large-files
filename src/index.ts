@@ -6,7 +6,7 @@ export type { AccessOptions, IngestFromSource, IngestInput, IngestSource, LargeF
 export { DEFAULT_BUDGET, resolveBudget } from "./budget.js";
 export type { ModelLimits } from "./budget.js";
 export { askStream, askWithFiles, EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "./ask.js";
-export type { AskLimits, AskOptions, AskResult } from "./ask.js";
+export type { AskLimits, AskOptions, AskResult, MissingDocumentsAction, MissingDocumentsContext } from "./ask.js";
 export { classifyModelError, DocumentsNotFoundError, errorKindOf, ModelRequestError, TOOL_TURN_VERSION, UsageMeter } from "./model.js";
 export type {
   ChatMessage,

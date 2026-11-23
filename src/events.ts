@@ -93,7 +93,13 @@ export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_ru
  * - "calls_not_run": a turn had more calls than `limits.callsPerTurn`;
  * - "budget_reached": `limits.inputTokens` or `limits.requests` was reached, so no more tools run;
  * - "no_room": there is no room left in the conversation for another tool result;
- * - "blocked": the provider refused the prompt (`AskResult.blockReason`).
+ * - "blocked": the provider refused the prompt (`AskResult.blockReason`);
+ * - "documents_missing": documents of `documentIds` were missing, and the question is answered
+ *   without them (`AskOptions.onMissingDocuments` "drop"; `AskResult.missing`). New in 0.9.0;
+ * - "document_gone": a tool call found a document gone during the question (deleted or expired
+ *   since it was planned). The model was told so in the call's result. New in 0.9.0.
+ *
+ * A switch over every code must handle the codes added in a later version.
  */
 export type NoticeCode =
   | "searching_instead"
@@ -106,7 +112,9 @@ export type NoticeCode =
   | "calls_not_run"
   | "budget_reached"
   | "no_room"
-  | "blocked";
+  | "blocked"
+  | "documents_missing"
+  | "document_gone";
 
 /**
  * Where a notice went in the callbacks of earlier versions: "activity" to `onActivity`, "step" to
@@ -252,7 +260,17 @@ export type AskEvent =
       /** The result itself. Only with `AskOptions.eventResults: true`: it holds document text. */
       result?: ToolResult;
     })
-  | (EventBase & { type: "notice"; code: NoticeCode; message: string; display: NoticeDisplay })
+  | (EventBase & {
+      type: "notice";
+      code: NoticeCode;
+      message: string;
+      display: NoticeDisplay;
+      /**
+       * The documents the notice is about: those left out ("documents_missing"), the one found gone
+       * ("document_gone"). New in 0.9.0.
+       */
+      documentIds?: string[];
+    })
   /** Always last when the question returns. Nothing comes after it. */
   | (EventBase & { type: "run.finish"; result: EventResult })
   /**

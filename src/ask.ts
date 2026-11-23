@@ -41,7 +41,7 @@ import {
   toolResultSummary,
   unknownToolName,
 } from "./tools.js";
-import type { Budget, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import type { Budget, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
@@ -125,6 +125,21 @@ export type AskOptions = {
    * store call, and documents ingested with another scope are treated as missing. New in 0.9.0.
    */
   scope?: DocumentScope;
+  /**
+   * What to do when documents of `documentIds` are missing: expired, deleted, never ingested, or of
+   * another owner or scope, which look the same. It is settled before any model request.
+   * - "throw" (the default): the question fails with `DocumentsNotFoundError`, as before 0.9.0.
+   * - "drop": the question is answered without them. The system instruction gets one line that says
+   *   how many files are no longer available, `AskResult.missing` lists them, and a
+   *   "documents_missing" notice names them. With no document left, it is a plain chat: no tools.
+   * - A function, given the missing IDs, that returns what to do (`MissingDocumentsAction`): "throw",
+   *   "drop", `{ retry: true }` once it has ingested them again under the same IDs, or
+   *   `{ replace: { [oldId]: newId } }` for the IDs it ingested them under. A retry or replace plans
+   *   the question again, once: an ID still missing then fails it with `DocumentsNotFoundError`.
+   *   What the function throws fails the question.
+   * New in 0.9.0.
+   */
+  onMissingDocuments?: "throw" | "drop" | ((missing: string[], context: MissingDocumentsContext) => MissingDocumentsAction | Promise<MissingDocumentsAction>);
   limits?: AskLimits;
   /** How a model request that failed is sent again. Defaults to three more tries, with a wait that doubles. */
   retry?: RetryOptions;
@@ -204,6 +219,11 @@ export type AskResult = {
   toolTurns: ToolTurn[];
   /** Which documents went in whole and which were searched. */
   plan: DocumentPlan;
+  /**
+   * The documents of `documentIds` that were missing, and that the question was answered without
+   * (`onMissingDocuments` "drop"). Absent when none was. New in 0.9.0.
+   */
+  missing?: string[];
   /** The budget the question ran with: the library's, fitted to the models. */
   budget: Budget;
   /** Model requests made for the chat itself, an explorer model's among them (whole-document part reads not included). */
@@ -214,6 +234,87 @@ export type AskResult = {
   /** The provider's own usage object of the last chat response, as it came. */
   lastUsage?: Record<string, unknown>;
 };
+
+/**
+ * What `AskOptions.onMissingDocuments` says to do with the documents that are missing:
+ * - "throw": fail the question with `DocumentsNotFoundError`;
+ * - "drop": answer it without them;
+ * - `{ retry: true }`: plan it again with the same IDs, under which the documents were ingested again;
+ * - `{ replace: { [oldId]: newId } }`: plan it again with each new ID in place of its old one.
+ * New in 0.9.0.
+ */
+export type MissingDocumentsAction = "throw" | "drop" | { retry: true } | { replace: Record<string, string> };
+
+/** What a function of `AskOptions.onMissingDocuments` is told besides the IDs: who asks, and the question's signal. New in 0.9.0. */
+export type MissingDocumentsContext = { owner?: string; scope?: DocumentScope; signal?: AbortSignal };
+
+/** The line added to the system instruction when `count` documents were left out ("drop"). */
+const missingFilesLine = (count: number) => (count === 1
+  ? "1 of the attached files is no longer available; say so if the question needs it."
+  : `${count} of the attached files are no longer available; say so if the question needs them.`);
+
+/** A value as an error quotes it. */
+const shownValue = (value: unknown) => (typeof value === "string" ? JSON.stringify(value) : value === null ? "null" : typeof value);
+
+/** `onMissingDocuments` checked: a value it cannot be is an error before anything is planned. */
+function checkMissingPolicy(given: unknown): void {
+  if (given === undefined || given === "throw" || given === "drop" || typeof given === "function") return;
+  throw new TypeError(`onMissingDocuments must be "throw", "drop" or a function, and is ${shownValue(given)}.`);
+}
+
+/** What a function of `onMissingDocuments` returned, checked. */
+function checkedAction(action: unknown): MissingDocumentsAction {
+  if (action === "throw" || action === "drop") return action;
+  if (action !== null && typeof action === "object") {
+    const { retry, replace } = action as { retry?: unknown; replace?: unknown };
+    if (retry === true && replace === undefined) return { retry: true };
+    if (retry === undefined && replace !== null && typeof replace === "object" && !Array.isArray(replace)
+      && Object.values(replace).every((id) => typeof id === "string" && id.length > 0)) {
+      return { replace: { ...(replace as Record<string, string>) } };
+    }
+  }
+  throw new TypeError(`onMissingDocuments returned ${shownValue(action)}: it must return "throw", "drop", { retry: true } or { replace: { [oldId]: newId } }.`);
+}
+
+/** The documents of a question once `onMissingDocuments` had its say. */
+type PlannedDocuments = {
+  prepared: PreparedContext;
+  /** The IDs planned: those asked about, without those left out, with those replaced. */
+  documentIds: string[];
+  /** The IDs left out ("drop"). */
+  dropped: string[];
+};
+
+/**
+ * Plans the documents `ids`, and settles those that are missing as `onMissingDocuments` says. A
+ * retry or a replace plans them again, once.
+ */
+async function planDocumentsOf(options: AskOptions, ids: string[], prepare: (ids: string[]) => Promise<PreparedContext>): Promise<PlannedDocuments> {
+  const prepared = await prepare(ids);
+  if (prepared.missing.length === 0) return { prepared, documentIds: ids, dropped: [] };
+  const policy = options.onMissingDocuments ?? "throw";
+  let action: MissingDocumentsAction = policy === "drop" ? "drop" : "throw";
+  if (typeof policy === "function") {
+    options.signal?.throwIfAborted();
+    const context: MissingDocumentsContext = {
+      ...(options.owner !== undefined ? { owner: options.owner } : {}),
+      ...(options.scope !== undefined ? { scope: options.scope } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    };
+    // A function that does not look at the signal does not hold the question once it is stopped.
+    action = checkedAction(await until(policy([...prepared.missing], context), options.signal));
+  }
+  if (action === "throw") throw new DocumentsNotFoundError(prepared.missing);
+  if (action === "drop") {
+    const gone = new Set(prepared.missing);
+    return { prepared, documentIds: ids.filter((id) => !gone.has(id)), dropped: [...prepared.missing] };
+  }
+  const replace = "replace" in action ? action.replace : {};
+  const again = ids.map((id) => (Object.hasOwn(replace, id) ? replace[id]! : id));
+  const second = await prepare(again);
+  if (second.missing.length > 0) throw new DocumentsNotFoundError(second.missing);
+  return { prepared: second, documentIds: again, dropped: [] };
+}
 
 const DEFAULT_TOOL_TURNS = 12;
 const DEFAULT_CALLS_PER_TURN = 8;
@@ -476,6 +577,9 @@ type Carried = {
   recoveries: number;
   contextTokens: number;
   step: string;
+  /** The documents the first try planned, once `onMissingDocuments` had its say, and those it left out. */
+  documentIds: string[];
+  missing: string[];
 };
 
 /**
@@ -649,6 +753,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const toolModel = explorer ?? model;
   const models = explorer ? [model, explorer] : [model];
   const limits = checkedLimits(options.limits);
+  checkMissingPolicy(options.onMissingDocuments);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -686,29 +791,35 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
     ...(options.scope !== undefined ? { scope: options.scope } : {}),
   };
-  const prepared = await files.prepare(options.documentIds, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
+  // Documents that are missing are settled as `onMissingDocuments` says. A question planned again
+  // starts from the documents its first try planned: the function is not asked again about them.
+  const planned = await planDocumentsOf(options, carried?.documentIds ?? options.documentIds, (ids) => files.prepare(ids, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
     ...access,
     viewPages: options.viewPages !== false && canShowFiles,
     // The guide and the cards name `analyze_whole_document` only when the tools will have it.
     wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof toolModel.generateText === "function",
     budget,
-  });
-  if (prepared.missing.length) throw new DocumentsNotFoundError(prepared.missing);
+  }));
+  const { prepared, documentIds } = planned;
+  /** The documents left out of the question ("drop"), by this try and by the first. */
+  const missing = [...carried?.missing ?? [], ...planned.dropped];
 
-  const blocks = [...new Set(options.documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
+  const blocks = [...new Set(documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
   if (blocks.length) {
     const block = { text: blocks.join("\n\n") };
     if (options.documentPlacement === "last") (messages.at(-1) as ModelTextMessage).parts.push(block);
     // The last turn is the user's, so there is always a first user turn.
     else (messages.find((message) => message.role === "user") as ModelTextMessage).parts.unshift(block);
   }
-  const system = [options.system?.trim(), prepared.instruction].filter(Boolean).join("\n\n");
+  // A question without some of its files says so to the model, in one line of its own.
+  const missingLine = missing.length > 0 ? missingFilesLine(missing.length) : "";
+  const system = [options.system?.trim(), prepared.instruction, missingLine].filter(Boolean).join("\n\n");
 
   // The size of what stays in every request: the text as asked, the documents, the tool guide.
   const whole = new Set(prepared.plan.inline.map((meta) => meta.id));
   meter.fixed = {
-    tokens: asText.tokens + prepared.plan.inlineTokens + estimateTokens(prepared.instruction),
-    bytes: asText.bytes + prepared.plan.inlineBytes + jsonBytes(prepared.instruction),
+    tokens: asText.tokens + prepared.plan.inlineTokens + estimateTokens(prepared.instruction) + estimateTokens(missingLine),
+    bytes: asText.bytes + prepared.plan.inlineBytes + jsonBytes(prepared.instruction) + jsonBytes(missingLine),
   };
   for (const [id, block] of prepared.blocks) {
     if (whole.has(id)) continue;
@@ -745,7 +856,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     events.emit({ type: "notice", code, message, display: "activity" });
   };
   /** A notice that earlier versions did not show. */
-  const notice = (code: NoticeCode, message: string) => events.emit({ type: "notice", code, message, display: "none" });
+  const notice = (code: NoticeCode, message: string, documentIds?: string[]) => events.emit({ type: "notice", code, message, display: "none", ...(documentIds ? { documentIds } : {}) });
   const budgetReached = () => {
     if (state.budgetSaid) return;
     state.budgetSaid = true;
@@ -754,6 +865,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   // What a first try that was planned again showed is part of this question; then why it was planned again.
   steps.push(...carried?.steps ?? []);
   if (carried) step(carried.step, "replanned");
+  if (planned.dropped.length > 0) {
+    const count = planned.dropped.length;
+    notice("documents_missing", `${count === 1 ? "1 of the attached files is" : `${count} of the attached files are`} no longer available: the question is answered without ${count === 1 ? "it" : "them"}.`, [...planned.dropped]);
+  }
   if (events.active) events.emit({ type: "plan", inline: prepared.plan.inline.map(documentRef), searchable: prepared.plan.searchable.map(documentRef) });
 
   // A model turn in its provider's own form goes back only to the adapter it came from. Any other
@@ -884,6 +999,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       })),
     })),
     plan: prepared.plan,
+    ...(missing.length > 0 ? { missing: [...missing] } : {}),
     budget,
     turns,
     ...(finishReason ? { finishReason } : {}),
@@ -1097,7 +1213,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         }
         if (carried === undefined && callsAnswered === 0 && !text) {
           const smaller = smallerWindow(adapter, body, error);
-          throw new Replan({ usage, steps: [...steps], turns, answered: answeredRequests, nudges, recoveries, contextTokens: smaller.contextTokens, step: smaller.step }, error, result(false));
+          throw new Replan({ usage, steps: [...steps], turns, answered: answeredRequests, nudges, recoveries, contextTokens: smaller.contextTokens, step: smaller.step, documentIds, missing }, error, result(false));
         }
         throw error;
       }
@@ -1177,6 +1293,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       budget,
     });
     const declarations = tools.declarations;
+    /** The documents a tool call found gone, told once each ("document_gone"). */
+    const gone = new Set<string>();
+    /** The file name of a document of the question, as the plan has it. */
+    const nameOf = (id: string): string | undefined => [...searchable, ...viewable].find((meta) => meta.id === id)?.name;
     // The requests that use the tools are the chat's own, or an explorer model's: the same
     // conversation, and a line that says what its part is.
     const toolSystem = explorer ? `${system}\n\n${EXPLORER_INSTRUCTION}` : system;
@@ -1494,6 +1614,12 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           if (openCalls.has(index)) events.emit({ type: "tool.progress", callId: callIds[index]!, stage: event.kind, done: event.done, total: event.total, message: event.message });
         }),
         ...(events.active ? { onRequest: (start: ToolRequestStart) => readerRequest(index, start) } : {}),
+        // Notices of the question, not steps: the call's own step says what the model was told.
+        onDocumentGone: (id) => tell(() => {
+          if (gone.has(id)) return;
+          gone.add(id);
+          notice("document_gone", `${nameOf(id) ?? "A file"} is no longer available on the server.`, [id]);
+        }),
       });
 
       // The calls of a turn run together, a few at a time. Looks at pages take their turns, one
@@ -1516,7 +1642,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               requestBytes = toolModel.requestBytes?.(waiting) ?? meter.estimate(waiting.messages).bytes;
             }
             // Base64 turns three bytes into four characters.
-            const output = await tools.executeWithFiles(call.name, call.args, { maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4), maxPages: pagesLeft });
+            const output = await tools.executeWithFiles(call.name, call.args, { maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4), maxPages: pagesLeft }, hooksFor(index));
             for (const file of output.files) requestBytes += Math.ceil(file.bytes.length / 3) * 4 + 512;
             if (output.files.length > 0) pagesLeft -= pagesShown(output.result);
             return output;

@@ -337,6 +337,12 @@ export type ToolCallHooks = {
    * returns about each retry of that request, and when it ends.
    */
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
+  /**
+   * The document this call names is no longer in the store: deleted or expired since it was
+   * planned, or not readable by the caller (which looks the same). The call answers the model with
+   * an error that says so. `askWithFiles` makes it a "document_gone" notice. New in 0.9.0.
+   */
+  onDocumentGone?: (documentId: string) => void;
 };
 
 /** One model request of a tool call (`ToolCallHooks.onRequest`). */

@@ -1,4 +1,4 @@
-import { askWithFiles, type AskLimits, type AskResult } from "../ask.js";
+import { askWithFiles, type AskLimits, type AskOptions, type AskResult } from "../ask.js";
 import type { LargeFiles } from "../library.js";
 import type { AskEvent } from "../events.js";
 import type { ChatTurn, ToolTurn } from "../model.js";
@@ -56,6 +56,11 @@ export type AskGeminiOptions = {
    * with another scope are treated as missing. New in 0.9.0.
    */
   scope?: DocumentScope;
+  /**
+   * What to do when documents of `documentIds` are missing: "throw" (the default), "drop", or a
+   * function that says (`AskOptions.onMissingDocuments`). New in 0.9.0.
+   */
+  onMissingDocuments?: AskOptions["onMissingDocuments"];
   /** The limits of the question: tool turns, calls in a turn, whole-file reads, tokens and requests. */
   limits?: AskLimits;
   /** `limits.toolTurns`, under the name it had before 0.5.0. Defaults to 12. */
@@ -143,6 +148,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     ...(options.system !== undefined ? { system: options.system } : {}),
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
     ...(options.scope !== undefined ? { scope: options.scope } : {}),
+    ...(options.onMissingDocuments !== undefined ? { onMissingDocuments: options.onMissingDocuments } : {}),
     limits: {
       ...(options.maxToolTurns !== undefined ? { toolTurns: options.maxToolTurns } : {}),
       ...(options.maxToolCallsPerTurn !== undefined ? { callsPerTurn: options.maxToolCallsPerTurn } : {}),
