@@ -41,8 +41,11 @@ matter.
 Exact numbers from tables. `aggregate_table` counts, sums, averages and groups the rows of a CSV
 file, a sheet of a workbook or a `| cell |` table of any document, reading every row, with no code
 run; it finds headers of several rows and a title above them. Search hits say which section and
-which table header they belong to. A file whose name says nothing is known by its bytes, the card
-says which PDF pages have no text or a garbled one.
+which table header they belong to. A file whose name says nothing is known by its bytes, and the
+card says which PDF pages have no text or a garbled one. Checked live with the Gemini API on
+`gemini-3.5-flash-lite` and `gemini-3.8-flash`: a sum and a count by region of a workbook, averages
+per region, refunded orders of a CSV with a title row, and a row found by search named by its
+header; all eight answers right, the counts with one `aggregate_table` call.
 
 ### Upgrading: what you need to change
 
