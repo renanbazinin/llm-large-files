@@ -471,7 +471,10 @@ Since 0.9.0 one look runs at a time in a library (`maxConcurrentPageLooks`, 1 by
 all its questions: the others wait, before their PDF is loaded, for up to `pageLookWaitMs` (30 s),
 and then the model is told the server is busy. So the heap holds one parsed PDF at a time, not one
 for each question that looks. Raise it only with the heap to match: six looks at once took 352 MB
-more than one, and did not finish sooner.
+more than one, and did not finish sooner. A look holds its turn while it reads the PDF from the
+store, for at most `ingestTimeoutMs` (2 minutes by default). Past it, the turn goes back and the
+model is told the file could not be read in time. The read itself goes on: give your store's
+`getOriginal` a time limit of its own, shorter than that, when it reads over a network.
 For the documents of users you do not trust, do not offer `view_pages` (`viewPages: false`), or keep
 no PDF originals. To offer it anyway, run each of their questions, the whole tool loop, in a process
 you fork, with its own heap and memory limits. What the model is told when pages cannot be shown,

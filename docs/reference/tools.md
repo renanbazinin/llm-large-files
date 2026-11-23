@@ -699,8 +699,9 @@ Errors, besides those of [every tool](#rules-for-every-tool):
 | `NAME has N pages. There is no page F.` | `from_page` is past the last page. |
 | `No more pages can be looked at for this question. Answer from the pages and the text you already have.` | The call's `maxPages` is below 1. |
 | `There is no room left in this request to show more pages. Answer from the pages and the text you already have.` | The call's `maxFileBytes` is below 1,024. |
-| `The original file of NAME is no longer on the server, so its pages cannot be shown. Answer from the text.` | The store no longer has the original. |
-| `NAME: The pages cannot be looked at right now; the server is busy. Answer from the text, or look again later.` | The look waited longer than `pageLookWaitMs` for its turn: other looks of the library held them all (`maxConcurrentPageLooks`, [library](./library.md#largefilesoptions)). It was not run, and its PDF was not loaded. The call's hooks are told (`ToolCallHooks.onPagesBusy`), and `askWithFiles` gives a `"page_looks_busy"` notice. New in 0.9.0. |
+| `The original file of NAME is no longer on the server, so its pages cannot be shown. Answer from the text.` | The store no longer has the original. When the document itself is gone too (deleted while the look waited for its turn), the call gives `ID is no longer available on the server. Ask the user to attach the file again.` instead, and its hooks are told (`ToolCallHooks.onDocumentGone`; since 0.9.0). |
+| `The original file of NAME could not be read in time, so its pages cannot be shown. Answer from the text.` | The store's `getOriginal` did not answer within `ingestTimeoutMs` (2 minutes when that is 0). The look gave its turn back, so the next look runs. The read goes on in the background: give your store's `getOriginal` a time limit of its own. New in 0.9.0. |
+| `NAME: The pages cannot be looked at right now; the server is busy. Answer from the text, or look again later.` | The look waited longer than `pageLookWaitMs` for its turn, or the call's `maxWaitMs` when that is less: other looks of the library held them all (`maxConcurrentPageLooks`, [library](./library.md#largefilesoptions)). It was not run, and its PDF was not loaded. The call's hooks are told (`ToolCallHooks.onPagesBusy`), and `askWithFiles` gives a `"page_looks_busy"` notice. New in 0.9.0. |
 | `NAME: Page F is 2.1 MB as a file, more than the 1.5 MB that fit in this request.` | The first page alone does not fit `maxFileBytes`. |
 | `NAME: ` and the reason | The file cannot be cut: it needs a password, is damaged, declares too many objects to cut in memory, has another page count than its text, has no page `from_page` (when its page count was not recorded), or `@cantoo/pdf-lib` is not installed. |
 | `The pages could not be shown: this application does not pass files from tools to the model. Answer from the text.` | The call was run with `execute`, which has no place for a file. |
@@ -991,6 +992,7 @@ type ToolCallLimits = {
   maxPages?: number;
   maxResultCharacters?: number;
   maxRequests?: number;
+  maxWaitMs?: number; // new in 0.9.0
 };
 ```
 
@@ -1000,12 +1002,14 @@ type ToolCallLimits = {
 | `maxPages` | number | [`MAX_VIEW_PAGES`](#max_view_pages) (5) | `view_pages`: the most pages this call may show, never more than 5. Below 1 the call fails. Lower it as the pages already shown use up your token budget. |
 | `maxResultCharacters` | number | The tool's own cap ([`resultCharacters`](#toolset)) | The most characters of the JSON result, when that is less than the tool's cap: the room left in the request. The result is cut to it and says where to go on. Never below 600. `view_pages` ignores it. |
 | `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. It does not stop the read: a part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, a merge and the answer must fit). New in 0.6.0. |
+| `maxWaitMs` | number | The library's `pageLookWaitMs` (30,000) | `view_pages`: the most milliseconds the look waits for its turn, when that is less than `pageLookWaitMs`. 0: it runs only when a turn is free now, and is told the server is busy if not. New in 0.9.0. |
 
 In `askWithFiles`, `maxFileBytes` is what is left of `maxRequestBytes` after the request so far
 and a tenth kept free (256 KiB at least), times 3/4; `maxPages` is what is left of
 `reservedTokens / 2 / pageTokens` pages for the question (60 with a `reservedTokens` of 64,000 and
 Gemini's 530 tokens a page); `maxRequests`, when `limits.requests` is set, is the read's own
-requests and a share of what the question has left of it. See
+requests and a share of what the question has left of it; `maxWaitMs` is 0 for the looks of a
+tool turn after one of them was told the server is busy, so that a turn waits once. See
 [Your own adapter and loop](../guides/own-adapter-and-loop.md).
 
 ### `ToolFileLimits`

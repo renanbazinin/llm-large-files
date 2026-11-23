@@ -968,6 +968,9 @@ into. Fill it from your own request, as the sample above does:
 - `maxRequests`: what your ceiling on requests has left, for a whole-file read. It only limits how
   many parts refused as too large are read again as two halves: a read that needs more parts than
   this still makes all of them, the merges of their notes and an answer.
+- `maxWaitMs` (new in 0.9.0): the most a look at pages waits for its turn, when that is less than
+  the library's `pageLookWaitMs`. `askWithFiles` gives 0 to the looks of a turn after one was told
+  the server is busy (`onPagesBusy`, below), so that a turn waits once. Do the same in your loop.
 
 The defaults, the floors and the errors a call answers with are in the
 [tools reference](../reference/tools.md#toolcalllimits).

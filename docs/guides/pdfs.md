@@ -669,7 +669,23 @@ order, before their PDF is loaded:
 A look that waited too long tells the model "report.pdf: The pages cannot be looked at right now;
 the server is busy. Answer from the text, or look again later.", and the question gets a
 `page_looks_busy` notice ([events](../reference/events.md#noticecode-and-noticedisplay)). A
-question that is stopped stops waiting at once, and loads nothing.
+question that is stopped stops waiting at once, and loads nothing. A question stopped while its
+PDF is read gives the turn back at once, and no pages are cut for it.
+
+A look holds its turn while it reads the PDF from the store, for at most `ingestTimeoutMs` (2
+minutes by default). Past it, the turn goes back, the next look runs, and the model reads "The
+original file of report.pdf could not be read in time, so its pages cannot be shown. Answer from
+the text." Give your store's `getOriginal` a time limit of its own: the read goes on.
+
+How long a question can wait for turns:
+
+- A tool turn waits once. After a look of the turn was told the server is busy, the other looks
+  of that turn do not wait: each runs if a turn is free at that moment, and is told the server is
+  busy if not.
+- So a tool turn waits at most `pageLookWaitMs` (30 s) for turns. A question waits at most once in
+  each of its tool turns: 12 turns of 30 s, 6 minutes, with the defaults, when other questions hold
+  the turn all that time.
+- Lower `pageLookWaitMs` for a chat that must answer sooner.
 
 ### Limits and cost
 

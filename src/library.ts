@@ -119,7 +119,9 @@ export type LargeFilesOptions = {
    * The others wait their turn, in order, before the PDF is loaded. A look parses the whole PDF on
    * the one thread the questions share: more at once do not finish sooner, they only hold more
    * memory (six at once held 352 MB more than one). `Infinity` for no limit (as before 0.9.0).
-   * Defaults to 1. New in 0.9.0.
+   * Defaults to 1. A look reads its PDF from the store within `ingestTimeoutMs` (2 minutes when
+   * that is 0): past it, the turn goes back and the model is told that the file could not be read
+   * in time. New in 0.9.0.
    */
   maxConcurrentPageLooks?: number;
   /**
@@ -460,13 +462,17 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const keepOriginals = new Set<DocumentFormat>(options.keepOriginals ?? []);
   /** The ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). */
   const ingests = new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentIngests", options.maxConcurrentIngests, 2))));
-  /** The looks at pages of every question of this library take their turns (`maxConcurrentPageLooks`). */
+  /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
+  const slotCapMs = ingestTimeoutMs > 0 && ingestTimeoutMs <= LONGEST_TIMER_MS ? ingestTimeoutMs : DEFAULT_INGEST_TIMEOUT_MS;
+  /**
+   * The looks at pages of every question of this library take their turns (`maxConcurrentPageLooks`).
+   * A look reads its original within the time the library gives its store calls (`slotCapMs`).
+   */
   const pageLooks: PageLookTurns = {
     limiter: new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentPageLooks", options.maxConcurrentPageLooks, DEFAULT_PAGE_LOOKS)))),
     waitMs: Math.max(0, numberOption("pageLookWaitMs", options.pageLookWaitMs, DEFAULT_PAGE_LOOK_WAIT_MS)),
+    holdMs: slotCapMs,
   };
-  /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
-  const slotCapMs = ingestTimeoutMs > 0 && ingestTimeoutMs <= LONGEST_TIMER_MS ? ingestTimeoutMs : DEFAULT_INGEST_TIMEOUT_MS;
 
   const scannedPdfPages = Math.max(0, Math.trunc(numberOption("scannedPdfPages", options.scannedPdfPages, 30)));
   /** Whether the uploaded file of a document of this format is kept. */

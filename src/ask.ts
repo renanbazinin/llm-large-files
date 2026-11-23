@@ -1604,6 +1604,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           end,
         };
       };
+      /** A look of this turn waited `pageLookWaitMs` and was told the server is busy: the others do not wait (`maxWaitMs`). */
+      let pagesBusy = false;
       /**
        * The listeners of one call: its progress goes to `onActivity` as before (in place of the
        * tool set's shared listener) and is told apart by call in the events, with its requests.
@@ -1620,7 +1622,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           gone.add(id);
           notice("document_gone", `${nameOf(id) ?? "A file"} is no longer available on the server.`, [id]);
         }),
-        onPagesBusy: (id) => tell(() => notice("page_looks_busy", `The pages of ${nameOf(id) ?? "a file"} were not looked at: the server was busy with other looks at pages.`, [id])),
+        onPagesBusy: (id) => {
+          pagesBusy = true;
+          tell(() => notice("page_looks_busy", `The pages of ${nameOf(id) ?? "a file"} were not looked at: the server was busy with other looks at pages.`, [id]));
+        },
       });
 
       // The calls of a turn run together, a few at a time. Looks at pages take their turns, one
@@ -1643,7 +1648,12 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               requestBytes = toolModel.requestBytes?.(waiting) ?? meter.estimate(waiting.messages).bytes;
             }
             // Base64 turns three bytes into four characters.
-            const output = await tools.executeWithFiles(call.name, call.args, { maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4), maxPages: pagesLeft }, hooksFor(index));
+            const output = await tools.executeWithFiles(call.name, call.args, {
+              maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4),
+              maxPages: pagesLeft,
+              // A tool turn waits for a look's turn once: after a busy look, the others run only when a turn is free now.
+              ...(pagesBusy ? { maxWaitMs: 0 } : {}),
+            }, hooksFor(index));
             for (const file of output.files) requestBytes += Math.ceil(file.bytes.length / 3) * 4 + 512;
             if (output.files.length > 0) pagesLeft -= pagesShown(output.result);
             return output;

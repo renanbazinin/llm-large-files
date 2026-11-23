@@ -1,8 +1,9 @@
 import { safeErrorMessage } from "./errors.js";
+import { until } from "./http.js";
 import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
 import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
-import { cutPdfPages } from "./pdf-pages.js";
+import { cutPdfPages, type PageCut } from "./pdf-pages.js";
 import type { Limiter } from "./limiter.js";
 import { DocumentGoneError } from "./ranged.js";
 import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource, type LineMatch } from "./search.js";
@@ -698,6 +699,12 @@ export type PageLookTurns = {
   limiter: Limiter;
   /** How long a look waits for its turn before the model is told that the server is busy. Infinity: without end. */
   waitMs: number;
+  /**
+   * How long a look may hold its turn while its original file is read from the store. Past it, the
+   * turn goes back and the model is told that the file could not be read in time: a store that
+   * never answers holds no turn for good. Left out, or Infinity: without end.
+   */
+  holdMs?: number;
 };
 
 export function createDocumentTools(options: {
@@ -803,15 +810,17 @@ export function createDocumentTools(options: {
   }
 
   /**
-   * Waits for the turn of a look at pages of `file`, for at most `pageLookWaitMs`. Returns the
-   * function that gives the turn back. Past the wait, a `PagesBusyError`. The wait ends at once
-   * when the tool set is stopped, with the reason it was stopped for.
+   * Waits for the turn of a look at pages of `file`, for at most `pageLookWaitMs`, or the call's
+   * `maxWaitMs` when that is less. Returns the function that gives the turn back. Past the wait, a
+   * `PagesBusyError`. The wait ends at once when the tool set is stopped, with the reason it was
+   * stopped for.
    */
-  async function pageLookTurn(id: string, file: string): Promise<() => void> {
+  async function pageLookTurn(id: string, file: string, limits: ToolCallLimits): Promise<() => void> {
     const turns = options.pageLooks;
     if (!turns) return () => undefined;
     const waited = new AbortController();
-    const waitMs = Math.max(0, turns.waitMs);
+    const callWait = typeof limits.maxWaitMs === "number" && !Number.isNaN(limits.maxWaitMs) ? limits.maxWaitMs : Infinity;
+    const waitMs = Math.max(0, Math.min(turns.waitMs, callWait));
     const timer = waitMs <= LONGEST_WAIT_MS ? setTimeout(() => waited.abort(), waitMs) : undefined;
     timer?.unref?.();
     try {
@@ -819,6 +828,27 @@ export function createDocumentTools(options: {
     } catch (error) {
       if (options.signal?.aborted || !waited.signal.aborted) throw error;
       throw new PagesBusyError(id, file);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The original file of a look, read while the look holds its turn: for at most `holdMs`, and
+   * only while the tool set runs. A read given up on goes on, but holds no turn.
+   */
+  async function originalOf(id: string, file: string): Promise<Uint8Array | undefined> {
+    const reading = until(options.loadOriginal!(id), options.signal);
+    const holdMs = options.pageLooks?.holdMs;
+    if (holdMs === undefined || !(holdMs <= LONGEST_WAIT_MS)) return reading;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // The timer keeps the process alive: a read that never ends may hold nothing that does, and
+    // the question waiting for it would be lost.
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`The original file of ${file} could not be read in time, so its pages cannot be shown. Answer from the text.`)), Math.max(0, holdMs));
+    });
+    try {
+      return await Promise.race([reading, late]);
     } finally {
       clearTimeout(timer);
     }
@@ -1101,19 +1131,29 @@ export function createDocumentTools(options: {
     // Looks take their turns in the library (`maxConcurrentPageLooks`): they share one thread, and
     // more of them at once only hold more memory. The original is loaded once the turn comes, so a
     // look that waits holds none of its bytes, and the memory left is looked at then (`cutPdfPages`).
-    const release = await pageLookTurn(id, file);
-    let cut;
+    // A question stopped while its original is read gives the turn back at once, and so does a
+    // read that takes longer than the library allows its store calls (`holdMs`).
+    const release = await pageLookTurn(id, file, limits);
+    let cut: PageCut | undefined;
     try {
       options.signal?.throwIfAborted();
-      const original = await options.loadOriginal!(id);
-      if (!original) throw new Error(`The original file of ${file} is no longer on the server, so its pages cannot be shown. Answer from the text.`);
-      try {
-        cut = await cutPdfPages(original, from, Math.min(asked, from + mostPages - 1), maxBytes, total);
-      } catch (error) {
-        throw new Error(`${file}: ${safeErrorMessage(error)}`);
+      const original = await originalOf(id, file);
+      // Stopped while the original was read: no pages are cut for a question that has left.
+      options.signal?.throwIfAborted();
+      if (original) {
+        try {
+          cut = await cutPdfPages(original, from, Math.min(asked, from + mostPages - 1), maxBytes, total);
+        } catch (error) {
+          throw new Error(`${file}: ${safeErrorMessage(error)}`);
+        }
       }
     } finally {
       release();
+    }
+    if (!cut) {
+      // The document may have gone while the look waited for its turn: that is told as such.
+      if (!await options.load(id)) throw gone(id);
+      throw new Error(`The original file of ${file} is no longer on the server, so its pages cannot be shown. Answer from the text.`);
     }
     const pages = pageRange(cut.from, cut.to);
     const shown = cut.to - cut.from + 1;
