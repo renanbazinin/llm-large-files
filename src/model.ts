@@ -441,8 +441,11 @@ export function modelErrorOf(error: unknown): { kind: unknown; limitTokens?: num
  * than the model's window: that period. Undefined for any other error.
  */
 export function rateAllowanceOf(error: unknown): "minute" | "day" | undefined {
-  if (modelErrorOf(error)?.kind !== "context_overflow" || !(error instanceof Error)) return undefined;
-  const period = RATE_TOO_SMALL.exec(error.message)?.[1];
+  if (modelErrorOf(error)?.kind !== "context_overflow") return undefined;
+  // modelErrorOf found an object: its message is read whatever its class, as modelErrorOf reads it.
+  const { message } = error as { message?: unknown };
+  if (typeof message !== "string") return undefined;
+  const period = RATE_TOO_SMALL.exec(message)?.[1];
   if (period === undefined) return undefined;
   return period.toLowerCase() === "day" ? "day" : "minute";
 }

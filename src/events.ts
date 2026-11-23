@@ -354,9 +354,10 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
     else if (isModelStatus(record.status) && own === undefined && !isPlainData(record)) {
       // A model's error without a kind of its own (an adapter of yours, `httpError`): the kind its
       // status gives, as its message is told, so that a model's EventError always has its kind.
-      // Plain data thrown is not an adapter's error, as errorInfoOf reads it.
-      const { code } = record;
-      out.kind = classifyModelError(record.status, error instanceof Error ? error.message : "", { code: typeof code === "string" ? code : undefined }).kind;
+      // Plain data thrown is not an adapter's error, as errorInfoOf reads it. The message is read
+      // from any class, an Error or not (an SDK's own), as errorInfoOf and the loop read it.
+      const { code, message: text } = record as { code?: unknown; message?: unknown };
+      out.kind = classifyModelError(record.status, typeof text === "string" ? text : "", { code: typeof code === "string" ? code : undefined }).kind;
     }
     if (typeof record.status === "number") out.status = record.status;
     // A store's own subclass of DocumentStoreError, of a name of its own, is told by the name

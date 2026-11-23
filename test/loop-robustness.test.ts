@@ -6,6 +6,7 @@ import {
   askWithFiles,
   classifyModelError,
   createLargeFiles,
+  errorInfoOf,
   errorKindOf,
   FINAL_ANSWER_WITHOUT_TOOLS,
   MemoryDocumentStore,
@@ -339,6 +340,35 @@ describe("a request larger than the model takes", () => {
       expect(result, label).toMatchObject({ answered: true, text: "Answered." });
       expect(result.steps[0], label).toBe(step);
     }
+  });
+
+  it("reads the message of an SDK's error that is not an Error the same way in the loop, its events and errorInfoOf", async () => {
+    // A class of its own, not a subclass of Error, with a status and OpenAI's words for the tokens a
+    // minute: an overflow for the loop, so a "context_overflow" in its request.end too, and the
+    // step names the minute.
+    class SdkError {
+      readonly status = 429;
+      readonly message = "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.";
+    }
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
+    let refused = 0;
+    // Thrown, not returned: fakeModel takes only an Error it is given for a refusal.
+    const model = fakeModel([() => {
+      if (refused++ === 0) throw new SdkError();
+      return says("Answered.");
+    }]);
+    const ends: unknown[] = [];
+    const result = await askWithFiles({
+      files, model, documentIds: [meta.id], messages: question("?"), retry: quick(),
+      onEvent: (event) => {
+        if (event.type === "request.end") ends.push(event);
+      },
+    });
+    expect(result).toMatchObject({ answered: true, text: "Answered." });
+    expect(result.steps[0]).toBe("The first request was larger than the 30,000 tokens a minute that the provider allows: the files were planned again to fit it");
+    expect(ends[0]).toMatchObject({ outcome: "error", error: { kind: "context_overflow", status: 429 } });
+    expect(errorInfoOf(new SdkError())).toMatchObject({ category: "model", code: "context_overflow" });
   });
 
   it("reports the provider's overflow when the document is gone, or the store fails, before the second plan", async () => {
