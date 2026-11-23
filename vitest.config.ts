@@ -13,6 +13,9 @@ const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
  * them out. A new test of that kind goes in a file of this folder, test/timing/<topic>.timing.test.ts,
  * and the other tests of its subject stay in their own file (CONTRIBUTING.md). A wait on a timer
  * alone (a 50 ms time limit checked under 2 s) is not slowed that much, and stays with the other tests.
+ * So do timers counted against a timer (heartbeats of 20 ms, at least 4 in 260 ms), and a check that
+ * work does not hang, under a bound far above its time on a busy machine (a child process started
+ * within 8 s).
  */
 const TIMING = "test/timing/**/*.test.ts";
 

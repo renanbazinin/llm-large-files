@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "../../src/index.js";
 import { read, REL, RELS, rowsOf, S, workbook, zip } from "../xlsx-fixtures.js";
 
-/** How long `work` took, and what it gave or threw. */
-const timed = async <T>(work: () => Promise<T>): Promise<{ value: T | unknown; ms: number }> => {
+/**
+ * How long `work` took, and what it gave or threw. Not the `timed` of clock.ts, which lets an error
+ * through: these tests time workbooks that are refused.
+ */
+const timedSettled = async <T>(work: () => Promise<T>): Promise<{ value: T | unknown; ms: number }> => {
   const started = performance.now();
   const value = await work().catch((error: unknown) => error);
   return { value, ms: performance.now() - started };
@@ -17,7 +20,7 @@ describe("a row that names one long shared string many times (#0, #46)", () => {
     const bytes = await workbook(`<row>${cells}</row>`, { strings: [`${"a".repeat(1_000_000)} b`] });
     expect(bytes.byteLength).toBeLessThan(5_000);
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const { value, ms } = await timed(() => files.ingest({ name: "fanout.xlsx", bytes }));
+    const { value, ms } = await timedSettled(() => files.ingest({ name: "fanout.xlsx", bytes }));
     expect((value as Error).message).toMatch(/more text than is (kept|read) from one file/);
     expect(ms).toBeLessThan(3_000);
   });
@@ -26,7 +29,7 @@ describe("a row that names one long shared string many times (#0, #46)", () => {
     // A string of 500,000 tabs: making it one line took about 100 ms, at each of the cells.
     const cells = '<c t="s"><v>0</v></c>'.repeat(100);
     const bytes = await workbook(`<row>${cells}</row>`, { strings: ["a\t".repeat(500_000)] });
-    const { value, ms } = await timed(() => read(bytes));
+    const { value, ms } = await timedSettled(() => read(bytes));
     expect((value as Error).message).toMatch(/more text than is read from one file/);
     expect(ms).toBeLessThan(3_000);
     const small = await workbook('<row><c t="s"><v>0</v></c><c t="s"><v>0</v></c><c t="s"><v>1</v></c></row>', { strings: ["  two\t\tspaced | piped  ", "a|b"] });
@@ -42,7 +45,7 @@ describe("a workbook that lists sheets many times (#5)", () => {
       "xl/worksheets/sheet1.xml": `<worksheet ${S}><sheetData/></worksheet>`,
       "xl/worksheets/sheet2.xml": `<worksheet ${S}><sheetData><row r="1"><c><v>7</v></c></row></sheetData></worksheet>`,
     });
-    const { value, ms } = await timed(() => read(bytes));
+    const { value, ms } = await timedSettled(() => read(bytes));
     expect(ms).toBeLessThan(5_000);
     const { text, pages } = value as { text: string; pages: number };
     expect(pages).toBe(2);

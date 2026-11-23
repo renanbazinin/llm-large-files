@@ -117,7 +117,10 @@ Add a test for every change in behavior. No test calls a real model:
   ran beside them on a busy machine, and coverage slows the work several times more. The files of
   `test/timing/` run one at a time, after the others, with one retry and 20 s for each test, and
   `npm run coverage` leaves them out. A wait on a timer alone (a 50 ms limit checked under 2 s)
-  stays in the `unit` project. `npx vitest run --project unit` runs the rest alone.
+  stays in the `unit` project. So do timers counted against a timer (heartbeats of 20 ms, at least
+  4 in 260 ms), and a check that work does not hang, under a bound far above its time on a busy
+  machine (a child process started within 8 s). `npx vitest run --project unit` runs the rest
+  alone.
 
 A test of the loop, from start to answer:
 

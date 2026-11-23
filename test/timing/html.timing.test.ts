@@ -10,9 +10,11 @@ import { timed } from "./clock.js";
 
 /**
  * The beats of a 5 ms timer while `work` ran (0 when the work never let a timer run), and the
- * longest time the timer waited: about the longest step that held the event loop.
+ * longest time the timer waited: about the longest step that held the event loop. Not the
+ * `beatsDuring` of clock.ts, whose timer beats every 2 ms and which gives no gap: these bounds were
+ * set with this one.
  */
-async function beatsDuring<T>(work: () => Promise<T>): Promise<{ value: T; beats: number; gap: number }> {
+async function beatsAndGapDuring<T>(work: () => Promise<T>): Promise<{ value: T; beats: number; gap: number }> {
   let beats = 0;
   let gap = 0;
   let last = performance.now();
@@ -74,7 +76,7 @@ describe("large pages (finding 2)", () => {
     // One line, its spaces made one and then trimmed in single calls: 16 MB held the server for
     // four seconds, and 100 MB ran out of memory. Read that way, the page lets no timer run.
     const page = "a\n".repeat(2 * 1024 * 1024);
-    const { value, beats, gap } = await beatsDuring(() => htmlToText(page));
+    const { value, beats, gap } = await beatsAndGapDuring(() => htmlToText(page));
     expect(beats).toBeGreaterThan(1);
     expect(gap).toBeLessThan(1_000);
     expect(value).toHaveLength(4 * 1024 * 1024 - 1);
@@ -84,7 +86,7 @@ describe("large pages (finding 2)", () => {
 
   it("reads a row of many cells without a step over all of them", async () => {
     const page = `<table><tr>${"<td>x".repeat(300_000)}</table>`;
-    const { value, beats, gap } = await beatsDuring(() => htmlToText(page));
+    const { value, beats, gap } = await beatsAndGapDuring(() => htmlToText(page));
     expect(beats).toBeGreaterThan(1);
     expect(gap).toBeLessThan(1_000);
     expect(value).toBe(`|${" x |".repeat(300_000)}`);
