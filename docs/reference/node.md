@@ -385,7 +385,7 @@ to a temporary file instead, and are ingested from its path.
 ```ts
 const documents = createDocumentHandlers(files, {
   getOwner: (request) => userIdOf(request),
-  uploadSpool: { directory: "/var/spool/uploads" }, // a folder of its own, on a disk
+  uploadSpool: { directory: "/var/spool/uploads" }, // this server's own folder, on a disk
 });
 ```
 
@@ -405,8 +405,11 @@ const documents = createDocumentHandlers(files, {
   then. `onUploaded` runs after the removal, and is not told the path. A removal is waited for no
   longer than `uploadIdleTimeoutMs`: on a volume that stops answering, the upload is answered and
   gives its room back, and the removal goes on alone. A server that stops in the middle of an
-  upload leaves its file: point the spool at a folder of its own, and empty it when the server
-  starts.
+  upload leaves its file. So the folder belongs to one server process: a disk-backed `emptyDir`,
+  or a folder of its own on the shared volume, such as `path.join("/data/spool", os.hostname())`.
+  Each server empties its own folder when it starts, and no other. Never empty a folder that
+  several servers share: the files of uploads the others are still ingesting would go, and those
+  uploads fail with `500` "Upload failed (ENOENT).".
 - **Room.** `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the bytes of the spool's
   files at once, as `maxPendingUploadBytes` bounds memory: an upload takes its `Content-Length`, or
   `maxUploadBytes` without one, before its body is read, then its size once written, until its file

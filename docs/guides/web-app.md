@@ -355,7 +355,7 @@ ingested. `uploadSpool` writes the larger ones to a temporary file instead:
 ```ts
 const documents = createDocumentHandlers(files, {
   getOwner: (request) => currentUserId(request),
-  uploadSpool: { directory: "/var/spool/uploads" }, // a folder of its own, on a disk
+  uploadSpool: { directory: "/var/spool/uploads" }, // this server's own folder, on a disk
 });
 ```
 
@@ -370,7 +370,10 @@ const documents = createDocumentHandlers(files, {
   without a `Content-Length` no longer fill it.
 - **Where.** On a disk, not a memory-backed folder, which would take the memory back
   ([Deployment](./deployment.md#uploads-and-ingest)). A server that stops in the middle of an upload
-  leaves its file: empty the folder when the server starts.
+  leaves its file. So give each server process a folder of its own (a disk-backed `emptyDir`, or
+  `path.join("/data/spool", os.hostname())` on the shared volume), and empty it when that server
+  starts. Never empty a folder that several servers share: the uploads the others are still
+  ingesting would fail.
 
 ### What the browser sends
 

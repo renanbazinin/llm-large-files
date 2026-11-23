@@ -238,17 +238,24 @@ of them filled the default room, and a third was refused 503 while they arrived.
 ```ts
 const documents = createDocumentHandlers(files, {
   getOwner: userIdOf,
-  uploadSpool: { directory: "/var/spool/uploads" }, // on a disk: not a tmpfs
+  uploadSpool: { directory: "/var/spool/uploads" }, // this server's own folder, on a disk: not a tmpfs
 });
 ```
 
 - **Put the spool on a disk.** A Kubernetes `emptyDir` with `medium: Memory` is a tmpfs: what is
   written there counts against the pod's memory limit, and spooling there saves nothing. So does a
   `/tmp` that is a tmpfs, as in some images, and `os.tmpdir()` is the default directory. Point
-  `directory` at the shared volume, or at a disk-backed `emptyDir` (no `medium`), with room for
-  `maxSpooledUploadBytes`.
-- **Give the spool a folder of its own.** A server that stops in the middle of an upload leaves its
-  file (named `llf-upload-` and a UUID). Empty the folder when the server starts.
+  `directory` at a disk-backed `emptyDir` (no `medium`), or at a folder on the shared volume, with
+  room for `maxSpooledUploadBytes`.
+- **Give each server process a spool folder of its own.** A server that stops in the middle of an
+  upload leaves its file (named `llf-upload-` and a UUID). The name does not say which server
+  wrote it. So each server empties its own folder when it starts, and no other. A disk-backed
+  `emptyDir` is one pod's already, and goes with the pod. On the shared volume, make a folder for
+  each server, such as `path.join("/data/spool", os.hostname())` (a pod's hostname is its name). A
+  pod that is replaced gets a new name, and leaves its folder behind: remove the folders of pods
+  that are gone. Never empty a folder that several servers share: a server that starts would
+  remove the files of uploads the others are still ingesting, and those uploads fail with `500`
+  `{ "error": "Upload failed (ENOENT)." }`.
 - **It costs a write and a read.** Each spooled upload is written once, and read once at its turn.
   On a network volume, that is the price of taking it off the heap.
 - **A volume that stops answering.** Each call to the disk (opening the file, each write, closing
