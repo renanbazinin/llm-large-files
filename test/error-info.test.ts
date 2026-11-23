@@ -10,6 +10,7 @@ import {
   type IngestErrorCode,
 } from "llm-large-files";
 import { GeminiRequestError } from "llm-large-files/gemini";
+import { eventErrorOf } from "../src/events.js";
 
 const HOST = "mongo-prod.internal.corp:27017";
 const PATH = "/srv/large-files/doc_1.json";
@@ -103,6 +104,28 @@ describe("errorInfoOf", () => {
     expect(errorInfoOf(hostile)).toEqual({ category: "unknown", status: 500, retryable: false, message: "Something went wrong." });
     expectSafe(system);
     expectSafe(plain);
+  });
+
+  it("reads an EventError, the plain data of run.error and ingest.error", () => {
+    const events = [
+      [eventErrorOf(new IngestError("no_text", "scan.pdf has no text layer.")), { category: "ingest", code: "no_text", status: 422, retryable: false, message: "scan.pdf has no text layer." }],
+      [eventErrorOf(new IngestError("busy", "Busy.", { retryAfterMs: 5_000 })), { category: "ingest", code: "busy", status: 503, retryable: true }],
+      // ingest.error of the upload handler: no name, and always a status.
+      [{ message: "a.bin looks binary, not text.", status: 422, code: "not_text" }, { category: "ingest", code: "not_text", status: 422 }],
+      [eventErrorOf(new DocumentStoreError(new Error(HOST), { operation: "write" })), { category: "store", status: 503, retryable: true, retryAfterMs: 5_000, message: "The document could not be stored. Try again." }],
+      [eventErrorOf(new DocumentsNotFoundError(["doc_1"])), { category: "missing", code: "documents_missing", status: 404 }],
+      [eventErrorOf(new ModelRequestError("Busy at acme-prod.", 429)), { category: "model", code: "rate_limit", status: 429, message: "The model was busy (HTTP 429)." }],
+      [eventErrorOf(new DOMException("The run was stopped.", "AbortError")), { category: "aborted", code: "aborted" }],
+      [eventErrorOf(new Error(`connect ${HOST}`)), { category: "unknown", status: 500, message: "Something went wrong." }],
+    ] as const;
+    for (const [data, expected] of events) {
+      expect(Object.getPrototypeOf(data)).toBe(Object.prototype);
+      const info = errorInfoOf(data);
+      expect(info, JSON.stringify(data)).toMatchObject(expected);
+      expectSafe(info);
+    }
+    // A model's words in plain data are not taken: a model error is told by its kind.
+    expect(errorInfoOf({ kind: "quota", status: 429, message: "Quota of acme-prod exceeded." }).message).toBe("The model's quota has run out (HTTP 429).");
   });
 
   it("reads the errors of another copy of the package", async () => {

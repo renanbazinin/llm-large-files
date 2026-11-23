@@ -1,6 +1,6 @@
 // What an error means for an application: one record to choose a status, a retry and words of
 // your own by, in any language. New in 0.9.0.
-import { DocumentScopeError, DocumentStoreError, IngestError } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, type IngestErrorCode } from "./errors.js";
 import { eventErrorOf } from "./events.js";
 import { classifyModelError, DocumentsNotFoundError, ModelRequestError, type ModelErrorKind } from "./model.js";
 
@@ -63,6 +63,12 @@ const MODEL_STATUS: Record<ModelErrorKind, number> = {
 };
 const RETRYABLE_KINDS = new Set<ModelErrorKind>(["rate_limit", "timeout", "unreachable", "server"]);
 
+/** Every `IngestErrorCode`, to read the `code` of an `EventError`. */
+const INGEST_CODES: Record<IngestErrorCode, true> = {
+  empty: true, too_large: true, too_much_text: true, too_many_pages: true, not_text: true, compressed: true, legacy_office: true,
+  encrypted: true, no_text: true, hostile: true, timeout: true, out_of_memory: true, busy: true, missing_dependency: true, unreadable: true, exists: true,
+};
+
 const isKind = (value: unknown): value is ModelErrorKind => typeof value === "string" && Object.hasOwn(MODEL_STATUS, value);
 const isStatus = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 400 && value <= 599;
 const isWait = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -83,30 +89,47 @@ function modelKindOf(error: object): ModelErrorKind | undefined {
   return undefined;
 }
 
+/** A refused file, from an `IngestError` or the `EventError` of one. */
+function ingestInfo(code: string, status: unknown, retryAfterMs: unknown, message: unknown): ErrorInfo {
+  return {
+    category: "ingest",
+    code,
+    status: isStatus(status) ? status : 422,
+    retryable: code === "busy",
+    ...(code === "busy" && isWait(retryAfterMs) ? { retryAfterMs } : {}),
+    // An unreadable file has the parser's message, or that of an extractor of your own: not words for a user.
+    message: code === "unreadable" || typeof message !== "string" || !message ? UNREADABLE : message,
+  };
+}
+
+const storeInfo = (code: unknown, message: string): ErrorInfo => ({
+  category: "store",
+  ...(typeof code === "string" ? { code } : {}),
+  status: 503,
+  retryable: true,
+  retryAfterMs: STORE_RETRY_AFTER_MS,
+  message,
+});
+
+/**
+ * An `EventError`: the plain data of `run.error`, `request.end`, `retry` and `ingest.error`, which
+ * the library made from an error with words safe to show. It is read by its `name` and `code`;
+ * a model error by its `kind`, below, as any error with one. Undefined for other data.
+ */
+function eventInfoOf(record: { name?: unknown; code?: unknown; kind?: unknown; status?: unknown; message?: unknown }): ErrorInfo | undefined {
+  const { name, code, kind, status, message } = record;
+  if (typeof message !== "string" || kind !== undefined) return undefined;
+  // `ingest.error` of the upload handler has no name.
+  if (typeof code === "string" && Object.hasOwn(INGEST_CODES, code) && (name === undefined || name === "IngestError")) return ingestInfo(code, status, undefined, message);
+  if (name === "DocumentStoreError") return storeInfo(undefined, message || "The document store could not be used. Try again.");
+  if (name === "DocumentsNotFoundError") return { category: "missing", code: "documents_missing", status: 404, retryable: false, message: message || "A document is no longer available. Upload it again." };
+  return undefined;
+}
+
 function infoOf(error: unknown): ErrorInfo {
-  if (IngestError.is(error)) {
-    const code = error.code;
-    return {
-      category: "ingest",
-      code,
-      status: isStatus(error.status) ? error.status : 422,
-      retryable: code === "busy",
-      ...(code === "busy" && isWait(error.retryAfterMs) ? { retryAfterMs: error.retryAfterMs } : {}),
-      // An unreadable file has the parser's message, or that of an extractor of your own: not words for a user.
-      message: code === "unreadable" || typeof error.message !== "string" || !error.message ? UNREADABLE : error.message,
-    };
-  }
-  if (DocumentStoreError.is(error)) {
-    return {
-      category: "store",
-      ...(typeof error.code === "string" ? { code: error.code } : {}),
-      status: 503,
-      retryable: true,
-      retryAfterMs: STORE_RETRY_AFTER_MS,
-      // Written to be shown: the operation and a code, never a path or a host.
-      message: eventErrorOf(error).message,
-    };
-  }
+  if (IngestError.is(error)) return ingestInfo(error.code, error.status, error.retryAfterMs, error.message);
+  // Written to be shown: the operation and a code, never a path or a host.
+  if (DocumentStoreError.is(error)) return storeInfo(error.code, eventErrorOf(error).message);
   if (DocumentsNotFoundError.is(error)) {
     return { category: "missing", code: "documents_missing", status: 404, retryable: false, message: eventErrorOf(error).message };
   }
@@ -116,6 +139,11 @@ function infoOf(error: unknown): ErrorInfo {
     return { category: "input", code: String(error.code), status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
   }
   if (typeof error !== "object" || error === null) return { category: "unknown", status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
+  const proto: unknown = Object.getPrototypeOf(error);
+  if (proto === Object.prototype || proto === null) {
+    const fromEvent = eventInfoOf(error);
+    if (fromEvent) return fromEvent;
+  }
   const { name, retryAfterMs } = error as { name?: unknown; retryAfterMs?: unknown };
   if (name === "AbortError") return { category: "aborted", code: "aborted", status: 503, retryable: true, message: "It was stopped before it finished." };
   if (name === "TimeoutError") return { category: "aborted", code: "timeout", status: 504, retryable: true, message: "It took too long, and was stopped. Try again." };
@@ -141,8 +169,9 @@ function infoOf(error: unknown): ErrorInfo {
  * What an error of the library means, for an application that tells its users in its own words:
  * its category and code, the HTTP status to answer with, whether to retry it, and a message in
  * English that is safe to show (never a path, a host, a stack or a provider's words). It reads
- * the errors of every copy of the package (two versions side by side, or one bundled), and never
- * throws: what it cannot read is "unknown". New in 0.9.0.
+ * the errors of every copy of the package (two versions side by side, or one bundled), and the
+ * `EventError` of an event (`run.error`, `ingest.error`), whose words it keeps. It never throws:
+ * what it cannot read is "unknown". New in 0.9.0.
  */
 export function errorInfoOf(error: unknown): ErrorInfo {
   try {
