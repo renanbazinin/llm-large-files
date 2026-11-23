@@ -190,6 +190,31 @@ describe("a document read by range", () => {
     expect(await textOf(one, "report", bob)).toContain("bravo");
   });
 
+  for (const kind of ["two servers", "one library, one scope"] as const) {
+    it(`is checked also when the call fails, whose error may quote what it read (${kind})`, async () => {
+      // aggregate_table names the columns it read when asked for one that is not there.
+      const csv = (header: string) => [header, ...Array.from({ length: 300 }, (_, i) => `${i},${i * 2},${i * 3}`)].join("\n");
+      const store = kind === "two servers" ? new RangedStoreOf08() : new HeldRangedMemoryStore();
+      const one = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+      const two = kind === "two servers" ? createLargeFiles({ store, wholeDocumentBytes: 0 }) : one;
+      const alice = kind === "two servers" ? { owner: "alice", scope: ["alice", "s1"] } : { owner: "x", scope: ["org"] };
+      const bob = kind === "two servers" ? { owner: "bob", scope: ["bob", "s1"] } : { owner: "y", scope: ["org"] };
+      const meta = await one.ingest({ name: "t.csv", bytes: utf8(csv("ida,colb,colc")), id: "report", ...alice });
+      const tools = one.tools([meta], { access: alice });
+      await tools.execute("read_document", { document_id: "report", start_line: 1, end_line: 2 });
+      const held = store.holds.hold("readTextRange");
+      const call = tools.execute("aggregate_table", { document_id: "report", metrics: ["sum:nonexistent"] });
+      await held.reached;
+      await two.delete("report", alice);
+      // The same layout, so the index kept for alice's copy still matches the text.
+      await two.ingest({ name: "t.csv", bytes: utf8(csv("sal,ssnx,bonu")), id: "report", ...bob });
+      held.release();
+      const result = await call;
+      expect(JSON.stringify(result)).not.toContain("ssnx");
+      expect(result.error).toMatch(/report is no longer available/);
+    });
+  }
+
   it("asks the store once more after a call, however many ranges the call read", async () => {
     const store = new RangedStore();
     const files = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });

@@ -110,8 +110,8 @@ the context on, and key any cache of those reads by it too, as
 another ingest of that ID is refused with `"exists"`, so two ingests cannot both find the ID free
 and mix one user's file with another's metadata. Across servers, the store is
 asked just before the writes too, but two servers can still write one ID at the same moment: the
-library takes them for one upload sent twice. Give each upload an ID of its own. When the writes
-do not end in time, the ID stays refused in that library until they have ended. The clean-up after
+library takes them for one upload sent twice. Give each upload an ID of its own. When the writes,
+or the clean-up after a failed write, do not end in time, the ID stays refused in that library until they have ended. The clean-up after
 a failed write leaves a document whose metadata it finds under the ID. The parts of one that another
 server is still writing at that moment may be removed: one more reason to give each upload an ID of
 its own.

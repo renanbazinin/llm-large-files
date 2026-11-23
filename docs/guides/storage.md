@@ -250,8 +250,8 @@ const report = await strict.ingest({ name: "report.txt", bytes, owner: "user-42"
   from its first look at the store to the end of its writes, another ingest of that ID is
   `"exists"`, whatever its `ifExists`, owner or scope. A user who uploads the same file twice at once
   gets a 409 for the second.
-- When the writes do not end within `ingestTimeoutMs`, the ingest throws, but its writes may still
-  land. So the ID stays held in that library until they have ended, and the removal of what they
+- When the writes (or the clean-up after a write that failed) do not end within `ingestTimeoutMs`,
+  the ingest throws, but its writes may still land. So the ID stays held in that library until they have ended, and the removal of what they
   wrote too. This fails closed: a store that never answers keeps that one ID refused in that library
   until the process restarts.
 - Across servers, the store is asked twice: before the file is read, and just before the writes.

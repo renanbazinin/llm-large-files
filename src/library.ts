@@ -419,7 +419,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const opening = new Map<string, Promise<DocumentSource | undefined>>();
   /**
    * The store, to read the text of a document by range rather than load it whole: each call carries
-   * `context`, the document's own (`documentContext`).
+   * `context`: the caller's scope, and the document's owner when it has one (`documentContext`).
    */
   const rangeStore = (context: DocumentContext): RangeStore => ({
     readTextRange: (id, start, end) => reading(() => store.readTextRange!(id, start, end, context)),
@@ -525,8 +525,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
   /**
    * Reads a document from the store: its index, to read it by range, or all of it. `meta` is what
-   * `metaFor` found for `caller`. The reads carry the document's own context (`documentContext`):
-   * the copy is kept for every caller of the scope.
+   * `metaFor` found for `caller`. The reads carry the caller's scope, and the document's owner when it
+   * has one (`documentContext`): the copy is kept for every caller of the scope.
    */
   async function open(id: string, meta: DocumentMeta, caller: Caller, key: string): Promise<DocumentSource | undefined> {
     const context = documentContext(meta, caller);

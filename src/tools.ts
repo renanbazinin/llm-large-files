@@ -1097,10 +1097,19 @@ export function createDocumentTools(options: {
     const reads: DocumentSource[] = [];
     const calls = typeof args === "object" && args !== null ? loaded.get(args) ?? new Set<DocumentSource[]>() : undefined;
     if (calls) loaded.set(args, calls.add(reads));
-    try {
-      const result = await handlers[name]!(args, limits, hooks);
-      // Once, after all the reads of the call: a document stored under the ID meanwhile is not the one read.
+    const checkReads = async () => {
       for (const document of reads) if (options.checkRead && !await options.checkRead(document)) throw gone(document.meta.id);
+    };
+    try {
+      let result: ToolResult;
+      try {
+        result = await handlers[name]!(args, limits, hooks);
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+        await checkReads();
+        throw error;
+      }
+      await checkReads();
       return result;
     } catch (error) {
       if (options.signal?.aborted) throw error;
