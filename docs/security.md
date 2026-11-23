@@ -92,20 +92,29 @@ no owner: open without `requireOwner`, missing with it.
 **A store that forgets the context fails closed.** Every store call carries the owner and the scope
 (new in 0.9.0). A wrapper or a subclass that passes on only the ID (`super.getMeta(id)`) loses
 them. Over a store that keeps scopes apart, the documents then look missing; over a
-`FileDocumentStore` with scoped folders, the calls throw a `DocumentScopeError`. Neither serves a
-document of one scope to another: the library checks `meta.scope` itself. When `get` returns a
-document whose metadata is not the one `getMeta` described (another ID, owner, scope or version: a
-wrapper that keeps what `get` gave by ID, or a document replaced on another server in between), the
-document is missing for that call. The original file is checked the same way after it is read.
-Pass the context on, as
+`FileDocumentStore` with scoped folders, the calls throw a `DocumentScopeError`.
+
+What the library checks is the metadata, against the caller: the owner and `meta.scope`. It asks
+`getMeta` before every use of a document. When `get` returns a document whose metadata is not the
+one `getMeta` described (another ID, owner, scope or version: a wrapper that keeps what `get` gave
+by ID, or a document replaced on another server in between), the document is missing for that call.
+Bytes read by range and the original file carry no metadata: after they are read, the library asks
+`getMeta` again, and they are missing unless the store still describes the same document. That
+catches a document replaced while it was read. It cannot catch a store that answers `readTextRange`,
+`getIndex` or `getOriginal` with another document's bytes while its `getMeta` is right, such as a
+wrapper that keeps those answers by ID alone: such a store serves one scope's text to another. Pass
+the context on, and key any cache of those reads by it too, as
 [Writing a store of your own](./guides/storage.md#writing-a-store-of-your-own) shows.
 
 **One ID, one ingest at a time.** In one library, while an ingest stores an application's ID,
 another ingest of that ID is refused with `"exists"`, so two ingests cannot both find the ID free
 and mix one user's file with another's metadata. Across servers, the store is
 asked just before the writes too, but two servers can still write one ID at the same moment: the
-library takes them for one upload sent twice. Give each upload an ID of its own. A failed write
-never removes a document another server stored under the ID meanwhile.
+library takes them for one upload sent twice. Give each upload an ID of its own. When the writes
+do not end in time, the ID stays refused in that library until they have ended. The clean-up after
+a failed write leaves a document whose metadata it finds under the ID. The parts of one that another
+server is still writing at that moment may be removed: one more reason to give each upload an ID of
+its own.
 
 What the owner should be (a user, or a user and a chat session), and how to keep a list of a
 session's documents, is in [Storage](./guides/storage.md). The owner stops one user from reaching

@@ -65,7 +65,7 @@ type Target = {
 };
 
 /** The TypeError of an `IngestInput.id` of another shape. It does not repeat the ID, which may hold what it must not. */
-const ID_SHAPE = 'id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN).';
+const ID_SHAPE = 'id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN), and not a name Windows keeps for a device (con, nul, com1…).';
 
 /** The ID, `ifExists`, owner and scope of an ingest, checked (the owner already is). */
 function targetOf(input: IngestInput, rules: AccessRules): Target {

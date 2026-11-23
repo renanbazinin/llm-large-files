@@ -280,9 +280,9 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | `TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.")` | `owner` is `""`, spaces only or `null`, or, from JavaScript, neither a string nor a finite number (an object, `true`, `NaN`). Before anything is read. New in 0.6.0: 0.5.0 accepted them. |
 | `TypeError("owner is required: requireOwner is on")`, `TypeError("scope is required: requireScope is on")` | The library requires an owner or a scope, and `input` has none. Before anything is read. New in 0.9.0. |
 | [`DocumentScopeError`](#documentscopeerror) `"scope_invalid"` | `scope` is not a valid [`DocumentScope`](#documentscope). Before anything is read. New in 0.9.0. |
-| `TypeError('id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN).')` | `id` does not match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern). The message does not repeat the ID. New in 0.9.0. |
+| `TypeError('id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN), and not a name Windows keeps for a device (con, nul, com1…).')` | `id` does not match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern). The message does not repeat the ID. New in 0.9.0. |
 | `TypeError('ifExists must be "fail" or "replace".')` | Another `ifExists`. New in 0.9.0. |
-| `IngestError` `"exists"`: `<name>: a document with this ID already exists.` | A document of `id` is there and `ifExists` does not let it be replaced; or another ingest of this library is storing `id` at the moment, whatever `ifExists` says; or a write failed and the document under `id` by then is another's (stored by another server). Status 409. It says nothing of the document that has the ID, but it does say that the ID is taken ([Application IDs](../guides/storage.md#application-ids)). New in 0.9.0. |
+| `IngestError` `"exists"`: `<name>: a document with this ID already exists.` | A document of `id` is there and `ifExists` does not let it be replaced; or another ingest of this library is storing `id` at the moment, whatever `ifExists` says; or a write failed and the document under `id` by then is another owner's or scope's, and has not expired (stored by another server). Status 409. It says nothing of the document that has the ID, but it does say that the ID is taken ([Application IDs](../guides/storage.md#application-ids)). New in 0.9.0. |
 | [`IngestError`](#ingesterror) `"empty"`: `<name> is empty.` | The file has no bytes. |
 | `IngestError` `"too_large"`: `<name> is larger than the 100 MB upload limit.` | The file is larger than `maxUploadBytes`. The message gives your limit. |
 | An `IngestError` with the extractor's message | The extractor refused the file: a binary or compressed file, an Office file of before 2007 or with a password, a PDF with a password or without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server; or a parser failed on a damaged file. The `code` comes from the message ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)), `"unreadable"` for one the library does not know, and the extractor's error is `cause`. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
@@ -291,7 +291,7 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | `signal.reason` | `IngestInput.signal` was aborted, before or during the ingest. |
 | `IngestError` `"no_text"`: `<name> did not contain any text.` | The extracted text is blank. |
 | What an extractor of your own threw | An error with a `status` or `statusCode`, a Node system error (one with a `code` and a `syscall`), and a value that is not an `Error`, as they are. Any other `Error` becomes an `IngestError`, as above. |
-| [`DocumentStoreError`](#documentstoreerror), operation `"write"` | A write failed, or did not end within `ingestTimeoutMs` (code `"ETIMEDOUT"`; 2 minutes when that is 0). `ingest` first calls `store.delete(id)` to remove what was written (an error of that call is ignored). With an `id`, only when nothing is under the ID by then, or the document there is this ingest's own (the same `createdAt`, owner and scope); otherwise it is left, and the ingest throws `IngestError` `"exists"`. The store's error is `cause`, and the message names no path or host: `The document could not be stored (EIO). Try again.` New in 0.9.0: it threw the store's error unchanged, and the time limit as `The store did not finish writing <name> within 2 min.`, which is now the message of `cause`. A `DocumentScopeError` of the store is thrown as it is. |
+| [`DocumentStoreError`](#documentstoreerror), operation `"write"` | A write failed, or did not end within `ingestTimeoutMs` (code `"ETIMEDOUT"`; 2 minutes when that is 0). `ingest` first calls `store.delete(id)` to remove what was written (an error of that call is ignored). With an `id`, only when nothing is under the ID by then, or the document there is this ingest's own (the same `createdAt`, owner and scope). Otherwise it is left, and the ingest throws `IngestError` `"exists"` when that document has not expired and is another owner's or scope's; this error when it is the one a replace was to remove. A write that did not end in time may still land: the `id` stays held in this library until it has ended, with the removal of what it wrote, and another ingest of it is `"exists"` meanwhile. A store that never answers keeps that one `id` refused in this library: it fails closed. The store's error is `cause`, and the message names no path or host: `The document could not be stored (EIO). Try again.` New in 0.9.0: it threw the store's error unchanged, and the time limit as `The store did not finish writing <name> within 2 min.`, which is now the message of `cause`. A `DocumentScopeError` of the store is thrown as it is. |
 | `DocumentStoreError`, operation `"read"` | With an `id`: the store could not be read when it was asked whether the ID is taken, or did not answer within `ingestTimeoutMs` (code `"ETIMEDOUT"`), before the file was read or just before the writes. Code `"NEWER_VERSION"` when `ifExists: "replace"` meets a document written by a newer version of the package, which is never replaced. New in 0.9.0. |
 
 Until 0.8.0 the refusals were plain `Error`s, with the same messages. The `TypeError` of an owner is
@@ -426,7 +426,9 @@ belong to the tool set.
 Each call that reads a document's text or the pages of its PDF asks the store for the document,
 and checks the owner and the scope the store holds. A document that the caller may not use is
 answered as one that is gone: `doc_… is no longer available on the server. Ask the user to attach
-the file again.`, and `view_pages` shows no page.
+the file again.`, and `view_pages` shows no page. A call that read a document by range asks the
+store once more when it ends (new in 0.9.0): if the store no longer describes the same document, of
+the same owner and scope, the call answers the same way, since what it read may be another's.
 
 - With `access` (new in 0.9.0), the caller is `access`: the store is asked with its owner and scope,
   and the document's are compared with them, as `getMeta(id, access)` does. The metadata handed in
@@ -958,7 +960,7 @@ A store that wraps another one, or a subclass that overrides a method, passes th
 |---|---|---|
 | `put(document)` | yes | Store the text and the metadata. Called last at ingest. A document should exist once its metadata does: `FileDocumentStore` writes the metadata last. Keep every field of `meta`, the optional ones too, and those a later version adds (0.6.0 added `encoding` and `replacedCharacters`): a store that keeps a fixed list of fields loses them, and one that checks `meta` against a fixed schema refuses the ingest of every file that has them. |
 | `get(id)` | yes | The whole document, or `undefined` when there is no such document. It may return an expired one: the library checks `expiresAt` itself. Called to load a document whole: its text is at most `wholeDocumentBytes`, or the store has no `readTextRange`. |
-| `getMeta(id)` | yes | The metadata, or `undefined` when there is no such document (an expired one may be returned; the library checks `expiresAt`). Called by every `prepare`, `getMeta`, `getOriginal` and `delete`, by every tool call, and by `ingest` with an application's `id`: keep it cheap, apart from the text. Return the owner absent, not `null` (the library reads `null` as none). |
+| `getMeta(id)` | yes | The metadata, or `undefined` when there is no such document (an expired one may be returned; the library checks `expiresAt`). Called by every `prepare`, `getMeta`, `getOriginal` and `delete`, by every tool call (once more after a read by range), and by `ingest` with an application's `id`: keep it cheap, apart from the text. Return the owner absent, not `null` (the library reads `null` as none). |
 | `delete(id)` | yes | Remove the document, its original and its index, and return whether it existed. Also called by `ingest` after a failed write, so it must cope with a document that was written only in part, and before a document that `ifExists: "replace"` replaces. |
 | `sweep(now?)` | no | Remove the documents expired at `now` (with their originals and indexes) and return how many. Without it, `files.sweep()` returns 0; expire the data another way, such as a TTL index of your database. |
 | `putOriginal(id, bytes)` | no | Keep the uploaded file. Called at ingest, before `putIndex` and `put`, for the formats in `keepOriginals`. Without it, no original is kept, whatever `keepOriginals` says. |
@@ -1010,10 +1012,11 @@ without a scope or an owner. Which one:
 - `getMeta`, `getOriginal` and `delete` carry the caller's (`AccessOptions`), or for `tools` without
   `access`, those of the metadata handed in.
 - The reads of a document's text (`get`, `readTextRange`, `getIndex`, and `putIndex` when its index
-  is built again) carry the document's own owner and scope, once the library has checked that the
-  caller may use it. The library keeps one copy of a document for every caller of its scope, so these
-  reads carry the same context whoever's call made them. For a document without an owner, they have
-  no owner, whoever asked.
+  is built again) carry the caller's scope and the document's owner, once the library has checked
+  that the caller may use it. The scope is where `getMeta` found the document, even when its metadata
+  has none. The library keeps one copy of a document for every caller of a scope, so these reads
+  carry the same context whoever's call made them. For a document without an owner, they have no
+  owner, whoever asked.
 - `sweep` gets the scope only.
 
 | Field | Type | What it holds |

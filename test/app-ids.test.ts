@@ -17,7 +17,7 @@ import {
 } from "llm-large-files";
 import { utf8 } from "./fake-model.js";
 
-const SHAPE = 'id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN).';
+const SHAPE = 'id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN), and not a name Windows keeps for a device (con, nul, com1…).';
 const base = { tokens: 0, bytes: 0 };
 const textOf = async (files: ReturnType<typeof createLargeFiles>, id: string, access: { owner?: string; scope?: string[] } = {}) =>
   (await files.prepare([id], base, access)).blocks.get(id);
@@ -135,7 +135,7 @@ describe('ifExists: "fail", the default', () => {
       return { text: new TextDecoder().decode(bytes) };
     };
     // Two libraries over one store, as two servers: in one library, the second ingest of an ID is
-    // refused at once, while the first is under way (test/id-isolation.test.ts).
+    // refused at once, while the first is under way (test/app-id-ingests.test.ts).
     const store = new MemoryDocumentStore();
     const one = createLargeFiles({ store, extractors: { text: slow } });
     const two = createLargeFiles({ store });
