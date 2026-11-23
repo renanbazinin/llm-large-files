@@ -1,4 +1,4 @@
-import { callerOf, checkMetaVersion, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules, type Caller } from "./access.js";
+import { callerOf, checkMetaVersion, documentContext, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules, type Caller } from "./access.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
 import type { IngestEvent } from "./events.js";
@@ -287,7 +287,11 @@ export interface LargeFiles {
    */
   ingest(input: IngestInput): Promise<DocumentMeta>;
   getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
-  /** The uploaded file itself, when it was kept (see `keepOriginals`). Treat the bytes as read-only. */
+  /**
+   * The uploaded file itself, when it was kept (see `keepOriginals`). Treat the bytes as read-only.
+   * Undefined too when, once the bytes are read, the store no longer describes the same document,
+   * or the bytes are not the size of the upload (0.9.0).
+   */
   getOriginal(id: string, access?: AccessOptions): Promise<Uint8Array | undefined>;
   /** Deletes a document. A store that fails is a `DocumentStoreError` (operation "delete") since 0.9.0. */
   delete(id: string, access?: AccessOptions): Promise<boolean>;
@@ -385,7 +389,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   /**
    * Documents ready to search, and decoded pieces of documents read by range, in one memory budget.
    * Each is kept under the key of the caller's scope and the document's ID (`documentKey`): one ID
-   * in two scopes is two documents, and the copy of one is never served to the other.
+   * in two scopes is two documents, and the copy of one is never served to the other. Its version
+   * (`documentVersion`) holds the document's owner and scope too, so a copy is not served to
+   * another owner either, once another document is stored under the same ID.
    */
   const cache = new DocumentCache<Sized>(
     cacheBytes,
@@ -412,8 +418,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   /** Documents being opened, so that calls arriving together open each one once. */
   const opening = new Map<string, Promise<DocumentSource | undefined>>();
   /**
-   * The store, to read the text of a document by range rather than load it whole, for the calls of
-   * one caller: each call carries its context.
+   * The store, to read the text of a document by range rather than load it whole: each call carries
+   * `context`, the document's own (`documentContext`).
    */
   const rangeStore = (context: DocumentContext): RangeStore => ({
     readTextRange: (id, start, end) => reading(() => store.readTextRange!(id, start, end, context)),
@@ -517,17 +523,39 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     return document;
   }
 
-  /** Reads a document from the store: its index, to read it by range, or all of it. */
+  /**
+   * Reads a document from the store: its index, to read it by range, or all of it. `meta` is what
+   * `metaFor` found for `caller`. The reads carry the document's own context (`documentContext`):
+   * the copy is kept for every caller of the scope.
+   */
   async function open(id: string, meta: DocumentMeta, caller: Caller, key: string): Promise<DocumentSource | undefined> {
+    const context = documentContext(meta, caller);
     if (typeof store.readTextRange === "function" && meta.textBytes > wholeDocumentBytes) {
       const rebuild = rebuildIndex.delete(key);
-      return openRangedDocument(rangeStore(caller.context), meta, scan, { ignoreSavedIndex: rebuild, key });
+      return openRangedDocument(rangeStore(context), meta, scan, { ignoreSavedIndex: rebuild, key });
     }
-    const stored = await reading(() => store.get(id, caller.context));
-    // The text of another document is not this one's.
-    if (!stored || metaOf(stored.meta, id) === undefined) return undefined;
-    const named = wholeName(stored.meta);
+    const stored = await reading(() => store.get(id, context));
+    // The text of another document is not this one's: of another ID, owner or scope, or another
+    // version (deleted and stored again since `meta` was read, by another server), or one a store
+    // of your own gave from the wrong scope. Missing, as for a caller who may not use it.
+    const found = stored ? metaOf(stored.meta, id) : undefined;
+    if (!stored || !found || !mayUse(found, caller, rules) || documentVersion(found) !== documentVersion(meta)) return undefined;
+    const named = wholeName(found);
     return new SearchableDocument(named === stored.meta ? stored : { ...stored, meta: named });
+  }
+
+  /**
+   * The uploaded file of document `id`, which `meta`, checked for `caller`, says is kept. Its bytes
+   * carry nothing to check them by, and another server may delete the document and store another
+   * under its ID while they are read: so the store is asked again once they are. Undefined unless it
+   * still describes the same document, of the same owner and scope, and the bytes are the size of
+   * the file that was ingested.
+   */
+  async function originalOf(id: string, caller: Caller, meta: DocumentMeta): Promise<Uint8Array | undefined> {
+    const bytes = await loadOriginal(id, caller.context);
+    if (!bytes) return undefined;
+    const after = await metaFor(id, caller);
+    return after && documentVersion(after) === documentVersion(meta) && bytes.byteLength === meta.bytes ? bytes : undefined;
   }
 
   /**
@@ -573,7 +601,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     async getOriginal(id, access) {
       const caller = callerOf(access, rules);
       const meta = await metaFor(id, caller);
-      return meta?.originalKept && store.getOriginal ? loadOriginal(id, caller.context) : undefined;
+      return meta?.originalKept && store.getOriginal ? originalOf(id, caller, meta) : undefined;
     },
 
     async delete(id, access) {
@@ -660,7 +688,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       const checkedOriginal = store.getOriginal && (async (id: string) => {
         const caller = callerFor(id);
         const meta = caller && await metaFor(id, caller);
-        return meta ? loadOriginal(id, caller.context) : undefined;
+        return meta ? originalOf(id, caller, meta) : undefined;
       });
       return createDocumentTools({
         load: checkedLoad,

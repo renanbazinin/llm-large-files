@@ -313,26 +313,37 @@ describe("view_pages: when pages cannot be shown", () => {
   it("says so when the original file is gone, damaged, or has too many objects", async () => {
     const { view, store, meta } = await withPdf(numberedPdf(3));
     const originals = (store as unknown as { originals: Map<string, Uint8Array> }).originals;
+    const stored = (store as unknown as { documents: Map<string, { meta: { bytes: number } }> }).documents.get(meta.id)!;
     const good = originals.get(meta.id)!;
+    const gone = { error: "The original file of report.pdf is no longer on the server, so its pages cannot be shown. Answer from the text." };
 
+    // A file of another size than the one ingested is not that file (0.9.0): it is not read at all.
     originals.set(meta.id, good.subarray(0, 300));
+    expect((await view({ from_page: 1 })).result).toEqual(gone);
+
+    /** Puts `bytes` in place of the file, and the metadata says the file is that size: they are cut. */
+    const swap = (bytes: Uint8Array) => {
+      originals.set(meta.id, bytes);
+      stored.meta.bytes = bytes.byteLength;
+    };
+    swap(good.subarray(0, 300));
     expect((await view({ from_page: 1 })).result).toEqual({ error: "report.pdf: This PDF could not be read to cut pages from it. It may be damaged." });
-    originals.set(meta.id, utf8("not a PDF at all"));
+    swap(utf8("not a PDF at all"));
     expect((await view({ from_page: 1 })).result).toEqual({ error: "report.pdf: This PDF could not be read to cut pages from it. It may be damaged." });
 
     // A file that says it has five million objects is not parsed.
-    originals.set(meta.id, pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>"], 5_000_000));
+    swap(pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>"], 5_000_000));
     expect((await view({ from_page: 1 })).result).toEqual({ error: "report.pdf: This PDF has 5,000,000 objects, too many to cut pages from it in memory." });
 
     // Another file under the same ID, or one that this reader pages differently than the reader the
     // text came from: a page number would not mean the same page, so no page is shown.
-    originals.set(meta.id, numberedPdf(5));
+    swap(numberedPdf(5));
     expect((await view({ from_page: 1 })).result).toEqual({ error: "report.pdf: The pages of this PDF could not be matched to its text (5 pages against 3), so they cannot be shown." });
 
     originals.delete(meta.id);
-    expect((await view({ from_page: 1 })).result).toEqual({ error: "The original file of report.pdf is no longer on the server, so its pages cannot be shown. Answer from the text." });
+    expect((await view({ from_page: 1 })).result).toEqual(gone);
 
-    originals.set(meta.id, good);
+    swap(good);
     expect((await view({ from_page: 1 })).files).toHaveLength(1);
   });
 

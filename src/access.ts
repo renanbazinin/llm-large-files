@@ -88,6 +88,21 @@ export function heldBy(found: DocumentMeta, owner: string | undefined, scope: Do
 }
 
 /**
+ * The context of the reads of a document's text (`get`, `readTextRange`, `getIndex`, and `putIndex`
+ * when its index is built again), once `caller` may use it (`mayUse`): the document's own owner and
+ * scope, not the caller's. The copy kept in memory is shared by every caller of the scope, whose
+ * owners differ when the document has none: so its reads carry one context whoever makes them,
+ * and go where the document lives. The scope is the caller's frozen copy, which `mayUse` found the
+ * same as the document's; so is the owner.
+ */
+export function documentContext(meta: DocumentMeta, caller: Caller): DocumentContext {
+  return storeContext(
+    (meta.scope ?? undefined) === undefined ? undefined : caller.scope,
+    (meta.owner ?? undefined) === undefined ? undefined : caller.owner,
+  );
+}
+
+/**
  * The metadata a store gave for `id`, when it is that of `id`: metadata of another document (a
  * store that looked up the wrong one) is none. An owner or a scope of null, as a database gives a
  * field that was left out, is left out.
