@@ -3,7 +3,8 @@
 This page lists every export of `llm-large-files/node`: `createDocumentHandlers`, its options, and
 the three HTTP handlers it returns, with the request each one expects and every status and body it
 can answer; `createIsolatedExtractors`, which reads PDF and Office files in child processes with a
-memory limit and a kill timer; and `writeSseEvents` and `sseMessageOf`, which send the events of a
+memory limit and a kill timer; `fileOriginals`, which reads back the uploads your application keeps
+in a folder; and `writeSseEvents` and `sseMessageOf`, which send the events of a
 question or an ingest to a browser as Server-Sent Events. It is for you if your server runs on Node
 and you want uploads, look-ups and deletes of documents without writing the routes yourself, files
 from users read apart from your server, or a streamed answer without writing the stream yourself.
@@ -11,13 +12,13 @@ How to mount them, what the browser sends, and how to read the stream in the bro
 guide [web app](../guides/web-app.md).
 
 ```ts
-import { createDocumentHandlers, createIsolatedExtractors, sseMessageOf, writeSseEvents } from "llm-large-files/node";
+import { createDocumentHandlers, createIsolatedExtractors, fileOriginals, sseMessageOf, writeSseEvents } from "llm-large-files/node";
 import type {
   DocumentHandlerOptions, DocumentHandlers, IsolatedExtractorOptions, IsolatedExtractors, SseMessage, SseWriteOptions,
 } from "llm-large-files/node";
 // What the signatures below use:
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { DocumentFormat, Extractor, LargeFiles, PdfExtractorOptions } from "llm-large-files";
+import type { DocumentFormat, Extractor, LargeFiles, OriginalsReader, PdfExtractorOptions } from "llm-large-files";
 ```
 
 ## Contents
@@ -30,6 +31,7 @@ import type { DocumentFormat, Extractor, LargeFiles, PdfExtractorOptions } from 
 - [How errors are answered](#how-errors-are-answered)
 - [Isolated ingest](#isolated-ingest): [`createIsolatedExtractors()`](#createisolatedextractorsoptions),
   [`IsolatedExtractorOptions`](#isolatedextractoroptions), [`IsolatedExtractors`](#isolatedextractors)
+- [Uploads your application keeps](#uploads-your-application-keeps): [`fileOriginals()`](#fileoriginalsroot)
 - [Server-Sent Events](#server-sent-events): [`writeSseEvents()`](#writesseeventsresponse-events-options),
   [`sseMessageOf()`](#ssemessageofevent), [`SseMessage`](#ssemessage),
   [`SseWriteOptions`](#ssewriteoptions)
@@ -403,9 +405,17 @@ What happens to a file of one of its formats:
    as `"busy"`.
 2. Its bytes are copied to a child process, with its name, MIME type, format and the limits of
    `createLargeFiles` (`maxTextBytes`, `maxPdfPages`, `scannedPdfPages`). The child reads it with the
-   built-in extractor of its format, and sends its progress and then its text back.
+   built-in extractor of its format, and sends its progress and then its text back. A file ingested
+   from a path ([`IngestFromSource`](./library.md#ingestfromsource), new in 0.9.0) is sent as its
+   path instead: the extractors have `readsPath`, so the child reads the file itself, once, at most
+   `maxUploadBytes + 1` bytes (a larger one is refused as `"too_large"`), opened without following
+   a link at its name, and sends back its size and SHA-256 with the text. The server reads none of
+   the file, and holds none of it while it waits for a child. When the store keeps a copy of the
+   file (`keepOriginals` without `IngestInput.original`), the server reads it, and the bytes are
+   sent as before.
 3. The rest of the ingest runs in your server, as without it: the text is normalized, profiled,
-   indexed and stored. A file costs its bytes copied to the child and its text copied back.
+   indexed and stored. A file costs its bytes copied to the child (none from a path) and its text
+   copied back.
 4. A child reads one file at a time. It is replaced by a new one after `maxFilesPerChild` files,
    since some parsers keep memory for the life of their process (`@cantoo/pdf-lib` keeps every name
    it reads), and stopped after `idleMs` with nothing to read. An idle child does not keep your
@@ -510,9 +520,58 @@ type IsolatedExtractors = {
 
 | Member | What it is |
 |---|---|
-| `extractors` | One extractor for each of `formats`, to pass to `createLargeFiles({ extractors })`. To add one of your own for another format: `{ ...isolated.extractors, text: myText }`. |
+| `extractors` | One extractor for each of `formats`, to pass to `createLargeFiles({ extractors })`. Each has `readsPath: true` (new in 0.9.0): a file ingested from a path is read by the child. A wrapper of one (as above) reads no paths unless it sets `readsPath` too and passes `ExtractInput` on as it is. To add one of your own for another format: `{ ...isolated.extractors, text: myText }`. |
 | `stats()` | The files being read (`running`), the files waiting (`queued`) and the child processes alive (`children`): for a health check or a metric. |
 | `close()` | Kills every child process, and refuses the files waiting, those being read and those sent while it runs as `"busy"` ("The server is shutting down. Try again in a moment."). Resolves once the children have exited, also when nothing else keeps your process open, so code after `await isolated.close()` runs. Files sent after that start new children. Call it when the server stops, next to the server's own `close()`: a SIGTERM listener replaces Node's own exit ([above](#createisolatedextractorsoptions)). |
+
+## Uploads your application keeps
+
+### fileOriginals(root)
+
+```ts
+declare function fileOriginals(root: string): OriginalsReader;
+```
+
+New in 0.9.0. Reads back the uploads your application keeps under the folder `root`, by their ref
+(`IngestInput.original.ref`), for `createLargeFiles({ originals })`
+([`OriginalsReader`](./library.md#originalsreader)). With it, a kept PDF is read from your upload,
+not from a second copy in the store.
+
+```ts
+import path from "node:path";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { fileOriginals } from "llm-large-files/node";
+
+const VOLUME = process.env.DOCUMENTS_DIR!;
+const files = createLargeFiles({
+  store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }),
+  keepOriginals: ["pdf"],
+  originals: fileOriginals(VOLUME),
+});
+
+// Your route saved the upload at <VOLUME>/user-42/chat-7/uploads/upload-3f9a.
+const ref = "user-42/chat-7/uploads/upload-3f9a";
+await files.ingest({ name: "report.pdf", source: { path: path.join(VOLUME, ref) }, original: { ref }, owner: "user-42", scope: ["user-42", "chat-7"], id: "upload-3f9a" });
+```
+
+- A ref is a path relative to `root`. One that leads out of it (an absolute path elsewhere, `..`
+  that climbs out), or that is empty, longer than 1,024 characters or holds a NUL, throws
+  `TypeError("The ref of an original must be a relative path to a file inside the folder of fileOriginals.")`.
+  The library passes it on as a `DocumentStoreError` with that `TypeError` as `cause`. The message
+  does not repeat the ref.
+- No link below `root` is followed, at any level: the real path of the file must be the path the
+  ref names, under the real path of `root`. A file reached through a link reads as missing
+  (`undefined`), as does one that is not there, or a folder. `root` itself may be a link. The file
+  is opened without following a link at its name, where the platform can (not on Windows), which
+  closes the moment between the check and the read for the file itself; a folder swapped for a
+  link in that moment is not seen.
+- A file is read once, and no more than one byte past the size it had at ingest
+  (`OriginalReadContext.bytes`): a file that has grown is not read whole, and the library finds it
+  changed.
+- It only reads. It never writes, moves or deletes a file: removing the uploads, with their chat or
+  on your own schedule, is yours to do.
+- Errors other than a file that is not there (`EACCES`, `EIO`) are thrown as they are, and the
+  library passes them on as a `DocumentStoreError`.
 
 ## Server-Sent Events
 

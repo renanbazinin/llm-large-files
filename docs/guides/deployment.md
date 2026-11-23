@@ -221,6 +221,21 @@ body before it passes the request on (nginx does by default, `proxy_request_buff
 arrive at once and none of this happens; otherwise, limit the connections of each client at the
 proxy.
 
+**Ingest from a path.** New in 0.9.0. Code that saves an upload to disk before it ingests it (to
+keep it, or to take it off the heap while it waits) can give `files.ingest` the path in place of the
+bytes ([`IngestFromSource`](../reference/library.md#ingestfromsource)). The path is looked at with
+`lstat` when `ingest` is called, which refuses an empty file or one over `maxUploadBytes` at once,
+and the file is read when the ingest's turn comes (`maxConcurrentIngests`): once, and at most
+`maxUploadBytes + 1` bytes. So ingests that wait for their turn hold none of their files. Measured
+on Node 22 with 100 ingests of 2 MB logs waiting behind one that held the turn: the process held
+73 MB (RSS) with paths, against 282 to 286 MB with the bytes given, 200 MB of which were the
+uploads. With all 100 run, two at a time (the default), the peak was 159 to 160 MB with paths,
+against 265 to 277 MB, in the same time. With `createIsolatedExtractors`, a PDF or Office file at a
+path is read by its child process, and the server reads none of it (below).
+The library never writes, moves or deletes the file: remove it once it is ingested, or keep it and
+let `view_pages` read it from there ([Storage](./storage.md#keeping-the-uploaded-files)). Never
+build the path from what a client sends.
+
 An ingest runs in your server's process, a slice at a time. It pauses for other requests about
 every 12 ms of its work, so an answer streaming on the same server waits a fraction of a second,
 not seconds: the longest stall measured was 34 ms for a 99 MB log and 0.16 s for a 2,000-page
@@ -292,7 +307,8 @@ end after the time limit. Four ways to bound that:
 
 **Child processes for the parsers.** With the `extractors` of `createIsolatedExtractors`, each PDF,
 DOCX, PPTX or XLSX file is copied to a child process, read there by the built-in extractor, and its
-text sent back; the text is then normalized, profiled, indexed and stored in your server, as
+text sent back; a file ingested from a path is not copied: since 0.9.0 the child reads it from its
+path, within `maxUploadBytes`, and nothing of it waits in the server for a child; the text is then normalized, profiled, indexed and stored in your server, as
 before. Text files, HTML included, are read in the server, in slices. What a file can do from there:
 
 - run its child out of memory: the child stops, and the file is refused with an `IngestError` of

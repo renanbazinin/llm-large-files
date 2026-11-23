@@ -110,6 +110,7 @@ type LargeFilesOptions = {
   ingestTimeoutMs?: number;
   extractors?: Partial<Record<DocumentFormat, Extractor>>;
   keepOriginals?: DocumentFormat[];
+  originals?: OriginalsReader; // new in 0.9.0
   scannedPdfPages?: number;
   cacheBytes?: number;
   cacheSize?: number;
@@ -135,8 +136,9 @@ type LargeFilesOptions = {
 | `maxPdfPages` | `number` | [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), 5,000 | The most pages read from one PDF. A PDF with more is refused before any page is read. Your PDF extractor receives it as `ExtractInput.maxPages`. At least 1. |
 | `ingestTimeoutMs` | `number` | [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms), 120,000 (2 minutes) | The most time one `ingest` may take to extract the text, build its line index and profile it, in milliseconds. The store's writes are not counted, but a store write that does not end within this time (2 minutes when it is 0) fails the ingest as a failure of the store, and the document is removed once the write ends (new in 0.8.2). Since 0.9.0 that is a `DocumentStoreError` of operation `"write"` and code `"ETIMEDOUT"`, whose `cause` says `The store did not finish writing <name> within 2 min.`; it was a plain `Error` with that message. Past it, `ingest` throws `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.`, and stores nothing. 0 sets no limit, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days). Your extractor receives the limit as `ExtractInput.signal`. Within one page of a PDF the limit is not looked at: see [security](../security.md#uploads). |
 | `extractors` | `Partial<Record<DocumentFormat, Extractor>>` | the built-ins, [`defaultExtractors`](#defaultextractors) | An [`Extractor`](#extractor) per format, used in place of the built-in one. The formats are fixed ([`DocumentFormat`](#documentformat)): you can replace the extractor of a format, not add a format. |
-| `keepOriginals` | `DocumentFormat[]` | `[]` | Formats whose uploaded file is kept in the store next to its text, for example `["pdf"]`, which `view_pages` needs. Takes effect only with a store that has `putOriginal`. A kept file takes as much space as the upload until its document expires or is deleted. |
-| `scannedPdfPages` | `number` | 30 | The most pages a PDF without any text (a scan) may have and still be accepted, so that its pages can be shown to the model. It applies only when `"pdf"` is in `keepOriginals` and the store has `putOriginal`. Otherwise, and with 0, such a PDF is refused. Your own PDF extractor receives it as `ExtractInput.scannedPages`. |
+| `keepOriginals` | `DocumentFormat[]` | `[]` | Formats whose uploaded file is kept, for example `["pdf"]`, which `view_pages` needs: as a copy in the store, next to its text, when the store has `putOriginal`; or, for an ingest with `IngestInput.original` (new in 0.9.0), where your application keeps it, read back through `originals`. A copy takes as much space as the upload until its document expires or is deleted. |
+| `originals` | [`OriginalsReader`](#originalsreader) | none | Reads the uploaded files your application keeps itself, by the ref given at ingest (`IngestInput.original`), in place of a copy in the store: `fileOriginals(root)` of [`llm-large-files/node`](./node.md#fileoriginalsroot), or your own. Each read is checked against the size and SHA-256 the file had at ingest. Without it, an ingest with `original` throws a `TypeError`. Not an object with a `read` method: a `TypeError` when the library is made. New in 0.9.0. |
+| `scannedPdfPages` | `number` | 30 | The most pages a PDF without any text (a scan) may have and still be accepted, so that its pages can be shown to the model. It applies only when `"pdf"` is in `keepOriginals` and the file is kept: the store has `putOriginal`, or (0.9.0) the ingest gives `original` and the library has `originals`. Otherwise, and with 0, such a PDF is refused. Your own PDF extractor receives it as `ExtractInput.scannedPages`. |
 | `cacheBytes` | `number` | [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), 256 MB | The most memory that documents kept ready between tool calls may take, together with the decoded pieces of documents read by range. The least recently used go first. A document that would take more than this is not kept and is read again for each call. A document whose decoded text would take more than a quarter of it keeps no pieces. 0 keeps nothing. Each use of a kept document asks the store first, so a document deleted or expired on another server is never served from memory. |
 | `cacheSize` | `number` | no limit | Also caps the number of documents kept. The pieces of a document read by range are not counted, and leave with their document. 0 keeps nothing. |
 | `wholeDocumentBytes` | `number` | [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes), 2 MB | Documents whose text (`textBytes`) is at most this size are loaded whole into memory. Larger ones are read by range when the store has `readTextRange`, as `FileDocumentStore` does: a tool call reads only the lines it needs, and a search reads the text a piece at a time. `Infinity` loads every document whole; 0 reads every one by range. |
@@ -174,7 +176,7 @@ interface LargeFiles {
   budgetFor(overrides?: Partial<Budget>, limits?: ModelLimits): Budget;
   readonly maxUploadBytes: number;
   readonly access?: { readonly requireOwner: boolean; readonly requireScope: boolean }; // new in 0.9.0
-  ingest(input: IngestInput): Promise<DocumentMeta>;
+  ingest(input: IngestInput | IngestFromSource): Promise<DocumentMeta>; // IngestFromSource: new in 0.9.0
   getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
   getOriginal(id: string, access?: AccessOptions): Promise<Uint8Array | undefined>;
   delete(id: string, access?: AccessOptions): Promise<boolean>;
@@ -212,21 +214,31 @@ upload handlers, reads it to require an owner or a scope too. It is optional in 
 
 #### `files.ingest(input)`
 
-`ingest(input: IngestInput): Promise<DocumentMeta>`
+`ingest(input: IngestInput | IngestFromSource): Promise<DocumentMeta>`
 
 Extracts the text of a file, normalizes it, profiles it, and stores it under a new ID, or under the
 ID the application gives (`input.id`, new in 0.9.0). Returns the new document's
-[`DocumentMeta`](#documentmeta).
+[`DocumentMeta`](#documentmeta). The file is given as bytes ([`IngestInput`](#ingestinput)), or,
+new in 0.9.0, as a path ([`IngestFromSource`](#ingestfromsource)), which is read when the ingest's
+turn comes and not held while it waits. `IngestInput` keeps its required `bytes`: a `LargeFiles`
+of your own whose `ingest` takes `IngestInput` only still compiles, since `ingest` is a method.
 
-1. The owner, the scope and the ID are checked (see [`IngestInput`](#ingestinput)), the name is
-   cleaned, and the format is picked by [`detectFormat(name, mimeType)`](#detectformatname-mimetype-bytes).
+1. The owner, the scope and the ID are checked (see [`IngestInput`](#ingestinput)), the name and
+   the MIME type are cleaned, and the format is picked by
+   [`detectFormat(name, mimeType)`](#detectformatname-mimetype-bytes). A file at a path is looked
+   at with `lstat` first, and nothing of it is read before its turn but the parts that tell a
+   format, when its name and type say nothing.
    With an `id`, the store is asked whether a document of that ID is there
    ([`ifExists`](#ingestinput)), before the file is read. That question is given the same time
    as the writes (`ingestTimeoutMs`), and an aborted `signal` stops waiting for it. An `id` that
    another ingest of this library is storing is refused at once.
-2. The extractor of that format turns the bytes into text. It receives the limits `maxTextBytes`
+2. At its turn, a file at a path is read once, at most `maxUploadBytes + 1` bytes, and the SHA-256
+   of the file is taken as it is read (of bytes given, before they are read), a megabyte at a time
+   (new in 0.9.0). The extractor of that format turns the bytes into text: an extractor that
+   reads paths (`readsPath`, as the isolated readers do) reads the file itself instead. It receives the limits `maxTextBytes`
    and `maxPdfPages`, the ingest's signal, and, when someone listens to the ingest's events, an
-   `onProgress` to report how far it is ([`ExtractInput`](#extractinput)). A text longer
+   `onProgress` to report how far it is ([`ExtractInput`](#extractinput)). The bytes read from a
+   path are let go once the text is read, unless the store keeps a copy. A text longer
    than `maxTextBytes` is refused, whichever extractor made it. The extractor may say how the text
    was read ([`ExtractedText`](#extractedtext)): the built-in one reads a text file that is not
    valid UTF-8 in the older encoding its lines fit, when one does, and `encoding` and
@@ -249,8 +261,9 @@ ID the application gives (`input.id`, new in 0.9.0). Returns the new document's
    lines and at least 40% of its first 200 non-blank lines start with a timestamp or a log level
    (`ERROR`, `WARN`, `INFO`...), or have the shape of an access log of nginx or Apache, a JSON log
    line, klog or logfmt (since 0.8.0).
-5. The store is written: the original file (when it is kept), then the line index (when the store
-   has `putIndex`), then `put` last. Each call carries the document's owner and scope. With an
+5. The store is written: the original file (when the store keeps a copy of it), then the line
+   index (when the store has `putIndex`), then `put` last. A file kept by its ref
+   (`IngestInput.original`) is not written: the metadata records where it is. Each call carries the document's owner and scope. With an
    `id`, the store is asked again just before, for a document stored under it meanwhile; one that
    `ifExists: "replace"` replaces is deleted first.
 
@@ -259,8 +272,12 @@ between the pages of a PDF, as a DOCX, PPTX or XLSX is unpacked, and while the t
 measured, outlined, profiled and indexed. Ingests that run at once take turns, one slice each.
 They run under one signal, aborted by `IngestInput.signal` or after `ingestTimeoutMs` (2 minutes
 by default). When it aborts, `ingest` stops waiting for the extractor, throws, and writes nothing
-to the store. The writes of step 5 are not under the signal. One page of a PDF is read without a
-pause, and the signal is looked at only between pages.
+to the store. The writes of step 5 are not under the signal, and are not cut short. Since 0.9.0,
+when `IngestInput.signal` has aborted by the time they end, or just before `ingest.finish`, what
+they wrote is removed (only while it is still this ingest's own, as on a failed write, within
+`ingestTimeoutMs`), and `ingest` throws `signal.reason`: a client that left during the write leaves
+nothing behind. Before, the document stayed, for good under `ttlMs: Infinity`. One page of a PDF is
+read without a pause, and the signal is looked at only between pages.
 
 **Events.** New in 0.7.0. With `IngestInput.onEvent`, the ingest tells what it does as typed
 [`IngestEvent`](./events.md#ingestevent)s, in order: `ingest.start` first (the cleaned name, the
@@ -291,12 +308,15 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | `TypeError('id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN), and not a name Windows keeps for a device (con, nul, com1…).')` | `id` does not match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern). The message does not repeat the ID. New in 0.9.0. |
 | `TypeError('ifExists must be "fail" or "replace".')` | Another `ifExists`. New in 0.9.0. |
 | `IngestError` `"exists"`: `<name>: a document with this ID already exists.` | A document of `id` is there and `ifExists` does not let it be replaced; or another ingest of this library is storing `id` at the moment, whatever `ifExists` says; or a write failed and the document under `id` by then is another owner's or scope's, and has not expired (stored by another server). Status 409. It says nothing of the document that has the ID, but it does say that the ID is taken ([Application IDs](../guides/storage.md#application-ids)). New in 0.9.0. |
-| [`IngestError`](#ingesterror) `"empty"`: `<name> is empty.` | The file has no bytes. |
-| `IngestError` `"too_large"`: `<name> is larger than the 100 MB upload limit.` | The file is larger than `maxUploadBytes`. The message gives your limit. |
+| `TypeError("Give the file as bytes or as source, not both.")`, `TypeError("source.path must be the path of a file: a string that is not empty.")` | An input with both `bytes` and `source`, or a `source` whose `path` is not a string that is not empty (or holds a NUL). New in 0.9.0. |
+| `TypeError("original.ref must be a string of 1 to 1,024 characters.")`, `TypeError("original needs LargeFilesOptions.originals, which reads the file from its ref.")` | `original` has no ref of that length, or the library has no `originals` to read it back. New in 0.9.0. |
+| An error with a system error's `code` and `syscall` | A file at a path that is not there (`ENOENT`), cannot be opened (`EACCES`), is a link (`ELOOP`, from `lstat`, or from the read at its turn when a link was put in its place), a folder (`EISDIR`), or not a file at all (`EINVAL`: a pipe, a device). Passed on as it is, not as an `IngestError`: it is the server's trouble, not the file's. The messages of the library's own (`ELOOP`, `EISDIR`, `EINVAL`) name no path; Node's do. New in 0.9.0. |
+| [`IngestError`](#ingesterror) `"empty"`: `<name> is empty.` | The file has no bytes. A file at a path is refused from its `lstat` size, before its turn and without being read. |
+| `IngestError` `"too_large"`: `<name> is larger than the 100 MB upload limit.` | The file is larger than `maxUploadBytes`. The message gives your limit. A file at a path is refused from its `lstat` size, before its turn and without being read; one that has grown past the limit by its turn is refused once `maxUploadBytes + 1` bytes are read. |
 | An `IngestError` with the extractor's message | The extractor refused the file: a binary or compressed file, an Office file of before 2007 or with a password, a PDF with a password or without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server; or a parser failed on a damaged file. The `code` comes from the message ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)), `"unreadable"` for one the library does not know, and the extractor's error is `cause`. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
 | `IngestError` `"too_much_text"`: `<name> holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | The text an extractor returned is larger than `maxTextBytes`. The message gives your limit. |
 | `IngestError` `"timeout"`: `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` | The ingest took longer than `ingestTimeoutMs`. The message gives your limit: "500 ms" below a second, "45 s" below 2 minutes, "2 min" from there. |
-| `signal.reason` | `IngestInput.signal` was aborted, before or during the ingest. |
+| `signal.reason` | `IngestInput.signal` was aborted, before or during the ingest. Since 0.9.0 also when it aborts while the store is written: what was written is removed first. |
 | `IngestError` `"no_text"`: `<name> did not contain any text.` | The extracted text is blank. |
 | What an extractor of your own threw | An error with a `status` or `statusCode`, a Node system error (one with a `code` and a `syscall`), and a value that is not an `Error`, as they are. Any other `Error` becomes an `IngestError`, as above. |
 | [`DocumentStoreError`](#documentstoreerror), operation `"write"` | A write failed, or did not end within `ingestTimeoutMs` (code `"ETIMEDOUT"`; 2 minutes when that is 0). `ingest` first calls `store.delete(id)` to remove what was written (an error of that call is ignored). With an `id`, only when nothing is under the ID by then, or the document there is this ingest's own (the same `createdAt`, owner and scope). Otherwise it is left, and the ingest throws `IngestError` `"exists"` when that document has not expired and is another owner's or scope's; this error when it is the one a replace was to remove. A write that did not end in time may still land: the `id` stays held in this library until it has ended, with the removal of what it wrote, and another ingest of it is `"exists"` meanwhile. The same holds when a write failed at once but its clean-up does not end in time. A store that never answers keeps that one `id` refused in this library: it fails closed. The store's error is `cause`, and the message names no path or host: `The document could not be stored (EIO). Try again.` New in 0.9.0: it threw the store's error unchanged, and the time limit as `The store did not finish writing <name> within 2 min.`, which is now the message of `cause`. A `DocumentScopeError` of the store is thrown as it is. |
@@ -341,12 +361,16 @@ the half, as the model and the steps get it; the stored metadata is not changed.
 
 `getOriginal(id: string, access?: AccessOptions): Promise<Uint8Array | undefined>`
 
-The uploaded file, when it was kept (`keepOriginals`). `undefined` in every case where `getMeta`
-gives `undefined`, and when the document has no `originalKept`, the store has no `getOriginal`, or
-the store returns none. Since 0.9.0 the store is asked for the metadata again once the bytes are
-read: `undefined` too when the document is not the same by then (deleted, and another stored under
-its ID, by another server), or when the bytes are not the size of the file that was ingested
-(`meta.bytes`). `view_pages` reads the file the same way. Treat the bytes as read-only: a store of
+The uploaded file, when it was kept (`keepOriginals`): from the store, or, for a document ingested
+with `original` (new in 0.9.0), from where your application keeps it, through `originals`.
+`undefined` in every case where `getMeta` gives `undefined`, and when the document has no
+`originalKept`, the library cannot read it (no `getOriginal` in the store, or no `originals` for a
+file kept by its ref), or none is there. Since 0.9.0 the store is asked for the metadata again once
+the bytes are read: `undefined` too when the document is not the same by then (deleted, and another
+stored under its ID, by another server), or when the bytes are not those of the file that was
+ingested: not of its size (`meta.bytes`), or, when the metadata has `sha256`, not of its SHA-256,
+so that a store that gives back other bytes of the same size is caught. `view_pages` reads the file
+the same way. Treat the bytes as read-only: a store of
 your own may return the bytes it keeps. `MemoryDocumentStore` returns a copy since 0.9.0; it returned the very bytes it kept.
 Throws `DocumentStoreError` as `getMeta` does.
 
@@ -497,6 +521,7 @@ type IngestInput = {
   id?: string; // new in 0.9.0
   ifExists?: "fail" | "replace"; // new in 0.9.0
   scope?: DocumentScope; // new in 0.9.0
+  original?: { ref: string }; // new in 0.9.0
 };
 ```
 
@@ -505,17 +530,90 @@ The argument of [`files.ingest`](#filesingestinput).
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `name` | `string` | required | The file name. It is cleaned to one printable line: the last segment of a path, with control characters, line breaks and text-direction controls replaced by spaces, the characters that show nothing removed as from the text (tag characters, zero-width spaces, word joiners, soft hyphens, a byte-order mark), runs of spaces made one, trimmed, and cut to 255 characters, never in the middle of a character (`"file"` when nothing is left; an emoji of several characters, such as a flag, can lose its end). With the MIME type it picks the format. |
-| `mimeType` | `string` | `"application/octet-stream"` | The MIME type, trimmed. Blank counts as absent. Used when the extension names no format. |
+| `mimeType` | `string` | `"application/octet-stream"` | The MIME type. Since 0.9.0 it is kept as its type and subtype, in lower case, without parameters (`"Text/CSV; charset=x"` is `"text/csv"`); one that is not a type/subtype of RFC 9110 token characters of at most 127 characters, or that holds anything but printable ASCII (a line break, a text-direction control, a tag character), is `"application/octet-stream"`. It was only trimmed. Used when the extension names no format. Never sent to the model. |
 | `bytes` | `Uint8Array` | required | The file. A Node `Buffer` is one. Empty, or larger than `maxUploadBytes`, is refused. |
 | `owner` | `string` | none | The user or tenant the document belongs to. Every later call must pass the same owner. Without one, anyone who has the ID can use the document. It must be a string that is not empty or only spaces: `""`, spaces only and `null` throw a `TypeError` (see [`files.ingest`](#filesingestinput)), since each would be one owner shared by every caller without a user. A number from JavaScript is taken, as before. Reads with the owner `""` work as before. |
-| `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX, PPTX, XLSX and HTML extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written changes nothing. `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
+| `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX, PPTX, XLSX and HTML extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written does not cut the writes short; since 0.9.0, once they end, what they wrote is removed and `ingest` throws `signal.reason` (before, the document stayed). `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
 | `onEvent` | `(event: IngestEvent) => void` | none | What the ingest does as it goes: `ingest.start`, `ingest.progress` for each stage, then `ingest.finish` or `ingest.error` (see [`files.ingest`](#filesingestinput) and [events](./events.md)). Progress is worked out only when it is given. New in 0.7.0. |
 | `runId` | `string` | `"ing_"` and 16 hex digits | The `runId` of those events. New in 0.7.0. |
 | `id` | `string` | `"doc_"` and 32 hex digits, made | The document's ID, chosen by the application, such as the ID of its upload. It must match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern): lowercase letters, digits, `_` and `-`, up to 64 characters, starting with a letter or a digit, and not a name Windows keeps for a device (`con`, `nul`, `com1`). Another ID is a `TypeError`. The model sees the ID (in the cards and the tool calls), so it must hold no personal data, such as an email address. Over a store that keeps no scopes apart, it must be unique in the whole store: `ifExists` makes sure. A 409 tells the caller that the ID is taken, so make IDs random, or prefix them per tenant. New in 0.9.0. |
 | `ifExists` | `"fail" \| "replace"` | `"fail"` | What to do when a document of `id` is already there, as the store sees it for this scope. `"fail"`: an `IngestError` `"exists"` (status 409). `"replace"`: the document is deleted, then the new one is stored; only one of the same owner and scope. One of another owner or scope is `"exists"` too, even when its text is gone. A document that has expired is written over in both cases. The store is asked before the file is read and again just before the writes. While one ingest of this library stores `id`, another ingest of `id` is `"exists"`, whatever its `ifExists`. Replacing is not atomic for readers on other servers: for a moment the document is missing. New in 0.9.0. |
 | `scope` | [`DocumentScope`](#documentscope) | none | Where the document belongs, such as `[userId, chatId]`. Every store call of the ingest carries it, and it is kept in `meta.scope`, a copy: only a caller of the same scope may use the document, segment by segment. Never sent to the model, nor in a summary or an event. Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
+| `original` | `{ ref: string }` | none | Where your application keeps the uploaded file: `ref`, 1 to 1,024 characters, which your [`OriginalsReader`](#originalsreader) understands, such as a path under the folder of `fileOriginals`. When `keepOriginals` lists the format, the store keeps no copy (`putOriginal` is not called), and the metadata records `original: { ref, bytes, sha256 }`; `originalKept` is true. Without `originals` in the library: a `TypeError`. A format `keepOriginals` does not list records nothing. The ref is never sent to the model, nor in a summary or an event. The library never writes, moves or deletes that file: `delete` and `sweep` leave it. [Storage](../guides/storage.md#keeping-the-uploaded-files). New in 0.9.0. |
 
 Guide: [web app](../guides/web-app.md).
+
+### `IngestFromSource`
+
+```ts
+type IngestSource = { path: string };
+type IngestFromSource = Omit<IngestInput, "bytes"> & { source: IngestSource; bytes?: never };
+```
+
+New in 0.9.0. An ingest of a file at a path, rather than of bytes in memory: the fields of
+[`IngestInput`](#ingestinput), with `source: { path }` in place of `bytes`. The file is read when
+the ingest's turn comes (`maxConcurrentIngests`), so ingests that wait hold none of their bytes:
+100 ingests of 2 MB waiting for their turn held 73 MB of memory in all as paths, against 282 to
+286 MB with their bytes given ([Deployment](../guides/deployment.md#uploads-and-ingest)).
+
+```ts
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+
+const files = createLargeFiles({ store: new FileDocumentStore(process.env.DOCUMENTS_DIR!) });
+
+// The file your upload route saved. The library reads it, and leaves it where it is.
+export const meta = await files.ingest({ name: "report.pdf", source: { path: "/srv/uploads/3f9a.pdf" }, owner: "user-42" });
+```
+
+- **Before its turn**, the path is looked at with `lstat`, and nothing of the file is read. A link
+  is refused, not followed (an error with code `"ELOOP"`), and so is a folder or anything that is
+  not a file. An empty file, or one larger than `maxUploadBytes`, is refused at once
+  (`IngestError` `"empty"`, `"too_large"`). `ingest.start` gives that size.
+- **Its format**: from its name and type, as for bytes. When they say nothing (no extension,
+  `application/octet-stream`), from its first KB, and for a ZIP from its first 64 KB and its last
+  MB, read for that alone: a DOCX without its extension is still a DOCX.
+- **At its turn**, the file is read once, opened without following a link at its name (not on
+  Windows), and at most `maxUploadBytes + 1` bytes: a file that has grown past the limit since it
+  was looked at is refused as `"too_large"`. Its SHA-256 is taken as it is read
+  (`DocumentMeta.sha256`), and `bytes` is the size read. The bytes are let go once the text is read,
+  unless the store keeps a copy (`keepOriginals` without `original`).
+- **An extractor that reads paths** (`Extractor.readsPath`, as those of
+  [`createIsolatedExtractors`](./node.md#createisolatedextractorsoptions) do) reads the file itself,
+  and the server reads none of it. When the store keeps a copy, the server reads it all the same,
+  and the extractor gets the bytes.
+- **The library never writes, moves or deletes the file.** Remove it yourself when you no longer
+  need it, or keep it and give `original: { ref }` so that its pages can be shown without a copy in
+  the store.
+- A path is a path on the server that ingests it. A relative path is taken from the process's
+  working folder. Never build it from what a client sends: the library reads any file the process
+  can read.
+
+### `OriginalsReader`
+
+```ts
+type OriginalsReader = {
+  read(ref: string, context: OriginalReadContext): Promise<Uint8Array | undefined>;
+};
+type OriginalReadContext = DocumentContext & { readonly id: string; readonly bytes: number };
+```
+
+New in 0.9.0. Reads the uploaded files your application keeps (`IngestInput.original`), for
+`getOriginal` and `view_pages`: `LargeFilesOptions.originals`. `fileOriginals(root)` of
+[`llm-large-files/node`](./node.md#fileoriginalsroot) is one, for files in a folder.
+
+- `read` returns the bytes of the file at `ref`, or `undefined` when it is not there.
+- `context` is the [`DocumentContext`](#documentcontext) of the call (the caller's scope and
+  owner), the document's `id`, and `bytes`, the size the file had at ingest. A reader may stop one
+  byte past `bytes`: a file of another size has changed. It is frozen.
+- The library reads the ref the store holds, never one from metadata handed to it. Once the bytes
+  are read, it asks the store for the metadata again, as for a copy in the store, then compares the
+  bytes with the size and SHA-256 recorded at ingest. A file that differs has changed:
+  `getOriginal` gives `undefined`, and `view_pages` answers the model
+  `<file> changed on the server since it was read. Attach it again to look at its pages.`
+- What `read` throws is passed on as a [`DocumentStoreError`](#documentstoreerror) of operation
+  `"read"`, with your error as `cause`, as a store's errors are.
+- A look at pages holds its turn while it reads the file for at most `ingestTimeoutMs`, as it does
+  for a copy in the store (`maxConcurrentPageLooks`).
 
 ### `IngestError`
 
@@ -1410,7 +1508,7 @@ passes it on as it is. Its message never repeats a segment of the scope, which m
 ### `Extractor`
 
 ```ts
-type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>;
+type Extractor = ((bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>) & { readsPath?: boolean };
 ```
 
 Turns the bytes of an uploaded file into text, for one format. To refuse a file, throw an `Error`
@@ -1435,6 +1533,17 @@ const text: Extractor = async (bytes, input) => {
 const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text } });
 ```
 
+`readsPath`, new in 0.9.0: the extractor reads a file ingested from a path
+([`IngestFromSource`](#ingestfromsource)) itself, so the server does not read it first. It is then
+given empty bytes and `ExtractInput.path` and `maxUploadBytes`: read the file once, at most
+`maxUploadBytes + 1` bytes, refuse it past `maxUploadBytes` with the library's message
+(`<name> is larger than the 100 MB upload limit.`), never write, move or delete it, and return its
+size and SHA-256 in `ExtractedText.file`. Without `file`, `ingest` reads the file once more to hash
+it, a megabyte at a time, holding none of it. When the store keeps a copy of the file, the
+extractor gets the bytes as before. The extractors of
+[`createIsolatedExtractors`](./node.md#createisolatedextractorsoptions) set it. A plain function
+is an extractor that does not read paths, as before.
+
 Guide: [PDFs](../guides/pdfs.md), for OCR and other PDF extractors.
 
 ### `ExtractInput`
@@ -1449,19 +1558,23 @@ type ExtractInput = {
   maxTextBytes?: number;
   maxPages?: number;
   onProgress?: (progress: ExtractProgress) => void;
+  path?: string; // new in 0.9.0
+  maxUploadBytes?: number; // new in 0.9.0
 };
 ```
 
 | Field | Type | What it holds |
 |---|---|---|
 | `name` | `string` | The cleaned file name (see [`IngestInput`](#ingestinput)). |
-| `mimeType` | `string` | The MIME type, `"application/octet-stream"` when none was given. |
+| `mimeType` | `string` | The MIME type, cleaned (see [`IngestInput`](#ingestinput)): `"application/octet-stream"` when none was given. |
 | `format` | [`DocumentFormat`](#documentformat) | The format from `detectFormat`. A text file that turns out to be a log is still `"text"` here: logs are recognized after extraction. |
-| `scannedPages` | `number \| undefined` | Set for a PDF when one without any text may be accepted: `"pdf"` is in `keepOriginals`, the store has `putOriginal`, and `scannedPdfPages` is above 0. It is the most pages such a PDF may have. Unset, a PDF without text is to be refused. An extractor of your own may ignore it. |
+| `scannedPages` | `number \| undefined` | Set for a PDF when one without any text may be accepted: `"pdf"` is in `keepOriginals`, the file is kept (the store has `putOriginal`, or the ingest gives `original` and the library has `originals`), and `scannedPdfPages` is above 0. It is the most pages such a PDF may have. Unset, a PDF without text is to be refused. An extractor of your own may ignore it. |
 | `signal` | `AbortSignal \| undefined` | The signal of the ingest: aborted after `ingestTimeoutMs`, or when `IngestInput.signal` aborts. Its `reason` is the error to throw. The PDF, DOCX, PPTX, XLSX and HTML extractors stop between pages and pieces. The text extractor decodes valid UTF-8 and UTF-16 in one step, and a file that is not valid UTF-8 a step at a time, whatever it is read in, stopping between two steps. `ingest` sets it, and stops waiting for your extractor when it aborts, but cannot stop the work your extractor does: pass it on (to `fetch`, for example), or check it between steps with `signal.throwIfAborted()`. |
 | `maxTextBytes` | `number \| undefined` | `LargeFilesOptions.maxTextBytes`: the most text to keep, in UTF-8 bytes. `ingest` sets it, and refuses a larger text from any extractor once it returns. An extractor that refuses as soon as its text grows past it spares the memory. |
 | `maxPages` | `number \| undefined` | `LargeFilesOptions.maxPdfPages`: the most pages to read from one PDF. `ingest` sets it for every format; only the built-in PDF extractor uses it. `ingest` does not check it for you. |
 | `onProgress` | `((progress: ExtractProgress) => void) \| undefined` | Call it as the extraction goes on, so that `ingest` can report progress ([`ExtractProgress`](#extractprogress)). Set only when someone listens to the ingest's events (`IngestInput.onEvent`). The built-in extractors call it for each page of a PDF, each part of a DOCX, each slide of a PPTX and each sheet of an XLSX, and once when an HTML file is decoded. An extractor of your own may ignore it: the ingest then sends no `extract` progress. What it reports after it returned is dropped. It can throw, when the listener of the events throws: let that error end the extraction. New in 0.7.0. |
+| `path` | `string \| undefined` | Set only for an extractor that reads paths (`readsPath`) and a file ingested from a path: where the file is. The bytes are then empty. New in 0.9.0. |
+| `maxUploadBytes` | `number \| undefined` | Set with `path`: `LargeFilesOptions.maxUploadBytes`, the most bytes the file may have. New in 0.9.0. |
 
 ### `ExtractProgress`
 
@@ -1510,7 +1623,13 @@ const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: {
 ### `ExtractedText`
 
 ```ts
-type ExtractedText = { text: string; pages?: number; encoding?: string; replacedCharacters?: number };
+type ExtractedText = {
+  text: string;
+  pages?: number;
+  encoding?: string;
+  replacedCharacters?: number;
+  file?: { bytes: number; sha256: string }; // new in 0.9.0
+};
 ```
 
 | Field | Type | What it holds |
@@ -1519,6 +1638,7 @@ type ExtractedText = { text: string; pages?: number; encoding?: string; replaced
 | `pages` | `number \| undefined` | The number of pages (the slides of a PPTX, the sheets of an XLSX), stored as `DocumentMeta.pages`. |
 | `encoding` | `string \| undefined` | The older encoding the file was read in, when it is not UTF-8, such as `"windows-1255"`. Stored as `DocumentMeta.encoding` when it is a name (letters, digits, `.`, `_`, `:` and `-`, up to 40 characters) and not a name of UTF-8 or UTF-16 (`utf-8`, `utf8`, `unicode`, `utf-16be`…): a name `TextDecoder` does not know is kept. New in 0.6.0. |
 | `replacedCharacters` | `number \| undefined` | The characters that were not valid in the encoding the file was read in, each now U+FFFD (�). Stored as `DocumentMeta.replacedCharacters` when it is a whole number above 0. New in 0.6.0. |
+| `file` | `{ bytes, sha256 } \| undefined` | What an extractor that reads paths read from `ExtractInput.path`: the size of the file, and its SHA-256 as 64 lowercase hex digits. Stored as `DocumentMeta.bytes` and `sha256`. Read only for an ingest from a path whose extractor read it; left out otherwise, and ignored in another shape. New in 0.9.0. |
 
 The model is told of both, on the card and in the frame of a file sent whole (see
 [`PreparedContext`](#preparedcontext)).
@@ -1626,9 +1746,11 @@ else `"text"`. New in 0.8.1: with `bytes`, a file that would be `"text"` and is 
 is known by its content: `"pdf"` when it starts with `%PDF-` (after a byte order mark or white
 space), `"docx"`, `"pptx"` or `"xlsx"` for a ZIP archive with the parts of one (`word/document.xml`,
 `ppt/presentation.xml`, `xl/workbook.xml`), `"html"` when it starts with `<!DOCTYPE html` or
-`<html`. `ingest` passes the bytes: a DOCX uploaded without its extension was told "This file is a
-ZIP archive". The MIME type is lowercased and compared whole, so `text/csv; charset=utf-8` names no
-format. A name without a dot is looked up whole, so a file named `log` is a `log`. `ingest` uses it,
+`<html`. `ingest` passes the bytes (of a file at a path, since 0.9.0, the parts looked at: its
+first KB, and for a ZIP its first 64 KB and its last MB): a DOCX uploaded without its extension was
+told "This file is a ZIP archive". The MIME type is lowercased and compared whole, so
+`text/csv; charset=utf-8` names no format here; `ingest` drops the parameters first (0.9.0), so
+there it is a CSV. A name without a dot is looked up whole, so a file named `log` is a `log`. `ingest` uses it,
 then turns a `"text"` document that reads like a log into `"log"`.
 
 | Format | Extensions | MIME types |
@@ -1695,6 +1817,8 @@ type DocumentMeta = {
   metaVersion?: number; // new in 0.9.0
   owner?: string;
   scope?: string[]; // new in 0.9.0
+  sha256?: string; // new in 0.9.0
+  original?: { ref: string; bytes: number; sha256: string }; // new in 0.9.0
   name: string;
   mimeType: string;
   format: DocumentFormat;
@@ -1729,8 +1853,10 @@ browser instead.
 | `metaVersion` | `number \| undefined` | The version of this shape: [`DOCUMENT_META_VERSION`](#document_meta_version) (1) on documents ingested by 0.9.0 and later, absent on older ones. A higher one is refused. Never sent to the model. New in 0.9.0. |
 | `owner` | `string \| undefined` | The owner given at ingest. Absent when none was given. |
 | `scope` | `string[] \| undefined` | The scope given at ingest (`IngestInput.scope`), as a copy. Absent when none was given. Only a caller of the same scope may use the document. Never sent to the model, nor in a summary or an event. New in 0.9.0. |
+| `sha256` | `string \| undefined` | The SHA-256 of the uploaded file, as 64 lowercase hex digits. Always set by 0.9.0 and later, for bytes and for a path; absent on older documents. A kept copy in the store is checked against it when it is read back. The library does not look for documents of the same file: to give the user the document of a file already in a chat, compare it with those of the chat's documents in your records. Never sent to the model, nor in a summary or an event. New in 0.9.0. |
+| `original` | `{ ref, bytes, sha256 } \| undefined` | Where your application keeps the uploaded file (`IngestInput.original.ref`), with its size and SHA-256 at ingest, which each read is checked against. Set when the file is kept by its ref; absent for a copy in the store. The ref is never sent to the model, nor in a summary or an event. New in 0.9.0. |
 | `name` | `string` | The cleaned file name (see [`IngestInput`](#ingestinput)). |
-| `mimeType` | `string` | The MIME type given, trimmed, or `"application/octet-stream"`. |
+| `mimeType` | `string` | The MIME type given, cleaned since 0.9.0 to a lowercased type/subtype without parameters (see [`IngestInput`](#ingestinput)), or `"application/octet-stream"`. |
 | `format` | [`DocumentFormat`](#documentformat) | The format. |
 | `bytes` | `number` | The size of the uploaded file. |
 | `textBytes` | `number` | The size of the extracted text in UTF-8. |
@@ -1742,7 +1868,7 @@ browser instead.
 | `pages` | `number \| undefined` | The pages of a PDF, the slides of a PPTX, the sheets of an XLSX, or what your extractor returned. |
 | `encoding` | `string \| undefined` | The older encoding a text file was read in, because it is not UTF-8, as `TextDecoder` names it: `"windows-1255"` for a Hebrew CSV that Excel saved, or `"windows-1256"`, `"windows-1251"`, `"shift_jis"`, `"windows-1252"`. Lines of it that are valid UTF-8 are read as UTF-8 all the same. Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see `replacedCharacters`), for UTF-16, for PDF, DOCX, PPTX and XLSX, and on documents from before 0.6.0. An HTML file is decoded as a text file is, and can have one. An extractor of your own may set another name ([`ExtractedText`](#extractedtext)). How the encoding is chosen: [Text encodings](../guides/pdfs.md#text-encodings). New in 0.6.0. |
 | `replacedCharacters` | `number \| undefined` | The characters of a text file that were not valid in the encoding it was read in (UTF-8, or `encoding`), such as a character cut in two at the end of a UTF-8 log, or a byte that `encoding` does not have: each is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.0. New in 0.6.0. |
-| `originalKept` | `boolean \| undefined` | `true` when the uploaded file is kept in the store (`keepOriginals`). Absent otherwise. Documents ingested before you turned `keepOriginals` on have no original. |
+| `originalKept` | `boolean \| undefined` | `true` when the uploaded file is kept (`keepOriginals`): in the store, or by its ref (`original`, 0.9.0). Absent otherwise. Documents ingested before you turned `keepOriginals` on have no original. |
 | `outline` | [`OutlineEntry[]`](#outlineentry) | The headings found in the text, at most 400. Empty for `log`, `json` and `csv`. |
 | `logProfile` | [`LogProfile`](#logprofile) or `undefined` | The log profile, for a `log` document only. |
 | `pagesWithoutText` | `number[]` or `undefined` | The pages of a PDF with no text at all (scans, photos, charts), up to 200. Absent when there are none, and on documents from before 0.8.1. The card names them, and points to `view_pages` when they can be looked at. New in 0.8.1. |

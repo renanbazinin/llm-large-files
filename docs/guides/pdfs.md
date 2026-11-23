@@ -465,8 +465,9 @@ close that gap:
 
 1. **A line in the text that says where the pictures are.** It needs `@cantoo/pdf-lib`.
 2. **A tool, `view_pages`, that hands the model the real pages** as a small PDF, when it asks. It
-   needs `@cantoo/pdf-lib` and the uploaded file itself, which the store keeps when you list
-   `"pdf"` in `keepOriginals`.
+   needs `@cantoo/pdf-lib` and the uploaded file itself, which is kept when you list `"pdf"` in
+   `keepOriginals`: by the store, or, since 0.9.0, where your application keeps it
+   ([below](#view_pages-from-your-own-uploads)).
 
 ```ts
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
@@ -489,6 +490,7 @@ The options of this page, and where each is explained:
 | Option | Default | What it does |
 |---|---|---|
 | `keepOriginals` (`createLargeFiles`) | `[]`: no file kept | List `"pdf"` to keep the uploaded file, which `view_pages` and scanned PDFs need ([above](#pictures-in-pdfs)). |
+| `originals` (`createLargeFiles`) | none | Reads the uploads your application keeps, so the store keeps no copy ([`view_pages` from your own uploads](#view_pages-from-your-own-uploads)). New in 0.9.0. |
 | `scannedPdfPages` (`createLargeFiles`) | 30 | The most pages a PDF without text may have to be accepted, when PDFs are kept. 0 refuses every one ([Scanned PDFs](#scanned-pdfs)). |
 | `maxPdfPages`, `maxTextBytes`, `ingestTimeoutMs` (`createLargeFiles`) | 5,000 pages; 100 MB, or `maxUploadBytes` when that is larger; 120,000 ms | The most pages, text and time one file may take at ingest ([What is refused](#what-is-refused)). |
 | `tables`, `pictures` (`createPdfExtractor`) | `true` | Rebuild tables; write the line that marks a page with a picture ([PDF tables](#pdf-tables), [The line that marks a page](#the-line-that-marks-a-page)). |
@@ -690,6 +692,48 @@ How long a question can wait for turns:
   in each tool turn that looks at pages.
 - Lower `pageLookWaitMs`, or raise `maxConcurrentPageLooks`, for a chat that must answer sooner.
 
+### `view_pages` from your own uploads
+
+New in 0.9.0. When your application keeps each upload anyway, the store need not keep a second
+copy of the PDF. Give the ingest where the file is (`original: { ref }`), and the library a reader
+of your uploads (`originals`): `fileOriginals(root)` of `llm-large-files/node` reads them from a
+folder.
+
+```ts
+import path from "node:path";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { fileOriginals } from "llm-large-files/node";
+
+const VOLUME = process.env.DOCUMENTS_DIR!;
+
+export const files = createLargeFiles({
+  store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }),
+  keepOriginals: ["pdf"],
+  originals: fileOriginals(VOLUME),
+});
+
+/** Ingests a PDF your upload route saved under <VOLUME>/<user>/<chat>/uploads/. */
+export function ingestSaved(userId: string, chatId: string, uploadId: string, name: string) {
+  const ref = `${userId}/${chatId}/uploads/${uploadId}`;
+  return files.ingest({ name, source: { path: path.join(VOLUME, ref) }, original: { ref }, owner: userId, scope: [userId, chatId], id: uploadId });
+}
+```
+
+- The model sees nothing of this: the ref is never in the prompt, the cards or the results.
+- A look reads the file through the reader, within its turn and its time, as it reads a copy from
+  the store. The metadata records the size and SHA-256 the file had at ingest, and the look
+  compares them. A file that has changed since (saved again under the same name, cut short, edited)
+  is not cut, and the model reads "report.pdf changed on the server since it was read. Attach it
+  again to look at its pages.": its pages would not match the text the model has. A file that is
+  gone reads as "The original file of report.pdf is no longer on the server, so its pages cannot
+  be shown. Answer from the text."
+- `files.delete` and the sweep never touch your upload. Remove it with its chat.
+- A scanned PDF is accepted with a ref as with a copy in the store ([Scanned PDFs](#scanned-pdfs)),
+  even over a store without `putOriginal`.
+- [Storage](./storage.md#keeping-the-uploaded-files) has the rules for the ref and a reader of your
+  own, and [Security](../security.md#originals-your-application-keeps) what `fileOriginals`
+  refuses.
+
 ### Limits and cost
 
 | Limit | Value | When it is reached |
@@ -816,7 +860,8 @@ refuses text before a tool result.
 
 The model gets `view_pages` for a PDF only when all of these hold:
 
-- `keepOriginals` lists `"pdf"`, and the store has `putOriginal` and `getOriginal`.
+- `keepOriginals` lists `"pdf"`, and the store has `putOriginal` and `getOriginal`, or (0.9.0)
+  the document was ingested with `original` and the library has `originals`.
   `FileDocumentStore` and `MemoryDocumentStore` have both. Documents ingested before you turned it
   on have no file kept: upload them again. `meta.originalKept` says whether a document has one.
 - Every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput`, not
@@ -858,7 +903,8 @@ export const files = createLargeFiles({
 });
 ```
 
-`scannedPdfPages` has an effect only when PDFs are kept, by a store that can keep them. A PDF with
+`scannedPdfPages` has an effect only when PDFs are kept: by a store that can keep them, or (0.9.0)
+by their ref, for an ingest with `original` in a library with `originals`. A PDF with
 text on any page is always accepted, however many of its pages are scans: those pages say that they
 have no text, and with the file kept the model can look at them.
 
@@ -931,7 +977,8 @@ built-in one does:
    `@cantoo/pdf-lib` counts another number, since a page number could then point at the wrong page.
    Without `pages`, that check is not made, and the card and the instruction give no page count.
 3. **Honour `input.scannedPages`.** The library sets it on every PDF it ingests when PDFs are kept
-   (`keepOriginals` lists `"pdf"` and the store has `putOriginal`) and `scannedPdfPages` is above 0.
+   (`keepOriginals` lists `"pdf"`, and the store has `putOriginal` or the ingest gives `original`
+   to a library with `originals`) and `scannedPdfPages` is above 0.
    It does not say that the file has no text: its value is `scannedPdfPages`, the most pages a PDF
    without any text may have. Unset, refuse a PDF in which you found no text. The library does not check
    this for you: page lines alone are text, so a scan your extractor lets through is stored even

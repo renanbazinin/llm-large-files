@@ -239,9 +239,9 @@ describe("ingest from a path", () => {
 });
 
 describe("ingests from paths waiting for their turn", () => {
-  // The audit measured 150-160 MB for 100 queued 2 MB uploads waiting as paths, against 332-367 MB
-  // with their bytes held (docs/guides/deployment.md has the figures of 0.9.0). The test counts what
-  // is read, not the heap: a queued path holds none of its file.
+  // Measured for 0.9.0 (docs/guides/deployment.md, scratch script d-queue-memory.mjs): 100 such
+  // ingests waiting held 73 MB of RSS as paths, against 282 to 286 MB with their bytes given. The
+  // test counts what is read, not the heap: a queued path holds none of its file.
   it("read nothing of their files while they wait: 100 files of 2 MB", async () => {
     const library = heldLibrary();
     const { done: first } = await library.hold();
