@@ -796,7 +796,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         checkOwner(input.owner);
         const name = cleanFileName(input.name);
         const mimeType = input.mimeType?.trim() || "application/octet-stream";
-        const format = detectFormat(name, mimeType);
+        // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
+        const format = detectFormat(name, mimeType, input.bytes instanceof Uint8Array ? input.bytes : undefined);
         // Progress is worked out only for someone who listens.
         const progress = events.active ? new IngestProgress(events) : undefined;
         let meta: DocumentMeta;

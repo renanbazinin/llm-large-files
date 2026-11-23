@@ -43,12 +43,47 @@ const MIME_FORMATS: Record<string, DocumentFormat> = {
  * come from the upload: only the tables' own keys count, not "constructor" or "__proto__", which
  * every object has.
  */
-export function detectFormat(name: string, mimeType: string): DocumentFormat {
+export function detectFormat(name: string, mimeType: string, bytes?: Uint8Array): DocumentFormat {
   const extension = name.toLowerCase().split(".").at(-1) ?? "";
   const mime = mimeType.toLowerCase();
-  return (Object.hasOwn(EXTENSION_FORMATS, extension) ? EXTENSION_FORMATS[extension] : undefined)
+  const named = (Object.hasOwn(EXTENSION_FORMATS, extension) ? EXTENSION_FORMATS[extension] : undefined)
     ?? (Object.hasOwn(MIME_FORMATS, mime) ? MIME_FORMATS[mime] : undefined)
     ?? "text";
+  // A name that says text ("notes.txt") is taken at its word.
+  return named === "text" && bytes && extension !== "txt" ? sniffFormat(bytes) ?? named : named;
+}
+
+/** Where the part names of an Office file are looked for: its directory at the end, and its first parts. */
+const SNIFFED_HEAD = 64 * 1024;
+const SNIFFED_TAIL = 1024 * 1024;
+
+/**
+ * The format of a file whose name and type say nothing (no extension, "application/octet-stream"),
+ * from its bytes: a PDF by its header, a DOCX, PPTX or XLSX by the names of its parts, an HTML page
+ * by its first tag. Undefined for anything else, which is read as text. A DOCX sent without its
+ * extension was told "This file is a ZIP archive".
+ */
+export function sniffFormat(bytes: Uint8Array): DocumentFormat | undefined {
+  const head = latin1(bytes.subarray(0, 1_024));
+  const start = head.replace(/^\xef\xbb\xbf/, "").trimStart();
+  if (start.startsWith("%PDF-")) return "pdf";
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
+    const names = latin1(bytes.subarray(0, SNIFFED_HEAD)) + latin1(bytes.subarray(Math.max(SNIFFED_HEAD, bytes.length - SNIFFED_TAIL)));
+    if (names.includes("word/document.xml")) return "docx";
+    if (names.includes("ppt/presentation.xml") || names.includes("ppt/slides/")) return "pptx";
+    if (names.includes("xl/workbook.xml")) return "xlsx";
+    return undefined;
+  }
+  const tag = start.slice(0, 64).toLowerCase();
+  if (tag.startsWith("<!doctype html") || tag.startsWith("<html")) return "html";
+  return undefined;
+}
+
+/** Bytes as Latin-1 text, one character a byte: enough to find ASCII names in them. */
+function latin1(bytes: Uint8Array): string {
+  let out = "";
+  for (let at = 0; at < bytes.length; at += 8_192) out += String.fromCharCode(...bytes.subarray(at, at + 8_192));
+  return out;
 }
 
 export type PdfExtractorOptions = {
