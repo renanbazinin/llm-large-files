@@ -46,6 +46,15 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // `npm run coverage`: the unit project, over the source (coverage/coverage-summary.json). No
+    // thresholds yet: they are set from the suite of the release. The numbers are reported even when
+    // a test fails: counting makes the tests several times slower, and its script gives each 20 s.
+    coverage: {
+      provider: "v8",
+      include: ["src/**"],
+      reporter: ["text-summary", "json-summary"],
+      reportOnFailure: true,
+    },
     projects: [
       {
         extends: true,
