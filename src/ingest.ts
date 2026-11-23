@@ -42,8 +42,9 @@ export type IngestContext = {
   readonly rules: AccessRules;
   /**
    * The application's IDs (`IngestInput.id`) of the ingests of this library under way, from their
-   * first look at the store to the end of their writes and of `ingest.finish`. A second ingest of one
-   * of them is refused ("exists"), whatever its `ifExists`, owner or scope: two ingests that both
+   * first look at the store to the end of their writes and of `ingest.finish`; and when writes did
+   * not end in time, until they and the removal of what they wrote have ended. A second ingest of
+   * one of them is refused ("exists"), whatever its `ifExists`, owner or scope: two ingests that both
    * found the ID free would write over each other, and a store that ignores the context keeps one
    * document of an ID for every scope.
    */
@@ -105,16 +106,23 @@ async function claim(context: IngestContext, target: Target & { id: string }, na
 /**
  * Removes what an ingest wrote under its ID, after a write that failed or a listener that threw on
  * `ingest.finish`: only while the document there, if any, is the ingest's own (the same `createdAt`,
- * owner and scope). Under an application's ID, another server may have stored another document
- * meanwhile: that one is left, and false is returned. A made ID is the ingest's alone.
+ * owner and scope). A made ID is the ingest's alone. Under an application's ID, another document may
+ * be there: one the ingest was to replace (its delete failed), or one another server stored
+ * meanwhile. It is left. "taken" when the ingest could not have replaced it: it has not expired, and
+ * it is of another owner or scope. "left" for any other.
  */
-async function removeOwn(store: DocumentStore, target: Target, meta: DocumentMeta): Promise<boolean> {
+async function removeOwn(context: Pick<IngestContext, "store" | "now">, target: Target, meta: DocumentMeta): Promise<"removed" | "left" | "taken"> {
+  const { store, now } = context;
   if (target.id !== undefined) {
     const found = metaOf(await storeCall("read", () => store.getMeta(meta.id, target.context)), meta.id);
-    if (found && !(found.createdAt === meta.createdAt && heldBy(found, meta.owner, meta.scope))) return false;
+    if (found && !(found.createdAt === meta.createdAt && heldBy(found, meta.owner, meta.scope))) {
+      // As `claim` sees it: a date that cannot be read has not expired.
+      const expired = Date.parse(found.expiresAt) <= now().getTime();
+      return !expired && !heldBy(found, target.owner, target.scope) ? "taken" : "left";
+    }
   }
   await store.delete(meta.id, target.context);
-  return true;
+  return "removed";
 }
 
 /** A store that did not answer in time, as it wrote or was read at ingest: its cause says for how long it was waited for. */
@@ -278,10 +286,15 @@ function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: 
 
 /**
  * `work`, or the signal's reason as soon as it is aborted: an extractor of your own that does not
- * look at the signal is no longer waited for (though the work it does cannot be stopped).
+ * look at the signal is no longer waited for (though the work it does cannot be stopped). Work
+ * given up on is still watched: if it fails later, that is not an unhandled rejection, which ends
+ * a Node.js process.
  */
 function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason);
+  if (signal.aborted) {
+    work.catch(() => undefined);
+    return Promise.reject(signal.reason);
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
     signal.addEventListener("abort", onAbort, { once: true });
@@ -373,6 +386,17 @@ class IngestProgress {
   }
 }
 
+/** Work an ingest gave up on, which goes on once it has ended. */
+type IngestWork = {
+  /** An extraction it no longer waits for: the ingest's turn is kept until it ends (`IngestSlot`). */
+  abandoned?: Promise<unknown>;
+  /**
+   * Writes that did not end in time, then the removal of what they wrote: the application's ID
+   * stays held in `ingesting` until they have ended, since they may still land.
+   */
+  writes?: Promise<unknown>;
+};
+
 /**
  * The work of `ingest`, once the file is named: `detected` is the format its name and type say.
  * `progress` is given when someone listens to the events of the ingest. `storeFailed` is called
@@ -387,7 +411,7 @@ async function ingestFile(
   detected: DocumentFormat,
   progress: IngestProgress | undefined,
   storeFailed: () => void,
-  work: { abandoned?: Promise<unknown> },
+  work: IngestWork,
 ): Promise<DocumentMeta> {
   const { store, now, ttlMs, maxTextBytes, maxPdfPages, ingestTimeoutMs, scannedPdfPages, extractors, slotCapMs, keeps, forget } = context;
   let format = detected;
@@ -539,14 +563,21 @@ async function ingestFile(
   } catch (error) {
     // Do not leave a file of up to the upload limit, or a part of one, behind for a document
     // that does not exist: once the writes have ended, when they have not yet. The removal is not
-    // waited for longer than the writes were. A document another server stored under the ID
-    // meanwhile is left alone: the ID is taken.
+    // waited for longer than the writes were. A document under the ID that is not this ingest's is
+    // left alone: the ID is taken when it is another owner's or another scope's, and live.
     let taken = false;
+    let ended = false;
     const remove = async () => {
-      taken = !await removeOwn(store, target, meta);
+      taken = await removeOwn(context, target, meta) === "taken";
     };
-    const removal = storing.then(remove, remove).catch(() => undefined);
+    const removal = storing.then(remove, remove).catch(() => undefined).then(() => {
+      ended = true;
+    });
     await settleWithin(removal, slotCapMs, () => new Error("")).catch(() => undefined);
+    // Writes that have not ended may still land, and so may their removal: the ID stays held in this
+    // library until they have, or another ingest of it could be written over, or removed. A store
+    // that never answers keeps that one ID refused here.
+    if (!ended) work.writes = removal;
     // What the listener of the events threw is passed on as it is, and so is a scope the store
     // cannot use: a mistake of the call, which the same call would make again.
     if (listenerFailed?.error === error || DocumentScopeError.is(error)) throw error;
@@ -582,6 +613,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
   let storeFailed = false;
   /** The application's ID this ingest holds in `ingesting`, once it does. */
   let holding: string | undefined;
+  const work: IngestWork = {};
   try {
     if (events.active) events.emit({ type: "ingest.start", ...startOf(input) });
     checkOwner(input.owner);
@@ -602,6 +634,8 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
       if (target.id !== undefined) {
         // An ID another ingest of this library is storing: refused, whoever's it is to be.
         if (ingesting.has(target.id)) throw exists(name);
+        // A caller that has already gone: nothing is held, and the store is not asked.
+        input.signal?.throwIfAborted();
         ingesting.add(target.id);
         holding = target.id;
         // An application's ID that is taken, before the file is read (again before it is written):
@@ -615,7 +649,6 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
       // library, by an extractor of your own, waits for a turn like any other. Telling it apart
       // with AsyncLocalStorage made pdf.js about five times slower on Node 22, for every PDF.)
       const slot = new IngestSlot(await ingests.acquire(input.signal), slotCapMs);
-      const work: { abandoned?: Promise<unknown> } = {};
       try {
         meta = await ingestFile(context, input, target, name, mimeType, format, progress, () => (storeFailed = true), work);
       } finally {
@@ -632,7 +665,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
     } catch (error) {
       // The caller never gets the id: the document goes, as on a throw of the listener a moment
       // earlier, while it is this ingest's own. The listener's error is passed on as it is.
-      await removeOwn(context.store, target, meta).catch(() => undefined);
+      await removeOwn(context, target, meta).catch(() => undefined);
       forget(meta.id);
       throw error;
     }
@@ -643,6 +676,11 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
     events.emit({ type: "ingest.error", error: storeFailed ? { message: STORE_WRITE_FAILED } : eventErrorOf(error) });
     throw error;
   } finally {
-    if (holding !== undefined) ingesting.delete(holding);
+    if (holding !== undefined) {
+      // Once writes given up on have ended, and the removal of what they wrote (see `IngestWork`).
+      const id = holding;
+      if (work.writes) void work.writes.finally(() => ingesting.delete(id));
+      else ingesting.delete(id);
+    }
   }
 }
