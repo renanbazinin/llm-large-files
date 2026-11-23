@@ -361,7 +361,8 @@ describe("the shutdown of the docs (findings 30, 40)", () => {
     }
   });
 
-  it("exits on SIGTERM with the recipe of the node reference, after a file was read", async () => {
+  // Windows has no signals: kill("SIGTERM") ends the process there, and no listener runs.
+  it.skipIf(process.platform === "win32")("exits on SIGTERM with the recipe of the node reference, after a file was read", async () => {
     let sent = false;
     const result = await runScript("sigterm.mjs", `
       import { createServer } from "node:http";

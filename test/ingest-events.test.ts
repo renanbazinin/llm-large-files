@@ -216,8 +216,10 @@ describe("ingest events", () => {
       const progress = log.progress(stage);
       // Measured as the library spaces them, by performance.now() (events are sent at once, so
       // they arrive when they are sent): the wall clock of `time` can be moved on a busy machine,
-      // and read 7 ms between events sent 12 ms apart. 11 leaves room for the call between them.
-      for (let index = 1; index < progress.length - 1; index++) expect(log.arrived.get(progress[index]!)! - log.arrived.get(progress[index - 1]!)!).toBeGreaterThanOrEqual(11);
+      // and read 7 ms between events sent 12 ms apart. A pause of the collector between the
+      // library's reading of the clock and the listener's can still take a few ms off a gap (9.4 ms
+      // on a CI machine); events sent at every step would be microseconds apart.
+      for (let index = 1; index < progress.length - 1; index++) expect(log.arrived.get(progress[index]!)! - log.arrived.get(progress[index - 1]!)!).toBeGreaterThanOrEqual(6);
     }
   });
 

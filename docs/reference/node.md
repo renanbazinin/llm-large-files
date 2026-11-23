@@ -370,6 +370,7 @@ const documents = createDocumentHandlers(files);
 const server = createServer(/* your routes, with documents.upload */).listen(3000);
 
 // A SIGTERM listener replaces Node's own exit: stop the server there too, or it goes on serving.
+// (On Windows no SIGTERM arrives: a kill ends the process.)
 process.once("SIGTERM", () => {
   server.close(); // no new connections; requests under way go on
   void isolated.close(); // kills the children: the files they read are refused as "busy"
