@@ -165,9 +165,11 @@ export type IngestInput = {
   /**
    * What to do when a document with `id` is already stored, as the store sees it for this scope.
    * "fail" (the default) throws an `IngestError` with code "exists" (status 409). "replace"
-   * deletes it, then stores the new one: only a document of the same owner and scope, or one whose
-   * text is gone; another is "exists" too. Over a store that keeps no scopes apart, the check spans
-   * every scope, so one chat cannot write over another's document. New in 0.9.0.
+   * deletes it, then stores the new one: only a document of the same owner and scope; another is
+   * "exists" too, even when its text is gone, unless it has expired. Over a store that keeps no
+   * scopes apart, the check spans every scope, so one chat cannot write over another's document.
+   * While an ingest of this library stores `id`, another ingest of it is "exists", whatever this
+   * says. New in 0.9.0.
    */
   ifExists?: "fail" | "replace";
   /**
@@ -467,6 +469,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     keeps,
     forget,
     rules,
+    ingesting: new Set<string>(),
   };
 
   /**

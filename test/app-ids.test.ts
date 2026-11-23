@@ -122,7 +122,7 @@ describe('ifExists: "fail", the default', () => {
     expect(await textOf(files, "upload-1")).toContain("new");
   });
 
-  it("refuses at the write a document stored under the ID while the file was read, and leaves that one alone", async () => {
+  it("refuses at the write a document another server stored under the ID while the file was read, and leaves that one alone", async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     let waiting!: () => void;
@@ -134,13 +134,17 @@ describe('ifExists: "fail", the default', () => {
       }
       return { text: new TextDecoder().decode(bytes) };
     };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: slow } });
-    const first = files.ingest({ name: "slow.txt", bytes: utf8("slow\n"), id: "upload-1" }).catch((error: unknown) => error);
+    // Two libraries over one store, as two servers: in one library, the second ingest of an ID is
+    // refused at once, while the first is under way (test/id-isolation.test.ts).
+    const store = new MemoryDocumentStore();
+    const one = createLargeFiles({ store, extractors: { text: slow } });
+    const two = createLargeFiles({ store });
+    const first = one.ingest({ name: "slow.txt", bytes: utf8("slow\n"), id: "upload-1" }).catch((error: unknown) => error);
     await started;
-    await files.ingest({ name: "fast.txt", bytes: utf8("fast\n"), id: "upload-1" });
+    await two.ingest({ name: "fast.txt", bytes: utf8("fast\n"), id: "upload-1" });
     release();
     expect(await first).toMatchObject({ code: "exists", status: 409 });
-    expect(await textOf(files, "upload-1")).toContain("fast");
+    expect(await textOf(one, "upload-1")).toContain("fast");
   });
 });
 
@@ -167,7 +171,7 @@ describe('ifExists: "replace"', () => {
     expect(await textOf(files, "upload-1", { owner: "alice", scope: ["alice", "s1"] })).toContain("alice's");
   });
 
-  it("writes a document that is missing, and replaces one whose text is gone, whoever it was of", async () => {
+  it("writes a document that is missing, and replaces its owner's whose text is gone, never another owner's", async () => {
     /** A store whose text can be lost while its metadata stays, as when a file is removed by hand. */
     class Lossy extends StoreOf08 {
       readonly lost = new Set<string>();
@@ -183,16 +187,19 @@ describe('ifExists: "replace"', () => {
     const files = createLargeFiles({ store });
     // Missing: written.
     expect((await files.ingest({ name: "a.txt", bytes: utf8("first\n"), id: "upload-1", ifExists: "replace", owner: "alice" })).id).toBe("upload-1");
-    // Its text lost: missing for its owner, and replaced by another one, through whom nothing of
-    // alice's can be read.
+    // Its text lost: missing for its owner, and replaced by its owner.
     store.lost.add("upload-1");
     expect((await files.prepare(["upload-1"], base, { owner: "alice" })).missing).toEqual(["upload-1"]);
-    await files.ingest({ name: "b.txt", bytes: utf8("second\n"), id: "upload-1", ifExists: "replace", owner: "bob" });
-    expect(await textOf(files, "upload-1", { owner: "bob" })).toContain("second");
-    expect(await files.getMeta("upload-1", { owner: "alice" })).toBeUndefined();
+    // Not by another owner, which fails closed: a store, or a wrapper, that drops the context of a
+    // read would say the text of a document that is there is gone.
+    await expect(files.ingest({ name: "b.txt", bytes: utf8("bob's\n"), id: "upload-1", ifExists: "replace", owner: "bob" }))
+      .rejects.toMatchObject({ code: "exists", status: 409 });
+    await files.ingest({ name: "c.txt", bytes: utf8("third\n"), id: "upload-1", ifExists: "replace", owner: "alice" });
+    expect(await textOf(files, "upload-1", { owner: "alice" })).toContain("third");
+    expect(await files.getMeta("upload-1", { owner: "bob" })).toBeUndefined();
   });
 
-  it("asks a store that reads by range whether the text is there", async () => {
+  it("does not read the text of another owner's document to decide: it is refused", async () => {
     class Ranged extends MemoryDocumentStore {
       readonly ranges: Array<[string, number, number]> = [];
       async readTextRange(id: string, start: number, end: number, _context?: DocumentContext) {
@@ -203,9 +210,10 @@ describe('ifExists: "replace"', () => {
     const store = new Ranged();
     const files = createLargeFiles({ store });
     await files.ingest({ name: "a.txt", bytes: utf8("alice's\n"), id: "upload-1", owner: "alice" });
-    await files.ingest({ name: "b.txt", bytes: utf8("bob's\n"), id: "upload-1", owner: "bob", ifExists: "replace" });
-    expect(store.ranges).toEqual([["upload-1", 0, 1], ["upload-1", 0, 1]]);
-    expect((await files.getMeta("upload-1", { owner: "bob" }))?.name).toBe("b.txt");
+    await expect(files.ingest({ name: "b.txt", bytes: utf8("bob's\n"), id: "upload-1", owner: "bob", ifExists: "replace" }))
+      .rejects.toMatchObject({ code: "exists", status: 409 });
+    expect(store.ranges).toEqual([]);
+    expect((await files.getMeta("upload-1", { owner: "alice" }))?.name).toBe("a.txt");
   });
 
   it("never replaces a document written by a newer version", async () => {

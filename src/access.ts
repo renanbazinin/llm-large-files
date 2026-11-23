@@ -77,6 +77,17 @@ export function mayUse(meta: DocumentMeta, caller: Caller, rules: AccessRules): 
 }
 
 /**
+ * Whether the document `found` has exactly this owner and this scope: no owner is the same as no
+ * owner only, and so for scopes. An owner or a scope of null counts as none. A scope that is not a
+ * list of segments (damaged, or written by hand) is nobody's.
+ */
+export function heldBy(found: DocumentMeta, owner: string | undefined, scope: DocumentScope | undefined): boolean {
+  const theirs: unknown = found.scope ?? undefined;
+  if ((found.owner ?? undefined) !== owner) return false;
+  return theirs === undefined ? scope === undefined : Array.isArray(theirs) && sameScope(theirs as string[], scope);
+}
+
+/**
  * The metadata a store gave for `id`, when it is that of `id`: metadata of another document (a
  * store that looked up the wrong one) is none. An owner or a scope of null, as a database gives a
  * field that was left out, is left out.
