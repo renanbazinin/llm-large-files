@@ -2,14 +2,16 @@
 
 New in 0.9.0. This page lists every export of `llm-large-files/testing`: the fakes that the
 library's own tests use, for the tests of your application. A scripted model, a `fetch` for the
-real adapters, and test documents. How to write the tests is in the guide
-[Testing an integration](../guides/testing.md).
+real adapters, test documents, and the checks of a store of your own. How to write the tests is in
+the guide [Testing an integration](../guides/testing.md).
 
 ```ts
-import { calls, fakeFetch, fakeModel, httpError, says, serviceLog, sse, utf8 } from "llm-large-files/testing";
-import type { FakeFetch, FakeModel, FakeReply, Scripted, Sent } from "llm-large-files/testing";
+import { calls, documentStoreChecks, fakeFetch, fakeModel, httpError, says, serviceLog, sse, utf8 } from "llm-large-files/testing";
+import type {
+  DocumentStoreCheck, DocumentStoreChecksOptions, FakeFetch, FakeModel, FakeReply, Scripted, Sent, StoreCheckEnvironment, StoreCheckPart,
+} from "llm-large-files/testing";
 // What the signatures below use from the main entry:
-import type { GenerateText, ModelAdapter, ModelCapabilities, ModelReply, ModelRequest, SendHooks, ToolCall } from "llm-large-files";
+import type { DocumentScope, DocumentStore, GenerateText, ModelAdapter, ModelCapabilities, ModelReply, ModelRequest, SendHooks, ToolCall } from "llm-large-files";
 ```
 
 The entry point depends on no test framework: it works with Vitest, Jest or `node:test`. It is
@@ -23,6 +25,9 @@ code to import in tests, not in your server, but it does nothing when it is load
 - [A fetch for the real adapters](#a-fetch-for-the-real-adapters): [`fakeFetch()`](#fakefetchreplies),
   [`sse()`](#sseevents), [`FakeFetch`](#fakefetch), [`FakeReply`](#fakereply), [`Sent`](#sent)
 - [Test documents](#test-documents): [`utf8()`](#utf8text), [`serviceLog()`](#serviceloglines)
+- [Checking a store](#checking-a-store): [`documentStoreChecks()`](#documentstorechecksoptions),
+  [`DocumentStoreChecksOptions`](#documentstorechecksoptions-1), [`StoreCheckEnvironment`](#storecheckenvironment),
+  [`DocumentStoreCheck`](#documentstorecheck)
 
 ## A scripted model
 
@@ -168,3 +173,129 @@ declare function serviceLog(lines: number): string;
 A service log of `lines` lines of about 90 characters, the same on every call: an `ERROR` line
 every 97 lines (97, 194, …), a `WARN` line every 13, and `INFO` lines in between. 400 lines hold 4
 errors; 5,000 lines, about 440 KB, hold 51.
+
+## Checking a store
+
+### documentStoreChecks(options)
+
+```ts
+declare function documentStoreChecks(options: DocumentStoreChecksOptions): DocumentStoreCheck[];
+```
+
+New in 0.9.0. The checks a [`DocumentStore`](./library.md#documentstore) must pass, as a list: each
+has a name, a time limit, and a `run` that rejects with an `Error` saying what the store did wrong.
+Give each to your test framework:
+
+```ts
+// blob-document-store.test.ts (Vitest; Jest takes the same line with `test`)
+import { it } from "vitest";
+import { documentStoreChecks } from "llm-large-files/testing";
+import { BlobDocumentStore } from "./blob-document-store.js";
+import { blobsFor, recordsFor, dropStorage } from "./test-storage.js"; // your own: a bucket prefix and a collection per name
+
+const checks = documentStoreChecks({
+  create: ({ storage }) => new BlobDocumentStore(blobsFor(storage), recordsFor(storage)),
+  dispose: (_store, { storage }) => dropStorage(storage),
+});
+for (const check of checks) it(check.name, check.run, check.timeoutMs);
+```
+
+With `node:test`: `for (const check of checks) test(check.name, { timeout: check.timeoutMs }, check.run);`.
+`run` takes no argument, so Jest does not wait for a `done` callback.
+
+What the checks cover:
+
+- `put` and `get` keep the text exactly (CRLF, Hebrew, an emoji, a byte-order mark inside), and
+  copy the metadata on the way in and out.
+- An unknown ID gives `undefined`, and `delete` gives `false`.
+- Fields of the metadata the store does not know are kept: those a later version adds.
+- A field left out comes back absent, never `null`: `owner`, `scope` and others.
+- An expired document is read without an error: as `undefined`, or as it was, for the library to
+  refuse. After `sweep`, it is gone.
+- `delete` removes every part, a second one gives `false`, and two at once do not fail. The original
+  and the index of a document written only in part are removed too.
+- `readTextRange` gives UTF-8 bytes across characters, fewer or none past the end, and `undefined`
+  after a delete ("ranges").
+- The line index is kept byte for byte, as a copy, the last one written ("index").
+- The original is kept byte for byte, as a copy ("originals").
+- `sweep(now)` removes the documents expired at `now`, not at the time of day, every part of them,
+  and no other ("sweep"). With `isolatesScopes`, a sweep with a scope removes only that scope's.
+- The IDs an application may choose ([`APP_DOCUMENT_ID_PATTERN`](./library.md#app_document_id_pattern)).
+- Every method takes a context. Without `requiresScope`, also no context, `{}`, and an owner alone.
+- With `requiresScope`: a call without a scope throws a
+  [`DocumentScopeError`](./library.md#documentscopeerror) of code `"scope_required"`, and `sweep`
+  without one sweeps every scope.
+- With `isolatesScopes`: one ID in two scopes is two documents on every method, so the context
+  reaches every call, and a document of one scope is missing from another scope and from no scope.
+  A wrapper that forwards only the ID fails here.
+- Two stores over one storage, as two servers, see each other's writes and deletes ("shared").
+- The library over the store, with `wholeDocumentBytes: 0` (every document read by range), gives
+  the same metadata, prepared blocks, search and read results, original and delete as over
+  `MemoryDocumentStore`.
+
+Each check makes its own store with `create`, over storage of its own (`environment.storage`), and
+gives every store it made to `dispose` at the end. The checks pass a scope (and an owner) on most
+calls. New checks are added only in minor versions, so a patch release never fails a store that
+passed.
+
+### `DocumentStoreChecksOptions`
+
+```ts
+type StoreCheckPart = "originals" | "ranges" | "index" | "sweep" | "shared";
+
+type DocumentStoreChecksOptions = {
+  create(environment: StoreCheckEnvironment): DocumentStore | Promise<DocumentStore>;
+  dispose?(store: DocumentStore, environment: StoreCheckEnvironment): void | Promise<void>;
+  isolatesScopes?: boolean;
+  requiresScope?: boolean;
+  scopeDepth?: number;
+  skip?: readonly StoreCheckPart[];
+};
+```
+
+| Field | Default | What it does |
+|---|---|---|
+| `create` | Required | Makes a new store over new, empty storage named by `environment.storage`. Called again with the same name, it gives a second store over the same storage, as a second server opens it. Give the store `environment.now` as its clock, if it has one. |
+| `dispose` | None | Called at the end of each check for each store it made: close it, and remove its storage. |
+| `isolatesScopes` | `false` | The store keeps the documents of each scope apart, as `MemoryDocumentStore` and a scoped `FileDocumentStore` do. Adds the checks of scopes. Leave it false for a store that ignores the context: the library then keeps scopes apart by `meta.scope`. |
+| `requiresScope` | `false` | The store refuses a call without a scope, as a `FileDocumentStore` with `scopes` does. The checks then always pass one, and one more checks the refusal. |
+| `scopeDepth` | `2` | How many segments the scopes of the checks have, from 1 to 8: `["user-1", "chat-a"]` with 2. |
+| `skip` | `[]` | The parts the store does not have: `"originals"` (`putOriginal` and `getOriginal`), `"ranges"` (`readTextRange`), `"index"` (`putIndex` and `getIndex`), `"sweep"`, and `"shared"` for storage two stores cannot share (`MemoryDocumentStore`). A check of a part the store lacks, not skipped, fails and says to skip it. |
+
+`documentStoreChecks` throws a `TypeError` without `create`, or for a `scopeDepth` outside 1 to 8.
+
+### `StoreCheckEnvironment`
+
+```ts
+type StoreCheckEnvironment = {
+  readonly now: () => Date;
+  readonly storage: string;
+  readonly scopes: readonly DocumentScope[];
+};
+```
+
+| Field | What it holds |
+|---|---|
+| `now` | The clock of the check: the time it started, rounded down to a second. A check may move it forward. |
+| `storage` | A name for the storage of the store, of lowercase letters, digits and `-`, new for each check: a folder, a key prefix, a collection. |
+| `scopes` | The two scopes the checks use, `scopeDepth` lowercase segments each, which pass `isSafeScopeSegment`. Make their place first when your store needs it, as for the folders of a `FileDocumentStore` without `createScopeFolders`. |
+
+### `DocumentStoreCheck`
+
+```ts
+type DocumentStoreCheck = {
+  readonly name: string;
+  readonly timeoutMs: number;
+  readonly run: () => Promise<void>;
+};
+```
+
+| Field | What it holds |
+|---|---|
+| `name` | What the store must do, as a sentence: the name of the test. |
+| `timeoutMs` | The time the check may take: 10 s, and 30 s for the check through the library. |
+| `run` | Runs the check. It resolves when the store passes, and rejects with an `Error` whose message starts "The store failed the check:" and says what was expected and what came back. When the store throws, the message names the call and its arguments, such as `readTextRange("check-delete", 0, 4, {…})`, and the error the store threw is its `cause`. An error that `create` or `dispose` throws is named after them, and any other after the check. |
+
+How the library's own tests run them on `MemoryDocumentStore` and `FileDocumentStore`, and what to
+check by hand besides (a database that is down, writes that fail), is in
+[Storage](../guides/storage.md#checking-your-store).

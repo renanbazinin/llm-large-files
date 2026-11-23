@@ -16,6 +16,7 @@ Fake the layer below the code you test, and nothing above it.
 | Expiry, owners, deleting | The clock: `now`, with `MemoryDocumentStore` | [Expiry, owners and the clock](#expiry-owners-and-the-clock) |
 | Your upload and answer routes | Nothing for uploads, the model for answers: a real server on a free port, called with `fetch` | [Your routes](#your-routes) |
 | Whether a real model finds the answer in a real file | Nothing: a few live tests | [Live tests, few and cheap](#live-tests-few-and-cheap) |
+| A `DocumentStore` of your own | Nothing: `documentStoreChecks` runs the store against the contract | [Checking your store](./storage.md#checking-your-store) |
 
 The library's own tests work the same way, with the same fakes. Since 0.9.0 they ship in the
 package as `llm-large-files/testing`: import them instead of copying them.
@@ -1135,8 +1136,8 @@ The credentials are the application default credentials, as on your servers: see
 
 ## Reference
 
-- `fakeModel`, `says`, `calls`, `httpError`, `fakeFetch`, `sse`, `utf8` and `serviceLog`:
-  [`llm-large-files/testing`](../reference/testing.md).
+- `fakeModel`, `says`, `calls`, `httpError`, `fakeFetch`, `sse`, `utf8`, `serviceLog` and
+  `documentStoreChecks`: [`llm-large-files/testing`](../reference/testing.md).
 - [`ModelAdapter`](../reference/ask.md#modeladapter), [`ModelRequest`](../reference/ask.md#modelrequest),
   [`AskResult`](../reference/ask.md#askresult), [`AskLimits`](../reference/ask.md#asklimits) and
   `partialResultOf`: [the tool loop and the adapter contract](../reference/ask.md).

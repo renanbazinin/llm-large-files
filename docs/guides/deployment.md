@@ -79,7 +79,18 @@ The built-in stores:
   [Sweeping expired documents](#sweeping-expired-documents)).
 
   It needs a file system whose rename is atomic and that shows each server the files of the
-  others: an NFS share (Amazon EFS, Google Filestore, Azure Files over NFS) or similar. Two caveats:
+  others: an NFS share (Amazon EFS, Google Filestore, Azure Files over NFS) or similar. Every server
+  opens its own `FileDocumentStore` over the same directory, with the same options (`scopes` above
+  all), and one library per process: then `maxConcurrentIngests`, `cacheBytes` and
+  `maxConcurrentScans` hold for the whole server, whatever the number of chats
+  ([Storage](./storage.md#files-in-a-folder-per-user-or-per-chat)).
+
+  Since 0.9.0 it writes files `0600` and folders `0700`: only the user that wrote them can read
+  them. Run every server, and any job that reads the volume (a backup, a sweep job), as the same
+  user. If they run as different users of one group, as pods with a shared `fsGroup` in Kubernetes
+  do, set `fileMode: 0o640` and `directoryMode: 0o750` on every store: a server that cannot read a
+  file another one wrote answers "The document store could not be read (EACCES)". The umask of the
+  process still applies. Two caveats:
 
   - An NFS client may remember for a while that a file did not exist (its negative lookup cache).
     A question sent to another server right after an upload can then find the document missing.
@@ -481,17 +492,24 @@ documents it removed, or 0 for a store without one.
 
 `FileDocumentStore.sweep` also removes the files of uploads that were never finished, once they are
 `orphanAgeMs` old (one hour by default): younger ones may be an upload in progress on another
-server ([Storage](./storage.md#filedocumentstore)).
+server ([Storage](./storage.md#filedocumentstore)). It reads `sweepConcurrency` files at once, 16 by
+default. With `scopes`, `files.sweep()` walks the folders of every scope (exactly `depth` levels,
+following no link), and `files.sweep({ scope })` sweeps the folder of one chat.
 
 **Where to run it.** On one server, or from a scheduled job. Running it on every server is safe
 with `FileDocumentStore`, since removing a file that another sweep just removed is no error, but
-each server then lists the whole directory and reads every metadata file. A job of its own:
+each server then lists the whole directory (with `scopes`, every chat's folder) and reads every
+metadata file. Run it from one server, or take a lease first (a document in MongoDB with an expiry
+that one server holds at a time). A job of its own runs as the user of the servers, or in their
+group with the modes above. Give it the options of the servers' store:
 
 ```ts
 // sweep.ts: run every hour by a scheduled job (cron, a Kubernetes CronJob, Cloud Scheduler).
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 
-const files = createLargeFiles({ store: new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents") });
+// The options of the servers' store: here, a folder per user and chat.
+const store = new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents", { scopes: { depth: 2 } });
+const files = createLargeFiles({ store });
 const removed = await files.sweep();
 console.log(`Removed ${removed} expired documents.`);
 ```
@@ -622,6 +640,12 @@ same conversations.
   8% more in JSON. One ingested before 0.4.0 has no index: it is built the first time the document
   is used, and saved for the other servers. Upgrading from 0.3.x has notes of its own in
   [the 0.4.0 entry of the changelog](https://github.com/renanbazinin/llm-large-files/blob/v0.5.0/CHANGELOG.md#040---2026-11-12).
+- **Documents of 0.9.0.** In the flat layout, 0.9.0 keeps the names and fields of 0.8, so servers of
+  0.8 read the documents 0.9.0 writes under the IDs the library makes, and ignore the new fields.
+  They do not read a document under an application's ID, nor the folders of a store with `scopes`:
+  they answer such documents as missing, and the user is asked for the file again. Upgrade every
+  server at once, or keep each chat on servers of one version until the rollout ends. Files that
+  0.9.0 writes are `0600`: servers of 0.8 that run as another user cannot read them either.
 - **A document keeps what the version that ingested it extracted**: its text, outline and log
   profile. A better extractor applies to files uploaded after the upgrade. A text file in an older
   encoding that 0.5.0 stored holds U+FFFD where 0.6.0 reads its letters, and text that 0.5.0

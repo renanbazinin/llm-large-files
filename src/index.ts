@@ -55,7 +55,8 @@ export { DEFAULT_FIRST_BYTE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./http.j
 export type { IdleWaits } from "./http.js";
 export { DocumentScopeError, DocumentStoreError, IngestError, ingestErrorCodeOf } from "./errors.js";
 export type { DocumentScopeErrorCode, DocumentStoreOperation, IngestErrorCode } from "./errors.js";
-export { APP_DOCUMENT_ID_PATTERN, DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION, FileDocumentStore, MemoryDocumentStore } from "./stores.js";
+export { APP_DOCUMENT_ID_PATTERN, DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION, FileDocumentStore, hashedScopeSegment, isSafeScopeSegment, MemoryDocumentStore } from "./stores.js";
+export type { FileDocumentScopes, FileDocumentStoreOptions } from "./stores.js";
 export { createPdfExtractor, defaultExtractors, detectFormat } from "./extract.js";
 export type { PdfExtractorOptions } from "./extract.js";
 export { estimateTokens, utf8Bytes, jsonBytes } from "./text.js";

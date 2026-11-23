@@ -262,7 +262,7 @@ import from.
 | `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
 | `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `createIsolatedExtractors`, files read in child processes; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
-| `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents |
+| `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents; `documentStoreChecks`, the checks of a store of your own |
 
 ## Internals and measurements
 

@@ -2,26 +2,26 @@ import fsp, { mkdtemp, readdir, rm, utimes } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLargeFiles, DocumentScopeError, DocumentStoreError, FileDocumentStore, MemoryDocumentStore, NEVER_EXPIRES, type DocumentContext, type IngestEvent, type StoredDocument } from "llm-large-files";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 const log = (lines: number) => Array.from({ length: lines }, (_, i) => `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z INFO request ${i} took ${i % 900}ms`).join("\n");
 
-type FsCall = "readFile" | "open" | "rm";
+type FsCall = "readFile" | "open" | "rm" | "unlink";
 
 /**
- * Makes the next matching call of an `fs/promises` function fail the way a busy volume does: with a
- * system error whose message names the path. Returns how to undo it.
+ * Makes the next `times` matching calls of an `fs/promises` function fail the way a busy volume
+ * does: with a system error whose message names the path. Returns how to undo it.
  */
-function failNext(method: FsCall, matches: (target: string) => boolean, code: string): () => void {
+function failNext(method: FsCall, matches: (target: string) => boolean, code: string, times = 1): () => void {
   const table = fsp as unknown as Record<FsCall, (...args: unknown[]) => Promise<unknown>>;
   const real = table[method];
-  let armed = true;
+  let left = times;
   table[method] = function (this: unknown, ...args: unknown[]) {
     const target = String(args[0]);
-    if (armed && matches(target)) {
-      armed = false;
+    if (left > 0 && matches(target)) {
+      left--;
       return Promise.reject(Object.assign(new Error(`${code}: it failed, ${method} '${target}'`), { code, syscall: method === "readFile" ? "open" : method, path: target }));
     }
     return real.apply(this, args);
@@ -124,8 +124,9 @@ describe("a store that could not be read", () => {
     const before = (await readdir(dir)).sort();
     expect(before).toHaveLength(4);
 
-    restore = failNext("rm", (target) => target.endsWith(`${meta.id}.json`), "EBUSY");
-    await expect(files.delete(meta.id)).rejects.toMatchObject({ name: "DocumentStoreError", operation: "delete", code: "EBUSY" });
+    // EIO, which is not tried again (EBUSY is since 0.9.0: see below).
+    restore = failNext("unlink", (target) => target.endsWith(`${meta.id}.json`), "EIO");
+    await expect(files.delete(meta.id)).rejects.toMatchObject({ name: "DocumentStoreError", operation: "delete", code: "EIO" });
     restore();
     restore = undefined;
 
@@ -209,10 +210,11 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
     const dir = await folder();
     const files = createLargeFiles({ store: new FileDocumentStore(dir) });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\n") });
-    restore = failNext("rm", (target) => target.endsWith(`${meta.id}.json`), "EPERM");
+    // EROFS (a volume mounted read-only) is not tried again: EPERM, EACCES and EBUSY are, since 0.9.0.
+    restore = failNext("unlink", (target) => target.endsWith(`${meta.id}.json`), "EROFS");
     const thrown = await files.delete(meta.id).catch((error: unknown) => error);
     expect(DocumentStoreError.is(thrown)).toBe(true);
-    expect(thrown).toMatchObject({ operation: "delete", code: "EPERM", status: 503, message: "The document could not be deleted (EPERM). Try again." });
+    expect(thrown).toMatchObject({ operation: "delete", code: "EROFS", status: 503, message: "The document could not be deleted (EROFS). Try again." });
     expect((thrown as Error).message).not.toContain(dir);
     expect(String(((thrown as Error).cause as Error).message)).toContain(dir);
   });
@@ -255,6 +257,117 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
     }
     const strict = createLargeFiles({ store: new Unscoped() });
     await expect(strict.getMeta("doc_0123456789abcdef0123456789abcdef")).rejects.toMatchObject({ name: "DocumentScopeError", code: "scope_required" });
+  });
+});
+
+/**
+ * Makes removing a file that `matches` fail with `code`, `times` times, whichever call removes it:
+ * `unlink` since 0.9.0, `rm` before. Counts the tries.
+ */
+function failRemoval(matches: (target: string) => boolean, code: string, times = Number.POSITIVE_INFINITY): { tries: number } {
+  const table = fsp as unknown as Record<"rm" | "unlink", (...args: unknown[]) => Promise<unknown>>;
+  const real = { rm: table.rm, unlink: table.unlink };
+  const counted = { tries: 0 };
+  for (const method of ["rm", "unlink"] as const) {
+    table[method] = function (this: unknown, ...args: unknown[]) {
+      const target = String(args[0]);
+      if (matches(target)) {
+        counted.tries++;
+        if (counted.tries <= times) return Promise.reject(Object.assign(new Error(`${code}: it failed, ${method} '${target}'`), { code, syscall: method, path: target }));
+      }
+      return real[method].apply(this, args);
+    };
+  }
+  syncBuiltinESMExports();
+  restore = () => {
+    table.rm = real.rm;
+    table.unlink = real.unlink;
+    syncBuiltinESMExports();
+  };
+  return counted;
+}
+
+describe("FileDocumentStore removing a document (0.9.0)", () => {
+  it("reads an expired document as missing, also when its files cannot be removed (S8)", async () => {
+    const dir = await folder();
+    let clock = new Date("2026-06-01T00:00:00Z");
+    const store = new FileDocumentStore(dir, { now: () => clock });
+    const files = createLargeFiles({ store, now: () => clock, ttlMs: 60_000 });
+    const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
+    clock = new Date("2026-06-01T00:02:00Z");
+
+    failRemoval((target) => target.endsWith(`${meta.id}.json`), "EIO");
+    expect(await store.getMeta(meta.id)).toBeUndefined();
+    expect(await store.get(meta.id)).toBeUndefined();
+    expect(await files.getMeta(meta.id)).toBeUndefined();
+    expect((await files.prepare([meta.id], { tokens: 0, bytes: 0 })).missing).toEqual([meta.id]);
+    // Still on disk: the sweep tries again.
+    expect(await readdir(dir)).toContain(`${meta.id}.json`);
+    restore!();
+    restore = undefined;
+    expect(await files.sweep()).toBe(1);
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it("is deleted once its metadata is gone, and leaves a part that cannot be removed to the sweep (S9)", async () => {
+    const dir = await folder();
+    const store = new FileDocumentStore(dir);
+    const files = createLargeFiles({ store, keepOriginals: ["text"] });
+    const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
+
+    failRemoval((target) => target.endsWith(`${meta.id}.txt`), "EIO");
+    expect(await files.delete(meta.id)).toBe(true);
+    restore!();
+    restore = undefined;
+    expect(await readdir(dir)).toEqual([`${meta.id}.txt`]);
+    expect(await files.getMeta(meta.id)).toBeUndefined();
+    expect(await files.delete(meta.id)).toBe(false);
+    // A file of no document: removed once it is orphanAgeMs old.
+    expect(await store.sweep(new Date())).toBe(0);
+    expect(await readdir(dir)).toEqual([`${meta.id}.txt`]);
+    await store.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000));
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it("tries a removal again while Windows holds the file open for a moment (LLF-027)", async () => {
+    const dir = await folder();
+    const files = createLargeFiles({ store: new FileDocumentStore(dir), keepOriginals: ["text"] });
+    const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
+
+    const metadata = failRemoval((target) => target.endsWith(`${meta.id}.json`), "EBUSY", 2);
+    expect(await files.delete(meta.id)).toBe(true);
+    expect(metadata.tries).toBe(3);
+    restore!();
+    const again = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
+    const text = failRemoval((target) => target.endsWith(`${again.id}.txt`), "EPERM", 2);
+    expect(await files.delete(again.id)).toBe(true);
+    expect(text.tries).toBe(3);
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  it("gives up after ten more tries, about 2.6 seconds, and throws with the document whole", async () => {
+    const dir = await folder();
+    const files = createLargeFiles({ store: new FileDocumentStore(dir) });
+    const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
+    const before = (await readdir(dir)).sort();
+    const store = new FileDocumentStore(dir);
+
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    try {
+      const metadata = failRemoval((target) => target.endsWith(`${meta.id}.json`), "EBUSY");
+      const removing = store.delete(meta.id).then(() => undefined, (error: unknown) => error);
+      // The pauses between the tries: 2,630 ms in all.
+      await vi.advanceTimersByTimeAsync(2_629);
+      expect(metadata.tries).toBe(10);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await removing).toMatchObject({ code: "EBUSY" });
+      expect(metadata.tries).toBe(11);
+    } finally {
+      vi.useRealTimers();
+    }
+    restore!();
+    restore = undefined;
+    expect((await readdir(dir)).sort()).toEqual(before);
   });
 });
 
