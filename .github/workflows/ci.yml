@@ -22,8 +22,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         node: [22, 24, 26]
-        # The exact floor of engines (require() of the package from CommonJS), and a 22.x with the
-        # windows-1252 TextDecoder bug that decoderFor works around: "22" is the newest 22.x.
+        # The exact floor of engines, for the typecheck, the tests and the build (the package job
+        # checks require() of the package from CommonJS on it), and a 22.x with the windows-1252
+        # TextDecoder bug that decoderFor works around: "22" is the newest 22.x.
         include:
           - { os: ubuntu-latest, node: "22.12.0" }
           - { os: ubuntu-latest, node: "22.13.0" }
@@ -76,14 +77,15 @@ jobs:
     # The package as npm installs it, from the tarball: import and require() of every subpath, an
     # ingest in a child process, a consumer compiled under NodeNext, Bundler and Node10, PDF and
     # DOCX with the peers installed, publint and attw (scripts/check-tarball.mjs). The release
-    # workflow runs the same script on the tarball it publishes. On the oldest major that engines
-    # allows, and the newest.
+    # workflow runs the same script on the tarball it publishes. On the exact floor of engines
+    # (22.12.0, the first Node that loads an ES module with require() without a flag), the newest
+    # 22.x, and the newest major.
     name: Package on Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node: [22, 26]
+        node: ["22.12.0", 22, 26]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

@@ -207,7 +207,8 @@ a job that cannot ask npm for a token. Its steps:
   and does not check `./node/ingest-child.js` (a script that child processes run, not a module to
   import).
 
-CI's `package` job runs the same script on Node 22 and 26 for every pull request.
+CI's `package` job runs the same script on Node 22.12.0 (the floor of `engines`), the newest 22,
+and 26 for every pull request.
 
 **The publish job** runs after the build job passed. It has `contents: read` and `id-token: write`,
 and does not check out the repository or install anything: no code of the package or of its
