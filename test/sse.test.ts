@@ -72,19 +72,6 @@ describe("parseSseJson", () => {
     expect(await events(["data: {\"a\":1}\n\r\ndata: {\"b\":\r\ndata: 2}\r\r", "data: {\"c\":3}"])).toEqual([{ a: 1 }, { b: 2 }, { c: 3 }]);
   });
 
-  it("reads each piece once, however long the event: one of 24 MB in pieces of 16 KB takes no longer than its size", async () => {
-    const text = "x".repeat(24 * 1024 * 1024);
-    const whole = encoder.encode(`data: {"t":"${text}"}\n\ndata: {"n":2}\n\n`);
-    const pieces: Uint8Array[] = [];
-    for (let at = 0; at < whole.length; at += 16 * 1024) pieces.push(whole.subarray(at, at + 16 * 1024));
-    const started = performance.now();
-    const read = await events(pieces);
-    // Read once, it takes a few tens of milliseconds; a buffer scanned again with every piece took about 8 s.
-    expect(performance.now() - started).toBeLessThan(2_500);
-    expect(read).toHaveLength(2);
-    expect((read[0] as { t: string }).t.length).toBe(text.length);
-  });
-
   it("ends the stream on an event longer than maxEventLength, rather than hold it all", async () => {
     const tooLong = { name: "SseEventTooLongError", message: "An event of the stream held more than 100 characters." };
     // One line whose end never comes.

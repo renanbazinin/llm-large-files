@@ -4,33 +4,17 @@ import { configDefaults, defineConfig } from "vitest/config";
 const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 /**
- * The test files that hold work the CPU does to the clock: an elapsed time or an event-loop gap under
- * a bound less than about 10 times what the work takes on an idle machine, or a count of the pauses
- * the work leaves for a timer. Other test files running at the same time slow that work, and on a
- * busy machine these failed. They run in the "timing" project: one file at a time, after the other
- * files, each test with one retry and 20 s. A new test of that kind goes in one of these files, or
- * in a file added here (CONTRIBUTING.md). A wait on a timer alone (a 50 ms time limit checked under
- * 2 s) is not slowed that much, and stays with the other tests.
+ * The folder of the tests that hold work the CPU does to the clock: an elapsed time or an event-loop
+ * gap under a bound, a count of the pauses the work leaves for a timer, or a count of events in a
+ * time. Other test files running at the same time slow that work, and so does counting coverage: on
+ * a busy machine, such tests with a bound less than about 10 times what the work takes on an idle
+ * machine failed. Their files run in the "timing" project: one file at a time, after the other
+ * files, each test with one retry and 20 s. The "unit" project, and so `npm run coverage`, leaves
+ * them out. A new test of that kind goes in a file of this folder, test/timing/<topic>.timing.test.ts,
+ * and the other tests of its subject stay in their own file (CONTRIBUTING.md). A wait on a timer
+ * alone (a 50 ms time limit checked under 2 s) is not slowed that much, and stays with the other tests.
  */
-const TIMING = [
-  "test/encodings.test.ts",
-  "test/hygiene.test.ts",
-  "test/ingest-limits.test.ts",
-  "test/library.test.ts",
-  "test/limits-0.8.2.test.ts",
-  "test/limits.test.ts",
-  "test/pdf-names.test.ts",
-  "test/pdf-parse-pauses.test.ts",
-  "test/pdf-pictures.test.ts",
-  "test/review-0.8.test.ts",
-  "test/sse.test.ts",
-  "test/text-and-extract.test.ts",
-  "test/verify-0.8-html.test.ts",
-  "test/verify-0.8-office.test.ts",
-  "test/verify-0.8-search.test.ts",
-  "test/verify-0.8-tools.test.ts",
-  "test/verify-0.8-xlsx.test.ts",
-];
+const TIMING = "test/timing/**/*.test.ts";
 
 export default defineConfig({
   resolve: {
@@ -62,14 +46,14 @@ export default defineConfig({
           name: "unit",
           // Only the tests of this checkout: not those of a worktree or a copy kept inside it.
           include: ["test/**/*.test.ts"],
-          exclude: [...configDefaults.exclude, ...TIMING],
+          exclude: [...configDefaults.exclude, TIMING],
         },
       },
       {
         extends: true,
         test: {
           name: "timing",
-          include: TIMING,
+          include: [TIMING],
           // One file at a time, which also puts these files after the others.
           fileParallelism: false,
           retry: 1,

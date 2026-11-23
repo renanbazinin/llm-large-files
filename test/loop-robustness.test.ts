@@ -918,25 +918,4 @@ describe("since the second review of these changes", () => {
     await askWithFiles({ files, model, documentIds: [meta.id], messages: stored });
     expect(answersOf(model.requests[0]!.messages)[1]).toMatchObject({ already_shown: true });
   });
-
-  it("checks the pointers of a long history in one pass", async () => {
-    const { files, meta } = await largeLog();
-    const stored: Array<Record<string, unknown>> = [{ role: "user", text: "Start." }];
-    for (let round = 0; round < 1_500; round++) {
-      const args = { document_id: meta.id, query: `term-${round}`, mode: "exact" };
-      stored.push({ role: "tools", calls: [
-        { name: "search_document", args, result: { document: "app.log", mode: "exact", total_matching_lines: 0, matches: [] } },
-        { name: "search_document", args, result: { already_shown: true, note: "Not run: this exact call was answered earlier in this conversation." } },
-        { name: "read_document", args: { document_id: meta.id, start_line: round + 1, end_line: round + 1 }, result: { document: "app.log", lines: `${round + 1}-${round + 1}`, total_lines: 5_000, text: "x" } },
-        { name: "read_document", args: { document_id: meta.id, start_line: 1, end_line: 1 }, result: { lines: "1-1", already_shown: true, note: "Not run: lines 1-1 are already shown." } },
-      ] });
-    }
-    stored.push({ role: "assistant", text: "Done." }, { role: "user", text: "And now?" });
-    const model = fakeModel([says("Done.")]);
-    const started = Date.now();
-    await askWithFiles({ files, model, documentIds: [meta.id], messages: stored as never });
-    expect(Date.now() - started).toBeLessThan(3_000);
-    // Every pointer still holds: its result is there.
-    expect(answersOf(model.requests[0]!.messages).filter((answer) => answer.dropped === true)).toEqual([]);
-  });
 });

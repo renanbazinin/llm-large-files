@@ -371,27 +371,6 @@ describe("hidden content of Word and PowerPoint files (S14)", () => {
     expect(officeXmlParagraphs(`<w:p>${run(emoji, "<w:vanish/>")}</w:p>`, "w")).toEqual([`${HIDDEN_TEXT} ${"a".repeat(HIDDEN_PIECE - 1)}\n${HIDDEN_TEXT} \u{1F600}b`]);
   });
 
-  it("marks a hidden line of 16 million characters in well under a second", () => {
-    // Each piece searched again for the end of its line: 10 to 25 seconds, holding the server.
-    const xml = `<w:p><w:r><w:rPr><w:vanish/></w:rPr><w:t>${"a".repeat(16_000_000)}</w:t></w:r></w:p>`;
-    const started = performance.now();
-    const [text] = officeXmlParagraphs(xml, "w");
-    expect(performance.now() - started).toBeLessThan(1_000);
-    const lines = text!.split("\n");
-    expect(lines).toHaveLength(Math.ceil(16_000_000 / HIDDEN_PIECE));
-    expect(lines.every((line) => line.startsWith(`${HIDDEN_TEXT} a`))).toBe(true);
-  });
-
-  it("refuses a hidden line far past the limit as soon as its marks pass it", async () => {
-    // Marked piece by piece up to the limit, each piece searching to the end of the line: 7 seconds.
-    const zip = new JSZip();
-    zip.file("word/document.xml", `<w:document ${W}><w:body><w:p>${run("x".repeat(23_900_000), "<w:vanish/>")}</w:p></w:body></w:document>`);
-    const bytes = await zip.generateAsync({ type: "uint8array" });
-    const started = performance.now();
-    await expect(extractText(bytes, { name: "a.docx", mimeType: "", format: "docx", maxTextBytes: 4_000_000 })).rejects.toThrow(/^This DOCX holds more than 3\.8 MB of text/);
-    expect(performance.now() - started).toBeLessThan(2_000);
-  });
-
   it("refuses hidden text that its marks would take past the limit, before it builds the text", async () => {
     // 26 million characters of XML and of text: under the limit of 32 million. Marked, each of its
     // 13 million lines takes 42 characters: more than one string can hold.

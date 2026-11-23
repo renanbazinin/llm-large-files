@@ -1,40 +1,8 @@
-import JSZip from "jszip";
+// The tests of the XLSX reader that hold the work to the clock are in test/timing/xlsx.timing.test.ts.
 import { describe, expect, it } from "vitest";
-import { extractText } from "../src/extract.js";
 import { createLargeFiles, MemoryDocumentStore } from "../src/index.js";
 import { excelDate, formatKind } from "../src/xlsx.js";
-
-const S = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
-const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-const RELS = 'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"';
-
-async function zip(files: Record<string, string>): Promise<Uint8Array> {
-  const archive = new JSZip();
-  for (const [name, content] of Object.entries(files)) archive.file(name, content);
-  return archive.generateAsync({ type: "uint8array", compression: "DEFLATE" });
-}
-
-/** A workbook of one sheet, "Data", with these shared strings and number formats (one cell style each, from 1). */
-async function workbook(sheetData: string, options: { strings?: string[]; formats?: Array<number | string> } = {}): Promise<Uint8Array> {
-  const custom = (options.formats ?? []).flatMap((format, index) => typeof format === "string" ? [`<numFmt numFmtId="${164 + index}" formatCode="${format}"/>`] : []);
-  const styles = (options.formats ?? []).map((format, index) => `<xf numFmtId="${typeof format === "string" ? 164 + index : format}"/>`);
-  return zip({
-    "xl/workbook.xml": `<workbook ${S}><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>`,
-    "xl/_rels/workbook.xml.rels": `<Relationships ${RELS}><Relationship Id="rId1" Type="${REL}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
-    "xl/worksheets/sheet1.xml": `<worksheet ${S}><sheetData>${sheetData}</sheetData></worksheet>`,
-    ...(options.strings ? { "xl/sharedStrings.xml": `<sst ${S}>${options.strings.map((text) => `<si><t xml:space="preserve">${text}</t></si>`).join("")}</sst>` } : {}),
-    ...(options.formats ? { "xl/styles.xml": `<styleSheet ${S}><numFmts>${custom.join("")}</numFmts><cellXfs><xf numFmtId="0"/>${styles.join("")}</cellXfs></styleSheet>` } : {}),
-  });
-}
-
-const read = async (bytes: Uint8Array, maxTextBytes?: number) => extractText(bytes, { name: "w.xlsx", mimeType: "", format: "xlsx", maxTextBytes });
-const rowsOf = (text: string) => text.split("\n").filter((line) => line.startsWith("Row "));
-
-const timed = async <T>(work: () => Promise<T>): Promise<{ value: T | unknown; ms: number }> => {
-  const started = performance.now();
-  const value = await work().catch((error: unknown) => error);
-  return { value, ms: performance.now() - started };
-};
+import { read, REL, RELS, rowsOf, S, workbook, zip } from "./xlsx-fixtures.js";
 
 describe("a row that names one long shared string many times (#0, #46)", () => {
   it("is refused at the cell that passes the text limit, before the rest of the row is read", async () => {
@@ -43,27 +11,6 @@ describe("a row that names one long shared string many times (#0, #46)", () => {
     const cells = '<c t="s"><v>0</v></c>'.repeat(1_000);
     const bytes = await workbook(`<row r="1">${cells}<c r="${"A".repeat(70_000)}"/></row>`, { strings: [`${"x".repeat(100_000)} y`] });
     await expect(read(bytes, 1_000_000)).rejects.toThrow(/more text than is kept from one file/);
-  });
-
-  it("refuses a 3 KB workbook that names a string of 1,000,000 characters 3,000 times, without running out of memory", async () => {
-    const cells = '<c t="s"><v>0</v></c>'.repeat(3_000);
-    const bytes = await workbook(`<row>${cells}</row>`, { strings: [`${"a".repeat(1_000_000)} b`] });
-    expect(bytes.byteLength).toBeLessThan(5_000);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const { value, ms } = await timed(() => files.ingest({ name: "fanout.xlsx", bytes }));
-    expect((value as Error).message).toMatch(/more text than is (kept|read) from one file/);
-    expect(ms).toBeLessThan(3_000);
-  });
-
-  it("makes a shared string a cell's text once, not at every cell that names it", async () => {
-    // A string of 500,000 tabs: making it one line took about 100 ms, at each of the cells.
-    const cells = '<c t="s"><v>0</v></c>'.repeat(100);
-    const bytes = await workbook(`<row>${cells}</row>`, { strings: ["a\t".repeat(500_000)] });
-    const { value, ms } = await timed(() => read(bytes));
-    expect((value as Error).message).toMatch(/more text than is read from one file/);
-    expect(ms).toBeLessThan(3_000);
-    const small = await workbook('<row><c t="s"><v>0</v></c><c t="s"><v>0</v></c><c t="s"><v>1</v></c></row>', { strings: ["  two\t\tspaced | piped  ", "a|b"] });
-    expect(rowsOf((await read(small)).text)).toEqual(["Row 1: | two spaced \\| piped | two spaced \\| piped | a\\|b |"]);
   });
 
   it("counts a shared string against the limit once per row that names it, and reads a row that fits", async () => {
@@ -81,20 +28,6 @@ describe("a row that names one long shared string many times (#0, #46)", () => {
 });
 
 describe("a workbook that lists sheets many times (#5)", () => {
-  it("reads a sheet part listed 50,000 times once", async () => {
-    const bytes = await zip({
-      "xl/workbook.xml": `<workbook ${S}><sheets>${'<sheet r:id="rId1"/>'.repeat(50_000)}<sheet name="Other" r:id="rId2"/><sheet name="Again" r:id="rId3"/></sheets></workbook>`,
-      "xl/_rels/workbook.xml.rels": `<Relationships ${RELS}><Relationship Id="rId1" Type="${REL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${REL}/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="${REL}/worksheet" Target="/xl/worksheets/sheet1.xml"/></Relationships>`,
-      "xl/worksheets/sheet1.xml": `<worksheet ${S}><sheetData/></worksheet>`,
-      "xl/worksheets/sheet2.xml": `<worksheet ${S}><sheetData><row r="1"><c><v>7</v></c></row></sheetData></worksheet>`,
-    });
-    const { value, ms } = await timed(() => read(bytes));
-    expect(ms).toBeLessThan(5_000);
-    const { text, pages } = value as { text: string; pages: number };
-    expect(pages).toBe(2);
-    expect(text).toBe("## Sheet 1: Sheet 1\n[No values on this sheet]\n\n## Sheet 2: Other\nColumns: | A |\nRow 1: | 7 |");
-  });
-
   it("counts each sheet's heading and its empty-sheet line against the text limit", async () => {
     const count = 300;
     const files: Record<string, string> = {
@@ -208,16 +141,5 @@ describe("a time cell that float arithmetic left just under zero (#49)", () => {
     expect(excelDate(0.999995, "time")).toBe("00:00");
     const { text } = await read(await workbook('<row r="1"><c s="1"><v>-1.1102230246251565E-16</v></c><c s="1"><v>0.25</v></c></row>', { formats: [21] }));
     expect(rowsOf(text)).toEqual(["Row 1: | 00:00 | 06:00 |"]);
-  });
-});
-
-describe("follow-ups of the check of the XLSX fixes", () => {
-  it("decodes _xHHHH_ escapes in one pass, and leaves what is not one", async () => {
-    const { decodeEscapesForTest } = await import("../src/xlsx.js");
-    expect(decodeEscapesForTest("a_x000D_b_x005F_x0041_c _x12_ _x00G0_ _x0041")).toBe("a\rb_x0041_c _x12_ _x00G0_ _x0041");
-    const many = "_x0041_".repeat(500_000);
-    const started = performance.now();
-    expect(decodeEscapesForTest(many)).toBe("A".repeat(500_000));
-    expect(performance.now() - started).toBeLessThan(3_000);
   });
 });

@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import { connect, type AddressInfo } from "node:net";
 import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, DocumentsNotFoundError, FileDocumentStore, MemoryDocumentStore, type Extractor, type LargeFiles, type StoredDocument } from "llm-large-files";
 import { createDocumentHandlers } from "llm-large-files/node";
 import { fakeModel, says, utf8 } from "./fake-model.js";
+import { heldExtractor, until, uploadServer } from "./upload-server.js";
 
 setFlagsFromString("--expose-gc");
 const collectGarbage = runInNewContext("gc") as () => void;
@@ -38,36 +38,6 @@ afterEach(async () => {
 async function folder(): Promise<string> {
   directory = await mkdtemp(path.join(tmpdir(), "llf-082-"));
   return directory;
-}
-
-/** Waits, a turn of the event loop at a time, until `ready` holds (at most about 5 s). */
-async function until(ready: () => boolean): Promise<void> {
-  for (let turn = 0; turn < 5_000 && !ready(); turn++) await new Promise((resolve) => setTimeout(resolve, 1));
-  expect(ready()).toBe(true);
-}
-
-/** A text extractor that holds each file until the test lets it go, and counts how many it holds at once. */
-function heldExtractor() {
-  const waiting: Array<() => void> = [];
-  const state = {
-    calls: 0,
-    running: 0,
-    most: 0,
-    names: [] as string[],
-    waiting,
-    releaseAll: () => waiting.splice(0).forEach((release) => release()),
-    releaseOne: () => waiting.shift()?.(),
-  };
-  const extract: Extractor = async (bytes, input) => {
-    state.calls++;
-    state.names.push(input.name);
-    state.running++;
-    state.most = Math.max(state.most, state.running);
-    await new Promise<void>((resolve) => waiting.push(resolve));
-    state.running--;
-    return { text: new TextDecoder().decode(bytes) };
-  };
-  return { state, extract };
 }
 
 describe("the meta that ingest returns (0.8.2)", () => {
@@ -247,21 +217,8 @@ describe("maxConcurrentIngests (0.8.2)", () => {
 });
 
 describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
-  async function start(handlerOptions: Parameters<typeof createDocumentHandlers>[1], maxUploadBytes = 4_000, store = new MemoryDocumentStore()) {
-    const held = heldExtractor();
-    const files = createLargeFiles({ store, extractors: { text: held.extract }, maxUploadBytes, maxConcurrentIngests: 10 });
-    const documents = createDocumentHandlers(files, handlerOptions);
-    server = createServer((request, response) => {
-      // As express.raw() leaves it: the body already read, in request.body.
-      const parsedSize = Number(request.headers["x-parsed-size"]);
-      if (parsedSize) (request as IncomingMessage & { body?: unknown }).body = Buffer.alloc(parsedSize, 120);
-      void documents.upload(request, response);
-    });
-    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
-    const url = `http://127.0.0.1:${(server!.address() as AddressInfo).port}/upload`;
-    const upload = (name: string, size: number) => fetch(url, { method: "POST", headers: { "X-File-Name": name }, body: "x".repeat(size) });
-    return { state: held.state, url, upload };
-  }
+  const start = (handlerOptions: Parameters<typeof createDocumentHandlers>[1], maxUploadBytes = 4_000, store = new MemoryDocumentStore()) =>
+    uploadServer(handlerOptions, maxUploadBytes, store, (made) => (server = made));
 
   it("answers 503 with Retry-After, before reading the body, an upload that would pass the limit", async () => {
     const { state, url, upload } = await start({ maxPendingUploadBytes: 1_000 });
@@ -417,34 +374,6 @@ describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
     // After the time limit they fail with the store's 503 (a 500 before 0.9.0), and the room is back.
     expect((await Promise.all(hung)).map((response) => response.status)).toEqual([503, 503]);
     expect((await upload("d.txt", 1)).status).toBe(201);
-  }, 15_000);
-
-  it("does not answer 408 a body that arrived while the server's thread was held", async () => {
-    const { state, url } = await start({ uploadIdleTimeoutMs: 200 });
-    const { port } = new URL(url);
-    // A client in a process of its own sends 10 bytes every 20 ms, 400 in all.
-    const client = spawn(process.execPath, ["-e", `
-      const socket = require("node:net").connect(${port}, "127.0.0.1", () => {
-        socket.write("POST /upload HTTP/1.1\\r\\nHost: x\\r\\nX-File-Name: steady.txt\\r\\nContent-Length: 400\\r\\n\\r\\n");
-        let sent = 0;
-        const timer = setInterval(() => { socket.write("x".repeat(10)); if (++sent === 40) clearInterval(timer); }, 20);
-      });
-      let answer = "";
-      socket.on("data", (chunk) => { answer += chunk; if (answer.includes("\\r\\n\\r\\n")) { process.stdout.write(answer.split("\\r\\n")[0]); socket.destroy(); } });
-    `]);
-    let status = "";
-    client.stdout.on("data", (chunk: Buffer) => (status += chunk.toString()));
-    // 250 ms in, this thread is held for 500 ms, inside a turn of the loop where I/O is read.
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    await new Promise<void>((resolve) => setImmediate(() => {
-      const heldUntil = performance.now() + 500;
-      while (performance.now() < heldUntil) { /* held */ }
-      resolve();
-    }));
-    await until(() => state.running === 1);
-    state.releaseAll();
-    await new Promise<void>((resolve) => client.on("exit", () => resolve()));
-    expect(status).toMatch(/^HTTP\/1\.1 201 /);
   }, 15_000);
 
   it("checks the option", () => {

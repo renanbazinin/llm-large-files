@@ -102,17 +102,6 @@ describe("order \"last\" when the scan stopped early (findings 14, 33, 51, 52)",
     expect(String(from.note)).toMatch(/search again with from_line 31\.$/);
   });
 
-  it("suggests no line past the range when the last line it found is the last line searched", async () => {
-    // An exact search stops at its millionth matching line: here it is the last line of the file.
-    const text = "x\n".repeat(999_999) + "x";
-    const started = performance.now();
-    const result = await toolsOver(text).execute("search_document", { document_id: "doc_t", query: "x", mode: "exact", order: "last", max_results: 2 });
-    expect(performance.now() - started).toBeLessThan(5_000);
-    expect(result.total_matching_lines).toBe(1_000_000);
-    expect(linesOf(result)).toEqual([999_999, 1_000_000]);
-    expect(result.note).toBe("The scan stopped early; the total is a lower bound. These are the last 2 matching lines it found, in the order of the file.");
-  }, 15_000);
-
   it("leaves the note of a search that read the whole file as it was", async () => {
     const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}${index % 3 === 0 ? " hit" : ""}`).join("\n");
     const result = await toolsOver(text).execute("search_document", { document_id: "doc_t", query: "hit", mode: "regex", order: "last", max_results: 2 });
