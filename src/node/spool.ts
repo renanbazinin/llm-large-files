@@ -2,9 +2,10 @@
 // file as it arrives. The file is the path `prepareUpload` gave (the application's, kept once its
 // document is stored), or a temporary file of the spool (`uploadSpool`), removed once the ingest
 // ends. Either way each piece of the body is counted against the upload limit (413) and waited for
-// no longer than the idle time (408), and so is each call to the disk (500 "ETIMEDOUT"). A file is
-// always made new: opened with "wx", so that a file or a link already at its name is never written
-// through. New in 0.9.0; the reading into memory moved here from handlers.ts.
+// no longer than the idle time (408), and so is each call to the disk (500 "ETIMEDOUT"; a removal
+// past it is left to end alone, and the upload answered all the same). A file is always made new:
+// opened with "wx", so that a file or a link already at its name is never written through. New in
+// 0.9.0; the reading into memory moved here from handlers.ts.
 import { randomUUID } from "node:crypto";
 import { open, realpath, rm, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
@@ -74,6 +75,13 @@ class DiskTimeout extends Error {
 
 /** `call`, a call to the disk, or a `DiskTimeout` once `idleMs` pass without it (0 for no limit). */
 const inTime = <T>(call: Promise<T>, idleMs: number, syscall: string): Promise<T> => (timed(idleMs) ? within(call, idleMs, () => new DiskTimeout(syscall)) : call);
+
+/**
+ * Waits for `call`, a call to the disk whose end nobody needs (a removal), no longer than `idleMs`
+ * (0 for no limit): past it, the call goes on alone, and the upload is answered all the same.
+ * Never rejects.
+ */
+const atMost = (call: Promise<unknown>, idleMs: number): Promise<void> => inTime(call, idleMs, "unlink").then(() => undefined, () => undefined);
 
 /**
  * The body a framework already read into `request.body` (a `Buffer`, as `express.raw()` leaves
@@ -177,17 +185,16 @@ export async function removeFile(file: string): Promise<void> {
 }
 
 /**
- * After a failure, closes `handle` and removes `file`. When a call to the disk did not end in time
- * (`hung`), the handle closes only once that call ends, if ever, and the volume may hold a removal
- * too: neither is waited for, and the upload is answered at once. The file is removed now (Node
- * opens a file so that it can be removed while open, on Windows too), and once more when the handle
- * closes if that removal failed.
+ * After a failure, closes `handle` and removes `file`, each waited for no longer than `idleMs`.
+ * When a call to the disk did not end in time (`hung`), or the closing does not, the handle closes
+ * only once that call ends, if ever, and the volume may hold a removal too: neither is waited for,
+ * and the upload is answered at once. The file is removed now (Node opens a file so that it can be
+ * removed while open, on Windows too), and once more when the handle closes if that removal failed.
  */
-async function discard(handle: FileHandle, file: string, hung: boolean): Promise<void> {
+async function discard(handle: FileHandle, file: string, hung: boolean, idleMs: number): Promise<void> {
   const closed = handle.close().catch(() => undefined);
-  if (!hung) {
-    await closed;
-    await removeFile(file);
+  if (!hung && (await inTime(closed, idleMs, "close").then(() => true, () => false))) {
+    await atMost(removeFile(file), idleMs);
     return;
   }
   void rm(file, { force: true }).catch(() => closed.then(() => removeFile(file)));
@@ -200,7 +207,8 @@ async function discard(handle: FileHandle, file: string, hung: boolean): Promise
  * (`request.body`) is written whole. Each call to the disk (the opening, each write, the closing)
  * is waited for no longer than `idleMs`: past it, the upload fails with a `DiskTimeout`. On any
  * failure (a 413 or a 408, a client that left, a full disk, a disk that does not answer), the file
- * is removed before the error is thrown, or once the disk answers.
+ * is removed before the error is thrown, or once the disk answers: the closing and the removal are
+ * waited for no longer than `idleMs` either.
  */
 export async function writeBody(request: IncomingMessage, file: string, options: { limit: number; idleMs: number; mode: number }): Promise<number> {
   const parsed = parsedBody(request);
@@ -212,7 +220,7 @@ export async function writeBody(request: IncomingMessage, file: string, options:
     handle = await inTime(opening, idleMs, "open");
   } catch (error) {
     // An opening that ends after all made the file: it is closed and removed then.
-    if (error instanceof DiskTimeout) void opening.then((late) => discard(late, file, false), () => undefined);
+    if (error instanceof DiskTimeout) void opening.then((late) => discard(late, file, false, idleMs), () => undefined);
     throw writeError(error);
   }
   let size: number;
@@ -227,7 +235,7 @@ export async function writeBody(request: IncomingMessage, file: string, options:
     // there what it kept back.
     await inTime(handle.close(), idleMs, "close");
   } catch (error) {
-    await discard(handle, file, error instanceof DiskTimeout);
+    await discard(handle, file, error instanceof DiskTimeout, idleMs);
     throw writeError(error);
   }
   return size;
@@ -271,13 +279,18 @@ export const spoolFileIn = (directory: string): string => path.join(directory, `
 /**
  * The file an upload's body was written to, while its ingest runs. `kept`: the application's file
  * (`prepareUpload`), which stays once the document is stored, and is removed when the upload fails.
- * Otherwise a temporary file of the spool, removed once the ingest ends, whatever the end.
+ * Otherwise a temporary file of the spool, removed once the ingest ends, whatever the end. The
+ * removal is waited for no longer than `idleMs` (0 for no limit): on a volume that stopped
+ * answering it goes on alone, and the upload is answered, and gives its room back, all the same.
  */
 export class BodyFile {
   #stored = false;
   #removing: Promise<void> | undefined;
+  readonly #idleMs: number;
 
-  constructor(readonly path: string, readonly kept: boolean) {}
+  constructor(readonly path: string, readonly kept: boolean, idleMs: number) {
+    this.#idleMs = idleMs;
+  }
 
   /**
    * Follows the ingest of the file (`ingesting`): when it ends, a temporary file is removed, and
@@ -295,7 +308,7 @@ export class BodyFile {
 
   /** Removes the file, once: for an upload that failed after its document was stored (`onUploaded` threw). */
   remove(): Promise<void> {
-    return (this.#removing ??= removeFile(this.path));
+    return (this.#removing ??= atMost(removeFile(this.path), this.#idleMs));
   }
 
   /** At the end of the upload: removes a temporary file, or the application's file of a document that was not stored. */

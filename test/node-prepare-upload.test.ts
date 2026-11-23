@@ -33,7 +33,8 @@ import { numberedPdf } from "./pdf-fixtures.js";
  * `fullUnder` set, a write to a file under that folder fails as a full disk does (ENOSPC). With
  * `writesHeldUnder` set, each write to such a file waits for `writesGate`, as on a volume that
  * stopped answering, then runs. With `realpathHeldUnder` set, a look at the real path of a file
- * under that folder never ends.
+ * under that folder never ends. With `removalsHeldUnder` set, a removal (`rm`) of a file under that
+ * folder waits for `removalsGate`, then runs.
  */
 const disk = vi.hoisted(() => ({
   opens: [] as Array<{ file: string; flags: unknown; mode: unknown }>,
@@ -41,6 +42,8 @@ const disk = vi.hoisted(() => ({
   writesHeldUnder: undefined as string | undefined,
   writesGate: Promise.resolve(),
   realpathHeldUnder: undefined as string | undefined,
+  removalsHeldUnder: undefined as string | undefined,
+  removalsGate: Promise.resolve(),
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -66,7 +69,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   }) as typeof actual.open;
   const realpath = ((...args: Parameters<typeof actual.realpath>) =>
     disk.realpathHeldUnder !== undefined && String(args[0]).startsWith(disk.realpathHeldUnder) ? new Promise<never>(() => undefined) : actual.realpath(...args)) as typeof actual.realpath;
-  return { ...actual, open, realpath, default: { ...actual, open, realpath } };
+  const rm = (async (...args: Parameters<typeof actual.rm>) => {
+    if (disk.removalsHeldUnder !== undefined && String(args[0]).startsWith(disk.removalsHeldUnder)) await disk.removalsGate;
+    return actual.rm(...args);
+  }) as typeof actual.rm;
+  return { ...actual, open, realpath, rm, default: { ...actual, open, realpath, rm } };
 });
 
 /** The servers of a test, closed after it. */
@@ -80,8 +87,12 @@ beforeEach(async () => {
   disk.fullUnder = undefined;
   disk.writesHeldUnder = undefined;
   disk.realpathHeldUnder = undefined;
+  disk.removalsHeldUnder = undefined;
 });
 afterEach(async () => {
+  // The folder of the test is removed by a removal that is not held.
+  disk.realpathHeldUnder = undefined;
+  disk.removalsHeldUnder = undefined;
   for (const server of servers.splice(0)) {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -483,6 +494,42 @@ describe("prepareUpload with a path", () => {
     disk.realpathHeldUnder = undefined;
     expect((await upload(base, "notes.txt", "The meeting is on Tuesday.")).status).toBe(201);
     expect(await uploads()).toEqual(["up-3"]);
+  });
+
+  // A volume that stopped answering after the body was written: the removal of the file of an
+  // upload that failed held its answer.
+  it("answers an upload that failed when the removal of its file does not end within uploadIdleTimeoutMs, on both paths", async () => {
+    const files = library();
+    const { options, saved } = chatbot({
+      uploadIdleTimeoutMs: 200,
+      onUploaded: (document) => {
+        if (document.name.startsWith("refused")) throw Object.assign(new Error("This chat has too many files."), { status: 409 });
+      },
+    });
+    const base = await serve(files, options);
+    let release!: () => void;
+    disk.removalsHeldUnder = path.join(root, "alice", "chat-1", "uploads");
+    disk.removalsGate = new Promise<void>((resolve) => (release = resolve));
+    for (const events of [false, true]) {
+      // The ingest refuses the file (422), or onUploaded throws (409).
+      const blank = await upload(base, "blank.txt", "   \n\n  ", {}, events, AbortSignal.timeout(3_000));
+      const refused = await upload(base, "refused.txt", "Notes.", {}, events, AbortSignal.timeout(3_000));
+      if (events) {
+        for (const response of [blank, refused]) expect(await response.text()).toContain('"type":"ingest.error"');
+      } else {
+        expect(blank.status).toBe(422);
+        expect(refused.status).toBe(409);
+        expect(await refused.json()).toEqual({ error: "This chat has too many files." });
+      }
+    }
+    // The document of a refused upload is deleted all the same.
+    expect(await files.getMeta("up-2", ACCESS)).toBeUndefined();
+    expect(await files.getMeta("up-4", ACCESS)).toBeUndefined();
+    // The removals go on, and end once the volume answers.
+    expect(await uploads()).toHaveLength(4);
+    release();
+    await expect.poll(() => uploads()).toEqual([]);
+    for (const id of ["up-1", "up-2", "up-3", "up-4"]) expect(await exists(saved(id))).toBe(false);
   });
 
   // fileOriginals refuses a link at any level below its root: such an upload was answered 201, its

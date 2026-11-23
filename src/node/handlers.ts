@@ -224,7 +224,9 @@ export type DocumentHandlerOptions = {
    * holds its room no longer. Since 0.9.0 it also bounds each call to the disk for a body written
    * to a file (the check of its folders for a link, its opening, each write, its closing): a volume
    * that stops answering fails the upload with a 500 "Upload failed (ETIMEDOUT).", and its room is
-   * given back. 0 or `Infinity` for no limit. Defaults to 30,000. New in 0.8.2.
+   * given back. The removal of the file is waited for no longer either: past it, the removal goes
+   * on alone, and the upload is answered all the same. 0 or `Infinity` for no limit. Defaults to
+   * 30,000. New in 0.8.2.
    */
   uploadIdleTimeoutMs?: number;
 };
@@ -783,7 +785,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           if (prepared.path !== undefined || spooled) {
             const at = prepared.path ?? spoolFileIn(spool!.directory);
             const size = await writeBody(request, at, { limit: files.maxUploadBytes, idleMs, mode: prepared.path !== undefined ? fileMode : 0o600 });
-            file = new BodyFile(at, prepared.path !== undefined);
+            file = new BodyFile(at, prepared.path !== undefined, idleMs);
             held?.resize(size);
           } else {
             body = await readBody(request, files.maxUploadBytes, idleMs);

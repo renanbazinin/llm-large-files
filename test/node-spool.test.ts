@@ -25,12 +25,14 @@ import { fakeModel, says, serviceLog } from "./fake-model.js";
  * The files opened "wx" (made new) by the handlers. With `fullUnder` set, a write to such a file
  * under that folder fails as a full disk does (ENOSPC). With `hold` set, one call to the disk for
  * such a file (its opening, each write, or its closing) waits for `hold.gate`, as on a volume that
- * stopped answering, then runs.
+ * stopped answering, then runs. With `removalsHeld` set, a removal (`rm`) of a file under its folder
+ * waits for its gate, then runs.
  */
 const disk = vi.hoisted(() => ({
   made: [] as string[],
   fullUnder: undefined as string | undefined,
   hold: undefined as { under: string; call: "open" | "write" | "close"; gate: Promise<void> } | undefined,
+  removalsHeld: undefined as { under: string; gate: Promise<void> } | undefined,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -56,7 +58,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     }
     return handle;
   }) as typeof actual.open;
-  return { ...actual, open, default: { ...actual, open } };
+  const rm = (async (...args: Parameters<typeof actual.rm>) => {
+    const held = disk.removalsHeld;
+    if (held !== undefined && String(args[0]).startsWith(held.under)) await held.gate;
+    return actual.rm(...args);
+  }) as typeof actual.rm;
+  return { ...actual, open, rm, default: { ...actual, open, rm } };
 });
 
 /** The servers of a test, closed after it. */
@@ -67,9 +74,12 @@ beforeEach(async () => {
   spool = await mkdtemp(path.join(tmpdir(), "llf-spool-dir-"));
   disk.fullUnder = undefined;
   disk.hold = undefined;
+  disk.removalsHeld = undefined;
   disk.made.length = 0;
 });
 afterEach(async () => {
+  // The spool is removed by a removal that is not held.
+  disk.removalsHeld = undefined;
   for (const server of servers.splice(0)) {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -288,6 +298,52 @@ describe("uploadSpool", () => {
         await expect.poll(() => spooled()).toEqual([]);
       }
     }
+  });
+
+  // A volume that stopped answering after a write failed: the closing or the removal of the file
+  // held the answer, and the room of the spool for good.
+  it("answers a full disk when the closing or the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: 200 });
+    for (const hung of ["close", "removal"] as const) {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      if (hung === "close") disk.hold = { under: spool, call: "close", gate };
+      else disk.removalsHeld = { under: spool, gate };
+      disk.fullUnder = spool;
+      const full = await upload(base, `${hung}.txt`, "x".repeat(800), false, AbortSignal.timeout(3_000));
+      disk.fullUnder = undefined;
+      disk.hold = undefined;
+      disk.removalsHeld = undefined;
+      expect(full.status).toBe(503);
+      expect(await full.json()).toEqual({ error: "The server has no room for this file right now. Try again later." });
+      // Its room is back: another upload of 800 bytes is taken.
+      expect((await upload(base, "next.txt", "y".repeat(800))).status).toBe(201);
+      // The file is removed at once, or once the call that hung ends.
+      release();
+      await expect.poll(() => spooled()).toEqual([]);
+    }
+  });
+
+  // A volume that stopped answering while the file was ingested: its removal held the answer, and
+  // the room of the spool for good, so that the next upload got a 503.
+  it("answers once the ingest ends when the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: 200 });
+    let release!: () => void;
+    disk.removalsHeld = { under: spool, gate: new Promise<void>((resolve) => (release = resolve)) };
+    expect((await upload(base, "first.txt", "x".repeat(800), false, AbortSignal.timeout(3_000))).status).toBe(201);
+    // Its room is back: the next upload of 800 bytes is taken, on the event-stream path too.
+    const streamed = await upload(base, "second.txt", "y".repeat(800), true, AbortSignal.timeout(3_000));
+    expect(streamed.status).toBe(200);
+    expect(await streamed.text()).toContain('"type":"ingest.finish"');
+    expect((await upload(base, "third.txt", "z".repeat(800), false, AbortSignal.timeout(3_000))).status).toBe(201);
+    // A file that cannot be read is answered too.
+    expect((await upload(base, "blank.txt", "   \n\n  ", false, AbortSignal.timeout(3_000))).status).toBe(422);
+    // The removals go on, and end once the volume answers.
+    expect(await spooled()).toHaveLength(4);
+    release();
+    await expect.poll(() => spooled()).toEqual([]);
   });
 
   // In memory, a body without a Content-Length takes maxUploadBytes of room until it is read: two
