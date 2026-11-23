@@ -256,7 +256,10 @@ const documents = createDocumentHandlers(files, {
   `500` `{ "error": "Upload failed (ETIMEDOUT)." }`, and its room is given back. The file is removed
   at once, or once the volume answers. On a network volume, closing a file can wait for the writes
   the system held back: on a slow one, raise `uploadIdleTimeoutMs`. The same holds for the `path`
-  of `prepareUpload`.
+  of `prepareUpload`, and for the check of its folders with a ref. The removal of the file, once
+  the ingest ends, is waited for no longer either: the upload is answered, its room is given back,
+  and the removal goes on alone. Reading the file at its turn is bounded by `ingestTimeoutMs`
+  (2 minutes): until then, the upload holds its room.
 - **Saving the upload where you keep it.** When your app keeps each upload anyway, `prepareUpload`
   gives its path, and the body is written there instead, once, and kept by reference
   ([Web app](./web-app.md#save-each-upload-where-you-keep-it-prepareupload)). Such a body takes no

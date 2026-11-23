@@ -289,11 +289,11 @@ the file again. For users on slow or unsteady links, raise `uploadIdleTimeoutMs`
 
 New in 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`).
 
-- **"ETIMEDOUT".** A call to the disk (opening the file, a write, closing it) did not end within
-  `uploadIdleTimeoutMs` (30 s): the volume stopped answering, such as a network volume whose server
-  is gone. The upload's room is given back, and the file is removed once the volume answers. **Fix.**
-  Check the volume. A slow network volume can take long to close a file it held writes for: raise
-  `uploadIdleTimeoutMs`.
+- **"ETIMEDOUT".** A call to the disk (checking the folders of a path with a ref, opening the file,
+  a write, closing it) did not end within `uploadIdleTimeoutMs` (30 s): the volume stopped
+  answering, such as a network volume whose server is gone. The upload's room is given back, and
+  the file is removed once the volume answers. **Fix.** Check the volume. A slow network volume can
+  take long to close a file it held writes for: raise `uploadIdleTimeoutMs`.
 - **"ELOOP".** `prepareUpload` gave a path that ends with the ref of its `original`, and a folder
   between that root and the file is a link. `fileOriginals` would never read the file back through
   it, so nothing is written. **Fix.** Replace the link with the folder itself, or mount the other
