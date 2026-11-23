@@ -41,6 +41,7 @@ the [loop reference](./ask.md).
 | `search_document` | Finds lines that contain a text or match a regex, with an exact count, the first of them and the last one, the last ones, or a count for each group (hour, code, message shape); or the passages that match keywords best. In all of a file or in a range of its lines. |
 | `read_document` | Reads a range of lines, numbered, up to 600 a call. |
 | `get_document_overview` | The outline, the log profile, the first 30 and last 20 lines, and what a whole-file read would take. |
+| `aggregate_table` | Counts, sums, averages, minimums and maximums over the rows of a table (a CSV file, a sheet of a workbook, a `\| cell \|` table), with filters and groups, reading every row. New in 0.8.1. |
 | `analyze_whole_document` | Reads the whole file in parts with other model calls (map-reduce) and answers a task that needs all of it. |
 | `view_pages` | Up to 5 pages of a PDF, cut out of the uploaded file, as one small PDF the model looks at. |
 
@@ -57,6 +58,8 @@ In [askWithFiles(options)](./ask.md#askwithfilesoptions) (and `askGemini`, which
 - `search_document`, `read_document` and `get_document_overview` are offered when at least one
   document is too large for the prompt (`plan.searchable`). They reach only those documents: a
   document whose text is in the prompt is not searched.
+- `aggregate_table` is offered with them when at least one searchable document may hold a table:
+  its format is `csv`, `xlsx`, `docx`, `pptx`, `pdf`, `html` or `markdown`. New in 0.8.1.
 - `analyze_whole_document` is offered with them when all of these hold: the model that explores
   (the explorer, or else the model) has `generateText`, `wholeDocumentAnalysis` is not `false`, and
   at least one searchable document is estimated, from its metadata, to need no more than
@@ -76,6 +79,9 @@ Through `files.tools(documents, options)` (a loop of your own, see [`ToolSet`](#
 - The three text tools are declared unless `documents` is empty and there are PDFs to look at.
   With no documents and no PDFs they are still declared, and every call answers that no attached
   file is read with this tool.
+- `aggregate_table` is declared when at least one of `documents` may hold a table (the formats
+  above); a call of it is answered for any document, with "This file has no table to aggregate"
+  when it has none.
 - `analyze_whole_document` is declared when `options.generate` is given and at least one of
   `documents` is estimated within `maxMapChunks` parts (5% leeway). With `generate` and no such
   document it is not declared, but a call of it is still answered, with the reason. Without
@@ -253,11 +259,13 @@ Results of `exact` and `regex`:
 | `searched_lines` | string, optional | With `from_line` or `to_line`: the lines searched, as `"1941-3000"`. The counts are of those lines. Keyword results have it too. New in 0.8.0. |
 | `total_matching_lines` | number | Every matching line in the file (or in `searched_lines`), not only those shown. This is the number to count with. |
 | `order` | `"last"`, optional | With `order: "last"` ([below](#the-last-matches-order-last)). |
+| `table_headers` | array, optional | When matches are rows of a table: the first row of each such table, as `{ line, text }`, up to 5: line 1 of a CSV file, the first row of each sheet of a workbook a match is in, the first row of each `\| cell \|` table elsewhere (looked for up to 20,000 lines above the match). Absent when no match is a row of a table, or the match is that first row. New in 0.8.1. |
 | `note` | string, optional | When more lines match than are shown: "N of the M matching lines are shown: the first K and the last (line L). To see the ones in between, search again with from_line F, or count them with group_by." ("the first and the last" when K is 1). Until 0.8.0 it ended "narrow the search." When the scan stopped (1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit): "The scan stopped early; the total is a lower bound, and the last match in the file is not known." Or a size-limit note (below). Absent when every match is shown. |
 | `next_from_line` | number, optional | When matches between the first ones and the last one are not shown: the line after the last of the first ones (F above). A search with `from_line` set to it shows the ones after. Absent when every match is shown, when the scan stopped early, with `order: "last"` and with `group_by`. New in 0.8.0. |
 | `matches` | array | The first `max_results` matching lines, in file order, then the last matching line of the file when it is not among them. A scan that stopped early shows no last line, since it did not reach the end. With `order: "last"`, the last `max_results` matching lines, in file order. |
 | `matches[].line` | number | The line number. |
 | `matches[].page` | number, optional | The page of the line, for a PDF whose pages can be shown. |
+| `matches[].section` | string, optional | The heading of the outline above the line, up to 80 characters: "2.1 Rent", "Sheet 2: Sales". Absent for logs, JSON and CSV files, and for a document with no outline. New in 0.8.1. |
 | `matches[].text` | string | The line. A line longer than 400 characters is cut to 400 around the match, with `…` where it was cut. |
 | `matches[].before`, `matches[].after` | string[], optional | With `context_lines` above 0: the lines around the match, as `"1202\| text"`, each cut to 400 characters. |
 
@@ -403,6 +411,92 @@ Results of `keywords`:
 | `passages[].score` | number | The BM25 score, rounded to two decimals. |
 | `passages[].text` | string | The passage's lines, numbered (`"412\| text"`), one a line. |
 | `note` | string, optional | The no-passage note, or the size-limit note. |
+
+## `aggregate_table`
+
+New in 0.8.1. Counts, sums, averages, minimums and maximums over the rows of one table of a
+document, with filters and groups, exactly: it reads every row once, and runs no code. A model that
+adds up thousands of rows by reading them needs hundreds of calls and gets it wrong; this answers
+in one. Its description, as the model sees it:
+
+> Count, sum, average, or find the minimum or maximum over the rows of a table in an attached file:
+> a CSV or TSV file, a sheet of an Excel workbook, or a table written as | cell | rows (in Word,
+> PowerPoint, PDF or HTML files). It can keep only the rows that match filters, and group them by up
+> to 3 columns (a date column by year, month or day). Its numbers are exact, as it reads every row:
+> use it instead of reading rows to add them up or count them. Columns are named as in the table's
+> header row; a letter (C) or a number (3) works too. Each group lists the lines of its first rows,
+> to cite.
+
+| Argument | Type | Required | Default | Meaning |
+|---|---|---|---|---|
+| `document_id` | string | yes | | The document. |
+| `table` | string | no | the first | A sheet's name or number in a workbook; a table's number in other files (1 is the first `\| cell \|` table). |
+| `metrics` | string[] | no | `["count"]` | `"count"`, or an operation and a column: `"sum:Revenue"`, `"avg:Price"`, `"min:Date"`, `"max:Amount"`, `"count_distinct:Customer"`. |
+| `group_by` | string[] | no | none | Up to 3 columns. A column of ISO dates may end in `:year`, `:month` or `:day` (`"Date:month"` groups 2026-03-14 under 2026-03). |
+| `filters` | `{ column, op, value }[]` | no | none | Rows kept: all must match. `op` is `=`, `!=`, `>`, `>=`, `<`, `<=`, `contains`, `not_contains`, `starts_with`, `empty` or `not_empty`. Two numbers compare as numbers, ISO dates and other text as text, ignoring case; a cell that is not a number is neither more nor less than a number. |
+| `order_by` | `"metric"` \| `"key"` | no | `"metric"` | The largest value of the first metric first, or the groups by their values, in order (months in time order). |
+| `limit` | integer | no | 50 | Groups shown, 1 to 200. |
+| `header_rows` | integer | no | found | The rows of the header, 0 to 5, below a title row. Leave it out: the header is found (below). |
+
+The tables it reads:
+
+- **A CSV or TSV file:** the whole file. The separator is found from the first lines (comma,
+  semicolon, tab or `|`); quoted fields may hold separators, quotes and line breaks. Its first line
+  is the header, or its second when the first holds one value only (a title).
+- **A sheet of a workbook**, as the XLSX extractor writes it (`Row 7: | a | b |`). Its header is
+  the rows above its first row with a number, up to 3, joined column by column with " / " ("Q1 /
+  January"), a header cell left empty by a merged cell taking the one to its left; a year (1900 to
+  2100) in a header row is a name. A first row with one value over rows of more is a title, left
+  out. A first row of numbers means no header: the columns are named by their letters.
+- **A `| cell |` table** of a DOCX, PPTX, PDF, HTML or Markdown file: a run of such lines, numbered
+  in the order of the file. Its header is found as for a sheet; a Markdown separator row is
+  skipped, and a row the same as the header, found again inside the table (a PDF repeats it on each
+  page), is not a row.
+
+A column is named as in the header (case and spaces ignored), by its letter (`C`) or number (`3`),
+or by the lower part of a joined header ("הכנסות" for "פברואר / הכנסות") when only one column has
+it. Numbers are read as people write them: `1,234.5`, `-12`, `(1,200)` for a negative, `₪4,750`,
+`$ 12.00`, `12%` (12), `1 234`, `12,5` (a decimal comma), `1.234,56`. A sum or average leaves out
+cells that are not numbers, and says how many (`values_not_numbers`); `min` and `max` of ISO dates
+compare them as text. Up to 10,000 groups are counted one by one; rows of further groups are
+counted in `other_rows`.
+
+Result:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `document` | string | The file name. |
+| `table` | string | The table read: "the CSV file", "Sheet 2: Sales", "table 3 of 5". |
+| `tables_in_file` | number, optional | Sheets or tables in the file, when more than one. |
+| `header_line` | number | The line of the header's last row (0 with no header). |
+| `header_rows`, `title` | optional | The header's rows, when not one, and a title row left out. |
+| `columns` | string[] | The column names, up to 60. |
+| `rows_read`, `rows_matched` | number | The table's rows, and those the filters kept. |
+| `total_groups` | number, optional | Groups found, with `group_by`. |
+| `groups` | array | One entry a group: `group` (the value of each group-by column, as its first row writes it), each metric by its name (`count`, `"sum:Revenue"`: null when no row of the group had a number there), `rows` when `count` was not asked, and `lines`, the lines of its first 3 rows. |
+| `note` | string, optional | "N of the M groups are shown…", when `limit` cut them. |
+| `values_not_numbers`, `other_rows`, `repeated_header_rows`, `irregular_rows` | optional | Cells left out of a metric, rows of groups past 10,000, header rows found again inside the table, and rows with values past the header's columns (a sign that the header was read wrong). |
+
+```json
+{
+  "document": "orders-2026.csv",
+  "table": "the CSV file",
+  "header_line": 1,
+  "columns": ["OrderId", "Date", "Region", "Product", "Amount"],
+  "rows_read": 5000,
+  "rows_matched": 1250,
+  "total_groups": 5,
+  "groups": [
+    { "group": { "Region": "Center" }, "avg:Amount": 535.27, "rows": 250, "lines": [5, 10, 15] },
+    { "group": { "Region": "East" }, "avg:Amount": 530.85, "rows": 250, "lines": [3, 8, 13] }
+  ]
+}
+```
+
+Errors say what to change: "No column \"Profit\" in this table. Its columns are: …", "\"הכנסות\"
+names 3 columns of this table: …. Name one of them in full.", "No table \"Budget\" in this file: it
+has 3 sheets…", "This file has no table to aggregate…". `evidence` cites the header line and each
+group's lines; a result dropped to make room keeps its largest 30 groups.
 
 ## `read_document`
 
@@ -627,6 +721,9 @@ your own adds it to its system prompt). In short, it tells the model:
 - since 0.8.0, what to search for: "Search for the bare form of a word: a search matches inside
   longer words, so "timeout" also finds "timeouts", and a Hebrew word without its prefix letters
   (חוזה, not בחוזה) finds every form of it.";
+- since 0.8.1, when a searchable file may hold a table: "To add up, average, count or group the
+  rows of a table (a CSV, an Excel sheet, a | cell | table), use aggregate_table: it reads every
+  row, and its numbers are exact. Do not add numbers up from rows you read.";
 - to read around search hits before relying on them;
 - to use `analyze_whole_document` only when the task needs all of the file and cannot be done by
   matching text (a full summary, a timeline, items judged by meaning), and that it is slow, costly,
@@ -738,7 +835,7 @@ has no option for it.
 
 ### `TOOL_NAMES`
 
-The names of the five tools, as constants.
+The names of the six tools, as constants.
 
 ```ts
 const TOOL_NAMES = {
@@ -747,6 +844,7 @@ const TOOL_NAMES = {
   overview: "get_document_overview",
   analyze: "analyze_whole_document",
   view: "view_pages",
+  aggregate: "aggregate_table", // new in 0.8.1
 } as const;
 ```
 

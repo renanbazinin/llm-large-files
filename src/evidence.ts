@@ -96,6 +96,13 @@ export function evidenceOf(call: ToolCall, result: ToolResult): Evidence | undef
     }
     case TOOL_NAMES.analyze:
       return { ...entry, whole: true, ...(typeof call.args.task === "string" ? { query: call.args.task } : {}) };
+    case TOOL_NAMES.aggregate: {
+      // The rows read are all of the table; what can be cited is the header and each group's first rows.
+      const groups = (Array.isArray(result.groups) ? result.groups : []) as Array<{ lines?: unknown }>;
+      const lines = groups.flatMap((group) => (Array.isArray(group.lines) ? group.lines.filter((line): line is number => typeof line === "number") : []));
+      const header = typeof result.header_line === "number" && result.header_line > 0 ? [result.header_line] : [];
+      return withRanges([...header, ...lines].map((line): NumberRange => [line, line]), []);
+    }
     case TOOL_NAMES.view:
       return withRanges([], defined([rangeOf(result.pages)]));
     default:
@@ -146,6 +153,16 @@ export function stubResult(call: ToolCall, result: ToolResult, hadFiles = false)
         ...(typeof result.total_groups === "number" ? { total_groups: result.total_groups } : {}),
         ...(Array.isArray(result.groups) ? { groups: result.groups.slice(0, KEPT_GROUPS) } : {}),
         note: "The results of this search were shown to you earlier and were dropped from the conversation to make room. Read the lines listed here with read_document, or search again, if you need them.",
+      };
+    case TOOL_NAMES.aggregate:
+      // Counts cannot be read again from lines: the largest groups are kept as they are.
+      return {
+        ...base,
+        ...(typeof result.table === "string" ? { table: result.table } : {}),
+        ...(typeof result.rows_matched === "number" ? { rows_matched: result.rows_matched } : {}),
+        ...(typeof result.total_groups === "number" ? { total_groups: result.total_groups } : {}),
+        ...(Array.isArray(result.groups) ? { groups: result.groups.slice(0, KEPT_GROUPS) } : {}),
+        note: "This result was shown to you earlier and was shortened to make room: the largest groups are kept. Run aggregate_table again for the others.",
       };
     case TOOL_NAMES.analyze: {
       const answer = typeof result.answer === "string" ? result.answer : "";

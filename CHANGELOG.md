@@ -36,6 +36,57 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.8.1 — not released yet
+
+Exact numbers from tables. `aggregate_table` counts, sums, averages and groups the rows of a CSV
+file, a sheet of a workbook or a `| cell |` table of any document, reading every row, with no code
+run; it finds headers of several rows and a title above them. Search hits say which section and
+which table header they belong to. A file whose name says nothing is known by its bytes, and the
+card says which PDF pages have no text or a garbled one. Checked live with the Gemini API on
+`gemini-3.5-flash-lite` and `gemini-3.8-flash`: a sum and a count by region of a workbook, averages
+per region, refunded orders of a CSV with a title row, and a row found by search named by its
+header; all eight answers right, the counts with one `aggregate_table` call.
+
+### Upgrading: what you need to change
+
+Code written for 0.8.0 compiles with 0.8.1 as it is: every change to the public types is an
+addition (`TOOL_NAMES.aggregate`, optional fields of `DocumentMeta`, an optional third parameter of
+`detectFormat`). A `Record` of your own keyed by the tool names needs the new one.
+
+- **A new tool, `aggregate_table`, is offered with CSV, XLSX, DOCX, PPTX, PDF, HTML and Markdown
+  documents**, with one more line in the tool guide. The tool set and the guide the model is sent
+  change for those documents, so the provider's prompt cache misses once.
+  **What to do:** nothing. A loop of your own that runs `files.tools()` gets it too.
+- **Search results have two more fields:** `section` on a match in a document with an outline, and
+  `table_headers` on a result whose matches are rows of a table. Tests that compare whole results
+  need them.
+  **What to do:** nothing, unless your tests compare search results whole.
+
+### New: what you can add
+
+- **`aggregate_table`** (see [`aggregate_table`](docs/reference/tools.md#aggregate_table)): `metrics`
+  (`count`, `sum:Column`, `avg:`, `min:`, `max:`, `count_distinct:`), `group_by` (up to 3 columns,
+  a date column by `:year`, `:month` or `:day`), `filters` (`=`, `!=`, `>`, `>=`, `<`, `<=`,
+  `contains`, `not_contains`, `starts_with`, `empty`, `not_empty`), `order_by`, `limit`, `table` (a
+  sheet's name or number, a table's number) and `header_rows`. Numbers are read as people write
+  them ("1,234.5", "(1,200)", "₪4,750", "12,5"); cells that are not numbers are counted apart. A
+  header of two or three rows is joined ("Q1 / January"), a title row above it is left out, and a
+  header repeated inside the table is not a row. Each group cites the lines of its first rows.
+- **`DocumentMeta.pagesWithoutText`, `garbledPages` and `scripts`**, worked out at ingest and shown
+  on the card: the PDF pages with no text (scans, photos) and those whose text looks garbled, with
+  a pointer to `view_pages` when they can be looked at, and the scripts of a text that is not in
+  Latin letters alone ("Written in: Hebrew 81%, Latin 19%").
+- **`detectFormat(name, mimeType, bytes?)`** and `ingest`: a file whose name and type give no format
+  is known by its bytes (a PDF header, the parts of a DOCX, PPTX or XLSX, a first `<html>`). A file
+  named `.txt` stays text.
+
+### Changed: what works differently
+
+- **Search hits say where they sit** (F15): `section` is the heading above a match ("2.1 Rent",
+  "Sheet 2: Sales"); `table_headers` gives the first row of each table a match is in (line 1 of a
+  CSV file, a sheet's first row, a `| cell |` table's first row), so a hit like `Row 812: | 4,200 |`
+  is understood without another read.
+
 ## 0.8.0 — 2026-11-23
 
 Files from an enterprise, read with their structure, and counted exactly. Word files keep their

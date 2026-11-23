@@ -162,7 +162,7 @@ The request:
 `files.ingest` then keeps the last path segment of the name, without control characters and
 characters that show nothing, up to 255 characters and never cut in the middle of a character, and takes the format
 from the name's extension first, then from the MIME type
-([`detectFormat`](./library.md#detectformatname-mimetype)).
+([`detectFormat`](./library.md#detectformatname-mimetype-bytes)).
 
 What it does, in order:
 

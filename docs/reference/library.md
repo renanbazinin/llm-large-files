@@ -45,7 +45,7 @@ Contents:
 - [Extraction](#extraction): [`Extractor`](#extractor), [`ExtractInput`](#extractinput),
   [`ExtractProgress`](#extractprogress), [`ExtractedText`](#extractedtext), [`defaultExtractors`](#defaultextractors),
   [`createPdfExtractor(options?)`](#createpdfextractoroptions), [`PdfExtractorOptions`](#pdfextractoroptions),
-  [`detectFormat(name, mimeType)`](#detectformatname-mimetype)
+  [`detectFormat(name, mimeType)`](#detectformatname-mimetype-bytes)
 - [Text sizes](#text-sizes): [`estimateTokens(text)`](#estimatetokenstext), [`utf8Bytes(text)`](#utf8bytestext),
   [`jsonBytes(text)`](#jsonbytestext)
 - [Document types](#document-types): [`DocumentMeta`](#documentmeta), [`DocumentSummary`](#documentsummary),
@@ -179,7 +179,7 @@ Extracts the text of a file, normalizes it, profiles it, and stores it under a n
 new document's [`DocumentMeta`](#documentmeta).
 
 1. The owner is checked (see [`IngestInput`](#ingestinput)), the name is cleaned, and the format
-   is picked by [`detectFormat(name, mimeType)`](#detectformatname-mimetype).
+   is picked by [`detectFormat(name, mimeType)`](#detectformatname-mimetype-bytes).
 2. The extractor of that format turns the bytes into text. It receives the limits `maxTextBytes`
    and `maxPdfPages`, the ingest's signal, and, when someone listens to the ingest's events, an
    `onProgress` to report how far it is ([`ExtractInput`](#extractinput)). A text longer
@@ -1254,14 +1254,19 @@ type PdfExtractorOptions = { tables?: boolean; pictures?: boolean; checkPages?: 
 | `pictures` | `boolean` | `true` | Writes `[Picture on this page. This text cannot show it.]` under the page line of every page that shows a picture or a drawing, so the model knows that the text does not tell all of that page. Needs the optional dependency `@cantoo/pdf-lib`; without it, and with `false`, no page is marked. |
 | `checkPages` | `boolean` | `true` | Before pdf.js reads any page, adds up what each page would make it run, and refuses a file with a page that would hold the server for a long time ([Pages that would hold the server](../guides/pdfs.md#pages-that-would-hold-the-server)). Needs the optional dependency `@cantoo/pdf-lib`; without it, and with `false`, every page is read however long it takes. With `false` and `pictures: false`, the file is not read with `@cantoo/pdf-lib` at ingest. New in 0.6.0. |
 
-### detectFormat(name, mimeType)
+### detectFormat(name, mimeType, bytes?)
 
 ```ts
-declare function detectFormat(name: string, mimeType: string): DocumentFormat;
+declare function detectFormat(name: string, mimeType: string, bytes?: Uint8Array): DocumentFormat;
 ```
 
 The format of a file: from the extension after the last dot (in any case), then from the MIME type,
-else `"text"`. The MIME type is lowercased and compared whole, so `text/csv; charset=utf-8` names no
+else `"text"`. New in 0.8.1: with `bytes`, a file that would be `"text"` and is not named `.txt`
+is known by its content: `"pdf"` when it starts with `%PDF-` (after a byte order mark or white
+space), `"docx"`, `"pptx"` or `"xlsx"` for a ZIP archive with the parts of one (`word/document.xml`,
+`ppt/presentation.xml`, `xl/workbook.xml`), `"html"` when it starts with `<!DOCTYPE html` or
+`<html`. `ingest` passes the bytes: a DOCX uploaded without its extension was told "This file is a
+ZIP archive". The MIME type is lowercased and compared whole, so `text/csv; charset=utf-8` names no
 format. A name without a dot is looked up whole, so a file named `log` is a `log`. `ingest` uses it,
 then turns a `"text"` document that reads like a log into `"log"`.
 
@@ -1343,6 +1348,9 @@ type DocumentMeta = {
   originalKept?: boolean;
   outline: OutlineEntry[];
   logProfile?: LogProfile;
+  pagesWithoutText?: number[]; // new in 0.8.1
+  garbledPages?: number[]; // new in 0.8.1
+  scripts?: Array<{ script: string; percent: number }>; // new in 0.8.1
   createdAt: string;
   expiresAt: string;
 };
@@ -1372,6 +1380,9 @@ browser instead.
 | `originalKept` | `boolean \| undefined` | `true` when the uploaded file is kept in the store (`keepOriginals`). Absent otherwise. Documents ingested before you turned `keepOriginals` on have no original. |
 | `outline` | [`OutlineEntry[]`](#outlineentry) | The headings found in the text, at most 400. Empty for `log`, `json` and `csv`. |
 | `logProfile` | [`LogProfile`](#logprofile) or `undefined` | The log profile, for a `log` document only. |
+| `pagesWithoutText` | `number[]` or `undefined` | The pages of a PDF with no text at all (scans, photos, charts), up to 200. Absent when there are none, and on documents from before 0.8.1. The card names them, and points to `view_pages` when they can be looked at. New in 0.8.1. |
+| `garbledPages` | `number[]` or `undefined` | The pages of a PDF whose text looks garbled: of at least 40 characters, fewer than 3 in 10 letters or digits, or more than max(6, 3%) replacement characters (a font without a Unicode map). Up to 200. The card says not to rely on them. New in 0.8.1. |
+| `scripts` | `{ script, percent }[]` or `undefined` | The scripts of the text by their share of its letters, from its first 2 MB, those of 5% or more: "Latin", "Hebrew", "Arabic", "Cyrillic", "Greek", "CJK", "Devanagari", "Thai". Absent for a text in Latin letters alone, one with fewer than 200 letters, and documents from before 0.8.1. The card says "Written in: Hebrew 81%, Latin 19%. Search in the language of the text." New in 0.8.1. |
 | `createdAt` | `string` | When it was ingested, as an ISO 8601 date. |
 | `expiresAt` | `string` | When it expires, as an ISO 8601 date: `createdAt` plus `ttlMs`, or [`NEVER_EXPIRES`](#never_expires). |
 
@@ -1411,7 +1422,7 @@ type DocumentFormat = "text" | "markdown" | "log" | "json" | "csv" | "pdf" | "do
 ```
 
 The format of a document. It picks the extractor and decides whether a document gets an outline (not
-`log`, `json` or `csv`) and a log profile (`log` only). See [`detectFormat`](#detectformatname-mimetype),
+`log`, `json` or `csv`) and a log profile (`log` only). See [`detectFormat`](#detectformatname-mimetype-bytes),
 and for what each extractor writes, [`defaultExtractors`](#defaultextractors).
 
 `"xlsx"` (Excel workbooks) and `"html"` (web pages) are new in 0.8.0: an exhaustive `switch` on a

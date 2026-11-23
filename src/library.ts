@@ -7,7 +7,8 @@ import { EventEmitter, eventErrorOf, newRunId, type IngestEvent, type IngestStag
 import { detectFormat, extractText } from "./extract.js";
 import { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
-import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline, type WholeRead } from "./plan.js";
+import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
+import { measureQuality, type TextQuality } from "./quality.js";
 import { openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
@@ -655,6 +656,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     let measured: Awaited<ReturnType<typeof measureText>>;
     let outline: DocumentMeta["outline"];
     let logProfile: DocumentMeta["logProfile"];
+    let quality: TextQuality = {};
     let index: Awaited<ReturnType<typeof buildTextIndexInSlices>> | undefined;
     try {
       signal.throwIfAborted();
@@ -694,6 +696,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       if (measured.utf8 > maxTextBytes) throw tooMuchText(name, maxTextBytes);
       outline = await buildOutlineInSlices(lines, format, slicer);
       logProfile = format === "log" ? await buildLogProfileInSlices(lines, slicer) : undefined;
+      quality = await measureQuality(lines, format, slicer);
       // The line index, so that the text can be read by range: a few bytes a line, built from the
       // UTF-8 bytes the store writes. Kept by any store that can keep it, even one this library
       // then loads whole, so that switching to reading by range finds it ready.
@@ -726,6 +729,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       ...(keepOriginal ? { originalKept: true } : {}),
       outline,
       ...(logProfile ? { logProfile } : {}),
+      ...quality,
       createdAt: created.toISOString(),
       // Never, for a time to live without end (or one that runs past what a date can hold).
       expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
@@ -796,7 +800,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         checkOwner(input.owner);
         const name = cleanFileName(input.name);
         const mimeType = input.mimeType?.trim() || "application/octet-stream";
-        const format = detectFormat(name, mimeType);
+        // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
+        const format = detectFormat(name, mimeType, input.bytes instanceof Uint8Array ? input.bytes : undefined);
         // Progress is worked out only for someone who listens.
         const progress = events.active ? new IngestProgress(events) : undefined;
         let meta: DocumentMeta;
@@ -911,6 +916,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal } : {}),
         // `analyze_whole_document` is declared only when it can read at least one of the documents.
         wholeReads: documents.some((meta) => canBeReadWhole(meta, budget)),
+        // `aggregate_table` only when one may hold a table.
+        tables: documents.some((meta) => TABLE_FORMATS.has(meta.format)),
         ...rest,
       });
     },
