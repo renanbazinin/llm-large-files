@@ -14,6 +14,7 @@ question ─► plan the documents for the room left in the request, smallest fi
               └─ too big ──► its card in the first user turn
                              + the tool guide in the system instruction
                              + tools: search · read · overview
+                                      · aggregate (when a file may hold a table)
                                       · analyze-all (when the exploring model can read parts
                                         and a file is within maxMapChunks)
               a kept PDF, in either branch, when every model can be sent a file
@@ -474,6 +475,12 @@ rules every tool follows, are in the [tools reference](./reference/tools.md).
   the first and last lines, and about how many parts a whole-file read would take. That count is
   estimated from the metadata, without reading the text, and the overview says when it is over
   `maxMapChunks`.
+- **`aggregate_table`** (new in 0.8.1) counts, sums, averages and groups the rows of one table of a
+  file: a CSV file, a sheet of a workbook, a `| cell |` table of another document. It reads every
+  row once, finds the header (a title row above it, a header of two or three rows), and runs no
+  code, so a total over 50,000 rows is exact and costs one call; each group cites the lines of its
+  first rows ([`aggregate_table`](./reference/tools.md#aggregate_table)). It is declared when a
+  searchable file is a CSV, XLSX, DOCX, PPTX, PDF, HTML or Markdown file.
 - **`analyze_whole_document`** reads a whole file in parts ([Map-reduce](#map-reduce)). It is
   declared when the exploring model has a part reader (`generateText`), `wholeDocumentAnalysis` is
   not `false`, and at least one searchable file is estimated within `maxMapChunks`.
