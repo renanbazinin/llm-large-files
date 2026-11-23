@@ -95,7 +95,9 @@ describe("createIsolatedExtractors", () => {
   it("refuses a file when every reader is busy and the queue is full, and lets a waiting file be cancelled", async () => {
     const isolated = node.createIsolatedExtractors({ concurrency: 1, maxQueue: 1 });
     try {
-      const files = createFromIsolated(isolated);
+      // Since 0.8.2 a library lets two ingests work at once and queues the others itself, so the
+      // readers' own queue fills only with more (several libraries over one set of readers, or Infinity).
+      const files = library.createLargeFiles({ store: new library.MemoryDocumentStore(), extractors: isolated.extractors, maxConcurrentIngests: Number.POSITIVE_INFINITY });
       const big = await workbook(60_000);
       const first = files.ingest({ name: "first.xlsx", bytes: big });
       const cancel = new AbortController();

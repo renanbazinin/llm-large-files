@@ -211,7 +211,9 @@ for the file saved as UTF-8.
 
 Everything else is JSON `{ "error": "…" }`, with a message you can show: `400` for a missing name or
 a body another middleware already parsed, `413` over `maxUploadBytes`, `422` for a file that cannot
-be read, an error's own status (400 to 599) from `getOwner`, an extractor or your store, and `500`
+be read, `503` with `Retry-After` when the server holds as many uploads as it takes at once or its
+readers are busy (send the file again after `Retry-After` seconds), `408` for a body that stopped
+arriving, an error's own status (400 to 599) from `getOwner`, an extractor or your store, and `500`
 for a failure of the server, among them `Upload failed (empty owner).` and
 `Upload failed (owner is not a string).` ([above](#who-owns-an-upload-getowner)). `get` answers
 `404` for a document this owner cannot see, and `get` and `remove` answer `500` when the store
@@ -417,6 +419,8 @@ export async function uploadFromRequest(request: Request, owner: string): Promis
     // Not URI-encoded: keep it as it came.
   }
   if (!name.trim()) return Response.json({ error: "Name the file with an X-File-Name header." }, { status: 400 });
+  // This route reads the body before ingest: bound the bytes it holds at once yourself, as
+  // createDocumentHandlers does with maxPendingUploadBytes (Deployment, Uploads and ingest).
 
   const tooLarge = { error: "The file is larger than the upload limit." };
   if (Number(request.headers.get("content-length")) > files.maxUploadBytes) return Response.json(tooLarge, { status: 413 });
@@ -506,7 +510,7 @@ import type { DocumentSummary } from "llm-large-files";
 
 /** Sends one file to POST /api/documents. Throws with a message you can show. */
 export async function uploadFile(file: File): Promise<DocumentSummary> {
-  const response = await fetch("/api/documents", {
+  const send = () => fetch("/api/documents", {
     method: "POST",
     headers: {
       "Content-Type": "application/octet-stream",
@@ -515,6 +519,13 @@ export async function uploadFile(file: File): Promise<DocumentSummary> {
     },
     body: file,
   });
+  let response = await send();
+  // A busy server (503) says when to try again: twice more, then its message is shown.
+  for (let attempt = 0; response.status === 503 && attempt < 2; attempt++) {
+    const seconds = Number(response.headers.get("retry-after")) || 5;
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1_000));
+    response = await send();
+  }
   // An error page of a proxy (a 413 or a 502) is not JSON: the status then makes the message.
   const result = (await response.json().catch(() => ({}))) as Partial<DocumentSummary> & { error?: string };
   if (!response.ok || !result.id) throw new Error(result.error ?? `The upload failed (HTTP ${response.status}).`);
@@ -539,7 +550,7 @@ export async function uploadFile(file: File): Promise<DocumentSummary> {
 New in 0.7.0. A large PDF or DOCX can take a while to read once it has arrived. Send the same
 request with `Accept: text/event-stream`, and `upload` answers with the ingest's events as
 Server-Sent Events: how far each stage is, then the summary. The checks that run before the ingest
-(the name, `getOwner`, a body already parsed, the size) still answer with their status and JSON, so
+(the name, `getOwner`, a body already parsed, the size, the room for uploads held at once) still answer with their status and JSON, so
 read the response as JSON when it is not `200`:
 
 ```ts

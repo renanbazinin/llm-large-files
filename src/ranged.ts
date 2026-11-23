@@ -48,7 +48,14 @@ const YIELD_AFTER_MS = 15;
 // starts at a line, so a line that began with one lost it, and its piece no longer matched the index.
 const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
-const gone = (id: string) => new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+/**
+ * The text of a document is gone from the store while its metadata is still there (removed by hand,
+ * or by a cleanup outside the library). Told apart from other read errors, so that a question can
+ * report the document as missing.
+ */
+export class DocumentGoneError extends Error {}
+
+const gone = (id: string) => new DocumentGoneError(`${id} is no longer available on the server. Ask the user to attach the file again.`);
 
 /** A scan of a document: fed the pieces in order until it says it is done. */
 type Consumer = { feed: ScanFeed; done: boolean; settle: (error?: unknown) => void };

@@ -1,7 +1,7 @@
 /**
  * Lets at most `max` tasks hold a slot at once; the others wait their turn, in order. Used for
- * scans of whole documents: on one thread more of them at once do not finish sooner, they only
- * hold more memory.
+ * scans of whole documents and for ingests: on one thread more of them at once do not finish
+ * sooner, they only hold more memory.
  */
 export class Limiter {
   private active = 0;

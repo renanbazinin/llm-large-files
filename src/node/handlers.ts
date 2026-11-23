@@ -21,6 +21,21 @@ export type DocumentHandlerOptions = {
    * the upload is read, so a refused upload is not buffered.
    */
   getOwner?: (request: IncomingMessage) => string | undefined | Promise<string | undefined>;
+  /**
+   * The most bytes of uploads these handlers hold at once: an upload is held whole in memory from
+   * the moment its body is read until its ingest ends. An upload that would pass it is answered 503
+   * with `Retry-After` before its body is read, while another upload is held: one upload alone is
+   * always taken. An upload counts its `Content-Length` (or `maxUploadBytes` without one, then its
+   * size once read). `Infinity` for no limit (as before 0.8.2). Defaults to twice `maxUploadBytes`.
+   * New in 0.8.2.
+   */
+  maxPendingUploadBytes?: number;
+  /**
+   * An upload whose body stops arriving for this many milliseconds is answered 408, its connection
+   * closed and its room given back: a client that sends its headers and then nothing, or stalls,
+   * holds its room no longer. 0 or `Infinity` for no limit. Defaults to 30,000. New in 0.8.2.
+   */
+  uploadIdleTimeoutMs?: number;
 };
 
 /**
@@ -48,7 +63,8 @@ export type DocumentHandlers = {
 };
 
 class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  /** `close`: answer, then close the connection, without waiting for the rest of the body. */
+  constructor(readonly status: number, message: string, readonly close = false) {
     super(message);
   }
 }
@@ -164,6 +180,9 @@ async function streamIngest(files: LargeFiles, input: IngestInput, response: Ser
   // Each message is the event itself, as for a question: `ingest.finish` holds the summary a 201
   // answer would (`document`), `ingest.error` the message and status a JSON answer would (`error`).
   await writeSseEvents(response, events());
+  // A client that went away ends the stream at once, while the ingest stops (a store write may still
+  // be under way): the upload is held until then, as on the JSON path.
+  await stream.result.catch(() => undefined);
 }
 
 /**
@@ -192,8 +211,33 @@ function header(request: IncomingMessage, name: string): string {
   }
 }
 
-/** Reads the raw body, or uses one a framework already parsed into a Buffer (e.g. express.raw()). */
-async function readBody(request: IncomingMessage, limit: number): Promise<Uint8Array> {
+/** The longest a timer can wait. */
+const LONGEST_TIMER_MS = 2_147_483_647;
+
+/** `next`, or a 408 once `idleMs` pass without it. */
+function withinIdle<T>(next: Promise<T>, idleMs: number): Promise<T> {
+  // Once the upload is refused, the read it waited on ends with the connection: nobody awaits it.
+  next.catch(() => undefined);
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const idle = new Promise<never>((_, reject) => {
+    const after = idleMs >= 1_000 ? `${Math.round(idleMs / 1_000)} s` : `${idleMs} ms`;
+    timer = setTimeout(() => {
+      // After the thread was held longer than `idleMs`, timers run before the data that came in the
+      // meantime is read: it is read first, in this turn of the loop, and the upload goes on.
+      setImmediate(() => {
+        if (!settled) reject(new HttpError(408, `The upload stopped arriving: nothing came for ${after}. Send it again.`, true));
+      });
+    }, idleMs);
+  });
+  return Promise.race([next.finally(() => (settled = true)), idle]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Reads the raw body, or uses one a framework already parsed into a Buffer (e.g. express.raw()).
+ * `idleMs`: the longest wait for the next piece of the body (0 for no limit).
+ */
+async function readBody(request: IncomingMessage, limit: number, idleMs = 0): Promise<Uint8Array> {
   const parsed = (request as IncomingMessage & { body?: unknown }).body;
   if (parsed instanceof Uint8Array) {
     if (parsed.byteLength > limit) throw new HttpError(413, "");
@@ -208,14 +252,58 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Uint8A
   let size = 0;
   // Leaving the loop early must not destroy the request: the rest of the body is drained after
   // the answer (see `drain`), which a destroyed request would not do.
-  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
-    size += buffer.byteLength;
-    if (size > limit) throw new HttpError(413, "");
-    chunks.push(buffer);
+  const pieces = request.iterator({ destroyOnReturn: false });
+  const timed = idleMs > 0 && idleMs <= LONGEST_TIMER_MS;
+  try {
+    for (;;) {
+      const next = pieces.next();
+      const { done, value: chunk } = timed ? await withinIdle(next, idleMs) : await next;
+      if (done) break;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+      size += buffer.byteLength;
+      if (size > limit) throw new HttpError(413, "");
+      chunks.push(buffer);
+    }
+  } finally {
+    // As a `for await` does on leaving early; the request is not destroyed (see above).
+    void pieces.return?.().catch(() => undefined);
   }
   const body = Buffer.concat(chunks);
   return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+}
+
+const BUSY = "The server is receiving other files right now. Try again in a moment.";
+/** When a client refused for `maxPendingUploadBytes` is told to try again. */
+const BUSY_RETRY_MS = 5_000;
+
+/** `uploadIdleTimeoutMs`, checked: a number of 0 or more (0 and Infinity for no limit). */
+function idleLimit(value: unknown): number {
+  if (value === undefined) return 30_000;
+  if (typeof value !== "number" || Number.isNaN(value) || value < 0) {
+    throw new RangeError(`uploadIdleTimeoutMs must be a number of 0 or more, and is ${typeof value === "number" ? value : typeof value}. Leave it out for the default.`);
+  }
+  return value;
+}
+
+/** `maxPendingUploadBytes`, checked: a number above 0 (Infinity for no limit). */
+function pendingLimit(value: unknown, maxUploadBytes: number): number {
+  if (value === undefined) return 2 * maxUploadBytes;
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
+    throw new RangeError(`maxPendingUploadBytes must be a number above 0, and is ${typeof value === "number" ? value : typeof value}. Leave it out for the default.`);
+  }
+  return value;
+}
+
+/**
+ * The bytes an upload will hold: a body a framework already read, its declared `Content-Length`,
+ * or the upload limit when it declares none. Never more than the limit: a larger one is refused
+ * when it is read (413).
+ */
+function expectedSize(request: IncomingMessage, limit: number): number {
+  const parsed = (request as IncomingMessage & { body?: unknown }).body;
+  if (parsed instanceof Uint8Array) return Math.min(parsed.byteLength, limit);
+  const declared = Number(request.headers["content-length"]);
+  return Number.isFinite(declared) && declared >= 0 ? Math.min(declared, limit) : limit;
 }
 
 /**
@@ -262,6 +350,17 @@ function drain(request: IncomingMessage, response: ServerResponse): void {
 export function createDocumentHandlers(files: LargeFiles, options: DocumentHandlerOptions = {}): DocumentHandlers {
   const tooLarge = `The file is larger than the ${formatBytes(files.maxUploadBytes)} upload limit.`;
   const owner = async (request: IncomingMessage) => options.getOwner?.(request);
+  // The upload limit bounds each body, and the room for all of them: a LargeFiles of your own
+  // without it (from JavaScript) had neither.
+  if (typeof files.maxUploadBytes !== "number" || !(files.maxUploadBytes > 0)) {
+    throw new TypeError(`createDocumentHandlers needs files.maxUploadBytes, a number above 0, and it is ${String(files.maxUploadBytes)}. A LargeFiles of your own must keep the one of the library it wraps.`);
+  }
+  const maxPending = pendingLimit(options.maxPendingUploadBytes, files.maxUploadBytes);
+  const idleMs = idleLimit(options.uploadIdleTimeoutMs);
+  /** Whether uploads are counted at all (`maxPendingUploadBytes` is not Infinity). */
+  const counted = maxPending !== Number.POSITIVE_INFINITY;
+  /** The bytes of the uploads held now, from the reading of their body to the end of their ingest. */
+  let pending = 0;
 
   return {
     async upload(request, response) {
@@ -280,34 +379,62 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           const empty = typeof currentOwner === "string" || currentOwner === null;
           throw new HttpError(500, empty ? "Upload failed (empty owner)." : "Upload failed (owner is not a string).");
         }
-        const bytes = await readBody(request, files.maxUploadBytes);
-        const contentType = header(request, "content-type");
-        const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
-        // A client that goes away before the answer stops the reading of its file: nobody would
-        // get the document, and the server has other work.
-        const gone = new AbortController();
-        const onClose = () => {
-          if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
-        };
-        response.once("close", onClose);
-        const input: IngestInput = {
-          name,
-          bytes,
-          ...(mimeType ? { mimeType } : {}),
-          ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
-          signal: gone.signal,
-        };
-        let meta;
-        try {
-          if (wantsEvents(request)) return await streamIngest(files, input, response, tooLarge);
-          meta = await files.ingest(input);
-        } catch (error) {
-          throw ingestFailure(error);
-        } finally {
-          response.off("close", onClose);
+        // Too large is said first, before any wait for room.
+        const declared = Number(request.headers["content-length"]);
+        const parsed = (request as IncomingMessage & { body?: unknown }).body;
+        if ((Number.isFinite(declared) && declared > files.maxUploadBytes) || (parsed instanceof Uint8Array && parsed.byteLength > files.maxUploadBytes)) {
+          throw new HttpError(413, "");
         }
-        send(response, 201, toDocumentSummary(meta));
+        // Room for the upload, before its body is read: a refused upload is not buffered. Never
+        // more than the room itself, so that the count stays a number with an upload limit of Infinity.
+        let held = counted ? Math.min(expectedSize(request, files.maxUploadBytes), maxPending) : 0;
+        if (pending > 0 && pending + held > maxPending) throw new IngestError("busy", BUSY, { retryAfterMs: BUSY_RETRY_MS });
+        pending += held;
+        try {
+          const bytes = await readBody(request, files.maxUploadBytes, idleMs);
+          // Counted at its size once read (an upload without a Content-Length was counted at the limit).
+          if (counted) {
+            pending += bytes.byteLength - held;
+            held = bytes.byteLength;
+          }
+          const contentType = header(request, "content-type");
+          const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
+          // A client that goes away before the answer stops the reading of its file: nobody would
+          // get the document, and the server has other work.
+          const gone = new AbortController();
+          const onClose = () => {
+            if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
+          };
+          response.once("close", onClose);
+          const input: IngestInput = {
+            name,
+            bytes,
+            ...(mimeType ? { mimeType } : {}),
+            ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
+            signal: gone.signal,
+          };
+          let meta;
+          try {
+            if (wantsEvents(request)) return await streamIngest(files, input, response, tooLarge);
+            meta = await files.ingest(input);
+          } catch (error) {
+            throw ingestFailure(error);
+          } finally {
+            response.off("close", onClose);
+          }
+          send(response, 201, toDocumentSummary(meta));
+        } finally {
+          pending -= held;
+        }
       } catch (error) {
+        // A body that stopped arriving is not drained: the answer ends, and so does the connection.
+        if (error instanceof HttpError && error.close) {
+          if (!response.headersSent) response.setHeader("Connection", "close");
+          send(response, error.status, { error: error.message });
+          if (response.writableFinished) request.destroy();
+          else response.once("finish", () => request.destroy());
+          return;
+        }
         // Answered before the body was read to its end (too large, no name): the rest is drained.
         fail(response, error, "Upload failed", tooLarge, request);
         // An event stream that failed after its headers were sent cannot answer with a status. (An

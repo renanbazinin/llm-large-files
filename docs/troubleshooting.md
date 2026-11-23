@@ -258,6 +258,31 @@ is read and its text extracted, so a higher limit is more memory for each upload
 
 See [Web app](./guides/web-app.md) and [Deployment](./guides/deployment.md).
 
+### `503`: "The server is receiving other files right now. Try again in a moment."
+
+New in 0.8.2. `createDocumentHandlers` answers `503` with `Retry-After: 5`, before reading the body.
+
+**Cause.** The handlers already hold uploads, and this one would bring them past
+`maxPendingUploadBytes` (twice `maxUploadBytes`, 200 MB by default). An upload is held from the
+reading of its body to the end of its ingest, and its room is taken from its `Content-Length`
+before its body arrives. Many users sending files at once, or a few clients that send their
+headers and then their bodies slowly, fill it.
+
+**Fix.** Send the file again after `Retry-After` seconds, as the browser code in
+[Web app](./guides/web-app.md#upload-from-the-browser) does. To take more at once, raise
+`maxPendingUploadBytes` and size the server for it (each upload under way takes about five to seven
+times its size while it is ingested; ingests take turns, `maxConcurrentIngests`). Put a proxy that
+reads whole bodies before passing them on in front, so that slow clients hold no room. "The server
+is reading other files right now." is the other `503`: the readers of `createIsolatedExtractors`
+are busy ([Node reference](./reference/node.md#uploadrequest-response)).
+
+### `408`: "The upload stopped arriving: nothing came for 30 s. Send it again."
+
+New in 0.8.2. **Cause.** The body of an upload stopped arriving for `uploadIdleTimeoutMs` (30 s):
+the client's connection stalled, or a proxy held the body. The connection is closed. **Fix.** Send
+the file again. For users on slow or unsteady links, raise `uploadIdleTimeoutMs` of
+`createDocumentHandlers`.
+
 ### `400`: "Name the file with an X-File-Name header or a ?name= query parameter."
 
 **Cause.** The upload request names no file. The name decides the format, and is shown to the
@@ -490,6 +515,9 @@ handler's `get` answers `404` with `This file is no longer available.` for the s
 - belongs to another `owner`, or has an owner while the question passes none. A document with an
   owner is reported as missing, never as forbidden;
 - was stored in a `MemoryDocumentStore` of another process, or of this one before it restarted;
+- has lost its text in the store while its metadata stayed (removed outside the library). Since
+  0.8.2 such a document is missing here too; before, a question about one read by range failed
+  with a plain `Error`;
 - is not a document ID at all (`isDocumentId` is false for it).
 
 **Fix.** Pass the same `owner` to the question as to the upload: the value `getOwner` returned for

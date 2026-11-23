@@ -268,8 +268,11 @@ MongoDB ObjectIds in lower-case hex, pass it as they are.
 
 What that costs:
 
-- `cacheBytes` and `maxConcurrentScans` bound each library, not the process. A library made for one
-  request starts with an empty cache, so each question reads its documents from the store again.
+- `cacheBytes`, `maxConcurrentScans` and `maxConcurrentIngests` bound each library, not the process,
+  and `maxPendingUploadBytes` each set of upload handlers. With a library per chat, ingests of
+  different chats all work at once, as before 0.8.2: bound them for the process yourself, with one
+  queue or count shared by the chats' routes. A library made for one request starts with an empty
+  cache, so each question reads its documents from the store again.
 - Each chat's folder needs a sweep of its own: `new FileDocumentStore(folder).sweep()` for each one.
   The store never removes the folder itself.
 - Deleting a chat is removing its folder, once no question of that chat is running.

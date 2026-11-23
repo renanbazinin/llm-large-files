@@ -36,6 +36,102 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.8.2 — not released yet
+
+Memory when many users upload at once. A review of how the library holds files found that every
+upload a server received was ingested at the same time, with nothing to bound the memory, and that
+the meta `ingest` returns kept the whole text of its file in memory. Ingests now take turns, two at
+a time in each library; the upload handler takes uploads up to twice the upload limit at once, and
+answers the others 503 with `Retry-After` before reading them; and the meta is a copy. Measured
+with 100 logs of 2 MB sent at once: a peak of 329 to 356 MB of memory instead of 817 to 830 MB
+(about 190 MB of it the 100 uploads themselves), the first user answered after 0.5 to 0.7 s instead
+of 25 to 39 s, half of them after 13 to 17 s instead of 27 to 40 s, and all of them in 28 to 33 s,
+against 28 to 42 s. It is a patch: no code needs to change, and since 0.8.0 an upload could already
+be answered 503 with `Retry-After` (by busy readers of `createIsolatedExtractors`).
+
+### Upgrading: what you need to change
+
+Code written for 0.8.1 compiles with 0.8.2 as it is: the three new options are optional.
+
+- **Ingests of one library take turns, two at a time** (`maxConcurrentIngests`).
+  **What to do:** nothing. To have every ingest start at once, as before, set
+  `maxConcurrentIngests: Infinity`. With `createIsolatedExtractors({ concurrency })` above 2, raise
+  `maxConcurrentIngests` to at least `concurrency`, or the extra readers stay idle. An app that makes
+  a library per chat or per request ([Storage](docs/guides/storage.md#files-in-a-folder-per-user-or-per-chat)) gets
+  a queue per library, so ingests of different chats still all work at once: bound them for the
+  process yourself.
+- **`createDocumentHandlers` answers an upload 503, with `Retry-After: 5`, when uploads are already
+  held and that one would bring them past twice `maxUploadBytes`** (200 MB by default).
+  **What to do:** a client that sends many files at once sends a refused one again after
+  `Retry-After`, as it does for a busy `createIsolatedExtractors` ([the browser code in Web
+  app](docs/guides/web-app.md#upload-from-the-browser) now does). To change the limit, set
+  `maxPendingUploadBytes`; `Infinity` turns it off.
+- **An upload whose body stops arriving for 30 s is answered 408** and its connection closed
+  (`uploadIdleTimeoutMs`).
+  **What to do:** nothing, unless your users send large files over links that stall for longer:
+  raise `uploadIdleTimeoutMs`, or set 0 to wait as before.
+- **A store write that does not end within `ingestTimeoutMs` (2 minutes by default, and when it is
+  0) fails the ingest**, as a failure of the store (`The store did not finish writing app.log within
+  2 min.`; the upload handler answers 500), and the document is removed once the write ends. Such a
+  write held the ingest, and with the new limits its turn and its upload's room, forever.
+  **What to do:** nothing, unless your store takes longer than that to write a file: raise
+  `ingestTimeoutMs`.
+- **A `LargeFiles` of your own given to `createDocumentHandlers` must have `maxUploadBytes`**, as its
+  type says: without a number above 0 (from JavaScript), `createDocumentHandlers` throws a
+  `TypeError`. Such an object had no upload limit at all.
+  **What to do:** keep the `maxUploadBytes` of the library it wraps (`{ ...files, ingest }` does).
+
+### New: what you can add
+
+- **`maxConcurrentIngests`** in `createLargeFiles` (see
+  [the options](docs/reference/library.md#largefilesoptions)): how many ingests do their work at
+  once in the library, 2 by default.
+- **`maxPendingUploadBytes`** in `createDocumentHandlers` (see
+  [the options](docs/reference/node.md#documenthandleroptions)): the most bytes of uploads the
+  handlers hold at once, twice `maxUploadBytes` by default.
+- **`uploadIdleTimeoutMs`** in `createDocumentHandlers`: how long the body of an upload may stop
+  arriving, 30,000 ms by default.
+
+### Changed: what works differently
+
+- **Ingests take turns.** The others wait in the order they came; their `ingestTimeoutMs` starts
+  when their turn comes, and a caller that gives up while it waits gets its own reason, with
+  nothing stored. An empty file, or one over `maxUploadBytes`, is refused without waiting. An
+  ingest keeps its turn until its work ends: when its time is up or its caller left while an
+  extractor goes on (one that does not stop on the signal, such as the parse of a PDF by
+  `@cantoo/pdf-lib`), until that extractor ends, or `ingestTimeoutMs` more (2 minutes when that is
+  0) when it never does, so that it cannot stop every later ingest. An extractor of your own must not wait on an ingest of the same library
+  (to store the parts of an archive, say): that ingest waits for a turn like the others, and with
+  every turn held by such extractors, each waits on itself until its time is up. A library sends `createIsolatedExtractors` at most `maxConcurrentIngests` files at
+  once, so its own queue fills only when several libraries share one set of readers.
+- **The upload handler holds a bounded number of bytes.** An upload is held from the reading of
+  its body to the end of its ingest, on the event-stream path too (also after its client went
+  away, until its ingest stops). Its room is taken before its body is read: its `Content-Length`,
+  or `maxUploadBytes` until its body is read when it declares none. One upload alone is always
+  taken. A `Content-Length`, or a body a framework already read, over `maxUploadBytes` is answered
+  413 before any check of room. A client that sends its headers and then nothing holds its room
+  until `uploadIdleTimeoutMs`; one that trickles, until `server.requestTimeout`: a proxy that reads
+  whole bodies before passing them on avoids both
+  ([Deployment](docs/guides/deployment.md#uploads-and-ingest)).
+- **Docs:** a search of a document read by range takes tens of MB at its peak (60 to 80 MB for a
+  log of 95 MB on Windows, 49 MB above the process for one of 100 MB on Linux), not "a few MB"
+  ([Deployment](docs/guides/deployment.md#memory-on-each-server)).
+
+### Fixed
+
+- **The meta that `ingest` returns no longer keeps the whole text of its file in memory.** The
+  first and last timestamps of a log, and the headings of an outline, were pieces of the text, and
+  a piece keeps the whole text it was cut from: a meta an application held took 25 MB of heap for a
+  log of 10 MB in Hebrew, 194 MB for one of 100 MB, and 13 MB for 5.5 MB of Markdown. It is now a
+  copy made through JSON, as `FileDocumentStore` gives it back, and takes a few KB. The store's copy
+  was never affected.
+- **A document whose text was removed while its metadata stayed is reported missing**, by
+  `prepare` and by `askWithFiles` (`DocumentsNotFoundError` with its ID), as one whose metadata is
+  gone. When it was read by range (more than `wholeDocumentBytes` of text, 2 MB by default), the
+  question failed with a plain `Error` ("doc_… is no longer available on the server"). A cleanup
+  outside the library that removes only the text files (or a lifecycle rule of an object store on
+  the text objects) leaves documents so.
+
 ## 0.8.1 — 2026-11-23
 
 Exact numbers from tables. `aggregate_table` counts, sums, averages and groups the rows of a CSV

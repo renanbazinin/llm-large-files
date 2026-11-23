@@ -50,10 +50,12 @@ included, and never rejects, so it can be called without a `catch`.
 | Parameter | Type | Default | What it does |
 |---|---|---|---|
 | `files` | [`LargeFiles`](./library.md#largefiles) | required | The library that uploads are ingested into and documents are looked up in. Its `maxUploadBytes` ([`LargeFilesOptions`](./library.md#largefilesoptions), 100 MB by default) is the upload limit. |
-| `options` | [`DocumentHandlerOptions`](#documenthandleroptions) | `{}` | Who owns a request. |
+| `options` | [`DocumentHandlerOptions`](#documenthandleroptions) | `{}` | Who owns a request, how many bytes of uploads are held at once, and how long a body may stop arriving. |
 
-**Returns** the three [`DocumentHandlers`](#documenthandlers). It makes no request, reads no
-store and throws nothing.
+**Returns** the three [`DocumentHandlers`](#documenthandlers). It makes no request and reads no
+store. It throws a `RangeError` for a `maxPendingUploadBytes` or `uploadIdleTimeoutMs` that is not
+a number in range, and a `TypeError` when `files` has no `maxUploadBytes` above 0 (a `LargeFiles`
+of your own, from JavaScript, must keep the one of the library it wraps; new in 0.8.2).
 
 The handlers do not check the method or the path of a request: route each request to the one you
 mean. Every response they write has the header `Content-Type: application/json; charset=utf-8`
@@ -94,6 +96,8 @@ upload route of your own for multipart forms or the Fetch API's `Request`.
 ```ts
 type DocumentHandlerOptions = {
   getOwner?: (request: IncomingMessage) => string | undefined | Promise<string | undefined>;
+  maxPendingUploadBytes?: number;
+  uploadIdleTimeoutMs?: number;
 };
 ```
 
@@ -102,6 +106,8 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 | Option | Type | Default | What it does |
 |---|---|---|---|
 | `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none: every request is anonymous | The owner of this request, usually the signed-in user's ID. Called at most once per request. In `upload` it runs after the name is read and before the body: an upload without a name is answered `400` without calling it, and a refused upload is never buffered. An empty owner (`""`, or spaces only) is the server's mistake: the upload is answered `500` `{ "error": "Upload failed (empty owner)." }`, before its body is read. So is an owner from JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`, say): `{ "error": "Upload failed (owner is not a string)." }`. |
+| `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold at once. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
+| `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
 
 What `getOwner` returns decides what each handler does:
 
@@ -170,12 +176,17 @@ What it does, in order:
 2. Calls `getOwner`, and checks what it returned: `""`, spaces only or `null`, or from JavaScript
    a value that is neither a string nor a finite number, is answered `500` (see
    [`DocumentHandlerOptions`](#documenthandleroptions)).
-3. Reads the body, up to `files.maxUploadBytes`:
+3. Makes room for the upload ([`maxPendingUploadBytes`](#documenthandleroptions)): a
+   `Content-Length`, or a body in `request.body`, over `maxUploadBytes` is answered `413` first; an
+   upload that would bring the uploads held past the limit, while others are held, is answered
+   `503`, before its body is read. New in 0.8.2.
+4. Reads the body, up to `files.maxUploadBytes`:
    - a `Uint8Array` or `Buffer` that a framework left in `request.body` (`express.raw()`) is used
      as the file, with the same limit;
    - an object with fields in `request.body` (`express.json()` on a JSON request) is answered
      `400`;
-   - otherwise it reads the request stream. Past the limit it stops keeping the bytes, and
+   - otherwise it reads the request stream, waiting at most `uploadIdleTimeoutMs` (30 s) for each
+     piece; past that it answers `408` and closes the connection (new in 0.8.2). Past the limit it stops keeping the bytes, and
      answers `413` at once. The rest of the body is then read and dropped, up to 8 MB, and the
      answer ends when the body does: a client that is still sending reads the `413`, and can send
      its next request on the same keep-alive connection. A body that goes on more than 8 MB past
@@ -188,11 +199,12 @@ What it does, in order:
      client stuck sending into it. The answer to such a body has no `Content-Length`. A stream
      that another middleware has already read gives no bytes, and the upload is answered `422` as
      an empty file.
-4. Ingests it: `files.ingest({ name, bytes, mimeType, owner, signal })`, `mimeType` and `owner`
-   only when there are any. The `signal` aborts when the client closes the connection before the
-   answer is sent: the ingest stops between two pages or pieces, and nothing is stored. The
-   answer then goes to no one.
-5. Answers `201` with the document's summary. With `Accept: text/event-stream`, steps 4 and 5 are
+5. Ingests it: `files.ingest({ name, bytes, mimeType, owner, signal })`, `mimeType` and `owner`
+   only when there are any. The ingest may first wait its turn (`maxConcurrentIngests` of
+   `createLargeFiles`, 2 by default). The `signal` aborts when the client closes the connection
+   before the answer is sent: the ingest stops between two pages or pieces (or leaves the queue),
+   and nothing is stored. The answer then goes to no one.
+6. Answers `201` with the document's summary. With `Accept: text/event-stream`, steps 5 and 6 are
    a stream of events instead ([below](#upload-with-progress-accept-textevent-stream)).
 
 The responses:
@@ -204,13 +216,15 @@ The responses:
 | `400` | `{ "error": "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream." }` | `request.body` is an object with fields. |
 | `413` | `{ "error": "The file is larger than the 100 MB upload limit." }`, with your `maxUploadBytes` in its place (`512 KB`, `1000 B`) | `Content-Length`, the bytes read, or the `Buffer` in `request.body` are over `maxUploadBytes`. |
 | `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read: `files.ingest` threw an [`IngestError`](./library.md#ingesterror), whose `status` is 422. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, Word, PowerPoint, Excel or HTML file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", an Office file of before 2007 or with a password, a PDF with a password or with no text layer, and a PDF, DOCX, PPTX or XLSX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf".") or, for a PDF, cannot run on this Node ("The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.", see [defaultExtractors](./library.md#defaultextractors)). A text file is never refused for its encoding. A file past the limits of `createLargeFiles`: more text than `maxTextBytes`, more pages than `maxPdfPages`, longer to read than `ingestTimeoutMs` ("report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that."), or built to exhaust the server ([every message](../guides/pdfs.md#what-is-refused)). With [`createIsolatedExtractors`](#createisolatedextractorsoptions), also a file whose reader ran out of memory or time. An extractor of your own that throws an `Error` gives its message here too. |
+| `408` | `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }`, with `Connection: close` | The body stopped arriving for `uploadIdleTimeoutMs`. The connection is closed. New in 0.8.2. |
+| `503` | `{ "error": "The server is receiving other files right now. Try again in a moment." }`, with `Retry-After: 5` | Uploads are already held, and this one would bring them past `maxPendingUploadBytes`. Answered before the body is read, also to a request with `Accept: text/event-stream`. New in 0.8.2. |
 | `503` | `{ "error": "The server is reading other files right now. Try again in a moment." }`, with `Retry-After: 5` | The isolated readers of [`createIsolatedExtractors`](#createisolatedextractorsoptions) are all busy and their queue is full: an `IngestError` of code `"busy"`. The header is its `retryAfterMs` in seconds, rounded up, at least 1. While they shut down (`close()`): "The server is shutting down. Try again in a moment." New in 0.8.0. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, an extractor or the store threw an error with that `status` or `statusCode`. |
 | `500` | `{ "error": "Upload failed (empty owner)." }` | `getOwner` returned `""`, spaces only or `null`. The body is not read. New in 0.6.0. |
 | `500` | `{ "error": "Upload failed (owner is not a string)." }` | `getOwner` returned, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array. The body is not read. New in 0.6.0. |
 | `500` | `{ "error": "Upload failed (ENOSPC)." }` | The store failed with a Node system error, one with a `code` and a `syscall`. Only the code is passed on. |
 | `500` | `{ "error": "Upload failed." }` | `getOwner` threw an error without a status, or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of either kind that has a `code` and a `syscall` is answered as in the row above, with its code. |
-| `500` | `{ "error": "Upload failed." }` | The store failed while it wrote the document, with an error that has no `status` or `statusCode` from 400 to 599 and is not a Node system error (a database driver's error, say). Or `files.ingest` threw a value that is not an `Error` (an extractor of your own that throws a string, say). Such a value with a `code` and a `syscall` gets its code, as in the `ENOSPC` row. The error's own message is not sent. See below. |
+| `500` | `{ "error": "Upload failed." }` | The store failed while it wrote the document, with an error that has no `status` or `statusCode` from 400 to 599 and is not a Node system error (a database driver's error, say), or did not finish writing it within `ingestTimeoutMs` (new in 0.8.2). Or `files.ingest` threw a value that is not an `Error` (an extractor of your own that throws a string, say). Such a value with a `code` and a `syscall` gets its code, as in the `ENOSPC` row. The error's own message is not sent. See below. |
 
 A store that fails while it writes is answered `500` "Upload failed." when its error has neither a
 `status` (or `statusCode`) from 400 to 599 nor a Node system error's `code` and `syscall`. Its
@@ -250,7 +264,8 @@ The handler reads the `Accept` header this way:
 What stays JSON: every check that runs before the ingest answers as it always did, with its status
 and `{ "error": "…" }`, because the stream has not started yet. That is a missing name (`400`), a
 refusal or a bad owner from `getOwner` (its status, or `500`), a body another middleware parsed
-(`400`), and a file over `maxUploadBytes` (`413`). Only a file that passes them is answered `200`
+(`400`), a file over `maxUploadBytes` (`413`), an upload that finds no room (`503`, new in 0.8.2),
+and a body that stops arriving (`408`, new in 0.8.2). Only a file that passes them is answered `200`
 with the event-stream headers of [`writeSseEvents()`](#writesseeventsresponse-events-options) and
 a `: keep-alive` comment every 15 seconds.
 
@@ -285,7 +300,7 @@ data: {"type":"ingest.finish","document":{"id":"doc_f6502d2f94694d709c7db2ec634c
   that a page can say why in its own words.
 - **The status is `200` whatever happens next.** Once the stream has started, a failure can only be
   an `ingest.error` event.
-- **A client that goes away stops the ingest**, as in step 4: nothing is stored, and nothing more
+- **A client that goes away stops the ingest**, as in step 5: nothing is stored, and nothing more
   is written.
 - **The handler still never rejects.**
 
@@ -468,7 +483,7 @@ type IsolatedExtractorOptions = {
 |---|---|---|---|
 | `maxHeapMb` | `number` | 512 | The heap of each child process, in MB, given as `--max-old-space-size`. A file that needs more is refused (`"out_of_memory"`), and the server goes on. From 1 to 1,048,576, and finite; a fraction is cut to a whole number. Node reads `--max-old-space-size=0` as its default heap, so a value below 1 is refused rather than cut to 0. |
 | `timeoutMs` | `number` | 120,000 | The most time one file may take, in milliseconds. Past it, its child is killed and the file refused (`"timeout"`). 0 sets none, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days), `Infinity` included, as for `ingestTimeoutMs`. With both at their defaults, the `ingestTimeoutMs` of `createLargeFiles` usually ends the ingest first, and its signal kills the child too. |
-| `concurrency` | `number` | 2 | How many files are read at once, each in a child process of its own. At least 1. |
+| `concurrency` | `number` | 2 | How many files are read at once, each in a child process of its own. At least 1. A library sends the readers at most its `maxConcurrentIngests` files at once (2 by default, since 0.8.2): for more children at work, raise that too. |
 | `maxQueue` | `number` | 8 | How many files may wait for a child. Past it, a file is refused at once as `"busy"`. 0: none waits. |
 | `formats` | `DocumentFormat[]` | `["pdf", "docx", "pptx", "xlsx"]` | The formats read in child processes: by default those whose parsers a hostile file can exhaust. `extractors` has an entry for each. |
 | `pdf` | [`PdfExtractorOptions`](./library.md#pdfextractoroptions) | `{}` | Options of the built-in PDF extractor in the children, as for [`createPdfExtractor`](./library.md#createpdfextractoroptions). |

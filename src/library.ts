@@ -9,7 +9,7 @@ import { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
 import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
-import { openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
+import { DocumentGoneError, openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
@@ -111,6 +111,13 @@ export type LargeFilesOptions = {
    * run at once in this process. The others wait their turn. Defaults to 4.
    */
   maxConcurrentScans?: number;
+  /**
+   * How many ingests do their work at once in this library. The others wait their turn, in order,
+   * and their time limit (`ingestTimeoutMs`) starts when their turn comes. An ingest holds about five
+   * times its file in memory while it works, and ingests at once share one thread: more of them do
+   * not finish sooner. `Infinity` for no limit (as before 0.8.2). Defaults to 2. New in 0.8.2.
+   */
+  maxConcurrentIngests?: number;
   /** Clock override, for tests. */
   now?: () => Date;
 };
@@ -350,6 +357,56 @@ export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
 /** The longest a Node.js timer waits: a longer one fires at once. A limit past it is no limit. */
 const LONGEST_TIMER_MS = 2 ** 31 - 1;
 
+/** `value` copied through JSON: new strings, none of them a piece of a larger one. */
+function jsonCopy<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** `work`, or the error `late` makes once `ms` have passed without it settling. */
+function settleWithin<T>(work: Promise<T>, ms: number, late: () => Error): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeUp = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(late()), ms);
+  });
+  return Promise.race([work, timeUp]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * The turn of one ingest (`maxConcurrentIngests`). It is given back when the ingest ends; when the
+ * ingest gave up on work that goes on (an extractor that does not stop on the signal, such as a
+ * PDF being parsed when its caller left), once that work ends, or `capMs` later when it does not.
+ * (Store writes that do not end fail the ingest after `capMs`: see `ingestFile`.)
+ */
+class IngestSlot {
+  private released = false;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(private readonly release: () => void, private readonly capMs: number) {}
+
+  private readonly free = () => {
+    if (this.released) return;
+    this.released = true;
+    clearTimeout(this.timer);
+    this.release();
+  };
+
+  /**
+   * Gives the turn back `capMs` from now at the latest. The timer keeps the process alive: work
+   * that never ends may hold nothing that does, and ingests waiting for the turn would be lost.
+   */
+  limit(): void {
+    if (this.released || this.timer !== undefined) return;
+    this.timer = setTimeout(this.free, this.capMs);
+  }
+
+  /** The ingest is over: the turn goes back now, or once `abandoned` ends (`capMs` at the latest). */
+  end(abandoned?: Promise<unknown>): void {
+    if (!abandoned) return this.free();
+    abandoned.then(this.free, this.free);
+    this.limit();
+  }
+}
+
 /** A time limit in the words of a message: "500 ms", "45 s", "2 min". */
 function formatDuration(ms: number): string {
   if (ms < 1_000) return `${Math.max(1, Math.round(ms))} ms`;
@@ -546,6 +603,11 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
   };
   const keepOriginals = new Set<DocumentFormat>(options.keepOriginals ?? []);
+  /** The ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). */
+  const ingests = new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentIngests", options.maxConcurrentIngests, 2))));
+  /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
+  const slotCapMs = ingestTimeoutMs > 0 && ingestTimeoutMs <= LONGEST_TIMER_MS ? ingestTimeoutMs : DEFAULT_INGEST_TIMEOUT_MS;
+
   const scannedPdfPages = Math.max(0, Math.trunc(numberOption("scannedPdfPages", options.scannedPdfPages, 30)));
   /** Whether the uploaded file of a document of this format is kept. */
   const keeps = (format: DocumentFormat) => keepOriginals.has(format) && typeof options.store.putOriginal === "function";
@@ -611,6 +673,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
           ? renderInline(document.meta, await document.readText())
           : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead);
       } catch (error) {
+        // The text is gone while its metadata is still there (removed outside the library): the
+        // same as missing. It was a plain Error, which failed the whole question.
+        if (error instanceof DocumentGoneError) return undefined;
         if (!document.broken) {
           // Deleted between the look-up and the read: the same as missing.
           if (!await currentMeta(id)) return undefined;
@@ -638,11 +703,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     detected: DocumentFormat,
     progress: IngestProgress | undefined,
     storeFailed: () => void,
+    work: { abandoned?: Promise<unknown> },
   ): Promise<DocumentMeta> {
-    if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
-    if (input.bytes.byteLength > maxUploadBytes) {
-      throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
-    }
     let format = detected;
     const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
     // Each long step works in slices, with pauses for other requests: one large upload no longer
@@ -668,7 +730,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         let extracting = true;
         let extracted: ExtractedText;
         try {
-          extracted = await untilAborted(extractText(input.bytes, {
+          // Kept, so that an ingest that stops waiting for it (its time is up, its caller left)
+          // keeps its turn until the extractor is done too: it still holds memory.
+          const extraction = extractText(input.bytes, {
             name,
             mimeType,
             format,
@@ -678,7 +742,10 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
             maxTextBytes,
             maxPages: maxPdfPages,
             ...(progress ? { onProgress: (report: ExtractProgress) => { if (extracting) progress.extracted(report); } } : {}),
-          }, options.extractors), signal);
+          }, options.extractors);
+          work.abandoned = extraction;
+          extracted = await untilAborted(extraction, signal);
+          work.abandoned = undefined;
         } finally {
           extracting = false;
         }
@@ -711,7 +778,11 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     const created = now();
     const expires = created.getTime() + ttlMs;
     const keepOriginal = keeps(format);
-    const meta: DocumentMeta = {
+    // A copy: the outline's headings and the log's timestamps are pieces of the text, and a piece
+    // keeps the whole text in memory as long as it is held. A meta an application kept held its
+    // text: 25 MB of heap for a log of 10 MB in Hebrew, 194 MB for one of 100 MB. Copied through
+    // JSON, as a store that keeps it as JSON gives it back.
+    const meta: DocumentMeta = jsonCopy<DocumentMeta>({
       id: `doc_${randomUUID().replaceAll("-", "")}`,
       ...(input.owner !== undefined ? { owner: input.owner } : {}),
       name,
@@ -733,7 +804,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       createdAt: created.toISOString(),
       // Never, for a time to live without end (or one that runs past what a date can hold).
       expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
-    };
+    });
     const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && index.textBytes === meta.textBytes
       ? serializeTextIndex(index)
       : undefined;
@@ -751,8 +822,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         throw error;
       }
     };
-    try {
-      // The files first, the document last: a document is there once its metadata is.
+    // The files first, the document last: a document is there once its metadata is.
+    const storing = (async () => {
       if (keepOriginal) {
         await store.putOriginal!(meta.id, input.bytes);
         wrote(false);
@@ -763,10 +834,17 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       }
       await store.put({ meta, text });
       wrote(true);
+    })();
+    try {
+      // A store that does not answer fails the ingest after `slotCapMs`: it held the ingest's turn,
+      // and the upload handler's room for the file, for as long as it did not answer.
+      await settleWithin(storing, slotCapMs, () => new Error(`The store did not finish writing ${name} within ${formatDuration(slotCapMs)}.`));
     } catch (error) {
       // Do not leave a file of up to the upload limit, or a part of one, behind for a document
-      // that does not exist.
-      await store.delete(meta.id).catch(() => undefined);
+      // that does not exist: once the writes have ended, when they have not yet. The removal is not
+      // waited for longer than the writes were.
+      const removal = storing.then(() => store.delete(meta.id), () => store.delete(meta.id)).catch(() => undefined);
+      await settleWithin(removal, slotCapMs, () => new Error("")).catch(() => undefined);
       if (listenerFailed?.error !== error) {
         noteStoreWriteFailure(error);
         storeFailed();
@@ -806,7 +884,22 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const progress = events.active ? new IngestProgress(events) : undefined;
         let meta: DocumentMeta;
         try {
-          meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true));
+          // Refused at once, without waiting for a turn.
+          if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
+          if (input.bytes.byteLength > maxUploadBytes) {
+            throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
+          }
+          // Its turn (`maxConcurrentIngests`): a caller that gives up while it waits gets its own
+          // reason, as it would once the work had begun. (An ingest started inside another of this
+          // library, by an extractor of your own, waits for a turn like any other. Telling it apart
+          // with AsyncLocalStorage made pdf.js about five times slower on Node 22, for every PDF.)
+          const slot = new IngestSlot(await ingests.acquire(input.signal), slotCapMs);
+          const work: { abandoned?: Promise<unknown> } = {};
+          try {
+            meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true), work);
+          } finally {
+            slot.end(work.abandoned);
+          }
         } catch (error) {
           // A store that failed, and a caller that gave up (its own reason), are passed on as they
           // are; a file that could not be read is told with a code.
