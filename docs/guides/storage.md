@@ -57,14 +57,14 @@ export const scratch = createLargeFiles({ store: new MemoryDocumentStore() });
 - It copies the metadata it is given and the metadata it hands out, as a store that writes it
   somewhere does: changing the `meta` that `ingest` or `getMeta` returned (deleting its `owner`
   before you send it to a browser, say) changes nothing stored. Each call returns a new object.
-  `getOriginal` still returns the kept bytes themselves: treat them as read-only.
+  `getOriginal` returns a copy of the kept bytes too, since 0.9.0.
 - `now` is its clock, `() => new Date()` by default. In a test, give the store and
   `createLargeFiles({ now })` the same clock: see [Testing](./testing.md).
 
 ### `FileDocumentStore`
 
-`new FileDocumentStore(directory, { now, orphanAgeMs })` keeps each document as files in one
-directory, which it creates at the first write. There are no subdirectories:
+`new FileDocumentStore(directory, options)` keeps each document as files on a volume. Without
+`scopes`, they are all in `directory`, which it creates at the first write:
 
 | File | Holds |
 |---|---|
@@ -74,30 +74,59 @@ directory, which it creates at the first write. There are no subdirectories:
 | `<id>.bin` | The uploaded file, with `keepOriginals`. |
 | `<id>.<ext>.<8 hex digits>.tmp` | A file being written. It is renamed to its own name once complete. |
 
+With `scopes` (new in 0.9.0), the files of each scope are in a folder of their own:
+`<directory>/<userId>/<chatId>/.llm-large-files/<id>.json`. See
+[Files in a folder per user or per chat](#files-in-a-folder-per-user-or-per-chat).
+
+| Option | Default | What it does |
+|---|---|---|
+| `now` | `() => new Date()` | The store's clock: what has expired, and the default time of `sweep`. |
+| `orphanAgeMs` | One hour | How old a file of no document must be before `sweep` removes it. |
+| `scopes` | None | `{ depth, folder, createScopeFolders, unscoped }`: a folder per scope. New in 0.9.0. |
+| `fileMode` | `0o600` | The mode of the files it writes, minus the umask. New in 0.9.0. |
+| `directoryMode` | `0o700` | The mode of the folders it makes, minus the umask. New in 0.9.0. |
+| `sweepConcurrency` | 16 | How many files `sweep` reads at once. New in 0.9.0. |
+
 - Every file is written under a temporary name and then renamed, so no reader, on this server or
-  another one, sees half a file. A rename that meets `EPERM`, `EACCES` or `EBUSY` (on Windows,
-  another process has the file open for a moment) is tried again for up to about three seconds.
+  another one, sees half a file. A rename or a removal that meets `EPERM`, `EACCES` or `EBUSY` (on
+  Windows, another process has the file open for a moment) is tried again for about 2.6 seconds.
 - `put` writes the text first and the metadata last. `delete` removes the metadata first, and
-  nothing else when that fails. A document never appears without its text, and is never listed once
-  its text is gone.
-- Only IDs that match `DOCUMENT_ID_PATTERN` reach the file system. A read or a `delete` with another
-  ID finds nothing, and `put`, `putIndex` and `putOriginal` throw "Invalid document ID."
+  nothing else when that fails: it throws, and the document stays whole. Once the metadata is
+  gone, the document is gone: `delete` returns true, and a text, index or original it could not
+  remove is left for `sweep` (new in 0.9.0: it threw). A document never appears without its text,
+  and is never listed once its text is gone.
+- File names are document IDs: the library's (`doc_` and 32 hex digits), or, since 0.9.0, an
+  application's ([Application IDs](#application-ids)). An ID that Windows keeps for a device (`con`,
+  `nul`, `com1` and the like) is refused, since `con.json` is not a file there. A read or a `delete`
+  with an ID that is not valid finds nothing, and `put`, `putIndex` and `putOriginal` throw "Invalid
+  document ID." The library's IDs keep the names they had, so servers of 0.8 still read them.
+- Files are written `0600` and folders made `0700` (new in 0.9.0: before, `0666` and `0777`, minus
+  the umask, which gave `0664` and `0775` under the usual `0002`). Only the user the server runs as
+  reads them. Servers or a backup job that run as other users of one group (a Kubernetes `fsGroup`)
+  need `fileMode: 0o640` and `directoryMode: 0o750`. Files written before keep their modes.
 - A missing file means a missing document. Any other failure of a read (a volume that does not
   answer, too many open files) is thrown, and the library passes it on as a `DocumentStoreError`.
   There are two exceptions: an index file that cannot be read is built again from the text, and
-  `sweep` returns 0 when it cannot list the directory. A failed write or delete is thrown as it
-  came ([Errors](#errors)). Metadata that cannot be parsed counts as absent.
-- `getMeta` removes a document that has expired, by the store's own clock (`now`).
+  `sweep` counts a folder it cannot list as empty. A failed write or delete is thrown as it came,
+  and the library wraps it ([Errors](#errors)). Metadata that cannot be parsed counts as absent.
+- `getMeta` removes a document that has expired, by the store's own clock (`now`), and returns
+  undefined. Since 0.9.0 it does so also when the removal fails: the next `sweep` tries again.
 - `readTextRange` reads only the bytes asked for, so a tool call never loads a large file whole.
   The whole text is read only when the plan sends it in the prompt.
 - `sweep` removes expired documents and returns how many. It also removes files that belong to no
   document (an upload that failed, a server that stopped while writing) and temporary files, once
   they are `orphanAgeMs` old, one hour by default: a younger one may be an upload in progress on
-  another server. A document whose metadata could not be read at all is left alone, whatever its
-  age. One that cannot be removed is left for the next sweep, and does not stop this one.
-- The files are plain. The metadata names the owner, the file name, the headings and the log
-  message templates. A delete removes the files without overwriting them. If that matters, encrypt
-  the volume: see [Security](../security.md).
+  another server. In a folder that may hold files of yours too (`directory` without `scopes`), it
+  removes such a file only when its name is an ID the library makes, or a temporary file:
+  `notes.txt` may be yours, not the text of a document `notes`. A document whose metadata could not
+  be read at all is left alone, whatever its age. One that cannot be removed is left for the next
+  sweep, and does not stop this one.
+- `sweep` reads up to `sweepConcurrency` files at once (new in 0.9.0: one after another). A sweep
+  of 5,000 documents in one folder on a local SSD took about 2.5 s one file at a time, and about
+  1.1 s 16 at a time.
+- The files are plain. The metadata names the owner, the scope, the file name, the headings and the
+  log message templates. A delete removes the files without overwriting them. If that matters,
+  encrypt the volume: see [Security](../security.md).
 
 Several servers can share the directory on a network volume. What that needs, from where to run the
 sweep to servers of two versions during an upgrade, is in [Deployment](./deployment.md).
@@ -188,7 +217,8 @@ await files.getMeta(notes.id, { owner: "user-42" });                         // 
 - A document with a scope serves only a caller of the same scope, segment by segment: another
   scope, a longer or a shorter one, or none, finds it missing. A document without a scope serves a
   caller of any scope, unless the library has `requireScope`.
-- A store may keep the documents of each scope apart: `MemoryDocumentStore` does, so one ID in two
+- A store may keep the documents of each scope apart: `MemoryDocumentStore` does, and
+  `FileDocumentStore` with [`scopes`](#files-in-a-folder-per-user-or-per-chat), so one ID in two
   scopes is two documents. A store that ignores the context, as every store written for 0.8 does,
   still keeps scopes apart for the library, through `meta.scope`: a caller of scope B never reads a
   document of scope A.
@@ -312,6 +342,8 @@ export async function deleteChat(userId: string, sessionId: string): Promise<voi
   take them off the chat and ask the user for them again.
 - `files.delete` gives false for a document that has already expired or been deleted. There is
   nothing left to do for it.
+- Over a `FileDocumentStore` with `scopes`, `deleteChat` can remove the chat's folder in place of
+  each document ([below](#files-in-a-folder-per-user-or-per-chat)).
 - The `upload` handler of `createDocumentHandlers` answers the request itself, so it cannot record
   the new ID in your session. Call `attach` from a route of your own, or record the ID the browser
   sends back in a second request, after checking it with `files.getMeta(id, { owner, scope })`.
@@ -323,25 +355,90 @@ export async function deleteChat(userId: string, sessionId: string): Promise<voi
 
 ### Files in a folder per user or per chat
 
-Since 0.9.0, every store call carries the owner and the scope of the call (its context), so a store
-of your own can lay its files out by scope, `putOriginal` and `putIndex` included.
-`FileDocumentStore` keeps every document in one folder: the scope is then only an access rule,
-kept in `meta.scope`.
+New in 0.9.0. Give `FileDocumentStore` the `scopes` option, and one library serves every user and
+every chat, with each chat's files in a folder of its own:
 
-If your storage rules need each chat's files in a folder of their own, give each chat a library of
-its own, over its own `FileDocumentStore`:
+```ts
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import { createLargeFiles, FileDocumentStore, toDocumentSummary } from "llm-large-files";
+
+const DOCUMENTS_DIR = process.env.DOCUMENTS_DIR!;
+
+// One store and one library for the process: their limits hold for every chat at once.
+export const store = new FileDocumentStore(DOCUMENTS_DIR, { scopes: { depth: 2 } });
+export const files = createLargeFiles({ store, requireOwner: true, requireScope: true });
+
+/** Adds a file to a chat. `uploadId` is the ID of the upload in your records: lowercase, as UUIDs are. */
+export async function upload(userId: string, chatId: string, uploadId: string, file: { name: string; bytes: Uint8Array }) {
+  // The folder of a chat is yours: make it when the chat starts. The store makes only its own in it.
+  await mkdir(path.join(DOCUMENTS_DIR, userId, chatId), { recursive: true });
+  const meta = await files.ingest({ ...file, owner: userId, scope: [userId, chatId], id: uploadId });
+  return toDocumentSummary(meta);
+}
+```
+
+The volume then holds:
+
+```text
+<DOCUMENTS_DIR>/
+  user-42/
+    chat-7/
+      .llm-large-files/     the store's: upload-3f9a.json, upload-3f9a.txt, upload-3f9a.idx
+      uploads/              yours, if you keep the uploads: the sweep never goes in
+```
+
+- Pass the same `scope` on every later call: questions (`askWithFiles({ owner, scope })`),
+  `getMeta`, `getOriginal`, `delete`. A document of one chat is not found from another, even under
+  the same ID: the folder is the boundary, and the library checks `meta.scope` too.
+- `depth` is the number of segments of every scope: 2 for `[userId, chatId]`. A scope of another
+  length, or a call without one, throws a `DocumentScopeError` (`"scope_invalid"`,
+  `"scope_required"`).
+- Each segment names a folder, so it must pass `isSafeScopeSegment`: lowercase letters, digits,
+  `_` and `-`, up to 64 characters, and no name Windows keeps for a device (`con`, `nul`). Lower
+  case only, because SMB and Azure Files ignore case: `Alice` and `alice` would share a folder. IDs
+  your database makes (UUIDs, MongoDB ObjectIds in lowercase hex) pass as they are. For IDs in mixed
+  case, or in Hebrew, pass `hashedScopeSegment(userId)` as the segment, everywhere: it gives `h` and
+  40 hex digits of the ID's SHA-256. Name the folders you make and remove with it too.
+- The store makes its own folder (`.llm-large-files`, the `folder` option) inside a chat's folder
+  that exists, and never the chat's folder itself. To delete a chat, stop its questions, then remove
+  its folder: `rm(path.join(DOCUMENTS_DIR, userId, chatId), { recursive: true, force: true })`. An
+  upload that finishes after that throws a `DocumentScopeError` of code `"scope_missing"`, instead
+  of making the folder again. Reads in that chat find nothing. To delete a user, remove the user's
+  folder.
+- `createScopeFolders: true` makes the folders of a chat at its first upload, for an application
+  that keeps none of its own. The removal above then cannot stop a late upload.
+- `folder: ""` puts the store's files in the chat's folder itself, beside yours.
+- `files.sweep()` sweeps every chat: it goes down exactly `depth` levels of folders, into folders
+  whose names a segment may have, and never follows a link. `files.sweep({ scope })` sweeps one
+  chat's folder. Run it from one server ([Deployment](./deployment.md#sweeping-expired-documents)).
+- A folder of a scope that is a link, or lies under one, is refused with `"scope_invalid"`: every
+  call checks that the folder is where its path says, inside `DOCUMENTS_DIR`.
+- Documents ingested before 0.9.0 are in `DOCUMENTS_DIR` itself. `unscoped: "root"` serves a call
+  without a scope from there, as before, until they expire, and `files.sweep()` sweeps them too.
+  It cannot go with `requireScope`, which refuses such calls first.
+- A wrapper or a subclass of the store must pass the context on (`super.getMeta(id, context)`):
+  without it, every call throws `"scope_required"`.
+- Servers of 0.8 do not see these folders, nor documents under an application's ID: during an
+  upgrade they find them missing ([Deployment](./deployment.md#servers-of-two-versions)).
+
+One library for the process keeps its limits for the whole process: `maxConcurrentIngests` and its
+queue, `cacheBytes` and `maxConcurrentScans` bound every chat together, and a document read in one
+question stays in the cache for the next.
+
+#### A library per chat
+
+Before 0.9.0, the only way to a folder per chat was a library per chat, each over its own
+`FileDocumentStore`. It still works:
 
 ```ts
 import path from "node:path";
-import { createLargeFiles, FileDocumentStore, type LargeFiles } from "llm-large-files";
-
-// One case only: on a volume that ignores case, "Alice" and "alice" would be one folder.
-const SAFE_ID = /^[a-z0-9_-]{1,64}$/;
+import { createLargeFiles, FileDocumentStore, isSafeScopeSegment, type LargeFiles } from "llm-large-files";
 
 /** The library of one chat: its files are in <DOCUMENTS_DIR>/<user>/<chat>/. */
 export function filesOf(userId: string, sessionId: string): LargeFiles {
   // The IDs become a path: refuse anything that could lead out of the directory.
-  if (!SAFE_ID.test(userId) || !SAFE_ID.test(sessionId)) throw new Error("Invalid user or chat ID.");
+  if (!isSafeScopeSegment(userId) || !isSafeScopeSegment(sessionId)) throw new Error("Invalid user or chat ID.");
   return createLargeFiles({
     store: new FileDocumentStore(path.join(process.env.DOCUMENTS_DIR!, userId, sessionId)),
     cacheBytes: 32 * 1024 * 1024, // each library has a cache of its own
@@ -349,22 +446,17 @@ export function filesOf(userId: string, sessionId: string): LargeFiles {
 }
 ```
 
-On a volume that ignores case (Windows, macOS, SMB shares), IDs that differ only in case would
-share a folder, so the check takes lower case only. If your IDs are mixed case and unique
-regardless of case, lower-case them before the check. IDs your database makes, such as UUIDs or
-MongoDB ObjectIds in lower-case hex, pass it as they are.
-
-What that costs:
+What that costs, against one library over a store with `scopes`:
 
 - `cacheBytes`, `maxConcurrentScans` and `maxConcurrentIngests` bound each library, not the process,
-  and `maxPendingUploadBytes` each set of upload handlers. With a library per chat, ingests of
-  different chats all work at once, as before 0.8.2: bound them for the process yourself, with one
-  queue or count shared by the chats' routes. A library made for one request starts with an empty
-  cache, so each question reads its documents from the store again.
+  and `maxPendingUploadBytes` each set of upload handlers. Ingests of different chats all work at
+  once, as before 0.8.2: bound them for the process yourself, with one queue or count shared by the
+  chats' routes. A library made for one request starts with an empty cache, so each question reads
+  its documents from the store again.
 - Each chat's folder needs a sweep of its own: `new FileDocumentStore(folder).sweep()` for each one.
-  The store never removes the folder itself.
-- Deleting a chat is removing its folder, once no question of that chat is running.
-- A document of another chat is not found: the folder is the boundary.
+- The store makes the chat's folder again at a late upload, after you removed it.
+- The store's files sit in the chat's folder itself, so its sweep leaves files of no document there
+  unless their names are the library's own IDs.
 
 ## Retention
 
@@ -482,18 +574,38 @@ library uses.
 
 Every method takes a last, optional `context`, new in 0.9.0: the scope and the owner of the call
 ([`DocumentContext`](../reference/library.md#documentcontext)), as in `getMeta(id, context?)`. The
-table below leaves it out. A store written for 0.8, without it, still compiles and works. A store
-that wraps another one, or a subclass that overrides a method, passes it on:
-`super.getMeta(id, context)`.
+table below leaves it out. A store written for 0.8, without it, still compiles and works.
+
+- Use `context.scope` as the boundary of your storage, if you want one: a key prefix, a folder, a
+  filter on a collection. `context.owner` lets you index documents by user. A store that ignores
+  the context still keeps scopes apart for the library, through `meta.scope`; an application's IDs
+  must then be unique in the whole store.
+- A store that wraps another one, or a subclass that overrides a method, passes the context on.
+  One that drops it loses the scope of every call: over a store that keeps scopes apart, the
+  documents then look missing, and over a `FileDocumentStore` with `scopes`, every call throws.
+
+```ts
+import { FileDocumentStore, type DocumentContext, type DocumentMeta } from "llm-large-files";
+
+/** Counts the reads of metadata, and passes the context on, as every method of a wrapper must. */
+export class CountingStore extends FileDocumentStore {
+  reads = 0;
+
+  override async getMeta(id: string, context?: DocumentContext): Promise<DocumentMeta | undefined> {
+    this.reads++;
+    return super.getMeta(id, context); // not super.getMeta(id)
+  }
+}
+```
 
 ### The methods
 
 | Method | Required | When the library calls it | What it must do |
 |---|---|---|---|
 | `put(document)` | Yes | `ingest`, last, after `putOriginal` and `putIndex`. | Keep `document.meta` whole, as one object, and `document.text`. Keep the text exactly, as UTF-8: `readTextRange` offsets point into those bytes. Let the document appear only once all of it is written. |
-| `getMeta(id)` | Yes | Before every use of a document: `getMeta`, `getOriginal`, `delete`, `prepare` (once a document), and every tool call that reads one. | Return the metadata, or undefined when there is no such document. Keep it cheap: one look-up by key, without reading the text. |
+| `getMeta(id)` | Yes | Before every use of a document: `getMeta`, `getOriginal`, `delete`, `prepare` (once a document), and every tool call that reads one. | Return the metadata, or undefined when there is no such document. Keep it cheap: one look-up by key, without reading the text. Return a field that was left out (`owner`, `scope`) absent, not `null`. |
 | `get(id)` | Yes | To load a document whole: one whose text is at most `wholeDocumentBytes`, or any document when the store has no `readTextRange`. Once a library while the document stays in the cache. | Return `{ meta, text }` with the text exactly as `put` got it, or undefined. |
-| `delete(id)` | Yes | `files.delete`, after the owner check. And `ingest`, to clean up after a write that failed. | Remove the metadata first, then the text, the index and the original. Return true when the document was there. Cope with a document that was only partly written. |
+| `delete(id)` | Yes | `files.delete`, after the owner check. And `ingest`, to clean up after a write that failed, and before it replaces a document (`ifExists: "replace"`). | Remove the metadata first, then the text, the index and the original. When the metadata cannot be removed, throw, and leave the rest. Return true when the document was there. Cope with a document that was only partly written. |
 | `sweep(now?)` | No | `files.sweep()`, with the library's clock. | Remove the documents whose `expiresAt` is at or before `now`, with all their parts. Return how many. |
 | `putOriginal(id, bytes)` | No | `ingest`, first, when `keepOriginals` lists the format. | Keep the bytes as they are now: the caller may reuse its buffer afterwards. |
 | `getOriginal(id)` | No | `files.getOriginal` and `view_pages`, for a document whose `meta.originalKept` is true. | Return the bytes, or undefined. |
@@ -502,7 +614,9 @@ that wraps another one, or a subclass that overrides a method, passes it on:
 | `getIndex(id)` | No | When a document read by range is opened. | Return the bytes `putIndex` kept, or undefined. A damaged index is noticed and built again. |
 
 The library checks `expiresAt` itself, with its own clock, before every use. Your `getMeta` and
-`get` may return a document that has expired; your `sweep` must remove it.
+`get` may return a document that has expired; your `sweep` must remove it. If they remove an expired
+document when they meet one, as the built-in stores do, they return undefined even when the removal
+fails: an error there reaches the user as "try again" for a document that is gone, on every try.
 
 Keep every field of `meta`, including those your store does not know. Later versions add optional
 fields: 0.4.1 added `jsonBytes`, 0.6.0 `encoding` and `replacedCharacters`, which say how a
@@ -617,7 +731,7 @@ SDK, following [Reading by range](#reading-by-range).
 ```ts
 // blob-document-store.ts
 import type { Collection } from "mongodb";
-import { DOCUMENT_ID_PATTERN, type DocumentMeta, type DocumentStore, type StoredDocument } from "llm-large-files";
+import { APP_DOCUMENT_ID_PATTERN, type DocumentMeta, type DocumentStore, type StoredDocument } from "llm-large-files";
 
 /** The object storage calls the store needs. Write them over S3, Cloud Storage, Azure Blob Storage or a volume. */
 export interface Blobs {
@@ -655,9 +769,9 @@ export class BlobDocumentStore implements DocumentStore {
     private readonly prefix = "llm-large-files",
   ) {}
 
-  /** Only a document ID becomes part of a key, as in the built-in stores. */
+  /** Only a document ID becomes part of a key, as in the built-in stores: the library's, or the application's. */
   private key(id: string, kind: "txt" | "idx" | "bin"): string {
-    if (!DOCUMENT_ID_PATTERN.test(id)) throw new Error("Invalid document ID.");
+    if (!APP_DOCUMENT_ID_PATTERN.test(id)) throw new Error("Invalid document ID.");
     return `${this.prefix}/${id}.${kind}`;
   }
 
@@ -714,7 +828,7 @@ export class BlobDocumentStore implements DocumentStore {
 
   /** The record first: if removing it fails, nothing else is touched and the document stays whole. */
   async delete(id: string): Promise<boolean> {
-    if (!DOCUMENT_ID_PATTERN.test(id)) return false;
+    if (!APP_DOCUMENT_ID_PATTERN.test(id)) return false;
     const { deletedCount } = await this.records.deleteOne({ _id: id });
     // Also what a failed ingest left behind: an original or an index without a record.
     await Promise.all((["txt", "idx", "bin"] as const).map((kind) => this.blobs.remove(this.key(id, kind))));
@@ -765,23 +879,48 @@ export const files = createLargeFiles({
 
 ### Checking your store
 
-Before you trust a store with users' files, check these with the library over it:
+`documentStoreChecks` from `llm-large-files/testing` (new in 0.9.0) checks a store against this
+page: copies of the metadata, fields it does not know, `null` for a field left out, expiry, every
+part removed by `delete`, ranges across multi-byte characters, the index, the original byte for
+byte, the sweep's clock, the application's IDs, the context on every call, scopes kept apart, two
+servers over one storage, and the library over the store against `MemoryDocumentStore`. Run them
+in your tests:
 
-- A file ingested, then `prepare` and a `search_document` call give the same results as with
-  `MemoryDocumentStore`. Do it once more with `wholeDocumentBytes: 0`, which reads every document by
-  range.
+```ts
+// blob-document-store.test.ts, with Vitest. Jest: the same with `test`. node:test:
+// test(check.name, { timeout: check.timeoutMs }, check.run).
+import { it } from "vitest";
+import { documentStoreChecks } from "llm-large-files/testing";
+import { BlobDocumentStore } from "./blob-document-store.js";
+import { blobsFor, recordsFor, dropStorage } from "./test-storage.js"; // a bucket prefix and a collection for each name
+
+for (const check of documentStoreChecks({
+  create: ({ storage }) => new BlobDocumentStore(blobsFor(storage), recordsFor(storage)),
+  dispose: (_store, { storage }) => dropStorage(storage),
+})) it(check.name, check.run, check.timeoutMs);
+```
+
+- `create` makes a store over new storage for each check, named by `storage`. Called twice with
+  the same name, it must give two stores over the same storage, as two servers.
+- Say what your store does: `isolatesScopes: true` if it keeps the documents of each scope apart,
+  `requiresScope: true` if it refuses a call without a scope, and `skip` for the parts it does not
+  have (`"originals"`, `"ranges"`, `"index"`, `"sweep"`, `"shared"`).
+- A failed check says what it expected and what came back. The options and every check are in
+  [the reference](../reference/testing.md#documentstorechecksoptions).
+
+The library's own tests run them on `MemoryDocumentStore`, `FileDocumentStore` in one folder, and
+`FileDocumentStore` with `scopes`.
+
+What the checks cannot do for you, by hand:
+
 - With the database stopped, `files.getMeta(id)` rejects with a `DocumentStoreError` instead of
   giving undefined, and a tool call answers "The document store could not be read. Try again.",
   with a code in parentheses when your error has one.
-- A text file that is not UTF-8, such as a CSV saved by Excel in windows-1255, is ingested, and
-  `files.getMeta(id)` gives back its `encoding` (and `replacedCharacters`, for a UTF-8 log cut at a
-  byte count): your store keeps fields it does not know.
 - With a write that fails, `files.ingest` throws, and leaves no record and no object behind.
-- `files.delete` removes every part. `getMeta` then gives undefined, and a second delete gives false.
-- With a clock past `expiresAt` (the `now` option of `createLargeFiles`), `files.sweep()` removes
-  the document, every part of it, and counts it.
-- `readTextRange(id, size, size + 10)` gives an empty array, where `size` is `meta.textBytes`.
-- With `keepOriginals`, `files.getOriginal` gives the uploaded bytes, byte for byte.
+- A text file that is not UTF-8, such as a CSV saved by Excel in windows-1255, is ingested, and
+  `files.getMeta(id)` gives back its `encoding`. A schema of your database may refuse fields the
+  checks' metadata does not have.
+- An expired document whose removal fails is still read as missing.
 
 ## The cache
 

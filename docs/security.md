@@ -434,6 +434,12 @@ U+FFFD. `meta.replacedCharacters` counts the U+FFFD, and the model is told of th
   (one hour by default). `FileDocumentStore`'s `sweep` throws nothing: a directory it cannot read
   gives 0, and a document it cannot remove is left for the next sweep. Watch the count it returns,
   and the volume, to know that expired files really go.
+- **A delete is done once the metadata is gone.** Since 0.9.0, `FileDocumentStore.delete` returns
+  true once it removed the metadata, and a text, index or original it could not remove then waits
+  for the sweep (before, it threw). Where the files must go for good (a user's erasure request),
+  remove the folder of the scope, or keep the sweep running. The sweep removes such leftovers in the
+  store's own folders (`scopes`), and in a folder it shares with your files only under the IDs the
+  library makes.
 - **A delete takes effect on every server that shares the store, from the next tool call on.**
   Every use of a document first asks the store whether it is still there. A copy kept in memory
   (within `cacheBytes`, 256 MB by default) is used only after that, and dropped when the document
@@ -443,19 +449,33 @@ U+FFFD. `meta.replacedCharacters` counts the U+FFFD, and the model is told of th
   later questions. Neither reaches the answers, steps and evidence you stored, your logs, or what
   your model provider keeps. To forget a document, also drop the tool rounds that name it from the
   stored conversation ([Conversations](./guides/conversations.md)).
-- **`FileDocumentStore` writes plain files** in one directory: `<id>.txt`, the text; `<id>.json`,
-  the metadata (owner, file name, MIME type, sizes, dates, outline headings and, for a log, its
-  message templates); `<id>.idx`, a line index; `<id>.bin`, the original with `keepOriginals`; and
-  `.tmp` files while it writes. Nothing is encrypted, and a delete removes the files without
+- **`FileDocumentStore` writes plain files** in one directory, or with `scopes` in a folder per
+  scope (`<directory>/<userId>/<chatId>/.llm-large-files/`): `<id>.txt`, the text; `<id>.json`,
+  the metadata (owner, scope, file name, MIME type, sizes, dates, outline headings and, for a log,
+  its message templates); `<id>.idx`, a line index; `<id>.bin`, the original with `keepOriginals`;
+  and `.tmp` files while it writes. Nothing is encrypted, and a delete removes the files without
   overwriting them. Use an encrypted volume, or write a `DocumentStore` over storage with encryption
   at rest ([Storage](./guides/storage.md)).
-- **No path traversal.** Only IDs that match `DOCUMENT_ID_PATTERN` (`doc_` and 32 lowercase hex
-  digits) reach the file system. File names never become paths.
+- **File modes.** Since 0.9.0, `FileDocumentStore` writes its files `0600` and makes its folders
+  `0700` (`fileMode`, `directoryMode`), minus the umask: only the user the server runs as can read
+  them. Before, they were `0666` and `0777` minus the umask, which gave files every user of the
+  machine could read (`0664` under the usual umask `0002`). On a volume shared by servers that run
+  as different users of one group (a Kubernetes `fsGroup`), set `fileMode: 0o640` and
+  `directoryMode: 0o750`, never more. Files written before 0.9.0 keep their modes: change them once
+  with `chmod` to narrow them.
+- **No path traversal.** File names are document IDs, and only IDs of the shape
+  `APP_DOCUMENT_ID_PATTERN` (lowercase letters, digits, `_` and `-`), and not names Windows keeps
+  for a device, reach the file system. With `scopes`, each segment of a scope names a folder, and
+  must pass `isSafeScopeSegment` (the same shape, no `.` or `..`), or the call is refused. Every call
+  checks that the folder of its scope is where its path says inside the directory, so a link there,
+  to another chat or out of the volume, is refused, and `sweep` follows no link. A store with
+  `scopes` never makes the folder of a chat again once you removed it, unless `createScopeFolders`
+  is on ([Storage](./guides/storage.md#files-in-a-folder-per-user-or-per-chat)).
 - `MemoryDocumentStore` keeps everything in the memory of one process, until it restarts. It is for
   tests and single-process demos. It copies the metadata it is given and the metadata it hands out,
   so deleting `owner` from what `ingest` or `getMeta` returned, before you send it to a browser,
-  changes nothing stored. (In 0.5.0 it opened the document to every owner.) The original it returns
-  is the stored bytes themselves: treat them as read-only.
+  changes nothing stored. (In 0.5.0 it opened the document to every owner.) Since 0.9.0, the
+  original it returns is a copy too.
 
 ## Original files
 
@@ -993,7 +1013,8 @@ What you log is your choice, and some of what the library hands you holds user d
   browser ([Prompt injection](#prompt-injection)).
 - Set `ttlMs` to your data policy, run `sweep` on a schedule, and make your deletion rules cover
   stored `toolTurns` ([Storage and retention](#storage-and-retention)).
-- Keep the store on encrypted storage.
+- Keep the store on encrypted storage. With `FileDocumentStore`, keep the default file modes, or
+  `0o640` and `0o750` for one group ([Storage and retention](#storage-and-retention)).
 - Turn on `keepOriginals` only if you want `view_pages`, and knowing what it keeps
   ([Original files](#original-files)).
 - Set `limits` and a deadline, and log `usage` for failed questions too

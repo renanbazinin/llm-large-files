@@ -1182,6 +1182,30 @@ them to upload again. Log `error.cause`, the store's own error, and `error.code`
 See [`DocumentStoreError`](./reference/library.md#documentstoreerror) and
 [Storage](./guides/storage.md).
 
+### "The document store could not be read (EACCES)" after an upgrade to 0.9.0
+
+Uploads work on the server that took them, and every other server, or a backup or sweep job,
+answers `EACCES` for the new documents.
+
+**Cause.** Since 0.9.0, `FileDocumentStore` writes files `0600` and folders `0700`: only the user
+that wrote them can read them. The servers or the job run as different users.
+
+**Fix.** Run them all as one user. Or, for users of one group (a Kubernetes `fsGroup`), give every
+store `fileMode: 0o640` and `directoryMode: 0o750`, and change the files written since the upgrade
+once with `chmod`. See [Deployment](./guides/deployment.md#a-shared-store).
+
+### `DocumentScopeError`: "The scope no longer exists."
+
+An upload into a chat fails with a `DocumentScopeError` of code `"scope_missing"`.
+
+**Cause.** The store is a `FileDocumentStore` with `scopes`, and the folder of the chat is gone:
+your application removed it when the chat was deleted, or never made it. The store makes its own
+folder in a chat's folder, never the chat's folder itself, unless `createScopeFolders` is on.
+
+**Fix.** For a deleted chat, nothing: tell the user the chat no longer exists. For a new chat, make
+its folder (`mkdir` with `recursive: true`) when the chat starts, or set `createScopeFolders: true`.
+See [Storage](./guides/storage.md#files-in-a-folder-per-user-or-per-chat).
+
 ### Documents are found on one server and missing on another
 
 `DocumentsNotFoundError` for documents that were just uploaded, on some requests and not others, or

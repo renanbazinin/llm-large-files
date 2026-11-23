@@ -10,14 +10,16 @@ import {
   createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_MAX_TEXT_BYTES,
   DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, isDocumentId, toDocumentSummary, IngestError, ingestErrorCodeOf,
   DEFAULT_BUDGET, resolveBudget,
-  MemoryDocumentStore, FileDocumentStore, DOCUMENT_ID_PATTERN, APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION,
+  MemoryDocumentStore, FileDocumentStore, isSafeScopeSegment, hashedScopeSegment,
+  DOCUMENT_ID_PATTERN, APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION,
   DocumentStoreError, DocumentScopeError,
   createPdfExtractor, defaultExtractors, detectFormat,
   estimateTokens, utf8Bytes, jsonBytes,
 } from "llm-large-files";
 import type {
   LargeFilesOptions, LargeFiles, AccessOptions, IngestInput, PrepareOptions, ToolOptions, PreparedContext, DocumentPlan,
-  Budget, ModelLimits, DocumentStore, DocumentContext, DocumentScope, StoredDocument, PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
+  Budget, ModelLimits, DocumentStore, DocumentContext, DocumentScope, StoredDocument, FileDocumentStoreOptions, FileDocumentScopes,
+  PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
   ExtractedText, DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent,
   ProgressListener, ToolCallHooks, ToolRequestHandle, ToolRequestStart, ToolRequestEnd, IngestEvent, IngestErrorCode,
   DocumentStoreOperation, DocumentScopeErrorCode,
@@ -44,6 +46,8 @@ Contents:
 - [Stores](#stores): [`DocumentStore`](#documentstore), [`DocumentContext`](#documentcontext),
   [`DocumentScope`](#documentscope), [`StoredDocument`](#storeddocument),
   [`MemoryDocumentStore`](#memorydocumentstore), [`FileDocumentStore`](#filedocumentstore),
+  [`FileDocumentStoreOptions`](#filedocumentstoreoptions), [`FileDocumentScopes`](#filedocumentscopes),
+  [`isSafeScopeSegment(value)`](#issafescopesegmentvalue), [`hashedScopeSegment(value)`](#hashedscopesegmentvalue),
   [`DOCUMENT_ID_PATTERN`](#document_id_pattern), [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern),
   [`DOCUMENT_META_VERSION`](#document_meta_version), [`DocumentStoreError`](#documentstoreerror),
   [`DocumentScopeError`](#documentscopeerror)
@@ -953,7 +957,7 @@ A store that wraps another one, or a subclass that overrides a method, passes th
 | `put(document)` | yes | Store the text and the metadata. Called last at ingest. A document should exist once its metadata does: `FileDocumentStore` writes the metadata last. Keep every field of `meta`, the optional ones too, and those a later version adds (0.6.0 added `encoding` and `replacedCharacters`): a store that keeps a fixed list of fields loses them, and one that checks `meta` against a fixed schema refuses the ingest of every file that has them. |
 | `get(id)` | yes | The whole document, or `undefined` when there is no such document. It may return an expired one: the library checks `expiresAt` itself. Called to load a document whole: its text is at most `wholeDocumentBytes`, or the store has no `readTextRange`. |
 | `getMeta(id)` | yes | The metadata, or `undefined` when there is no such document (an expired one may be returned; the library checks `expiresAt`). Called by every `prepare`, `getMeta`, `getOriginal` and `delete`, by every tool call, and by `ingest` with an application's `id`: keep it cheap, apart from the text. Return the owner absent, not `null` (the library reads `null` as none). |
-| `delete(id)` | yes | Remove the document, its original and its index, and return whether it existed. Also called by `ingest` after a failed write, so it must cope with a document that was written only in part, and before a document that `ifExists: "replace"` replaces. |
+| `delete(id)` | yes | Remove the metadata first, then the text, the original and the index, and return whether the document existed. When the metadata cannot be removed, throw and leave the rest. Once it is gone, the document is gone: a part that cannot be removed then may be left for `sweep`. Also called by `ingest` after a failed write, so it must cope with a document that was written only in part, and before a document that `ifExists: "replace"` replaces. |
 | `sweep(now?)` | no | Remove the documents expired at `now` (with their originals and indexes) and return how many. Without it, `files.sweep()` returns 0; expire the data another way, such as a TTL index of your database. |
 | `putOriginal(id, bytes)` | no | Keep the uploaded file. Called at ingest, before `putIndex` and `put`, for the formats in `keepOriginals`. Without it, no original is kept, whatever `keepOriginals` says. |
 | `getOriginal(id)` | no | The kept file, or `undefined` when none was kept or there is no such document. Without it, `view_pages` is never offered. |
@@ -977,7 +981,11 @@ Errors:
 - Keep fields of `meta` you do not know, `metaVersion` included
   ([`DOCUMENT_META_VERSION`](#document_meta_version)): a newer version of the package may add some.
 - The library compares `expiresAt` with its clock itself, so an expired document is never used. The
-  store must still remove it, in `sweep` or by its own expiry.
+  store must still remove it, in `sweep` or by its own expiry. A store that removes an expired
+  document when it reads it returns `undefined` even when that removal fails: an error there would
+  reach the user as "try again" for a document that is gone.
+- [`documentStoreChecks`](./testing.md#documentstorechecksoptions) from `llm-large-files/testing`
+  checks a store against these rules, in your tests.
 
 The library makes the IDs (see [`DOCUMENT_ID_PATTERN`](#document_id_pattern)), or the application
 gives them ([`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern)), and every method except `put`
@@ -1072,23 +1080,25 @@ Guide: [testing](../guides/testing.md).
 
 ```ts
 declare class FileDocumentStore implements DocumentStore {
-  constructor(directory: string, options?: { now?: () => Date; orphanAgeMs?: number });
-  put(document: StoredDocument): Promise<void>;
-  get(id: string): Promise<StoredDocument | undefined>;
-  getMeta(id: string): Promise<DocumentMeta | undefined>;
-  delete(id: string): Promise<boolean>;
-  sweep(now?: Date): Promise<number>;
-  putOriginal(id: string, bytes: Uint8Array): Promise<void>;
-  getOriginal(id: string): Promise<Uint8Array | undefined>;
-  readTextRange(id: string, start: number, end: number): Promise<Uint8Array | undefined>;
-  putIndex(id: string, index: Uint8Array): Promise<void>;
-  getIndex(id: string): Promise<Uint8Array | undefined>;
+  constructor(directory: string, options?: FileDocumentStoreOptions);
+  put(document: StoredDocument, context?: DocumentContext): Promise<void>;
+  get(id: string, context?: DocumentContext): Promise<StoredDocument | undefined>;
+  getMeta(id: string, context?: DocumentContext): Promise<DocumentMeta | undefined>;
+  delete(id: string, context?: DocumentContext): Promise<boolean>;
+  sweep(now?: Date, context?: DocumentContext): Promise<number>;
+  putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void>;
+  getOriginal(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  readTextRange(id: string, start: number, end: number, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  putIndex(id: string, index: Uint8Array, context?: DocumentContext): Promise<void>;
+  getIndex(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
 }
 ```
 
 Keeps each document as files in one directory, so documents survive a restart, and several servers
 can share the directory on a network volume. It has every method, `readTextRange`, `putIndex` and
-`getIndex` included, so large documents are read by range.
+`getIndex` included, so large documents are read by range. With `scopes` (new in 0.9.0), the
+documents of each scope are in a folder of their own:
+`<directory>/<userId>/<chatId>/.llm-large-files/`.
 
 | File | What it holds |
 |---|---|
@@ -1097,32 +1107,151 @@ can share the directory on a network volume. It has every method, `readTextRange
 | `<id>.idx` | The line index. |
 | `<id>.bin` | The uploaded file, when it is kept. |
 
-- The directory is created at the first write.
+- The files are in `directory` itself, without `scopes`. A call's context is then not used: a scope
+  is only an access rule of the library (`meta.scope`). With `scopes`, they are in
+  `<directory>/<scope segments>/<scopes.folder>/` ([`FileDocumentScopes`](#filedocumentscopes)).
+- The directory is created at the first write, as are its own folders in the folder of each scope.
+  Since 0.9.0, it writes files with `fileMode` (0o600) and makes folders with `directoryMode`
+  (0o700), minus the umask of the process. Files and folders written before keep their modes.
 - Every file is written under a temporary name (`<file>.<8 hex digits>.tmp`) and then renamed, so
-  no server reads half a file. A rename that meets `EPERM`, `EACCES` or `EBUSY` (on Windows, another
-  process has the file open for a moment) is tried again, for about 2.6 seconds in all.
-- `put` writes the text, then the metadata. `put`, `putOriginal` and `putIndex` throw
-  `Error("Invalid document ID.")` for an ID that does not match `DOCUMENT_ID_PATTERN`; for such an
-  ID the reads return `undefined` and `delete` returns `false`. Only matching IDs reach the file system.
+  no server reads half a file. A rename or a removal that meets `EPERM`, `EACCES` or `EBUSY` (on
+  Windows, another process has the file open for a moment) is tried again ten more times, with
+  pauses of 2,630 ms in all: about 2.6 seconds. Removals are tried again since 0.9.0.
+- File names are document IDs. Since 0.9.0 an ID may be an application's
+  ([`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern)), except a name Windows keeps for a device
+  (`con`, `prn`, `aux`, `nul`, `com0` to `com9`, `lpt0` to `lpt9`). `put`, `putOriginal` and
+  `putIndex` throw `Error("Invalid document ID.")` for another ID; for such an ID the reads return
+  `undefined` and `delete` returns `false`. The IDs the library makes keep their names, so a server
+  of 0.8 still reads them. A server of 0.8 does not read documents under an application's ID.
+- `put` writes the text, then the metadata.
 - `getMeta` returns `undefined` when the metadata file is missing or cannot be parsed (damaged, or
-  being written by a server of 0.3.x), and removes an expired document and returns `undefined`.
+  being written by a server of 0.3.x). It removes an expired document, as far as it can, and
+  returns `undefined`: since 0.9.0 also when the removal fails, which `sweep` then tries again.
   `get`, `readTextRange` and `getOriginal` return `undefined` for a missing file. Any other failure
   of a read is thrown. `getIndex` returns `undefined` for any failure.
-- `delete` removes the metadata first, then the text, the index and the original, and returns
-  whether the metadata existed. When the metadata cannot be removed, nothing else is, and the
-  document stays whole.
+- `delete` removes the metadata first. When that fails, it throws, and nothing else is removed: the
+  document stays whole. Then it removes the text, the index and the original, and returns whether
+  the metadata existed. Since 0.9.0, a part that cannot be removed then is left for `sweep`, and
+  `delete` still returns `true`: the document is gone once its metadata is.
 - `sweep(now?)` removes expired documents and returns how many, counting a document whose metadata
   is not valid and is older than `orphanAgeMs`. It also removes files that belong to no document,
-  and temporary files, once they are older than `orphanAgeMs` (these are not counted). A document
-  whose metadata could not be read at all, or that could not be removed, is left for the next
-  sweep. When the directory cannot be read, it returns 0.
+  and temporary files, once they are older than `orphanAgeMs` (these are not counted). Where files
+  of your own may sit beside the documents (`directory` without `scopes`, or `scopes.folder` `""`),
+  a file of no document is removed only when its name is an ID the library makes, or a temporary
+  file: `notes.txt` may be yours, not the text of a document `notes`. A document whose metadata
+  could not be read at all, or that could not be removed, is left for the next sweep. A folder that
+  cannot be read counts as empty.
+- `sweep` runs its reads of metadata, its listings and its checks of a file's age
+  `sweepConcurrency` at a time (16), since 0.9.0. Until then it read one file after another.
+- With `scopes`, `sweep(now, { scope })` sweeps the folder of that scope. `sweep(now)`, or with a
+  context without a scope (as `files.sweep()` calls it), sweeps every scope: it goes down exactly
+  `scopes.depth` levels of folders, enters only folders whose names pass
+  [`isSafeScopeSegment`](#issafescopesegmentvalue) (so never `<chat>/uploads`), follows no link,
+  and sweeps the store's folder in each. With `unscoped: "root"`, it sweeps `directory` itself too.
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
 | `now` | `() => Date` | `() => new Date()` | The clock that decides expiry, and the default `now` of `sweep`. |
 | `orphanAgeMs` | `number` | 3,600,000 (1 hour) | `sweep` removes files that belong to no document (an upload that failed, a server that stopped while writing) and temporary files only once they are this old. Younger ones may be an upload in progress, on this server or another one. |
+| `scopes` | [`FileDocumentScopes`](#filedocumentscopes) | None | Keep the documents of each scope in a folder of their own. New in 0.9.0. |
+| `fileMode` | `number` | `0o600` | The mode of each file it writes, minus the umask. `0o640` lets a group read them (pods that share an `fsGroup`, a backup job). New in 0.9.0: until then, `0o666` minus the umask. |
+| `directoryMode` | `number` | `0o700` | The mode of each folder it makes, minus the umask. `0o750` goes with `fileMode: 0o640`. New in 0.9.0: until then, `0o777` minus the umask. |
+| `sweepConcurrency` | `number` | 16 | How many reads of metadata, listings and checks of a file's age `sweep` runs at once, over every folder it sweeps. A whole number of 1 or more. New in 0.9.0. |
+
+The constructor throws a `TypeError` for an option that is not valid: a `depth` outside 1 to 8, a
+`folder` that is not one folder's name, a mode outside 0 to 0o777, a `sweepConcurrency` below 1.
 
 Guides: [storage](../guides/storage.md), [deployment](../guides/deployment.md).
+
+### `FileDocumentStoreOptions`
+
+```ts
+type FileDocumentStoreOptions = {
+  now?: () => Date;
+  orphanAgeMs?: number;
+  scopes?: FileDocumentScopes;  // new in 0.9.0
+  fileMode?: number;            // new in 0.9.0, default 0o600
+  directoryMode?: number;       // new in 0.9.0, default 0o700
+  sweepConcurrency?: number;    // new in 0.9.0, default 16
+};
+```
+
+The options of [`FileDocumentStore`](#filedocumentstore), described there. New in 0.9.0 as a named
+type.
+
+### `FileDocumentScopes`
+
+```ts
+type FileDocumentScopes = {
+  depth: number;
+  folder?: string;               // default ".llm-large-files"
+  createScopeFolders?: boolean;  // default false
+  unscoped?: "refuse" | "root";  // default "refuse"
+};
+```
+
+New in 0.9.0. How a [`FileDocumentStore`](#filedocumentstore) keeps the documents of each scope in
+a folder of their own: `<directory>/<segment 1>/…/<segment depth>/<folder>/<id>.json`.
+
+| Field | Default | What it does |
+|---|---|---|
+| `depth` | Required | How many segments every scope has, from 1 to 8: 2 for `[userId, chatId]`. |
+| `folder` | `".llm-large-files"` | The store's folder in the folder of each scope. `""` puts the files in the scope's folder itself, beside files of your own. |
+| `createScopeFolders` | `false` | Whether a write makes the folders of a scope that has none. With `false`, the folders of a scope are yours: the store only makes its own `folder` in one that exists. |
+| `unscoped` | `"refuse"` | What a call without a scope does. `"refuse"`: a `DocumentScopeError` of code `"scope_required"`. `"root"`: it uses the files in `directory` itself, as a store without `scopes`, to keep reading documents written there before. |
+
+What a call's scope must be, or the call throws a [`DocumentScopeError`](#documentscopeerror)
+whose message names no segment:
+
+| Code | When |
+|---|---|
+| `"scope_invalid"` | The scope has not `depth` segments, or a segment does not pass [`isSafeScopeSegment`](#issafescopesegmentvalue) (lowercase letters, digits, `_` and `-`, up to 64 characters, no device name). Or the folder of the scope, or the store's folder in it, is a link or lies under one: the path must be the folder's real path inside `directory`. |
+| `"scope_required"` | The call has no scope, under `unscoped: "refuse"`. `sweep` without one sweeps every scope instead. |
+| `"scope_missing"` | A write into a scope whose folder is not there, with `createScopeFolders` false: the chat was deleted. The folder is not made again. Reads in such a scope find nothing: `undefined`, and `false` from `delete`. |
+
+- Segments are lowercase only because SMB and Azure Files ignore case: `Alice` and `alice` would
+  be one folder. Pass [`hashedScopeSegment(value)`](#hashedscopesegmentvalue) as the segment for an
+  ID in mixed case or in Hebrew, at ingest and on every later call.
+- Every call checks the folder's real path once. A read of a scope with no folder costs that one
+  look.
+- A wrapper or a subclass that does not pass the context on gets `"scope_required"` on every call:
+  pass it on ([Writing a store of your own](../guides/storage.md#writing-a-store-of-your-own)).
+
+### isSafeScopeSegment(value)
+
+```ts
+declare function isSafeScopeSegment(value: string): boolean;
+```
+
+New in 0.9.0. Whether a [`FileDocumentStore`](#filedocumentstore) with `scopes` takes `value` as a
+segment of a scope, that is, as the name of a folder: lowercase letters, digits, `_` and `-`, 1 to
+64 characters, starting with a letter or a digit (`/^[a-z0-9][a-z0-9_-]{0,63}$/`, the shape of
+[`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern)), and not a name Windows keeps for a device
+(`con`, `prn`, `aux`, `nul`, `com0` to `com9`, `lpt0` to `lpt9`). UUIDs and MongoDB ObjectIds in
+lowercase hex pass it as they are.
+
+### hashedScopeSegment(value)
+
+```ts
+declare function hashedScopeSegment(value: string): string;
+```
+
+New in 0.9.0. A segment that [`isSafeScopeSegment`](#issafescopesegmentvalue) accepts, made from any
+string that is not empty: `h` and the first 40 hexadecimal digits of the SHA-256 of its UTF-8.
+The same value always gives the same segment. Use it for an ID in mixed case, or in Hebrew, and
+for every ID of that level of the scope, not only those that would not pass. The store never hashes
+on its own: pass the result as the segment, at ingest and on every later call, and use it to name
+the folders you make and remove. `meta.scope` holds what you passed. Throws a `TypeError` for a
+value that is not a string, or is empty.
+
+```ts
+import { FileDocumentStore, hashedScopeSegment } from "llm-large-files";
+
+export const store = new FileDocumentStore(process.env.DOCUMENTS_DIR!, { scopes: { depth: 2 } });
+
+// User IDs in mixed case ("Alice@Example.com"); chat IDs are lowercase UUIDs, which pass as they are.
+export const scopeOf = (userId: string, chatId: string) => [hashedScopeSegment(userId), chatId];
+```
 
 ### `DOCUMENT_ID_PATTERN`
 
