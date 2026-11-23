@@ -1,5 +1,5 @@
-// `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in
-// 0.9.0, unchanged: the library hands it what it needs in an `IngestContext`.
+// `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
+// the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";

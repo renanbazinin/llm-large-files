@@ -4,7 +4,7 @@ import type { AskResult } from "./ask.js";
 import { DocumentStoreError, IngestError, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
-import type { ModelErrorKind, ModelReply, ModelUsage, ToolTurn } from "./model.js";
+import { DocumentsNotFoundError, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
 import type { DocumentFormat, DocumentMeta, DocumentSummary, ToolResult } from "./types.js";
 
 /** What every event carries. */
@@ -306,7 +306,7 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
     const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown };
     if (error instanceof IngestError) {
       // Its status is the upload's answer, not a model's.
-      return { message: message ?? error.message, name: error.name, code: error.code, ...(error.code === "busy" || error.code === "too_large" ? { status: error.status } : {}) };
+      return { message: message ?? error.message, name: error.name, code: error.code, ...(error.status !== 422 ? { status: error.status } : {}) };
     }
     const out: EventError = { message: message ?? userMessageOf(error) };
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
@@ -326,7 +326,8 @@ const SOMETHING_WENT_WRONG = "Something went wrong.";
  * `Error` as "Something went wrong."
  */
 function userMessageOf(error: unknown): string {
-  if (error instanceof DocumentStoreError) return error.message;
+  // The library's own errors with a status (503, 404) are not model errors: their words are safe.
+  if (error instanceof DocumentStoreError || error instanceof DocumentsNotFoundError) return error.message;
   if (typeof error !== "object" || error === null) return SOMETHING_WENT_WRONG;
   const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; message?: unknown };
   // A model error: the provider's words stay on the error.

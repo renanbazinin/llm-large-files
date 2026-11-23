@@ -8,27 +8,123 @@ function systemError(value: unknown): { code?: string; syscall?: string } {
 }
 
 /**
- * The store could not be read just now: a volume that did not answer, too many open files, a
- * database that is down. It does not mean that the document is gone, and the same call may work a
- * moment later, so retry it rather than ask the user to upload the file again.
+ * Whether `value` carries the brand `key` (`Symbol.for`), which every copy of this package gives
+ * its errors of one class: `instanceof` fails for an error made by another copy of the package (two
+ * versions installed side by side, or one bundled), and the brand does not.
+ */
+export function branded(value: unknown, key: symbol): boolean {
+  try {
+    return typeof value === "object" && value !== null && (value as Record<symbol, unknown>)[key] === true;
+  } catch {
+    // A proxy whose traps throw.
+    return false;
+  }
+}
+
+/** Puts the brand `key` on the instances of a class, through its prototype (see `branded`). */
+export function brand(target: { prototype: object }, key: symbol): void {
+  Object.defineProperty(target.prototype, key, { value: true });
+}
+
+const DOCUMENT_STORE_ERROR = Symbol.for("llm-large-files.DocumentStoreError");
+const DOCUMENT_SCOPE_ERROR = Symbol.for("llm-large-files.DocumentScopeError");
+const INGEST_ERROR = Symbol.for("llm-large-files.IngestError");
+
+/**
+ * What the store was doing when it failed: reading, writing a document at ingest, deleting one, or
+ * removing expired ones. New in 0.9.0.
+ */
+export type DocumentStoreOperation = "read" | "write" | "delete" | "sweep";
+
+/** The message of a `DocumentStoreError`, by what failed: words for a user, with no path and no host. */
+function storeMessage(operation: DocumentStoreOperation, code: string | undefined): string {
+  if (code === "NEWER_VERSION") return "The document was stored by a newer version of llm-large-files. Try again.";
+  const what = operation === "write" ? "The document could not be stored"
+    : operation === "delete" ? "The document could not be deleted"
+    : operation === "sweep" ? "The document store could not be cleaned up"
+    : "The document store could not be read";
+  return `${what}${code ? ` (${code})` : ""}. Try again.`;
+}
+
+/**
+ * The store failed just now: a volume that did not answer, too many open files, a database that
+ * is down. It does not mean that the document is gone, and the same call may work a moment later,
+ * so retry it rather than ask the user to upload the file again.
  *
  * The message names no path and no host. The error that was caught is `cause`: log that one on
  * the server, and show this one to a user or a model.
+ *
+ * New in 0.9.0: `operation` says what failed, `status` is 503, and code "NEWER_VERSION" is
+ * metadata written by a newer version of the package, which this one does not read. Before 0.9.0
+ * it was only made for reads, and `new DocumentStoreError(cause)` still makes one.
  */
 export class DocumentStoreError extends Error {
-  /** The code of the system error behind it (`EIO`, `EMFILE`, `ETIMEDOUT`), when there is one. */
+  /**
+   * The code of the system error behind it (`EIO`, `EMFILE`, `ETIMEDOUT`), when there is one, or
+   * the code it was made with: "NEWER_VERSION".
+   */
   readonly code?: string;
   /** The system call that failed (`open`, `read`), when there is one. */
   readonly syscall?: string;
+  /** What the store was doing. "read" unless it was made with another. */
+  readonly operation: DocumentStoreOperation;
+  /** The HTTP status to answer with: the server cannot serve the request now. */
+  readonly status: 503 = 503;
 
-  constructor(cause: unknown) {
-    const { code, syscall } = systemError(cause);
-    super(`The document store could not be read${code ? ` (${code})` : ""}. Try again.`, { cause });
+  constructor(cause: unknown, options: { operation?: DocumentStoreOperation; code?: string } = {}) {
+    const found = systemError(cause);
+    const code = options.code ?? found.code;
+    const operation = options.operation ?? "read";
+    super(storeMessage(operation, code), { cause });
     this.name = "DocumentStoreError";
+    this.operation = operation;
     if (code) this.code = code;
-    if (syscall) this.syscall = syscall;
+    if (found.syscall) this.syscall = found.syscall;
+  }
+
+  /** Whether `value` is a `DocumentStoreError`, made by this copy of the package or another one. New in 0.9.0. */
+  static is(value: unknown): value is DocumentStoreError {
+    return branded(value, DOCUMENT_STORE_ERROR);
   }
 }
+brand(DocumentStoreError, DOCUMENT_STORE_ERROR);
+
+/**
+ * Why a scope was refused (see `DocumentScopeError`):
+ * - "scope_invalid": not an array of 1 to 8 segments of 1 to 256 characters, without control
+ *   characters, "/" or "\", and not "." or "..", or not one the store can keep;
+ * - "scope_required": the store needs a scope, and the call had none;
+ * - "scope_missing": the store keeps the scope in a folder that is gone (the chat was deleted).
+ */
+export type DocumentScopeErrorCode = "scope_required" | "scope_invalid" | "scope_missing";
+
+const SCOPE_MESSAGES: Record<DocumentScopeErrorCode, string> = {
+  scope_invalid: "The scope is not valid.",
+  scope_required: "A scope is required: pass the scope of the document, such as [userId, chatId].",
+  scope_missing: "The scope no longer exists.",
+};
+
+/**
+ * A scope (`DocumentScope`) that cannot be used: one that is not valid, a call without one to a
+ * store that needs one, or a scope whose place in the store is gone. A mistake in the call, not a
+ * failure of the store: the library passes it on as it is, and retrying the same call fails again.
+ * The message names no segment of the scope. New in 0.9.0.
+ */
+export class DocumentScopeError extends TypeError {
+  readonly code: DocumentScopeErrorCode;
+
+  constructor(code: DocumentScopeErrorCode, message: string = SCOPE_MESSAGES[code], options: { cause?: unknown } = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+    this.name = "DocumentScopeError";
+    this.code = code;
+  }
+
+  /** Whether `value` is a `DocumentScopeError`, made by this copy of the package or another one. */
+  static is(value: unknown): value is DocumentScopeError {
+    return branded(value, DOCUMENT_SCOPE_ERROR);
+  }
+}
+brand(DocumentScopeError, DOCUMENT_SCOPE_ERROR);
 
 /**
  * The errors a store threw while `ingest` wrote a document. `ingest` passes them on as they are,
@@ -81,6 +177,8 @@ export function safeErrorMessage(error: unknown): string {
  * - "missing_dependency": the optional dependency for the format is not installed, could not be
  *   loaded, or (`unpdf`) is of a version that cannot read PDFs on this Node.
  * - "unreadable": the file is damaged, or not of the type its name says.
+ * - "exists": a document with the ID the application gave (`IngestInput.id`) is already stored.
+ *   Status 409. New in 0.9.0.
  */
 export type IngestErrorCode =
   | "empty"
@@ -97,7 +195,8 @@ export type IngestErrorCode =
   | "out_of_memory"
   | "busy"
   | "missing_dependency"
-  | "unreadable";
+  | "unreadable"
+  | "exists";
 
 /**
  * `ingest` could not read a file. The message says why, in words for the person who uploaded it,
@@ -109,17 +208,23 @@ export class IngestError extends Error {
   readonly code: IngestErrorCode;
   /** For "busy": how long to wait before trying again, in milliseconds. */
   declare readonly retryAfterMs?: number;
-  /** The HTTP status the upload handler answers with: 422 for a file that cannot be read, 413 for "too_large", 503 for "busy". */
+  /** The HTTP status the upload handler answers with: 422 for a file that cannot be read, 413 for "too_large", 409 for "exists", 503 for "busy". */
   readonly status: number;
 
   constructor(code: IngestErrorCode, message: string, options: { cause?: unknown; retryAfterMs?: number } = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = "IngestError";
     this.code = code;
-    this.status = code === "busy" ? 503 : code === "too_large" ? 413 : 422;
+    this.status = code === "busy" ? 503 : code === "too_large" ? 413 : code === "exists" ? 409 : 422;
     if (options.retryAfterMs !== undefined) (this as { retryAfterMs?: number }).retryAfterMs = options.retryAfterMs;
   }
+
+  /** Whether `value` is an `IngestError`, made by this copy of the package or another one. New in 0.9.0. */
+  static is(value: unknown): value is IngestError {
+    return branded(value, INGEST_ERROR);
+  }
 }
+brand(IngestError, INGEST_ERROR);
 
 /** The refusals of the library, by the words of their messages: the extractors give plain `Error`s. */
 const REFUSALS: Array<[RegExp, IngestErrorCode]> = [

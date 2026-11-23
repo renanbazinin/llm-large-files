@@ -1,6 +1,7 @@
 // The contract between the tool loop (`askWithFiles`) and a model provider. An adapter turns a
 // neutral request into the provider's own, sends it, and reads the reply back. Everything else
 // (planning, tools, limits, retries, usage, the forced answer) is the loop's, once, for every provider.
+import { brand, branded } from "./errors.js";
 import type { GenerateText, ToolDeclaration, ToolFile, ToolResult } from "./types.js";
 
 /**
@@ -347,6 +348,9 @@ export function classifyModelError(status: number, message: string, signals: { c
   return { kind: "invalid" };
 }
 
+const MODEL_REQUEST_ERROR = Symbol.for("llm-large-files.ModelRequestError");
+const DOCUMENTS_NOT_FOUND_ERROR = Symbol.for("llm-large-files.DocumentsNotFoundError");
+
 /**
  * A model request that failed: the provider answered with an HTTP error, or could not be reached
  * (`status` 0). `retryAfterMs` is the wait the provider asked for, when it named one. `kind` says
@@ -380,7 +384,16 @@ export class ModelRequestError extends Error {
       if (found.requestedTokens) this.requestedTokens = found.requestedTokens;
     }
   }
+
+  /**
+   * Whether `value` is a `ModelRequestError` (or one of its kinds, such as `GeminiRequestError`),
+   * made by this copy of the package or another one. New in 0.9.0.
+   */
+  static is(value: unknown): value is ModelRequestError {
+    return branded(value, MODEL_REQUEST_ERROR);
+  }
 }
+brand(ModelRequestError, MODEL_REQUEST_ERROR);
 
 /** The kind of a model error, when it has one: a `ModelRequestError`'s, or that of an error with the same field. */
 export function errorKindOf(error: unknown): ModelErrorKind | undefined {
@@ -399,13 +412,26 @@ export function rateAllowanceOf(error: unknown): "minute" | "day" | undefined {
   return period.toLowerCase() === "day" ? "day" : "minute";
 }
 
-/** Some document IDs were never uploaded, have expired, or belong to another owner. */
+/**
+ * Some document IDs were never uploaded, have expired, or belong to another owner. `code` and
+ * `status` are new in 0.9.0.
+ */
 export class DocumentsNotFoundError extends Error {
+  readonly code: "documents_missing" = "documents_missing";
+  /** The HTTP status to answer with. */
+  readonly status: 404 = 404;
+
   constructor(readonly ids: string[]) {
     super(`${ids.length === 1 ? "A document is" : `${ids.length} documents are`} no longer available: ${ids.join(", ")}. Upload ${ids.length === 1 ? "it" : "them"} again.`);
     this.name = "DocumentsNotFoundError";
   }
+
+  /** Whether `value` is a `DocumentsNotFoundError`, made by this copy of the package or another one. New in 0.9.0. */
+  static is(value: unknown): value is DocumentsNotFoundError {
+    return branded(value, DOCUMENTS_NOT_FOUND_ERROR);
+  }
 }
+brand(DocumentsNotFoundError, DOCUMENTS_NOT_FOUND_ERROR);
 
 const EMPTY_USAGE: ModelUsage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, thoughtTokens: 0 };
 

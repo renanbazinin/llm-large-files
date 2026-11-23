@@ -15,6 +15,7 @@ import type {
   Budget,
   DocumentFormat,
   DocumentMeta,
+  DocumentScope,
   DocumentStore,
   Extractor,
   GenerateText,
@@ -137,10 +138,46 @@ export type IngestInput = {
   onEvent?: (event: IngestEvent) => void;
   /** The `runId` of those events. Defaults to one made for the ingest ("ing_…"). */
   runId?: string;
+  /**
+   * The document's ID, chosen by the application, such as the ID of its upload: lowercase letters,
+   * digits, "_" and "-", up to 64 characters, starting with a letter or a digit
+   * (`APP_DOCUMENT_ID_PATTERN`). The model sees it, so it must hold no personal data. Without it,
+   * an ID is made ("doc_" and 32 hex digits). New in 0.9.0.
+   */
+  id?: string;
+  /**
+   * What to do when a document with `id` is already stored: "fail" (the default) throws an
+   * `IngestError` with code "exists"; "replace" replaces it, when it has the same owner and scope.
+   * New in 0.9.0.
+   */
+  ifExists?: "fail" | "replace";
+  /**
+   * Where the document belongs, such as [userId, chatId] (`DocumentScope`). Stored with it, and
+   * passed to the store; only a caller with the same scope may use it. New in 0.9.0.
+   */
+  scope?: DocumentScope;
+  /**
+   * The uploaded file is kept by the application, at `ref` (up to 1,024 characters, never shown
+   * to the model), and the library reads it from there (`LargeFilesOptions.originals`) instead of
+   * keeping a copy in the store. New in 0.9.0.
+   */
+  original?: { ref: string };
 };
 
-/** Access options. When a document has an owner, only that owner can use it. */
-export type AccessOptions = { owner?: string };
+/** A file to ingest from where it is, rather than from bytes in memory (`IngestFromSource`). New in 0.9.0. */
+export type IngestSource = { path: string };
+
+/**
+ * An ingest of a file from a path: `IngestInput` with `source` in place of `bytes`. The file is
+ * read when the ingest's turn comes, not held in memory while it waits. New in 0.9.0.
+ */
+export type IngestFromSource = Omit<IngestInput, "bytes"> & { source: IngestSource; bytes?: never };
+
+/**
+ * Access options. When a document has an owner, only that owner can use it. `scope`, new in 0.9.0:
+ * the scope of the caller; a document stored with a scope serves only a caller with the same one.
+ */
+export type AccessOptions = { owner?: string; scope?: DocumentScope };
 
 export type PrepareOptions = AccessOptions & {
   /**
