@@ -357,6 +357,42 @@ export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
 /** The longest a Node.js timer waits: a longer one fires at once. A limit past it is no limit. */
 const LONGEST_TIMER_MS = 2 ** 31 - 1;
 
+/**
+ * The turn of one ingest (`maxConcurrentIngests`). It is given back when the ingest ends; when the
+ * ingest gave up on work that goes on (an extractor that does not stop on the signal, such as a
+ * PDF being parsed when its caller left), once that work ends. Work that does not end (a store
+ * write that never settles, an extractor that hangs) gives it back `capMs` after the ingest began
+ * to wait on it, so that it cannot stop every later ingest.
+ */
+class IngestSlot {
+  private released = false;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(private readonly release: () => void, private readonly capMs: number) {}
+
+  private readonly free = () => {
+    if (this.released) return;
+    this.released = true;
+    clearTimeout(this.timer);
+    this.release();
+  };
+
+  /** Gives the turn back `capMs` from now at the latest. */
+  limit(): void {
+    if (this.released || this.timer !== undefined) return;
+    this.timer = setTimeout(this.free, this.capMs);
+    // Work that never ends keeps the process alive, not this timer.
+    (this.timer as { unref?: () => void }).unref?.();
+  }
+
+  /** The ingest is over: the turn goes back now, or once `abandoned` ends (`capMs` at the latest). */
+  end(abandoned?: Promise<unknown>): void {
+    if (!abandoned) return this.free();
+    abandoned.then(this.free, this.free);
+    this.limit();
+  }
+}
+
 /** A time limit in the words of a message: "500 ms", "45 s", "2 min". */
 function formatDuration(ms: number): string {
   if (ms < 1_000) return `${Math.max(1, Math.round(ms))} ms`;
@@ -555,6 +591,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const keepOriginals = new Set<DocumentFormat>(options.keepOriginals ?? []);
   /** The ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). */
   const ingests = new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentIngests", options.maxConcurrentIngests, 2))));
+  /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
+  const slotCapMs = ingestTimeoutMs > 0 && ingestTimeoutMs <= LONGEST_TIMER_MS ? ingestTimeoutMs : DEFAULT_INGEST_TIMEOUT_MS;
+
   const scannedPdfPages = Math.max(0, Math.trunc(numberOption("scannedPdfPages", options.scannedPdfPages, 30)));
   /** Whether the uploaded file of a document of this format is kept. */
   const keeps = (format: DocumentFormat) => keepOriginals.has(format) && typeof options.store.putOriginal === "function";
@@ -650,11 +689,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     detected: DocumentFormat,
     progress: IngestProgress | undefined,
     storeFailed: () => void,
+    slot: IngestSlot,
+    work: { abandoned?: Promise<unknown> },
   ): Promise<DocumentMeta> {
-    if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
-    if (input.bytes.byteLength > maxUploadBytes) {
-      throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
-    }
     let format = detected;
     const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
     // Each long step works in slices, with pauses for other requests: one large upload no longer
@@ -680,7 +717,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         let extracting = true;
         let extracted: ExtractedText;
         try {
-          extracted = await untilAborted(extractText(input.bytes, {
+          // Kept, so that an ingest that stops waiting for it (its time is up, its caller left)
+          // keeps its turn until the extractor is done too: it still holds memory.
+          const extraction = extractText(input.bytes, {
             name,
             mimeType,
             format,
@@ -690,7 +729,10 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
             maxTextBytes,
             maxPages: maxPdfPages,
             ...(progress ? { onProgress: (report: ExtractProgress) => { if (extracting) progress.extracted(report); } } : {}),
-          }, options.extractors), signal);
+          }, options.extractors);
+          work.abandoned = extraction;
+          extracted = await untilAborted(extraction, signal);
+          work.abandoned = undefined;
         } finally {
           extracting = false;
         }
@@ -766,6 +808,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         throw error;
       }
     };
+    // A store that never answers keeps the turn for `slotCapMs` at most.
+    slot.limit();
     try {
       // The files first, the document last: a document is there once its metadata is.
       if (keepOriginal) {
@@ -821,13 +865,21 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const progress = events.active ? new IngestProgress(events) : undefined;
         let meta: DocumentMeta;
         try {
-          // Its turn first (`maxConcurrentIngests`): a caller that gives up while it waits gets its
-          // own reason, as it would once the work had begun.
-          const release = await ingests.acquire(input.signal);
+          // Refused at once, without waiting for a turn.
+          if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
+          if (input.bytes.byteLength > maxUploadBytes) {
+            throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
+          }
+          // Its turn (`maxConcurrentIngests`): a caller that gives up while it waits gets its own
+          // reason, as it would once the work had begun. (An ingest started inside another of this
+          // library, by an extractor of your own, waits for a turn like any other. Telling it apart
+          // with AsyncLocalStorage made pdf.js about five times slower on Node 22, for every PDF.)
+          const slot = new IngestSlot(await ingests.acquire(input.signal), slotCapMs);
+          const work: { abandoned?: Promise<unknown> } = {};
           try {
-            meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true));
+            meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true), slot, work);
           } finally {
-            release();
+            slot.end(work.abandoned);
           }
         } catch (error) {
           // A store that failed, and a caller that gave up (its own reason), are passed on as they

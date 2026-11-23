@@ -587,8 +587,12 @@ server that memory is the server's heap. Choose the isolation with care:
   text), in your server's heap. Since 0.8.2 the handlers hold uploads of at most
   `maxPendingUploadBytes` at once (twice `maxUploadBytes`), and answer the others 503 before reading
   their body; each library lets `maxConcurrentIngests` (2) ingests work at once, and queues the
-  others. A route of your own must bound the bodies it reads itself. A rate limiter per user in
-  front still keeps one user from taking that room from the others. Read PDF and Office files with
+  others. A route of your own must bound the bodies it reads itself. The room of an upload is
+  taken from its `Content-Length` before its body arrives, so a few clients that send headers and
+  then trickle their bodies can hold all of it: `uploadIdleTimeoutMs` (30 s) frees the room of a
+  body that stops, and `server.requestTimeout` that of one that trickles. A reverse proxy that reads
+  whole bodies before passing them on, and a limit on the connections and uploads of each client,
+  keep that room for the others ([Deployment](./guides/deployment.md#uploads-and-ingest)). Read PDF and Office files with
   `createIsolatedExtractors`, whose `concurrency` (2) and `maxQueue` (8) bound how many are read and
   wait, or ingest in a process of its own: [Deployment](./guides/deployment.md) has measurements
   and recipes.

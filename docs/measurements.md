@@ -374,8 +374,9 @@ one thread, so taking turns costs no time overall. One upload of 100 MB took a p
 one of 50 MB 325 to 345 MB from a process of about 70 MB. After the ingests the heap is back at
 about 10 MB: nothing of a document stays in memory with a `FileDocumentStore`. Until 0.8.2 the
 meta that `ingest` returned kept the whole text in memory while it was held (194 MB of heap for
-the meta of the 100 MB log). A search of that 100 MB log, read by range in a new process, took a
-peak of 108 MB (1.8 s); eight at once took 115 to 159 MB, and up to 9 s.
+the meta of the 100 MB log). A search of that 100 MB log, read by range in a new process of 59 MB,
+took a peak of 108 MB (49 MB above the process, 1.8 s); eight at once took 115 to 159 MB, and up
+to 9 s.
 
 **Ingest of large and hostile files (0.6.0, November 2026, Node 24 on Windows).** Each file was
 ingested into a `MemoryDocumentStore` in a fresh process, with the parsers loaded first, 5157e7f
