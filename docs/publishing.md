@@ -58,6 +58,13 @@ an app receives (a `ModelErrorKind`, a `DocumentFormat`) goes in **Upgrading**: 
 `switch`, or a `Record` keyed by the union, needs the new case. A new export, a new optional option
 or field, or a wider parameter type goes in **New**.
 
+A new optional parameter at the end of a function or method goes in **Upgrading** too, for the code
+that already fills its place: a store, or a subclass of a library class, whose method takes an extra
+parameter of its own there, and a function passed as a callback (`.map(fromGeminiContents)` gets the
+index in it). 0.9.0's `context` on every store method and `options` of `fromGeminiContents` did
+both. Compile a probe of each case against the old and the new version before writing that a change
+is only an addition.
+
 ### At release
 
 The release pull request makes two edits:
