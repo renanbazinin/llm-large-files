@@ -3,6 +3,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildOutline } from "../src/analyze.js";
 import { createLargeFiles, FileDocumentStore, MemoryDocumentStore, type DocumentMeta, type LargeFiles, type ToolResult } from "../src/index.js";
@@ -13,6 +15,18 @@ import { grep, grepSource, queryTerms, rankPassages, rankSource, SearchableDocum
 import { buildTextIndex } from "../src/text-index.js";
 import { breaksAtNextLine, composed, normalizeInPieces, normalizeText } from "../src/text.js";
 import { utf8 } from "./fake-model.js";
+
+/**
+ * The heap that is still used after a full collection: what the code keeps. The peak of `heapUsed`
+ * counts garbage not collected yet too, whose room differs between versions of V8: in the search
+ * below it was 16 MB on Node 22 and 65 MB on Node 24, with nothing kept.
+ */
+function keptBytes(): number {
+  collectGarbage();
+  return process.memoryUsage().heapUsed;
+}
+setFlagsFromString("--expose-gc");
+const collectGarbage = runInNewContext("gc") as () => void;
 
 let directory: string | undefined;
 afterEach(async () => {
@@ -104,7 +118,7 @@ describe("a document held in memory is searched in pieces, within a time limit (
   it("keeps nothing for each line a regex slice finds", async () => {
     const document = doc(Array.from({ length: 1_500_000 }, (_, index) => `ln${String(index).padStart(10, "0")}x`).join("\n"));
     document.lines.line(1);
-    const start = process.memoryUsage().heapUsed;
+    const start = keptBytes();
     let peak = start;
     // The clock is told the time of each slice at its end, while what the slice keeps is still held.
     let used = 0;
@@ -114,13 +128,14 @@ describe("a document held in memory is searched in pieces, within a time limit (
       },
       set usedMs(value: number) {
         used = value;
-        peak = Math.max(peak, process.memoryUsage().heapUsed);
+        peak = Math.max(peak, keptBytes());
       },
     };
     const result = await grepSource(document, "x$", { regex: true, maxResults: 5, contextLines: 0, timeLimitMs: 60_000, regexClock });
     expect(result.totalMatchingLines).toBe(1_500_000);
-    // An object for each line found, kept to the end of the slice, took 140 MB here.
-    expect(peak - start).toBeLessThan(48 * 1024 * 1024);
+    // An object for each line found, kept to the end of the slice, kept 7 MB here (a piece of the
+    // document at a time); the search keeps under 1 MB.
+    expect(peak - start).toBeLessThan(3 * 1024 * 1024);
   }, BUSY_TIMEOUT_MS);
 
   it("records every line of a regex search once, whatever batches and slices cut", () => {
