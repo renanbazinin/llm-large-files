@@ -338,6 +338,81 @@ function groupedResult(base: ToolResult, counted: GroupResult, shown: number, li
   return fit(build(kept, true), null, limit);
 }
 
+/** The most tables whose header rows one search result gives. */
+const MAX_TABLE_HEADERS = 5;
+/** Lines looked at above a row of a `| cell |` table, to find the table's first row. */
+const HEADER_SEARCH_LINES = 300;
+/** A section's title is given up to this many characters. */
+const MAX_SECTION = 80;
+
+const isPipeRow = (text: string) => {
+  const trimmed = text.trim();
+  return trimmed.length > 1 && trimmed.startsWith("|") && trimmed.endsWith("|");
+};
+
+/**
+ * Where the matches of a search sit, so a hit can be understood without another read:
+ * - `section(line)`: the heading of the outline above a line ("2.1 Rent", "Sheet 2: Sales");
+ * - `headers`: the first row of each table a match is a row of: line 1 of a CSV file, the first
+ *   row of a sheet of a workbook, the first row of a `| cell |` table elsewhere. A row of 0.8.0's
+ *   `Row 812: | 4,200 |` means little without its header.
+ */
+async function locationsOf(document: DocumentSource, matches: LineMatch[]): Promise<{ section(line: number): string | undefined; headers: Array<{ line: number; text: string }> }> {
+  const { meta } = document;
+  // A store of your own may give metadata without an outline.
+  const outline = meta.format === "log" || meta.format === "json" || meta.format === "csv" || !Array.isArray(meta.outline) ? [] : meta.outline;
+  const section = (line: number): string | undefined => {
+    let low = 0;
+    let high = outline.length - 1;
+    let found = -1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if (outline[middle]!.line <= line) {
+        found = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return found === -1 ? undefined : sliceWhole(outline[found]!.title, MAX_SECTION);
+  };
+  const headers = new Map<number, string>();
+  const add = async (line: number) => {
+    if (headers.has(line) || headers.size >= MAX_TABLE_HEADERS) return;
+    const [text] = await document.readLines(line, line);
+    if (text !== undefined && text.trim()) headers.set(line, text.length > 400 ? `${sliceWhole(text, 400)}…` : text);
+  };
+  if (matches.length > 0) {
+    if (meta.format === "csv") {
+      if (matches.some((match) => match.line > 1)) await add(1);
+    } else if (meta.format === "xlsx") {
+      // A sheet's first row is two lines below its "## Sheet" heading, after its "Columns:" line.
+      for (const match of matches) {
+        const sheet = outline.filter((entry) => entry.title.startsWith("Sheet ") && entry.line <= match.line).at(-1);
+        if (!sheet || match.line <= sheet.line + 2) continue;
+        const [first] = await document.readLines(sheet.line + 2, sheet.line + 2);
+        if (first?.startsWith("Row ")) await add(sheet.line + 2);
+      }
+    } else {
+      const seen = new Set<number>();
+      for (const match of matches) {
+        if (!isPipeRow(match.text) || seen.size >= MAX_TABLE_HEADERS) continue;
+        const from = Math.max(1, match.line - HEADER_SEARCH_LINES);
+        const above = await document.readLines(from, match.line);
+        let first = above.length - 1;
+        while (first > 0 && isPipeRow(above[first - 1]!)) first--;
+        // A table longer than the lines looked at: its first row is not known.
+        if (first === 0 && from > 1) continue;
+        const line = from + first;
+        if (line === match.line || seen.has(line)) continue;
+        seen.add(line);
+        await add(line);
+      }
+    }
+  }
+  return { section: outline.length > 0 ? section : () => undefined, headers: [...headers].map(([line, text]) => ({ line, text })) };
+}
+
 /** A list of strings the model sent: an array, or one string (which a model sometimes sends for a list of one). */
 function stringList(value: unknown, name: string): string[] | undefined {
   if (value === undefined || value === null || value === "") return undefined;
@@ -731,13 +806,22 @@ export function createDocumentTools(options: {
         });
       };
       const result = await (regex ? inRegexTurn(grep) : grep());
+      const shownMatches = [...(result.first ? [result.first] : []), ...result.matches, ...(result.last ? [result.last] : [])];
+      const where = await locationsOf(document, shownMatches);
       const placed = (match: LineMatch): LineMatch => {
-        if (!paged) return match;
+        const page = paged ? document.pageOfLine(match.line) : undefined;
+        const section = where.section(match.line);
+        if (!page && !section) return match;
         const { line, ...rest } = match;
-        const page = document.pageOfLine(line);
-        return { line, ...(page ? { page } : {}), ...rest };
+        return { line, ...(page ? { page } : {}), ...(section ? { section } : {}), ...rest };
       };
-      const base = { document: document.meta.name, mode, ...searched, total_matching_lines: result.totalMatchingLines };
+      const base = {
+        document: document.meta.name,
+        mode,
+        ...searched,
+        total_matching_lines: result.totalMatchingLines,
+        ...(where.headers.length > 0 ? { table_headers: where.headers } : {}),
+      };
       const stopped = result.stoppedEarly ? { note: "The scan stopped early; the counts are lower bounds." } : {};
       if (result.groups) return groupedResult({ ...base, group_by: groupBy!, ...stopped }, result.groups, shownGroups, limit);
       const matches = result.matches.map(placed);
