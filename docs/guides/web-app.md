@@ -159,8 +159,10 @@ either. The handlers call it before they read the body, so a refused upload is n
   `{ "error": "Upload failed (empty owner)." }` before its body is read. An owner that is neither a
   string nor a finite number (`req.user` in place of `req.user.id`, say) is answered
   `{ "error": "Upload failed (owner is not a string)." }`. `get` and `remove` pass such an owner on
-  as before, except under `requireOwner`, where they answer the same `500` ("The file could not be
-  looked up (empty owner)."). Where every upload needs a user, throw an error with `status: 401` when there is
+  as before, except under `requireOwner`, where they answer `""` or spaces only with a `500` too:
+  "The file could not be looked up (empty owner)." for `get`, "The file could not be deleted
+  (empty owner)." for `remove`. Under `requireOwner`, `null` is a `401` on every route, as
+  `undefined`. Where every upload needs a user, throw an error with `status: 401` when there is
   none, as the example above does. Return `undefined` only where anonymous uploads are meant, and
   write `user?.id || undefined` there, not `user?.id ?? ""`: a header that arrives empty gives `""`
   too.

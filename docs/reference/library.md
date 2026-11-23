@@ -598,8 +598,8 @@ export const meta = await files.ingest({ name: "report.pdf", source: { path: "/s
   has changed since. The working folder and a separator are put before it, and nothing else
   changes. An absolute path is used as it is. So a `..` after a link, and a `/` at the end, are
   the system's to resolve, for a relative path and an absolute one alike, as
-  `fs.promises.realpath` does. (`path.resolve` and `fs.realpathSync` remove them as text first,
-  and can name another file.) On Windows, a path such as `C:notes.txt`, relative to the working
+  `fs.promises.realpath` (or `fs.realpathSync.native`) does. (`path.resolve`, `fs.realpath` and
+  `fs.realpathSync` remove them as text first, and can name another file.) On Windows, a path such as `C:notes.txt`, relative to the working
   folder of a drive, goes through `path.resolve`. Never build it from what a client sends: the
   library reads any file the process can read.
 

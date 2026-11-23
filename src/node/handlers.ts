@@ -65,8 +65,9 @@ export type DocumentHandlerOptions = {
    * When the library requires an owner (`requireOwner`), it is required here: the handlers cannot
    * be made without it, and an undefined owner (or null, from JavaScript) is answered 401
    * `{"error":"Sign in first."}` before the body is read, on every route (new in 0.9.0). An empty
-   * owner is then a 500 on every route too: `get` and `remove` answer
-   * `{"error":"The file could not be looked up (empty owner)."}` without calling the library.
+   * owner is then a 500 on every route too, without calling the library: `get` answers
+   * `{"error":"The file could not be looked up (empty owner)."}`, and `remove`
+   * `{"error":"The file could not be deleted (empty owner)."}`.
    *
    * To refuse a request, throw an error with a `status` (or `statusCode`) between 400 and 599, as
    * the `http-errors` package makes: the handler answers with that status and the error's message.

@@ -138,7 +138,9 @@ when it returns something that is neither a string nor a finite number, such as 
 place of its ID. Nothing is logged. Where every upload needs a signed-in user, throw a 401 as
 below. Return `undefined` only where anonymous uploads are meant (`user?.id || undefined`). GET and
 DELETE pass such an owner on as before, except under `requireOwner`, where the library refuses it
-on every call: they answer the same 500 then, "(empty owner)", without calling it (new in 0.9.0).
+on every call: they answer `""` or spaces only with a 500 then, "The file could not be looked up
+(empty owner)." and "The file could not be deleted (empty owner).", without calling it, and `null`
+with a 401, as `undefined` (new in 0.9.0).
 
 ```ts
 import type { IncomingMessage } from "node:http";
@@ -919,10 +921,10 @@ server that memory is the server's heap. Choose the isolation with care:
   path is made absolute once, when `ingest` is called: a change of the working folder before the
   ingest's turn, or the working folder of an isolated reader's child process, does not change which
   file is read. It is not normalized as text: a `..` after a link, and a `/` at the end, are the
-  system's to resolve, as they are in an absolute path. So `fs.promises.realpath` of the path,
-  relative or absolute, names the file the library reads. `path.resolve` and `fs.realpathSync`
-  remove them as text first, and can name another file: do not check a path with them. The
-  library never writes, moves or deletes it.
+  system's to resolve, as they are in an absolute path. So `fs.promises.realpath` (or
+  `fs.realpathSync.native`) of the path, relative or absolute, names the file the library reads.
+  `path.resolve`, `fs.realpath` and `fs.realpathSync` remove them as text first, and can name
+  another file: do not check a path with them. The library never writes, moves or deletes it.
 - **Text is cleaned.** Terminal escape sequences are removed, and so are control characters other
   than tab and line breaks, C1 (U+0080-U+009F) included, and the other characters listed in
   [Characters that show nothing](#characters-that-show-nothing). An `ESC ]` without its end on the
