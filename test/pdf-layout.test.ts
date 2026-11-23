@@ -109,6 +109,74 @@ describe("layoutPageText", () => {
     expect(tableRows(layoutPageText(items))).toEqual(["| אזור | רבעון 1 | רבעון 2 | רבעון 3 |", "| צפון | 120 | 135 | 150 |", "| מרכז | 80 |  | 95 |", "| דרום |  | 70 | 85 |"]);
   });
 
+  it("keeps the words of a left-to-right name in reading order inside a right-to-left table", () => {
+    // pdf.js gives "New " and "York" as two items (with its trailing space, "New " ends at 435).
+    const items = [
+      ...line(700, [[415, "עיר"], [300, "מדינה"], [200, "אוכלוסייה"]]),
+      ...line(680, [[415, "New "], [438, "York"], [300, "ארצות הברית"], [200, "8,300,000"]]),
+      ...line(660, [[415, "פריז"], [300, "צרפת"], [200, "2,100,000"]]),
+      ...line(640, [[415, "תל אביב"], [300, "ישראל"], [200, "460,000"]]),
+    ];
+    expect(tableRows(layoutPageText(items))).toEqual(["| עיר | מדינה | אוכלוסייה |", "| New York | ארצות הברית | 8,300,000 |", "| פריז | צרפת | 2,100,000 |", "| תל אביב | ישראל | 460,000 |"]);
+  });
+
+  it("reads a right-to-left cell that mixes Hebrew words and a left-to-right run in several pieces", () => {
+    // "דגם AB-12 חדש" from right to left on the page: "דגם", then "AB" and "-12" touching, then "חדש".
+    const items = [
+      ...line(700, [[430, "מוצר"], [300, "תיאור"], [200, "מחיר"]]),
+      ...line(680, [[430, "מדפסת"], [346, "דגם"], [318, "AB"], [328, "-12"], [300, "חדש"], [200, "1,200"]]),
+      ...line(660, [[430, "סורק"], [300, "דגם ישן"], [200, "800"]]),
+      ...line(640, [[430, "מסך"], [300, "רחב"], [200, "650"]]),
+    ];
+    expect(tableRows(layoutPageText(items))).toEqual(["| מוצר | תיאור | מחיר |", "| מדפסת | דגם AB-12 חדש | 1,200 |", "| סורק | דגם ישן | 800 |", "| מסך | רחב | 650 |"]);
+  });
+
+  it("keeps the words of a right-to-left phrase in reading order inside a left-to-right table", () => {
+    // "תל אביב" as two items: "תל" on the right, "אביב" on its left.
+    const items = [
+      ...line(700, [[72, "Name"], [200, "City"], [300, "Country"]]),
+      ...line(680, [[72, "Dana Levi"], [223, "תל"], [200, "אביב"], [300, "Israel"]]),
+      ...line(660, [[72, "Marie Dubois"], [200, "Paris"], [300, "France"]]),
+      ...line(640, [[72, "Sam Cole"], [200, "Boston"], [300, "USA"]]),
+    ];
+    expect(tableRows(layoutPageText(items))).toEqual(["| Name | City | Country |", "| Dana Levi | תל אביב | Israel |", "| Marie Dubois | Paris | France |", "| Sam Cole | Boston | USA |"]);
+  });
+
+  it("keeps a number in several pieces left to right inside a right-to-left table, and numbers apart from right to left", () => {
+    // "8,300" and ",000" touch, so no space goes between them. Chrome and Word lay out the hours
+    // "09:00 - 17:00" in a right-to-left cell with the first time on the right.
+    const items = [
+      ...line(700, [[430, "עיר"], [300, "שעות"], [200, "מבקרים"]]),
+      ...line(680, [[430, "חיפה"], [336, "09:00"], [328, "-"], [300, "17:00"], [200, "8,300"], [225, ",000"]]),
+      ...line(660, [[430, "עכו"], [300, "10:00"], [200, "1,200,000"]]),
+      ...line(640, [[430, "צפת"], [300, "08:30"], [200, "450,000"]]),
+    ];
+    expect(tableRows(layoutPageText(items))).toEqual(["| עיר | שעות | מבקרים |", "| חיפה | 09:00 - 17:00 | 8,300,000 |", "| עכו | 10:00 | 1,200,000 |", "| צפת | 08:30 | 450,000 |"]);
+  });
+
+  it("keeps a number before its unit or currency in a right-to-left table, as LibreOffice and Chrome lay them out", () => {
+    // "16 GB" and "1,000 USD" in a right-to-left cell: two items, the unit on the left and the
+    // number on its right, with a space between them.
+    // The cells are aligned on their right edges (340 and 240), as a right-to-left table is.
+    const items = [
+      ...line(700, [[430, "מוצר"], [310, "זיכרון"], [220, "מחיר"]]),
+      ...line(680, [[430, "מחשב נייד"], [316, "GB"], [329, "16"], [197, "USD"], [215, "1,000"]]),
+      ...line(660, [[430, "טאבלט"], [321, "GB"], [334, "8"], [207, "EUR"], [225, "118"]]),
+      ...line(640, [[430, "שרת"], [311, "GB"], [324, "128"], [192, "ILS"], [210, "12,400"]]),
+    ];
+    expect(tableRows(layoutPageText(items))).toEqual(["| מוצר | זיכרון | מחיר |", "| מחשב נייד | 16 GB | 1,000 USD |", "| טאבלט | 8 GB | 118 EUR |", "| שרת | 128 GB | 12,400 ILS |"]);
+  });
+
+  it("keeps a number in Arabic-Indic or Persian digits in several touching pieces in order inside a left-to-right table", () => {
+    const items = [
+      ...line(700, [[72, "Item"], [200, "Amount"], [300, "Date"]]),
+      ...line(680, [[72, "Rent"], [200, "١٢٣,"], [220, "٤٥٦"], [300, "٢٠٢٦/"], [325, "٠١/٠٣"]]),
+      ...line(660, [[72, "Food"], [200, "۱۲۳"], [215, "۴۵۶"], [300, "2026-02-01"]]),
+      ...line(640, [[72, "Fuel"], [200, "310"], [300, "2026-03-01"]]),
+    ];
+    expect(tableRows(layoutPageText(items))).toEqual(["| Item | Amount | Date |", "| Rent | ١٢٣,٤٥٦ | ٢٠٢٦/٠١/٠٣ |", "| Food | ۱۲۳۴۵۶ | 2026-02-01 |", "| Fuel | 310 | 2026-03-01 |"]);
+  });
+
   it("reads a table that is printed sideways", () => {
     // Text running up the page: rows go left to right, cells from the bottom of the page upwards.
     const sideways = (text: string, x: number, y: number): PdfTextItem => ({ str: text, transform: [0, 10, -10, 0, x, y], width: text.length * 5, height: 10, hasEOL: false });

@@ -419,8 +419,9 @@ the rebuilt rows 110 ([measurements](../measurements.md)).
 What it handles: empty cells, tables inside one column of a two-column page, right-to-left tables
 (the first column is the rightmost), tables printed sideways, rotated pages, footnote marks,
 headings that span columns, and cells whose text wraps onto several lines when the rows are visibly
-spaced apart. Text that is not a table (paragraphs, lists, columns of prose, justified text) is left
-as pdf.js gives it.
+spaced apart. A cell that mixes the two directions (a Latin name in a Hebrew table, a Hebrew phrase
+in an English one) keeps each run of words in its reading order. Text that is not a table
+(paragraphs, lists, columns of prose, justified text) is left as pdf.js gives it.
 
 It is cautious: where the evidence for a table is weak, the text stays as it was. So:
 

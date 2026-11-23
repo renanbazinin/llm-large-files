@@ -476,19 +476,77 @@ function isNumeric(text: string): boolean {
   return digits > 0 && letters * 2 <= digits;
 }
 
-/** The text of one line's pieces in one cell, in reading order. */
-function joinPieces(pieces: Piece[], rightToLeft: boolean): string {
-  const ordered = [...pieces].sort((left, right) => (rightToLeft ? right.x0 - left.x0 : left.x0 - right.x0));
-  let text = "";
-  ordered.forEach((piece, index) => {
-    if (index > 0) {
-      const previous = ordered[index - 1]!;
-      const gap = rightToLeft ? previous.x0 - piece.x1 : piece.x0 - previous.x1;
-      if (gap > VISIBLE_GAP * Math.max(piece.size, previous.size)) text += " ";
+type Direction = "ltr" | "rtl";
+
+/** Arabic-Indic and Persian digits and the Arabic separators: in the right-to-left block, but numbers. */
+const ARABIC_DIGITS = /[\u0660-\u0669\u066b\u066c\u06f0-\u06f9]/g;
+
+/** The direction of the letters of a piece; none for a piece without letters, or with as many of each. */
+function letterDirection(text: string): Direction | undefined {
+  const rightToLeft = (text.match(RIGHT_TO_LEFT)?.length ?? 0) - (text.match(ARABIC_DIGITS)?.length ?? 0);
+  const leftToRight = text.match(LEFT_TO_RIGHT)?.length ?? 0;
+  return rightToLeft === leftToRight ? undefined : rightToLeft > leftToRight ? "rtl" : "ltr";
+}
+
+/** The directions of the nearest pieces before and after `index` that have one. */
+function around(directions: Array<Direction | undefined>, index: number): [Direction | undefined, Direction | undefined] {
+  let before: Direction | undefined;
+  for (let other = index - 1; other >= 0 && !before; other--) before = directions[other];
+  let after: Direction | undefined;
+  for (let other = index + 1; other < directions.length && !after; other++) after = directions[other];
+  return [before, after];
+}
+
+/**
+ * The direction each piece is read in, for pieces from left to right; `spaced[i]` says whether a
+ * gap shows between pieces i and i + 1. A number reads left to right when it touches, with no gap
+ * and through pieces without letters only, a left-to-right word ("AB" + "-12") or another number
+ * ("8,300" + ",000"). Any other piece without letters takes the direction of the pieces on both
+ * sides when they agree, else the region's: in a right-to-left cell, "09:00 - 17:00" is laid out
+ * with the first time on the right, and "16 GB" with the number on the right, as two items.
+ */
+function pieceDirections(pieces: Piece[], spaced: boolean[], rightToLeft: boolean): Direction[] {
+  const letters = pieces.map((piece) => letterDirection(piece.text));
+  const isNumber = pieces.map((piece, index) => !letters[index] && /[\d\u0660-\u0669\u06f0-\u06f9]/.test(piece.text));
+  /** Whether the piece at `index` touches a left-to-right word or a number, walking by `step` through pieces without letters. */
+  const touches = (index: number, step: 1 | -1): boolean => {
+    for (let other = index + step; other >= 0 && other < pieces.length && !spaced[Math.min(other, other - step)]; other += step) {
+      if (letters[other] === "ltr" || isNumber[other]) return true;
+      if (letters[other]) return false;
     }
-    text += piece.text;
+    return false;
+  };
+  const numbers = letters.map((direction, index) => {
+    if (direction || !isNumber[index]) return direction;
+    return touches(index, -1) || touches(index, 1) ? "ltr" : undefined;
   });
-  return text;
+  return numbers.map((direction, index) => {
+    const [before, after] = around(numbers, index);
+    return direction ?? (before && before === after ? before : rightToLeft ? "rtl" : "ltr");
+  });
+}
+
+/**
+ * The text of one line's pieces in one cell, in reading order. Pieces of the other direction next
+ * to each other (a Latin name in a Hebrew cell, a Hebrew phrase in an English one) are a run that
+ * reads in its own direction; the runs follow each other in the direction of the region.
+ */
+function joinPieces(pieces: Piece[], rightToLeft: boolean): string {
+  const byX = [...pieces].sort((left, right) => left.x0 - right.x0);
+  const spaced = byX.slice(1).map((piece, index) => piece.x0 - byX[index]!.x1 > VISIBLE_GAP * Math.max(piece.size, byX[index]!.size));
+  const directions = pieceDirections(byX, spaced, rightToLeft);
+  // From left to right: each piece, then a space where the gap to the next piece on the page shows.
+  const parts = byX.flatMap((piece, index) => (index < spaced.length ? [piece.text, spaced[index] ? " " : ""] : [piece.text]));
+  // Turn each run of the other direction around, then the whole cell when it is right to left: a
+  // run keeps its order, and each space stays between the two pieces it was between on the page.
+  let start = 0;
+  directions.forEach((direction, index) => {
+    if (directions[index + 1] === direction) return;
+    if (direction !== (rightToLeft ? "rtl" : "ltr")) parts.splice(2 * start, 2 * (index - start) + 1, ...parts.slice(2 * start, 2 * index + 1).reverse());
+    start = index + 1;
+  });
+  if (rightToLeft) parts.reverse();
+  return parts.join("");
 }
 
 /** Columns that are their own run of whole sentences in file order: page columns, not table columns. */
