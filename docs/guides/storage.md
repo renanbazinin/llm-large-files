@@ -481,8 +481,11 @@ The volume then holds:
 - Documents ingested before 0.9.0 are in `DOCUMENTS_DIR` itself. `unscoped: "root"` serves a call
   without a scope from there, as before, until they expire, and `files.sweep()` sweeps them too.
   It cannot go with `requireScope`, which refuses such calls first.
-- A wrapper or a subclass of the store must pass the context on (`super.getMeta(id, context)`):
-  without it, every call throws `"scope_required"`.
+- A wrapper or a subclass of the store must pass the context on (`super.getMeta(id, context)`).
+  Without it, every call but `sweep` throws `"scope_required"`, and a `sweep` sweeps every chat.
+  Under `unscoped: "root"` nothing throws: the text and the metadata go to the root folder, outside
+  the chat's folder, and removing that folder does not erase them. Another chat still cannot read
+  them: the library checks `meta.scope`.
 - Servers of 0.8 do not see these folders, nor documents under an application's ID: during an
   upgrade they find them missing ([Deployment](./deployment.md#servers-of-two-versions)).
 

@@ -89,10 +89,15 @@ both where every document belongs to a signed-in user and a chat. A document a s
 with the owner `null` (a MongoDB driver writes a field that was left out that way) counts as having
 no owner: open without `requireOwner`, missing with it.
 
-**A store that forgets the context fails closed.** Every store call carries the owner and the scope
-(new in 0.9.0). A wrapper or a subclass that passes on only the ID (`super.getMeta(id)`) loses
-them. Over a store that keeps scopes apart, the documents then look missing; over a
-`FileDocumentStore` with scoped folders, the calls throw a `DocumentScopeError`.
+**A store that forgets the context fails closed, except under `unscoped: "root"`.** Every store
+call carries the owner and the scope (new in 0.9.0). A wrapper or a subclass that passes on only the
+ID (`super.getMeta(id)`) loses them. Over a store that keeps scopes apart, the documents then look
+missing; over a `FileDocumentStore` with scoped folders, every call but `sweep` throws a
+`DocumentScopeError`. With `scopes.unscoped: "root"`, which serves the documents of 0.8, nothing
+throws, even with `requireScope` on: the text and the metadata go to the root folder, outside the
+chat's folder, and removing the chat's folder does not erase them. Another chat still cannot read
+them: the library checks `meta.scope`. And a `sweep` that drops the context sweeps every chat:
+`files.sweep({ scope })` removes the expired documents of all of them.
 
 What the library checks is the metadata, against the caller: the owner and `meta.scope`. It asks
 `getMeta` before every use of a document. When `get` returns a document whose metadata is not the
