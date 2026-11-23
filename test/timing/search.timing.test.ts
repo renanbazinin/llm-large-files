@@ -124,18 +124,27 @@ describe("a regex that cannot get past a line", () => {
 describe("a large document held in memory (LLF-044)", () => {
   it("is searched in pieces, with the results of one scan, letting other work run", async () => {
     const { grep, grepSource, rankPassages, rankSource, SearchableDocument } = await import("../../src/search.js");
-    const text = Array.from({ length: 160_000 }, (_, index) => `2026-01-01 10:00:${String(index % 60).padStart(2, "0")} ${index % 13 === 0 ? "ERROR payment declined" : "INFO request served"} id=${index}`).join("\n");
+    const text = Array.from({ length: 320_000 }, (_, index) => `2026-01-01 10:00:${String(index % 60).padStart(2, "0")} ${index % 13 === 0 ? "ERROR payment declined" : "INFO request served"} id=${index}`).join("\n");
     const document = new SearchableDocument({ meta: { id: "doc_m", name: "m.log", outline: [] } as never, text });
-    let ticks = 0;
-    const timer = setInterval(() => ticks++, 1);
+    // The turns of the event loop other work got: counted by an immediate that asks for the next
+    // turn, not by a 1 ms timer, which did not run once during the three searches on a Windows runner
+    // (Node 26), whose timers are coarse. Twice the lines of a slice's worth on a fast machine.
+    let turns = 0;
+    let counting = true;
+    const count = () => {
+      if (!counting) return;
+      turns++;
+      setImmediate(count);
+    };
+    setImmediate(count);
     const exact = await grepSource(document, "ERROR", { maxResults: 5, contextLines: 1 });
     const keywords = await rankSource(document, "payment declined", 3);
     const last = await grepSource(document, "declined", { maxResults: 2, contextLines: 0, order: "last" });
-    clearInterval(timer);
-    expect(ticks).toBeGreaterThan(0);
+    counting = false;
+    expect(turns).toBeGreaterThan(0);
     expect(exact).toEqual(grep(document, "ERROR", { maxResults: 5, contextLines: 1 }));
     expect(keywords).toEqual(rankPassages(document, "payment declined", 3));
-    expect(last.matches.map((match) => match.line)).toEqual([159_979, 159_992]);
+    expect(last.matches.map((match) => match.line)).toEqual([319_983, 319_996]);
   });
 });
 
