@@ -4,6 +4,7 @@
  * large file in memory. The line index comes from the store (`getIndex`), or is built from the
  * text the first time an older document without one is opened, and saved for next time.
  */
+import { holderOf } from "./cache.js";
 import type { Limiter } from "./limiter.js";
 import { pagesOfLines, pause, type DocumentSource, type ScanFeed, type TextChunk } from "./search.js";
 import { canSerialize, parseTextIndex, positionOf, serializeTextIndex, TextIndexBuilder, type TextIndex } from "./text-index.js";
@@ -84,7 +85,8 @@ export class RangedDocument implements DocumentSource {
     /** What its pieces are kept under, and what `onBroken` is told: its ID unless given another. */
     readonly key: string = meta.id,
   ) {
-    this.pieceVersion = `${meta.createdAt}|${index.textBytes}|${index.characters}|${settings.chunkBytes}`;
+    // Whose it is too: a piece of one owner's or scope's text is never served for another's.
+    this.pieceVersion = `${meta.createdAt}|${index.textBytes}|${index.characters}|${settings.chunkBytes}|${holderOf(meta)}`;
     // Decoded text is one byte a character when it is all ASCII, two otherwise; and its lowercased copy as much again.
     const decoded = index.characters * (index.textBytes === index.characters ? 1 : 2) * 2 + index.characterStarts.byteLength;
     this.keepPieces = settings.pieces !== undefined && decoded <= settings.pieces.maxDocumentBytes;

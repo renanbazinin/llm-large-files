@@ -1,11 +1,11 @@
-import { callerOf, checkMetaVersion, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules, type Caller } from "./access.js";
+import { callerOf, checkMetaVersion, documentContext, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules, type Caller } from "./access.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
 import type { IngestEvent } from "./events.js";
 import { ingestDocument, LONGEST_TIMER_MS, type IngestContext } from "./ingest.js";
 import { Limiter } from "./limiter.js";
 import { canBeReadWhole, CARD_LINES, documentToolsInstruction, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
-import { DocumentGoneError, openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
+import { DocumentGoneError, openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { checkScope } from "./scope.js";
 import { APP_DOCUMENT_ID_PATTERN } from "./stores.js";
@@ -165,9 +165,11 @@ export type IngestInput = {
   /**
    * What to do when a document with `id` is already stored, as the store sees it for this scope.
    * "fail" (the default) throws an `IngestError` with code "exists" (status 409). "replace"
-   * deletes it, then stores the new one: only a document of the same owner and scope, or one whose
-   * text is gone; another is "exists" too. Over a store that keeps no scopes apart, the check spans
-   * every scope, so one chat cannot write over another's document. New in 0.9.0.
+   * deletes it, then stores the new one: only a document of the same owner and scope; another is
+   * "exists" too, even when its text is gone, unless it has expired. Over a store that keeps no
+   * scopes apart, the check spans every scope, so one chat cannot write over another's document.
+   * While an ingest of this library stores `id`, another ingest of it is "exists", whatever this
+   * says. New in 0.9.0.
    */
   ifExists?: "fail" | "replace";
   /**
@@ -285,7 +287,11 @@ export interface LargeFiles {
    */
   ingest(input: IngestInput): Promise<DocumentMeta>;
   getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
-  /** The uploaded file itself, when it was kept (see `keepOriginals`). Treat the bytes as read-only. */
+  /**
+   * The uploaded file itself, when it was kept (see `keepOriginals`). Treat the bytes as read-only.
+   * Undefined too when, once the bytes are read, the store no longer describes the same document,
+   * or the bytes are not the size of the upload (0.9.0).
+   */
   getOriginal(id: string, access?: AccessOptions): Promise<Uint8Array | undefined>;
   /** Deletes a document. A store that fails is a `DocumentStoreError` (operation "delete") since 0.9.0. */
   delete(id: string, access?: AccessOptions): Promise<boolean>;
@@ -383,7 +389,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   /**
    * Documents ready to search, and decoded pieces of documents read by range, in one memory budget.
    * Each is kept under the key of the caller's scope and the document's ID (`documentKey`): one ID
-   * in two scopes is two documents, and the copy of one is never served to the other.
+   * in two scopes is two documents, and the copy of one is never served to the other. Its version
+   * (`documentVersion`) holds the document's owner and scope too, so a copy is not served to
+   * another owner either, once another document is stored under the same ID.
    */
   const cache = new DocumentCache<Sized>(
     cacheBytes,
@@ -410,8 +418,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   /** Documents being opened, so that calls arriving together open each one once. */
   const opening = new Map<string, Promise<DocumentSource | undefined>>();
   /**
-   * The store, to read the text of a document by range rather than load it whole, for the calls of
-   * one caller: each call carries its context.
+   * The store, to read the text of a document by range rather than load it whole: each call carries
+   * `context`: the caller's scope, and the document's owner when it has one (`documentContext`).
    */
   const rangeStore = (context: DocumentContext): RangeStore => ({
     readTextRange: (id, start, end) => reading(() => store.readTextRange!(id, start, end, context)),
@@ -467,6 +475,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     keeps,
     forget,
     rules,
+    ingesting: new Set<string>(),
   };
 
   /**
@@ -514,17 +523,56 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     return document;
   }
 
-  /** Reads a document from the store: its index, to read it by range, or all of it. */
+  /**
+   * Reads a document from the store: its index, to read it by range, or all of it. `meta` is what
+   * `metaFor` found for `caller`. The reads carry the caller's scope, and the document's owner when it
+   * has one (`documentContext`): the copy is kept for every caller of the scope.
+   */
   async function open(id: string, meta: DocumentMeta, caller: Caller, key: string): Promise<DocumentSource | undefined> {
+    const context = documentContext(meta, caller);
     if (typeof store.readTextRange === "function" && meta.textBytes > wholeDocumentBytes) {
       const rebuild = rebuildIndex.delete(key);
-      return openRangedDocument(rangeStore(caller.context), meta, scan, { ignoreSavedIndex: rebuild, key });
+      return openRangedDocument(rangeStore(context), meta, scan, { ignoreSavedIndex: rebuild, key });
     }
-    const stored = await reading(() => store.get(id, caller.context));
-    // The text of another document is not this one's.
-    if (!stored || metaOf(stored.meta, id) === undefined) return undefined;
-    const named = wholeName(stored.meta);
+    const stored = await reading(() => store.get(id, context));
+    // The text of another document is not this one's: of another ID, owner or scope, or another
+    // version (deleted and stored again since `meta` was read, by another server), or one a store
+    // of your own gave from the wrong scope. Missing, as for a caller who may not use it.
+    const found = stored ? metaOf(stored.meta, id) : undefined;
+    if (!stored || !found || !mayUse(found, caller, rules) || documentVersion(found) !== documentVersion(meta)) return undefined;
+    const named = wholeName(found);
     return new SearchableDocument(named === stored.meta ? stored : { ...stored, meta: named });
+  }
+
+  /**
+   * The uploaded file of document `id`, which `meta`, checked for `caller`, says is kept. Its bytes
+   * carry nothing to check them by, and another server may delete the document and store another
+   * under its ID while they are read: so the store is asked again once they are. Undefined unless it
+   * still describes the same document, of the same owner and scope, and the bytes are the size of
+   * the file that was ingested.
+   */
+  async function originalOf(id: string, caller: Caller, meta: DocumentMeta): Promise<Uint8Array | undefined> {
+    const bytes = await loadOriginal(id, caller.context);
+    if (!bytes) return undefined;
+    const after = await metaFor(id, caller);
+    return after && documentVersion(after) === documentVersion(meta) && bytes.byteLength === meta.bytes ? bytes : undefined;
+  }
+
+  /**
+   * Whether `document`, which a call of `caller` has just read, is still the one the store describes
+   * for `caller`. A document loaded whole was checked as it was read (see `open`). The bytes of one
+   * read by range carry nothing to check them by, and another server, or this one, may delete the
+   * document and store another under its ID while they are read, or between the look-up and the
+   * reads: so the store is asked again once they are, as `originalOf` does. When it no longer
+   * describes the same document, of the same owner and scope, what was read may be another's: the
+   * copy kept of it, read from the store too, is forgotten, and the read is missing.
+   */
+  async function stillOpened(document: DocumentSource, caller: Caller): Promise<boolean> {
+    if (!(document instanceof RangedDocument)) return true;
+    const after = await metaFor(document.meta.id, caller);
+    if (after && documentVersion(after) === documentVersion(document.meta)) return true;
+    forgetKey(documentKey(caller, document.meta.id));
+    return false;
   }
 
   /**
@@ -535,20 +583,21 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     for (let attempt = 0; attempt < 2; attempt++) {
       const document = await load(id, caller, attempt === 0 ? meta : undefined);
       if (!document) return undefined;
+      let text: string;
       try {
-        return whole
+        text = whole
           ? renderInline(document.meta, await document.readText())
           : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead);
       } catch (error) {
         // The text is gone while its metadata is still there (removed outside the library): the
         // same as missing. It was a plain Error, which failed the whole question.
         if (error instanceof DocumentGoneError) return undefined;
-        if (!document.broken) {
-          // Deleted between the look-up and the read: the same as missing.
-          if (!await metaFor(id, caller)) return undefined;
-          throw error;
-        }
+        if (document.broken) continue;
+        // Deleted between the look-up and the read: the same as missing.
+        if (!await metaFor(id, caller)) return undefined;
+        throw error;
       }
+      return await stillOpened(document, caller) ? text : undefined;
     }
     return undefined;
   }
@@ -570,7 +619,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     async getOriginal(id, access) {
       const caller = callerOf(access, rules);
       const meta = await metaFor(id, caller);
-      return meta?.originalKept && store.getOriginal ? loadOriginal(id, caller.context) : undefined;
+      return meta?.originalKept && store.getOriginal ? originalOf(id, caller, meta) : undefined;
     },
 
     async delete(id, access) {
@@ -657,10 +706,15 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       const checkedOriginal = store.getOriginal && (async (id: string) => {
         const caller = callerFor(id);
         const meta = caller && await metaFor(id, caller);
-        return meta ? loadOriginal(id, caller.context) : undefined;
+        return meta ? originalOf(id, caller, meta) : undefined;
       });
       return createDocumentTools({
         load: checkedLoad,
+        // Once a call has read a document by range: the store is asked again (`stillOpened`).
+        checkRead: async (document) => {
+          const caller = callerFor(document.meta.id);
+          return caller !== undefined && await stillOpened(document, caller);
+        },
         documentIds: documents.map((meta) => meta.id),
         names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, wellFormed(meta.name)])),
         budget,

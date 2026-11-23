@@ -42,6 +42,19 @@ used only by calls that pass the same scope, segment by segment, in the same way
 A caller cannot tell a document of another owner from one that never existed or has expired.
 `toDocumentSummary`, which the upload handlers answer with, leaves the owner out.
 
+**One exception: `ingest` with an application's ID says that the ID is taken.** New in 0.9.0. An
+ingest with `id` answers `IngestError` `"exists"` (409) when a document of that ID is there,
+whoever's it is. Over a store that ignores the context, every store written for 0.8 among them, that
+spans the whole store: a caller in one scope learns that an ID is used in another. It learns nothing
+else: not the owner, the name or the text. Make such IDs hard to guess: random ones, such as
+`` `up-${randomUUID().replaceAll("-", "")}` ``, or ones that start with the tenant's own prefix
+([Application IDs](./guides/storage.md#application-ids)).
+
+**`ifExists: "replace"` never replaces another owner's document.** A document of another owner or
+scope is refused with `"exists"`, even when its text seems to be gone, unless it has expired. A
+store or a wrapper that loses the context of one read would make a document that is there look
+gone: the library does not take that as leave to delete it.
+
 **An owner must be a string that is not empty.** `files.ingest` throws a `TypeError` for an owner
 of `""`, of spaces only, or `null`:
 `owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.`
@@ -57,7 +70,8 @@ can no longer be read.
 **A document ingested without an owner is open to every call that has its ID**, with an owner or
 without. Its ID then works like a password. An ID the library makes is `doc_` and 32 hex digits, a
 random UUID with 122 random bits: it cannot be guessed, but it can leak. An ID your application
-gives (`IngestInput.id`, new in 0.9.0) may be guessed, if it counts up or follows a pattern. The ID
+gives (`IngestInput.id`, new in 0.9.0) may be guessed, if it counts up or follows a pattern, and
+`ingest` tells whether it is taken (above): use random IDs, or IDs with a prefix per tenant. The ID
 of a document the model reads through tools is in its card and in the system instruction your model
 provider receives (so a model can repeat it in an answer), and IDs end up in your URLs, in browser
 storage and in logs. So an ID must never hold personal data, and every document should have an
@@ -78,9 +92,29 @@ no owner: open without `requireOwner`, missing with it.
 **A store that forgets the context fails closed.** Every store call carries the owner and the scope
 (new in 0.9.0). A wrapper or a subclass that passes on only the ID (`super.getMeta(id)`) loses
 them. Over a store that keeps scopes apart, the documents then look missing; over a
-`FileDocumentStore` with scoped folders, the calls throw a `DocumentScopeError`. Neither serves a
-document of one scope to another: the library checks `meta.scope` itself. Pass the context on, as
+`FileDocumentStore` with scoped folders, the calls throw a `DocumentScopeError`.
+
+What the library checks is the metadata, against the caller: the owner and `meta.scope`. It asks
+`getMeta` before every use of a document. When `get` returns a document whose metadata is not the
+one `getMeta` described (another ID, owner, scope or version: a wrapper that keeps what `get` gave
+by ID, or a document replaced on another server in between), the document is missing for that call.
+Bytes read by range and the original file carry no metadata: after they are read, the library asks
+`getMeta` again, and they are missing unless the store still describes the same document. That
+catches a document replaced while it was read. It cannot catch a store that answers `readTextRange`,
+`getIndex` or `getOriginal` with another document's bytes while its `getMeta` is right, such as a
+wrapper that keeps those answers by ID alone: such a store serves one scope's text to another. Pass
+the context on, and key any cache of those reads by it too, as
 [Writing a store of your own](./guides/storage.md#writing-a-store-of-your-own) shows.
+
+**One ID, one ingest at a time.** In one library, while an ingest stores an application's ID,
+another ingest of that ID is refused with `"exists"`, so two ingests cannot both find the ID free
+and mix one user's file with another's metadata. Across servers, the store is
+asked just before the writes too, but two servers can still write one ID at the same moment: the
+library takes them for one upload sent twice. Give each upload an ID of its own. When the writes,
+or the clean-up after a failed write, do not end in time, the ID stays refused in that library until they have ended. The clean-up after
+a failed write leaves a document whose metadata it finds under the ID. The parts of one that another
+server is still writing at that moment may be removed: one more reason to give each upload an ID of
+its own.
 
 What the owner should be (a user, or a user and a chat session), and how to keep a list of a
 session's documents, is in [Storage](./guides/storage.md). The owner stops one user from reaching

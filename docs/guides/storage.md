@@ -148,7 +148,8 @@ await files.delete(meta.id, { owner: "user-42" });   // true
   signed-in user, throw an error with `status: 401` from `getOwner`; return `undefined` only where
   anonymous uploads are meant (`user?.id || undefined`); and return the user's ID, not the user.
 - A document of another owner looks exactly like one that does not exist, so a caller cannot learn
-  that an ID is in use.
+  that an ID is in use. There is one exception: `ingest` with an
+  [application's ID](#application-ids) answers 409 when the ID is taken, whoever has it.
 - The comparison is exact (`===`): `"alice"` does not reach a document of `"Alice"` or of
   `"alice/chat-1"`. There is no hierarchy and no wildcard.
 - A document ingested without an owner can be used by anyone who has its ID, whether they pass an
@@ -193,7 +194,8 @@ await files.getMeta(notes.id, { owner: "user-42" });                         // 
   still keeps scopes apart for the library, through `meta.scope`: a caller of scope B never reads a
   document of scope A.
 - What the library keeps in memory is kept by scope too: a cached copy of a document of one scope
-  is never served to a caller of another, even when both documents have the same ID.
+  is never served to a caller of another, even when both documents have the same ID. Nor to another
+  owner: the copy is checked against the owner of the document the store holds now.
 - A scope has 1 to 8 segments of 1 to 256 characters, with no control character, no `/` or `\`, and
   none of them `.` or `..`. Another is a `DocumentScopeError` of code `"scope_invalid"`, whose
   message never repeats a segment. `null` counts as no scope.
@@ -237,11 +239,37 @@ const report = await strict.ingest({ name: "report.txt", bytes, owner: "user-42"
   email address, not a name.
 - `ifExists: "fail"`, the default, refuses an ID that is taken with an `IngestError` of code
   `"exists"` (status 409), before the file is read. `ifExists: "replace"` deletes the document there,
-  then stores the new one, but only one of the same owner and scope, or one whose text is gone.
-  Another is `"exists"` too. A document that has expired is written over in both cases.
+  then stores the new one, but only one of the same owner and scope. A document of another owner or
+  scope is `"exists"` too, even when its text seems to be gone: a store that loses the context of a
+  read would say that of a document that is there. A document that has expired is written over in
+  both cases.
 - The store is asked "is this ID taken?" in the scope of the ingest. Over a store that ignores the
   context, the question spans every scope: one chat cannot write over another chat's document, and
   the IDs must be unique in the whole store.
+- In one library, one ID is stored by one ingest at a time. While an ingest of an ID is under way,
+  from its first look at the store to the end of its writes, another ingest of that ID is
+  `"exists"`, whatever its `ifExists`, owner or scope. A user who uploads the same file twice at once
+  gets a 409 for the second.
+- When the writes (or the clean-up after a write that failed) do not end within `ingestTimeoutMs`,
+  the ingest throws, but its writes may still land. So the ID stays held in that library until they have ended, and the removal of what they
+  wrote too. This fails closed: a store that never answers keeps that one ID refused in that library
+  until the process restarts.
+- Across servers, the store is asked twice: before the file is read, and just before the writes.
+  Two servers can still both find an ID free and write it at the same moment. The library assumes
+  that two ingests of one ID on two servers at once are the same upload, sent twice: the last write
+  wins. So give each upload an ID of its own.
+- When a write fails, the ingest removes what it wrote, but only while the document under the ID is
+  its own. A document whose metadata it finds there, and that is not its own, is left. If that one
+  has not expired and is of another owner or scope (another server stored it meanwhile), the ingest
+  throws `"exists"`. Otherwise, as when the delete of the document a replace was to remove fails, it
+  throws the store's error (503), as for any failed write.
+- The clean-up sees only metadata. The parts of a document that another server is still writing at
+  that moment (its original, its index) may be removed. One more reason to give each upload an ID of
+  its own.
+- A 409 tells the caller that the ID is taken, whoever has it: over a store that ignores the
+  context, in any scope. So an ID that can be guessed can be probed. Use random IDs, as
+  [`attach()` below](#a-layout-per-user-and-per-chat) does
+  (`` `up-${randomUUID().replaceAll("-", "")}` ``), or IDs that start with the tenant's own prefix.
 - Replacing a document is not atomic for readers on other servers: for a moment it is missing.
 - An ID you choose keeps the stored rounds of a conversation valid: a file ingested again under the
   same ID is found by the `toolTurns` that name it ([Conversations](./conversations.md)).
@@ -472,6 +500,11 @@ export async function sendOriginal(response: ServerResponse, id: string, owner: 
 - `meta.originalKept` is true when the file of a document is kept. `files.getOriginal(id, { owner })`
   returns it, under the same owner rule as everything else. Treat the bytes as read-only: they may be
   the store's own copy.
+- The bytes carry nothing to check them by. So, since 0.9.0, `getOriginal` and `view_pages` ask the
+  store for the metadata again once the file is read. The file is missing unless the document is
+  still the same one, of the same owner and scope, and the file is the size of the upload
+  (`meta.bytes`). Another server may have deleted the document and stored another under its ID
+  meanwhile.
 - Documents ingested before you turned it on have no original. Upload them again to get one.
 
 ## Writing a store of your own
@@ -486,14 +519,31 @@ table below leaves it out. A store written for 0.8, without it, still compiles a
 that wraps another one, or a subclass that overrides a method, passes it on:
 `super.getMeta(id, context)`.
 
+Which context a call carries:
+
+- At ingest, every write and every look-up carries the owner and the scope of the new document.
+- `getMeta`, `getOriginal` and `delete` carry those of the caller.
+- The reads of a document's text carry the caller's scope and the document's owner: `get`,
+  `readTextRange`, `getIndex`, and `putIndex` when an index is built again. The library reads them
+  only once `getMeta` has found, in the caller's scope, a document the caller may use. So the scope
+  is where the document was found, even when its metadata has none (a document of 0.8 that you moved
+  into a scope). The owner is left out when the document has none, whoever asked. The library keeps
+  one copy of a document for all callers of a scope: its reads carry one context whoever made them.
+  A store that logs who reads should log the caller from `getMeta`.
+- A wrapper or a cache in front of a store must never keep what `readTextRange` or `getIndex` gave
+  by ID alone: key it by the context too. Bytes read by range carry nothing that the library can
+  check them by (see [Reading by range](#reading-by-range)).
+- A store keeps at most one document of an ID in a scope. It may keep the scopes apart; it must not
+  keep a document of one ID for each owner in one scope.
+
 ### The methods
 
 | Method | Required | When the library calls it | What it must do |
 |---|---|---|---|
 | `put(document)` | Yes | `ingest`, last, after `putOriginal` and `putIndex`. | Keep `document.meta` whole, as one object, and `document.text`. Keep the text exactly, as UTF-8: `readTextRange` offsets point into those bytes. Let the document appear only once all of it is written. |
-| `getMeta(id)` | Yes | Before every use of a document: `getMeta`, `getOriginal`, `delete`, `prepare` (once a document), and every tool call that reads one. | Return the metadata, or undefined when there is no such document. Keep it cheap: one look-up by key, without reading the text. |
+| `getMeta(id)` | Yes | Before every use of a document: `getMeta`, `getOriginal`, `delete`, `prepare` (once a document), and every tool call that reads one. Once more after a document is read by range, or its original file is read. | Return the metadata, or undefined when there is no such document. Keep it cheap: one look-up by key, without reading the text. |
 | `get(id)` | Yes | To load a document whole: one whose text is at most `wholeDocumentBytes`, or any document when the store has no `readTextRange`. Once a library while the document stays in the cache. | Return `{ meta, text }` with the text exactly as `put` got it, or undefined. |
-| `delete(id)` | Yes | `files.delete`, after the owner check. And `ingest`, to clean up after a write that failed. | Remove the metadata first, then the text, the index and the original. Return true when the document was there. Cope with a document that was only partly written. |
+| `delete(id)` | Yes | `files.delete`, after the owner check. And `ingest`: to clean up after a write that failed, or a listener that threw on `ingest.finish`, only while the document under the ID is that ingest's own; and with `ifExists: "replace"`, to remove the document it replaces. | Remove the metadata first, then the text, the index and the original. Return true when the document was there. Cope with a document that was only partly written. |
 | `sweep(now?)` | No | `files.sweep()`, with the library's clock. | Remove the documents whose `expiresAt` is at or before `now`, with all their parts. Return how many. |
 | `putOriginal(id, bytes)` | No | `ingest`, first, when `keepOriginals` lists the format. | Keep the bytes as they are now: the caller may reuse its buffer afterwards. |
 | `getOriginal(id)` | No | `files.getOriginal` and `view_pages`, for a document whose `meta.originalKept` is true. | Return the bytes, or undefined. |
@@ -544,6 +594,13 @@ time ([the cache](#the-cache) has the sizes). The rules:
   text whose size is a multiple of 4 MB ends with a read that starts at its end.
 - Return undefined when the document is gone. The call then answers "doc_… is no longer available on
   the server. Ask the user to attach the file again."
+- The bytes carry nothing to check them by: the library cannot tell them from the text of another
+  document laid out the same way. So, since 0.9.0, once a tool call or `prepare` has read a document
+  by range, the library asks `getMeta` once more (one call, however many ranges were read). The read
+  is missing unless the store still describes the same document, of the same owner and scope. That
+  catches a document deleted, and another stored under its ID, while it was read. It cannot catch a
+  store whose `readTextRange` or `getIndex` answers from another document while its `getMeta` is
+  right, such as a cache keyed by ID alone. Key any cache of those reads by the context too.
 
 How that maps to common storage:
 
@@ -581,7 +638,13 @@ What the library does with what you throw depends on the call:
   code `"ETIMEDOUT"`. The `upload` handler of `createDocumentHandlers` answers it 503 with that
   message, which names no host or path (before 0.9.0, a 500). The handlers log nothing: log your
   error in the store before you throw, or log `error.cause`. See the
-  [node reference](../reference/node.md#uploadrequest-response).
+  [node reference](../reference/node.md#uploadrequest-response). Under an application's ID, the
+  library first asks `getMeta(id)`, and calls `delete(id)` only when nothing is there or the document
+  there is this ingest's own (the same `createdAt`, owner and scope). Another document there is left.
+  When it has not expired and is of another owner or scope, stored by another server meanwhile, the
+  ingest throws an `IngestError` `"exists"` (409) instead: a `put` that refuses an ID it already has,
+  as an insert with a unique key does, ends that way. The document a replace was to remove, when that
+  `delete` failed, is left too, and the error is the 503 above.
 - **`delete` and `sweep`**: your error comes out of `files.delete` and `files.sweep` as a
   `DocumentStoreError` of operation `"delete"` or `"sweep"`, with your error as `cause` (new in
   0.9.0: it came out as it was). The DELETE handler answers it 503 with its message.
@@ -598,9 +661,18 @@ What the library does with what you throw depends on the call:
   the current one.
 - In one library, calls that open the same document at the same time share one opening: one `get`,
   or one `getIndex`.
-- A document is written once: its ID is new at every ingest. Only `putIndex` writes again, later, for
-  a document whose index was missing or did not match its text. Several servers may do that at once,
-  with the same bytes: let the last write win.
+- A document is written once. With an ID the library makes, the ID is new at every ingest. With an
+  [application's ID](#application-ids), another document can be written under the ID later: after
+  `files.delete`, once the document has expired, or with `ifExists: "replace"`, which calls
+  `delete(id)` and then writes. The library forgets what it kept in memory of the old one. On other
+  servers, the old one is missing for a moment, and their copies are checked against the new
+  metadata before any use.
+- Two servers may ingest one application's ID at the same moment, when both find it free. The
+  library takes them for the same upload sent twice: let the last write win. Its clean-up after a
+  failed write leaves a document whose metadata it finds. The parts of one still being written on
+  the other server at that moment may be removed (see [Errors](#errors)).
+- Only `putIndex` writes again, later, for a document whose index was missing or did not match its
+  text. Several servers may do that at once, with the same bytes: let the last write win.
 - Make the metadata the point where a document exists. Write it last, in `put`, after the text, and
   remove it first in `delete`. A server that finds the metadata must be able to read all of the text.
   `FileDocumentStore` gets this on a shared volume by writing under a temporary name and renaming.
@@ -801,7 +873,16 @@ just those lines.
 - The cache never decides whether a document exists. Every use asks the store first (`getMeta`), so
   a document deleted or expired on another server is never served from memory here. A kept copy is
   used only while the store describes the same text (the same `createdAt`, size, characters and
-  lines), so a store restored from a backup is read again.
+  lines), so a store restored from a backup is read again. Since 0.9.0 it must also be of the same
+  owner and scope: a document stored under a reused [application's ID](#application-ids) by another
+  owner is read again, even within the same millisecond and with a text of the same size.
+- A document loaded whole is used only when the document `get` returns is the one `getMeta`
+  described, of the same owner, scope and version (new in 0.9.0). If another server replaced it in
+  between, it is missing for this call.
+- A document read by range is checked after its reads instead (new in 0.9.0): once a tool call or
+  `prepare` has read it, the store is asked again (`getMeta`). If it no longer describes the same
+  document, the call answers that the document is no longer available, and the copy kept of it, its
+  pieces included, is forgotten.
 - A document loaded whole takes, once searched, about twice its size in memory when its text is all
   ASCII, and four bytes a character otherwise: the text and a lowercased copy.
 - A document read by range keeps its line index in memory, about 8 bytes a line, and, within
