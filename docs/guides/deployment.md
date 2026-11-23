@@ -111,13 +111,15 @@ The built-in stores:
 | Searches of documents read by range | Tens of MB each at their peak (60 to 80 MB for a search of a log of 95 MB on Windows; 49 MB above the process for one of 100 MB on Linux, [measurements](../measurements.md#the-server)): `scanChunkBytes` (1 MB) of text read, decoded and lowercased, the next piece read ahead, and what the pieces leave until the next collection | `maxConcurrentScans` (4) per `LargeFiles`. The others wait, and those waiting for the same file share one pass over it |
 | Decoded pieces of a document read by range | Up to its whole decoded text | Kept within `cacheBytes`, and only for a document whose decoded text takes at most a quarter of it |
 | An upload | The body, buffered whole, from the reading of the body to the end of its ingest. 100 uploads of 2 MB sent at once held 190 MB | `maxUploadBytes` (100 MB by default) for one; `maxPendingUploadBytes` of `createDocumentHandlers` (twice `maxUploadBytes`) for all those the handlers hold, the others answered 503 before their body is read. A route of your own must bound them itself (below) |
-| An ingest | Five to seven times the file above the uploaded bytes at its peak (below): several copies of the text at once (below), and what the parsers of PDF, DOCX, PPTX and XLSX take while they read. `maxConcurrentIngests` (2 by default) of them at once in a `LargeFiles`; the others wait, holding only their upload. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing in the server bounds what the parsers build or unpack: read PDF and Office files with `createIsolatedExtractors`, in child processes with a heap limit of their own, or ingest in a process of its own with a memory limit of its own (below) |
+| An ingest | About three and a half to five and a half times the file above the uploaded bytes at its peak, for a plain-text log over a `FileDocumentStore` (below): several copies of the text at once (below), and what the parsers of PDF, DOCX, PPTX and XLSX take while they read. `maxConcurrentIngests` (2 by default) of them at once in a `LargeFiles`; the others wait, holding only their upload. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing in the server bounds what the parsers build or unpack: read PDF and Office files with `createIsolatedExtractors`, in child processes with a heap limit of their own, or ingest in a process of its own with a memory limit of its own (below) |
 | A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects). A crafted file can take far more: a look at a PDF of 8 MB that is one array of numbers took 422 to 427 MB of heap, one of 16 MB ran a heap of 512 MB out of memory, and one at the PDF of 1.6 KB above took 1.1 GB outside the heap. What `@cantoo/pdf-lib` keeps after a look adds up from file to file, until the server restarts | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold. A crafted file of few objects passes that check. Ingested in a process of its own (below), with `@cantoo/pdf-lib` installed, a file that needs more than that process's heap fails there and is not stored; one that fits is parsed again by each look, which takes more than its ingest did (232 to 244 MB for that file of 8 MB). For the documents of users you do not trust, `viewPages: false`, or no PDF originals |
 | A question in flight | Its conversation, and each request it builds: up to `maxRequestBytes` (10 MB by default) of JSON, the pages it was shown included as base64 | The budget ([Costs and limits](./costs-and-limits.md)) |
 
 Measured peaks are in [Measurements](../measurements.md#the-server): an ingest of a plain-text log
-takes about five to seven times the log above the uploaded bytes, and eight searches at once take
-little more than one.
+over a `FileDocumentStore` takes about three and a half to five and a half times the log above the
+uploaded bytes (135 MB for a log of 25 MB, 345 MB for one of 95 MB, measured on 0.9.0 with Node 22),
+and eight searches at once take little more than one. (Before 0.6.0 an ingest took five to seven
+times the log.)
 
 Other formats were not measured for memory. PDF text is extracted by pdf.js, which reads the whole
 file, and with `@cantoo/pdf-lib` installed the file is parsed a second time, before pdf.js reads a
@@ -195,7 +197,7 @@ export const files = createLargeFiles({
 
 | Where 2 GB go | |
 |---|---|
-| The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF, and the ingests: the text and its copies (an ingest of a 95 MB log fitted in a heap of 256 MB) |
+| The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF, and the ingests: the text and its copies (an ingest of a 95 MB log fitted in a heap of 256 MB, and in 0.9.0 with Node 22 in one of 192) |
 | One PDF or Office file at a time, read in a child process with a heap of 512 MB | What the parsers take. A process takes about 50 MB more for Node itself |
 | Outside the heaps | The upload being read (up to 100 MB) and its copy sent to the child process, files read from the store, Node itself. Also what the PDF parsers unpack, which no heap limit bounds: a crafted PDF of 1.6 KB took 1.6 GB at ingest and 1.1 GB at a look, far more than this row has left. For uploads you do not trust, ingest in a container of its own, and do not offer `view_pages` on their documents |
 
@@ -223,7 +225,11 @@ proxy.
 
 An ingest runs in your server's process, a slice at a time. It pauses for other requests about
 every 12 ms of its work, so an answer streaming on the same server waits a fraction of a second,
-not seconds: the longest stall measured was 34 ms for a 99 MB log and 0.16 s for a 2,000-page
+not seconds. Two steps of a text file still run in one block, each as long as the file is large:
+the decoding of a UTF-8 file when its reading starts, and, over a `FileDocumentStore`, the writing
+of its text. On 0.9.0 with Node 22, on a busy laptop, the longest stall was 56 to 64 ms for a log
+of 25 MB and 0.23 to 0.36 s for one of 95 MB, about 2 to 4 ms for each MB. 0.6.0 measured 34 ms
+for a 99 MB log over a `MemoryDocumentStore` on Windows with Node 24, and 0.16 s for a 2,000-page
 PDF, where 0.5.0 held the server for 2.0 s and 4.5 s ([measured](../measurements.md#the-server)).
 A text file in an older encoding is decoded a megabyte at a time, and a line of megabytes is
 cleaned in pieces of 256K characters: one line of 30 MB with a control character between its
