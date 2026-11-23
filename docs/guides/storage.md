@@ -720,15 +720,19 @@ library uses.
 
 Every method takes a last, optional `context`, new in 0.9.0: the scope and the owner of the call
 ([`DocumentContext`](../reference/library.md#documentcontext)), as in `getMeta(id, context?)`. The
-table below leaves it out. A store written for 0.8, without it, still compiles and works.
+table below leaves it out. A store written for 0.8, without it, still compiles and works, unless
+a method takes a parameter of its own in its place
+([Does my code compile?](../upgrading-0.9.md#does-my-code-compile)).
 
 - Use `context.scope` as the boundary of your storage, if you want one: a key prefix, a folder, a
   filter on a collection. `context.owner` lets you index documents by user. A store that ignores
   the context still keeps scopes apart for the library, through `meta.scope`; an application's IDs
   must then be unique in the whole store.
 - A store that wraps another one, or a subclass that overrides a method, passes the context on.
-  One that drops it loses the scope of every call: over a store that keeps scopes apart, the
-  documents then look missing, and over a `FileDocumentStore` with `scopes`, every call throws.
+  One that drops it loses the scope of every call: over a store that keeps scopes apart, such a
+  call does not find the documents stored in a scope. Over a `FileDocumentStore` with `scopes`,
+  every call but `sweep` throws; with `unscoped: "root"`, the documents go to the root folder,
+  outside the chat's folder, without an error. A `sweep` that drops it sweeps every scope.
 
 ```ts
 import { FileDocumentStore, type DocumentContext, type DocumentMeta } from "llm-large-files";

@@ -128,10 +128,13 @@ Some behavior is different. Check each point against your app:
 - **Every store call carries a context.** The library passes `{ scope, owner }` as the last argument
   of every `DocumentStore` method. A wrapper or a subclass that passes only the ID on
   (`super.getMeta(id)`, `(id) => inner.getMeta(id)`) still compiles, but drops it. Over a store that
-  keeps scopes apart, the documents of a scope then look missing; over a `FileDocumentStore` with
-  `scopes`, every call throws a `DocumentScopeError` `"scope_required"`. A store that ignores the
-  context still keeps scopes apart for the library, through `meta.scope`, and then needs
-  application IDs that are unique in the whole store.
+  keeps scopes apart, such a call does not find the documents stored in a scope. Over a
+  `FileDocumentStore` with `scopes`, every call but `sweep` throws a `DocumentScopeError`
+  `"scope_required"`. With `unscoped: "root"`, the documents go to the root folder without an error,
+  outside the chat's folder, so removing that folder does not erase them. And a `sweep` that drops
+  it sweeps every scope: `files.sweep({ scope })` removes the expired documents of every chat. A
+  store that ignores the context still keeps scopes apart for the library, through `meta.scope`,
+  and then needs application IDs that are unique in the whole store.
   **What to do:** pass the context on (`super.getMeta(id, context)`), and run `documentStoreChecks`
   of `llm-large-files/testing` on your store
   ([Stores of your own](docs/upgrading-0.9.md#stores-of-your-own)).

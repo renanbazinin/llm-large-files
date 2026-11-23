@@ -282,9 +282,13 @@ The library now passes `{ scope, owner }` to every store call, as a last argumen
 ignores it, and still works. A wrapper or a subclass that passes only the ID on still compiles,
 but drops the context:
 
-- over a store that keeps the scopes apart, the documents of a scope look missing;
-- over a `FileDocumentStore` with `scopes`, every call throws a `DocumentScopeError` of code
-  `"scope_required"`.
+- over a store that keeps the scopes apart, such a call does not find the documents stored in a
+  scope;
+- over a `FileDocumentStore` with `scopes`, every call but `sweep` throws a `DocumentScopeError` of
+  code `"scope_required"`. With `unscoped: "root"`, the documents go to the root folder without an
+  error, outside the chat's folder: removing that folder does not erase them;
+- a `sweep` that drops it sweeps every scope: `files.sweep({ scope })` removes the expired
+  documents of every chat.
 
 Pass every argument on:
 
