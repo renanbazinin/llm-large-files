@@ -473,7 +473,8 @@ Where errors appear: `retry.error`, `request.end.error`, `run.error.error` and `
 are `EventError`s. `tool.end.error` is a string: the error the model was sent, or, for a call
 ended because its turn failed, the `message` of the turn's error. An ingest whose store failed to
 write the document says only "The document could not be stored. Try again later.", whatever the
-store threw.
+store threw. Since 0.9.0 that error also has `name: "DocumentStoreError"` and `status: 503`, so it
+reads as the error `ingest` throws.
 
 To show your own words, map the error by `kind` and `name`, as `examples/server.ts` does in its
 `userMessage`, and the error of an ingest by `code`. [Errors and reliability](../guides/errors-and-reliability.md) says what each kind
@@ -777,7 +778,7 @@ The events of `files.ingest`, through `IngestInput.onEvent`:
 
 | `type` | Fields | When |
 |---|---|---|
-| `ingest.start` | `name: string`, `format: DocumentFormat`, `bytes: number` | Always first, before the input is checked. `name` is the file name as it will be stored; `format` is what the name and type say (a text file can still become a log); `bytes` is the size of the file. |
+| `ingest.start` | `name: string`, `format: DocumentFormat`, `bytes: number` | Always first, before the input is checked. `name` is the file name as it will be stored; `format` is what the name and type say (a text file can still become a log); `bytes` is the size of the file. For a file ingested from a path ([`IngestFromSource`](./library.md#ingestfromsource), new in 0.9.0), the size `lstat` gives, before any of the file is read; 0 when the path cannot be looked at. |
 | `ingest.progress` | `stage: IngestStage`, `done: number`, `total?: number`, `unit: "pages" \| "parts" \| "bytes" \| "characters"` | How far a stage is. `total` is absent when it is not known. See [Stages and units](#stages-and-units). |
 | `ingest.finish` | `document: DocumentSummary` | Always last when the document is stored. `document` is [`toDocumentSummary(meta)`](./library.md#documentsummary): the summary an upload's `201` holds, without `owner`. |
 | `ingest.error` | `error: EventError` | Always last when the ingest throws: a refusal, an abort, a store that failed, or a listener that threw. |

@@ -523,8 +523,9 @@ U+FFFD. `meta.replacedCharacters` counts the U+FFFD, and the model is told of th
 ## Original files
 
 With `keepOriginals` (for example `["pdf"]`), the uploaded file itself is stored next to its text
-(`<id>.bin` in `FileDocumentStore`). That is off by default, and a store without `putOriginal`
-keeps none. When you turn it on:
+(`<id>.bin` in `FileDocumentStore`), or, since 0.9.0, read back from where your application keeps it
+(`IngestInput.original`, [below](#originals-your-application-keeps)). That is off by default, and a
+store without `putOriginal` keeps no copy. When you turn it on:
 
 - **More is kept than before.** The text of a PDF leaves out its pictures, signatures, stamps and
   hidden layers; the file has them all, and its metadata (author, software, dates). Treat the store
@@ -544,6 +545,35 @@ keeps none. When you turn it on:
   question, as the text of the file already goes. A PDF that is encrypted only to restrict printing
   or copying is opened with an empty password, and the cut is not encrypted: the restriction does
   not travel with it. A PDF that needs a password to open is not shown.
+
+- **Its bytes are checked when they are read back.** Since 0.9.0 every document has `sha256`, the
+  SHA-256 of the upload: a copy the store gives back is used only when it has that size and
+  SHA-256, so a store that answers with another document's file of the same size is caught. The
+  metadata is asked for again once the bytes are read, so a document deleted and stored again
+  under its ID by another server meanwhile is not mixed up with it.
+
+### Originals your application keeps
+
+New in 0.9.0. With `IngestInput.original: { ref }` and `LargeFilesOptions.originals`, the store keeps
+no copy: the library records the ref with the file's size and SHA-256, and reads the file back
+through your reader.
+
+- **The ref never reaches the model,** nor a summary or an event. It is in the metadata
+  (`meta.original.ref`), which you should not send to a browser: send `toDocumentSummary(meta)`.
+- **Only the ref the store holds is read,** never one from metadata handed to `files.tools`: a
+  forged `original.ref` in a meta made by hand reads nothing it names.
+- **A changed file is not shown.** One of another size or SHA-256 than at ingest gives `undefined`
+  from `getOriginal`, and `view_pages` tells the model it changed and to attach it again: its pages
+  would not be those of the text the model has.
+- **`fileOriginals(root)` keeps refs inside `root`.** The ref is resolved under `root`, and must
+  stay inside it (`root` and a path separator before it): an absolute path elsewhere, or `..` that
+  climbs out, is a `TypeError`. A link at any level below `root` is not followed: the file's real
+  path must be the path the ref names, or it reads as missing. The file is opened without following
+  a link at its name, except on Windows. A folder swapped for a link between that check and the
+  read is not seen: keep the folders of the uploads writable only by your server. It reads at most
+  one byte past the size recorded, and only reads.
+- **It is still a file of the user.** `delete` and `sweep` never touch it: remove the upload with
+  its chat, and with the user's other data when the account is closed.
 
 How `view_pages` works, and what to weigh before you keep originals, is in [PDFs](./guides/pdfs.md).
 
@@ -850,7 +880,8 @@ server that memory is the server's heap. Choose the isolation with care:
   count or log them apart, by user. `"out_of_memory"` and `"timeout"` from the child processes of
   `createIsolatedExtractors` can be such files too.
 - **Scanned PDFs** (no text at all) are refused, unless PDF originals are kept (`keepOriginals`
-  includes `"pdf"` and the store has `putOriginal`) and the file has at most `scannedPdfPages` pages
+  includes `"pdf"` and the store has `putOriginal`, or the ingest gives `original` and the library
+  has `originals`) and the file has at most `scannedPdfPages` pages
   (30 by default): their pages can then be shown.
 - **File names** are reduced at ingest to one printable line: the last path segment. Control
   characters, line and paragraph separators and text-direction controls become a space, and the
@@ -862,7 +893,25 @@ server that memory is the server's heap. Choose the isolation with care:
   earlier version cut in the middle of a character is sent with U+FFFD in place of the half.
 - **The MIME type is the client's word.** The handlers take it from an `X-File-Type` header, or
   from `Content-Type` unless that is `application/octet-stream`. The format is picked from the file
-  name first, then from it. It is stored, and returned in summaries: do not trust it.
+  name first, then from it. It is stored, and returned in summaries: do not trust it. Since 0.9.0
+  `ingest` keeps only its type and subtype, in lower case, without parameters, for every caller,
+  your own routes included: a value that is not a type/subtype of RFC 9110 token characters of at
+  most 127 characters, or that holds anything but printable ASCII anywhere (a line break, U+202E or
+  another text-direction control, a tag character), is stored as `application/octet-stream`. Before,
+  it was only trimmed, so a line break, a direction override or 8 KB of it reached the metadata, the
+  summaries, `ingest.finish` and your logs. It is never sent to the model.
+- **A path is read as it is given.** `ingest({ source: { path } })` (new in 0.9.0) reads the file
+  at that path, which can be any file the process may read: never build it from what a client sends.
+  A link at the path is refused, not followed, and so is a folder, a pipe or a device. The file is
+  opened without following a link at its name (not on Windows), and read once, at most
+  `maxUploadBytes + 1` bytes, so a file that grew after it was looked at is refused. A relative
+  path is made absolute once, when `ingest` is called: a change of the working folder before the
+  ingest's turn, or the working folder of an isolated reader's child process, does not change which
+  file is read. It is not normalized as text: a `..` after a link, and a `/` at the end, are the
+  system's to resolve, as they are in an absolute path. So `fs.promises.realpath` of the path,
+  relative or absolute, names the file the library reads. `path.resolve` and `fs.realpathSync`
+  remove them as text first, and can name another file: do not check a path with them. The
+  library never writes, moves or deletes it.
 - **Text is cleaned.** Terminal escape sequences are removed, and so are control characters other
   than tab and line breaks, C1 (U+0080-U+009F) included, and the other characters listed in
   [Characters that show nothing](#characters-that-show-nothing). An `ESC ]` without its end on the

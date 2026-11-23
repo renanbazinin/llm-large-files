@@ -12,10 +12,10 @@ parts under the document's ID:
 
 | Part | What it is | Written |
 |---|---|---|
-| Metadata | `DocumentMeta`: owner, file name, format, sizes, lines, outline, log profile, `createdAt`, `expiresAt`. | Always, last. |
+| Metadata | `DocumentMeta`: owner, scope, file name, format, sizes, the SHA-256 of the upload (0.9.0), lines, outline, log profile, `createdAt`, `expiresAt`. | Always, last. |
 | Text | The extracted text, normalized, as one string. | Always. |
 | Line index | Where each line starts, in bytes and in characters: about 8 bytes a line. With it, a document read by range is opened without first reading all of its text. | When the store has `putIndex`. |
-| Original | The uploaded file, byte for byte. | When `keepOriginals` lists the format and the store has `putOriginal`. |
+| Original | The uploaded file, byte for byte. | When `keepOriginals` lists the format and the store has `putOriginal`, unless the ingest gives `original`: then your application keeps the file, and the metadata says where ([Keeping the uploaded files](#keeping-the-uploaded-files)). |
 
 The library makes the ID: `doc_` and 32 hexadecimal digits of a random UUID. It is new at every
 ingest and never reused. `DOCUMENT_ID_PATTERN` (`/^doc_[a-f0-9]{32}$/`) matches it. Since 0.9.0 the
@@ -433,7 +433,7 @@ The volume then holds:
   user-42/
     chat-7/
       .llm-large-files/     the store's: upload-3f9a.json, upload-3f9a.txt, upload-3f9a.idx
-      uploads/              yours, if you keep the uploads: the sweep never goes in
+      uploads/              yours, if you keep the uploads: the sweep never goes in, and fileOriginals reads them
 ```
 
 - Pass the same `scope` on every later call: questions (`askWithFiles({ owner, scope })`),
@@ -581,11 +581,24 @@ answers without them, and a function can ingest them again from the uploads you 
 
 ## Keeping the uploaded files
 
-By default a store keeps only the text of a document. `keepOriginals` also keeps the uploaded file:
+By default only the text of a document is kept. `keepOriginals` keeps the uploaded file too, for
+the formats it lists, so that `view_pages` can show the model the pages of a PDF, and a scanned PDF
+can be accepted ([PDFs](./pdfs.md)). The file is kept in one of two places:
+
+- **A copy in the store**, next to the text (`putOriginal`).
+- **Where your application keeps it**, new in 0.9.0: the ingest gives `original: { ref }`, and the
+  library reads the file from there through `originals`. The store keeps no second copy.
 
 | Option | Default | What it does |
 |---|---|---|
-| `keepOriginals` | `[]` | Formats whose uploaded file is kept next to its text, for example `["pdf"]`. |
+| `keepOriginals` | `[]` | Formats whose uploaded file is kept, for example `["pdf"]`. |
+| `originals` | none | Reads the files your application keeps, by their ref: `fileOriginals(root)` of `llm-large-files/node`, or your own `{ read(ref, context) }`. New in 0.9.0. |
+
+Either way, `meta.originalKept` is true, `files.getOriginal(id, { owner, scope })` returns the
+file under the same owner and scope rules as everything else, and `view_pages` reads it. Treat the
+bytes as read-only: they may be the store's own copy.
+
+### A copy in the store
 
 ```ts
 import type { ServerResponse } from "node:http";
@@ -619,19 +632,78 @@ export async function sendOriginal(response: ServerResponse, id: string, owner: 
 
 - It is off by default because it costs space: a kept file is as large as the upload, up to
   `maxUploadBytes` (100 MB by default), and stays until the document expires or is deleted.
-- A kept original is what `view_pages` shows the model, and what lets a scanned PDF be accepted.
-  Both are in [PDFs](./pdfs.md).
 - The store needs `putOriginal` to keep a file and `getOriginal` to give it back. The built-in stores
-  have both. A store without `putOriginal` keeps nothing, whatever `keepOriginals` says.
-- `meta.originalKept` is true when the file of a document is kept. `files.getOriginal(id, { owner })`
-  returns it, under the same owner rule as everything else. Treat the bytes as read-only: they may be
-  the store's own copy.
-- The bytes carry nothing to check them by. So, since 0.9.0, `getOriginal` and `view_pages` ask the
-  store for the metadata again once the file is read. The file is missing unless the document is
-  still the same one, of the same owner and scope, and the file is the size of the upload
-  (`meta.bytes`). Another server may have deleted the document and stored another under its ID
-  meanwhile.
+  have both. A store without `putOriginal` keeps no copy, whatever `keepOriginals` says.
+- The bytes are checked when they are read back. Since 0.9.0, `getOriginal` and `view_pages` ask
+  the store for the metadata again once the file is read, and the file is missing unless the
+  document is still the same one, of the same owner and scope, and the file is that of the upload:
+  of its size (`meta.bytes`) and, for documents of 0.9.0 and later, of its SHA-256 (`meta.sha256`).
+  Another server may have deleted the document and stored another under its ID meanwhile, and a
+  store may give back another file of the same size.
 - Documents ingested before you turned it on have no original. Upload them again to get one.
+
+### The file your application keeps
+
+New in 0.9.0. When your application saves each upload anyway (to send it back, or to ingest it
+again later), keep only that one. The ingest says where it is, and the library reads it from there:
+
+```ts
+import path from "node:path";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { fileOriginals } from "llm-large-files/node";
+
+const VOLUME = process.env.DOCUMENTS_DIR!;
+
+export const files = createLargeFiles({
+  store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }),
+  keepOriginals: ["pdf"],
+  originals: fileOriginals(VOLUME),
+  requireOwner: true,
+  requireScope: true,
+});
+
+/** Ingests an upload your route saved at <VOLUME>/<user>/<chat>/uploads/<uploadId>. */
+export function ingestSaved(userId: string, chatId: string, uploadId: string, name: string) {
+  const ref = `${userId}/${chatId}/uploads/${uploadId}`;
+  return files.ingest({
+    name,
+    source: { path: path.join(VOLUME, ref) }, // read at its turn, not held while it waits
+    original: { ref },
+    owner: userId,
+    scope: [userId, chatId],
+    id: uploadId,
+  });
+}
+```
+
+- **The ref** is a string of 1 to 1,024 characters that your reader understands: for
+  `fileOriginals(root)`, a path relative to `root`. It is never sent to the model, nor in a summary
+  or an event. An ingest with `original` in a library without `originals` throws a `TypeError`. A
+  format that `keepOriginals` does not list records nothing, whatever the ref.
+- **What is recorded.** `meta.original` is `{ ref, bytes, sha256 }`: the ref, and the size and
+  SHA-256 of the file at ingest. `meta.originalKept` is true, as for a copy. The store's
+  `putOriginal` is not called.
+- **Each read is checked.** `getOriginal` and `view_pages` read the ref the store holds (never one
+  from metadata handed in), ask the store for the metadata again, then compare the file with the
+  size and SHA-256 recorded. A file that has changed gives `undefined` from `getOriginal`, and
+  `view_pages` tells the model: "report.pdf changed on the server since it was read. Attach it
+  again to look at its pages." A file that is gone reads as missing.
+- **The library never writes, moves or deletes it.** `files.delete` and the sweep leave it. Remove
+  it with its chat: over a scoped store, `rm` of the chat's folder removes the store's files and
+  your uploads together.
+- **`fileOriginals(root)`** resolves a ref under `root`, and refuses one that leads out of it with a
+  `TypeError`, which the library passes on as a `DocumentStoreError`. A link at any level below
+  `root` reads as missing. It reads a file once, at most one byte past the size recorded, and never
+  writes ([`fileOriginals`](../reference/node.md#fileoriginalsroot)).
+- **A reader of your own** is an object with `read(ref, context)`, which returns the bytes, or
+  `undefined` when the file is not there: a bucket key, a database ID. `context` has the scope and
+  owner of the call, the document's `id`, and `bytes`, the size recorded; a reader may stop one
+  byte past it. What it throws becomes a `DocumentStoreError` (operation `"read"`) with its error as
+  `cause` ([`OriginalsReader`](../reference/library.md#originalsreader)).
+- **The same file twice.** Every document of 0.9.0 has `meta.sha256`, the SHA-256 of the upload,
+  for bytes and for paths. The library does not look for another document of the same file: to
+  give a user the document of a file already in the chat, compare it with the `sha256` your
+  session record keeps for the chat's documents. Never across owners.
 
 ## Writing a store of your own
 

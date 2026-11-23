@@ -162,7 +162,9 @@ const MAX_HEAP_MB = 1_048_576;
  * });
  * ```
  *
- * A file costs its bytes copied to the child and its text copied back. The children load the same
+ * A file costs its bytes copied to the child and its text copied back. A file ingested from a path
+ * (`IngestFromSource`) is read by its child instead (`readsPath`, 0.9.0): the server reads none of
+ * it, and holds none of it while it waits for a child. The children load the same
  * optional dependencies (`unpdf`, `jszip`, `@cantoo/pdf-lib`) the server would.
  */
 export function createIsolatedExtractors(options: IsolatedExtractorOptions = {}): IsolatedExtractors {
@@ -391,16 +393,20 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
     if (timeoutMs > 0) {
       timer = setTimeout(() => stop(entry, new IngestError("timeout", `${job.input.name} took too long to read (more than ${formatDuration(timeoutMs)}). Split it, or save it as plain text, and attach that.`)), timeoutMs);
     }
-    const { name, mimeType, format, scannedPages, maxTextBytes, maxPages } = job.input;
+    const { name, mimeType, format, scannedPages, maxTextBytes, maxPages, path, maxUploadBytes } = job.input;
+    // A file at a path (0.9.0) goes as its path: the child reads it, and its bytes never wait here.
+    const fromPath = typeof path === "string" && job.bytes.byteLength === 0;
     const message: ChildJob = {
       type: "extract",
       id: job.id,
       bytes: job.bytes,
+      ...(fromPath ? { path } : {}),
       input: {
         name, mimeType, format,
         ...(scannedPages !== undefined ? { scannedPages } : {}),
         ...(maxTextBytes !== undefined && Number.isFinite(maxTextBytes) ? { maxTextBytes } : {}),
         ...(maxPages !== undefined ? { maxPages } : {}),
+        ...(fromPath && typeof maxUploadBytes === "number" && Number.isFinite(maxUploadBytes) ? { maxUploadBytes } : {}),
         progress: typeof job.input.onProgress === "function",
       },
       ...(options.pdf ? { pdf: options.pdf } : {}),
@@ -413,7 +419,8 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
     }, () => undefined);
   }
 
-  const extract: Extractor = (bytes, input) => new Promise<ExtractedText>((resolve, reject) => {
+  // Reads a file ingested from a path in the child (`readsPath`): the server does not read it.
+  const extract: Extractor = Object.assign((bytes: Uint8Array, input: ExtractInput) => new Promise<ExtractedText>((resolve, reject) => {
     if (closed) {
       reject(new IngestError("busy", "The server is shutting down. Try again in a moment.", { retryAfterMs: BUSY_RETRY_MS }));
       return;
@@ -440,7 +447,7 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
     }
     queue.push(job);
     pump();
-  });
+  }), { readsPath: true });
 
   const formats = options.formats ?? DEFAULT_FORMATS;
   return {

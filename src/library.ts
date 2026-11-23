@@ -7,7 +7,9 @@ import { Limiter } from "./limiter.js";
 import { canBeReadWhole, CARD_LINES, documentToolsInstruction, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
 import { DocumentGoneError, openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
+import { TimeSlicer } from "./pause.js";
 import { checkScope } from "./scope.js";
+import { isSha256, sha256InSlices } from "./source.js";
 import { APP_DOCUMENT_ID_PATTERN } from "./stores.js";
 import { wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
@@ -27,7 +29,7 @@ import type {
 } from "./types.js";
 
 export { DEFAULT_BUDGET } from "./budget.js";
-export { checkOwner, cleanFileName, NEVER_EXPIRES, toDocumentSummary } from "./ingest.js";
+export { checkOwner, cleanFileName, cleanMimeType, NEVER_EXPIRES, toDocumentSummary } from "./ingest.js";
 
 export type LargeFilesOptions = {
   /** Where extracted text is kept: `new FileDocumentStore(dir)`, `new MemoryDocumentStore()`, or your own. */
@@ -67,11 +69,19 @@ export type LargeFilesOptions = {
   /** Override or add text extractors per format. */
   extractors?: Partial<Record<DocumentFormat, Extractor>>;
   /**
-   * Formats whose uploaded file is kept in the store next to its text, for example `["pdf"]`.
-   * Empty by default: a kept file takes disk space, up to the upload limit, until the document
-   * expires. A store without `putOriginal` keeps none.
+   * Formats whose uploaded file is kept, for example `["pdf"]`, so that `view_pages` can show its
+   * pages: as a copy in the store, next to its text (`putOriginal`), or, for an ingest with
+   * `IngestInput.original`, where the application keeps it (`originals`). Empty by default: a kept
+   * file takes disk space, up to the upload limit, until the document expires. A store without
+   * `putOriginal` keeps no copies.
    */
   keepOriginals?: DocumentFormat[];
+  /**
+   * Reads the uploaded files that the application keeps itself (`IngestInput.original`), in place
+   * of a copy in the store: `fileOriginals(root)`, of "llm-large-files/node", reads them from a
+   * folder. A file read back is checked against the size and SHA-256 it had at ingest. New in 0.9.0.
+   */
+  originals?: OriginalsReader;
   /**
    * A PDF without any text (a scan) has nothing to search, and was always refused. When its
    * original is kept, its pages can be shown to the model instead, so one of up to this many pages
@@ -149,6 +159,29 @@ export type LargeFilesOptions = {
   now?: () => Date;
 };
 
+/**
+ * Reads the uploaded files that the application keeps itself (`LargeFilesOptions.originals`). New
+ * in 0.9.0.
+ */
+export type OriginalsReader = {
+  /**
+   * The bytes of the file at `ref` (`IngestInput.original.ref`), or undefined when it is not
+   * there. `context` is that of the call (its scope and owner), with the document's `id`, and
+   * `bytes`, the size the file had at ingest: a reader may stop one byte past it, as a file of
+   * another size has changed. What it throws is passed on as a `DocumentStoreError` (operation
+   * "read"), with its error as `cause`, as a store's errors are.
+   */
+  read(ref: string, context: OriginalReadContext): Promise<Uint8Array | undefined>;
+};
+
+/** What `OriginalsReader.read` is told of the call. New in 0.9.0. */
+export type OriginalReadContext = DocumentContext & {
+  /** The ID of the document whose file is read. */
+  readonly id: string;
+  /** The size of the file when it was ingested. */
+  readonly bytes: number;
+};
+
 export type IngestInput = {
   name: string;
   mimeType?: string;
@@ -195,9 +228,13 @@ export type IngestInput = {
    */
   scope?: DocumentScope;
   /**
-   * The uploaded file is kept by the application, at `ref` (up to 1,024 characters, never shown
-   * to the model), and the library reads it from there (`LargeFilesOptions.originals`) instead of
-   * keeping a copy in the store. New in 0.9.0.
+   * Where the application keeps the uploaded file: `ref`, up to 1,024 characters, such as a path
+   * under the folder of `fileOriginals`. When the format is kept (`keepOriginals`), the library
+   * reads the file from there (`LargeFilesOptions.originals`) instead of keeping a copy in the
+   * store, and records `DocumentMeta.original`: the ref, and the size and SHA-256 of the file, to
+   * tell when it has changed. The ref is never sent to the model, nor in a summary or an event.
+   * Without `LargeFilesOptions.originals`, it is a TypeError. The library never writes, moves or
+   * deletes the file: `delete` leaves it. New in 0.9.0.
    */
   original?: { ref: string };
 };
@@ -206,8 +243,15 @@ export type IngestInput = {
 export type IngestSource = { path: string };
 
 /**
- * An ingest of a file from a path: `IngestInput` with `source` in place of `bytes`. The file is
- * read when the ingest's turn comes, not held in memory while it waits. New in 0.9.0.
+ * An ingest of a file from a path: `IngestInput` with `source` in place of `bytes`. Before the
+ * ingest's turn, the path is looked at with `lstat`, and nothing of it is read: a link is refused,
+ * not followed, and so is anything that is not a file; an empty file, or one larger than
+ * `maxUploadBytes`, is refused at once. When its name and type say nothing of its format, only the
+ * parts of it that tell are read (its first KB; for a ZIP its first 64 KB and its last MB). At its
+ * turn the file is read once, up to `maxUploadBytes + 1` bytes, so that one that has grown is
+ * refused, and its bytes are let go once its text is read. An extractor that reads paths
+ * (`Extractor.readsPath`, as the isolated readers do) reads it instead, and the server does not.
+ * The library never writes, moves or deletes the file. New in 0.9.0.
  */
 export type IngestFromSource = Omit<IngestInput, "bytes"> & { source: IngestSource; bytes?: never };
 
@@ -296,17 +340,21 @@ export interface LargeFiles {
    */
   readonly access?: { readonly requireOwner: boolean; readonly requireScope: boolean };
   /**
-   * Extracts, normalizes, profiles, and stores a file. Throws a user-readable Error on bad input.
+   * Extracts, normalizes, profiles, and stores a file: from its bytes (`IngestInput`), or from a
+   * path (`IngestFromSource`, new in 0.9.0). Throws a user-readable Error on bad input.
    * A store that fails to write is a `DocumentStoreError` (operation "write", status 503) since
    * 0.9.0, with the store's own error as `cause`: log that one, and do not show its message to a
-   * user, as it may name a path, a host or a bucket.
+   * user, as it may name a path, a host or a bucket. A path that is not there, a link or a folder
+   * is an error with the `code` of a system error (ENOENT, ELOOP, EISDIR), passed on as it is.
    */
-  ingest(input: IngestInput): Promise<DocumentMeta>;
+  ingest(input: IngestInput | IngestFromSource): Promise<DocumentMeta>;
   getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
   /**
-   * The uploaded file itself, when it was kept (see `keepOriginals`). Treat the bytes as read-only.
-   * Undefined too when, once the bytes are read, the store no longer describes the same document,
-   * or the bytes are not the size of the upload (0.9.0).
+   * The uploaded file itself, when it was kept (see `keepOriginals`): from the store, or from where
+   * the application keeps it (`IngestInput.original`, read by `LargeFilesOptions.originals`). Treat
+   * the bytes as read-only. Undefined too when, once the bytes are read, the store no longer
+   * describes the same document, or the bytes are not those of the upload: of another size, or
+   * another SHA-256 (0.9.0).
    */
   getOriginal(id: string, access?: AccessOptions): Promise<Uint8Array | undefined>;
   /** Deletes a document. A store that fails is a `DocumentStoreError` (operation "delete") since 0.9.0. */
@@ -357,6 +405,26 @@ const documentKey = (caller: Caller, id: string) => `${caller.key}\u0000${id}`;
 
 /** A caller with no owner and no scope. */
 const NO_CALLER: Caller = Object.freeze({ context: storeContext(undefined, undefined), key: "" });
+
+/**
+ * What `view_pages` answers for a file the application keeps (`IngestInput.original`) that is no
+ * longer the one that was ingested. New in 0.9.0.
+ */
+const changedOriginal = (file: string) => `${file} changed on the server since it was read. Attach it again to look at its pages.`;
+
+/**
+ * Where the application keeps the uploaded file of a document (`DocumentMeta.original`), when its
+ * metadata says so in the shape the library writes. Undefined for one kept in the store, and for
+ * one written by hand in another shape, which reads as missing.
+ */
+function refOf(meta: DocumentMeta): { ref: string; bytes: number; sha256: string } | undefined {
+  const original: unknown = meta.original;
+  if (typeof original !== "object" || original === null) return undefined;
+  const { ref, bytes, sha256 } = original as { ref?: unknown; bytes?: unknown; sha256?: unknown };
+  return typeof ref === "string" && ref.length > 0 && typeof bytes === "number" && Number.isSafeInteger(bytes) && bytes >= 0 && isSha256(sha256)
+    ? { ref, bytes, sha256 }
+    : undefined;
+}
 
 /** Default for `cacheBytes`. */
 export const DEFAULT_CACHE_BYTES = 256 * 1024 * 1024;
@@ -483,8 +551,22 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   };
 
   const scannedPdfPages = Math.max(0, Math.trunc(numberOption("scannedPdfPages", options.scannedPdfPages, 30)));
-  /** Whether the uploaded file of a document of this format is kept. */
-  const keeps = (format: DocumentFormat) => keepOriginals.has(format) && typeof options.store.putOriginal === "function";
+  const { originals } = options;
+  if (originals !== undefined && (typeof originals !== "object" || originals === null || typeof originals.read !== "function")) {
+    throw new TypeError("originals must be an object with a read(ref, context) method, such as fileOriginals(root) gives.");
+  }
+  /**
+   * Whether the uploaded file of a document of this format is kept: by its ref (`IngestInput.original`),
+   * which `originals` reads back, or as a copy in the store (`putOriginal`).
+   */
+  const keeps = (format: DocumentFormat, byRef: boolean) => keepOriginals.has(format) && (byRef ? originals !== undefined : typeof store.putOriginal === "function");
+  /**
+   * Whether the original of a document, which its metadata says is kept, can be read: by its ref,
+   * through `originals`, or from the store (`getOriginal`).
+   */
+  const readable = (meta: DocumentMeta) => (meta.original !== undefined && meta.original !== null ? originals !== undefined : typeof store.getOriginal === "function");
+  /** Whether `view_pages` can show the pages of a document: a PDF whose original is kept, and can be read. */
+  const viewableMeta = (meta: DocumentMeta) => meta.format === "pdf" && meta.originalKept === true && readable(meta);
   /** What `ingest` (src/ingest.ts) needs of this library. */
   const ingestContext: IngestContext = {
     store,
@@ -502,6 +584,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     ingests,
     slotCapMs,
     keeps,
+    readsRefs: originals !== undefined,
     forget,
     rules,
     ingesting: new Set<string>(),
@@ -574,17 +657,36 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   }
 
   /**
-   * The uploaded file of document `id`, which `meta`, checked for `caller`, says is kept. Its bytes
-   * carry nothing to check them by, and another server may delete the document and store another
-   * under its ID while they are read: so the store is asked again once they are. Undefined unless it
-   * still describes the same document, of the same owner and scope, and the bytes are the size of
-   * the file that was ingested.
+   * The uploaded file of document `id`, which `meta`, checked for `caller`, says is kept: read from
+   * where the application keeps it (`meta.original`, through `originals`), or from the store. Another
+   * server may delete the document and store another under its ID while the bytes are read: so the
+   * store is asked again once they are. "missing" unless it still describes the same document, of
+   * the same owner and scope, and the bytes are the size of the file that was ingested, and have its
+   * SHA-256 when it is known (0.9.0): a store that gives back other bytes of the same size is caught
+   * too. "changed" for a file kept by the application that is no longer the one that was ingested:
+   * of another size or another SHA-256.
    */
-  async function originalOf(id: string, caller: Caller, meta: DocumentMeta): Promise<Uint8Array | undefined> {
-    const bytes = await loadOriginal(id, caller.context);
-    if (!bytes) return undefined;
+  async function originalOf(id: string, caller: Caller, meta: DocumentMeta): Promise<Uint8Array | "missing" | "changed"> {
+    const kept = refOf(meta);
+    let read: Uint8Array | undefined;
+    if (kept) {
+      if (!originals) return "missing";
+      const context: OriginalReadContext = Object.freeze({ ...caller.context, id, bytes: kept.bytes });
+      read = await reading(() => originals.read(kept.ref, context));
+    } else {
+      if (meta.original !== undefined && meta.original !== null) return "missing";
+      if (!store.getOriginal) return "missing";
+      read = await loadOriginal(id, caller.context);
+    }
+    if (!read) return "missing";
+    const bytes = read;
     const after = await metaFor(id, caller);
-    return after && documentVersion(after) === documentVersion(meta) && bytes.byteLength === meta.bytes ? bytes : undefined;
+    if (!after || documentVersion(after) !== documentVersion(meta)) return "missing";
+    // The SHA-256 of a file of up to the upload limit is taken a slice at a time.
+    const same = async (sha256: string) => await sha256InSlices(bytes, new TimeSlicer()) === sha256;
+    if (kept) return bytes.byteLength === kept.bytes && await same(kept.sha256) ? bytes : "changed";
+    if (bytes.byteLength !== meta.bytes) return "missing";
+    return typeof meta.sha256 === "string" && !await same(meta.sha256) ? "missing" : bytes;
   }
 
   /**
@@ -648,7 +750,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     async getOriginal(id, access) {
       const caller = callerOf(access, rules);
       const meta = await metaFor(id, caller);
-      return meta?.originalKept && store.getOriginal ? originalOf(id, caller, meta) : undefined;
+      if (!meta?.originalKept || !readable(meta)) return undefined;
+      const original = await originalOf(id, caller, meta);
+      return original instanceof Uint8Array ? original : undefined;
     },
 
     async delete(id, access) {
@@ -685,9 +789,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const plan = planDocuments(documents, budget, base);
         const inline = new Set(plan.inline.map((meta) => meta.id));
         // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
-        const viewable = access?.viewPages && store.getOriginal
-          ? documents.filter((meta) => meta.format === "pdf" && meta.originalKept)
-          : [];
+        const viewable = access?.viewPages ? documents.filter(viewableMeta) : [];
         const shown = new Set(viewable.map((meta) => meta.id));
         const blocks = new Map<string, string>();
         const gone: string[] = [];
@@ -717,8 +819,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       }
       const asker = access !== undefined ? callerOf(access, rules) : undefined;
       const budget = budgetFor(overrides);
-      const viewable = (store.getOriginal ? (viewPages === true ? documents : viewPages || []) : [])
-        .filter((meta) => meta.format === "pdf" && meta.originalKept);
+      // Which PDFs can be looked at, by the metadata handed in: each look reads the metadata the
+      // store holds, and the file it names, not the one handed in.
+      const viewable = (viewPages === true ? documents : viewPages || []).filter(viewableMeta);
       // Without `access`, as before 0.9.0: the owner and scope each document was handed in with.
       // The store is asked with them, and the owner and scope it holds are checked against them on
       // every call, so metadata built from an ID alone cannot read another owner's document: such a
@@ -732,10 +835,15 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const meta = caller && await metaFor(id, caller);
         return meta ? load(id, caller, meta) : undefined;
       };
-      const checkedOriginal = store.getOriginal && (async (id: string) => {
+      const checkedOriginal = (store.getOriginal || originals) && (async (id: string) => {
         const caller = callerFor(id);
         const meta = caller && await metaFor(id, caller);
-        return meta ? originalOf(id, caller, meta) : undefined;
+        if (!meta || !readable(meta)) return undefined;
+        const original = await originalOf(id, caller, meta);
+        // A file the application keeps that has changed since it was ingested: its pages are not
+        // those of the text the model has, and the model is told so.
+        if (original === "changed") throw new Error(changedOriginal(meta.name));
+        return original === "missing" ? undefined : original;
       });
       return createDocumentTools({
         load: checkedLoad,

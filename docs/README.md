@@ -123,7 +123,8 @@ Each term links to the page that explains it. The defaults and limits are on tho
 - **Document**: a file after `files.ingest()`: its extracted text, which the tools read by line
   number, and its metadata (`DocumentMeta`), kept in the store under an ID the library makes
   (`doc_` and 32 hex characters). It expires after `ttlMs`. The uploaded file itself is kept only
-  for the formats in `keepOriginals`. See [storage](./guides/storage.md).
+  for the formats in `keepOriginals`: in the store, or where your application keeps it (0.9.0). See
+  [storage](./guides/storage.md).
 - **Evidence**: `AskResult.evidence`, one entry for each tool call that showed the model part of a
   document: which document, and which lines or pages, as ranges (`Evidence`). A whole-file read is
   marked `whole: true`. Keep it with the answer for citations or an audit trail. See
@@ -229,7 +230,8 @@ One task each, with samples:
   across requests and servers, staying inside the window, converters, pointers for repeated calls,
   mixing providers.
 - [Storage](./guides/storage.md): the `DocumentStore` contract and writing your own, the built-in
-  stores, owners and a layout per user and per session, retention, original files, the cache.
+  stores, owners and a layout per user and per session, retention, original files (a copy in the
+  store, or the uploads your application keeps), the cache.
 - [Deployment](./guides/deployment.md): several servers, memory sizing, sweeps, proxies and
   timeouts for streams, rolling upgrades, Node.js and ESM.
 - [Errors and reliability](./guides/errors-and-reliability.md): every error and its kind and what
@@ -261,7 +263,7 @@ import from.
 | `llm-large-files/gemini` | [Gemini](./reference/gemini.md) | `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()` and the other Gemini exports |
 | `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
-| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `createIsolatedExtractors`, files read in child processes; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
+| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `createIsolatedExtractors`, files read in child processes; `fileOriginals`, the uploads your application keeps, read back by their ref; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
 | `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents; `documentStoreChecks`, the checks of a store of your own |
 
 ## Internals and measurements

@@ -154,8 +154,9 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
     expect(thrown).toMatchObject({ operation: "write", code: "EIO", syscall: "open", status: 503, message: "The document could not be stored (EIO). Try again." });
     expect((thrown as Error).message).not.toContain(dir);
     expect(String(((thrown as Error).cause as Error).message)).toContain(dir);
-    // The event, which a browser may see, says only that the document could not be stored.
-    expect(events.at(-1)).toEqual(expect.objectContaining({ type: "ingest.error", error: { message: "The document could not be stored. Try again later." } }));
+    // The event, which a browser may see, says only that the document could not be stored: a
+    // DocumentStoreError (503), without its code.
+    expect(events.at(-1)).toEqual(expect.objectContaining({ type: "ingest.error", error: { message: "The document could not be stored. Try again later.", name: "DocumentStoreError", status: 503 } }));
     expect(await readdir(dir)).toEqual([]);
   });
 

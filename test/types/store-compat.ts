@@ -10,6 +10,7 @@ import {
   type DocumentStore,
   type Extractor,
   type IngestInput,
+  type LargeFiles,
   type StoredDocument,
   type ToolTurn,
 } from "llm-large-files";
@@ -137,3 +138,17 @@ export const files = createLargeFiles({ store: new StoreOf08(), extractors: { te
 export const filesOverWrappers = createLargeFiles({ store: logged(forwarding(new Counted())) });
 export const scoped = createLargeFiles({ store: new ScopedStore() });
 export const tiny = createLargeFiles({ store: smallest });
+
+/**
+ * A LargeFiles of an application's own, as 0.8 wrote it: its ingest takes bytes only. `ingest` is a
+ * method of LargeFiles, so its parameter is compared both ways, and the union of 0.9
+ * (`IngestInput | IngestFromSource`) still accepts it.
+ */
+export const ownFiles: LargeFiles = { ...files, ingest: (input: IngestInput) => files.ingest(input) };
+export class OwnIngest implements Pick<LargeFiles, "ingest"> {
+  async ingest(input: IngestInput): Promise<DocumentMeta> {
+    return files.ingest(input);
+  }
+}
+/** An ingest from a path, with the file kept by the application (0.9). */
+export const fromPath = () => files.ingest({ name: "a.pdf", source: { path: "/uploads/a.pdf" }, original: { ref: "u/c/uploads/a.pdf" } });
