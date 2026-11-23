@@ -569,8 +569,11 @@ New in 0.9.0. With `IngestInput.original: { ref }` and `LargeFilesOptions.origin
 no copy: the library records the ref with the file's size and SHA-256, and reads the file back
 through your reader.
 
-- **The ref never reaches the model,** nor a summary or an event. It is in the metadata
+- **The ref never reaches the model,** nor a summary. It is in the metadata
   (`meta.original.ref`), which you should not send to a browser: send `toDocumentSummary(meta)`.
+  An event holds it only with `eventResults: true`, in the full plan of `run.finish` and
+  `run.error`: keep such events on your server
+  ([events](./reference/events.md#documents-eventresults-and-eventresult)).
 - **Only the ref the store holds is read,** never one from metadata handed to `files.tools`: a
   forged `original.ref` in a meta made by hand reads nothing it names.
 - **A changed file is not shown.** One of another size or SHA-256 than at ingest gives `undefined`

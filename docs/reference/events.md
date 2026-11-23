@@ -495,8 +495,9 @@ text of the documents:
 - `tool.end` has no `result`;
 - the result in `run.finish` and `run.error` has no `toolTurns`, and its `plan` names each
   document as a [`DocumentRef`](#plan) (id, name, format, estimated tokens, pages) instead of its
-  full `DocumentMeta`, which holds the `owner`, the headings of the outline and, for a log, the
-  templates of its most frequent lines.
+  full `DocumentMeta`, which holds the `owner`, the `scope` (such as `[userId, chatId]`), the
+  `sha256` of the file, the `original` with its `ref` (where your application keeps the file), the
+  headings of the outline and, for a log, the templates of its most frequent lines.
 
 `missing` (new in 0.9.0) is there as in `AskResult`: the IDs of the documents left out.
 

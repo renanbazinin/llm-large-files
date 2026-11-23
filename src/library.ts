@@ -232,7 +232,8 @@ export type IngestInput = {
    * under the folder of `fileOriginals`. When the format is kept (`keepOriginals`), the library
    * reads the file from there (`LargeFilesOptions.originals`) instead of keeping a copy in the
    * store, and records `DocumentMeta.original`: the ref, and the size and SHA-256 of the file, to
-   * tell when it has changed. The ref is never sent to the model, nor in a summary or an event.
+   * tell when it has changed. The ref is never sent to the model, nor in a summary. An event holds
+   * it only with `AskOptions.eventResults: true`, in the full plan of `run.finish` and `run.error`.
    * Without `LargeFilesOptions.originals`, it is a TypeError. The library never writes, moves or
    * deletes the file: `delete` leaves it. New in 0.9.0.
    */

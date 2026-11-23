@@ -55,15 +55,22 @@ export type DocumentMeta = {
   owner?: string;
   /**
    * The scope the document was ingested in (`IngestInput.scope`), as a copy. Only a caller with the
-   * same scope may use it. It is never sent to the model, nor in a summary or an event. New in 0.9.0.
+   * same scope may use it. It is never sent to the model, nor in a summary. An event holds it only
+   * with `AskOptions.eventResults: true`, in the full plan of `run.finish` and `run.error`. New in 0.9.0.
    */
   scope?: string[];
-  /** The SHA-256 of the uploaded file, as 64 lowercase hex digits. New in 0.9.0. */
+  /**
+   * The SHA-256 of the uploaded file, as 64 lowercase hex digits. It is never sent to the model, nor
+   * in a summary. An event holds it only with `AskOptions.eventResults: true`, in the full plan of
+   * `run.finish` and `run.error`. New in 0.9.0.
+   */
   sha256?: string;
   /**
    * The uploaded file, when the application keeps it and the library reads it from there
    * (`IngestInput.original`): where it is, and its size and SHA-256 when it was read, to know that
-   * it has not changed since. `ref` is never sent to the model. New in 0.9.0.
+   * it has not changed since. `ref` is never sent to the model, nor in a summary. An event holds it
+   * only with `AskOptions.eventResults: true`, in the full plan of `run.finish` and `run.error`.
+   * New in 0.9.0.
    */
   original?: { ref: string; bytes: number; sha256: string };
   name: string;
