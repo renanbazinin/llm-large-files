@@ -808,6 +808,39 @@ describe("the MIME type of an upload (S11)", () => {
     await upload(base, { "Content-Type": "text/plain", "X-File-Type": "text%2Fmarkdown" });
     expect(types).toEqual(["text/plain%0D%0AX-Injected:%201", "text/markdown; charset=utf-8", "text/markdown"]);
   });
+
+  // The handler side (it stopped decoding Content-Type) and the library side (ingest keeps a clean
+  // type/subtype) together: a line break, a direction override or 8 KB of a header never reach the
+  // metadata or the answer.
+  it("keeps a clean type/subtype in the metadata and the answer, and application/octet-stream for anything else", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const base = await serve(files);
+    const long = `text/${"a".repeat(8_000)}`;
+    const cases: Array<[Record<string, string>, string]> = [
+      [{ "X-File-Type": encodeURIComponent("text/plain\r\nX-Injected: 1") }, "application/octet-stream"],
+      [{ "X-File-Type": encodeURIComponent("text/plain‮") }, "application/octet-stream"],
+      [{ "X-File-Type": encodeURIComponent("text/plain\u{E0041}") }, "application/octet-stream"],
+      [{ "X-File-Type": encodeURIComponent(long) }, "application/octet-stream"],
+      [{ "Content-Type": "text/plain%0D%0AX-Injected:%201" }, "application/octet-stream"],
+      // The bytes of U+202E, as a header carries them.
+      [{ "Content-Type": "text/plainâ\u0080®" }, "application/octet-stream"],
+      [{ "Content-Type": long }, "application/octet-stream"],
+      [{ "X-File-Type": encodeURIComponent("Text/Markdown; charset=utf-8") }, "text/markdown"],
+      [{ "Content-Type": "Text/CSV; charset=x" }, "text/csv"],
+    ];
+    for (const [headers, expected] of cases) {
+      const label = JSON.stringify(headers).slice(0, 80);
+      const response = await upload(base, headers);
+      expect(response.status, label).toBe(201);
+      const answer = (await response.json()) as { id: string; mimeType: string };
+      expect(answer.mimeType, label).toBe(expected);
+      expect((await files.getMeta(answer.id))?.mimeType, label).toBe(expected);
+      const stream = parse(await (await upload(base, headers, "The meeting is on Tuesday.", true)).text());
+      const finish = stream.find((message) => message.data?.type === "ingest.finish")?.data as { document: { id: string; mimeType: string } } | undefined;
+      expect(finish?.document.mimeType, label).toBe(expected);
+      expect((await files.getMeta(finish!.document.id))?.mimeType, label).toBe(expected);
+    }
+  });
 });
 
 describe("what reaches the model", () => {
