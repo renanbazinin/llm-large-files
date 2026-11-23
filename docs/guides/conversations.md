@@ -581,8 +581,16 @@ the explorer's calls and results, built in its own form ([Explorer model](./expl
 
 - **Pass the same `owner` with every question.** A document ingested with another owner is treated
   as missing. The owner is a string that is not empty: `ingest` refuses `""`, which
-  `user?.id ?? ""` gives a caller who is not signed in. How to choose the owner (a user, or a user
-  and a session) is in [Storage](./storage.md#how-ownership-works).
+  `user?.id ?? ""` gives a caller who is not signed in. How to choose the owner is in
+  [Storage](./storage.md#how-ownership-works).
+- **Pass the chat as `scope`**, new in 0.9.0: `scope: [userId, sessionId]` at ingest and with every
+  question. A document of another chat is then treated as missing, even one of the same user
+  ([Scopes](./storage.md#scopes)).
+- **Give the documents IDs of your own** (`IngestInput.id`, new in 0.9.0), such as the ID of the
+  upload. The stored rounds (`toolTurns`) name the documents by ID. A file ingested again under the
+  same ID (from the upload you kept, once it expired) is found by those rounds and by the session
+  record as it is: nothing to rewrite. With the IDs the library makes, each ingest gives a new ID,
+  and the rounds keep naming the old one.
 - **Keep the documents with the conversation, not with one message.** Pass all of them in
   `documentIds` on every question. They are planned again each time.
 - **A document that is gone stops the question before any model request.** One that expired, was

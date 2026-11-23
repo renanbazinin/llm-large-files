@@ -1164,12 +1164,14 @@ See [Security](./security.md) and [Tools](./reference/tools.md).
 ### `DocumentStoreError`: "The document store could not be read (EIO). Try again."
 
 Thrown by a question, `files.getMeta`, `files.getOriginal`, and by `files.delete` when the look-up
-fails (a failure of the store's own `delete` comes as the store's error). When the error behind it
-has no `code`, the message has none. Inside a question's tool call, the model gets it as the
-call's error, and `steps` shows
-`… — failed: The document store could not be read (EIO). Try again.`. The upload
-handler's `get` and `remove` answer `500` with `The file could not be looked up (EIO).` or
-`The file could not be deleted (EIO).`.
+fails. When the error behind it has no `code`, the message has none. Inside a question's tool call,
+the model gets it as the call's error, and `steps` shows
+`… — failed: The document store could not be read (EIO). Try again.`. The upload handler's `get`
+and `remove` answer `503` with that message (since 0.9.0; they answered `500`). Since 0.9.0 the
+errors of writes are `DocumentStoreError`s too, with their own messages: "The document could not be
+stored (EIO). Try again." from `files.ingest`, "The document could not be deleted (EIO). Try
+again." from the store's own `delete`, "The document store could not be cleaned up (EIO). Try
+again." from `files.sweep`.
 
 **Cause.** The store failed while it was read: a network volume that did not answer, too many open
 files, a database that is down. The documents are not gone.
@@ -1207,29 +1209,29 @@ try again.
 
 See [Storage](./guides/storage.md) and [`DocumentStore`](./reference/library.md#documentstore).
 
-### `500`: "Upload failed.", or `422` with your database's message
+### `503`: "The document could not be stored. Try again.", or `422` with your database's message
 
-**Cause.** A store write that fails is thrown as it came, not as a `DocumentStoreError`. The upload
-handler answers it `500` with `{ "error": "Upload failed." }` when it has no `status` (or
-`statusCode`) from 400 to 599 and is not a Node system error with `code` and `syscall`. Its message
-is your database's own and may name its host, so it is not sent, and the handlers log nothing.
+**Cause.** A store write that fails is a `DocumentStoreError` since 0.9.0 (it was thrown as it
+came, and answered `500` "Upload failed."). The upload handler answers it `503` with its message,
+"The document could not be stored (ENOSPC). Try again." when the store's error has a code. Your
+database's own message is its `cause`, and may name its host, so it is not sent, and the handlers
+log nothing.
 
-Two paths answer it `422` with your database's message instead, as a file that cannot be read: an
-`ingest` of your own that throws a new error in its place, as `ingestInProcess` in
+Two paths can answer it `422` with your database's message instead, as a file that cannot be read:
+an `ingest` of your own that throws a new error in its place, as `ingestInProcess` in
 [Deployment](./guides/deployment.md#uploads-and-ingest) does, and a route of your own, as in
 [Web app](./guides/web-app.md#filesingest-and-its-errors). Every case is in the
 [node reference](./reference/node.md#uploadrequest-response).
 
-**Fix.** In a store of your own, log a write that fails, and throw an error with a `status` (a
-`503`, say) whose message is fit for a user. An `ingest` of your own must copy that status, and a
-system error's `code` and `syscall`, onto the error it throws, as `ingestInProcess` in
-[Deployment](./guides/deployment.md#uploads-and-ingest) does.
+**Fix.** Log `error.cause` where you catch it, and fix the storage. An `ingest` of your own must
+pass the `DocumentStoreError` on as it is, or copy its `status` onto the error it throws.
 
 See [Storage](./guides/storage.md) and [`llm-large-files/node` reference](./reference/node.md).
 
-### `500`: "Upload failed (ENOSPC)."
+### `503`: "The document could not be stored (ENOSPC). Try again."
 
-**Cause.** The disk of a `FileDocumentStore` is full. Expired documents are removed when they are
+**Cause.** The disk of a `FileDocumentStore` is full. (Before 0.9.0 the answer was `500` "Upload
+failed (ENOSPC).".) Expired documents are removed when they are
 next looked up, or by `files.sweep()`: one that nobody asks for again stays on disk until a sweep.
 Kept originals (`keepOriginals`) take space up to the upload limit each, until they expire.
 

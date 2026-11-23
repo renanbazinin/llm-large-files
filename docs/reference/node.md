@@ -219,28 +219,27 @@ The responses:
 | `408` | `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }`, with `Connection: close` | The body stopped arriving for `uploadIdleTimeoutMs`. The connection is closed. New in 0.8.2. |
 | `503` | `{ "error": "The server is receiving other files right now. Try again in a moment." }`, with `Retry-After: 5` | Uploads are already held, and this one would bring them past `maxPendingUploadBytes`. Answered before the body is read, also to a request with `Accept: text/event-stream`. New in 0.8.2. |
 | `503` | `{ "error": "The server is reading other files right now. Try again in a moment." }`, with `Retry-After: 5` | The isolated readers of [`createIsolatedExtractors`](#createisolatedextractorsoptions) are all busy and their queue is full: an `IngestError` of code `"busy"`. The header is its `retryAfterMs` in seconds, rounded up, at least 1. While they shut down (`close()`): "The server is shutting down. Try again in a moment." New in 0.8.0. |
-| 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, an extractor or the store threw an error with that `status` or `statusCode`. |
+| `409` | `{ "error": "report.pdf: a document with this ID already exists." }` | `files.ingest` threw an `IngestError` of code `"exists"`: a document of the ID the upload was given is there. New in 0.9.0. |
+| `503` | `{ "error": "The document could not be stored (ENOSPC). Try again." }` | The store failed while it wrote the document, or did not finish writing it within `ingestTimeoutMs` (code `ETIMEDOUT`): `files.ingest` threw a [`DocumentStoreError`](./library.md#documentstoreerror) of operation `"write"`. The code is shown only when the store's error has one. The store's own message is not sent. New in 0.9.0: it was answered `500` "Upload failed (ENOSPC)." or "Upload failed.". |
+| 400 to 599 | `{ "error": <the error's message> }` | `getOwner` or an extractor threw an error with that `status` or `statusCode`. |
 | `500` | `{ "error": "Upload failed (empty owner)." }` | `getOwner` returned `""`, spaces only or `null`. The body is not read. New in 0.6.0. |
 | `500` | `{ "error": "Upload failed (owner is not a string)." }` | `getOwner` returned, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array. The body is not read. New in 0.6.0. |
-| `500` | `{ "error": "Upload failed (ENOSPC)." }` | The store failed with a Node system error, one with a `code` and a `syscall`. Only the code is passed on. |
+| `500` | `{ "error": "Upload failed (ENOSPC)." }` | An extractor of your own failed with a Node system error, one with a `code` and a `syscall`. Only the code is passed on. |
 | `500` | `{ "error": "Upload failed." }` | `getOwner` threw an error without a status, or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of either kind that has a `code` and a `syscall` is answered as in the row above, with its code. |
-| `500` | `{ "error": "Upload failed." }` | The store failed while it wrote the document, with an error that has no `status` or `statusCode` from 400 to 599 and is not a Node system error (a database driver's error, say), or did not finish writing it within `ingestTimeoutMs` (new in 0.8.2). Or `files.ingest` threw a value that is not an `Error` (an extractor of your own that throws a string, say). Such a value with a `code` and a `syscall` gets its code, as in the `ENOSPC` row. The error's own message is not sent. See below. |
+| `500` | `{ "error": "Upload failed." }` | `files.ingest` threw a value that is not an `Error` (an extractor of your own that throws a string, say). Such a value with a `code` and a `syscall` gets its code, as in the `ENOSPC` row. |
 
-A store that fails while it writes is answered `500` "Upload failed." when its error has neither a
-`status` (or `statusCode`) from 400 to 599 nor a Node system error's `code` and `syscall`. Its
-message may name a host, so it is not sent, and the handlers log nothing. `files.ingest` throws
-that error unchanged, and the handler knows it by a mark that `ingest` keeps. The package does not
-export the mark, so two paths answer such an error `422` with the store's message, as a file that
-cannot be read:
+A store that fails while it writes reaches the handler as a `DocumentStoreError` since 0.9.0, and is
+answered `503` with its message, which names no path or host. The store's own error is its `cause`,
+and the handlers log nothing: log it in your store. Two paths can answer an error of your own `422`
+with its message, as a file that cannot be read:
 
 - an `ingest` of your own that throws a new error in place of the store's, such as `ingestInProcess`
   in [deployment](../guides/deployment.md#uploads-and-ingest);
 - a route of your own around `files.ingest`, such as the one in
   [web app](../guides/web-app.md#filesingest-and-its-errors) with its `ingestFailure` helper.
 
-In a store of your own, log the failure and throw an error with a `status` (a `503`, say) and a
-message without hosts: every path keeps that status. An `ingest` of your own must copy the
-`status`, and a system error's `code` and `syscall`, onto the error it throws.
+Behind them, pass the `DocumentStoreError` on as it is: an `ingest` of your own must not throw a
+new error in its place, or must copy its `status` onto the error it throws.
 [Storage](../guides/storage.md) has the rules for a store's errors.
 
 #### Upload with progress: `Accept: text/event-stream`
@@ -294,8 +293,8 @@ data: {"type":"ingest.finish","document":{"id":"doc_f6502d2f94694d709c7db2ec634c
   `{ "message": "This file looks binary, not text. …", "status": 422, "code": "not_text" }`, and
   isolated readers that are all busy `{ "message": "The server is reading other files right now. Try
   again in a moment.", "status": 503, "code": "busy" }`, with no `Retry-After` (the headers are
-  sent). A store that failed is `{ "message": "Upload failed.", "status": 500 }`, never the store's
-  own message, which may name a host. An error with a status keeps it. The error has no `kind` or
+  sent). A store that failed is `{ "message": "The document could not be stored. Try again.", "status": 503 }`
+  (since 0.9.0; it was `"Upload failed."` and 500), never the store's own message, which may name a host. An error with a status keeps it. The error has no `kind` or
   `name` here, unlike the `EventError` of `files.ingest`'s own events; `code` is new in 0.8.0, so
   that a page can say why in its own words.
 - **The status is `200` whatever happens next.** Once the stream has started, a failure can only be
@@ -329,10 +328,10 @@ the store: its text, its index and any kept original, as far as your store's `de
 |---|---|---|
 | `200` | `{ "deleted": true }` | The document was deleted. |
 | `200` | `{ "deleted": false }` | This owner has no such document: `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner. Also when the store's `delete` returned `false`. It never answers `404`. |
-| 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, or the store's `delete`, threw an error with that `status` or `statusCode`. |
+| 400 to 599 | `{ "error": <the error's message> }` | `getOwner` threw an error with that `status` or `statusCode`. |
 | `503` | `{ "error": "The document store could not be read (EIO). Try again." }` | The look-up before the delete could not read the store, as for `get`. Since 0.9.0. |
-| `500` | `{ "error": "The file could not be deleted (EIO)." }` | The store's `delete` failed with a Node system error, with that error's code. |
-| `500` | `{ "error": "The file could not be deleted." }` | The same with no system error code, or `getOwner` threw an error without a status. |
+| `503` | `{ "error": "The document could not be deleted (EIO). Try again." }` | The store's `delete` failed: `files.delete` threw a `DocumentStoreError` of operation `"delete"`, with the code of the store's error when it has one. Since 0.9.0: it was `500` "The file could not be deleted (EIO).". |
+| `500` | `{ "error": "The file could not be deleted." }` | `getOwner` threw an error without a status. |
 
 ## How errors are answered
 
@@ -348,10 +347,9 @@ The three handlers answer an error by one rule:
   (one with a `code` and a `syscall`), its code: "Upload failed (ENOSPC).". The error's own message
   is never sent, since it can name paths and hosts of your server.
 - **The one exception** is in `upload`: an `Error` from `files.ingest` that has neither a status nor
-  a system error's `code` and `syscall` is a file that cannot be read, `422` with its message,
-  unless `files.ingest` marked it as an error the store threw while it wrote the document. That
-  one, and a thrown value that is not an `Error`, are answered as any other error. An `ingest` of
-  your own that throws a new error in its place loses the mark ([upload](#uploadrequest-response)).
+  a system error's `code` and `syscall` is a file that cannot be read, `422` with its message. A
+  store that failed is a `DocumentStoreError`, whose status is 503, since 0.9.0. A thrown value
+  that is not an `Error` is answered as any other error ([upload](#uploadrequest-response)).
 
 Guide: [errors and reliability](../guides/errors-and-reliability.md), for the errors of a question
 itself; [web app](../guides/web-app.md), for what to show in the browser.

@@ -116,7 +116,9 @@ allowance as the window, and its steps say so.
 | `Error`: "The last message must be the user's." | `messages` is empty, or its last message is not a user turn. | undefined |
 | `RangeError`: "limits.… must be a number, and is NaN. Leave it out for the default.", or `TypeError`: "limits.… must be a number, and is …" | A field of `options.limits` is NaN, or not a number. Before any request. New in 0.7.1. | undefined |
 | [`DocumentStoreError`](./library.md#documentstoreerror) | The store could not be read while the documents were planned. The documents are not gone: try again. A store that fails during a tool call is not thrown: the model gets the message as the tool's `error`. | undefined |
-| [`DocumentsNotFoundError`](#documentsnotfounderror) | A document of `documentIds` was never stored, has expired or been deleted, or belongs to another `owner`. Before any request. | undefined |
+| [`DocumentsNotFoundError`](#documentsnotfounderror) | A document of `documentIds` was never stored, has expired or been deleted, or belongs to another `owner` or `scope`. Before any request. | undefined |
+| `TypeError("owner is required: requireOwner is on")`, `TypeError("scope is required: requireScope is on")` | The library requires an owner or a scope ([`LargeFilesOptions`](./library.md#largefilesoptions)), and the question has none. Before any request. New in 0.9.0. | undefined |
+| [`DocumentScopeError`](./library.md#documentscopeerror) | `scope` is not a valid scope, or the store threw one. Before any request when the scope is not valid. New in 0.9.0. | undefined |
 | [`ModelRequestError`](./errors-and-retries.md#modelrequesterror), or the adapter's subclass (`GeminiRequestError`, `OpenAiRequestError`, `AnthropicRequestError`) | A chat request failed, and was not worth another try, still failed after `retry.retries` more, asked for a longer wait than `retry.maxDelayMs`, or had already shown text. A `context_overflow` that the recovery above did not mend. | What the question had done |
 | Any other error of an adapter | Thrown as it came. An error without a numeric `status` is not sent again. | What the question had done |
 | What a listener threw | `onEvent`, `onText`, `onActivity` or `onStep` threw. The question stops: the calls of the turn still running stop, and no request follows. New in 0.7.0 for a throw during a whole-file read (`onActivity` on its progress, `onEvent` on its events): 0.6.0 reported it to the model as the tool's error, and went on. | What the question had done, when the error is an object and the question was under way |
@@ -235,6 +237,7 @@ The options of `askWithFiles`.
 | `documentPlacement` | `"first" \| "last"` | `"first"` | Where document text and cards go. `"first"`: at the start of the first user turn, where they stay as the conversation grows, so the provider's prompt cache can reuse them on every follow-up question. `"last"`: after the text of the latest user turn; they then move on every turn and are billed in full each time. |
 | `system` | `string` | none | Your system instruction. It is trimmed, and the guide to the document tools is added after it when a document is reached through tools or has pages to look at. |
 | `owner` | `string` | none | The user (or tenant) asking. A document ingested with another owner is treated as missing. Without `owner`, only documents ingested without one can be used. |
+| `scope` | [`DocumentScope`](./library.md#documentscope) | none | The scope of the question, such as `[userId, chatId]`. Every store call of the question carries it, and a document ingested with another scope is treated as missing. The tools check the owner and scope the store holds against `owner` and `scope` (`ToolOptions.access`). New in 0.9.0. |
 | `limits` | [`AskLimits`](#asklimits) | `{}` | The limits of this question: tool turns, calls per turn, whole-file reads, ceilings on tokens and requests. |
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | `{ retries: 3, baseDelayMs: 500, maxDelayMs: 60_000 }` | How a failed model request is sent again: chat requests and whole-file part reads. `{ retries: 0 }` turns it off. |
 | `budget` | `Partial<`[`Budget`](./library.md#budget)`>` | the library's | Budget fields for this question, in place of the library's. Fields given nowhere follow the context window. The budget is then fitted to the models either way: `result.budget` shows it. |
@@ -346,7 +349,7 @@ declare class DocumentsNotFoundError extends Error {
 ```
 
 Thrown by `askWithFiles` (and `askGemini`) before any model request, when documents of
-`documentIds` were never stored, have expired or been deleted, or belong to another owner. `ids`
+`documentIds` were never stored, have expired or been deleted, or belong to another owner or scope. `ids`
 lists them. `name` is `"DocumentsNotFoundError"`. The message names the IDs, not the files: "A
 document is no longer available: ‹id›. Upload it again.", or for several "3 documents are no longer
 available: ‹id›, ‹id›, ‹id›. Upload them again." New in 0.9.0: `code` is `"documents_missing"`,
