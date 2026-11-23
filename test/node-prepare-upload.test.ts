@@ -28,9 +28,16 @@ import { numberedPdf } from "./pdf-fixtures.js";
 
 /**
  * The files the handlers opened to write ("wx"), and the flags of every opening of a file. With
- * `fullUnder` set, a write to a file under that folder fails as a full disk does (ENOSPC).
+ * `fullUnder` set, a write to a file under that folder fails as a full disk does (ENOSPC). With
+ * `writesHeldUnder` set, each write to such a file waits for `writesGate`, as on a volume that
+ * stopped answering, then runs.
  */
-const disk = vi.hoisted(() => ({ opens: [] as Array<{ file: string; flags: unknown; mode: unknown }>, fullUnder: undefined as string | undefined }));
+const disk = vi.hoisted(() => ({
+  opens: [] as Array<{ file: string; flags: unknown; mode: unknown }>,
+  fullUnder: undefined as string | undefined,
+  writesHeldUnder: undefined as string | undefined,
+  writesGate: Promise.resolve(),
+}));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -41,6 +48,14 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     if (disk.fullUnder !== undefined && file.startsWith(disk.fullUnder) && args[1] === "wx") {
       (handle as { write: unknown }).write = async () => {
         throw Object.assign(new Error(`ENOSPC: no space left on device, write '${file}'`), { code: "ENOSPC", errno: -28, syscall: "write" });
+      };
+    }
+    if (disk.writesHeldUnder !== undefined && file.startsWith(disk.writesHeldUnder) && args[1] === "wx") {
+      const write = handle.write.bind(handle) as (...rest: unknown[]) => Promise<unknown>;
+      const gate = disk.writesGate;
+      (handle as { write: unknown }).write = async (...rest: unknown[]) => {
+        await gate;
+        return write(...rest);
       };
     }
     return handle;
@@ -57,6 +72,7 @@ beforeEach(async () => {
   await mkdir(path.join(root, "alice", "chat-1", "uploads"), { recursive: true });
   disk.opens.length = 0;
   disk.fullUnder = undefined;
+  disk.writesHeldUnder = undefined;
 });
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -418,6 +434,28 @@ describe("prepareUpload with a path", () => {
     expect(await response.json()).toEqual({ error: "Upload failed." });
     expect(writes(path.join(root, "alice", "chat-1", "uploads", "up-1"))).toHaveLength(1);
     expect(await uploads()).toEqual([]);
+  });
+
+  // A volume that stopped answering held the upload, unanswered, with its file.
+  it("removes the file, and answers 500 (ETIMEDOUT), when a write does not end within uploadIdleTimeoutMs", async () => {
+    const files = library();
+    const { options, saved } = chatbot({ uploadIdleTimeoutMs: 200 });
+    const base = await serve(files, options);
+    let release!: () => void;
+    disk.writesHeldUnder = root;
+    disk.writesGate = new Promise<void>((resolve) => (release = resolve));
+    for (const events of [false, true]) {
+      const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events);
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
+    }
+    expect(writes(saved("up-1"))).toHaveLength(1);
+    expect(writes(saved("up-2"))).toHaveLength(1);
+    await expect.poll(() => uploads()).toEqual([]);
+    release();
+    await pause(20);
+    expect(await uploads()).toEqual([]);
+    expect(await files.getMeta("up-1", ACCESS)).toBeUndefined();
   });
 
   it("answers a folder that is not there with its code, and makes no folder", async () => {

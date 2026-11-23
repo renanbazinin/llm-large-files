@@ -23,19 +23,35 @@ import { fakeModel, says, serviceLog } from "./fake-model.js";
 
 /**
  * The files opened "wx" (made new) by the handlers. With `fullUnder` set, a write to such a file
- * under that folder fails as a full disk does (ENOSPC).
+ * under that folder fails as a full disk does (ENOSPC). With `hold` set, one call to the disk for
+ * such a file (its opening, each write, or its closing) waits for `hold.gate`, as on a volume that
+ * stopped answering, then runs.
  */
-const disk = vi.hoisted(() => ({ made: [] as string[], fullUnder: undefined as string | undefined }));
+const disk = vi.hoisted(() => ({
+  made: [] as string[],
+  fullUnder: undefined as string | undefined,
+  hold: undefined as { under: string; call: "open" | "write" | "close"; gate: Promise<void> } | undefined,
+}));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   const open = (async (...args: Parameters<typeof actual.open>) => {
-    const handle = await actual.open(...args);
     const file = String(args[0]);
+    const held = disk.hold !== undefined && file.startsWith(disk.hold.under) && args[1] === "wx" ? disk.hold : undefined;
+    if (held?.call === "open") await held.gate;
+    const handle = await actual.open(...args);
     if (args[1] === "wx") disk.made.push(file);
     if (disk.fullUnder !== undefined && file.startsWith(disk.fullUnder) && args[1] === "wx") {
       (handle as { write: unknown }).write = async () => {
         throw Object.assign(new Error(`ENOSPC: no space left on device, write '${file}'`), { code: "ENOSPC", errno: -28, syscall: "write" });
+      };
+    }
+    if (held?.call === "write" || held?.call === "close") {
+      const call = held.call;
+      const real = (handle[call] as (...rest: unknown[]) => Promise<unknown>).bind(handle);
+      (handle as unknown as Record<string, unknown>)[call] = async (...rest: unknown[]) => {
+        await held.gate;
+        return real(...rest);
       };
     }
     return handle;
@@ -50,6 +66,7 @@ beforeEach(async () => {
   // A distinctive folder name, looked for in every answer, event and model request.
   spool = await mkdtemp(path.join(tmpdir(), "llf-spool-dir-"));
   disk.fullUnder = undefined;
+  disk.hold = undefined;
   disk.made.length = 0;
 });
 afterEach(async () => {
@@ -248,6 +265,29 @@ describe("uploadSpool", () => {
     expect(await spooled()).toEqual([]);
     disk.fullUnder = undefined;
     expect((await upload(base, "notes.txt", "x".repeat(500))).status).toBe(201);
+  });
+
+  // A volume that stops answering (a network volume whose server is gone) held the upload: no
+  // answer, and its room of the spool kept for good, so that the next upload got a 503.
+  it("answers 500 (ETIMEDOUT) when the disk does not answer within uploadIdleTimeoutMs, and gives the room back", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: 200 });
+    for (const call of ["open", "write", "close"] as const) {
+      for (const send of [(name: string) => upload(base, name, "x".repeat(800), false, AbortSignal.timeout(3_000)), (name: string) => chunked(base, name, ["x".repeat(400), "x".repeat(400)])]) {
+        let release!: () => void;
+        disk.hold = { under: spool, call, gate: new Promise<void>((resolve) => (release = resolve)) };
+        const hung = await send(`${call}.txt`);
+        disk.hold = undefined;
+        expect(hung.status).toBe(500);
+        const body = hung instanceof Response ? await hung.text() : hung.body;
+        expect(body).toBe(JSON.stringify({ error: "Upload failed (ETIMEDOUT)." }));
+        // Its room is back: another upload of 800 bytes is taken.
+        expect((await upload(base, "next.txt", "y".repeat(800))).status).toBe(201);
+        // The file is removed at once, or once the call that hung ends (an opening that made it late).
+        release();
+        await expect.poll(() => spooled()).toEqual([]);
+      }
+    }
   });
 
   // In memory, a body without a Content-Length takes maxUploadBytes of room until it is read: two

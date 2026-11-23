@@ -217,7 +217,10 @@ export type DocumentHandlerOptions = {
   /**
    * An upload whose body stops arriving for this many milliseconds is answered 408, its connection
    * closed and its room given back: a client that sends its headers and then nothing, or stalls,
-   * holds its room no longer. 0 or `Infinity` for no limit. Defaults to 30,000. New in 0.8.2.
+   * holds its room no longer. Since 0.9.0 it also bounds each call to the disk for a body written
+   * to a file (its opening, each write, its closing): a volume that stops answering fails the
+   * upload with a 500 "Upload failed (ETIMEDOUT).", and its room is given back. 0 or `Infinity` for
+   * no limit. Defaults to 30,000. New in 0.8.2.
    */
   uploadIdleTimeoutMs?: number;
 };
