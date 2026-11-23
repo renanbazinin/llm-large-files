@@ -2,11 +2,14 @@
 // "llm-large-files/gemini", "llm-large-files/openai", "llm-large-files/anthropic", or your own.
 // Node HTTP handlers are in "llm-large-files/node".
 export { createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_INGEST_TIMEOUT_MS, DEFAULT_MAX_PDF_PAGES, DEFAULT_MAX_TEXT_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, isDocumentId, NEVER_EXPIRES, toDocumentSummary } from "./library.js";
-export type { AccessOptions, IngestFromSource, IngestInput, IngestSource, LargeFiles, LargeFilesOptions, OriginalReadContext, OriginalsReader, PrepareOptions, ToolOptions } from "./library.js";
+export type { AccessOptions, CreatedLargeFiles, IngestFromSource, IngestInput, IngestSource, LargeFiles, LargeFilesOptions, LargeFilesStats, OriginalReadContext, OriginalsReader, PrepareOptions, ToolOptions } from "./library.js";
 export { DEFAULT_BUDGET, resolveBudget } from "./budget.js";
 export type { ModelLimits } from "./budget.js";
-export { askStream, askWithFiles, EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "./ask.js";
-export type { AskLimits, AskOptions, AskResult, MissingDocumentsAction, MissingDocumentsContext } from "./ask.js";
+export { askStream, askWithFiles, DEFAULT_INPUT_TOKENS, EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "./ask.js";
+export type { AskLimits, AskOptions, AskResult, MissingDocumentsAction, MissingDocumentsContext, ToolResultContext, ToolResultVerdict } from "./ask.js";
+export * from "./answer-info.js";
+export * from "./citations.js";
+export { PLACEMENT_STATE_VERSION } from "./placement.js";
 export { classifyModelError, DocumentsNotFoundError, errorKindOf, ModelRequestError, TOOL_TURN_VERSION, UsageMeter } from "./model.js";
 export type {
   ChatMessage,
@@ -62,5 +65,5 @@ export type { FileDocumentScopes, FileDocumentStoreOptions } from "./stores.js";
 export { createPdfExtractor, defaultExtractors, detectFormat } from "./extract.js";
 export type { PdfExtractorOptions } from "./extract.js";
 export { estimateTokens, utf8Bytes, jsonBytes } from "./text.js";
-export { MAX_VIEW_PAGES, MAX_WHOLE_DOCUMENT_READS, REGEX_BUDGET_MS, TOOL_NAMES, toolResultSummary } from "./tools.js";
+export { declarationsFor, MAX_VIEW_PAGES, MAX_WHOLE_DOCUMENT_READS, REGEX_BUDGET_MS, TOOL_NAMES, toolResultSummary } from "./tools.js";
 export type * from "./types.js";

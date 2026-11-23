@@ -23,8 +23,10 @@ import type {
   DocumentStore,
   Extractor,
   GenerateText,
+  PlacementState,
   PreparedContext,
   ProgressListener,
+  ToolName,
   ToolSet,
 } from "./types.js";
 
@@ -155,6 +157,23 @@ export type LargeFilesOptions = {
    * store, not a user's access. Defaults to false. New in 0.9.0.
    */
   requireScope?: boolean;
+  /**
+   * The most time one store call may take, in milliseconds. Past it, the call fails with a
+   * `DocumentStoreError` of code "ETIMEDOUT" (status 503). Defaults to 30,000; 0 sets no limit.
+   * New in 0.10.0. Not applied yet: store calls have no time limit.
+   */
+  storeTimeoutMs?: number;
+  /**
+   * How many store calls past `storeTimeoutMs` may still be running in this process before new ones
+   * fail at once, with code "STORE_STUCK" (status 503). Defaults to half of `UV_THREADPOOL_SIZE` (4
+   * when it is not set), and at least 1. New in 0.10.0. Not applied yet.
+   */
+  maxStuckStoreCalls?: number;
+  /**
+   * The most time one `sweep` may take, in milliseconds. A sweep never counts as a stuck call.
+   * Defaults to 0: no limit. New in 0.10.0. Not applied yet.
+   */
+  sweepTimeoutMs?: number;
   /** Clock override, for tests. */
   now?: () => Date;
 };
@@ -260,7 +279,15 @@ export type IngestFromSource = Omit<IngestInput, "bytes"> & { source: IngestSour
  * Access options. When a document has an owner, only that owner can use it. `scope`, new in 0.9.0:
  * the scope of the caller; a document stored with a scope serves only a caller with the same one.
  */
-export type AccessOptions = { owner?: string; scope?: DocumentScope };
+export type AccessOptions = {
+  owner?: string;
+  scope?: DocumentScope;
+  /**
+   * Ends this caller's wait for the store, with the signal's reason: never a store call that other
+   * callers wait on too. New in 0.10.0. Not read yet.
+   */
+  signal?: AbortSignal;
+};
 
 export type PrepareOptions = AccessOptions & {
   /**
@@ -281,6 +308,28 @@ export type PrepareOptions = AccessOptions & {
    * `wholeDocumentAnalysis: false`.
    */
   wholeDocumentAnalysis?: boolean;
+  /**
+   * The `PlacementState` of the chat's last question: the documents keep the place they had.
+   * New in 0.10.0. Not read yet.
+   */
+  placement?: PlacementState;
+  /**
+   * Number the lines of the documents sent whole, as the tools number them. Defaults to false here,
+   * so that `prepare` gives the blocks of 0.9 (`askWithFiles` will ask for true). New in 0.10.0.
+   * Not read yet.
+   */
+  numberInline?: boolean;
+  /**
+   * "tools": list the documents sent whole whose tables the tools can count in `toolable`; "text":
+   * as in 0.9. Defaults to "text" here (`askWithFiles` will ask for "tools"). New in 0.10.0. Not
+   * read yet.
+   */
+  inlineTables?: "tools" | "text";
+  /**
+   * Room to keep free in the request besides `base`: the tool declarations, the guide, the header
+   * lines and the cards, at their rendered size. New in 0.10.0. Not read yet.
+   */
+  reserve?: { tokens: number; bytes: number };
 };
 
 export type ToolOptions = {
@@ -322,6 +371,17 @@ export type ToolOptions = {
    * PDFs that are not searched because their text is already in the prompt.
    */
   viewPages?: boolean | DocumentMeta[];
+  /**
+   * Declare exactly these tools, in the order the tool set declares them (search, read, overview,
+   * aggregate, analyze, view). A declared tool that cannot run answers with its reason. New in
+   * 0.10.0. Not read yet.
+   */
+  declare?: readonly ToolName[];
+  /**
+   * The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in
+   * full. New in 0.10.0. Not read yet.
+   */
+  inline?: readonly string[];
 };
 
 export interface LargeFiles {
@@ -373,7 +433,41 @@ export interface LargeFiles {
   prepare(ids: string[], base: { tokens: number; bytes: number }, options?: PrepareOptions): Promise<PreparedContext>;
   /** Tools scoped to these documents. Pass `generate` to enable whole-document analysis. */
   tools(documents: DocumentMeta[], options?: ToolOptions): ToolSet;
+  /**
+   * Counters for metrics and alerts, read without a store call. Optional, so that a `LargeFiles`
+   * of your own still compiles; the one `createLargeFiles` makes has it. New in 0.10.0. Not written
+   * yet: that one throws.
+   */
+  stats?(): LargeFilesStats;
+  /**
+   * Looks each ID up for `options.access`, then makes the tools for the documents found: `missing`
+   * lists the others. Optional, so that a `LargeFiles` of your own still compiles; the one
+   * `createLargeFiles` makes has it. New in 0.10.0. Not written yet: that one rejects.
+   */
+  toolsFor?(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>;
 }
+
+/** What `files.stats()` counts: plain numbers, for metrics and alerts. New in 0.10.0. */
+export type LargeFilesStats = {
+  /** Ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). */
+  ingests: { active: number; waiting: number };
+  /** Scans of whole documents read by range, and those waiting their turn (`maxConcurrentScans`). */
+  scans: { active: number; waiting: number };
+  /** Looks at pages, and those waiting their turn (`maxConcurrentPageLooks`). */
+  pageLooks: { active: number; waiting: number };
+  /** Documents kept in memory: their bytes, how many there are, and the most bytes they may take (`cacheBytes`). */
+  cache: { bytes: number; entries: number; maxBytes: number };
+  /** Store calls of this process that ran past their time limit and have not settled. */
+  stuckStoreCalls: number;
+  /** This library's limit on them (`maxStuckStoreCalls`). */
+  maxStuckStoreCalls: number;
+};
+
+/**
+ * What `createLargeFiles` returns: a `LargeFiles` whose `stats` and `toolsFor` are always there, so
+ * that `files.stats()` needs no `?.`. New in 0.10.0.
+ */
+export type CreatedLargeFiles = LargeFiles & { stats(): LargeFilesStats; toolsFor: NonNullable<LargeFiles["toolsFor"]> };
 
 /**
  * Whether `value` has the shape of a document ID: one the library makes ("doc_" and 32 hex digits),
@@ -457,7 +551,7 @@ function numberOption(name: string, value: unknown, fallback: number, finite = f
   return value;
 }
 
-export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
+export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles {
   /** The fields the application set. The others follow the context window, whichever it is for a request. */
   const ownBudget = givenBudget(options.budget);
   const budget: Budget = resolveBudget(ownBudget);
@@ -870,6 +964,15 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         tables: documents.some((meta) => TABLE_FORMATS.has(meta.format)),
         ...rest,
       });
+    },
+
+    // New in 0.10.0, and not written yet: they throw until then.
+    stats() {
+      throw new Error("files.stats() is not available yet.");
+    },
+
+    async toolsFor() {
+      throw new Error("files.toolsFor() is not available yet.");
     },
   };
 

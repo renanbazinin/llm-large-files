@@ -8,7 +8,8 @@ import { numberLines, scanSource, SearchableDocument, type DocumentSource, type 
 import type { Budget, GenerateText, GenerateUsage, ProgressListener, ToolCallHooks, ToolRequestStart } from "./types.js";
 
 const NOTHING = "NOTHING RELEVANT";
-const PART_OUTPUT_TOKENS = 4_096;
+/** The output limit of a part read and of a merge of notes: the most tokens their notes may have. */
+export const PART_OUTPUT_TOKENS = 4_096;
 const FINAL_OUTPUT_TOKENS = 8_192;
 
 export type WholeDocumentResult = {

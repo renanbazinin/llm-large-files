@@ -36,7 +36,22 @@ export type ModelToolRound = { role: "tools"; calls: ToolCall[]; answers: ToolAn
 export type ModelMessage = ModelTextMessage | ModelToolRound;
 
 /** A plain chat turn. "model" is accepted as an alias for "assistant". */
-export type ChatTurn = { role: "user" | "assistant" | "model"; text: string };
+export type ChatTurn = {
+  role: "user" | "assistant" | "model";
+  text: string;
+  /**
+   * The documents attached with this user turn, set by the application. With
+   * `documentPlacement: "attached"`, each document's block goes at the start of the turn that lists
+   * it first. It is never sent to a model. New in 0.10.0. Not read yet.
+   */
+  documentIds?: string[];
+  /**
+   * Lines the library added to this turn when it was asked (a file left out, a file searched
+   * instead of sent whole), set by the library only: they come back in `AskResult.userTurn`, and
+   * are sent again as they are in later questions. New in 0.10.0. Not set or read yet.
+   */
+  notes?: string[];
+};
 
 /**
  * A round of tool use as an application stores it between a question and its answer
@@ -47,7 +62,17 @@ export type ChatTurn = { role: "user" | "assistant" | "model"; text: string };
  * absent on those of earlier versions. It is never sent to the model. `askWithFiles` refuses a
  * round of a higher version, which a newer version of the package made, with a `TypeError`.
  */
-export type ToolTurn = { role: "tools"; version?: number; calls: Array<ToolCall & { result: ToolResult }> };
+export type ToolTurn = {
+  role: "tools";
+  version?: number;
+  calls: Array<ToolCall & { result: ToolResult }>;
+  /**
+   * The model turn of this round in its provider's own form (`turn`, with Gemini's thought
+   * signatures), and the `id` of the adapter that made it (`model`). Sent back only to an adapter
+   * of that id; `model` is never sent to a model. New in 0.10.0. Not set or read yet.
+   */
+  native?: { model: string; turn: unknown };
+};
 
 /** The version of `ToolTurn` this package writes, and the highest it reads. New in 0.9.0. */
 export const TOOL_TURN_VERSION = 1;
@@ -103,12 +128,24 @@ export type ModelReply = {
   /**
    * How the reply ended, in terms every adapter maps its own to: "complete"; "cut" at the output
    * limit; "filtered" by the provider's safety filters; "malformed_call", a tool call the model
-   * tried to make that could not be read (Gemini's MALFORMED_FUNCTION_CALL). Unset when the
-   * adapter does not know the reason.
+   * tried to make that could not be read (Gemini's MALFORMED_FUNCTION_CALL); "other", a known
+   * reason that is none of these and that asking again does not mend (Gemini's OTHER or LANGUAGE;
+   * new in 0.10.0, and no built-in adapter gives it yet). Unset when the adapter does not know the
+   * reason.
    */
-  finish?: "complete" | "cut" | "filtered" | "malformed_call";
+  finish?: "complete" | "cut" | "filtered" | "malformed_call" | "other";
   /** Why the provider refused the prompt, when it did. Nothing more is asked after it. */
   blockReason?: string;
+  /**
+   * The provider's ID of this response (Gemini's `responseId`, the `id` of OpenAI and Claude), when
+   * it gives one. New in 0.10.0. No built-in adapter sets it yet.
+   */
+  responseId?: string;
+  /**
+   * The model that wrote this response, as the provider names it (Gemini's `modelVersion`, the
+   * `model` of OpenAI and Claude). New in 0.10.0. No built-in adapter sets it yet.
+   */
+  responseModel?: string;
   usage?: Partial<ModelUsage>;
   /** The provider's own usage object, as it came. */
   providerUsage?: Record<string, unknown>;
@@ -163,6 +200,12 @@ export type ModelCapabilities = {
    * result that the model may no longer have.
    */
   clearsToolResults?: boolean;
+  /**
+   * True when the rounds of earlier questions may be sent back to this model in its provider's own
+   * form (`ToolTurn.native`), thought signatures included. The default of `AskOptions.nativeRounds`.
+   * New in 0.10.0. Not read yet, and no built-in adapter sets it yet.
+   */
+  nativeRounds?: boolean;
 };
 
 /** A model provider, as the tool loop sees it. */
@@ -478,6 +521,14 @@ export type UsageTotals = ModelUsage & {
   /** Requests that were answered. One that failed and was sent again counts once. */
   requests: number;
   byModel: Record<string, ModelUsage & { requests: number }>;
+  /**
+   * The input tokens of the requests whose provider said nothing of their usage, by the library's
+   * estimate: the ceiling of the question counts them with the reported ones. New in 0.10.0. Not
+   * counted yet.
+   */
+  estimatedInputTokens?: number;
+  /** Requests that were answered without any usage from the provider (see `estimatedInputTokens`). New in 0.10.0. Not counted yet. */
+  unmeasuredRequests?: number;
 };
 
 /** Sums the usage of the requests of one question. */

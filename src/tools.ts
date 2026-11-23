@@ -10,7 +10,7 @@ import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type Document
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
 import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
-import type { Budget, GenerateText, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
+import type { Budget, GenerateText, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolName, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
 /** Matching lines an exact or regex search shows: the default, and the most a call may ask for. */
@@ -47,7 +47,17 @@ export const TOOL_NAMES = {
   analyze: "analyze_whole_document",
   view: "view_pages",
   aggregate: "aggregate_table",
-} as const;
+} as const satisfies Record<string, ToolName>;
+
+/**
+ * The declarations of the tools `names`, in the order the tool set declares them (search, read,
+ * overview, aggregate, analyze, view): for planning the size of a request before the tools are
+ * made. New in 0.10.0. Not written yet: it throws.
+ */
+export function declarationsFor(names: readonly ToolName[]): ToolDeclaration[] {
+  void names;
+  throw new Error("declarationsFor() is not available yet.");
+}
 
 const documentId = { type: "string" as const, description: "The document_id from the file's card." };
 

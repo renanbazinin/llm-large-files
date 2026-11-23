@@ -1,6 +1,7 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
 import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type DocumentRef, type EventResult, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
+import type { CitationCheck } from "./citations.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
@@ -14,6 +15,7 @@ import {
   TOOL_TURN_VERSION,
   UsageMeter,
   type ChatMessage,
+  type ChatTurn,
   type ModelAdapter,
   type ModelMessage,
   type ModelReply,
@@ -42,7 +44,7 @@ import {
   toolResultSummary,
   unknownToolName,
 } from "./tools.js";
-import type { Budget, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import type { Budget, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PlacementState, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
@@ -58,6 +60,13 @@ export const FINAL_ANSWER_WITHOUT_TOOLS = "Answer my question now, from what is 
  * needs, and the other model writes the answer.
  */
 export const EXPLORER_INSTRUCTION = "You only gather material in this conversation: another model writes the answer. It sees this conversation and what your tool calls returned, not what you thought or wrote. So call the tools until their results hold everything the answer needs from the files. Then, or at once if no tool is needed, reply with the single word DONE instead of an answer.";
+
+/**
+ * The ceiling on the input tokens of a question that sets no `limits.inputTokens`, before the room
+ * for whole-file reads is added to it. New in 0.10.0. Not applied yet: a question without
+ * `limits.inputTokens` has no ceiling.
+ */
+export const DEFAULT_INPUT_TOKENS = 1_000_000;
 
 /** The limits of one question. */
 export type AskLimits = {
@@ -88,6 +97,12 @@ export type AskLimits = {
   inputTokens?: number;
   /** The same ceiling, on the number of model requests: the chat's and the part reads' together. */
   requests?: number;
+  /**
+   * How many whole-file reads (`analyze_whole_document`) one question may make over all its
+   * documents, next to `wholeDocumentReads` for each one. Defaults to 2; `Infinity` keeps the rule
+   * of 0.9, one read of each document. New in 0.10.0. Not applied yet.
+   */
+  wholeReadsPerQuestion?: number;
 };
 
 export type AskOptions = {
@@ -109,9 +124,44 @@ export type AskOptions = {
    * Where document text and cards are added. "first" (the default) puts them at the start of the
    * first user turn, where they stay as the conversation grows, so a provider's prompt cache can
    * reuse them on every follow-up question. "last" appends them to the latest user turn; the
-   * document then moves on every turn and is billed in full each time.
+   * document then moves on every turn and is billed in full each time. "attached" puts each
+   * document's block at the start of the user turn whose `ChatTurn.documentIds` lists it first (new
+   * in 0.10.0; not applied yet: it is taken as "first").
    */
-  documentPlacement?: "first" | "last";
+  documentPlacement?: "first" | "last" | "attached";
+  /**
+   * The `PlacementState` of this chat's last answer (`AskResult.placement`): the documents keep
+   * the place they had, so the start of the requests stays the same. New in 0.10.0. Not read yet.
+   */
+  placement?: PlacementState;
+  /**
+   * Send the rounds of earlier questions in their provider's own form (`ToolTurn.native`) to an
+   * adapter of the same id. Defaults to the model's `capabilities.nativeRounds`, else false. New in
+   * 0.10.0. Not read yet.
+   */
+  nativeRounds?: boolean;
+  /**
+   * "tools": a table sent whole (a CSV, a workbook, `| cell |` rows) can still be counted and
+   * searched with `aggregate_table` and `search_document`; "text": it is sent whole without tools,
+   * as in 0.9. Defaults to "tools". New in 0.10.0. Not read yet: tables sent whole get no tools.
+   */
+  inlineTables?: "tools" | "text";
+  /**
+   * Number the lines of the files sent whole, as the tools number them, so that the answer can
+   * cite them. Defaults to true. New in 0.10.0. Not read yet: they are not numbered.
+   */
+  numberInline?: boolean;
+  /**
+   * What to do with an answer that a filter of the provider stopped: "keep" (the default) keeps
+   * its text, as in 0.9; "drop" gives `answered: false` and no text. New in 0.10.0. Not read yet.
+   */
+  filteredAnswer?: "keep" | "drop";
+  /**
+   * Called with every tool result before the model, the evidence, the steps and the events get it:
+   * return `{ result }` to send another result, `{ reject }` to send an error in its place, or
+   * undefined to keep it. What it throws ends the question. New in 0.10.0. Not called yet.
+   */
+  onToolResult?: (context: ToolResultContext) => ToolResultVerdict | undefined | Promise<ToolResultVerdict | undefined>;
   /**
    * The conversation; the last message must be the user's question. Plain turns
    * (`{ role, text }`), the tool rounds an earlier question returned (`AskResult.toolTurns`), and
@@ -234,7 +284,36 @@ export type AskResult = {
   usage: UsageTotals;
   /** The provider's own usage object of the last chat response, as it came. */
   lastUsage?: Record<string, unknown>;
+  /**
+   * How the reply whose text is the answer ended (`ModelReply.finish`), or the last reply of the
+   * chat when none answered. New in 0.10.0. Not set yet.
+   */
+  finish?: ModelReply["finish"];
+  /** The answer's line citations, checked against what the tools showed (`checkCitations`). New in 0.10.0. Not set yet. */
+  citations?: CitationCheck;
+  /**
+   * Where the documents of this chat were placed: keep it with the chat, and pass it as
+   * `AskOptions.placement` with the next question. New in 0.10.0. Not set yet.
+   */
+  placement?: PlacementState;
+  /**
+   * The latest user turn as it was sent: its text and `documentIds`, and the `notes` the library
+   * added. Store it in place of your own copy of that turn. New in 0.10.0. Not set yet.
+   */
+  userTurn?: ChatTurn;
 };
+
+/**
+ * What `AskOptions.onToolResult` is given: the call and its result, the document it names, who
+ * asks, and the question's signal, which aborts when the question ends. New in 0.10.0.
+ */
+export type ToolResultContext = { call: ToolCall; result: ToolResult; documentId?: string; owner?: string; scope?: DocumentScope; signal: AbortSignal };
+
+/**
+ * What `AskOptions.onToolResult` returns: `{ result }` sends that result in place of the tool's,
+ * and `{ reject }` sends `{ error: reject }`. Undefined keeps the tool's result. New in 0.10.0.
+ */
+export type ToolResultVerdict = { result: ToolResult } | { reject: string };
 
 /**
  * What `AskOptions.onMissingDocuments` says to do with the documents that are missing:

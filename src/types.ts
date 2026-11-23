@@ -376,6 +376,11 @@ export type ToolCallHooks = {
    * the server is busy. `askWithFiles` makes it a "page_looks_busy" notice. New in 0.9.0.
    */
   onPagesBusy?: (documentId: string) => void;
+  /**
+   * Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. It is
+   * joined with the tool set's own signal (`ToolOptions.signal`). New in 0.10.0. Not read yet.
+   */
+  signal?: AbortSignal;
 };
 
 /** One model request of a tool call (`ToolCallHooks.onRequest`). */
@@ -423,6 +428,13 @@ export type ToolSet = {
    * before it runs a call.
    */
   resultCharacters(name: string): number;
+  /**
+   * How many more times this tool set may read the document `documentId` whole
+   * (`analyze_whole_document`): 0 once a read of it found no part it could read, or at the cap.
+   * Optional, so that a tool set of your own still compiles. New in 0.10.0. The tool set of
+   * `files.tools()` does not have it yet.
+   */
+  wholeReadsLeft?(documentId: string): number;
 };
 
 /** Tokens one model request used, as far as the provider said. */
@@ -466,6 +478,39 @@ export type DocumentPlan = {
   inlineBytes: number;
 };
 
+/**
+ * The name of a document tool, as the model calls it (`TOOL_NAMES`). New in 0.10.0.
+ */
+export type ToolName = "search_document" | "read_document" | "get_document_overview" | "analyze_whole_document" | "view_pages" | "aggregate_table";
+
+/**
+ * Where the documents of a chat were placed, so that the next question places them the same way
+ * and the start of its requests stays the same (`AskResult.placement`, `AskOptions.placement`).
+ * The application keeps it with the chat. It holds document IDs and a hash only: no names, owners
+ * or text, and it is never sent to a model. A state of another version, or whose `head` does not
+ * match the first user turn, is ignored. New in 0.10.0. Not set or read yet.
+ */
+export type PlacementState = {
+  /** The version of this shape: `PLACEMENT_STATE_VERSION` (1). */
+  version: 1;
+  /** A hash of the text of the first user turn: a list trimmed or swapped at its start is seen. */
+  head: string;
+  /** The IDs of the documents sent whole, in the order they were first placed. */
+  inline: string[];
+  /** The IDs of the documents searched through the tools, in the order they were first placed. */
+  cards: string[];
+  /** The tools declared so far: the set only grows. */
+  tools: ToolName[];
+  /** How many earlier questions, counted from the start of `messages`, have their stored rounds sent as stand-ins. */
+  stubbedThrough: number;
+  /** The provider refused stored thought signatures once: later questions send the calls only. */
+  nativeRefused?: true;
+};
+
+/**
+ * What `prepare` gives for one request. The fields new in 0.10.0 are optional, so that a
+ * `LargeFiles` of your own still compiles: without them, `askWithFiles` works as in 0.9.
+ */
 export type PreparedContext = {
   plan: DocumentPlan;
   /** Prompt text per document ID: the full text for inline documents, a summary card otherwise. */
@@ -479,4 +524,23 @@ export type PreparedContext = {
    * was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`.
    */
   viewable: DocumentMeta[];
+  /**
+   * Documents sent whole whose tables the tools can still count and search
+   * (`PrepareOptions.inlineTables: "tools"`): CSV and XLSX, and the others whose text has
+   * `| cell |` rows. New in 0.10.0. Not set yet.
+   */
+  toolable?: DocumentMeta[];
+  /**
+   * The tool guide for the system text, the same in every question of a chat: no file names or
+   * IDs, and no figure that changes from one question to the next. New in 0.10.0. Not set yet: use
+   * `instruction`.
+   */
+  guide?: string;
+  /**
+   * One header line per document ID, for the turn that holds its block: its name, its document_id,
+   * and whether it is shown in full or searched with the tools. New in 0.10.0. Not set yet.
+   */
+  listing?: Map<string, string>;
+  /** Where the documents were placed, for the next question (`PrepareOptions.placement`). New in 0.10.0. Not set yet. */
+  placement?: PlacementState;
 };

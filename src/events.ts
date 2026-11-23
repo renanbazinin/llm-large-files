@@ -82,9 +82,13 @@ export type RequestPurpose = "turn" | "nudge" | "closing" | "answer_again" | "di
  * - "refused": it was not run, for a limit of the question (cost, room, reads of a whole file);
  * - "already_shown": it repeated a call whose result is still in the conversation, and was answered
  *   with a pointer to it;
- * - "not_run": the turn had more calls than `limits.callsPerTurn`.
+ * - "not_run": the turn had more calls than `limits.callsPerTurn`;
+ * - "redacted": it ran, and `AskOptions.onToolResult` replaced its result: the model was sent the
+ *   replacement. New in 0.10.0. Not given yet.
+ *
+ * A switch over every outcome must handle the outcomes added in a later version.
  */
-export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_run";
+export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_run" | "redacted";
 
 /**
  * Something the run did that is not a request or a tool call:
@@ -104,7 +108,17 @@ export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_ru
  * - "document_gone": a tool call found a document gone during the question (deleted or expired
  *   since it was planned). The model was told so in the call's result. New in 0.9.0;
  * - "page_looks_busy": a look at pages waited its turn (`maxConcurrentPageLooks`) longer than
- *   `pageLookWaitMs`, and was not run. The model was told so in the call's result. New in 0.9.0.
+ *   `pageLookWaitMs`, and was not run. The model was told so in the call's result. New in 0.9.0;
+ * - "answer_filtered": a filter of the provider stopped the answer, with or without text
+ *   (`AskResult.finish` "filtered"). New in 0.10.0. Not emitted yet;
+ * - "answer_cut": the answer stopped at the output limit (`AskResult.finish` "cut"). New in
+ *   0.10.0. Not emitted yet;
+ * - "placement_changed": the documents were planned afresh, not as `AskOptions.placement` had
+ *   them: the state was of another version or of another start of the chat, or a document sent
+ *   whole is searched with the tools now. New in 0.10.0. Not emitted yet;
+ * - "native_rounds_dropped": the provider refused the rounds of earlier questions in its own form
+ *   (`ToolTurn.native`), and the request was sent again with their calls only. New in 0.10.0. Not
+ *   emitted yet.
  *
  * A switch over every code must handle the codes added in a later version.
  */
@@ -122,7 +136,11 @@ export type NoticeCode =
   | "blocked"
   | "documents_missing"
   | "document_gone"
-  | "page_looks_busy";
+  | "page_looks_busy"
+  | "answer_filtered"
+  | "answer_cut"
+  | "placement_changed"
+  | "native_rounds_dropped";
 
 /**
  * Where a notice went in the callbacks of earlier versions: "activity" to `onActivity`, "step" to
@@ -143,9 +161,13 @@ export type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
    * Which documents went in whole and which were searched, named as `DocumentRef`s: their full
    * `DocumentMeta` (owner, scope, the SHA-256 and the ref of the original, outline headings, the
    * commonest lines of a log) is left out unless `eventResults` is true. The returned result has
-   * the full plan.
+   * the full plan. Since 0.10.0 the type of the full metadata here has no owner, scope, `sha256`,
+   * `original` or `metaVersion`, which are to stay on the server. They are not dropped at run time yet.
    */
-  plan: { inline: Array<DocumentRef | DocumentMeta>; searchable: Array<DocumentRef | DocumentMeta> };
+  plan: {
+    inline: Array<DocumentRef | Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">>;
+    searchable: Array<DocumentRef | Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">>;
+  };
 };
 
 /** The events of a question (`askWithFiles`, `askStream`), in the order they happen. */
@@ -195,6 +217,10 @@ export type AskEvent =
       finishReason?: string;
       /** How many tool calls the reply asked for. */
       toolCalls?: number;
+      /** The provider's ID of the response (`ModelReply.responseId`), when the adapter gives one. New in 0.10.0. Not set yet. */
+      responseId?: string;
+      /** The model that wrote the response, as the provider names it (`ModelReply.responseModel`). New in 0.10.0. Not set yet. */
+      responseModel?: string;
       /** With outcome "error": why. A request that failed may still be followed by others (an overflow made smaller, a part read in halves). */
       error?: EventError;
     })
@@ -279,6 +305,12 @@ export type AskEvent =
        * ("document_gone"), the one whose pages were not looked at ("page_looks_busy"). New in 0.9.0.
        */
       documentIds?: string[];
+      /**
+       * With "answer_filtered", under `AskOptions.filteredAnswer: "drop"`: text of the answer was
+       * already sent (`text` events, `onText`), and the page should take it away. New in 0.10.0.
+       * Not set yet.
+       */
+      discardText?: true;
     })
   /** Always last when the question returns. Nothing comes after it. */
   | (EventBase & { type: "run.finish"; result: EventResult })
