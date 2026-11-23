@@ -28,7 +28,8 @@ ordinary chats, so the provider's prompt cache is not lost at the upgrade
 ## Requirements
 
 - **Node.js 22.12 or later.** `engines.node` is `>=22.12`; it was `>=20.19`. Node 22.0 to 22.11
-  cannot `require()` the package from CommonJS. CI runs Node 22, 24 and 26, on Ubuntu and Windows.
+  cannot `require()` the package from CommonJS. CI runs Node 22, 24 and 26, on Ubuntu and Windows,
+  and 22.12.0 on Ubuntu, where it also checks `require()` of every subpath of the packed tarball.
   npm only warns (`EBADENGINE`) unless `engine-strict` is set, so an app on Node 20 still installs,
   but nothing is tested there.
 - **TypeScript:** `@types/node` 22 or later. The package is checked without the DOM library, as a
@@ -354,6 +355,22 @@ its line index.
   [Writing a store of your own](./guides/storage.md#writing-a-store-of-your-own). In short: return
   a field that was left out (`owner`, `scope`) absent, not `null`. Read an expired document as
   missing, even when its removal fails. Throw a `DocumentScopeError` for a scope you cannot keep.
+
+### Write the record before the text
+
+The storage guide's example `BlobDocumentStore` used to write the text, then insert the record
+under a unique key. That was enough while every ID was the library's. With your application's IDs,
+two servers can ingest one ID at the same moment: the ingest whose insert fails has then written
+its text over the text of the one that won. The library reads that document as missing when the two
+texts differ in length or in lines, read whole or by range. When they do not, it serves the loser's
+text.
+
+**What to do.** Insert the record first, hidden from `getMeta` until the text is written, as the
+example now does
+([Example: object storage and a database](./guides/storage.md#example-object-storage-and-a-database)).
+Two ingests of one ID that overlap then both fail with a 503, and nothing wrong is stored. With an
+ID of its own for each upload, as `attach()` and the worked example below make, none of this
+happens.
 
 ### Allow the new fields
 

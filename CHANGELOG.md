@@ -83,6 +83,10 @@ Code written for 0.8.2 compiles with 0.9.0, except in these cases
 - `fromGeminiContents` passed as a callback (`histories.map(fromGeminiContents)`) fails with
   TS2345: its new second parameter would get the index. Write
   `histories.map((contents) => fromGeminiContents(contents))`.
+- Code that reads the `messages` of an `AskGeminiOptions` back and reads `text` of a turn fails with
+  TS2339, and code that passes them where `Array<ChatTurn | ToolTurn>` is expected with TS2345:
+  `messages` is now `ChatMessage[]`, as `askWithFiles` takes it, and a turn may have `parts` instead
+  of `text`. Type the history `Array<ChatTurn | ToolTurn>`, or check `"text" in turn`.
 
 The other changes to the public types add exports, options, fields and optional parameters. Each
 `DocumentStore` method takes a last, optional `context`: a store whose methods take only the
@@ -92,7 +96,8 @@ Some behavior is different. Check each point against your app:
 
 - **Node.js 22.12 or later.** `engines.node` is `>=22.12` (was `>=20.19`): Node 22.0 to 22.11 cannot
   `require()` the package from CommonJS, which the docs promise. CI runs Node 22, 24 and 26, on
-  Ubuntu and Windows. npm only warns (`EBADENGINE`) unless `engine-strict` is set, so an app on
+  Ubuntu and Windows, and 22.12.0 on Ubuntu, where it also checks `require()` of every subpath of
+  the packed tarball. npm only warns (`EBADENGINE`) unless `engine-strict` is set, so an app on
   Node 20 still installs, untested. There, an `unpdf` that cannot load pdf.js now throws its own
   error, not "The unpdf installed cannot read PDF files on Node 20".
   **What to do:** run Node 22.12 or later, and `@types/node` 22 or later in TypeScript projects.
@@ -138,6 +143,16 @@ Some behavior is different. Check each point against your app:
   **What to do:** pass the context on (`super.getMeta(id, context)`), and run `documentStoreChecks`
   of `llm-large-files/testing` on your store
   ([Stores of your own](docs/upgrading-0.9.md#stores-of-your-own)).
+- **A store that writes the text before the record.** The storage guide's example
+  `BlobDocumentStore` wrote the text, then inserted the record under a unique key. When two servers
+  ingest one application's ID at the same moment, the ingest that loses has then written its text
+  over the winner's. The library now reads the winner's document as missing when the two texts
+  differ in length or lines; otherwise it serves the loser's text.
+  **What to do:** insert the record first, hidden from `getMeta` until the text is written, as the
+  example now does ([Example: object storage and a database](docs/guides/storage.md#example-object-storage-and-a-database)).
+  Two ingests of one ID that overlap then both fail with a 503 instead of storing the wrong text.
+  With an ID of its own for each upload, as `attach()` and the worked example make, none of this
+  happens ([Write the record before the text](docs/upgrading-0.9.md#write-the-record-before-the-text)).
 - **New fields in what you store.** `ingest` writes `metaVersion: 1` and `sha256` into every
   `DocumentMeta`, and `scope` and `original` when it is given them. Every `ToolTurn` that
   `askWithFiles` returns has `version: 1`.
@@ -201,15 +216,19 @@ Some behavior is different. Check each point against your app:
   request is the same, byte for byte, for rounds that `geminiToolTurns` wrote. Rounds that 0.5.0
   converted hold `tool_turns_left` in their responses: they are now sent without it, so such a
   conversation misses the prompt cache once.
-  **What to do:** nothing. `{ rounds: false }` gives the output of 0.8.
+  **What to do:** nothing. `{ rounds: false }` gives the output of 0.8. With `askGemini`, pass it as
+  `messages`: `askGemini({ …, messages: fromGeminiContents(contents, { rounds: false }) })`.
 - **Tests of the tool loop.** A first request that stored rounds make too large is shortened before
   it is sent: a test sees a `"results_shortened"` step and one request fewer, not a refused request
   and `"room_made"`. A result that its stand-in would not make smaller (a short grouped search, a
   small `aggregate_table` result) stays whole. An error of an adapter of yours with a `status` and
   no `kind`, as `httpError` of `llm-large-files/testing` makes, gets a `kind` in its `EventError`
   (`"server"` for a 503), and is retried by that kind: a 429 of code `"insufficient_quota"` is a
-  quota, and is not sent again. Thrown plain data with a status is "Something went wrong." in its
-  event.
+  quota, and is not sent again. The loop goes by that kind too: an `httpError(413)`, a 429 "Request
+  too large … tokens per min" or a 400 of code `context_length_exceeded` is an overflow it mends.
+  Older results are shortened and the request is sent again (`"room_made"`), or a first request is
+  planned again (`"replanned"`), so a test that expected the question to fail at once sees one more
+  request. Thrown plain data with a status is "Something went wrong." in its event.
   **What to do:** update the tests that compare these whole.
 - **`isDocumentId` accepts application IDs.** It tests `APP_DOCUMENT_ID_PATTERN`, which the
   library's `doc_` IDs match too.
@@ -308,6 +327,9 @@ Some behavior is different. Check each point against your app:
   `onPagesBusy` ([library](docs/reference/library.md#largefilesoptions)).
 - **`fromGeminiContents(contents, { rounds })`** and `FromGeminiContentsOptions`
   ([gemini](docs/reference/gemini.md#fromgeminicontentscontents-options)).
+- **`AskGeminiOptions.messages` takes what `askWithFiles` takes (`ChatMessage[]`):** plain turns,
+  stored tool rounds, and turns with parts, such as `fromGeminiContents(contents, { rounds: false })`
+  gives. It was `Array<ChatTurn | ToolTurn>` ([gemini](docs/reference/gemini.md#askgeminioptions)).
 
 **Errors and versions**
 
@@ -370,8 +392,15 @@ does.
   and the documents being opened are kept per scope, and a copy is checked against the owner the
   store holds. A delete or a re-ingest of an ID forgets its copies in every scope.
 - An owner or a scope of `null` from a store (MongoDB writes left-out fields that way) counts as
-  absent. Metadata or text that a store returns for another ID than the one asked for reads as
-  missing.
+  absent. Metadata that a store returns for another ID than the one asked for reads as missing. So
+  does a text read whole whose length or number of lines is not what its metadata says, and a text
+  read by range whose index, built again, does not match its metadata: the index is built again
+  when none is saved, or when the text does not end where the saved one says. A store that writes
+  the text and the metadata apart can give one document's metadata with another's text, when two
+  servers ingest one ID at the same moment. Before, a text read whole was not checked, and an index
+  built again from a text that did not match its metadata was used. A text of the same length and
+  lines is not caught. Opening a document through its saved index reads one byte across the end of
+  its text: one `readTextRange` call more.
 - The reads of a document's text (`get`, `readTextRange`, `getIndex`, and `putIndex` when an index
   is built again) carry the caller's scope and the document's owner. `getMeta`, `getOriginal` and
   `delete` carry the caller's ([Writing a store of your own](docs/guides/storage.md#writing-a-store-of-your-own)).
@@ -437,6 +466,12 @@ does.
 - `withRetry` sends such an error again by that kind: a 429 of code `"insufficient_quota"` (a quota)
   or a 429 "Request too large … tokens per min" (an overflow) is not sent again. Before, both were
   sent again by their status. The library's own adapters do not change.
+- The loop acts on that kind too. For such an error of kind `"context_overflow"` (an
+  `httpError(413)`, a 429 for the tokens a minute, a 400 of code `context_length_exceeded`), it makes
+  the request smaller, plans the documents again, or reads a part of a whole-file read as two
+  halves, with the numbers its message gives, as for a `ModelRequestError` of that kind. Before, the
+  question failed. The message of an error that is not an `Error` (an SDK's own class) gives its
+  kind too, in its event as in the loop and `errorInfoOf`.
 - The `EventError` message of thrown plain data with a status, or of a status that is not a model's,
   is "Something went wrong.".
 - An extractor's own subclass of `IngestError` is named `"IngestError"` in its `EventError`, and a
@@ -523,6 +558,9 @@ does.
 - Without a `Content-Length`, an upload took `maxUploadBytes` of room until it was read, so two
   filled the default `maxPendingUploadBytes`, and a third got a 503 while they arrived. With
   `uploadSpool` they wait on disk, and three or more fit.
+- A client that left while `getOwner` ran, when a framework had already read the body
+  (`express.raw()` in front), was not noticed: its upload was ingested and stored for nobody. It now
+  stores nothing, as for a client that leaves later.
 
 **Docs**
 
