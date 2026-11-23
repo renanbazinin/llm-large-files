@@ -574,7 +574,6 @@ async function ingestFile(
     if (path === undefined) {
       bytes = (input as IngestInput).bytes;
       size = bytes.byteLength;
-      sha256 = await sha256InSlices(bytes, slicer);
     } else if (!extractorReads) {
       const got = await readSource(path, maxUploadBytes, { keep: true, slicer, signal });
       size = checkedSize(name, got.size, maxUploadBytes);
@@ -619,6 +618,10 @@ async function ingestFile(
     const done = await read();
     ({ pages, reading, text, wrapped, lines } = done);
     progress?.end();
+    // Bytes given are hashed once the extractor is done with them, a slice at a time: the extractor
+    // is called at once at the ingest's turn, as before 0.9.0, so the ingests of one turn reach it
+    // in the order they came, and the SHA-256 is that of the bytes a kept copy holds.
+    if (path === undefined) sha256 = await sha256InSlices(bytes!, slicer);
     if (path !== undefined && extractorReads) {
       // What the extractor read of the file: its size and SHA-256. One that did not say is hashed
       // here, a slice at a time, and nothing of it is kept.

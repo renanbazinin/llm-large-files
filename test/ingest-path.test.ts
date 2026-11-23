@@ -113,6 +113,20 @@ describe("ingest from a path", () => {
     expect((await files.ingest({ name: "letters.txt", bytes })).sha256).toBe(sha256(bytes));
   });
 
+  it("calls the extractor at the turn, before bytes given are hashed: ingests of one turn reach it in the order they came", async () => {
+    const order: string[] = [];
+    const extractor: Extractor = async (_bytes, input) => {
+      order.push(input.name);
+      return { text: "# Text" };
+    };
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxConcurrentIngests: Number.POSITIVE_INFINITY, extractors: { markdown: extractor } });
+    // The first is hashed in four slices, the second in one: hashed first, the second came first.
+    const large = new Uint8Array(4 * 1024 * 1024).fill(35);
+    const metas = await Promise.all([files.ingest({ name: "large.md", bytes: large }), files.ingest({ name: "small.md", bytes: utf8("#") })]);
+    expect(order).toEqual(["large.md", "small.md"]);
+    expect(metas[0]!.sha256).toBe(sha256(large));
+  });
+
   it("reports the size from lstat in ingest.start, before the file is read", async () => {
     const at = await file("notes.md", "# Notes\n\nOne line.");
     const events: IngestEvent[] = [];
