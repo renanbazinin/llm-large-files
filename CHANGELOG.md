@@ -42,8 +42,7 @@ Exact numbers from tables. `aggregate_table` counts, sums, averages and groups t
 file, a sheet of a workbook or a `| cell |` table of any document, reading every row, with no code
 run; it finds headers of several rows and a title above them. Search hits say which section and
 which table header they belong to. A file whose name says nothing is known by its bytes, the card
-says which PDF pages have no text or a garbled one, and a large document held in memory is
-searched in pieces.
+says which PDF pages have no text or a garbled one.
 
 ### Upgrading: what you need to change
 
@@ -84,10 +83,6 @@ addition (`TOOL_NAMES.aggregate`, optional fields of `DocumentMeta`, an optional
   "Sheet 2: Sales"); `table_headers` gives the first row of each table a match is in (line 1 of a
   CSV file, a sheet's first row, a `| cell |` table's first row), so a hit like `Row 812: | 4,200 |`
   is understood without another read.
-- **A large document held in memory is searched in pieces** (LLF-044): a store without
-  `readTextRange` keeps whole documents in memory, and an exact or keyword search of one held the
-  server in one block, about half a second for 100 MB. Over 2 MB of text, it is scanned in pieces
-  of whole passages with a pause between two, with the results of one scan.
 
 ## 0.8.0 — 2026-11-23
 
