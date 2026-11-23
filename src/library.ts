@@ -647,13 +647,19 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       return openRangedDocument(rangeStore(context), meta, scan, { ignoreSavedIndex: rebuild, key });
     }
     const stored = await reading(() => store.get(id, context));
-    // The text of another document is not this one's: of another ID, owner or scope, or another
-    // version (deleted and stored again since `meta` was read, by another server), or one a store
-    // of your own gave from the wrong scope. Missing, as for a caller who may not use it.
+    // Another document is not this one: the metadata `get` gives must be of this ID, owner and
+    // scope, and of the version `meta` is (not one deleted and stored again since, by another
+    // server, nor one a store of your own gave from the wrong scope). And the text must be the one
+    // that metadata describes, of its length and its number of lines: a store that writes the text
+    // and the metadata apart can give one document's metadata with another's text (two servers that
+    // ingest one ID at once, a file read between two writes). A document read by range is checked
+    // against its index the same way. Missing, as for a caller who may not use it.
     const found = stored ? metaOf(stored.meta, id) : undefined;
     if (!stored || !found || !mayUse(found, caller, rules) || documentVersion(found) !== documentVersion(meta)) return undefined;
+    if (typeof stored.text !== "string" || stored.text.length !== found.characters) return undefined;
     const named = wholeName(found);
-    return new SearchableDocument(named === stored.meta ? stored : { ...stored, meta: named });
+    const document = new SearchableDocument(named === stored.meta ? stored : { ...stored, meta: named });
+    return document.lineCount === found.lines ? document : undefined;
   }
 
   /**

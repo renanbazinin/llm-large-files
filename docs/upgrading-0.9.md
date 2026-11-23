@@ -537,13 +537,14 @@ export async function startChat(userId: string, sessionId: string): Promise<void
 
 /**
  * Deletes a chat, once its questions are stopped: its record first, so that no upload starts, then
- * its folder (the store's files and the uploads), then its questions, whose rounds hold excerpts.
+ * its questions, whose rounds hold excerpts, then its folder (the store's files and the uploads).
  */
 export async function deleteChat(userId: string, sessionId: string): Promise<void> {
   const { deletedCount } = await sessions.deleteOne({ _id: sessionId, userId });
-  if (deletedCount === 0) return;
-  await rm(path.join(VOLUME, ...scopeOf(userId, sessionId)), { recursive: true, force: true });
+  if (deletedCount === 0) return; // not this user's chat, or deleted already
   await turns.deleteMany({ sessionId });
+  // An upload being stored now can write into the folder while rm empties it: rm then looks again.
+  await rm(path.join(VOLUME, ...scopeOf(userId, sessionId)), { recursive: true, force: true, maxRetries: 5 });
 }
 
 const chatGone = () => Object.assign(new Error("This chat no longer exists."), { status: 404 });
@@ -606,7 +607,11 @@ export const documents = createDocumentHandlers(files, {
   the chat, and go with it.
 - **Deleting a chat.** `deleteChat` removes the record first: `getScope` then refuses a new upload
   with a 404. An upload already under way fails, with a 404 "This chat no longer exists." or a 500:
-  the store does not make the chat's folder again (`createScopeFolders` is off by default).
+  the store does not make the chat's folder again (`createScopeFolders` is off by default). An
+  upload being stored at that moment can still write its files into the folder while `rm` empties
+  it, and `rm` then fails with `ENOTEMPTY`. `maxRetries` makes `rm` look again and remove them. The
+  questions go before the folder, so if `rm` still fails, only files are left, in a folder that no
+  chat has: a cleanup job can remove them.
 - **Several pods.** Each upload's ID is new, so two pods never write one document. A question can
   run on another pod than its upload: each use asks the store first. Run the sweep from one pod, or
   from a scheduled job ([Deployment](./guides/deployment.md#sweeping-expired-documents)). With

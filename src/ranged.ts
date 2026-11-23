@@ -363,9 +363,12 @@ export async function openRangedDocument(
   if (!index) {
     index = await buildIndexFromStore(store, meta.id, settings.limiter);
     if (!index) return undefined;
-    // An index that disagrees with the metadata describes a text that is not what was ingested.
-    // It is used, since it is what the store holds, but not saved.
-    if (store.putIndex && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && (meta.textBytes === undefined || index.textBytes === meta.textBytes)) {
+    // An index of another number of lines or characters than the metadata describes a text that is
+    // not what was ingested: another document's, written under the ID apart from its metadata (two
+    // servers that ingest one ID at once). Missing, as a document read whole is (0.9.0: it was used,
+    // and not saved). Every version counted lines and characters as the index does.
+    if (index.lineCount !== meta.lines || index.characters !== meta.characters) return undefined;
+    if (store.putIndex && canSerialize(index) && (meta.textBytes === undefined || index.textBytes === meta.textBytes)) {
       await store.putIndex(meta.id, serializeTextIndex(index)).catch(() => undefined);
     }
   }
