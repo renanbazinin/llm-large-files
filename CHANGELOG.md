@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.8.2 — not released yet
+## 0.8.2 — 2026-11-23
 
 Memory when many users upload at once. A review of how the library holds files found that every
 upload a server received was ingested at the same time, with nothing to bound the memory, and that
