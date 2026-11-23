@@ -409,6 +409,17 @@ describe("prepareUpload with a path", () => {
     expect(() => createDocumentHandlers(files, { getOwner: userOf, getScope: scopeOf, uploadFileMode: 1.5 })).toThrow(TypeError);
   });
 
+  it("removes the file when the library cannot keep the ref (no originals)", async () => {
+    const files = createLargeFiles({ store: new FileDocumentStore(root, { scopes: { depth: 2 } }), keepOriginals: ["pdf"] });
+    const { options } = chatbot();
+    const base = await serve(files, options);
+    const response = await upload(base, "report.pdf", numberedPdf(1));
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Upload failed." });
+    expect(writes(path.join(root, "alice", "chat-1", "uploads", "up-1"))).toHaveLength(1);
+    expect(await uploads()).toEqual([]);
+  });
+
   it("answers a folder that is not there with its code, and makes no folder", async () => {
     const files = library();
     const base = await serve(files, { getOwner: userOf, getScope: scopeOf, prepareUpload: (_request, info) => ({ path: path.join(root, ...info.scope!, "gone", "up-1") }) });

@@ -227,8 +227,8 @@ proxy.
 
 **Spooling uploads to disk.** New in 0.9.0. With `uploadSpool`, the handlers write each body over
 `minBytes` (1 MiB), and each body sent without a `Content-Length`, to a temporary file as it
-arrives, and ingest it from its path. So a body is not held in memory while it waits for its turn,
-and the copy the ingest reads at its turn is the only one. The file is made new with mode `0o600`,
+arrives, and ingest it from its path. So a body is not held in memory while it waits for its turn:
+the ingest reads it once, at its turn. The file is made new with mode `0o600`,
 and removed once the ingest ends, whatever the end. `maxSpooledUploadBytes` (ten times
 `maxUploadBytes`, 1 GB by default) bounds the files at once, and a full disk (`ENOSPC`) is answered
 503 with `Retry-After`. `maxPendingUploadBytes` then counts only the bodies kept in memory: in
@@ -249,8 +249,8 @@ const documents = createDocumentHandlers(files, {
   `maxSpooledUploadBytes`.
 - **Give the spool a folder of its own.** A server that stops in the middle of an upload leaves its
   file (named `llf-upload-` and a UUID). Empty the folder when the server starts.
-- **The disk is read twice.** Each spooled upload is written once and read once at its turn. On a
-  network volume, that is the cost of taking it off the heap.
+- **It costs a write and a read.** Each spooled upload is written once, and read once at its turn.
+  On a network volume, that is the price of taking it off the heap.
 - **Saving the upload where you keep it.** When your app keeps each upload anyway, `prepareUpload`
   gives its path, and the body is written there instead, once, and kept by reference
   ([Web app](./web-app.md#save-each-upload-where-you-keep-it-prepareupload)). Such a body takes no

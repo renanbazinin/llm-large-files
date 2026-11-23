@@ -322,7 +322,8 @@ const documents = createDocumentHandlers(files, {
   - `original`: `{ ref }` of the saved file, for `LargeFilesOptions.originals`
     (`IngestInput.original`). Only with `path`: the handler does not make a ref of a path.
     Without `original`, the file is saved and ingested all the same, and a store with `putOriginal`
-    keeps its own copy, as `keepOriginals` says.
+    keeps its own copy, as `keepOriginals` says. A library without `originals` refuses a ref
+    (`TypeError`): `500` "Upload failed.", and the file is removed.
   - Anything else (a relative path, an ID that is not a string, a ref without a path) is the
     server's mistake: `500` `{ "error": "Upload failed." }`, before the body is read.
 - **When it throws,** the upload is answered as for `getOwner`: an error with a `status` from 400
