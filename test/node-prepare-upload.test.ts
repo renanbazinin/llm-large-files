@@ -15,6 +15,7 @@ import {
   askWithFiles,
   createLargeFiles,
   FileDocumentStore,
+  IngestError,
   MemoryDocumentStore,
   type DocumentScope,
   type Extractor,
@@ -22,7 +23,8 @@ import {
   type IngestInput,
   type LargeFiles,
 } from "llm-large-files";
-import { createDocumentHandlers, fileOriginals, type DocumentHandlerOptions, type PrepareUploadInfo, type UploadedContext } from "llm-large-files/node";
+import { createDocumentHandlers, fileOriginals, uploadAnswerOf, type DocumentHandlerOptions, type PrepareUploadInfo, type UploadedContext } from "llm-large-files/node";
+import { writeBody } from "../src/node/spool.js";
 import { fakeModel, says, serviceLog } from "./fake-model.js";
 import { numberedPdf } from "./pdf-fixtures.js";
 
@@ -517,6 +519,17 @@ describe("prepareUpload with a path", () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
+  });
+
+  // "exists" is the code of a document ID that is taken (IngestError); a file at the path is not one.
+  it("tells a file already at the path apart from a taken ID: a 409 without the code \"exists\"", async () => {
+    const there = path.join(root, "alice", "chat-1", "uploads", "taken");
+    await writeFile(there, "mine");
+    const request = { headers: {} } as IncomingMessage;
+    const error = await writeBody(request, there, { limit: 1_000, idleMs: 0, mode: 0o600 }).catch((thrown: unknown) => thrown);
+    expect(uploadAnswerOf(error)).toEqual({ status: 409, error: "A file is already saved for this upload." });
+    expect(IngestError.is(error)).toBe(false);
+    expect(await readFile(there, "utf8")).toBe("mine");
   });
 
   it("answers a folder that is not there with its code, and makes no folder", async () => {

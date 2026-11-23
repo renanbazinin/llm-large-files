@@ -154,15 +154,15 @@ async function writeAll(handle: FileHandle, bytes: Uint8Array, idleMs: number): 
 const codeOf = (error: unknown): unknown => (error as { code?: unknown } | null)?.code;
 
 /**
- * An error of writing an upload's file, as the upload is answered: a file already at the path is
- * "exists" (409; it was not written, nor removed), and a full disk "busy" (503, with a wait). Any
- * other error is passed on: a 413 or a 408 of the body, a client that left, or a system error,
- * answered with its code only (a folder that is not there is `ENOENT`, a disk that does not answer
- * `ETIMEDOUT`).
+ * An error of writing an upload's file, as the upload is answered: a file already at the path is a
+ * 409 (it was not written, nor removed), without the code "exists", which is a document ID's that
+ * is taken; and a full disk "busy" (503, with a wait). Any other error is passed on: a 413 or a 408
+ * of the body, a client that left, or a system error, answered with its code only (a folder that
+ * is not there is `ENOENT`, a disk that does not answer `ETIMEDOUT`).
  */
 function writeError(error: unknown): unknown {
   const code = codeOf(error);
-  if (code === "EEXIST") return new IngestError("exists", ALREADY_SAVED, { cause: error });
+  if (code === "EEXIST") return new HttpError(409, ALREADY_SAVED);
   if (code === "ENOSPC" || code === "EDQUOT") return new IngestError("busy", NO_ROOM, { cause: error, retryAfterMs: NO_ROOM_RETRY_MS });
   return error;
 }
@@ -195,8 +195,8 @@ async function discard(handle: FileHandle, file: string, hung: boolean): Promise
 
 /**
  * Writes the request's body to a new file at `file`, as it arrives, and returns its size. The file
- * is opened with "wx": one already there, or a link at its name, is never written through (an
- * `IngestError` "exists"), and is left as it is. It is made with `mode`, minus the umask. A body a framework already read
+ * is opened with "wx": one already there, or a link at its name, is never written through (a 409),
+ * and is left as it is. It is made with `mode`, minus the umask. A body a framework already read
  * (`request.body`) is written whole. Each call to the disk (the opening, each write, the closing)
  * is waited for no longer than `idleMs`: past it, the upload fails with a `DiskTimeout`. On any
  * failure (a 413 or a 408, a client that left, a full disk, a disk that does not answer), the file
