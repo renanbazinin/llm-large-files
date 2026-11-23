@@ -229,7 +229,8 @@ file or one over `maxUploadBytes` at once. That look is given up on when the cal
 aborts, and fails after `ingestTimeoutMs` when the volume does not answer. The file is read when
 the ingest's turn comes (`maxConcurrentIngests`): once, and at most `maxUploadBytes + 1` bytes.
 The bytes are let go as soon as the extractor returns: they are not held while the text is
-prepared and stored. So ingests that wait for their turn hold none of their files. Measured
+prepared and stored, unless the store keeps a copy (`keepOriginals` with a store that has
+`putOriginal`, and no `original`). So ingests that wait for their turn hold none of their files. Measured
 on Node 22 with 100 ingests of 2 MB logs waiting behind one that held the turn: the process held
 73 MB (RSS) with paths, against 282 to 286 MB with the bytes given, 200 MB of which were the
 uploads. With all 100 run, two at a time (the default), the peak was 159 to 160 MB with paths,
