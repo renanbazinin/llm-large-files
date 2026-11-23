@@ -9,6 +9,7 @@ import {
   DocumentsNotFoundError,
   errorKindOf,
   laterResult,
+  modelErrorOf,
   rateAllowanceOf,
   TOOL_TURN_VERSION,
   UsageMeter,
@@ -1138,7 +1139,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
    * work. A model whose conversation may only grow (Claude) has nothing shortened.
    */
   const makeRoom = (adapter: ModelAdapter, sent: ModelRequest, error: unknown): boolean => {
-    const refused = error as { limitTokens?: number; requestedTokens?: number };
+    const refused: { limitTokens?: number; requestedTokens?: number } = modelErrorOf(error) ?? {};
     const own = scaleOf(adapter);
     meter.overflowed(meter.estimate(sent.messages).tokens, refused.requestedTokens !== undefined ? refused.requestedTokens / own : undefined);
     if (refused.limitTokens !== undefined) {
@@ -1181,7 +1182,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
    * estimate it counted. Without its numbers, seven tenths of the window the budget assumed.
    */
   const smallerWindow = (adapter: ModelAdapter, sent: ModelRequest, error: unknown): { contextTokens: number; step: string } => {
-    const refused = error as { limitTokens?: number; requestedTokens?: number };
+    const refused: { limitTokens?: number; requestedTokens?: number } = modelErrorOf(error) ?? {};
     const estimated = meter.estimate(sent.messages).tokens;
     const ratio = refused.requestedTokens !== undefined && estimated > 0 ? refused.requestedTokens / scaleOf(adapter) / estimated : undefined;
     const limit = refused.limitTokens;
@@ -1213,7 +1214,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       try {
         return await request(adapter, body, shown, kind);
       } catch (error) {
-        if (errorKindOf(error) !== "context_overflow" || signal?.aborted) throw error;
+        // By the kind its events report: also for an error of your own adapter with a status and no kind.
+        if (modelErrorOf(error)?.kind !== "context_overflow" || signal?.aborted) throw error;
         if (!again && recoveries < MOST_OVERFLOW_RECOVERIES && makeRoom(adapter, body, error)) {
           recoveries++;
           const period = rateAllowanceOf(error);

@@ -343,7 +343,9 @@ How the client side cancels a streamed answer is in [Web app](./web-app.md).
 When the provider refuses a request as larger than the model takes (kind `context_overflow`), the
 loop does not give up at once. The same holds for a request larger than the tokens the provider
 lets through in a minute (OpenAI's and Groq's TPM, or a day's allowance): that allowance then
-stands for the window.
+stands for the window. Since 0.9.0 the loop reads the kind as the events report it: an error
+without a `kind` of its own that has a model's status (an adapter of your own, `httpError(413)`)
+has the kind `classifyModelError` gives its status, message and `code`.
 
 1. It takes the provider's count and window for the rest of the question, replaces tool results
    with stand-ins (those of all but the last three tool rounds, then all but the last two, then all
