@@ -13,6 +13,7 @@ import {
   createLargeFiles,
   DocumentStoreError,
   errorInfoOf,
+  IngestError,
   MemoryDocumentStore,
   type DocumentContext,
   type DocumentMeta,
@@ -177,6 +178,49 @@ describe("an extractor of your own that fails with a host in a system error's co
     expect(JSON.parse(answer)).toEqual({ error: "Upload failed." });
     const stream = await (await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf", Accept: "text/event-stream" }, body: "%PDF-1.4 hello" })).text();
     expectNoPath(event, errorInfoOf(thrown), errorInfoOf(event), uploadAnswerOf(thrown), answer, stream);
+  });
+});
+
+// An extractor's own subclass of IngestError, of a name of its own, had that name in ingest.error,
+// and errorInfoOf read the event as "unknown", while it read the error as a refused file.
+describe("an extractor of your own that refuses a file with its own subclass of IngestError", () => {
+  class OcrRefusal extends IngestError {
+    override name = "OcrRefusal";
+  }
+
+  it("emits an ingest.error that errorInfoOf reads as the refused file the error is", async () => {
+    const files = createLargeFiles({
+      store: new MemoryDocumentStore(),
+      extractors: { pdf: async () => { throw new OcrRefusal("no_text", "scan.pdf has no text layer."); } },
+    });
+    const { thrown, event } = await failed(files, { name: "scan.pdf", bytes: utf8("%PDF-1.4 hello") });
+    expect(thrown).toBeInstanceOf(OcrRefusal);
+    expect(event).toEqual({ message: "scan.pdf has no text layer.", name: "IngestError", code: "no_text" });
+    const expected: ErrorInfo = { category: "ingest", code: "no_text", status: 422, retryable: false, message: "scan.pdf has no text layer." };
+    expect(errorInfoOf(thrown)).toEqual(expected);
+    expect(errorInfoOf(event)).toEqual(expected);
+  });
+});
+
+// The TypeErrors of a call that ingest refuses (bytes with source, a source path or an original ref
+// it cannot use): their ingest.error read "unknown", while the errors read "input".
+describe("an ingest refused for a mistake in the call", () => {
+  it("emits an ingest.error that errorInfoOf reads as the input error the error is", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const inputs: Array<Parameters<LargeFiles["ingest"]>[0]> = [
+      { name: "a.txt", bytes: utf8("a"), source: { path: path.join(directory, "a.txt") } } as unknown as Parameters<LargeFiles["ingest"]>[0],
+      { name: "a.txt", source: { path: "" } },
+      { name: "a.txt", bytes: utf8("a"), original: { ref: "uploads/a.txt" } },
+    ];
+    for (const input of inputs) {
+      const { thrown, event } = await failed(files, input);
+      expect(thrown).toBeInstanceOf(TypeError);
+      expect(event).toMatchObject({ name: "TypeError" });
+      const expected: ErrorInfo = { category: "input", status: 500, retryable: false, message: "Something went wrong." };
+      expect(errorInfoOf(thrown), (thrown as Error).message).toEqual(expected);
+      expect(errorInfoOf(event), (thrown as Error).message).toEqual(expected);
+    }
+    expect(errorInfoOf({ message: "budget.reservedTokens must be smaller", name: "RangeError" })).toEqual({ category: "input", status: 500, retryable: false, message: "Something went wrong." });
   });
 });
 

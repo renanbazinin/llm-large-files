@@ -339,8 +339,9 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
   try {
     const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown; code?: unknown };
     if (IngestError.is(error)) {
-      // Its status is the upload's answer, not a model's.
-      return { message: message ?? error.message, name: error.name, code: error.code, ...(error.status !== 422 ? { status: error.status } : {}) };
+      // Its status is the upload's answer, not a model's. A subclass of a name of its own (an
+      // extractor's) is told by the name errorInfoOf reads, as a store's own DocumentStoreError is.
+      return { message: message ?? error.message, name: "IngestError", code: error.code, ...(error.status !== 422 ? { status: error.status } : {}) };
     }
     // Its code tells a deleted chat from a scope the server gave wrong (errorInfoOf).
     if (DocumentScopeError.is(error)) {

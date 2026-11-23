@@ -14,7 +14,8 @@ import { classifyModelError, DocumentsNotFoundError, ModelRequestError, type Mod
  * - "model": a model request failed (`ModelRequestError`): `code` is its kind;
  * - "aborted": stopped by a signal (an `AbortError`, or a `TimeoutError` of `AbortSignal.timeout`);
  * - "input": a mistake in the call (a `TypeError` or `RangeError`, or a `DocumentScopeError`
- *   "scope_invalid" or "scope_required"): a bug of the server, not of the user;
+ *   "scope_invalid" or "scope_required", and the `EventError` of each): a bug of the server, not
+ *   of the user;
  * - "unknown": anything else.
  *
  * A switch over every category must handle the categories added in a later version.
@@ -171,8 +172,13 @@ function eventInfoOf(record: { name?: unknown; code?: unknown; kind?: unknown; s
   if (name === "DocumentStoreError") return storeInfo(undefined, message || "The document store could not be used. Try again.");
   if (name === "DocumentsNotFoundError") return { category: "missing", code: "documents_missing", status: 404, retryable: false, message: message || "A document is no longer available. Upload it again." };
   if (name === "DocumentScopeError") return scopeInfo(code);
+  // A mistake in the call, as the error itself is read (`ingest.error` of a TypeError of ingest).
+  if (name === "TypeError" || name === "RangeError") return inputInfo();
   return undefined;
 }
+
+/** A `TypeError` or `RangeError`: a mistake in the call, the server's bug and not the user's. */
+const inputInfo = (): ErrorInfo => ({ category: "input", status: 500, retryable: false, message: SOMETHING_WENT_WRONG });
 
 function infoOf(error: unknown): ErrorInfo {
   if (IngestError.is(error)) return ingestInfo(error.code, error.status, error.retryAfterMs, error.message);
@@ -210,7 +216,7 @@ function infoOf(error: unknown): ErrorInfo {
       message: plain && isModelWords(kind, message) ? message : eventErrorOf(error).message,
     };
   }
-  if (error instanceof TypeError || error instanceof RangeError) return { category: "input", status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
+  if (error instanceof TypeError || error instanceof RangeError) return inputInfo();
   return plainInfo(error, undefined);
 }
 

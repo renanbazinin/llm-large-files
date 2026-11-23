@@ -445,7 +445,7 @@ An error in an event is plain data, safe to send to a browser:
 | `message` | `string` | A message your users may see. |
 | `kind` | `ModelErrorKind`, optional | For a model error: what kind it is (`errorKindOf`): `"rate_limit"`, `"timeout"`, `"auth"`… Since 0.9.0 also for an error with a `status` (0, or 400 and more) and no `kind` of its own, such as one an adapter of yours throws: the kind its status gives (`classifyModelError`). So a model's error always has its kind. |
 | `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also 503 for a `DocumentStoreError` and 404 for a `DocumentsNotFoundError`. |
-| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentScopeError"`, `"IngestError"`… |
+| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentScopeError"`, `"IngestError"`… Since 0.9.0 a subclass of `DocumentStoreError` or of `IngestError` with a name of its own is named `"DocumentStoreError"` or `"IngestError"` here, so that `errorInfoOf` reads it as its class. |
 | `code` | `IngestErrorCode` or `DocumentScopeErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. Since 0.9.0 also the code of a [`DocumentScopeError`](./library.md#documentscopeerror), with `name` `"DocumentScopeError"`: `"scope_missing"` when the chat was deleted. |
 
 How `message` is written:
