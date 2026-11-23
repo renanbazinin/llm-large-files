@@ -122,6 +122,16 @@ function integer(value: unknown, fallback: number, min: number, max: number): nu
   return Math.min(max, Math.max(min, Math.trunc(Number.isFinite(number) ? number : fallback)));
 }
 
+/**
+ * A boolean given by the model: on for `true`, and for "true" (in any case) or 1, as a number or as
+ * text. A model sometimes sends a boolean as text, as it does numbers; read as off, "true" gave
+ * another search than true without a word about it. Anything else is off.
+ */
+function flag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  return typeof value === "string" && /^\s*(?:true|1)\s*$/i.test(value);
+}
+
 const INCOMPLETE_ANALYSIS = "Incomplete: the model's output limit was reached, so some relevant items are missing from this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file.";
 
 function text(value: unknown, name: string): string {
@@ -226,19 +236,30 @@ function firstAndLastMatches(base: ToolResult, first: LineMatch[], last: LineMat
 /**
  * The result of a search with `order: "last"`: the last matching lines, in the order of the file,
  * with a note that says so, and on which line the first match is. To fit `limit`, the earliest of
- * them are dropped first: the very last stays.
+ * them are dropped first: the very last stays. `stopped` is given when the scan stopped early: the
+ * last line of the lines searched, and the `to_line` of the call, which a search for the lines after
+ * those it found keeps.
  */
-function lastMatches(base: ToolResult, first: LineMatch | undefined, last: LineMatch[], total: number, limit: number, stoppedEarly = false): ToolResult {
+function lastMatches(base: ToolResult, first: LineMatch | undefined, last: LineMatch[], total: number, limit: number, stopped?: { end: number; toLine?: number }): ToolResult {
   const build = (kept: number, cut: boolean): ToolResult => {
     const shown = last.slice(last.length - kept);
     const end = shown.at(-1)?.line;
-    // A scan that stopped early found these last: later lines of the file were not looked at.
-    if (stoppedEarly) {
-      return {
-        ...base,
-        note: `${cut ? "Showing" : "These are"} the last ${shown.length} matching lines found before the search stopped early (out of time, or past its limit on matches), in the order of the file. The file may have later ones, after line ${end ?? 0}: search again with from_line ${(end ?? 0) + 1}.`,
-        matches: shown,
-      };
+    // A scan that stopped early found these last: the lines after them were not all looked at. Its
+    // note starts as those of the other searches that stopped early do, which `alreadyShown` looks
+    // for: a later question has time of its own, and the call made then is run, not pointed back to.
+    if (stopped) {
+      // Nothing found means out of time (an exact search stops only past its limit on matches). It
+      // is not known where the scan stopped, so no line is named to search from.
+      if (end === undefined) {
+        return { ...base, note: "The scan stopped early, out of time, before it found a matching line: the lines it did not reach may have some. Try a simpler pattern, mode \"exact\", or fewer lines with from_line and to_line.", matches: shown };
+      }
+      const which = cut ? `Showing the last ${shown.length} matching lines it found to stay within the size limit` : `These are the last ${shown.length} matching lines it found`;
+      // The search goes on after the last line found, in the same range. When that line is the last
+      // of the range, the scan stopped there and missed none of it: there is nothing to search on.
+      const later = end < stopped.end
+        ? ` There may be later ones, after line ${end}: search again with from_line ${end + 1}${stopped.toLine !== undefined ? ` and to_line ${stopped.toLine}` : ""}.`
+        : "";
+      return { ...base, note: `The scan stopped early; the total is a lower bound. ${which}, in the order of the file.${later}`, matches: shown };
     }
     const note = shown.length < total
       // A cut result's note starts with "Showing ", as `alreadyShown` looks for: a call made later may have more room.
@@ -259,24 +280,27 @@ function lastMatches(base: ToolResult, first: LineMatch | undefined, last: LineM
 function groupedResult(base: ToolResult, counted: GroupResult, shown: number, limit: number): ToolResult {
   const byTime = base.group_by === "minute" || base.group_by === "hour" || base.group_by === "day";
   const all = counted.groups.map(({ key, count, firstLine, lastLine }) => ({ key, count, first_line: firstLine, last_line: lastLine }));
-  // By time, the groups shown are the largest, put back in time order.
-  const picked = byTime && all.length > shown
-    ? [...all].sort((left, right) => right.count - left.count).slice(0, shown).sort((left, right) => left.first_line - right.first_line)
-    : all.slice(0, shown);
+  // By time, the groups shown are the largest, put back in time order; so are those kept when the
+  // result is cut to its room. Cutting the end of the list there kept the earliest groups, while the
+  // note said the largest, and a model named the wrong hour as the busiest. The sort is stable: of
+  // groups of the same size, the earlier comes first.
+  const largest = byTime ? [...all].sort((left, right) => right.count - left.count) : all;
+  const pick = (kept: number) => (byTime ? largest.slice(0, kept).sort((left, right) => left.first_line - right.first_line) : all.slice(0, kept));
+  const most = Math.min(shown, all.length);
   const extra = {
     total_groups: counted.totalGroups,
     ...(counted.otherCount > 0 ? { other_count: counted.otherCount, other_note: `Lines of groups past the first ${MAX_GROUP_KEYS.toLocaleString("en-US")} found.` } : {}),
     ...(counted.ungrouped > 0 ? { lines_without_group: counted.ungrouped } : {}),
   };
   const build = (kept: number, cut: boolean): ToolResult => {
-    const groups = picked.slice(0, kept);
+    const groups = pick(kept);
     const order = byTime ? (groups.length < all.length ? "the largest, in time order" : "in time order") : "the largest first";
     const note = groups.length < counted.totalGroups ? `${cut ? "Showing " : ""}${groups.length} of the ${counted.totalGroups} groups${cut ? " to stay within the size limit" : " are shown"}, ${order}. Narrow the search, or use from_line and to_line, for the others.` : undefined;
     return { ...base, ...extra, ...(note ? { note: typeof base.note === "string" ? `${base.note} ${note}` : note } : {}), groups };
   };
-  const whole = build(picked.length, false);
+  const whole = build(most, false);
   if (JSON.stringify(whole).length <= limit) return whole;
-  let kept = picked.length;
+  let kept = most;
   while (kept > 1 && JSON.stringify(build(kept, true)).length > limit) kept--;
   return fit(build(kept, true), null, limit);
 }
@@ -293,8 +317,11 @@ function groupByOf(value: unknown): GroupBy | undefined {
 /** A line number of a search's range, as the search reads it: undefined when not given. */
 const rangeLine = (value: unknown): number | undefined => (value === undefined || value === null || value === "" ? undefined : integer(value, 1, 1, Number.MAX_SAFE_INTEGER));
 
-/** The arguments of a search that choose which lines it looks at and how it shows them, as the search reads them. */
-function searchScope(args: Record<string, unknown>): { fromLine?: number; toLine?: number; order: "first" | "last"; groupBy?: GroupBy; wholeWord: boolean } {
+/**
+ * The arguments of a search that choose which lines it looks at and how it shows them, as the
+ * search reads them. The search, its key and its label all read them here, so that they agree.
+ */
+function searchScope(args: Record<string, unknown>): { fromLine?: number; toLine?: number; order: "first" | "last"; groupBy?: GroupBy; wholeWord: boolean; caseSensitive: boolean } {
   const fromLine = rangeLine(args.from_line);
   const toLine = rangeLine(args.to_line);
   let groupBy: GroupBy | undefined;
@@ -308,7 +335,8 @@ function searchScope(args: Record<string, unknown>): { fromLine?: number; toLine
     ...(toLine !== undefined ? { toLine } : {}),
     order: args.order === "last" ? "last" : "first",
     ...(groupBy ? { groupBy } : {}),
-    wholeWord: args.whole_word === true,
+    wholeWord: flag(args.whole_word),
+    caseSensitive: flag(args.case_sensitive),
   };
 }
 
@@ -335,7 +363,7 @@ export function toolCallKey(name: string, args: Record<string, unknown>): string
     } catch {
       return undefined;
     }
-    const { fromLine, toLine, order, groupBy, wholeWord } = searchScope(args);
+    const { fromLine, toLine, order, groupBy, wholeWord, caseSensitive } = searchScope(args);
     // The arguments of 0.8.0 are added only when given: a call without them has the key it had.
     const scope = [
       ...(fromLine !== undefined || toLine !== undefined ? [fromLine ?? 1, toLine ?? null] : []),
@@ -343,7 +371,7 @@ export function toolCallKey(name: string, args: Record<string, unknown>): string
     ];
     return JSON.stringify(mode === "keywords"
       ? [name, id, args.query, mode, integer(args.max_results, 5, 1, 10), ...scope]
-      : [name, id, args.query, mode, groupBy ? integer(args.max_results, DEFAULT_GROUPS, 1, MAX_GROUPS) : integer(args.max_results, DEFAULT_GREP_RESULTS, 1, MAX_GREP_RESULTS), groupBy ? 0 : integer(args.context_lines, 0, 0, 5), args.case_sensitive === true, ...scope]);
+      : [name, id, args.query, mode, groupBy ? integer(args.max_results, DEFAULT_GROUPS, 1, MAX_GROUPS) : integer(args.max_results, DEFAULT_GREP_RESULTS, 1, MAX_GREP_RESULTS), groupBy ? 0 : integer(args.context_lines, 0, 0, 5), caseSensitive, ...scope]);
   }
   if (name === TOOL_NAMES.read) return JSON.stringify([name, id, ...requestedLines(args)]);
   if (name === TOOL_NAMES.overview) return JSON.stringify([name, id]);
@@ -566,7 +594,7 @@ export function createDocumentTools(options: {
       // view_pages takes. Everything else gets the results of 0.2.0 unchanged.
       const paged = viewable.has(document.meta.id);
       const groupBy = groupByOf(args.group_by);
-      const { fromLine, toLine, order, wholeWord } = searchScope(args);
+      const { fromLine, toLine, order, wholeWord, caseSensitive } = searchScope(args);
       const total = document.lineCount;
       if (fromLine !== undefined && fromLine > total) throw new Error(`from_line ${fromLine} is past the end of the file, which has ${total} ${plural(total, "line")}.`);
       if (toLine !== undefined && toLine < (fromLine ?? 1)) throw new Error(`to_line ${toLine} is before from_line ${fromLine ?? 1}.`);
@@ -604,7 +632,7 @@ export function createDocumentTools(options: {
         }
         return grepSource(document, query, {
           regex,
-          caseSensitive: args.case_sensitive === true,
+          caseSensitive,
           maxResults: integer(args.max_results, DEFAULT_GREP_RESULTS, 1, MAX_GREP_RESULTS),
           contextLines: integer(args.context_lines, 0, 0, 5),
           ...(regex ? { timeLimitMs: Math.min(REGEX_TIME_LIMIT_MS, regexLeft), regexClock } : {}),
@@ -627,7 +655,9 @@ export function createDocumentTools(options: {
       if (result.groups) return groupedResult({ ...base, group_by: groupBy!, ...stopped }, result.groups, shownGroups, limit);
       const matches = result.matches.map(placed);
       if (order === "last") {
-        return lastMatches({ ...base, order }, result.first ? placed(result.first) : undefined, matches, result.totalMatchingLines, limit, result.stoppedEarly);
+        // The range a search for the lines after those found goes on in, when the scan stopped early.
+        const rest = result.stoppedEarly ? { end: range.to, ...(toLine !== undefined ? { toLine: range.to } : {}) } : undefined;
+        return lastMatches({ ...base, order }, result.first ? placed(result.first) : undefined, matches, result.totalMatchingLines, limit, rest);
       }
       if (!result.stoppedEarly && result.totalMatchingLines >= 2) {
         // The last match is `last`, or, when every match is among the first ones, the last of them.

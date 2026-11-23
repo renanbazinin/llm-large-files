@@ -92,8 +92,9 @@ whole numbers; a value that is neither a number nor a numeric string takes the d
 blank string counts as 0, so it is clamped to the minimum); line numbers and counts out of range
 are clamped, not refused. Page numbers are the exception: `view_pages` refuses a page that is not a
 number of 1 or more. A `mode` other than `"exact"` or `"regex"` is `"keywords"`, and
-`case_sensitive` and `whole_word` are on only when they are `true`. An `order` other than `"last"`
-is `"first"`. A `group_by` that is missing, `null`, `""` or `"none"` counts no groups; any other
+`case_sensitive` and `whole_word` are on only when they are `true`, `1`, or the same as text
+(`"true"` in any case, or `"1"`), and off for any other value. Until 0.8.0, `case_sensitive: "true"`
+was off. An `order` other than `"last"` is `"first"`. A `group_by` that is missing, `null`, `""` or `"none"` counts no groups; any other
 value that is not one of its five is refused.
 
 **Scope.** A call reaches only the documents its tool set was made for. A `document_id` outside
@@ -134,8 +135,9 @@ lower the cap of one call with [`ToolCallLimits.maxResultCharacters`](#toolcalll
   specific lines."
 - An exact or regex search that read the whole file and has 2 matches or more is cut its own way:
   it loses matches from the end of the first ones, and keeps the last one. With `order: "last"` it
-  loses the earliest of the last ones, and keeps the very last; with `group_by` it loses groups
-  from the end of its list, and keeps at least one (see [`search_document`](#search_document)).
+  loses the earliest of the last ones, and keeps the very last; with `group_by` it loses the
+  smallest groups, and keeps at least one, and by time the groups it keeps stay in time order (see
+  [`search_document`](#search_document)).
 - When even one entry is too large, the result becomes
   `{ "truncated": true, "partial": "<the start of the result as JSON text>", "note": "Result cut to the size limit. Ask for a smaller range." }`.
 - `read_document` shortens its range instead, and `analyze_whole_document` cuts the end of its
@@ -326,8 +328,20 @@ match and of the first. A search with `max_results: 2`:
 To fit its room, it loses the earliest of them first, and keeps the very last. The note is then
 "Showing the last N of the M matching lines to stay within the size limit, in the order of the
 file: the last match is on line L, and the first on line F. Narrow the query or read specific
-lines." When the scan stopped early, its note "The scan stopped early; the counts are lower
-bounds." comes first, and the lines shown are the last of those it found.
+lines."
+
+When the scan stopped early (1,000,000 lines, or a regex limit), the lines shown are the last of
+those it found, and the line of the first match is not named. The note is then "The scan stopped
+early; the total is a lower bound. These are the last N matching lines it found, in the order of
+the file. There may be later ones, after line L: search again with from_line F." (F is L + 1;
+" and to_line T" follows it when the call gave `to_line`, T being the last line searched). Cut to
+its room, the second sentence is "Showing the last N matching lines it found to stay within the
+size limit, in the order of the file." When L is the last line searched, the last sentence is left
+out. When the scan found no matching line before it stopped (a regex out of time), the note is
+"The scan stopped early, out of time, before it found a matching line: the lines it did not reach
+may have some. Try a simpler pattern, mode "exact", or fewer lines with from_line and to_line."
+Like every note that starts with "The scan stopped early", it marks a result that a call made
+again runs again: a later question has time of its own.
 
 ### Counts by group: `group_by`
 
@@ -351,7 +365,7 @@ and `total_matching_lines`:
 | `other_count` | number, optional | Matching lines of groups past the first 10,000, with `other_note`: "Lines of groups past the first 10,000 found." |
 | `lines_without_group` | number, optional | Matching lines with no key: no timestamp, or a regex group that took no part. |
 | `note` | string, optional | When not every group is shown: "K of the N groups are shown, the largest first. Narrow the search, or use from_line and to_line, for the others." By time, "the largest, in time order". A result cut to its room says "Showing K of the N groups to stay within the size limit, …". After the note of a scan that stopped early, when there is one. |
-| `groups` | array | Up to `max_results` groups (50 by default, 200 at most). By `capture` and `shape`, the largest first. By time, in time order; when there are more groups than are shown, the largest of them, in time order. |
+| `groups` | array | Up to `max_results` groups (50 by default, 200 at most). By `capture` and `shape`, the largest first. By time, in time order; when there are more groups than are shown, the largest of them, in time order. A result cut to its room keeps the largest groups as well: by `capture` and `shape` it loses the end of its list, and by time the smallest groups, keeping the others in time order. |
 | `groups[].key` | string | The group. |
 | `groups[].count` | number | Its matching lines. |
 | `groups[].first_line`, `groups[].last_line` | number | Its first and last matching line, to read with `read_document`. |
