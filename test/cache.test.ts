@@ -189,3 +189,43 @@ describe("DocumentCache", () => {
     expect(cache.bytes).toBe(0);
   });
 });
+
+describe("copies kept for each scope (0.9.0)", () => {
+  it("drops entries by a test of their key, pieces included", () => {
+    const cache = new DocumentCache<{ memoryBytes: number }>(1_000);
+    for (const key of ["a\u0000x", "a\u0000x#0", "b\u0000x", "b\u0000xy", "b\u0000xy#0"]) {
+      cache.set(key, "v", { memoryBytes: 10 }, key.includes("#") ? key.slice(0, key.lastIndexOf("#")) : undefined);
+    }
+    cache.deleteWhere((key) => key.endsWith("\u0000x") || key.includes("\u0000x#"));
+    expect(cache.size).toBe(2);
+    expect(cache.get("b\u0000xy", "v")).toBeDefined();
+    expect(cache.bytes).toBe(20);
+  });
+
+  it("keeps a copy for each scope, and forgets the copies of every scope when the document is deleted or written again", async () => {
+    // A store that keeps no scopes apart: one document of no scope, which callers of every scope may use.
+    const store = new CountingStore();
+    const clock = new Date("2026-02-01T00:00:00Z");
+    const files = createLargeFiles({ store, now: () => clock, ttlMs: Number.POSITIVE_INFINITY, budget: { inlineTokens: 10 } });
+    const meta = await files.ingest({ name: "app.log", bytes: bytes(logText(300, "alpha ")), id: "shared" });
+    const scopes = [undefined, ["u1", "s1"], ["u1", "s2"]];
+    const found = async (scope: string[] | undefined, word: string) => {
+      const tools = files.tools([meta], { access: scope ? { scope } : {} });
+      return (await tools.execute("search_document", { document_id: "shared", query: word, mode: "exact" })).total_matching_lines;
+    };
+    for (const scope of scopes) expect(await found(scope, "alpha")).toBe(300);
+    // Each scope loaded its own copy once, and uses it after.
+    expect(store.calls.get).toBe(3);
+    for (const scope of scopes) expect(await found(scope, "alpha")).toBe(300);
+    expect(store.calls.get).toBe(3);
+
+    // Deleted, and ingested again under the same ID, at the same instant, with a text of the same
+    // size: the same version, which only forgetting the copies keeps from being served.
+    expect(await files.delete("shared")).toBe(true);
+    await files.ingest({ name: "app.log", bytes: bytes(logText(300, "bravo ")), id: "shared" });
+    for (const scope of scopes) {
+      expect(await found(scope, "bravo")).toBe(300);
+      expect(await found(scope, "alpha")).toBe(0);
+    }
+  });
+});

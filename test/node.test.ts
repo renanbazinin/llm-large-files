@@ -172,8 +172,10 @@ describe("createDocumentHandlers", () => {
     }
     const base = await start(1024 * 1024, { store: new FailingStore() });
     const upload = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "notes" });
-    expect(upload.status).toBe(500);
-    expect(await upload.json()).toEqual({ error: "Upload failed (ENOSPC)." });
+    // A store that could not write is a DocumentStoreError since 0.9.0, whose status is 503 (it was
+    // answered 500, "Upload failed (ENOSPC).").
+    expect(upload.status).toBe(503);
+    expect(await upload.json()).toEqual({ error: "The document could not be stored (ENOSPC). Try again." });
     // A store that could not be read is a DocumentStoreError, whose status is 503 since 0.9.0 (it
     // was answered 500, "The file could not be looked up (EIO).").
     const lookup = await fetch(`${base}/${UNKNOWN_ID}`);
@@ -184,7 +186,7 @@ describe("createDocumentHandlers", () => {
     expect(await removal.json()).toEqual({ error: "The document store could not be read (EIO). Try again." });
   });
 
-  it("answers a custom store's own error with a 500 that does not repeat its message", async () => {
+  it("answers a custom store's own error with a 503 that does not repeat its message", async () => {
     let failing: Error | string | undefined;
     class CustomStore extends MemoryDocumentStore {
       override async put(...args: Parameters<MemoryDocumentStore["put"]>): Promise<void> {
@@ -195,17 +197,20 @@ describe("createDocumentHandlers", () => {
     const base = await start(1024 * 1024, { store: new CustomStore() });
     const upload = () => fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "notes" });
     // A database driver's error, with no status and no system call: its message names the host.
+    // Since 0.9.0 every error of a store's write is a DocumentStoreError, answered 503 in its own
+    // words (it was a 500, "Upload failed.").
     for (const thrown of [new Error("connect ECONNREFUSED: topology was destroyed, mongo-prod-1.internal.example:27017"), "mongo-prod-1.internal.example refused"]) {
       failing = thrown;
       const failed = await upload();
-      expect(failed.status).toBe(500);
-      expect(await failed.json()).toEqual({ error: "Upload failed." });
+      expect(failed.status).toBe(503);
+      expect(await failed.json()).toEqual({ error: "The document could not be stored. Try again." });
     }
-    // An error the store gave a status, as http-errors does, is answered with that status and its message.
+    // So is an error the store gave a status of its own, as http-errors does (it was answered with
+    // that status and its message): the store's words are the cause, for the server's log.
     failing = Object.assign(new Error("The document database is down. Try again in a minute."), { status: 503 });
     const refused = await upload();
     expect(refused.status).toBe(503);
-    expect(await refused.json()).toEqual({ error: "The document database is down. Try again in a minute." });
+    expect(await refused.json()).toEqual({ error: "The document could not be stored. Try again." });
     // A file that cannot be read is still the client's 422, with the reason.
     failing = undefined;
     const empty = await fetch(base, { method: "POST", headers: { "X-File-Name": "blank.txt" }, body: "   \n\n" });

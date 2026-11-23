@@ -17,8 +17,8 @@ export type ScanSettings = {
   chunkBytes: number;
   /** Bounds how many scans of whole documents run at once. */
   limiter: Limiter;
-  /** Told when the stored text of a document did not agree with its index. */
-  onBroken?: (id: string) => void;
+  /** Told, with the document's key (`RangedDocument.key`), when its stored text did not agree with its index. */
+  onBroken?: (key: string) => void;
   /**
    * Where decoded pieces of frequently searched documents are kept, within the cache's memory
    * limit, so that the next search of them reads and decodes nothing. A document whose decoded
@@ -37,8 +37,12 @@ export type PieceCache = {
   maxDocumentBytes: number;
 };
 
-/** The cache key of piece `at` of a document. All of them start with `${id}#`. */
-export const pieceKey = (id: string, at: number) => `${id}#${at}`;
+/**
+ * The cache key of piece `at` of the document of key `key` (its ID, or the library's key of the
+ * document in one scope). All of them start with `${key}#`, and the document's key is all before
+ * the last "#".
+ */
+export const pieceKey = (key: string, at: number) => `${key}#${at}`;
 
 /** Bytes read at a time to build an index from the text. */
 const BUILD_READ_BYTES = 4 * 1024 * 1024;
@@ -77,6 +81,8 @@ export class RangedDocument implements DocumentSource {
     readonly meta: DocumentMeta,
     readonly index: TextIndex,
     private readonly settings: ScanSettings,
+    /** What its pieces are kept under, and what `onBroken` is told: its ID unless given another. */
+    readonly key: string = meta.id,
   ) {
     this.pieceVersion = `${meta.createdAt}|${index.textBytes}|${index.characters}|${settings.chunkBytes}`;
     // Decoded text is one byte a character when it is all ASCII, two otherwise; and its lowercased copy as much again.
@@ -245,7 +251,7 @@ export class RangedDocument implements DocumentSource {
   /** Piece `at`, from memory when it is kept there. */
   private async piece(at: number): Promise<TextChunk> {
     const cache = this.keepPieces ? this.settings.pieces : undefined;
-    const kept = cache?.get(pieceKey(this.meta.id, at), this.pieceVersion);
+    const kept = cache?.get(pieceKey(this.key, at), this.pieceVersion);
     if (kept) return kept;
     const { firstLine, lastLine, start, end } = this.chunkRanges()[at]!;
     const text = await this.read(start, end);
@@ -272,7 +278,7 @@ export class RangedDocument implements DocumentSource {
       // The text and, once a search needs it, its lowercased copy.
       memoryBytes: text.length * (ascii ? 1 : 2) * 2 + starts.byteLength + 256,
     };
-    cache?.set(pieceKey(this.meta.id, at), this.pieceVersion, piece);
+    cache?.set(pieceKey(this.key, at), this.pieceVersion, piece);
     return piece;
   }
 
@@ -310,7 +316,7 @@ export class RangedDocument implements DocumentSource {
   private mismatch(): Error {
     if (!this.broken) {
       this.broken = true;
-      this.settings.onBroken?.(this.meta.id);
+      this.settings.onBroken?.(this.key);
     }
     return new Error(`The stored text of ${this.meta.name} did not match its index. Try the call again.`);
   }
@@ -339,12 +345,13 @@ export async function buildIndexFromStore(store: RangeStore, id: string, limiter
  * Opens a document to be read by range. Uses the saved index when there is one that fits the
  * document; otherwise builds it from the text and saves it (best effort: a store that cannot
  * write, or another server writing the same index, changes nothing). Undefined when the text is gone.
+ * `key` is what its pieces are kept under (see `RangedDocument.key`).
  */
 export async function openRangedDocument(
   store: RangeStore,
   meta: DocumentMeta,
   settings: ScanSettings,
-  options: { ignoreSavedIndex?: boolean } = {},
+  options: { ignoreSavedIndex?: boolean; key?: string } = {},
 ): Promise<RangedDocument | undefined> {
   let index: TextIndex | undefined;
   if (!options.ignoreSavedIndex && store.getIndex) {
@@ -360,5 +367,5 @@ export async function openRangedDocument(
       await store.putIndex(meta.id, serializeTextIndex(index)).catch(() => undefined);
     }
   }
-  return new RangedDocument(store, meta, index, settings);
+  return new RangedDocument(store, meta, index, settings, options.key);
 }
