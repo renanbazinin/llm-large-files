@@ -4,7 +4,7 @@ import type { AskResult } from "./ask.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
-import { DocumentsNotFoundError, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
+import { classifyModelError, DocumentsNotFoundError, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
 import type { DocumentFormat, DocumentMeta, DocumentSummary, ToolResult } from "./types.js";
 
 /** What every event carries. */
@@ -35,7 +35,10 @@ export type EventError = {
    * code only.
    */
   message: string;
-  /** For a model error: what kind it is (`errorKindOf`). */
+  /**
+   * For a model error: what kind it is (`errorKindOf`). Since 0.9.0 also for an error with a status
+   * (0, or 400 and more) and no kind of its own: the kind its status gives (`classifyModelError`).
+   */
   kind?: ModelErrorKind;
   /** For an HTTP error: its status. 0 when no answer came. */
   status?: number;
@@ -334,7 +337,7 @@ export function newRunId(prefix = "run"): string {
 export function eventErrorOf(error: unknown, message?: string): EventError {
   // It never throws: an error whose fields throw when read (a getter, a proxy) is told plainly.
   try {
-    const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown };
+    const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown; code?: unknown };
     if (IngestError.is(error)) {
       // Its status is the upload's answer, not a model's.
       return { message: message ?? error.message, name: error.name, code: error.code, ...(error.status !== 422 ? { status: error.status } : {}) };
@@ -345,6 +348,12 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
     }
     const out: EventError = { message: message ?? userMessageOf(error) };
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
+    else if (isModelStatus(record.status) && !DocumentStoreError.is(error) && !DocumentsNotFoundError.is(error)) {
+      // A model's error without a kind of its own (an adapter of yours, `httpError`): the kind its
+      // status gives, as its message is told, so that a model's EventError always has its kind.
+      const { code } = record;
+      out.kind = classifyModelError(record.status, error instanceof Error ? error.message : "", { code: typeof code === "string" ? code : undefined }).kind;
+    }
     if (typeof record.status === "number") out.status = record.status;
     if (typeof record.name === "string" && record.name) out.name = record.name;
     return out;
@@ -354,6 +363,9 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
 }
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
+
+/** A status of a model's error: 0 (no answer came) or an HTTP error, as `errorInfoOf` reads it. */
+const isModelStatus = (status: unknown): status is number => typeof status === "number" && (status === 0 || status >= 400);
 
 /**
  * A message for users: a model error by its kind and status, a storage error by its code, the

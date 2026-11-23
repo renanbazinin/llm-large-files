@@ -2,6 +2,7 @@
 // your own by, in any language. New in 0.9.0.
 import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import { eventErrorOf } from "./events.js";
+import { modelFailureReason } from "./map-reduce.js";
 import { classifyModelError, DocumentsNotFoundError, ModelRequestError, type ModelErrorKind } from "./model.js";
 
 /**
@@ -101,6 +102,18 @@ function modelKindOf(error: object): ModelErrorKind | undefined {
   return undefined;
 }
 
+/**
+ * Whether `message` is the library's own words for a model's error of `kind`, with any status:
+ * "The model was busy (HTTP 429).". An `EventError` holds them, and the upload handlers' names the
+ * provider's status in them and the answer's in `status` ("The model failed on its side (HTTP
+ * 503).", 502): they are kept. Any other words, a provider's, are not.
+ */
+function isModelWords(kind: ModelErrorKind, message: unknown): message is string {
+  if (typeof message !== "string") return false;
+  const status = /\(HTTP (\d{1,3})\)\.$/.exec(message)?.[1];
+  return message === modelFailureReason({ kind, ...(status !== undefined ? { status: Number(status) } : {}) });
+}
+
 /** A refused file, from an `IngestError` or the `EventError` of one. */
 function ingestInfo(code: string, status: unknown, retryAfterMs: unknown, message: unknown): ErrorInfo {
   return {
@@ -163,7 +176,8 @@ function infoOf(error: unknown): ErrorInfo {
   if (name === "AbortError") return { category: "aborted", code: "aborted", status: 503, retryable: true, message: "It was stopped before it finished." };
   if (name === "TimeoutError") return { category: "aborted", code: "timeout", status: 504, retryable: true, message: "It took too long, and was stopped. Try again." };
   const proto: unknown = Object.getPrototypeOf(error);
-  if (proto === Object.prototype || proto === null) {
+  const plain = proto === Object.prototype || proto === null;
+  if (plain) {
     const fromEvent = eventInfoOf(error);
     if (fromEvent) return fromEvent;
     // Plain data without a `kind` is not a model's error: an `EventError` of one always has its
@@ -174,14 +188,16 @@ function infoOf(error: unknown): ErrorInfo {
   }
   const kind = modelKindOf(error);
   if (kind !== undefined) {
+    const { message } = error as { message?: unknown };
     return {
       category: "model",
       code: kind,
       status: MODEL_STATUS[kind],
       retryable: RETRYABLE_KINDS.has(kind),
       ...(isWait(retryAfterMs) ? { retryAfterMs } : {}),
-      // By its kind and status, never in the provider's words (eventErrorOf).
-      message: eventErrorOf(error).message,
+      // By its kind and status, never in the provider's words (eventErrorOf). The library's own
+      // words, in an EventError, are kept.
+      message: plain && isModelWords(kind, message) ? message : eventErrorOf(error).message,
     };
   }
   if (error instanceof TypeError || error instanceof RangeError) return { category: "input", status: 500, retryable: false, message: SOMETHING_WENT_WRONG };

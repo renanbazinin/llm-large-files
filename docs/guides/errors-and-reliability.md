@@ -748,8 +748,11 @@ Use it where an error reaches your code: the `catch` of a question, and a route 
 ingests files. It also reads the `error` of a `run.error` or `ingest.error` event, which is plain
 data (`EventError`), so a stream to the browser can carry the same words. It reads such data by its
 `code` (a refused file, a scope), its `name` (a store, documents or a scope) and its `kind` (a
-model). Data with none of them is `"unknown"`, with its `status` kept when it is 400 to 599 (a hook
-of yours that threw a `409`), and `retryable` for 429, 502, 503 and 504:
+model). A model's error always has its `kind` there: an error of an adapter of your own that has a
+`status` and no `kind` gets the kind its status gives, as `errorInfoOf` gives it for the error
+itself (`"rate_limit"` for a 429, `"server"` for a 503, `"auth"` for a 401). Data with none of them
+is `"unknown"`, with its `status` kept when it is 400 to 599 (a hook of yours that threw a `409`),
+and `retryable` for 429, 502, 503 and 504:
 
 ```ts
 import type { ServerResponse } from "node:http";
@@ -769,8 +772,11 @@ The upload handlers of `llm-large-files/node` answer in English. To answer in He
 in a route of your own and answer with `hebrewAnswer(error)`, or word the `error` of the JSON answer
 and of `ingest.error` in the browser, by its status and `code`. The `ingest.error` of the handlers
 also has the `name` of a store that failed (`"DocumentStoreError"`) and of a scope error
-(`"DocumentScopeError"`, with `code` `"scope_missing"` for a deleted chat), so `errorInfoOf` reads
-it as it reads the error itself.
+(`"DocumentScopeError"`, with `code` `"scope_missing"` for a deleted chat), and the `kind` of a
+model's error (a `ModelRequestError` that an ingest or a hook of yours threw). So `errorInfoOf`
+reads it as the handler answered the error, with the status of the JSON answer: a deleted chat is
+`"missing"` and 404, a model that was busy `"model"`, `"rate_limit"` and 429. The event has no
+`retryAfterMs`: the JSON answer sends the wait as `Retry-After`.
 
 ## Putting it together: a chat route
 

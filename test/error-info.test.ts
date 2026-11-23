@@ -1,16 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  askWithFiles,
+  createLargeFiles,
   DocumentScopeError,
   DocumentsNotFoundError,
   DocumentStoreError,
   errorInfoOf,
   IngestError,
+  MemoryDocumentStore,
   ModelRequestError,
+  type AskEvent,
   type ErrorInfo,
+  type EventError,
   type IngestErrorCode,
 } from "llm-large-files";
 import { GeminiRequestError } from "llm-large-files/gemini";
 import { eventErrorOf } from "../src/events.js";
+import { fakeModel, httpError, utf8 } from "./fake-model.js";
 
 const HOST = "mongo-prod.internal.corp:27017";
 const PATH = "/srv/large-files/doc_1.json";
@@ -136,6 +142,13 @@ describe("errorInfoOf", () => {
     }
     // A model's words in plain data are not taken: a model error is told by its kind.
     expect(errorInfoOf({ kind: "quota", status: 429, message: "Quota of acme-prod exceeded." }).message).toBe("The model's quota has run out (HTTP 429).");
+    expect(errorInfoOf({ kind: "rate_limit", status: 429, message: "The model was busy (HTTP 429). acme-prod" }).message).toBe("The model was busy (HTTP 429).");
+    expect(errorInfoOf({ kind: "server", status: 502, message: "The model was busy (HTTP 429)." }).message).toBe("The model failed on its side (HTTP 502).");
+    // The library's own words for its kind are kept: the upload handlers' ingest.error names the
+    // provider's status in them, and the answer's in `status`.
+    expect(errorInfoOf({ kind: "server", status: 502, message: "The model failed on its side (HTTP 503)." })).toEqual({ category: "model", code: "server", status: 502, retryable: true, message: "The model failed on its side (HTTP 503)." });
+    expect(errorInfoOf({ kind: "unreachable", status: 502, message: "The model could not be reached." }).message).toBe("The model could not be reached.");
+    expect(errorInfoOf({ kind: "invalid", status: 500, message: "The model's reply could not be read (HTTP 200)." }).message).toBe("The model's reply could not be read (HTTP 200).");
   });
 
   // run.error of a scope error had no code: a deleted chat was "unknown" and 500.
@@ -158,7 +171,8 @@ describe("errorInfoOf", () => {
       [{ message: "This chat no longer exists.", status: 404 }, { category: "unknown", status: 404, retryable: false, message: "Something went wrong." }],
       [{ message: `Down at ${HOST}.`, status: 503 }, { category: "unknown", status: 503, retryable: true, message: "Something went wrong." }],
       [{ message: "Slow down.", status: 429 }, { category: "unknown", status: 429, retryable: true, message: "Something went wrong." }],
-      [{ message: "No answer.", status: 0, name: "Error" }, { category: "unknown", status: 500, retryable: false, message: "Something went wrong." }],
+      // Not what eventErrorOf makes of a connection that failed: that one has its kind (below).
+      [{ message: "No answer.", status: 0 }, { category: "unknown", status: 500, retryable: false, message: "Something went wrong." }],
       [{ message: "Not a status.", status: 200 }, { category: "unknown", status: 500, retryable: false, message: "Something went wrong." }],
       [Object.assign(Object.create(null) as object, { message: "x", status: 502 }), { category: "unknown", status: 502, retryable: true, message: "Something went wrong." }],
     ];
@@ -169,6 +183,74 @@ describe("errorInfoOf", () => {
     }
     // An Error with a status and no kind is still an adapter's of your own.
     expect(errorInfoOf(Object.assign(new Error("Busy."), { status: 503 }))).toMatchObject({ category: "model", code: "server" });
+    // And its EventError has its kind: { message, status: 0, name: "Error" } read as "unknown", 500.
+    const noAnswer = eventErrorOf(httpError(0, "No answer from acme-prod."));
+    expect(noAnswer).toEqual({ message: "The model could not be reached.", status: 0, name: "Error", kind: "unreachable" });
+    expect(errorInfoOf(noAnswer)).toEqual({ category: "model", code: "unreachable", status: 502, retryable: true, message: "The model could not be reached." });
+  });
+
+  // An adapter's Error with a status and no kind (httpError, an SDK's error) gave events without a
+  // kind, and errorInfoOf read them as "unknown": a 429 was not "rate_limit", a 503 kept 503, and a
+  // 401, the server's own key, kept 401 for the browser.
+  it("reads the run.error, retry and request.end of a model error without a kind as the error itself", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
+    const cases: Array<[Error, Partial<ErrorInfo>]> = [
+      [httpError(429, "Busy at acme-prod."), { code: "rate_limit", status: 429, retryable: true, message: "The model was busy (HTTP 429)." }],
+      [httpError(503, "acme-prod is down."), { code: "server", status: 502, retryable: true, message: "The model failed on its side (HTTP 503)." }],
+      [httpError(401, "API key not valid for acme-prod."), { code: "auth", status: 500, retryable: false, message: "The model refused the key or token it was sent (HTTP 401)." }],
+      [httpError(0, "connect ECONNREFUSED acme-prod.example:443"), { code: "unreachable", status: 502, retryable: true, message: "The model could not be reached." }],
+    ];
+    for (const [error, expected] of cases) {
+      const events: AskEvent[] = [];
+      const failure = await askWithFiles({
+        files,
+        model: fakeModel([error]),
+        documentIds: [meta.id],
+        messages: [{ role: "user", text: "What is the code word?" }],
+        retry: { retries: 1, random: () => 1, sleep: async () => undefined },
+        onEvent: (event) => events.push(event),
+      }).catch((thrown: unknown) => thrown);
+      const thrown = errorInfoOf(failure);
+      expect(thrown, error.message).toEqual({ category: "model", ...expected });
+      const errors: Array<[string, EventError]> = events.flatMap((event): Array<[string, EventError]> => {
+        if (event.type === "run.error" || event.type === "retry") return [[event.type, event.error]];
+        if (event.type === "request.end" && event.error) return [["request.end", event.error]];
+        return [];
+      });
+      // A retry only for what is sent again; a request.end for each try.
+      expect(errors.map(([type]) => type), error.message).toEqual(expected.retryable ? ["retry", "request.end", "run.error"] : ["request.end", "run.error"]);
+      for (const [type, data] of errors) {
+        expect(data.kind, `${error.message}: ${type}`).toBe(expected.code);
+        const info = errorInfoOf(data);
+        expect(info, `${error.message}: ${type}`).toEqual(thrown);
+        expect(info.status).not.toBe(401);
+        expectSafe(info);
+      }
+    }
+  });
+
+  // The library's own errors with a status are not a model's: their events never get a kind, from
+  // any copy of the package.
+  it("gives no kind to the events of the library's own errors", async () => {
+    const own = (errors: typeof import("../src/errors.js"), model: typeof import("../src/model.js")): unknown[] => [
+      new errors.DocumentStoreError(Object.assign(new Error("x"), { code: "EIO", syscall: "write" }), { operation: "write" }),
+      new model.DocumentsNotFoundError(["doc_1"]),
+      new errors.IngestError("busy", "Busy.", { retryAfterMs: 5_000 }),
+      new errors.IngestError("too_large", "Too large."),
+      new errors.IngestError("exists", "Exists."),
+      new errors.IngestError("unreadable", "Invalid PDF structure."),
+      new errors.DocumentScopeError("scope_missing"),
+      new errors.DocumentScopeError("scope_invalid"),
+    ];
+    const here = own(await import("../src/errors.js"), await import("../src/model.js"));
+    vi.resetModules();
+    const other = own(await import("../src/errors.js"), await import("../src/model.js"));
+    for (const error of [...here, ...other]) {
+      const data = eventErrorOf(error);
+      expect(data, JSON.stringify(data)).not.toHaveProperty("kind");
+      expect(errorInfoOf(data).category, JSON.stringify(data)).not.toBe("model");
+    }
   });
 
   it("reads the errors of another copy of the package", async () => {

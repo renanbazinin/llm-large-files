@@ -379,10 +379,16 @@ provider's words.
   model's by its `kind`, an `AbortError`'s by its name. The `ingest.error` of the
   [upload handlers](./node.md#upload-with-progress-accept-textevent-stream) is read the same way.
 - Plain data with none of these is `"unknown"`, never a model's error: a model's `EventError`
-  always has its `kind`. Its `status` is kept when it is 400 to 599 (the `ingest.error` of a hook
-  of yours that threw a `409`), else 500, and it is `retryable` for 429, 502, 503 and 504. Before,
-  such data with a status was read as a model's error: a store that failed (503) and a deleted
-  chat (404) were "The model failed on its side" and "The model refused the request".
+  always has its `kind`, the kind its status gives when the error had none of its own (an error
+  of an adapter of yours, or `httpError` of the testing helpers). Its `status` is kept when it is
+  400 to 599 (the `ingest.error` of a hook of yours that threw a `409`), else 500, and it is
+  `retryable` for 429, 502, 503 and 504. Before, such data with a status was read as a model's
+  error: a store that failed (503) and a deleted chat (404) were "The model failed on its side" and
+  "The model refused the request".
+- The `message` of a model's `EventError` is kept when it is the library's own words for its kind
+  ("The model failed on its side (HTTP 503)."), whatever status they name: the upload handlers'
+  `ingest.error` names the provider's status in its message and the answer's (502) in `status`.
+  Any other words are replaced by the library's, from its kind and `status`.
 - It never throws. A value it cannot read is `"unknown"`.
 - `message` never holds a path, a host, a stack or a provider's words. Log the error itself, with
   its `cause`, on the server.
@@ -468,7 +474,7 @@ included: log that one.
 | Field | Type | What it holds |
 |---|---|---|
 | `message` | `string` | Words your users may see. A model error is told by its kind and status, never in the provider's words, which can name projects, hosts or keys: "The model was busy (HTTP 429).", "The model's quota has run out (HTTP 429).", "The model could not be reached.", "The model refused the key or token it was sent (HTTP 401)." A Node system error is told by its code ("The file could not be read from storage (ENOENT)."), a `DocumentStoreError` by its own message, which names only its code, and a store that failed to write in `ingest.error` as "The document could not be stored. Try again later.". The library's own errors (a refused file, `DocumentsNotFoundError`, an abort, the error a listener threw) keep their message, and so does any other `Error` without a `kind` or a numeric `status`, such as one an adapter or a token function of your own throws: give such errors a status, or words of your own. A value that is not an `Error` is "Something went wrong.". |
-| `kind` | [`ModelErrorKind`](#modelerrorkind), optional | For a model error: its kind, as [`errorKindOf`](#errorkindoferror) reads it. |
+| `kind` | [`ModelErrorKind`](#modelerrorkind), optional | For a model error: its kind, as [`errorKindOf`](#errorkindoferror) reads it. Since 0.9.0 also for an error with a `status` of 0 or 400 or more and no `kind` of its own (an adapter of yours, `httpError` of the testing helpers): the kind its status and message give ([`classifyModelError`](#classifymodelerrorstatus-message-signals)), as its message is told and as `errorInfoOf` reads the error. Never for the library's own errors (`DocumentStoreError`, `DocumentsNotFoundError`, `IngestError`, `DocumentScopeError`). |
 | `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also the status of the library's own errors: 503 for `DocumentStoreError`, 404 for `DocumentsNotFoundError`, and for an `IngestError` the status of every code but those of 422 (413, 409, 503). |
 | `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"GeminiRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentStoreError"`, `"DocumentScopeError"`, `"IngestError"`… |
 | `code` | [`IngestErrorCode`](./library.md#ingesterror) or [`DocumentScopeErrorCode`](./library.md#documentscopeerror), optional | For a file `ingest` could not read: why (`"too_large"`, `"no_text"`, `"busy"`, `"exists"`…). New in 0.8.0. Since 0.9.0 also, with `name` `"DocumentScopeError"`, why a scope could not be used: `"scope_missing"` (the chat was deleted), `"scope_invalid"` or `"scope_required"`. A table typed `Record<IngestErrorCode, string>` must check the code before it looks it up. |

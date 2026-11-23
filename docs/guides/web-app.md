@@ -706,8 +706,9 @@ export async function uploadWithProgress(file: File, onProgress: (text: string) 
   one (new in 0.9.0). It comes once `onUploaded` is done. `ingest.error` holds in `error` the
   `message` and `status` the JSON answer would have: `422` and "This file looks binary, not text.
   …", say, or what `onUploaded` threw. A store's own message is never in it. Since 0.9.0 it also
-  has the `name` of a store that failed or of a scope error, and the scope's `code`
-  (`"scope_missing"` for a deleted chat), so that `errorInfoOf` reads it on your server.
+  has the `name` of a store that failed or of a scope error, the scope's `code`
+  (`"scope_missing"` for a deleted chat), and the `kind` of a model's error, so that `errorInfoOf`
+  reads it on your server.
 - **Closing the page stops the ingest**, as it does for a JSON upload: nothing is stored. A file
   that was stored all the same still goes to `onUploaded`, with `clientGone: true`.
 - **A wildcard does not ask for events.** `Accept: */*` or `text/*` keeps the `201` and JSON, and so

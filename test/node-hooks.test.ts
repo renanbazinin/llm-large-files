@@ -689,6 +689,35 @@ describe("errorInfoOf on the upload's ingest.error", () => {
     expect(errorInfoOf(await eventError(base))).toEqual({ category: "unknown", status: 503, retryable: true, message: "Something went wrong." });
   });
 
+  // The handler's ingest.error of a model's error had no kind: errorInfoOf read a hook's
+  // ModelRequestError as "unknown", "Something went wrong.".
+  it("reads a model's error as the JSON answer does, by its kind", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    let thrown: unknown;
+    const base = await serve(files, { onUploaded: () => { throw thrown; } });
+    const cases: Array<[unknown, Record<string, unknown>]> = [
+      [new ModelRequestError("Busy at acme-prod.internal", 429, { retryAfterMs: 7_000 }), { message: "The model was busy (HTTP 429).", status: 429, kind: "rate_limit" }],
+      [new ModelRequestError("acme-prod.internal is down", 503), { message: "The model failed on its side (HTTP 503).", status: 502, kind: "server" }],
+      [new ModelRequestError("API key not valid for acme-prod.internal", 401), { message: "The model refused the key or token it was sent (HTTP 401).", status: 500, kind: "auth" }],
+      [new ModelRequestError("connect ECONNREFUSED acme-prod.internal:443", 0), { message: "The model could not be reached.", status: 502, kind: "unreachable" }],
+      // An error with a kind of its own, from an adapter of yours.
+      [Object.assign(new Error("acme-prod.internal: too long"), { kind: "context_overflow" }), { message: "The request was larger than the model takes.", status: 413, kind: "context_overflow" }],
+    ];
+    for (const [error, expected] of cases) {
+      thrown = error;
+      const data = await eventError(base);
+      expect(data, String(expected.kind)).toEqual(expected);
+      // As errorInfoOf reads the error itself, but for the wait, which an event does not carry.
+      const { retryAfterMs: _wait, ...info } = errorInfoOf(error);
+      expect(errorInfoOf(data), String(expected.kind)).toEqual(info);
+      expect(info.category).toBe("model");
+      // And as the JSON answer says it.
+      const answer = await upload(base, {});
+      expect(answer.status).toBe(info.status);
+      expect(await answer.json()).toEqual({ error: info.message });
+    }
+  });
+
   it("reads a chat whose folder is gone, from the store itself", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "llf-hooks-"));
     try {
