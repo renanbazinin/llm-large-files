@@ -254,7 +254,10 @@ const documents = createDocumentHandlers(files, {
   timeout of their own. The upload's room (`maxPendingUploadBytes`) is given back, and the body the
   handler read is freed, before the hook is called, so a slow hook does not hold up other uploads.
 - **`clientGone`** is `true` when the browser went away before the hook ran: the file was stored
-  all the same. Record it, or delete it, as your app needs.
+  all the same. Record it, or delete it, as your app needs. A browser that leaves before the
+  ingest ends leaves nothing stored, and the hook is not called. So `clientGone` is for a browser
+  that left after the ingest ended, or for an `ingest` of your own that does not stop on its
+  `signal`.
 - **`onRemoved`** runs only for `{ "deleted": true }`. When it throws, `remove` answers its error;
   the document is deleted all the same.
 
@@ -713,7 +716,8 @@ export async function uploadWithProgress(file: File, onProgress: (text: string) 
   (`"scope_missing"` for a deleted chat), and the `kind` of a model's error, so that `errorInfoOf`
   reads it on your server.
 - **Closing the page stops the ingest**, as it does for a JSON upload: nothing is stored. A file
-  that was stored all the same still goes to `onUploaded`, with `clientGone: true`.
+  stored before the page closed (the ingest had ended, and the events were still on their way)
+  still goes to `onUploaded`, with `clientGone: true`.
 - **A wildcard does not ask for events.** `Accept: */*` or `text/*` keeps the `201` and JSON, and so
   does `q=0`. The rules are in the [node reference](../reference/node.md#upload-with-progress-accept-textevent-stream).
 

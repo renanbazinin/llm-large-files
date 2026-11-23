@@ -23,7 +23,10 @@ export type UploadedContext = {
   scope?: DocumentScope;
   /**
    * True when the client went away before the hook was called: the document is stored all the
-   * same, and nobody gets the answer. Record it, or remove it, as your app needs.
+   * same, and nobody gets the answer. Record it, or remove it, as your app needs. With the
+   * library's own `ingest`, a client that leaves before the ingest ends leaves nothing stored, and
+   * the hook is not called: this is for a client that left after the ingest ended, or for an
+   * `ingest` of your own that does not stop on its `signal`.
    */
   clientGone: boolean;
 };
@@ -90,9 +93,11 @@ export type DocumentHandlerOptions = {
    * database, say. The `201` is sent, or `ingest.finish` on the event-stream path, once it
    * resolves, with no time limit: bound your own calls. The upload's room
    * (`maxPendingUploadBytes`) is given back, and the body the handler read is freed, before it is
-   * called. It is called even when the client went away meanwhile (`clientGone`). Return
-   * `{ answer }` to add its fields to the answer: to the `201` JSON (the summary's own fields win),
-   * or as `app` in `ingest.finish`. `answer` must be a plain object that JSON can hold.
+   * called. It is called even when the client went away after the ingest ended (`clientGone`):
+   * with the library's own `ingest`, a client that leaves before it ends leaves nothing stored,
+   * and no call. Return `{ answer }` to add its fields to the answer: to the `201` JSON (the
+   * summary's own fields win), or as `app` in `ingest.finish`. `answer` must be a plain object that
+   * JSON can hold.
    *
    * When it throws, or returns an `answer` that is not such an object, the document is deleted
    * (best effort) and the upload is answered as for an error of `ingest`: with the error's status
@@ -391,7 +396,8 @@ async function streamIngest(
   await writeSseEvents(response, events());
   // A client that went away ends the stream at once, while the ingest stops (a store write may still
   // be under way): the upload is held until then, as on the JSON path. A document stored all the
-  // same still goes to `onUploaded` (with `clientGone`), once.
+  // same (the ingest had ended, or an ingest of your own did not stop) still goes to `onUploaded`
+  // (with `clientGone`), once.
   const meta = await stream.result.catch(() => undefined);
   if (meta !== undefined) await uploaded(meta);
 }

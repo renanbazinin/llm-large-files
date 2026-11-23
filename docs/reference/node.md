@@ -204,8 +204,11 @@ const documents = createDocumentHandlers(files, {
   does: those stay until the request ends), the `owner` and the `scope` the handler used, and
   `clientGone`.
 - **A client that went away.** The hook is still called, with `clientGone: true`, for a document
-  that was stored before the ingest could stop. Nobody gets the answer. Record the document, or
-  delete it, as your app needs.
+  that was stored. Nobody gets the answer. Record the document, or delete it, as your app needs.
+  With the library's own `ingest`, a client that leaves before the ingest ends leaves nothing
+  stored, and the hook is not called (new in 0.9.0). So `clientGone` is `true` for a client that
+  left after the ingest ended, while its answer waited, or with an `ingest` of your own that does
+  not stop on its `signal`.
 - **What it returns.** Nothing, or `{ answer }`. `answer` is a plain object that JSON can hold. Its
   fields are added to the `201` JSON; the summary's own fields win when a name is the same. On the
   event-stream path it is `ingest.finish`'s `app` field. Anything it returns without an `answer`
@@ -239,7 +242,7 @@ type UploadedContext = {
 | `request` | The upload's request, for its headers and URL. Its body has been read. A body a framework left in `request.body` (`express.raw()`) is still there: it is the framework's. |
 | `owner` | What `getOwner` returned, when it returned an owner. |
 | `scope` | What `getScope` returned, when it returned a scope (a frozen copy). |
-| `clientGone` | `true` when the client went away before the hook was called. |
+| `clientGone` | `true` when the client went away before the hook was called: after the ingest ended, or during an `ingest` of your own that does not stop on its `signal`. |
 
 ##### `UploadedResult`
 
@@ -454,8 +457,9 @@ data: {"type":"ingest.finish","document":{"id":"doc_f6502d2f94694d709c7db2ec634c
 - **The status is `200` whatever happens next.** Once the stream has started, a failure can only be
   an `ingest.error` event.
 - **A client that goes away stops the ingest**, as in step 6: nothing is stored, and nothing more
-  is written. A document that was stored all the same still goes to `onUploaded`, once, with
-  `clientGone: true`.
+  is written. A document stored before the client left (the ingest had ended, and the events were
+  still being written), or by an `ingest` of your own that does not stop on its `signal`, still
+  goes to `onUploaded`, once, with `clientGone: true`.
 - **The handler still never rejects.**
 
 How to read the stream in the browser: [web app](../guides/web-app.md#upload-with-progress).

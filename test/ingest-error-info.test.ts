@@ -306,9 +306,10 @@ describe("an ingest whose caller leaves while the store writes", () => {
 });
 
 // The upload handlers abort the ingest when the client leaves. Before 0.9.0 an ingest aborted
-// during its store write was stored all the same, and the hook would then have run for it.
+// during its store write was stored all the same, and the hook would then have run for it. The
+// docs say clientGone is for a client that left after the ingest ended: this pins both paths.
 describe("an upload whose client leaves while the store writes it", () => {
-  it("is not stored, and onUploaded is not called", async () => {
+  for (const events of [false, true]) it(`is not stored, and onUploaded is not called (${events ? "event stream" : "JSON"})`, async () => {
     let writing!: () => void;
     const reached = new Promise<void>((resolve) => (writing = resolve));
     let release!: () => void;
@@ -341,10 +342,10 @@ describe("an upload whose client leaves while the store writes it", () => {
     const controller = new AbortController();
     const client = fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`, {
       method: "POST",
-      headers: { "X-File-Name": "notes.md" },
+      headers: { "X-File-Name": "notes.md", ...(events ? { Accept: "text/event-stream" } : {}) },
       body: "# Notes\n\nShort.",
       signal: controller.signal,
-    }).catch(() => undefined);
+    }).then((response) => response.text()).catch(() => undefined);
     await reached;
     controller.abort();
     await client;
