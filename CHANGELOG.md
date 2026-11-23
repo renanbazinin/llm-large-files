@@ -326,25 +326,33 @@ Some behavior is different. Check each point against your app:
 One library for a chat server, with a folder per user and chat:
 
 ```ts
-import { createLargeFiles, FileDocumentStore } from "llm-large-files";
-import { createDocumentHandlers, fileOriginals } from "llm-large-files/node";
+import { createLargeFiles, FileDocumentStore, hashedScopeSegment } from "llm-large-files";
+import { createDocumentHandlers } from "llm-large-files/node";
 
 const VOLUME = "/mnt/documents";
 
 export const files = createLargeFiles({
   store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }), // <user>/<chat>/.llm-large-files/
   keepOriginals: ["pdf"],
-  originals: fileOriginals(VOLUME), // the uploads prepareUpload saves, read in place
   requireOwner: true,
   requireScope: true,
 });
 
+// The scope is [hashedScopeSegment(userId), chatId]: a user ID may hold capitals or an "@", which
+// cannot name a folder. Make the folder <VOLUME>/<user>/<chat> when you create the chat: the store
+// makes only .llm-large-files inside it (createScopeFolders is off).
 export const documents = createDocumentHandlers(files, {
   getOwner: (request) => userIdOf(request),
-  getScope: (request) => [userIdOf(request)!, chatIdOf(request)],
+  getScope: (request) => [hashedScopeSegment(userIdOf(request)!), chatIdOf(request)],
 });
-// Ask with the same owner and scope: askGemini({ files, endpoint, owner, scope: [userId, chatId], … }).
+// Ask with the same owner and scope: askGemini({ files, endpoint, owner: userId, scope: [hashedScopeSegment(userId), chatId], … }).
 ```
+
+`userIdOf` is your sign-in, and `chatIdOf` one of the user's own chats, as an ID that passes
+`isSafeScopeSegment`. To save each upload where you keep it and read it there, add
+`prepareUpload` and `originals`, as the
+[worked example](docs/upgrading-0.9.md#a-worked-example-a-hebrew-chatbot-on-gemini-mongodb-and-a-shared-volume)
+does.
 
 ### Changed: what works differently
 
