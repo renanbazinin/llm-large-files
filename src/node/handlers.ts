@@ -179,7 +179,8 @@ export type DocumentHandlerOptions = {
    * document's `id`, a `path` to save the body to, and the `original` ref of that file (see
    * `PreparedUpload`), or nothing. With a `path`, the body is written there as it arrives (under
    * the same limits: `maxUploadBytes`, `uploadIdleTimeoutMs`), then ingested from the file, which
-   * stays once the document is stored and is removed when the upload fails, whatever the reason.
+   * stays once the document is stored and is removed when the upload fails, whatever the reason
+   * (a process that is killed cannot remove it).
    * Such an upload is not held in memory, and takes no room of `maxPendingUploadBytes` or
    * `maxSpooledUploadBytes`. Throw an error with a status to refuse the upload, as for `getOwner`.
    * The upload can still fail after it (no room, too large…): choose here, record in `onUploaded`.

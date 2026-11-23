@@ -419,9 +419,11 @@ const documents = createDocumentHandlers(files, {
   gives its room back, and the removal goes on alone. A server that stops in the middle of an
   upload leaves its file. So the folder belongs to one server process: a disk-backed `emptyDir`,
   or a folder of its own on the shared volume, such as `path.join("/data/spool", os.hostname())`.
-  Each server empties its own folder when it starts, and no other. Never empty a folder that
-  several servers share: the files of uploads the others are still ingesting would go, and those
-  uploads fail with `500` "Upload failed (ENOENT).".
+  Both are one folder a pod or a host: with several server processes on one, add a number of each
+  process ([Deployment](../guides/deployment.md#uploads-and-ingest)). Each server empties its own
+  folder when it starts, and no other. Never empty a folder that several servers share: the
+  uploads still arriving or waiting for their turn would lose their files, and fail with `500`
+  "Upload failed (ENOENT).".
 - **Room.** `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the bytes of the spool's
   files at once, as `maxPendingUploadBytes` bounds memory: an upload takes its `Content-Length`, or
   `maxUploadBytes` without one, before its body is read, then its size once written, until its file

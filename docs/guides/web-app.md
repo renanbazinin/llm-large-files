@@ -373,9 +373,10 @@ const documents = createDocumentHandlers(files, {
 - **Where.** On a disk, not a memory-backed folder, which would take the memory back
   ([Deployment](./deployment.md#uploads-and-ingest)). A server that stops in the middle of an upload
   leaves its file. So give each server process a folder of its own (a disk-backed `emptyDir`, or
-  `path.join("/data/spool", os.hostname())` on the shared volume), and empty it when that server
-  starts. Never empty a folder that several servers share: the uploads the others are still
-  ingesting would fail.
+  `path.join("/data/spool", os.hostname())` on the shared volume; both are one a pod, so with
+  several server processes in a pod add a number of each), and empty it when that server starts.
+  Never empty a folder that several servers share: the uploads still arriving or waiting for their
+  turn would lose their files, and fail.
 
 ### What the browser sends
 

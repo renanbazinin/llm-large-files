@@ -601,7 +601,9 @@ export const documents = createDocumentHandlers(files, {
   it holds nothing about the user: the model sees it.
 - **The file is saved once.** The handler writes the body to `uploads/<id>` as it arrives, under
   `uploadIdleTimeoutMs`, and ingests it from there at its turn. It is not held in memory while it
-  waits. When the upload fails for any reason, the file is removed.
+  waits. When the upload fails for any reason, the file is removed. A server that is killed in the
+  middle of an upload cannot remove it: see
+  [Stopping a server](./guides/deployment.md#stopping-a-server).
 - **`onUploaded` records the ID** before the browser gets its 201. When it throws, the document and
   the file are removed, and the browser gets the error. It has no time limit: give your database a
   timeout of its own.
