@@ -125,7 +125,7 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 | `getScope` | `(request: IncomingMessage) => DocumentScope \| undefined \| Promise<DocumentScope \| undefined>` | none: no scope | New in 0.9.0. The scope of this request, such as `[userId, chatId]` ([`DocumentScope`](./library.md#documentscope)). Called after `getOwner`, at most once per request, before the body is read, on every route. The upload is stored in that scope, and `get` and `remove` find only documents of that scope. Required when the library has `requireScope`. See [what `getScope` returns](#what-getscope-returns). |
 | `onUploaded` | `(document: DocumentMeta, context: UploadedContext) => UploadedResult \| Promise<UploadedResult>` | none | New in 0.9.0. Called once an upload is stored, before it is answered: to record the document in your database, for example. What it returns can add fields to the answer. When it throws, the document is deleted and the upload fails. See [the hooks](#the-hooks-onuploaded-and-onremoved). |
 | `onRemoved` | `(id: string, context: RemovedContext) => void \| Promise<void>` | none | New in 0.9.0. Called after `remove` deleted a document, before it answers `{ "deleted": true }`. See [the hooks](#the-hooks-onuploaded-and-onremoved). |
-| `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold at once. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Since 0.9.0 its room is given back, and its body freed, before `onUploaded` runs: a hook that waits on your database holds neither. Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
+| `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold at once. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Since 0.9.0 its room is given back, and the body the handler read is freed, before `onUploaded` runs: a hook that waits on your database holds neither. Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
 | `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
 
 What `getOwner` returns decides what each handler does:
@@ -192,13 +192,15 @@ const documents = createDocumentHandlers(files, {
   the `201`, or before `ingest.finish` on the [event-stream path](#upload-with-progress-accept-textevent-stream).
   The answer waits for it, with no time limit: bound the calls of your own (a database's
   timeout), or a hook that hangs leaves the client waiting. The upload's room
-  (`maxPendingUploadBytes`) is given back, and its body freed, before the hook is called, so a slow
+  (`maxPendingUploadBytes`) is given back, and the body the handler read is freed, before the hook is called, so a slow
   hook does not hold up other uploads (new in 0.9.0). It is called once per upload, and never for
   an upload that failed.
 - **`document`** is the whole [`DocumentMeta`](./library.md#documentmeta), with its `owner` and
   `scope`: for your server, not for the browser.
 - **`context`** is an [`UploadedContext`](#uploadedcontext): the `request` (its body is read; the
-  bytes are not in the context), the `owner` and the `scope` the handler used, and `clientGone`.
+  bytes are not in the context, unless a framework left them in `request.body`, as `express.raw()`
+  does: those stay until the request ends), the `owner` and the `scope` the handler used, and
+  `clientGone`.
 - **A client that went away.** The hook is still called, with `clientGone: true`, for a document
   that was stored before the ingest could stop. Nobody gets the answer. Record the document, or
   delete it, as your app needs.
@@ -232,7 +234,7 @@ type UploadedContext = {
 
 | Field | What it holds |
 |---|---|
-| `request` | The upload's request, for its headers and URL. Its body has been read. |
+| `request` | The upload's request, for its headers and URL. Its body has been read. A body a framework left in `request.body` (`express.raw()`) is still there: it is the framework's. |
 | `owner` | What `getOwner` returned, when it returned an owner. |
 | `scope` | What `getScope` returned, when it returned a scope (a frozen copy). |
 | `clientGone` | `true` when the client went away before the hook was called. |

@@ -11,7 +11,11 @@ import { writeSseEvents } from "./sse.js";
 
 /** What `onUploaded` is told besides the document. New in 0.9.0. */
 export type UploadedContext = {
-  /** The upload's request, for its headers and URL. Its body has been read: the bytes are not here. */
+  /**
+   * The upload's request, for its headers and URL. Its body has been read: the bytes are not here,
+   * unless a framework left them in `request.body` (`express.raw()`), which keeps them until the
+   * request ends.
+   */
   request: IncomingMessage;
   /** What `getOwner` returned, when it returned an owner. */
   owner?: string;
@@ -82,8 +86,8 @@ export type DocumentHandlerOptions = {
    * Called once an upload is stored, before it is answered: to record the document in your
    * database, say. The `201` is sent, or `ingest.finish` on the event-stream path, once it
    * resolves, with no time limit: bound your own calls. The upload's room
-   * (`maxPendingUploadBytes`) is given back, and its body freed, before it is called. It is
-   * called even when the client went away meanwhile (`clientGone`). Return
+   * (`maxPendingUploadBytes`) is given back, and the body the handler read is freed, before it is
+   * called. It is called even when the client went away meanwhile (`clientGone`). Return
    * `{ answer }` to add its fields to the answer: to the `201` JSON (the summary's own fields win),
    * or as `app` in `ingest.finish`. `answer` must be a plain object that JSON can hold.
    *
