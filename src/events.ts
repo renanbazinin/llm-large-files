@@ -4,7 +4,7 @@ import type { AskResult } from "./ask.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
-import { classifyModelError, DocumentsNotFoundError, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
+import { classifyModelError, DocumentsNotFoundError, isModelStatus, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
 import type { DocumentFormat, DocumentMeta, DocumentSummary, ToolResult } from "./types.js";
 
 /** What every event carries. */
@@ -370,12 +370,6 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
 
-/**
- * A status of a model's error: 0 (no answer came) or an HTTP error, 400 to 599, as `errorInfoOf`
- * and `modelFailureReason` read it.
- */
-export const isModelStatus = (status: unknown): status is number => typeof status === "number" && (status === 0 || (status >= 400 && status <= 599));
-
 /** Data, not an error: an object of no class, as an `EventError` is, or one parsed from JSON. */
 export function isPlainData(value: object): boolean {
   const proto: unknown = Object.getPrototypeOf(value);
@@ -392,8 +386,11 @@ function userMessageOf(error: unknown): string {
   if (DocumentStoreError.is(error) || DocumentsNotFoundError.is(error)) return (error as Error).message;
   if (typeof error !== "object" || error === null) return SOMETHING_WENT_WRONG;
   const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; message?: unknown };
-  // A model error: the provider's words stay on the error.
-  if (typeof record.kind === "string" || typeof record.status === "number") return modelFailureReason(error);
+  // A model error, as eventErrorOf gives it a kind: the provider's words stay on the error.
+  if (typeof record.kind === "string" || (isModelStatus(record.status) && !isPlainData(record))) return modelFailureReason(error);
+  // Any other status (thrown plain data, a status no model answers with) is not a model's, and the
+  // words that came with it may be anyone's: errorInfoOf tells it so too.
+  if (typeof record.status === "number") return SOMETHING_WENT_WRONG;
   // A system error (ENOENT, EACCES…): its message names paths of the server. Its code is told only
   // when it reads as one: a driver may put a host in it.
   if (typeof record.code === "string" && typeof record.syscall === "string") {

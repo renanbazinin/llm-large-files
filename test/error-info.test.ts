@@ -236,7 +236,8 @@ describe("errorInfoOf", () => {
 
   // errorInfoOf read an adapter's error without its `code`, while its EventError used it: a 429
   // "insufficient_quota" was rate_limit for the error and quota for its events. A status above 599
-  // and thrown plain data got a model's kind in the event only.
+  // and thrown plain data got a model's kind in the event only, and then still a model's words
+  // ("The model was busy (HTTP 429).") where errorInfoOf said "Something went wrong.".
   it("reads an adapter's error as its EventError: by its code, by a status of 400 to 599, and not as plain data", () => {
     const cases: Array<[unknown, Partial<ErrorInfo>]> = [
       [Object.assign(httpError(429, "Too many."), { code: "insufficient_quota" }), { category: "model", code: "quota", status: 503, retryable: false }],
@@ -253,6 +254,7 @@ describe("errorInfoOf", () => {
       const data = eventErrorOf(error);
       if (expected.category !== "model") expect(data, label).not.toHaveProperty("kind");
       expect(errorInfoOf(data), label).toEqual(info);
+      expect(data.message, label).toBe(info.message);
       expectSafe(info);
     }
   });

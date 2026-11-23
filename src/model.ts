@@ -403,6 +403,13 @@ export class ModelRequestError extends Error {
 }
 brand(ModelRequestError, MODEL_REQUEST_ERROR);
 
+/**
+ * A status of a model's error: 0 (no answer came) or an HTTP error, 400 to 599. `errorInfoOf`, the
+ * events and `modelFailureReason` tell the kind of an error without one of its own (an adapter of
+ * your own, `httpError`) from such a status.
+ */
+export const isModelStatus = (status: unknown): status is number => typeof status === "number" && (status === 0 || (status >= 400 && status <= 599));
+
 /** The kind of a model error, when it has one: a `ModelRequestError`'s, or that of an error with the same field. */
 export function errorKindOf(error: unknown): ModelErrorKind | undefined {
   const kind = (error as { kind?: unknown } | null)?.kind;

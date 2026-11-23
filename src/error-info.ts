@@ -1,9 +1,9 @@
 // What an error means for an application: one record to choose a status, a retry and words of
 // your own by, in any language. New in 0.9.0.
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
-import { eventErrorOf, isModelStatus, isPlainData } from "./events.js";
+import { eventErrorOf, isPlainData } from "./events.js";
 import { modelFailureReason } from "./map-reduce.js";
-import { classifyModelError, DocumentsNotFoundError, ModelRequestError, type ModelErrorKind } from "./model.js";
+import { classifyModelError, DocumentsNotFoundError, isModelStatus, ModelRequestError, type ModelErrorKind } from "./model.js";
 
 /**
  * What kind of failure an error is (`ErrorInfo.category`):

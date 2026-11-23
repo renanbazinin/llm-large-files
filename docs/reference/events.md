@@ -443,14 +443,15 @@ An error in an event is plain data, safe to send to a browser:
 | Field | Type | What it holds |
 |---|---|---|
 | `message` | `string` | A message your users may see. |
-| `kind` | `ModelErrorKind`, optional | For a model error: what kind it is (`errorKindOf`): `"rate_limit"`, `"timeout"`, `"auth"`… Since 0.9.0 also for an error with a `status` (0, or 400 and more) and no `kind` of its own, such as one an adapter of yours throws: the kind its status gives (`classifyModelError`). So a model's error always has its kind. |
+| `kind` | `ModelErrorKind`, optional | For a model error: what kind it is (`errorKindOf`): `"rate_limit"`, `"timeout"`, `"auth"`… Since 0.9.0 also for an error with a `status` (0, or 400 to 599) and no `kind` of its own, such as one an adapter of yours throws: the kind its status gives (`classifyModelError`). So a model's error always has its kind. Plain data thrown (`{ status: 429, message }`) gets none. |
 | `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also 503 for a `DocumentStoreError` and 404 for a `DocumentsNotFoundError`. |
 | `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentScopeError"`, `"IngestError"`… Since 0.9.0 a subclass of `DocumentStoreError` or of `IngestError` with a name of its own is named `"DocumentStoreError"` or `"IngestError"` here, so that `errorInfoOf` reads it as its class. |
 | `code` | `IngestErrorCode` or `DocumentScopeErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. Since 0.9.0 also the code of a [`DocumentScopeError`](./library.md#documentscopeerror), with `name` `"DocumentScopeError"`: `"scope_missing"` when the chat was deleted. |
 
 How `message` is written:
 
-- **A model error** (one with a `kind` or a numeric `status`, other than the library's own errors) is told by its kind and status, in
+- **A model error** (one with a `kind`, or an error with a `status` of 0 or 400 to 599, other than
+  the library's own errors and plain data thrown) is told by its kind and status, in
   the library's words: "The model was busy (HTTP 429).", "The model failed on its side (HTTP
   503).", "The model refused the key or token it was sent (HTTP 401).". The provider's own words
   can name projects, hosts or keys: they stay on the error that is thrown, for your logs.
@@ -458,6 +459,9 @@ How `message` is written:
   code, and so is a `DocumentsNotFoundError`, which names the IDs. **A Node system error** (one with a `code` and a `syscall`) is told as "The file could not
   be read from storage (ENOENT).". Since 0.9.0 its code is told only when it reads as one
   (capitals, digits and `_`): a driver may put a host in `code`.
+- **Another `status`** (not 0 or 400 to 599), and plain data thrown with a status
+  (`{ status: 429, message }`), is told as "Something went wrong.", as `errorInfoOf` reads it.
+  New in 0.9.0: such an error was told in a model's words ("The model was busy (HTTP 429).").
 - **Any other `Error`** is told by its message as it is written: the library's own refusals and
   messages ("app.log is empty."), and the reason of an abort. That includes errors your own code
   throws: an adapter, an extractor or a listener of your own. Keep secrets out of their messages,
