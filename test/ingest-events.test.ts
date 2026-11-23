@@ -5,7 +5,7 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
-import { createLargeFiles, FileDocumentStore, MemoryDocumentStore, toDocumentSummary, type ExtractInput, type Extractor, type IngestEvent, type StoredDocument } from "llm-large-files";
+import { createLargeFiles, DocumentStoreError, FileDocumentStore, MemoryDocumentStore, toDocumentSummary, type ExtractInput, type Extractor, type IngestEvent, type StoredDocument } from "llm-large-files";
 import { isStoreWriteFailure } from "../src/errors.js";
 import { numberedPdf } from "./pdf-fixtures.js";
 
@@ -316,9 +316,18 @@ describe("ingest events", () => {
     expect(await store.sweep(new Date(8.64e15))).toBe(0);
   });
 
-  it("says only that the document could not be stored when the store fails, whatever it throws", async () => {
-    // A string, and an error with a status and a name of its own: neither reaches the event.
-    const failures: unknown[] = ["disk full at /srv/documents/tenant-7", Object.assign(new Error("PUT https://bucket.internal/doc failed"), { status: 503, name: "S3ServiceException" })];
+  it("says only that the document could not be stored when the store fails, whatever it throws, as a DocumentStoreError (503)", async () => {
+    // A string, an error with a status and a name of its own, a DocumentStoreError with a code, and
+    // one of a class of the store's own: none of their words, codes or names reach the event.
+    class BucketStoreError extends DocumentStoreError {
+      override name = "BucketStoreError";
+    }
+    const failures: unknown[] = [
+      "disk full at /srv/documents/tenant-7",
+      Object.assign(new Error("PUT https://bucket.internal/doc failed"), { status: 503, name: "S3ServiceException" }),
+      new DocumentStoreError(Object.assign(new Error("EIO: /srv/documents/tenant-7"), { code: "EIO", syscall: "write" }), { operation: "write" }),
+      new BucketStoreError(new Error("bucket.internal refused"), { operation: "write" }),
+    ];
     for (const failure of failures) {
       class FailingStore extends MemoryDocumentStore {
         override async put(): Promise<void> {
@@ -329,10 +338,17 @@ describe("ingest events", () => {
       const record = recorder();
       // Thrown as the cause of a DocumentStoreError since 0.9.0, as it was.
       const thrown = await files.ingest({ name: "notes.txt", bytes: encoder.encode("text"), onEvent: record.onEvent }).catch((error: unknown) => error);
-      expect(thrown).toMatchObject({ name: "DocumentStoreError", operation: "write", status: 503 });
-      expect((thrown as Error).cause).toBe(failure);
+      if (DocumentStoreError.is(failure)) {
+        // The store's own DocumentStoreError is passed on as it is.
+        expect(thrown).toBe(failure);
+      } else {
+        expect(thrown).toMatchObject({ name: "DocumentStoreError", operation: "write", status: 503 });
+        expect((thrown as Error).cause).toBe(failure);
+      }
       expectWellFormed(record.events);
-      expect((record.events.at(-1) as Extract<IngestEvent, { type: "ingest.error" }>).error).toEqual({ message: "The document could not be stored. Try again later." });
+      // The name and status of a store's failure, which errorInfoOf reads as one (store, 503), in the
+      // same words whatever the store threw.
+      expect((record.events.at(-1) as Extract<IngestEvent, { type: "ingest.error" }>).error).toEqual({ message: "The document could not be stored. Try again later.", name: "DocumentStoreError", status: 503 });
     }
   });
 

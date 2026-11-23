@@ -5,7 +5,7 @@ import { isAbsolute, resolve as resolvePath } from "node:path";
 import { checkMetaVersion, checkOwner, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
-import { EventEmitter, eventErrorOf, newRunId, type IngestEvent, type IngestStage } from "./events.js";
+import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
 import { detectFormat, extractorFor, extractText, isZip, namedFormat, sniffParts, SNIFFED_FIRST, SNIFFED_HEAD, SNIFFED_TAIL } from "./extract.js";
 import type { IngestFromSource, IngestInput } from "./library.js";
 import type { Limiter } from "./limiter.js";
@@ -416,8 +416,13 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-/** The message of `ingest.error` when the store failed to write the document. */
-const STORE_WRITE_FAILED = "The document could not be stored. Try again later.";
+/**
+ * The error of `ingest.error` when the store failed to write the document: a `DocumentStoreError`
+ * (503), in these words whatever the store threw, which may name a host or a path. Its name and
+ * status are set here, not taken from the error: a store's own subclass of `DocumentStoreError`,
+ * of a name of its own, is still told as one, which `errorInfoOf` reads as a store that failed.
+ */
+const storeWriteFailed = (): EventError => ({ message: "The document could not be stored. Try again later.", name: "DocumentStoreError", status: 503 });
 
 /** The least time between two `ingest.progress` events of one stage, in milliseconds: a slice of `TimeSlicer`. */
 const PROGRESS_MS = 12;
@@ -907,8 +912,8 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
     return meta;
   } catch (error) {
     // A store's own error may name a host or a path, whatever it is: the event, which a browser
-    // may see, says only that the document could not be stored.
-    events.emit({ type: "ingest.error", error: storeFailed ? { message: STORE_WRITE_FAILED } : eventErrorOf(error) });
+    // may see, says only that the document could not be stored (a DocumentStoreError, 503).
+    events.emit({ type: "ingest.error", error: storeFailed ? storeWriteFailed() : eventErrorOf(error) });
     throw error;
   } finally {
     if (holding !== undefined) {

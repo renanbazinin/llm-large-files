@@ -634,7 +634,9 @@ A store that fails while it writes is a `DocumentStoreError` since 0.9.0: operat
 `ingest` (code `"ETIMEDOUT"` for a write that did not end in time), `"delete"` in `files.delete`,
 `"sweep"` in `files.sweep`. Its status is 503, its message ("The document could not be stored
 (EIO). Try again.") names no path or host and can be shown, and the store's own error is `cause`:
-log that one. Before 0.9.0 the store's error came out as it was. `createDocumentHandlers` answers a
+log that one. Before 0.9.0 the store's error came out as it was. The `ingest.error` event of a
+failed write says "The document could not be stored. Try again later.", with `name`
+`"DocumentStoreError"` and `status` 503 (new in 0.9.0). `createDocumentHandlers` answers a
 file it cannot take with 422 and the error's message, and a store that failed with 503 and the
 `DocumentStoreError`'s message (it was a 500). A thrown value that is not an `Error` is answered
 500 "Upload failed.". The handlers log nothing: log `error.cause`. Two paths still answer an error

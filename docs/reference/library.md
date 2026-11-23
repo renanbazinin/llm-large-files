@@ -294,7 +294,8 @@ write) ([stages and units](./events.md#stages-and-units)). A stage sends at most
 `ingest.progress` about every 12 ms, and its last one when it ends. An extractor of your own reports
 only what it passes to `onProgress`. The error of `ingest.error` is told in words for users, with
 the `code` of an [`IngestError`](#ingesterror) (new in 0.8.0): a store that failed to write is "The
-document could not be stored. Try again later.", whatever it threw, and `ingest` throws a
+document could not be stored. Try again later.", whatever it threw, with `name:
+"DocumentStoreError"` and `status: 503` (new in 0.9.0), and `ingest` throws a
 `DocumentStoreError` whose `cause` is the store's own error (new in 0.9.0: it threw the store's
 error itself). A listener that throws ends the ingest with that error, and nothing is stored;
 a throw on `ingest.finish` removes the document that was just stored. With an `id`, it is removed

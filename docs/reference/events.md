@@ -473,7 +473,8 @@ Where errors appear: `retry.error`, `request.end.error`, `run.error.error` and `
 are `EventError`s. `tool.end.error` is a string: the error the model was sent, or, for a call
 ended because its turn failed, the `message` of the turn's error. An ingest whose store failed to
 write the document says only "The document could not be stored. Try again later.", whatever the
-store threw.
+store threw. Since 0.9.0 that error also has `name: "DocumentStoreError"` and `status: 503`, so it
+reads as the error `ingest` throws.
 
 To show your own words, map the error by `kind` and `name`, as `examples/server.ts` does in its
 `userMessage`, and the error of an ingest by `code`. [Errors and reliability](../guides/errors-and-reliability.md) says what each kind
