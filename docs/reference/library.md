@@ -10,15 +10,17 @@ import {
   createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_MAX_TEXT_BYTES,
   DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, isDocumentId, toDocumentSummary, IngestError, ingestErrorCodeOf,
   DEFAULT_BUDGET, resolveBudget,
-  MemoryDocumentStore, FileDocumentStore, DOCUMENT_ID_PATTERN, DocumentStoreError,
+  MemoryDocumentStore, FileDocumentStore, DOCUMENT_ID_PATTERN, APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION,
+  DocumentStoreError, DocumentScopeError,
   createPdfExtractor, defaultExtractors, detectFormat,
   estimateTokens, utf8Bytes, jsonBytes,
 } from "llm-large-files";
 import type {
   LargeFilesOptions, LargeFiles, AccessOptions, IngestInput, PrepareOptions, ToolOptions, PreparedContext, DocumentPlan,
-  Budget, ModelLimits, DocumentStore, StoredDocument, PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
+  Budget, ModelLimits, DocumentStore, DocumentContext, DocumentScope, StoredDocument, PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
   ExtractedText, DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent,
   ProgressListener, ToolCallHooks, ToolRequestHandle, ToolRequestStart, ToolRequestEnd, IngestEvent, IngestErrorCode,
+  DocumentStoreOperation, DocumentScopeErrorCode,
 } from "llm-large-files";
 ```
 
@@ -39,9 +41,12 @@ Contents:
   [`toDocumentSummary(meta)`](#todocumentsummarymeta)
 - [The budget](#the-budget): [`Budget`](#budget), [`DEFAULT_BUDGET`](#default_budget),
   [`resolveBudget(budget?, limits?)`](#resolvebudgetbudget-limits), [`ModelLimits`](#modellimits)
-- [Stores](#stores): [`DocumentStore`](#documentstore), [`StoredDocument`](#storeddocument),
+- [Stores](#stores): [`DocumentStore`](#documentstore), [`DocumentContext`](#documentcontext),
+  [`DocumentScope`](#documentscope), [`StoredDocument`](#storeddocument),
   [`MemoryDocumentStore`](#memorydocumentstore), [`FileDocumentStore`](#filedocumentstore),
-  [`DOCUMENT_ID_PATTERN`](#document_id_pattern), [`DocumentStoreError`](#documentstoreerror)
+  [`DOCUMENT_ID_PATTERN`](#document_id_pattern), [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern),
+  [`DOCUMENT_META_VERSION`](#document_meta_version), [`DocumentStoreError`](#documentstoreerror),
+  [`DocumentScopeError`](#documentscopeerror)
 - [Extraction](#extraction): [`Extractor`](#extractor), [`ExtractInput`](#extractinput),
   [`ExtractProgress`](#extractprogress), [`ExtractedText`](#extractedtext), [`defaultExtractors`](#defaultextractors),
   [`createPdfExtractor(options?)`](#createpdfextractoroptions), [`PdfExtractorOptions`](#pdfextractoroptions),
@@ -279,9 +284,10 @@ The document's metadata, or `undefined` when the ID does not match
 [`DOCUMENT_ID_PATTERN`](#document_id_pattern), the document was never there, was deleted, has
 expired (the library compares `expiresAt` with its clock itself, whatever the store returns), or
 belongs to another owner ([`AccessOptions`](#accessoptions)). Throws `DocumentStoreError` when the
-store cannot be read. A name that 0.5.0 or earlier stored cut inside an emoji comes back with a
-replacement character (U+FFFD) in place of the half, as the model and the steps get it; the stored
-metadata is not changed.
+store cannot be read, and, new in 0.9.0, with code `"NEWER_VERSION"` when a newer version of the
+package wrote the metadata ([`DOCUMENT_META_VERSION`](#document_meta_version)). A name that 0.5.0
+or earlier stored cut inside an emoji comes back with a replacement character (U+FFFD) in place of
+the half, as the model and the steps get it; the stored metadata is not changed.
 
 #### `files.getOriginal(id, access?)`
 
@@ -289,9 +295,9 @@ metadata is not changed.
 
 The uploaded file, when it was kept (`keepOriginals`). `undefined` in every case where `getMeta`
 gives `undefined`, and when the document has no `originalKept`, the store has no `getOriginal`, or
-the store returns none. Treat the bytes as read-only: `MemoryDocumentStore` returns the very bytes
-it keeps, not a copy, so changing them changes the stored file.
-Throws `DocumentStoreError` when the store cannot be read.
+the store returns none. Treat the bytes as read-only: a store of your own may return the bytes it
+keeps. `MemoryDocumentStore` returns a copy since 0.9.0; it returned the very bytes it kept.
+Throws `DocumentStoreError` as `getMeta` does.
 
 #### `files.delete(id, access?)`
 
@@ -445,11 +451,13 @@ declare class IngestError extends Error {
   readonly status: number;
   readonly retryAfterMs?: number;
   constructor(code: IngestErrorCode, message: string, options?: { cause?: unknown; retryAfterMs?: number });
+  static is(value: unknown): value is IngestError; // new in 0.9.0
 }
 
 type IngestErrorCode =
   | "empty" | "too_large" | "too_much_text" | "too_many_pages" | "not_text" | "compressed" | "legacy_office"
-  | "encrypted" | "no_text" | "hostile" | "timeout" | "out_of_memory" | "busy" | "missing_dependency" | "unreadable";
+  | "encrypted" | "no_text" | "hostile" | "timeout" | "out_of_memory" | "busy" | "missing_dependency" | "unreadable"
+  | "exists"; // new in 0.9.0
 ```
 
 New in 0.8.0. [`files.ingest`](#filesingestinput) could not read a file. The message says why, in
@@ -462,7 +470,7 @@ that it can tell the user in its own words or language. Until 0.8.0 the same ref
 | `name` | `string` | `"IngestError"`. |
 | `message` | `string` | The reason, written for a user: "app.log is empty.", "This PDF has no text layer (it may be scanned). …". |
 | `code` | `IngestErrorCode` | Why, as one of the codes below. |
-| `status` | `number` | The HTTP status the upload handler of [`llm-large-files/node`](./node.md#uploadrequest-response) answers with: 413 for `"too_large"`, 503 for `"busy"`, 422 for every other code. |
+| `status` | `number` | The HTTP status the upload handler of [`llm-large-files/node`](./node.md#uploadrequest-response) answers with: 413 for `"too_large"`, 409 for `"exists"`, 503 for `"busy"`, 422 for every other code. |
 | `retryAfterMs` | `number \| undefined` | For `"busy"`: how long to wait before trying again, in milliseconds (5,000 from `createIsolatedExtractors`). The upload handler sends it as `Retry-After`, in seconds. |
 | `cause` | `unknown` | The error of the extractor, the parser or the isolated reader, when there is one. Its message is in `message`. |
 
@@ -483,6 +491,11 @@ that it can tell the user in its own words or language. Until 0.8.0 the same ref
 | `"busy"` | Every isolated reader is busy and its queue is full, it is shutting down, or a reader process could not be started for want of process slots or file handles: try again in a moment (`retryAfterMs`). |
 | `"missing_dependency"` | The optional dependency for the format is not installed, is installed and could not be loaded, or (unpdf) cannot run on this version of Node. |
 | `"unreadable"` | Any other error of reading the file: it is damaged, or not of the type its name says. |
+| `"exists"` | Not the file: a document with the ID the application gave (`IngestInput.id`) is already stored. Status 409. New in 0.9.0: a `switch` over every code needs a case for it. |
+
+`IngestError.is(value)` tells whether a value is one, also when another copy of the package made it,
+where `instanceof` is `false` (see [errors](./errors-and-retries.md#telling-errors-apart-across-copies-of-the-package)).
+New in 0.9.0.
 
 `ingest.error` events carry the code as [`EventError.code`](./events.md#errors-eventerror).
 
@@ -846,22 +859,29 @@ it. `askWithFiles` builds it from what its adapters declare in
 
 ```ts
 interface DocumentStore {
-  put(document: StoredDocument): Promise<void>;
-  get(id: string): Promise<StoredDocument | undefined>;
-  getMeta(id: string): Promise<DocumentMeta | undefined>;
-  delete(id: string): Promise<boolean>;
-  sweep?(now?: Date): Promise<number>;
-  putOriginal?(id: string, bytes: Uint8Array): Promise<void>;
-  getOriginal?(id: string): Promise<Uint8Array | undefined>;
-  readTextRange?(id: string, start: number, end: number): Promise<Uint8Array | undefined>;
-  putIndex?(id: string, index: Uint8Array): Promise<void>;
-  getIndex?(id: string): Promise<Uint8Array | undefined>;
+  put(document: StoredDocument, context?: DocumentContext): Promise<void>;
+  get(id: string, context?: DocumentContext): Promise<StoredDocument | undefined>;
+  getMeta(id: string, context?: DocumentContext): Promise<DocumentMeta | undefined>;
+  delete(id: string, context?: DocumentContext): Promise<boolean>;
+  sweep?(now?: Date, context?: DocumentContext): Promise<number>;
+  putOriginal?(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void>;
+  getOriginal?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  readTextRange?(id: string, start: number, end: number, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  putIndex?(id: string, index: Uint8Array, context?: DocumentContext): Promise<void>;
+  getIndex?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
 }
 ```
 
 Where the extracted text lives, with its metadata, and optionally the uploaded file and a line
 index. Use [`MemoryDocumentStore`](#memorydocumentstore) or [`FileDocumentStore`](#filedocumentstore),
 or implement it over a database, Redis or S3.
+
+Every method takes a last, optional `context` ([`DocumentContext`](#documentcontext)): the scope
+and the owner of the call. New in 0.9.0. A store written for 0.8, whose methods take no context,
+still compiles and works: TypeScript lets a method with fewer parameters implement one with more.
+A store that wraps another one, or a subclass that overrides a method, passes the context on:
+`super.getMeta(id, context)`, `(id, context) => inner.getMeta(id, context)`. Without `context.scope`,
+`sweep` removes the expired documents of every scope; with one, only those of that scope.
 
 | Method | Required | What it must do, and when the library calls it |
 |---|---|---|
@@ -885,14 +905,45 @@ Errors:
   file is gone. A `DocumentStoreError` you throw yourself is passed on as it is.
 - What `put`, `putOriginal` and `putIndex` throw at ingest is thrown by `ingest` unchanged, after it
   calls `delete(id)`. What `delete` and `sweep` throw is passed on unchanged.
+- Throw a [`DocumentScopeError`](#documentscopeerror) for a scope your store cannot keep, or a call
+  without one when your store needs one.
+- Keep fields of `meta` you do not know, `metaVersion` included
+  ([`DOCUMENT_META_VERSION`](#document_meta_version)): a newer version of the package may add some.
 - The library compares `expiresAt` with its clock itself, so an expired document is never used. The
   store must still remove it, in `sweep` or by its own expiry.
 
 The library makes the IDs (see [`DOCUMENT_ID_PATTERN`](#document_id_pattern)), and every method
-except `put` receives only the ID: no owner, no metadata. A store that lays documents out per user
-or per chat session needs its own way from an ID to a place.
+except `put` receives only the ID and the context: no metadata. A store that lays documents out per
+user or per chat session finds the place from `context.scope`.
 
 Guide: [storage](../guides/storage.md), which also shows a store of your own.
+
+### `DocumentContext`
+
+```ts
+type DocumentContext = { readonly scope?: DocumentScope; readonly owner?: string };
+```
+
+New in 0.9.0. Who a store call is for: the last argument of every [`DocumentStore`](#documentstore)
+method. A store may keep the documents of each scope apart, as `MemoryDocumentStore` does, and may
+index them by owner. Both fields may be absent.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `scope` | [`DocumentScope`](#documentscope) or `undefined` | Where the document belongs, such as `[userId, chatId]`. |
+| `owner` | `string \| undefined` | The owner of the call. The library checks the owner of a document itself: a store need not. |
+
+### `DocumentScope`
+
+```ts
+type DocumentScope = readonly string[];
+```
+
+New in 0.9.0. Where a document belongs, from the widest part to the narrowest: `[userId, chatId]`.
+A scope has 1 to 8 segments. Each segment has 1 to 256 characters (UTF-16 units), holds no control
+character, no `/` and no `\`, and is not `.` or `..`. A scope that breaks these rules is refused with
+a [`DocumentScopeError`](#documentscopeerror) of code `"scope_invalid"`. Segments are compared
+exactly: `"Alice"` and `"alice"` are two scopes.
 
 ### `StoredDocument`
 
@@ -912,13 +963,13 @@ What a store keeps for a document, and what `put` receives and `get` returns.
 ```ts
 declare class MemoryDocumentStore implements DocumentStore {
   constructor(options?: { now?: () => Date });
-  put(document: StoredDocument): Promise<void>;
-  get(id: string): Promise<StoredDocument | undefined>;
-  getMeta(id: string): Promise<DocumentMeta | undefined>;
-  delete(id: string): Promise<boolean>;
-  sweep(now?: Date): Promise<number>;
-  putOriginal(id: string, bytes: Uint8Array): Promise<void>;
-  getOriginal(id: string): Promise<Uint8Array | undefined>;
+  put(document: StoredDocument, context?: DocumentContext): Promise<void>;
+  get(id: string, context?: DocumentContext): Promise<StoredDocument | undefined>;
+  getMeta(id: string, context?: DocumentContext): Promise<DocumentMeta | undefined>;
+  delete(id: string, context?: DocumentContext): Promise<boolean>;
+  sweep(now?: Date, context?: DocumentContext): Promise<number>;
+  putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void>;
+  getOriginal(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
 }
 ```
 
@@ -929,8 +980,14 @@ one-process demos. They are lost on restart and not shared between processes. It
 bytes, so the caller may reuse its buffer. The metadata is copied too, on the way in (`put`) and
 on the way out (`get`, `getMeta`), as a store that writes it somewhere does: changing the metadata
 that `ingest` or `getMeta` returned (deleting its `owner` before it goes to a browser, say) changes
-nothing stored. Until 0.6.0 it handed out its own object. `getOriginal` returns the kept bytes
-themselves: treat them as read-only.
+nothing stored. Until 0.6.0 it handed out its own object. `getOriginal` returns a copy of the kept
+bytes too, since 0.9.0: until then it returned the bytes themselves.
+
+The documents of each scope (`context.scope`) are kept apart, new in 0.9.0: one ID in two scopes is
+two documents, and a call with one scope never sees the documents of another. Calls without a
+scope share the documents of no scope, as every call did before. `sweep` without a scope removes
+the expired documents of every scope. A scope that is not valid is a
+[`DocumentScopeError`](#documentscopeerror).
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
@@ -1003,27 +1060,61 @@ declare const DOCUMENT_ID_PATTERN: RegExp; // /^doc_[a-f0-9]{32}$/
 The shape of every document ID that `ingest` makes: `doc_` and 32 lowercase hexadecimal digits
 (a random UUID without its dashes). [`isDocumentId`](#isdocumentidvalue) tests a value against it.
 
+### `APP_DOCUMENT_ID_PATTERN`
+
+```ts
+declare const APP_DOCUMENT_ID_PATTERN: RegExp; // /^[a-z0-9][a-z0-9_-]{0,63}$/
+```
+
+New in 0.9.0. The shape of a document ID an application chooses: lowercase letters, digits, `_`
+and `-`, up to 64 characters, starting with a letter or a digit. The IDs `ingest` makes have it too.
+
+### `DOCUMENT_META_VERSION`
+
+```ts
+declare const DOCUMENT_META_VERSION: 1;
+```
+
+New in 0.9.0. The version of [`DocumentMeta`](#documentmeta) this version of the package writes, as
+`metaVersion`, and the highest it reads. Metadata without `metaVersion` (or with `null`) was
+written before 0.9.0, and is read as before. Metadata with a higher one was written by a newer
+version: `getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles` and the tools refuse it
+with a [`DocumentStoreError`](#documentstoreerror) of code `"NEWER_VERSION"`, not as a missing
+document, so that an application does not ingest the file again over newer data. This happens
+while servers of two versions share a store: let the call be tried again on a newer one.
+
 ### `DocumentStoreError`
 
 ```ts
+type DocumentStoreOperation = "read" | "write" | "delete" | "sweep";
+
 declare class DocumentStoreError extends Error {
   readonly code?: string;
   readonly syscall?: string;
-  constructor(cause: unknown);
+  readonly operation: DocumentStoreOperation; // new in 0.9.0
+  readonly status: 503; // new in 0.9.0
+  constructor(cause: unknown, options?: { operation?: DocumentStoreOperation; code?: string });
+  static is(value: unknown): value is DocumentStoreError; // new in 0.9.0
 }
 ```
 
-The store could not be read just now: a volume that did not answer, too many open files, a database
-that is down. It does not mean that the document is gone, and the same call may work a moment
-later: retry it, rather than ask the user to upload the file again.
+The store failed just now: a volume that did not answer, too many open files, a database that is
+down. It does not mean that the document is gone, and the same call may work a moment later: retry
+it, rather than ask the user to upload the file again.
 
 | Field | Type | What it holds |
 |---|---|---|
 | `name` | `string` | `"DocumentStoreError"`. |
-| `message` | `string` | `The document store could not be read (<code>). Try again.`, or without the code when there is none. It names no path and no host: it is safe to show to a user or a model. |
-| `code` | `string \| undefined` | The code of the system error behind it (`EIO`, `EMFILE`, `ETIMEDOUT`), when there is one. |
+| `message` | `string` | By `operation`: `The document store could not be read (<code>). Try again.` ("read"), `The document could not be stored (<code>). Try again.` ("write"), `The document could not be deleted (<code>). Try again.` ("delete"), `The document store could not be cleaned up (<code>). Try again.` ("sweep"), each without the code when there is none. For code `"NEWER_VERSION"`: `The document was stored by a newer version of llm-large-files. Try again.` It names no path and no host: it is safe to show to a user or a model. |
+| `code` | `string \| undefined` | The code of the system error behind it (`EIO`, `EMFILE`, `ETIMEDOUT`), when there is one, or the code it was made with: `"NEWER_VERSION"` for metadata a newer version of the package wrote ([`DOCUMENT_META_VERSION`](#document_meta_version)). |
 | `syscall` | `string \| undefined` | The system call that failed (`open`, `read`), when there is one. |
+| `operation` | `"read" \| "write" \| "delete" \| "sweep"` | What the store was doing. `"read"` unless it was made with another. New in 0.9.0. |
+| `status` | `503` | The HTTP status to answer with. New in 0.9.0. |
 | `cause` | `unknown` | What the store threw. Log it on the server; it may name a path or a host. |
+
+`DocumentStoreError.is(value)` tells whether a value is one, also when another copy of the package
+made it (two versions installed side by side, or one in a bundle), where `instanceof` is `false`.
+New in 0.9.0.
 
 `files.getMeta`, `files.getOriginal`, `files.delete` (its look-up) and `files.prepare` throw it,
 and so does `askWithFiles`. A tool call that meets it answers the model with its message instead of
@@ -1038,14 +1129,38 @@ async function documentSummary(files: LargeFiles, id: string, owner: string) {
     const meta = await files.getMeta(id, { owner });
     return meta ? { status: 200, body: toDocumentSummary(meta) } : { status: 404, body: { error: "Not found." } };
   } catch (error) {
-    if (!(error instanceof DocumentStoreError)) throw error;
+    if (!DocumentStoreError.is(error)) throw error;
     console.error(error.cause); // what the store threw: for your log only
-    return { status: 503, body: { error: error.message } };
+    return { status: error.status, body: { error: error.message } };
   }
 }
 ```
 
 Guide: [errors and reliability](../guides/errors-and-reliability.md).
+
+### `DocumentScopeError`
+
+```ts
+type DocumentScopeErrorCode = "scope_required" | "scope_invalid" | "scope_missing";
+
+declare class DocumentScopeError extends TypeError {
+  readonly code: DocumentScopeErrorCode;
+  constructor(code: DocumentScopeErrorCode, message?: string, options?: { cause?: unknown });
+  static is(value: unknown): value is DocumentScopeError;
+}
+```
+
+New in 0.9.0. A scope ([`DocumentScope`](#documentscope)) that cannot be used. It is a mistake in
+the call, not a failure of the store: the same call fails again, so do not retry it. The library
+passes it on as it is. Its message never repeats a segment of the scope, which may be a user's ID.
+
+| Code | When | Message, unless another is given |
+|---|---|---|
+| `"scope_invalid"` | The scope breaks the rules of [`DocumentScope`](#documentscope), or the store cannot keep it. | Which rule, and which segment: `scope segment 2 cannot be "." or "..".` |
+| `"scope_required"` | The store needs a scope, and the call had none. | `A scope is required: pass the scope of the document, such as [userId, chatId].` |
+| `"scope_missing"` | The store keeps the scope in a place that is gone (the chat was deleted). | `The scope no longer exists.` |
+
+`DocumentScopeError.is(value)` works across copies of the package, as `DocumentStoreError.is` does.
 
 ## Extraction
 
@@ -1334,6 +1449,7 @@ its own, and the two quotes around it.
 ```ts
 type DocumentMeta = {
   id: string;
+  metaVersion?: number; // new in 0.9.0
   owner?: string;
   name: string;
   mimeType: string;
@@ -1366,6 +1482,7 @@ browser instead.
 | Field | Type | What it holds |
 |---|---|---|
 | `id` | `string` | `doc_` and 32 hexadecimal digits ([`DOCUMENT_ID_PATTERN`](#document_id_pattern)). |
+| `metaVersion` | `number \| undefined` | The version of this shape: [`DOCUMENT_META_VERSION`](#document_meta_version) (1) on documents ingested by 0.9.0 and later, absent on older ones. A higher one is refused. Never sent to the model. New in 0.9.0. |
 | `owner` | `string \| undefined` | The owner given at ingest. Absent when none was given. |
 | `name` | `string` | The cleaned file name (see [`IngestInput`](#ingestinput)). |
 | `mimeType` | `string` | The MIME type given, trimmed, or `"application/octet-stream"`. |

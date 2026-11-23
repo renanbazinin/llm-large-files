@@ -27,10 +27,45 @@ export type LogProfile = {
   topIssues: LogIssue[];
 };
 
+/**
+ * Where a document belongs, from the widest part to the narrowest: `[userId, chatId]`. 1 to 8
+ * segments, each 1 to 256 UTF-16 units, with no control characters, no "/" or "\", and none of them
+ * "." or "..". A scope that breaks these rules is a `DocumentScopeError`. New in 0.9.0.
+ */
+export type DocumentScope = readonly string[];
+
+/**
+ * What the library knows of the caller of a store method: the scope and the owner it was given. It
+ * is the last argument of every `DocumentStore` method, and both fields may be absent. A store may
+ * keep the documents of each scope apart (a folder, a key prefix, a collection filter), and pass
+ * the context on unchanged when it wraps another store. New in 0.9.0.
+ */
+export type DocumentContext = { readonly scope?: DocumentScope; readonly owner?: string };
+
 export type DocumentMeta = {
   id: string;
+  /**
+   * The version of this metadata's shape: `DOCUMENT_META_VERSION` (1) on documents ingested by
+   * 0.9.0 and later, absent on older ones. The library refuses a higher one (a document written by a
+   * newer version of the package) with a `DocumentStoreError` of code "NEWER_VERSION". It is never
+   * sent to the model. New in 0.9.0.
+   */
+  metaVersion?: number;
   /** Who may use this document. Set it at ingest; access with another owner is refused. */
   owner?: string;
+  /**
+   * The scope the document was ingested in (`IngestInput.scope`), as a copy. Only a caller with the
+   * same scope may use it. It is never sent to the model, nor in a summary or an event. New in 0.9.0.
+   */
+  scope?: string[];
+  /** The SHA-256 of the uploaded file, as 64 lowercase hex digits. New in 0.9.0. */
+  sha256?: string;
+  /**
+   * The uploaded file, when the application keeps it and the library reads it from there
+   * (`IngestInput.original`): where it is, and its size and SHA-256 when it was read, to know that
+   * it has not changed since. `ref` is never sent to the model. New in 0.9.0.
+   */
+  original?: { ref: string; bytes: number; sha256: string };
   name: string;
   mimeType: string;
   format: DocumentFormat;
@@ -109,38 +144,47 @@ export type DocumentSummary = {
   expiresAt: string;
 };
 
-/** Where extracted text lives. Implement this for Redis, S3, a database, etc. */
+/**
+ * Where extracted text lives. Implement this for Redis, S3, a database, etc.
+ *
+ * Every method takes a last, optional `context` (`DocumentContext`): the scope and the owner of
+ * the call. New in 0.9.0. A store written for 0.8, whose methods take no context, still implements
+ * this interface, and works as before. A store that wraps another one passes the context on.
+ */
 export interface DocumentStore {
-  put(document: StoredDocument): Promise<void>;
+  put(document: StoredDocument, context?: DocumentContext): Promise<void>;
   /** Returns undefined for unknown or expired documents. */
-  get(id: string): Promise<StoredDocument | undefined>;
-  getMeta(id: string): Promise<DocumentMeta | undefined>;
+  get(id: string, context?: DocumentContext): Promise<StoredDocument | undefined>;
+  getMeta(id: string, context?: DocumentContext): Promise<DocumentMeta | undefined>;
   /** Removes the document, and its original file if one is kept. */
-  delete(id: string): Promise<boolean>;
-  /** Removes expired documents (and their original files) and returns how many were removed. */
-  sweep?(now?: Date): Promise<number>;
+  delete(id: string, context?: DocumentContext): Promise<boolean>;
+  /**
+   * Removes expired documents (and their original files) and returns how many were removed. With
+   * a scope in `context`, only those of that scope; without one, those of every scope.
+   */
+  sweep?(now?: Date, context?: DocumentContext): Promise<number>;
   /**
    * Keeps the uploaded file of a document. It is called before `put` for the same ID. Optional: a
    * store without it works as before, and original files are then not kept.
    */
-  putOriginal?(id: string, bytes: Uint8Array): Promise<void>;
+  putOriginal?(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void>;
   /** The uploaded file, or undefined when none was kept or the document is unknown or expired. */
-  getOriginal?(id: string): Promise<Uint8Array | undefined>;
+  getOriginal?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
   /**
    * Bytes `start` (inclusive) to `end` (exclusive) of the stored text, as UTF-8. Optional: with it,
    * a tool call reads only the lines it needs, and a search reads the text a piece at a time,
    * instead of loading the whole text into memory. Return fewer bytes at the end of the text, and
    * undefined when the document is gone. It is called only after `getMeta` found the document.
    */
-  readTextRange?(id: string, start: number, end: number): Promise<Uint8Array | undefined>;
+  readTextRange?(id: string, start: number, end: number, context?: DocumentContext): Promise<Uint8Array | undefined>;
   /**
    * Keeps the line index of a document (a few bytes a line), so that reading by range needs no
    * pass over the text first. Called at ingest, before `put`, and when an older document without an
    * index is first read. Optional, and only useful with `readTextRange`.
    */
-  putIndex?(id: string, index: Uint8Array): Promise<void>;
+  putIndex?(id: string, index: Uint8Array, context?: DocumentContext): Promise<void>;
   /** The index kept by `putIndex`, or undefined. A damaged one is noticed and built again. */
-  getIndex?(id: string): Promise<Uint8Array | undefined>;
+  getIndex?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
 }
 
 export type ExtractedText = {
@@ -187,6 +231,11 @@ export type ExtractInput = {
    * extractor of your own may ignore it. New in 0.7.0.
    */
   onProgress?: (progress: ExtractProgress) => void;
+  /**
+   * The path of the file, when it is ingested from a path (`IngestInput.source`) and the extractor
+   * reads the file itself (`readsPath`): the bytes it is given are then empty. New in 0.9.0.
+   */
+  path?: string;
 };
 
 /** How far an extraction is, for `ExtractInput.onProgress`. */
@@ -199,7 +248,12 @@ export type ExtractProgress = {
   unit: "pages" | "parts" | "bytes";
 };
 
-export type Extractor = (bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>;
+/**
+ * Reads the text of a file. `readsPath`: the extractor reads a file ingested from a path itself,
+ * from `ExtractInput.path`, so the library does not read it first (an isolated reader does). New in
+ * 0.9.0. A plain function is an extractor, as before.
+ */
+export type Extractor = ((bytes: Uint8Array, input: ExtractInput) => Promise<ExtractedText>) & { readsPath?: boolean };
 
 /** The limits of the model connection the documents must fit through. */
 export type Budget = {

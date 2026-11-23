@@ -435,18 +435,18 @@ An error in an event is plain data, safe to send to a browser:
 |---|---|---|
 | `message` | `string` | A message your users may see. |
 | `kind` | `ModelErrorKind`, optional | For a model error: what kind it is (`errorKindOf`): `"rate_limit"`, `"timeout"`, `"auth"`… |
-| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. |
+| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also 503 for a `DocumentStoreError` and 404 for a `DocumentsNotFoundError`. |
 | `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"IngestError"`… |
 | `code` | `IngestErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. |
 
 How `message` is written:
 
-- **A model error** (one with a `kind` or a numeric `status`) is told by its kind and status, in
+- **A model error** (one with a `kind` or a numeric `status`, other than the library's own errors) is told by its kind and status, in
   the library's words: "The model was busy (HTTP 429).", "The model failed on its side (HTTP
   503).", "The model refused the key or token it was sent (HTTP 401).". The provider's own words
   can name projects, hosts or keys: they stay on the error that is thrown, for your logs.
 - **A storage error** (`DocumentStoreError`) is told by its own message, which names only the
-  code. **A Node system error** (one with a `code` and a `syscall`) is told as "The file could not
+  code, and so is a `DocumentsNotFoundError`, which names the IDs. **A Node system error** (one with a `code` and a `syscall`) is told as "The file could not
   be read from storage (ENOENT).".
 - **Any other `Error`** is told by its message as it is written: the library's own refusals and
   messages ("app.log is empty."), and the reason of an abort. That includes errors your own code
@@ -455,8 +455,8 @@ How `message` is written:
 - **Anything that is not an `Error`** is told as "Something went wrong.".
 
 An [`IngestError`](./library.md#ingesterror) is told by its message, with `name: "IngestError"` and
-its `code`, and with its `status` only for `"too_large"` (413) and `"busy"` (503): that status is the
-answer of an upload, not of a model, and the others are all 422. Until 0.8.0 the same refusals were
+its `code`, and with its `status` only for `"too_large"` (413), `"exists"` (409, new in 0.9.0) and
+`"busy"` (503): that status is the answer of an upload, not of a model, and the others are all 422. Until 0.8.0 the same refusals were
 plain `Error`s, and their events said `name: "Error"`; a test that expects that needs
 `"IngestError"`. A store that failed, an abort and a listener that threw have no `code`.
 

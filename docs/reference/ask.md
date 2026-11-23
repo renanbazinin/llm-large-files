@@ -8,7 +8,7 @@ task, where there is one.
 
 ```ts
 import {
-  askWithFiles, askStream, partialResultOf, DocumentsNotFoundError, UsageMeter,
+  askWithFiles, askStream, partialResultOf, DocumentsNotFoundError, UsageMeter, TOOL_TURN_VERSION,
   evidenceOf, mergeRanges, stubResult,
   EXPLORER_INSTRUCTION, FINAL_ANSWER_REQUEST, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_WITHOUT_TOOLS,
 } from "llm-large-files";
@@ -339,6 +339,9 @@ Guide: [errors and reliability](../guides/errors-and-reliability.md).
 declare class DocumentsNotFoundError extends Error {
   constructor(ids: string[]);
   readonly ids: string[];
+  readonly code: "documents_missing"; // new in 0.9.0
+  readonly status: 404; // new in 0.9.0
+  static is(value: unknown): value is DocumentsNotFoundError; // new in 0.9.0
 }
 ```
 
@@ -346,7 +349,9 @@ Thrown by `askWithFiles` (and `askGemini`) before any model request, when docume
 `documentIds` were never stored, have expired or been deleted, or belong to another owner. `ids`
 lists them. `name` is `"DocumentsNotFoundError"`. The message names the IDs, not the files: "A
 document is no longer available: ‹id›. Upload it again.", or for several "3 documents are no longer
-available: ‹id›, ‹id›, ‹id›. Upload them again."
+available: ‹id›, ‹id›, ‹id›. Upload them again." New in 0.9.0: `code` is `"documents_missing"`,
+`status` is 404, and `DocumentsNotFoundError.is(error)` tells one apart also when another copy of
+the package made it (see [errors](./errors-and-retries.md#telling-errors-apart-across-copies-of-the-package)).
 
 Guide: [errors and reliability](../guides/errors-and-reliability.md).
 
@@ -440,7 +445,9 @@ A plain turn of the user or of the model. `"model"` is taken as `"assistant"`.
 ### `ToolTurn`
 
 ```ts
-type ToolTurn = { role: "tools"; calls: Array<ToolCall & { result: ToolResult }> };
+type ToolTurn = { role: "tools"; version?: number; calls: Array<ToolCall & { result: ToolResult }> };
+
+declare const TOOL_TURN_VERSION: 1;
 ```
 
 One round of tool use as an application stores it: the calls of one model turn, each with what the
@@ -454,6 +461,13 @@ again: it is answered with a pointer (`already_shown: true`). Not with a model t
 regex search that 0.5.0 stored without its last match: those run again (see
 [tools](./tools.md#what-askwithfiles-adds-to-results)). Guide:
 [conversations](../guides/conversations.md).
+
+`version` is the version of this shape, new in 0.9.0: `TOOL_TURN_VERSION` (1) on the rounds
+`askWithFiles` returns, absent on those of earlier versions, which are read as before. It is never
+sent to the model: of a stored round, only its calls are. A round of a higher version, made by a
+newer version of the package, is refused with a `TypeError` ("A stored tool round (toolTurns) has
+version 2: …"), before any request. Catch it to ask again without the old rounds. A test that
+compares the rounds whole must expect `version`.
 
 ## The adapter contract
 

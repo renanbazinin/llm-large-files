@@ -316,8 +316,8 @@ taken from your route. Nothing else is read but what `getOwner` reads.
 | `200` | The [`DocumentSummary`](./library.md#documentsummary) | The document is there, has not expired, and has no owner or the owner `getOwner` returned. |
 | `404` | `{ "error": "This file is no longer available." }` | `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner` threw an error with that `status` or `statusCode`. |
-| `500` | `{ "error": "The file could not be looked up (EIO)." }` | The store could not be read ([`DocumentStoreError`](./library.md#documentstoreerror)), with the code of the system error behind it, when there is one. |
-| `500` | `{ "error": "The file could not be looked up." }` | The store could not be read and gave no system error code, or `getOwner` threw an error without a status. |
+| `503` | `{ "error": "The document store could not be read (EIO). Try again." }` | The store could not be read: the message of its [`DocumentStoreError`](./library.md#documentstoreerror), with the code of the system error behind it, when there is one. Since 0.9.0, the status of that error; before, `500` "The file could not be looked up (EIO).". |
+| `500` | `{ "error": "The file could not be looked up." }` | `getOwner` threw an error without a status. |
 
 #### remove(request, response, id)
 
@@ -330,7 +330,8 @@ the store: its text, its index and any kept original, as far as your store's `de
 | `200` | `{ "deleted": true }` | The document was deleted. |
 | `200` | `{ "deleted": false }` | This owner has no such document: `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner. Also when the store's `delete` returned `false`. It never answers `404`. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, or the store's `delete`, threw an error with that `status` or `statusCode`. |
-| `500` | `{ "error": "The file could not be deleted (EIO)." }` | The store could not be read, or its `delete` failed with a Node system error, with that error's code. |
+| `503` | `{ "error": "The document store could not be read (EIO). Try again." }` | The look-up before the delete could not read the store, as for `get`. Since 0.9.0. |
+| `500` | `{ "error": "The file could not be deleted (EIO)." }` | The store's `delete` failed with a Node system error, with that error's code. |
 | `500` | `{ "error": "The file could not be deleted." }` | The same with no system error code, or `getOwner` threw an error without a status. |
 
 ## How errors are answered

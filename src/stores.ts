@@ -1,67 +1,121 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { DocumentMeta, DocumentStore, StoredDocument } from "./types.js";
+import { checkScope, scopeKey } from "./scope.js";
+import type { DocumentContext, DocumentMeta, DocumentScope, DocumentStore, StoredDocument } from "./types.js";
 
+/** The shape of the document IDs the library makes: "doc_" and 32 hex digits. */
 export const DOCUMENT_ID_PATTERN = /^doc_[a-f0-9]{32}$/;
+
+/**
+ * The shape of a document ID an application may choose (`IngestInput.id`): lowercase letters,
+ * digits, "_" and "-", up to 64 characters, starting with a letter or a digit. The IDs the library
+ * makes have it too. New in 0.9.0.
+ */
+export const APP_DOCUMENT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/**
+ * The version of `DocumentMeta` this package writes (`metaVersion`), and the highest it reads.
+ * New in 0.9.0: metadata without a version is that of an earlier version, and is read as before.
+ */
+export const DOCUMENT_META_VERSION = 1;
 
 function expired(meta: DocumentMeta, now = new Date()): boolean {
   return Date.parse(meta.expiresAt) <= now.getTime();
 }
 
-/** Keeps documents in process memory. Good for tests and single-process demos. */
+/** The documents of one scope in a `MemoryDocumentStore`, and the scope as it was given. */
+type Shelf = { scope: DocumentScope | undefined; documents: Map<string, StoredDocument>; originals: Map<string, Uint8Array> };
+
+/**
+ * Keeps documents in process memory. Good for tests and single-process demos.
+ *
+ * The documents of each scope (`DocumentContext.scope`) are kept apart: one ID in two scopes is two
+ * documents. Calls without a scope share the documents of no scope, as every call did before 0.9.0.
+ */
 export class MemoryDocumentStore implements DocumentStore {
+  /** The documents of no scope, by ID, as all documents were kept before 0.9.0. */
   private readonly documents = new Map<string, StoredDocument>();
+  /** The original files of the documents of no scope. */
   private readonly originals = new Map<string, Uint8Array>();
+  private readonly unscoped: Shelf = { scope: undefined, documents: this.documents, originals: this.originals };
+  /** The documents of each scope, by the key of the scope (`scopeKey`). */
+  private readonly scoped = new Map<string, Shelf>();
   private readonly now: () => Date;
 
   constructor(options: { now?: () => Date } = {}) {
     this.now = options.now ?? (() => new Date());
   }
 
+  /** The documents of the scope of `context`. Those of a scope that has none yet are made when `create` asks for them. */
+  private shelf(context: DocumentContext | undefined, create: true): Shelf;
+  private shelf(context: DocumentContext | undefined, create?: false): Shelf | undefined;
+  private shelf(context: DocumentContext | undefined, create = false): Shelf | undefined {
+    const scope = checkScope(context?.scope);
+    if (scope === undefined) return this.unscoped;
+    const key = scopeKey(scope);
+    let shelf = this.scoped.get(key);
+    if (!shelf && create) {
+      shelf = { scope, documents: new Map(), originals: new Map() };
+      this.scoped.set(key, shelf);
+    }
+    return shelf;
+  }
+
   // The metadata is copied on the way in and on the way out, as a store that writes it somewhere
   // does: an app that changes the metadata it was handed (deletes its owner before sending it to a
   // browser) must not change the document's owner or expiry.
-  async put(document: StoredDocument): Promise<void> {
-    this.documents.set(document.meta.id, { meta: structuredClone(document.meta), text: document.text });
+  async put(document: StoredDocument, context?: DocumentContext): Promise<void> {
+    this.shelf(context, true).documents.set(document.meta.id, { meta: structuredClone(document.meta), text: document.text });
   }
 
-  async get(id: string): Promise<StoredDocument | undefined> {
-    const document = this.documents.get(id);
+  async get(id: string, context?: DocumentContext): Promise<StoredDocument | undefined> {
+    const document = this.shelf(context)?.documents.get(id);
     if (document && expired(document.meta, this.now())) {
-      await this.delete(id);
+      await this.delete(id, context);
       return undefined;
     }
     return document && { meta: structuredClone(document.meta), text: document.text };
   }
 
-  async getMeta(id: string): Promise<DocumentMeta | undefined> {
-    return (await this.get(id))?.meta;
+  async getMeta(id: string, context?: DocumentContext): Promise<DocumentMeta | undefined> {
+    return (await this.get(id, context))?.meta;
   }
 
-  async delete(id: string): Promise<boolean> {
-    this.originals.delete(id);
-    return this.documents.delete(id);
+  async delete(id: string, context?: DocumentContext): Promise<boolean> {
+    const shelf = this.shelf(context);
+    if (!shelf) return false;
+    shelf.originals.delete(id);
+    const existed = shelf.documents.delete(id);
+    // A scope with nothing left takes no memory: one for each chat would add up.
+    if (shelf !== this.unscoped && shelf.documents.size === 0 && shelf.originals.size === 0) this.scoped.delete(scopeKey(shelf.scope));
+    return existed;
   }
 
-  async sweep(now = this.now()): Promise<number> {
+  /** Removes expired documents: those of the scope of `context`, or those of every scope when it has none. */
+  async sweep(now = this.now(), context?: DocumentContext): Promise<number> {
+    const shelves = context?.scope === undefined ? [this.unscoped, ...this.scoped.values()] : [this.shelf(context)];
     let removed = 0;
-    for (const [id, document] of this.documents) {
-      if (expired(document.meta, now)) {
-        await this.delete(id);
-        removed++;
+    for (const shelf of shelves) {
+      if (!shelf) continue;
+      for (const [id, document] of shelf.documents) {
+        if (expired(document.meta, now)) {
+          await this.delete(id, shelf.scope === undefined ? undefined : { scope: shelf.scope });
+          removed++;
+        }
       }
     }
     return removed;
   }
 
-  async putOriginal(id: string, bytes: Uint8Array): Promise<void> {
+  async putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void> {
     // A copy: the caller may reuse its buffer after the upload.
-    this.originals.set(id, bytes.slice());
+    this.shelf(context, true).originals.set(id, bytes.slice());
   }
 
-  async getOriginal(id: string): Promise<Uint8Array | undefined> {
-    return await this.get(id) ? this.originals.get(id) : undefined;
+  async getOriginal(id: string, context?: DocumentContext): Promise<Uint8Array | undefined> {
+    // A copy too, new in 0.9.0: a caller that changed the bytes it was handed changed the stored file.
+    return await this.get(id, context) ? this.shelf(context)?.originals.get(id)?.slice() : undefined;
   }
 }
 

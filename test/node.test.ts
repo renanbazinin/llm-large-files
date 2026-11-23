@@ -160,7 +160,7 @@ describe("createDocumentHandlers", () => {
     expect((await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt", "X-User": "alice" }, body: "notes" })).status).toBe(201);
   });
 
-  it("answers a store that fails with a 500 that gives the error code and no server path", async () => {
+  it("answers a store that fails with the error code and no server path", async () => {
     const failure = (code: string, call: string) => Object.assign(new Error(`${code}: failed, ${call} 'C:\\srv\\large-files\\doc_1.txt'`), { code, syscall: call });
     class FailingStore extends MemoryDocumentStore {
       override async put(): Promise<void> {
@@ -174,11 +174,14 @@ describe("createDocumentHandlers", () => {
     const upload = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "notes" });
     expect(upload.status).toBe(500);
     expect(await upload.json()).toEqual({ error: "Upload failed (ENOSPC)." });
+    // A store that could not be read is a DocumentStoreError, whose status is 503 since 0.9.0 (it
+    // was answered 500, "The file could not be looked up (EIO).").
     const lookup = await fetch(`${base}/${UNKNOWN_ID}`);
-    expect(lookup.status).toBe(500);
-    expect(await lookup.json()).toEqual({ error: "The file could not be looked up (EIO)." });
+    expect(lookup.status).toBe(503);
+    expect(await lookup.json()).toEqual({ error: "The document store could not be read (EIO). Try again." });
     const removal = await fetch(`${base}/${UNKNOWN_ID}`, { method: "DELETE" });
-    expect(await removal.json()).toEqual({ error: "The file could not be deleted (EIO)." });
+    expect(removal.status).toBe(503);
+    expect(await removal.json()).toEqual({ error: "The document store could not be read (EIO). Try again." });
   });
 
   it("answers a custom store's own error with a 500 that does not repeat its message", async () => {
