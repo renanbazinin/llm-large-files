@@ -360,14 +360,26 @@ to `createLargeFiles`. Everything else stays as it is: `files.ingest`, the uploa
 and progress.
 
 ```ts
+import { createServer } from "node:http";
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 import { createDocumentHandlers, createIsolatedExtractors } from "llm-large-files/node";
 
 const isolated = createIsolatedExtractors({ maxHeapMb: 512, concurrency: 2 });
 const files = createLargeFiles({ store: new FileDocumentStore("./data"), extractors: isolated.extractors });
 const documents = createDocumentHandlers(files);
-process.on("SIGTERM", () => void isolated.close());
+const server = createServer(/* your routes, with documents.upload */).listen(3000);
+
+// A SIGTERM listener replaces Node's own exit: stop the server there too, or it goes on serving.
+process.once("SIGTERM", () => {
+  server.close(); // no new connections; requests under way go on
+  void isolated.close(); // kills the children: the files they read are refused as "busy"
+});
 ```
+
+With nothing else open (a database pool, a timer of your own), the process then exits once the
+requests under way end. To let the uploads under way finish before the children are killed, call
+`close()` later, when the grace period of your platform runs out, as in
+[Stopping a server](../guides/deployment.md#stopping-a-server).
 
 What happens to a file of one of its formats:
 
@@ -401,6 +413,13 @@ numbers in its message:
 | `"unreadable"` | `report.pdf could not be read: its reader stopped (SIGSEGV).`, or `(exit code 1)` | The child ended another way. |
 | `"unreadable"` | `report.pdf could not be read: its reader could not be reached.` | The file could not be sent to the child. |
 
+A child that stops before it is ready to read, so before it was sent the file, is the server's
+trouble, not the file's: a `childScript` that is not there, an `execArgv` that Node does not know.
+Such a file is refused with an `Error` that is not an `IngestError`, with `status` 500:
+`The server could not start a reader for report.pdf (exit code 1).` The upload handler answers it
+`500` with that message. The end of the child's standard error, which names paths of the server, is
+its `cause` only: log it.
+
 A file the built-in extractor refuses in the child is refused with the same message as in the
 server, and the code of its words: a zip bomb or a PDF that would hold the server is `"hostile"`, a
 PDF without text `"no_text"`, and so on ([`IngestError`](./library.md#ingesterror)).
@@ -433,20 +452,21 @@ type IsolatedExtractorOptions = {
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `maxHeapMb` | `number` | 512 | The heap of each child process, in MB, given as `--max-old-space-size`. A file that needs more is refused (`"out_of_memory"`), and the server goes on. Above 0; a fraction is cut to a whole number. |
-| `timeoutMs` | `number` | 120,000 | The most time one file may take, in milliseconds. Past it, its child is killed and the file refused (`"timeout"`). 0 sets none. With both at their defaults, the `ingestTimeoutMs` of `createLargeFiles` usually ends the ingest first, and its signal kills the child too. |
+| `maxHeapMb` | `number` | 512 | The heap of each child process, in MB, given as `--max-old-space-size`. A file that needs more is refused (`"out_of_memory"`), and the server goes on. At least 1, and finite; a fraction is cut to a whole number. Node reads `--max-old-space-size=0` as its default heap, so a value below 1 is refused rather than cut to 0. |
+| `timeoutMs` | `number` | 120,000 | The most time one file may take, in milliseconds. Past it, its child is killed and the file refused (`"timeout"`). 0 sets none, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days), `Infinity` included, as for `ingestTimeoutMs`. With both at their defaults, the `ingestTimeoutMs` of `createLargeFiles` usually ends the ingest first, and its signal kills the child too. |
 | `concurrency` | `number` | 2 | How many files are read at once, each in a child process of its own. At least 1. |
 | `maxQueue` | `number` | 8 | How many files may wait for a child. Past it, a file is refused at once as `"busy"`. 0: none waits. |
 | `formats` | `DocumentFormat[]` | `["pdf", "docx", "pptx", "xlsx"]` | The formats read in child processes: by default those whose parsers a hostile file can exhaust. `extractors` has an entry for each. |
 | `pdf` | [`PdfExtractorOptions`](./library.md#pdfextractoroptions) | `{}` | Options of the built-in PDF extractor in the children, as for [`createPdfExtractor`](./library.md#createpdfextractoroptions). |
 | `maxFilesPerChild` | `number` | 50 | How many files one child reads before it is replaced by a new one. At least 1. |
-| `idleMs` | `number` | 30,000 | A child with nothing to read is stopped after this many milliseconds. 0 keeps the children until `close()`, and they keep your process alive. |
+| `idleMs` | `number` | 30,000 | A child with nothing to read is stopped after this many milliseconds. 0, or a value past what a timer can wait (`Infinity` included), keeps the children until `close()`. Either way an idle child does not keep your process alive. |
 | `execArgv` | `string[]` | `[]` | Further Node options for the children, after the heap limit. |
-| `childScript` | `string \| URL` | The `ingest-child.js` shipped next to the module | The script the children run. For a bundler that moves files. |
+| `childScript` | `string \| URL` | The `ingest-child.js` shipped next to the module | The script the children run: a path, a `file:` URL, or a string of one. For a bundler that moves files: `import.meta.resolve("llm-large-files/node/ingest-child.js")` gives the one in the installed package ([Bundlers](../guides/deployment.md#nodejs-esm-and-require)). |
 
 A number option that is not a number, NaN, below 0, or 0 where it must be above 0, throws a
 `RangeError` when `createIsolatedExtractors` is called: "maxHeapMb must be a number above 0, and is
-NaN.", or "timeoutMs must be a number above or equal to 0, and is -1.".
+NaN.", or "timeoutMs must be a number above or equal to 0, and is -1.". So does a `maxHeapMb` below
+1 or not finite: "maxHeapMb must be a finite number of 1 or more, and is 0.5.".
 
 ### `IsolatedExtractors`
 
@@ -462,7 +482,7 @@ type IsolatedExtractors = {
 |---|---|
 | `extractors` | One extractor for each of `formats`, to pass to `createLargeFiles({ extractors })`. To add one of your own for another format: `{ ...isolated.extractors, text: myText }`. |
 | `stats()` | The files being read (`running`), the files waiting (`queued`) and the child processes alive (`children`): for a health check or a metric. |
-| `close()` | Kills every child process, and refuses the files waiting, those being read and those sent while it runs as `"busy"` ("The server is shutting down. Try again in a moment."). Resolves once the children have exited. Files sent after that start new children. Call it when the server stops. |
+| `close()` | Kills every child process, and refuses the files waiting, those being read and those sent while it runs as `"busy"` ("The server is shutting down. Try again in a moment."). Resolves once the children have exited, also when nothing else keeps your process open, so code after `await isolated.close()` runs. Files sent after that start new children. Call it when the server stops, next to the server's own `close()`: a SIGTERM listener replaces Node's own exit ([above](#createisolatedextractorsoptions)). |
 
 ## Server-Sent Events
 

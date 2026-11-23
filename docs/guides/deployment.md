@@ -164,7 +164,8 @@ processes. On Node 20 and 22 they give 1,072 and 560 MB.
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 import { createIsolatedExtractors } from "llm-large-files/node";
 
-// One file at a time, in a child with a heap limit of 512 MB on Node 24. Call isolated.close() on SIGTERM.
+// One file at a time, in a child with a heap limit of 512 MB on Node 24. Call isolated.close() when
+// the server stops, next to server.close() (Stopping a server, below).
 export const isolated = createIsolatedExtractors({ maxHeapMb: 320, concurrency: 1 });
 
 export const files = createLargeFiles({
@@ -235,8 +236,9 @@ end after the time limit. Four ways to bound that:
 
 - **Read PDF and Office files in child processes**, with `createIsolatedExtractors` from
   `llm-large-files/node` (new in 0.8.0), as `large-files.ts` above does: below. Start here. The
-  parsers run in a child process with a heap limit (512 MB by default) and a kill timer (120 s), and
-  a file that runs the child out of memory is refused while the server goes on.
+  parsers run in a child process with a heap flag (`maxHeapMb`, 512 by default: a heap limit of 560
+  to 704 MB, depending on the version of Node, as the tables above show) and a kill timer (120 s),
+  and a file that runs the child out of memory is refused while the server goes on.
 - **Accept one or two ingests at a time** per server, and answer the others with 503: this bounds
   memory and keeps stalls from adding up. `createIsolatedExtractors` does it for the files it reads
   (`concurrency` and `maxQueue`); the recipe at the end of this section does it for whole ingests.
@@ -659,6 +661,18 @@ same conversations.
 - **Bundlers.** The optional packages below are loaded with a dynamic `import()` when they are
   first needed. A bundle of your server must keep them resolvable at run time: mark them external,
   and install them next to the bundle.
+  [`createIsolatedExtractors`](../reference/node.md#createisolatedextractorsoptions) starts its
+  children with `ingest-child.js`, which it looks for next to its own module: in a bundle, that is
+  next to the bundle, where it is not. Mark `llm-large-files` external too, or install it next to
+  the bundle and point at its script, which imports the rest of the package and cannot be copied
+  alone:
+
+  ```ts
+  const isolated = createIsolatedExtractors({ childScript: import.meta.resolve("llm-large-files/node/ingest-child.js") });
+  ```
+
+  A child that cannot start fails each file with a 500, `The server could not start a reader for
+  report.pdf (exit code 1).`, and the child's standard error as its `cause`.
 
 ## Optional dependencies in production images
 

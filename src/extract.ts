@@ -38,10 +38,17 @@ const MIME_FORMATS: Record<string, DocumentFormat> = {
   "text/csv": "csv",
 };
 
-/** Picks a format from the file name, then the MIME type. Unknown text-like files are "text". */
+/**
+ * Picks a format from the file name, then the MIME type. Unknown text-like files are "text". Both
+ * come from the upload: only the tables' own keys count, not "constructor" or "__proto__", which
+ * every object has.
+ */
 export function detectFormat(name: string, mimeType: string): DocumentFormat {
   const extension = name.toLowerCase().split(".").at(-1) ?? "";
-  return EXTENSION_FORMATS[extension] ?? MIME_FORMATS[mimeType.toLowerCase()] ?? "text";
+  const mime = mimeType.toLowerCase();
+  return (Object.hasOwn(EXTENSION_FORMATS, extension) ? EXTENSION_FORMATS[extension] : undefined)
+    ?? (Object.hasOwn(MIME_FORMATS, mime) ? MIME_FORMATS[mime] : undefined)
+    ?? "text";
 }
 
 export type PdfExtractorOptions = {

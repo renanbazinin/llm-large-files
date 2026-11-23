@@ -534,9 +534,11 @@ For uploads you do not trust, parse them in a process of their own, with a memor
 timeout. Since 0.8.0 the library does it: the `extractors` of
 [`createIsolatedExtractors`](./reference/node.md#createisolatedextractorsoptions), from
 `llm-large-files/node`, read PDF, DOCX, PPTX and XLSX files in child processes, each with a heap
-limit (`maxHeapMb`, 512 by default) and a kill timer (`timeoutMs`, 120 s). A file that runs its
-child out of memory is refused with the code `"out_of_memory"`, one that takes too long with
-`"timeout"`, and your server goes on ([Uploads](#uploads)). To run the whole ingest apart, an
+flag (`maxHeapMb`, 512 by default: a heap limit of 560 to 704 MB, depending on the version of Node,
+[The heap limit](./reference/node.md#createisolatedextractorsoptions)) and a kill timer
+(`timeoutMs`, 120 s). A file that runs its child out of memory is refused with the code
+`"out_of_memory"`, one that takes too long with `"timeout"`, and your server goes on
+([Uploads](#uploads)). To run the whole ingest apart, an
 extractor of your own included, fork a process for it
 ([Deployment](./guides/deployment.md#uploads-and-ingest)). If you keep their PDFs for
 `view_pages`, run the questions in a process of their own too (the tool loop of each question, in a
