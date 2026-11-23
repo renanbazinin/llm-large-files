@@ -349,9 +349,10 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
     const out: EventError = { message: message ?? userMessageOf(error) };
     const own = DocumentStoreError.is(error) ? "DocumentStoreError" : DocumentsNotFoundError.is(error) ? "DocumentsNotFoundError" : undefined;
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
-    else if (isModelStatus(record.status) && own === undefined) {
+    else if (isModelStatus(record.status) && own === undefined && !isPlainData(record)) {
       // A model's error without a kind of its own (an adapter of yours, `httpError`): the kind its
       // status gives, as its message is told, so that a model's EventError always has its kind.
+      // Plain data thrown is not an adapter's error, as errorInfoOf reads it.
       const { code } = record;
       out.kind = classifyModelError(record.status, error instanceof Error ? error.message : "", { code: typeof code === "string" ? code : undefined }).kind;
     }
@@ -368,8 +369,17 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
 
-/** A status of a model's error: 0 (no answer came) or an HTTP error, as `errorInfoOf` reads it. */
-const isModelStatus = (status: unknown): status is number => typeof status === "number" && (status === 0 || status >= 400);
+/**
+ * A status of a model's error: 0 (no answer came) or an HTTP error, 400 to 599, as `errorInfoOf`
+ * and `modelFailureReason` read it.
+ */
+export const isModelStatus = (status: unknown): status is number => typeof status === "number" && (status === 0 || (status >= 400 && status <= 599));
+
+/** Data, not an error: an object of no class, as an `EventError` is, or one parsed from JSON. */
+export function isPlainData(value: object): boolean {
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
 
 /**
  * A message for users: a model error by its kind and status, a storage error by its code, the

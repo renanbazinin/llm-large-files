@@ -195,13 +195,17 @@ describe("errorInfoOf", () => {
   it("reads the run.error, retry and request.end of a model error without a kind as the error itself", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
-    const cases: Array<[Error, Partial<ErrorInfo>]> = [
+    // The third item: whether the request is sent again, when that is not what `retryable` says.
+    const cases: Array<[Error, Partial<ErrorInfo>, boolean?]> = [
       [httpError(429, "Busy at acme-prod."), { code: "rate_limit", status: 429, retryable: true, message: "The model was busy (HTTP 429)." }],
       [httpError(503, "acme-prod is down."), { code: "server", status: 502, retryable: true, message: "The model failed on its side (HTTP 503)." }],
       [httpError(401, "API key not valid for acme-prod."), { code: "auth", status: 500, retryable: false, message: "The model refused the key or token it was sent (HTTP 401)." }],
       [httpError(0, "connect ECONNREFUSED acme-prod.example:443"), { code: "unreachable", status: 502, retryable: true, message: "The model could not be reached." }],
+      // Its code says what its words do not: the events read it, and so does errorInfoOf. The retry
+      // policy sends a 429 again by its status.
+      [Object.assign(httpError(429, "Too many."), { code: "insufficient_quota" }), { code: "quota", status: 503, retryable: false, message: "The model's quota has run out (HTTP 429)." }, true],
     ];
-    for (const [error, expected] of cases) {
+    for (const [error, expected, sentAgain = expected.retryable] of cases) {
       const events: AskEvent[] = [];
       const failure = await askWithFiles({
         files,
@@ -219,7 +223,7 @@ describe("errorInfoOf", () => {
         return [];
       });
       // A retry only for what is sent again; a request.end for each try.
-      expect(errors.map(([type]) => type), error.message).toEqual(expected.retryable ? ["retry", "request.end", "run.error"] : ["request.end", "run.error"]);
+      expect(errors.map(([type]) => type), error.message).toEqual(sentAgain ? ["retry", "request.end", "run.error"] : ["request.end", "run.error"]);
       for (const [type, data] of errors) {
         expect(data.kind, `${error.message}: ${type}`).toBe(expected.code);
         const info = errorInfoOf(data);
@@ -227,6 +231,29 @@ describe("errorInfoOf", () => {
         expect(info.status).not.toBe(401);
         expectSafe(info);
       }
+    }
+  });
+
+  // errorInfoOf read an adapter's error without its `code`, while its EventError used it: a 429
+  // "insufficient_quota" was rate_limit for the error and quota for its events. A status above 599
+  // and thrown plain data got a model's kind in the event only.
+  it("reads an adapter's error as its EventError: by its code, by a status of 400 to 599, and not as plain data", () => {
+    const cases: Array<[unknown, Partial<ErrorInfo>]> = [
+      [Object.assign(httpError(429, "Too many."), { code: "insufficient_quota" }), { category: "model", code: "quota", status: 503, retryable: false }],
+      [Object.assign(httpError(400, "Bad request."), { code: "context_length_exceeded" }), { category: "model", code: "context_overflow", status: 413 }],
+      [Object.assign(httpError(400, "Bad request."), { code: "request_too_large" }), { category: "model", code: "context_overflow", status: 413 }],
+      [httpError(600, "Not HTTP."), { category: "unknown", status: 500, retryable: false, message: "Something went wrong." }],
+      [{ status: 429, message: `Busy at ${HOST}.` }, { category: "unknown", status: 429, retryable: true, message: "Something went wrong." }],
+      [{ status: 503, message: "Down." }, { category: "unknown", status: 503, retryable: true, message: "Something went wrong." }],
+    ];
+    for (const [error, expected] of cases) {
+      const label = JSON.stringify(error) === "{}" ? String(error) : JSON.stringify(error);
+      const info = errorInfoOf(error);
+      expect(info, label).toMatchObject(expected);
+      const data = eventErrorOf(error);
+      if (expected.category !== "model") expect(data, label).not.toHaveProperty("kind");
+      expect(errorInfoOf(data), label).toEqual(info);
+      expectSafe(info);
     }
   });
 

@@ -1,7 +1,7 @@
 // What an error means for an application: one record to choose a status, a retry and words of
 // your own by, in any language. New in 0.9.0.
 import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
-import { eventErrorOf } from "./events.js";
+import { eventErrorOf, isModelStatus, isPlainData } from "./events.js";
 import { modelFailureReason } from "./map-reduce.js";
 import { classifyModelError, DocumentsNotFoundError, ModelRequestError, type ModelErrorKind } from "./model.js";
 
@@ -92,12 +92,15 @@ function systemCode(error: object): string | undefined {
   return typeof syscall === "string" && isCode(code) ? code : undefined;
 }
 
-/** The kind of a model error: its own, or the one its status gives (an error of an adapter of your own). */
+/**
+ * The kind of a model error: its own, or the one its status (0, or 400 to 599), message and code
+ * give (an error of an adapter of your own), as its `EventError` and its message have it.
+ */
 function modelKindOf(error: object): ModelErrorKind | undefined {
-  const { kind, status, message } = error as { kind?: unknown; status?: unknown; message?: unknown };
+  const { kind, status, message, code } = error as { kind?: unknown; status?: unknown; message?: unknown; code?: unknown };
   if (isKind(kind)) return kind;
-  if (ModelRequestError.is(error) || (typeof status === "number" && (status === 0 || status >= 400))) {
-    return classifyModelError(typeof status === "number" ? status : 0, typeof message === "string" ? message : "").kind;
+  if (ModelRequestError.is(error) || isModelStatus(status)) {
+    return classifyModelError(typeof status === "number" ? status : 0, typeof message === "string" ? message : "", { code: typeof code === "string" ? code : undefined }).kind;
   }
   return undefined;
 }
@@ -186,8 +189,7 @@ function infoOf(error: unknown): ErrorInfo {
   const { name, retryAfterMs } = error as { name?: unknown; retryAfterMs?: unknown };
   if (name === "AbortError") return { category: "aborted", code: "aborted", status: 503, retryable: true, message: "It was stopped before it finished." };
   if (name === "TimeoutError") return { category: "aborted", code: "timeout", status: 504, retryable: true, message: "It took too long, and was stopped. Try again." };
-  const proto: unknown = Object.getPrototypeOf(error);
-  const plain = proto === Object.prototype || proto === null;
+  const plain = isPlainData(error);
   if (plain) {
     const fromEvent = eventInfoOf(error);
     if (fromEvent) return fromEvent;
