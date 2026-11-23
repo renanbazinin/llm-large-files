@@ -24,7 +24,7 @@ import {
   type LargeFiles,
 } from "llm-large-files";
 import { createDocumentHandlers, fileOriginals, uploadAnswerOf, type DocumentHandlerOptions, type PrepareUploadInfo, type UploadedContext } from "llm-large-files/node";
-import { writeBody } from "../src/node/spool.js";
+import { checkRefFolders, writeBody } from "../src/node/spool.js";
 import { fakeModel, says, serviceLog } from "./fake-model.js";
 import { numberedPdf } from "./pdf-fixtures.js";
 
@@ -33,7 +33,7 @@ import { numberedPdf } from "./pdf-fixtures.js";
  * `fullUnder` set, a write to a file under that folder fails as a full disk does (ENOSPC). With
  * `writesHeldUnder` set, each write to such a file waits for `writesGate`, as on a volume that
  * stopped answering, then runs. With `realpathHeldUnder` set, a look at the real path of a file
- * under that folder never ends. With `removalsHeldUnder` set, a removal (`rm`) of a file under that
+ * under that folder never ends; `realpaths` has the path of every look. With `removalsHeldUnder` set, a removal (`rm`) of a file under that
  * folder waits for `removalsGate`, then runs.
  */
 const disk = vi.hoisted(() => ({
@@ -42,6 +42,7 @@ const disk = vi.hoisted(() => ({
   writesHeldUnder: undefined as string | undefined,
   writesGate: Promise.resolve(),
   realpathHeldUnder: undefined as string | undefined,
+  realpaths: [] as string[],
   removalsHeldUnder: undefined as string | undefined,
   removalsGate: Promise.resolve(),
 }));
@@ -67,8 +68,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     }
     return handle;
   }) as typeof actual.open;
-  const realpath = ((...args: Parameters<typeof actual.realpath>) =>
-    disk.realpathHeldUnder !== undefined && String(args[0]).startsWith(disk.realpathHeldUnder) ? new Promise<never>(() => undefined) : actual.realpath(...args)) as typeof actual.realpath;
+  const realpath = ((...args: Parameters<typeof actual.realpath>) => {
+    disk.realpaths.push(String(args[0]));
+    return disk.realpathHeldUnder !== undefined && String(args[0]).startsWith(disk.realpathHeldUnder) ? new Promise<never>(() => undefined) : actual.realpath(...args);
+  }) as typeof actual.realpath;
   const rm = (async (...args: Parameters<typeof actual.rm>) => {
     if (disk.removalsHeldUnder !== undefined && String(args[0]).startsWith(disk.removalsHeldUnder)) await disk.removalsGate;
     return actual.rm(...args);
@@ -87,6 +90,7 @@ beforeEach(async () => {
   disk.fullUnder = undefined;
   disk.writesHeldUnder = undefined;
   disk.realpathHeldUnder = undefined;
+  disk.realpaths.length = 0;
   disk.removalsHeldUnder = undefined;
 });
 afterEach(async () => {
@@ -491,9 +495,23 @@ describe("prepareUpload with a path", () => {
     }
     expect(disk.opens.filter((entry) => entry.flags === "wx")).toEqual([]);
     expect(await uploads()).toEqual([]);
+    // One look at a time: each upload left one look that does not end (one thread of libuv's pool
+    // held), at the root of the ref, and never looked at its folder.
+    expect(disk.realpaths).toEqual([root, root]);
     disk.realpathHeldUnder = undefined;
+    disk.realpaths.length = 0;
     expect((await upload(base, "notes.txt", "The meeting is on Tuesday.")).status).toBe(201);
     expect(await uploads()).toEqual(["up-3"]);
+    expect(disk.realpaths.slice(0, 2)).toEqual([root, path.join(root, "alice", "chat-1", "uploads")]);
+  });
+
+  // The folder of a ref of one part is the root: it was looked at twice.
+  it("looks once at the folder of a ref of one part", async () => {
+    await checkRefFolders(path.join(root, "up-1"), "up-1", 200);
+    expect(disk.realpaths).toEqual([root]);
+    // A link in place of the folder of a ref of two parts is still refused.
+    await symlink(path.join(root, "alice"), path.join(root, "linked"));
+    await expect(checkRefFolders(path.join(root, "linked", "up-1"), "linked/up-1", 200)).rejects.toMatchObject({ code: "ELOOP" });
   });
 
   // A volume that stopped answering after the body was written: the removal of the file of an

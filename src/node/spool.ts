@@ -262,7 +262,13 @@ export async function checkRefFolders(file: string, ref: string, idleMs: number)
   let real: string;
   let realRoot: string;
   try {
-    [real, realRoot] = await inTime(Promise.all([realpath(folder), realpath(root)]), idleMs, "realpath");
+    // One look after the other, within the one limit: a look that does not answer holds a thread of
+    // libuv's pool (4 by default) until the volume answers, so each upload holds one, not two. The
+    // root first: when the folder is the root (a ref of one part), it is looked at once.
+    [real, realRoot] = await inTime((async () => {
+      const rootFound = await realpath(root);
+      return [folder === root ? rootFound : await realpath(folder), rootFound] as const;
+    })(), idleMs, "realpath");
   } catch (error) {
     // A volume that does not answer fails the upload; any other error is the opening's to tell.
     if (error instanceof DiskTimeout) throw error;
