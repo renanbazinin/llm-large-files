@@ -19,7 +19,7 @@ npm run test:watch   # the tests again on every save
 | Script | What it does |
 | --- | --- |
 | `npm run typecheck` | `tsc --noEmit` over `src/`, `test/` and `examples/`, in strict mode with `noUncheckedIndexedAccess` and no unused locals or parameters. The examples must compile too. |
-| `npm test` | `vitest run`: every test in `test/`. No test calls a real model or needs a key. |
+| `npm test` | `vitest run`: every test in `test/`, in two Vitest projects: `unit`, files in parallel, then `timing`, one file at a time ([Tests](#tests)). No test calls a real model or needs a key. |
 | `npm run build` | Deletes `dist/` and compiles `src/` into it, with declarations and source maps (tsconfig.build.json). |
 
 The examples and most tests import the package by its names (`llm-large-files`,
@@ -89,6 +89,14 @@ Add a test for every change in behavior. No test calls a real model:
   usual run and on a busy machine. When a test could reach the library's own time limits on a busy
   machine (the regex limits read `performance.now()`), stop that clock with
   `vi.useFakeTimers({ toFake: ["performance"] })`, as `test/volume.test.ts` does.
+- **A test that holds work to the clock** goes in a file of the `timing` project: one of the files
+  listed in `TIMING` in `vitest.config.ts`, or a new file added to that list. That is a test that
+  checks an elapsed time or an event-loop gap under a bound less than about 10 times what the work
+  takes on an idle machine, or counts the pauses that work leaves for a timer. Those files run one
+  at a time, after the others, with one retry and 20 s for each test: other files running beside
+  them slowed them, and on a busy machine they failed. A wait on a timer alone (a 50 ms limit
+  checked under 2 s) stays in the `unit` project. `npx vitest run --project unit` runs the rest
+  alone.
 
 A test of the loop, from start to answer:
 
