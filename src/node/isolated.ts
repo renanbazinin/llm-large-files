@@ -8,14 +8,15 @@ import type { ChildJob, ChildMessage } from "./ingest-child.js";
 export type IsolatedExtractorOptions = {
   /**
    * The heap of each child process, in MB: a file that needs more is refused ("out_of_memory"),
-   * and the server goes on. Defaults to 512. The server's own `NODE_OPTIONS` are not passed to the
-   * children: a heap flag there would replace this one.
+   * and the server goes on. Defaults to 512; at least 1, and finite. The server's own
+   * `NODE_OPTIONS` are not passed to the children: a heap flag there would replace this one.
    */
   maxHeapMb?: number;
   /**
    * The most time one file may take, in milliseconds: past it, its child process is killed and the
-   * file refused ("timeout"). Defaults to 120,000. 0 sets none. `ingestTimeoutMs` of the library
-   * stops a file too; this one holds even for a page that pdf.js reads in one block.
+   * file refused ("timeout"). Defaults to 120,000. 0 sets none, and so does a time past what a
+   * timer can wait (2,147,483,647 ms), `Infinity` included. `ingestTimeoutMs` of the library stops
+   * a file too; this one holds even for a page that pdf.js reads in one block.
    */
   timeoutMs?: number;
   /** How many files are read at once, each in a child process of its own. Defaults to 2. */
@@ -38,11 +39,19 @@ export type IsolatedExtractorOptions = {
    * Some parsers keep memory for the life of their process (pdf-lib keeps every name it reads).
    */
   maxFilesPerChild?: number;
-  /** A child process with nothing to read is stopped after this many milliseconds. Defaults to 30,000. */
+  /**
+   * A child process with nothing to read is stopped after this many milliseconds. Defaults to
+   * 30,000. 0, or a time past what a timer can wait, keeps the children until `close()`. Either
+   * way an idle child does not keep your process alive.
+   */
   idleMs?: number;
   /** Further Node options for the children, beside the heap limit. */
   execArgv?: string[];
-  /** The script the children run. Defaults to the one shipped next to this module. For a bundler that moves files. */
+  /**
+   * The script the children run: a path, a `file:` URL, or a string of one (as
+   * `import.meta.resolve("llm-large-files/node/ingest-child.js")` gives). Defaults to the one
+   * shipped next to this module. For a bundler that moves files.
+   */
   childScript?: string | URL;
 };
 
@@ -51,7 +60,10 @@ export type IsolatedExtractors = {
   extractors: Partial<Record<DocumentFormat, Extractor>>;
   /** Files being read, files waiting, and child processes running: for a health check or a metric. */
   stats(): { running: number; queued: number; children: number };
-  /** Stops every child process, and refuses the files waiting. Files sent later start new ones. */
+  /**
+   * Stops every child process, and refuses the files waiting. Resolves once the children have
+   * exited. Files sent later start new ones.
+   */
   close(): Promise<void>;
 };
 
@@ -61,6 +73,8 @@ const OUT_OF_MEMORY = /heap out of memory|Reached heap limit|allocation failed/i
 const STDERR_KEPT = 4_096;
 /** How long to wait before trying again, when every reader is busy. */
 const BUSY_RETRY_MS = 5_000;
+/** The longest a Node.js timer waits: a longer one fires at once. A time past it is no limit, as for `ingestTimeoutMs`. */
+const LONGEST_TIMER_MS = 2 ** 31 - 1;
 
 const DEFAULT_FORMATS: DocumentFormat[] = ["pdf", "docx", "pptx", "xlsx"];
 
@@ -77,6 +91,10 @@ type Job = {
 type Child = {
   process: ChildProcess;
   ready: Promise<void>;
+  /** Whether it said it is ready: a child that dies before has not been sent a file. */
+  started: boolean;
+  /** Settled once it is gone: it exited, or could not start at all. */
+  gone: Promise<void>;
   job: Job | undefined;
   files: number;
   stderr: string;
@@ -93,6 +111,27 @@ function positive(name: string, value: number | undefined, fallback: number, zer
   return value;
 }
 
+/** Calls `then` once the standard error of a child that has exited is read to its end, or after a second. */
+function afterStderr(child: ChildProcess, then: () => void): void {
+  const stderr = child.stderr;
+  if (!stderr || stderr.destroyed || stderr.readableEnded) {
+    then();
+    return;
+  }
+  let called = false;
+  const once = () => {
+    if (called) return;
+    called = true;
+    clearTimeout(timer);
+    then();
+  };
+  const timer = setTimeout(once, 1_000);
+  stderr.once("close", once);
+}
+
+/** A time option as a timer takes it: one past the longest timer, `Infinity` included, is none (0). */
+const timerMs = (ms: number) => (ms > LONGEST_TIMER_MS ? 0 : ms);
+
 const formatDuration = (ms: number) => (ms >= 60_000 && ms % 60_000 === 0 ? `${ms / 60_000} ${ms === 60_000 ? "minute" : "minutes"}` : `${Math.round(ms / 1_000)} seconds`);
 
 /**
@@ -105,7 +144,11 @@ const formatDuration = (ms: number) => (ms >= 60_000 && ms % 60_000 === 0 ? `${m
  * ```ts
  * const isolated = createIsolatedExtractors({ maxHeapMb: 512, concurrency: 2 });
  * const files = createLargeFiles({ store, extractors: isolated.extractors });
- * process.on("SIGTERM", () => isolated.close());
+ * // A SIGTERM listener replaces Node's own exit: stop the server there too, or it goes on serving.
+ * process.once("SIGTERM", () => {
+ *   server.close();
+ *   void isolated.close();
+ * });
  * ```
  *
  * A file costs its bytes copied to the child and its text copied back. The children load the same
@@ -113,14 +156,20 @@ const formatDuration = (ms: number) => (ms >= 60_000 && ms % 60_000 === 0 ? `${m
  */
 export function createIsolatedExtractors(options: IsolatedExtractorOptions = {}): IsolatedExtractors {
   const maxHeapMb = Math.trunc(positive("maxHeapMb", options.maxHeapMb, 512));
-  const timeoutMs = positive("timeoutMs", options.timeoutMs, 120_000, true);
+  // Node takes --max-old-space-size=0 for its default heap, not for none, and a child given a
+  // value it cannot read stops at its start: every file would then be refused.
+  if (!Number.isSafeInteger(maxHeapMb) || maxHeapMb < 1) throw new RangeError(`maxHeapMb must be a finite number of 1 or more, and is ${String(options.maxHeapMb)}.`);
+  const timeoutMs = timerMs(positive("timeoutMs", options.timeoutMs, 120_000, true));
   const concurrency = Math.max(1, Math.trunc(positive("concurrency", options.concurrency, 2)));
   const maxQueue = Math.trunc(positive("maxQueue", options.maxQueue, 8, true));
   const maxFiles = Math.max(1, Math.trunc(positive("maxFilesPerChild", options.maxFilesPerChild, 50)));
-  const idleMs = positive("idleMs", options.idleMs, 30_000, true);
+  const idleMs = timerMs(positive("idleMs", options.idleMs, 30_000, true));
   const script = options.childScript ?? new URL("./ingest-child.js", import.meta.url);
-  const scriptPath = script instanceof URL ? fileURLToPath(script) : script;
+  // fork() takes a path: a file URL given as a string (import.meta.resolve) would be read as a relative path.
+  const scriptPath = script instanceof URL || script.startsWith("file:") ? fileURLToPath(script) : script;
   const children: Child[] = [];
+  /** Every child not yet gone, those stopped and not yet exited included: close() waits for them. */
+  const alive = new Set<Child>();
   const queue: Job[] = [];
   let nextId = 1;
   let closed = false;
@@ -139,13 +188,24 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
     let markReady: () => void = () => undefined;
-    const entry: Child = { process: child, ready: new Promise((resolve) => (markReady = resolve)), job: undefined, files: 0, stderr: "", idle: undefined };
+    let markGone: () => void = () => undefined;
+    const entry: Child = {
+      process: child,
+      ready: new Promise((resolve) => (markReady = resolve)),
+      started: false,
+      gone: new Promise((resolve) => (markGone = resolve)),
+      job: undefined,
+      files: 0,
+      stderr: "",
+      idle: undefined,
+    };
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
       entry.stderr = (entry.stderr + chunk).slice(-STDERR_KEPT);
     });
     child.on("message", (message: ChildMessage) => {
       if (message.type === "ready") {
+        entry.started = true;
         markReady();
         return;
       }
@@ -170,10 +230,18 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
       clearTimeout(entry.idle);
       const index = children.indexOf(entry);
       if (index !== -1) children.splice(index, 1);
+      alive.delete(entry);
       markReady();
+      markGone();
       const job = entry.job;
       entry.job = undefined;
-      if (job) job.reject(entry.killedFor ?? (error !== undefined ? unstarted(job, error) : deathOf(entry, job, code, signal)));
+      if (job) {
+        const reason = entry.killedFor ?? (error !== undefined ? unstarted(job, error) : entry.started ? deathOf(entry, job, code, signal) : undefined);
+        if (reason !== undefined) job.reject(reason);
+        // A child that stopped before it was ready wrote why on its standard error, which may come
+        // after "exit": its end is waited for, a second at most.
+        else afterStderr(child, () => job.reject(notStarted(entry, job, code, signal)));
+      }
       pump();
     };
     child.on("exit", (code, signal) => end(code, signal));
@@ -181,6 +249,7 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
       if (child.pid === undefined) end(null, null, error);
     });
     children.push(entry);
+    alive.add(entry);
     return entry;
   }
 
@@ -195,6 +264,18 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
     const error = new Error(message.message);
     if (message.code !== undefined) Object.assign(error, { code: message.code, ...(message.syscall !== undefined ? { syscall: message.syscall } : {}) });
     return error;
+  }
+
+  /**
+   * The error of a file whose child stopped before it was ready, so before it was sent the file: a
+   * script that is not there, a Node option it does not know. That is the server's trouble, not the
+   * file's, so it is not an `IngestError`: its status is 500, and the upload handler answers with
+   * its message. The child's standard error names paths of the server, so it is only the `cause`.
+   */
+  function notStarted(entry: Child, job: Job, code: number | null, signal: NodeJS.Signals | null): Error {
+    const stderr = entry.stderr.trim();
+    const cause = new Error(stderr ? `The reader stopped before it was ready. The end of its standard error:\n${stderr}` : "The reader stopped before it was ready, and wrote nothing on its standard error.");
+    return Object.assign(new Error(`The server could not start a reader for ${job.input.name} (${signal ?? `exit code ${code}`}).`, { cause }), { status: 500 });
   }
 
   /** Why a child process died while it read a file. */
@@ -223,6 +304,11 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
     const index = children.indexOf(entry);
     if (index !== -1) children.splice(index, 1);
     clearTimeout(entry.idle);
+    // A child that could not start has no pid, so no process to signal: its "error" event, on the
+    // next tick, ends it (and close() waits for that).
+    if (entry.process.pid === undefined) return;
+    // An idle child was unref'd: held again, the process lives until its "exit", which close() waits for.
+    entry.process.ref();
     entry.process.kill("SIGKILL");
   }
 
@@ -356,10 +442,9 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
         job.cancel?.();
         job.reject(new IngestError("busy", "The server is shutting down. Try again in a moment.", { retryAfterMs: BUSY_RETRY_MS }));
       }
-      const exits = children.map((child) => new Promise<void>((resolve) => {
-        if (child.process.exitCode !== null || child.process.signalCode !== null) resolve();
-        else child.process.once("exit", () => resolve());
-      }));
+      // Each child is gone once it has exited, or, if it could not start, once its "error" came.
+      // Those stopped earlier (replaced, idle) and not yet exited are waited for too.
+      const exits = [...alive].map((child) => child.gone);
       for (const child of [...children]) stop(child, new IngestError("busy", "The server is shutting down. Try again in a moment.", { retryAfterMs: BUSY_RETRY_MS }));
       await Promise.all(exits);
       closed = false;

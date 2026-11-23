@@ -78,7 +78,8 @@ export function safeErrorMessage(error: unknown): string {
  * - "out_of_memory": an isolated reader ran out of the memory it is given (`createIsolatedExtractors`).
  * - "busy": every isolated reader is busy and the queue is full: try again in a moment
  *   (`IngestError.retryAfterMs`). The upload handler answers 503 with `Retry-After`.
- * - "missing_dependency": the optional dependency for the format is not installed.
+ * - "missing_dependency": the optional dependency for the format is not installed, could not be
+ *   loaded, or (`unpdf`) is of a version that cannot read PDFs on this Node.
  * - "unreadable": the file is damaged, or not of the type its name says.
  */
 export type IngestErrorCode =
@@ -122,9 +123,13 @@ export class IngestError extends Error {
 
 /** The refusals of the library, by the words of their messages: the extractors give plain `Error`s. */
 const REFUSALS: Array<[RegExp, IngestErrorCode]> = [
+  // First, and to the end of the message: the busy refusal of a file starts with its name, which
+  // may hold the words of any other refusal.
+  [/^The server is (?:reading other files right now|shutting down)\. Try again in a moment\.$| could not be read now: a reader could not be started(?: \([^()]*\))?\. Try again in a moment\.$/, "busy"],
   [/ is empty\.$/, "empty"],
   [/larger than the .* upload limit/, "too_large"],
-  [/needs the optional dependency|is installed but could not be loaded/, "missing_dependency"],
+  // An unpdf that cannot run on this Node is told as its own message (checkUnpdf in extract.ts).
+  [/needs the optional dependency|is installed but could not be loaded|^The unpdf installed (?:cannot read PDF files|would stop the whole server)/, "missing_dependency"],
   [/needed more memory than/, "out_of_memory"],
   [/took too long to read|took longer than/, "timeout"],
   [/may be built to exhaust the server|may be a zip bomb|cannot be checked before it is read|lists the same page more than once|far longer than any Office file writes/, "hostile"],
@@ -137,7 +142,11 @@ const REFUSALS: Array<[RegExp, IngestErrorCode]> = [
   [/no text layer|did not contain any text|does not contain any slides|any sheets with cells/, "no_text"],
 ];
 
-/** The code of a refusal of the library, from its message; "unreadable" for any other error of reading a file. */
+/**
+ * The code of a refusal of the library, from its message; "unreadable" for any other error of
+ * reading a file. A "busy" message does not say how long to wait: give the `IngestError` a
+ * `retryAfterMs` of your own (the isolated readers use 5,000).
+ */
 export function ingestErrorCodeOf(message: string): IngestErrorCode {
   for (const [pattern, code] of REFUSALS) if (pattern.test(message)) return code;
   return "unreadable";

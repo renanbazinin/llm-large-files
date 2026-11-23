@@ -144,7 +144,7 @@ Some behavior is different. Check each point against your app:
 ### New: what you can add
 
 - **`createIsolatedExtractors(options?)`** in `llm-large-files/node`: PDF, DOCX, PPTX and XLSX files
-  read in child processes, each with a heap limit (512 MB), a kill timer (120 s), at most
+  read in child processes, each with a heap flag (`maxHeapMb`, 512), a kill timer (120 s), at most
   `concurrency` (2) at once and `maxQueue` (8) waiting. A file that exhausts its child's memory is
   refused (`"out_of_memory"`) and the server goes on; a full queue refuses at once (`"busy"`), and
   the upload handler answers that with 503 and `Retry-After`. Children are replaced after 50 files
@@ -156,7 +156,11 @@ Some behavior is different. Check each point against your app:
 
   const isolated = createIsolatedExtractors({ maxHeapMb: 512, concurrency: 2 });
   const files = createLargeFiles({ store: new FileDocumentStore("./data"), extractors: isolated.extractors });
-  process.on("SIGTERM", () => void isolated.close());
+  // A SIGTERM listener replaces Node's own exit: stop your HTTP server there too, or it goes on serving.
+  process.once("SIGTERM", () => {
+    server.close();
+    void isolated.close();
+  });
   ```
 
 - **`IngestError`**, with `code`, `status` and, for `"busy"`, `retryAfterMs`; and
