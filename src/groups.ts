@@ -121,7 +121,15 @@ export class GroupCounter {
 
   /** A matching line, and for "capture" the text of the regex's first group, if it took part. */
   add(line: number, text: string, capture?: string): void {
-    const key = this.keyOf(text, capture);
+    this.addKey(line, this.keyOf(text, capture));
+  }
+
+  /**
+   * A matching line by its key, worked out before with `keyOf`. A regex search works the keys out
+   * within its time limit, which can stop it anywhere, and adds them after: a stop never leaves a
+   * count half done.
+   */
+  addKey(line: number, key: string | undefined): void {
     if (key === undefined) {
       this.ungrouped++;
       return;
@@ -137,7 +145,8 @@ export class GroupCounter {
     }
   }
 
-  private keyOf(text: string, capture: string | undefined): string | undefined {
+  /** The group of a matching line: undefined for a line without one (see `GroupResult.ungrouped`). */
+  keyOf(text: string, capture: string | undefined): string | undefined {
     if (this.by === "capture") return capture === undefined ? undefined : sliceWhole(capture, MAX_KEY_CHARACTERS);
     if (this.by === "shape") return sliceWhole(logTemplate(text), MAX_KEY_CHARACTERS) || undefined;
     return timeKey(text, this.by);

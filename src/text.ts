@@ -89,8 +89,9 @@ const MAY_COMPOSE = /[^\x00-\u02ff]/;
  * Hebrew and Arabic points are not composed by NFC: they stay as they are.
  */
 export function composed(text: string): string {
-  if (!MAY_COMPOSE.test(text)) return text;
-  return (LONG_MARK_RUN.test(text) ? streamSafe(text) : text).normalize("NFC");
+  const first = text.search(MAY_COMPOSE);
+  if (first === -1) return text;
+  return streamSafe(text, first).text.normalize("NFC");
 }
 
 /**
@@ -99,20 +100,70 @@ export function composed(text: string): string {
  * turn held the server 80 seconds. Unicode's stream-safe form (UAX #15) bounds the run instead.
  */
 const MAX_MARKS = 30;
-const LONG_MARK_RUN = new RegExp(`\\p{M}{${MAX_MARKS + 1},}`, "u");
-const LONG_MARK_RUNS = new RegExp(LONG_MARK_RUN.source, "gu");
+/** A mark (\p{M}): a character that NFC may order with the marks next to it. */
+const MARK = /\p{M}/u;
+const MARK_RUNS = /\p{M}+/gu;
+/** The combining grapheme joiner: a mark that is a starter, so NFC orders no marks across it. */
+const GRAPHEME_JOINER = 0x034f;
+/** Code points below this are looked up in `marks`; the few marks above it, with `MARK`. */
+const TABLE_END = 0x20000;
+/** Which code points below `TABLE_END` are marks, filled in a block of 4,096 the first time a character of the block is looked up. */
+const marks = new Uint8Array(TABLE_END);
+const markBlocks = new Uint8Array(TABLE_END >> 12);
+
+/** Whether code point `point` is a mark. A look at a table: far quicker than a regex test. */
+function isMark(point: number): boolean {
+  if (point >= TABLE_END) return MARK.test(String.fromCodePoint(point));
+  const block = point >> 12;
+  if (markBlocks[block] === 0) {
+    markBlocks[block] = 1;
+    const points: number[] = [];
+    for (let at = block << 12; at < (block + 1) << 12; at++) if (at < 0xd800 || at > 0xdfff) points.push(at);
+    for (const [run] of String.fromCodePoint(...points).matchAll(MARK_RUNS)) for (const character of run) marks[character.codePointAt(0)!] = 1;
+  }
+  return marks[point] === 1;
+}
 
 /**
- * A run of marks in the stream-safe form: a combining grapheme joiner (U+034F, which shows nothing
- * and is a starter) after every 30 marks, so no run NFC orders is longer than that.
+ * `text` in the stream-safe form: a combining grapheme joiner (U+034F, which shows nothing and is
+ * a starter) after every 30 marks of a run, so no run NFC orders is longer than that. `first` is
+ * where the first character from U+0300 on is: nothing before it is a mark. `carried`: the marks
+ * that end the text before this one, for a text worked on in pieces; `run` is those that end this
+ * one. One pass, a look at a table for each character: a regex for long runs tried a match at each
+ * mark of a run, and took 1.3 microseconds a mark on runs of 30, more than NFC itself; on a run of
+ * millions of marks its greedy repeat ran out of stack, and the upload was refused with the
+ * engine's "Maximum call stack size exceeded".
  */
-function streamSafe(text: string): string {
-  return text.replace(LONG_MARK_RUNS, (run) => {
-    const marks = [...run];
-    const pieces: string[] = [];
-    for (let at = 0; at < marks.length; at += MAX_MARKS) pieces.push(marks.slice(at, at + MAX_MARKS).join(""));
-    return pieces.join("\u034f");
-  });
+function streamSafe(text: string, first: number, carried = 0): { text: string; run: number } {
+  let pieces: string[] | undefined;
+  let copied = 0;
+  let run = first === 0 ? carried : 0;
+  const length = text.length;
+  for (let at = first; at < length; at++) {
+    const code = text.charCodeAt(at);
+    if (code < 0x0300) {
+      run = 0;
+      continue;
+    }
+    // A pair of surrogates is one character, outside the basic plane.
+    const low = code >= 0xd800 && code <= 0xdbff ? text.charCodeAt(at + 1) : 0;
+    const pair = low >= 0xdc00 && low <= 0xdfff;
+    if (pair ? !isMark(((code - 0xd800) << 10) + (low - 0xdc00) + 0x10000) : code === GRAPHEME_JOINER || !isMark(code)) {
+      run = 0;
+      if (pair) at++;
+      continue;
+    }
+    if (run === MAX_MARKS) {
+      (pieces ??= []).push(text.slice(copied, at), "\u034f");
+      copied = at;
+      run = 0;
+    }
+    run++;
+    if (pair) at++;
+  }
+  if (!pieces) return { text, run };
+  pieces.push(text.slice(copied));
+  return { text: pieces.join(""), run };
 }
 
 /**
@@ -171,17 +222,25 @@ async function withoutEscapesInPieces(text: string, slicer: TimeSlicer, piece: n
 /**
  * `normalizeLines`, a piece of about `piece` characters at a time, with a pause between pieces. A
  * line with no break for megabytes can hold millions of characters or escape sequences to remove,
- * which take seconds in one go. The escape sequences are found in order, as in one go, and the
- * pieces of the last step (`cleanLines`) end where `cutsCleanly` says, so the result is the same.
+ * which take seconds in one go. The steps of `cleanLines` are taken on each piece in turn, so the
+ * result is the same as in one go: the escape sequences are found in order; the invisible
+ * characters are removed from pieces that end where `removesCleanly` says; the stream-safe form
+ * counts the marks of a run across pieces; and the text is composed up to the last place where
+ * NFC joins nothing across (`composesCleanly`), the rest with the next piece. A run of millions of
+ * marks has such a place after every 30 marks, where the stream-safe form puts a grapheme joiner:
+ * composed in one go, it held the server for seconds.
  */
 export async function normalizeInPieces(raw: string, slicer: TimeSlicer, nextLines: boolean, piece = SLICE_CHARACTERS): Promise<string> {
   const text = await withoutEscapesInPieces(raw.replace(/\r\n?/g, "\n"), slicer, piece);
   const parts: string[] = [];
+  // The marks in a row that end the text cleaned so far, and the end of that text, not yet composed.
+  let run = 0;
+  let tail = "";
   for (let from = 0; from < text.length;) {
     let to = Math.min(text.length, from + piece);
     // Where the next piece starts.
     let next = to;
-    while (to < text.length && !cutsCleanly(text, to)) {
+    while (to < text.length && !removesCleanly(text, to)) {
       if (text.charCodeAt(to) === 0x85) {
         // A run of U+0085 after U+0080-U+00FF, which no place may cut. `cleanLines` removes all of
         // it, and gives the same on the text before it and after it alone: the run is left out.
@@ -192,7 +251,20 @@ export async function normalizeInPieces(raw: string, slicer: TimeSlicer, nextLin
       }
       next = ++to;
     }
-    parts.push(cleanLines(text.slice(from, to), nextLines));
+    const slice = text.slice(from, to);
+    const safe = streamSafe(removeInvisible(nextLines && slice.includes("\x85") ? slice.replace(NEXT_LINE, "\n") : slice), 0, run);
+    run = safe.run;
+    const cleaned = tail + safe.text;
+    // The last piece is composed whole; another, up to a place where what follows joins nothing
+    // before it. Its very end is not one: the next piece may start with a mark.
+    let cut = cleaned.length;
+    if (next < text.length) {
+      cut = Math.max(0, cut - 1);
+      while (cut > 0 && !composesCleanly(cleaned, cut)) cut--;
+    }
+    const done = cleaned.slice(0, cut);
+    parts.push(MAY_COMPOSE.test(done) ? done.normalize("NFC") : done);
+    tail = cleaned.slice(cut);
     from = next;
     await slicer.maybePause();
   }
@@ -200,19 +272,17 @@ export async function normalizeInPieces(raw: string, slicer: TimeSlicer, nextLin
 }
 
 /**
- * Whether `cleanLines` gives the same result on `text` cut before `at` as on it whole. It does
- * unless the cut is between the two halves of a character outside the basic plane, inside a flag,
- * between a soft hyphen and a line break, or before a U+0085 right after U+0080-U+00FF. Only
- * these places are kept whole: a rule that never cut after a soft hyphen or half of a pair would
- * never cut a line of soft hyphens, or of tag characters and emoji in turn, and such a line
- * would be cleaned in one go again.
+ * Whether `removeInvisible`, after U+0085 is made a line break where it ends a line, gives the same
+ * result on `text` cut before `at` as on it whole. It does unless the cut is between the two halves
+ * of a character outside the basic plane, inside a flag, between a soft hyphen and a line break,
+ * or before a U+0085 right after U+0080-U+00FF. Only these places are kept whole: a rule that
+ * never cut after a soft hyphen or half of a pair would never cut a line of soft hyphens, or of
+ * tag characters and emoji in turn, and such a line would be cleaned in one go again.
  */
-function cutsCleanly(text: string, at: number): boolean {
+function removesCleanly(text: string, at: number): boolean {
   const before = text.charCodeAt(at - 1);
   const after = text.charCodeAt(at);
   if (isHighSurrogate(before) && isLowSurrogate(after)) return false;
-  // NFC (`composed`) joins a mark to the letter before it, and Hangul jamo to each other.
-  if (composesWithBefore(text, at)) return false;
   if (before === 0xad && after === 0x0a) return false;
   if (after === 0x85 && before >= 0x80 && before <= 0xff) return false;
   // A flag is 14 units: U+1F3F4, then tag characters, each a pair that starts with U+DB40.
@@ -220,14 +290,22 @@ function cutsCleanly(text: string, at: number): boolean {
   return true;
 }
 
-/** A combining mark, or a Hangul vowel or final consonant: NFC may join it to what comes before. */
-const JOINS_BEFORE = /^[\p{M}\u1160-\u11ff\ud7b0-\ud7ff]/u;
-
-/** Whether the character at `at` may be joined by NFC to the one before it, so a cut there would change the result. */
-function composesWithBefore(text: string, at: number): boolean {
+/**
+ * Whether NFC gives the same result on a text in the stream-safe form cut before `at` as on it
+ * whole: the cut is not inside a character, and NFC joins nothing across it. It joins a mark to the
+ * letter before it, and orders the marks of a run, but neither across a grapheme joiner, which is
+ * a starter and joins with nothing. It joins a Hangul vowel to an initial consonant, and a final
+ * consonant to a syllable of the two, or to a vowel that will join the consonant before it.
+ */
+function composesCleanly(text: string, at: number): boolean {
+  const before = text.charCodeAt(at - 1);
   const after = text.charCodeAt(at);
-  if (after < 0x0300) return false;
-  return JOINS_BEFORE.test(text.slice(at, at + 2));
+  if (isHighSurrogate(before) && isLowSurrogate(after)) return false;
+  if (after < 0x0300 || before === GRAPHEME_JOINER) return true;
+  if (after >= 0x1161 && after <= 0x1175) return !(before >= 0x1100 && before <= 0x1112);
+  if (after >= 0x11a8 && after <= 0x11c2) return !((before >= 0x1161 && before <= 0x1175) || (before >= 0xac00 && before <= 0xd7a3 && (before - 0xac00) % 28 === 0));
+  const low = isHighSurrogate(after) ? text.charCodeAt(at + 1) : 0;
+  return !isMark(isLowSurrogate(low) ? ((after - 0xd800) << 10) + (low - 0xdc00) + 0x10000 : after);
 }
 
 /**
@@ -657,6 +735,20 @@ export class LineIndex {
   line(line: number): string {
     if (line < 1 || line > this.lineCount) return "";
     return this.text.slice(this.startOf(line), this.endOf(line));
+  }
+
+  /**
+   * Lines `first` to `last`, which must exist, as a text of their own with its index: their text,
+   * with the line break after the last one when there is one, as a document read by range gives
+   * a piece of itself. Offsets in it are counted from `startOf(first)`.
+   */
+  piece(first: number, last: number): { text: string; lines: LineIndex } {
+    const start = this.startOf(first);
+    const end = last < this.lineCount ? this.starts[last]! : this.text.length;
+    const starts = new Uint32Array(last - first + 1);
+    for (let line = 0; line < starts.length; line++) starts[line] = this.starts[first - 1 + line]! - start;
+    const text = this.text.slice(start, end);
+    return { text, lines: new LineIndex(text, starts) };
   }
 
   /** Lines `from`..`to` inclusive, each prefixed with its number. */

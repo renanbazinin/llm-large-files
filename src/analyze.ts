@@ -106,8 +106,13 @@ export async function buildOutlineInSlices(lines: string[], format: DocumentForm
 /** Whether a line is a "# " line: a Markdown heading, or a comment of a script or a configuration file. */
 const hashLine = (line: string | undefined) => /^\s*#{1,6}\s/.test(line ?? "");
 
-/** A line only code has: a shebang, an include, an import, a definition. One is enough. */
-const CODE_LINE = /^(?:#!\/|#include\b|import\s+[\w{*"']|from\s+[\w.]+\s+import\b|def\s+\w+\s*\(|class\s+\w+[\s:({]|function\s*\w*\s*\(|package\s+[\w.]+;?\s*$|using\s+[\w.]+;\s*$)/;
+/**
+ * A line only code has: a shebang, an include, an import, a definition. One is enough. No two
+ * repeats in a row can match the same characters: `function\s*\w*\s*\(` split a run of spaces
+ * after "function" between its two `\s*` in as many ways as it is long, and a line of "function",
+ * 2,000 spaces and "x" took 20 ms; 300 of them held the server 8 seconds.
+ */
+const CODE_LINE = /^(?:#!\/|#include\b|import\s+[\w{*"']|from\s+[\w.]+\s+import\b|def\s+\w+\s*\(|class\s+\w+[\s:({]|function\s*(?:\w+\s*)?\(|package\s+[\w.]+;?\s*$|using\s+[\w.]+;\s*$)/;
 /** A line common in code and configuration files, and rarer in prose: three are needed. */
 const CODE_LIKE_LINE = /^(?:(?:const|let|var|export|public|private|return)\s|(?:if|for|while)\s*\(|echo\s|set\s+-\w|[A-Za-z_][\w.-]*\s*=\s*\S|[}\])];?$)/;
 
