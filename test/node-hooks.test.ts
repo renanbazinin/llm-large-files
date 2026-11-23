@@ -761,6 +761,21 @@ describe("errorInfoOf on the upload's ingest.error", () => {
       expect(answer.status).toBe(info.status);
       expect(await answer.json()).toEqual({ error: info.message });
     }
+    // The library's own errors, which have a status, never get a model's kind.
+    const own = [
+      new IngestError("busy", "Busy.", { retryAfterMs: 5_000 }),
+      new IngestError("exists", "Exists."),
+      new DocumentStoreError(new Error("down"), { operation: "write" }),
+      new DocumentsNotFoundError(["doc_1"]),
+      new DocumentScopeError("scope_missing"),
+      new DocumentScopeError("scope_invalid"),
+    ];
+    for (const error of own) {
+      thrown = error;
+      const data = await eventError(base);
+      expect(data, JSON.stringify(data)).not.toHaveProperty("kind");
+      expect(errorInfoOf(data).category).not.toBe("model");
+    }
   });
 
   it("reads a chat whose folder is gone, from the store itself", async () => {
