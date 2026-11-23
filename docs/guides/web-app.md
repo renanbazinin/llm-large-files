@@ -60,9 +60,9 @@ and never rejects, so you can call it without a `catch`, from `node:http` or fro
 
 | Handler | Route it for | What it does |
 |---|---|---|
-| `upload(request, response)` | `POST` | Asks `getOwner` who is asking, reads the raw body up to `files.maxUploadBytes`, ingests it with that owner, and answers `201` with the document's summary. |
-| `get(request, response, id)` | `GET` | Answers `200` with the summary, or `404` when the document is unknown, expired, deleted, or another owner's. |
-| `remove(request, response, id)` | `DELETE` | Deletes the document, its text and any kept original, and answers `200` with `{ "deleted": true }`, or `{ "deleted": false }` when this owner had no such document. |
+| `upload(request, response)` | `POST` | Asks `getOwner` who is asking and `getScope` which chat it is for, reads the raw body up to `files.maxUploadBytes`, ingests it with that owner and scope, calls `onUploaded`, and answers `201` with the document's summary. |
+| `get(request, response, id)` | `GET` | Answers `200` with the summary, or `404` when the document is unknown, expired, deleted, or another owner's or another chat's. |
+| `remove(request, response, id)` | `DELETE` | Deletes the document, its text and any kept original, calls `onRemoved`, and answers `200` with `{ "deleted": true }`, or `{ "deleted": false }` when this owner had no such document in this chat. |
 
 The handlers do not check the method or the path. Route each request to the one you mean.
 
@@ -159,7 +159,8 @@ either. The handlers call it before they read the body, so a refused upload is n
   `{ "error": "Upload failed (empty owner)." }` before its body is read. An owner that is neither a
   string nor a finite number (`req.user` in place of `req.user.id`, say) is answered
   `{ "error": "Upload failed (owner is not a string)." }`. `get` and `remove` pass such an owner on
-  as before. Where every upload needs a user, throw an error with `status: 401` when there is
+  as before, except under `requireOwner`, where they answer the same `500` ("The file could not be
+  looked up (empty owner)."). Where every upload needs a user, throw an error with `status: 401` when there is
   none, as the example above does. Return `undefined` only where anonymous uploads are meant, and
   write `user?.id || undefined` there, not `user?.id ?? ""`: a header that arrives empty gives `""`
   too.
@@ -167,11 +168,95 @@ either. The handlers call it before they read the body, so a refused upload is n
   package makes them: the handler answers with that status and the error's message, as the `401`
   above. Any other error is answered `500`, without its message, which may name your hosts.
 
+- **Under `requireOwner`** (new in 0.9.0): when the library is made with `requireOwner: true`,
+  `createDocumentHandlers` throws a `TypeError` without `getOwner`, and an owner of `undefined`, or
+  `null` (`req.user?.id ?? null`), is answered `401` `{ "error": "Sign in first." }` on every route,
+  before the body is read. No document is then ever anyone's.
+
 The owner is one opaque string, compared as it is. Pass the same string as `owner` to `askGemini`
-or `askWithFiles`, and to `files.getMeta`, `files.getOriginal` and `files.delete`. An owner per
-chat session (for example `${userId}/${sessionId}`) works the same way, with `getOwner` reading the
-session from the request: see [Storage](./storage.md), and [Security](../security.md) for what
-ownership does and does not protect.
+or `askWithFiles`, and to `files.getMeta`, `files.getOriginal` and `files.delete`. To keep each
+chat's files apart, give the chat as a scope with `getScope` (below). See [Storage](./storage.md),
+and [Security](../security.md) for what ownership does and does not protect.
+
+### Which chat an upload is for: `getScope`
+
+New in 0.9.0. `getScope(request)` returns the scope of the request, such as `[userId, chatId]`, or
+`undefined`. The handlers call it after `getOwner`, before they read the body. The upload is stored
+in that scope, and `get` and `remove` find only the documents of the same scope: a file of another
+chat answers as one that does not exist. With a scoped `FileDocumentStore`, the scope is also the
+folder on disk ([Storage](./storage.md)).
+
+```ts
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { createDocumentHandlers } from "llm-large-files/node";
+
+const files = createLargeFiles({
+  store: new FileDocumentStore("/data", { scopes: { depth: 2 } }), // /data/<user>/<chat>/.llm-large-files/
+  requireOwner: true,
+  requireScope: true,
+});
+
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request),
+  // The chat comes from your route or a header. Check that it is the user's: throw a 404 if not.
+  getScope: async (request) => {
+    const userId = currentUserId(request)!;
+    const chatId = String(request.headers["x-chat-id"] ?? "");
+    if (!(await chats.belongsTo(chatId, userId))) throw Object.assign(new Error("This chat no longer exists."), { status: 404 });
+    return [userId, chatId];
+  },
+});
+```
+
+- **A scope that is not valid** (not an array of 1 to 8 strings, or a segment with `/` or a
+  control character) is the server's mistake: `500` `{ "error": "Upload failed (invalid scope)." }`.
+  A scoped `FileDocumentStore` takes only safe segments: lowercase letters, digits, `_` and `-`
+  (`isSafeScopeSegment`), or a `hashedScopeSegment` of any ID.
+- **No scope under `requireScope`** is `500` `{ "error": "Upload failed (no scope)." }`, and
+  `createDocumentHandlers` throws a `TypeError` without `getScope`.
+- **A chat that was deleted.** With a scoped `FileDocumentStore` and `createScopeFolders` off (the
+  default), an upload into a chat whose folder your app removed is answered `404`
+  `{ "error": "This chat no longer exists." }`, and nothing is written.
+- **A thrown error with a status** is answered with that status and its message, as for `getOwner`.
+
+Pass the same scope to `askWithFiles` or `askGemini` (`scope`).
+
+### Record each upload: `onUploaded` and `onRemoved`
+
+New in 0.9.0. Your app usually keeps the files of a chat in its own database, with the chat.
+`onUploaded` records each upload there in the same request: it is called once the file is stored,
+before the answer, and the answer waits for it. `onRemoved` is called after `remove` deleted a
+document.
+
+```ts
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request),
+  getScope: (request) => [currentUserId(request)!, String(request.headers["x-chat-id"])],
+  onUploaded: async (document, { scope, clientGone }) => {
+    // Throw to fail the upload: the document is deleted, and the browser gets the error.
+    const file = await chats.addFile(scope![1]!, { documentId: document.id, name: document.name, sha256: document.sha256, clientGone });
+    return { answer: { fileNumber: file.number } }; // added to the 201, or ingest.finish.app
+  },
+  onRemoved: (id, { scope }) => chats.removeFile(scope![1]!, id),
+});
+```
+
+- **`document`** is the whole `DocumentMeta`, with its owner and scope: for the server only. The
+  browser gets the summary.
+- **What it returns.** `{ answer }` adds the answer's fields to the `201` JSON (the summary's own
+  fields win), and is `app` in the `ingest.finish` event of an upload with progress. Return
+  nothing to add nothing.
+- **When it throws**, the document is deleted, and the upload is answered with the error's status
+  (400 to 599) and message, or `500` `{ "error": "Upload failed." }`.
+- **No time limit.** The answer waits for the hook as long as it runs: give your database calls a
+  timeout of their own. The upload's room (`maxPendingUploadBytes`) is given back, and the body the
+  handler read is freed, before the hook is called, so a slow hook does not hold up other uploads.
+- **`clientGone`** is `true` when the browser went away before the hook ran: the file was stored
+  all the same. Record it, or delete it, as your app needs.
+- **`onRemoved`** runs only for `{ "deleted": true }`. When it throws, `remove` answers its error;
+  the document is deleted all the same.
+
+[The node reference](../reference/node.md#the-hooks-onuploaded-and-onremoved) has every detail.
 
 ### What the browser sends
 
@@ -182,8 +267,9 @@ ownership does and does not protect.
   line and paragraph separators and text-direction controls become a space, and most characters
   that show nothing are removed (variation selectors and joiners stay): the name is shown to the
   model and in your UI.
-- **`X-File-Type`** is the MIME type, and is optional. Without it, `Content-Type` is taken, unless
-  it is `application/octet-stream`. The format comes from the extension first (`.log`, `.md`,
+- **`X-File-Type`** is the MIME type, and is optional. It is URI-decoded. Without it,
+  `Content-Type` is taken as it came (not decoded, since 0.9.0), unless it is
+  `application/octet-stream`. The format comes from the extension first (`.log`, `.md`,
   `.json`, `.csv`, `.pdf`, `.docx`, `.pptx` and a few more), then from the MIME type; anything else
   is text, and text that looks like a log becomes a log. A text file needs no charset: one that is
   not UTF-8 is read in the older encoding of Hebrew, Arabic, Cyrillic, Japanese or Western European
@@ -209,26 +295,31 @@ UTF-8, `encoding` names the older encoding it was read in (`"windows-1255"`), an
 Your page can show "read as windows-1255", or warn that some characters could not be read and ask
 for the file saved as UTF-8.
 
-Everything else is JSON `{ "error": "…" }`, with a message you can show: `400` for a missing name or
-a body another middleware already parsed, `413` over `maxUploadBytes`, `422` for a file that cannot
-be read, `503` with `Retry-After` when the server holds as many uploads as it takes at once or its
-readers are busy (send the file again after `Retry-After` seconds), `408` for a body that stopped
-arriving, an error's own status (400 to 599) from `getOwner`, an extractor or your store, and `500`
-for a failure of the server, among them `Upload failed (empty owner).` and
-`Upload failed (owner is not a string).` ([above](#who-owns-an-upload-getowner)). `get` answers
-`404` for a document this owner cannot see, and `get` and `remove` answer `500` when the store
-cannot be read. Every status and body is in the
-[node reference](../reference/node.md#uploadrequest-response).
+`onUploaded`'s `answer`, when it returns one, adds its fields to it.
 
-A store of your own that fails while it writes an upload can throw an error with a `status` (or
-`statusCode`) from 400 to 599 (a `503`, say): the handler answers with that status and the error's
-message. A Node system error, with `code` and `syscall`, is answered `500` with its code. Any other
-error it throws is answered `500` "Upload failed.", without its message, which may name your hosts.
-The handlers log nothing: log the error in your store before you throw it. Behind an `ingest` of
-your own that throws a new error in the store's place, as `ingestInProcess` in
-[Deployment](./deployment.md#uploads-and-ingest) does, the handler answers `422` with that error's
-message, the store's own, unless the error keeps a status, or a code and a syscall. See
-[Storage](./storage.md#errors).
+Everything else is JSON `{ "error": "…" }`, with a message you can show: `400` for a missing name or
+a body another middleware already parsed, `401` "Sign in first." under `requireOwner`, `404` "This
+chat no longer exists." for a chat whose folder is gone, `413` over `maxUploadBytes`, `422` for a
+file that cannot be read, `503` with `Retry-After` when the server holds as many uploads as it
+takes at once, its readers are busy, or the store failed (send the file again after `Retry-After`
+seconds), `408` for a body that stopped arriving, an error's own status (400 to 599) from
+`getOwner`, `getScope`, `onUploaded` or an extractor, and `500` for a failure of the server, among
+them `Upload failed (empty owner).`, `Upload failed (owner is not a string).`,
+`Upload failed (invalid scope).` and `Upload failed.`. `get` answers `404` for a document this owner
+cannot see in this chat, and `get` and `remove` answer `503` when the store cannot be read. Every
+status and body is in the [node reference](../reference/node.md#uploadrequest-response).
+
+The rule is `uploadAnswerOf` from `llm-large-files/node`
+([reference](../reference/node.md#how-errors-are-answered)). Since 0.9.0, only an `IngestError` is a
+`422` with its message, and a file of code `"unreadable"` gets fixed words instead ("This file could
+not be read. It may be damaged, or not of the type its name says."): its own message is a parser's,
+or an extractor's of your own, which may name a host. A store that fails while it writes is a `DocumentStoreError`: `503`,
+`Retry-After: 5`, and words that name no path or host. Any other error without a status is a `500`
+"Upload failed.", without its message, which may name your hosts: a `LargeFiles` of your own whose
+`ingest` throws a plain `Error` is answered so, and should throw `new IngestError(code, message)` for
+a file it refuses, as `ingestInProcess` in [Deployment](./deployment.md#uploads-and-ingest) does.
+The handlers log nothing: log the error in your store, or in your `ingest`, before you throw it.
+See [Storage](./storage.md#errors).
 
 ## Uploads through your own route
 
@@ -250,7 +341,8 @@ input, an [`IngestInput`](../reference/library.md#ingestinput):
 | `name` | The file's name. Cleaned as above. |
 | `mimeType` | Optional. Used for the format when the extension says nothing. Kept as its type and subtype, in lower case, without parameters (0.9.0). |
 | `bytes` | The file, as a `Uint8Array`. A Node `Buffer` is one. Since 0.9.0, give `source: { path }` in its place for a file your route saved to disk: it is read at the ingest's turn ([`IngestFromSource`](../reference/library.md#ingestfromsource)). |
-| `owner` | Optional. The user (or tenant, or chat session) the document belongs to. Every later call must pass the same. A string that is not empty or only spaces: `""` and `null` throw a `TypeError` ([Storage](./storage.md#how-ownership-works)). Check it before you read the upload, as the handler does: the helper below would answer that error `422`. |
+| `owner` | Optional. The user (or tenant) the document belongs to. Every later call must pass the same. A string that is not empty or only spaces: `""` and `null` throw a `TypeError` ([Storage](./storage.md#how-ownership-works)). Check it before you read the upload, as the handler does: the helper below would answer that error `500` "Upload failed.". |
+| `scope` | Optional. The chat the document belongs to, such as `[userId, chatId]`. New in 0.9.0. |
 | `signal` | Optional. Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws its `reason`, and nothing is stored. |
 
 Answer the browser with `toDocumentSummary(meta)`, not with `meta`: the summary holds the fields that
@@ -264,36 +356,33 @@ dependency, a file past `maxTextBytes` or `maxPdfPages`, one that took longer th
 upload limit."). [PDFs and other formats](./pdfs.md#what-is-refused) lists every message. A store
 that fails while it writes is a `DocumentStoreError` since 0.9.0, with status 503, a message that
 names no path or host, and the store's error as `cause` (it threw the store's error as it came).
-This helper tells them apart by the rule `createDocumentHandlers` uses, with one difference, given
-below the code:
+`uploadAnswerOf` from `llm-large-files/node` (new in 0.9.0) tells them apart by the rule
+`createDocumentHandlers` uses. This helper adds a line in your log for the server's failures:
 
 ```ts
 // ingest-failure.ts
+import { uploadAnswerOf, type UploadAnswer } from "llm-large-files/node";
+
 /**
- * The status and message for an error of files.ingest, by the rule of createDocumentHandlers: an
- * error with a status (or statusCode) keeps it; a Node system error is the server's 500, which
- * names only its code; a value that is not an Error is the server's 500 too; anything else is a
- * file that cannot be read, whose message is written for the user. Unlike the handler, it answers
- * a store's write error that has no status and no system error code with 422 and its message.
+ * The status and message for an error of files.ingest, as createDocumentHandlers answers it: a file
+ * that cannot be read (an IngestError) is the client's 422 (413, 409, or 503 for "busy") with its
+ * message; a store that failed is a 503 to try again; any other error is the server's 500
+ * "Upload failed.", without its message, which may name your hosts.
  */
-export function ingestFailure(error: unknown): { status: number; error: string } {
-  const { status, statusCode, code, syscall } = (error ?? {}) as { status?: unknown; statusCode?: unknown; code?: unknown; syscall?: unknown };
-  const value = typeof status === "number" ? status : statusCode;
-  if (error instanceof Error && typeof value === "number" && Number.isInteger(value) && value >= 400 && value <= 599) {
-    return { status: value, error: error.message || "Upload failed." };
-  }
-  if (typeof code === "string" && typeof syscall === "string") return { status: 500, error: `Upload failed (${code}).` };
-  if (!(error instanceof Error)) return { status: 500, error: "Upload failed." };
-  return { status: 422, error: error.message };
+export function ingestFailure(error: unknown): UploadAnswer {
+  const answer = uploadAnswerOf(error);
+  if (answer.status >= 500) console.error("An upload failed", error); // the error itself, for your log
+  return answer;
 }
 ```
 
-A store that failed reaches the helper as a `DocumentStoreError`, whose status is 503: it answers
-`503` with its message, as the handler does. An error of your own without a status, thrown in place
-of it, would be answered `422` with its message, which may name your hosts: pass the
-`DocumentStoreError` on as it is ([Storage](./storage.md#errors)). The difference is a status of
-`413`: the handler answers it with its upload-limit message ("The file is larger than the 100 MB
-upload limit."), and this helper with the error's own message.
+A store that failed reaches the helper as a `DocumentStoreError`: `503`, with `retryAfterMs` 5,000.
+Send it as `Retry-After`, in seconds. Pass the `DocumentStoreError` on as it is: an error of your
+own thrown in its place is answered `500` ([Storage](./storage.md#errors)). One thing differs from
+the handler: a `413` keeps the error's own message ("app.log is larger than the 100 MB upload
+limit."), where the handler says "The file is larger than the 100 MB upload limit.". To answer in
+your users' language, word the error with
+[`errorInfoOf`](./errors-and-reliability.md#your-users-words-errorinfoof) instead.
 
 Check the size before you call `ingest`, and refuse with `413` while you read: `ingest` checks it
 too, but only once the whole file is in memory.
@@ -387,6 +476,9 @@ export function formUploadRoute(addDocument: (sessionId: string, userId: string,
   };
 }
 ```
+
+`createDocumentHandlers` does the same for a raw upload with `getScope` and `onUploaded`
+([above](#record-each-upload-onuploaded-and-onremoved)).
 
 - `defParamCharset: "utf8"` reads file names that are not ASCII (Hebrew, Chinese) as the browser
   sent them. busboy's own default is Latin-1.
@@ -550,7 +642,7 @@ export async function uploadFile(file: File): Promise<DocumentSummary> {
 New in 0.7.0. A large PDF or DOCX can take a while to read once it has arrived. Send the same
 request with `Accept: text/event-stream`, and `upload` answers with the ingest's events as
 Server-Sent Events: how far each stage is, then the summary. The checks that run before the ingest
-(the name, `getOwner`, a body already parsed, the size, the room for uploads held at once) still answer with their status and JSON, so
+(the name, `getOwner`, `getScope`, a body already parsed, the size, the room for uploads held at once) still answer with their status and JSON, so
 read the response as JSON when it is not `200`:
 
 ```ts
@@ -611,10 +703,15 @@ export async function uploadWithProgress(file: File, onProgress: (text: string) 
   at most about every 12 ms, and once more when it ends. Not every file goes through every stage,
   and a stage with nothing to report may send nothing.
 - **The stream ends with one `ingest.finish` or one `ingest.error`.** `ingest.finish` holds in
-  `document` the summary a `201` holds. `ingest.error` holds in `error` the `message` and `status`
-  the JSON answer would have: `422` and "This file looks binary, not text. …", say. A store's own
-  message is never in it.
-- **Closing the page stops the ingest**, as it does for a JSON upload: nothing is stored.
+  `document` the summary a `201` holds, and in `app` the `answer` of `onUploaded`, when it returned
+  one (new in 0.9.0). It comes once `onUploaded` is done. `ingest.error` holds in `error` the
+  `message` and `status` the JSON answer would have: `422` and "This file looks binary, not text.
+  …", say, or what `onUploaded` threw. A store's own message is never in it. Since 0.9.0 it also
+  has the `name` of a store that failed or of a scope error, the scope's `code`
+  (`"scope_missing"` for a deleted chat), and the `kind` of a model's error, so that `errorInfoOf`
+  reads it on your server.
+- **Closing the page stops the ingest**, as it does for a JSON upload: nothing is stored. A file
+  that was stored all the same still goes to `onUploaded`, with `clientGone: true`.
 - **A wildcard does not ask for events.** `Accept: */*` or `text/*` keeps the `201` and JSON, and so
   does `q=0`. The rules are in the [node reference](../reference/node.md#upload-with-progress-accept-textevent-stream).
 
@@ -1521,33 +1618,43 @@ export async function showAnswer(sessionId: string, question: string): Promise<v
 
 The repository has a chat server in one file, with no dependencies beyond the package and its
 optional ones: the upload routes, a chat route that streams over Server-Sent Events, and a page.
-To run it, from a clone of the repository:
+It is not for production as is: it has no sign-in (see below). To run it, from a clone of the
+repository:
 
 ```bash
 npm install && npm run build
-GEMINI_API_KEY=... node examples/server.ts   # then open http://localhost:3000
+GEMINI_API_KEY=... node examples/server.ts   # then open http://127.0.0.1:3000
 ```
 
 It needs Node 22.18 or a later 22.x, or Node 23.6 or later (24, for example), which run TypeScript
 files directly. `npm install` also installs the optional dependencies, which the repository has as
 dev dependencies, so PDF, DOCX, PPTX and XLSX uploads work. `GEMINI_MODEL` names the model, and
-`GEMINI_EXPLORER_MODEL`, when set, an [explorer model](./explorer-model.md).
+`GEMINI_EXPLORER_MODEL`, when set, an [explorer model](./explorer-model.md). It listens on
+`127.0.0.1` only, port 3000; `HOST` and `PORT` change that. Set `HOST=0.0.0.0` only behind a
+sign-in of your own.
 
 What it does:
 
 - **The library.** `geminiApi()` with an API key for the endpoint, and `createLargeFiles` with a
-  `FileDocumentStore` in `.data/large-files` and `keepOriginals: ["pdf"]`, so the model can look at
-  the pages of a PDF ([PDFs](./pdfs.md)). To try Vertex AI, swap the endpoint for `vertexAi()`
+  `FileDocumentStore` in `.data/large-files`, `keepOriginals: ["pdf"]`, so the model can look at
+  the pages of a PDF ([PDFs](./pdfs.md)), `createIsolatedExtractors()`, so that PDF and Office files
+  are read in child processes with a memory limit, and `requireOwner: true`, so that no document is
+  ever anyone's. To try Vertex AI, swap the endpoint for `vertexAi()`
   ([Gemini and Vertex AI](./vertex-and-gemini.md)).
+- **An owner per browser.** The page sets a cookie, `demo-owner`, of 32 random hex digits, with
+  `HttpOnly` (no script reads it) and `SameSite=Strict` (no other site's page sends it).
+  `getOwner` and the chat route take the owner from it. A request without it is answered `401`
+  "Sign in first.". So two browsers cannot read, delete or ask about each other's files. It is no
+  sign-in: whoever has the cookie is that owner. Put your own sign-in in its place.
 - **Uploads.** `createDocumentHandlers` on `node:http`: `POST /api/documents` to `upload`,
-  `DELETE /api/documents/:id` to `remove`. `getOwner` returns `undefined`, so every upload is
-  anonymous.
+  `GET /api/documents/:id` to `get`, `DELETE /api/documents/:id` to `remove`.
 - **The chat route.** `POST /api/chat` takes `{ chatId, question, documentIds }` as JSON, checked
   before the stream starts (`400` or `413` otherwise). The server keeps each chat's turns, tool
-  rounds included, in a `Map` (for the demo only: in memory, the latest questions of the latest
-  chats). The route calls `askStream` with the model, and the explorer when `GEMINI_EXPLORER_MODEL`
-  names one, and passes the stream itself to `writeSseEvents`, so that the question stops as soon
-  as the page goes away. Its `map` puts `run.error` in the app's own words, by `error.name` and
+  rounds included, in a `Map` keyed by owner and chat, so that nobody reads another's chat by its
+  ID (for the demo only: in memory, the latest questions of the latest chats). The route calls
+  `askStream` with the owner, the model, and the explorer when `GEMINI_EXPLORER_MODEL` names one,
+  and passes the stream itself to `writeSseEvents`, so that the question stops as soon as the page
+  goes away. Its `map` puts `run.error` in the app's own words, by `error.name` and
   `error.kind`. After the stream, it keeps `result.toolTurns` and the answer when there is one, or
   the `toolTurns` of `partialResultOf(error)`.
 - **The page.** A file input uploads with `fetch` (`application/octet-stream`, `X-File-Name`,
@@ -1560,12 +1667,16 @@ What it does:
 
 During the work on 0.7.0, the event stream was checked live against the Gemini API: the counts the
 events give, the roles of the requests of an explorer pair (`explorer` and `answer`), and this
-server's stream to the page, end to end.
+server's stream to the page, end to end. Since 0.9.0, a test of the repository starts it with a
+scripted model: it listens on `127.0.0.1`, and two browsers cannot read each other's uploads or
+chats.
 
 It is a demo, kept short. Before you build on it, check your server against this list, which this
 guide covers:
 
-- `getOwner` returns the signed-in user, and the chat route passes the same `owner`.
+- `getOwner` returns the signed-in user, not a cookie anyone can copy, and the chat route passes
+  the same `owner`. With chats, `getScope` returns the chat, and the chat route passes the same
+  `scope`.
 - The JSON body is read and checked before the stream starts, and a bad one gets a `400`.
 - The page shows its own message when `answered` in `run.finish` is false.
 - `toolTurns` are kept on the server with each question, from `stream.result` or
@@ -1580,9 +1691,10 @@ guide covers:
 
 ## Reference
 
-- [`llm-large-files/node`](../reference/node.md): `createDocumentHandlers`, `DocumentHandlerOptions`,
-  `DocumentHandlers`, every route, status and body, the upload's events, and `writeSseEvents`,
-  `sseMessageOf`, `SseMessage` and `SseWriteOptions`.
+- [`llm-large-files/node`](../reference/node.md): `createDocumentHandlers`, `DocumentHandlerOptions`
+  (`getScope`, `onUploaded`, `onRemoved`), `DocumentHandlers`, every route, status and body, the
+  upload's events, `uploadAnswerOf`, and `writeSseEvents`, `sseMessageOf`, `SseMessage` and
+  `SseWriteOptions`.
 - [The library](../reference/library.md): `IngestInput` (`onEvent`, `runId`), `toDocumentSummary`,
   `DocumentSummary`, `DocumentMeta`, `ProgressEvent`, `ToolOptions`.
 - [Events](../reference/events.md): `AskEvent`, `IngestEvent`, `EventError`, `EventResult`,

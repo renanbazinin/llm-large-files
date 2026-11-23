@@ -1,10 +1,10 @@
 // What a question or an ingest does while it runs, as typed data in order. The callbacks of
 // earlier versions (onText, onActivity, onStep) still get the same strings, at the same moments.
 import type { AskResult } from "./ask.js";
-import { DocumentStoreError, IngestError, type IngestErrorCode } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
-import { DocumentsNotFoundError, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
+import { classifyModelError, DocumentsNotFoundError, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
 import type { DocumentFormat, DocumentMeta, DocumentSummary, ToolResult } from "./types.js";
 
 /** What every event carries. */
@@ -35,7 +35,10 @@ export type EventError = {
    * code only.
    */
   message: string;
-  /** For a model error: what kind it is (`errorKindOf`). */
+  /**
+   * For a model error: what kind it is (`errorKindOf`). Since 0.9.0 also for an error with a status
+   * (0, or 400 and more) and no kind of its own: the kind its status gives (`classifyModelError`).
+   */
   kind?: ModelErrorKind;
   /** For an HTTP error: its status. 0 when no answer came. */
   status?: number;
@@ -43,9 +46,11 @@ export type EventError = {
   name?: string;
   /**
    * For a file `ingest` could not read: why, as `IngestError.code` ("too_large", "no_text",
-   * "busy"…), so a page can say it in its own words. New in 0.8.0.
+   * "busy"…), so a page can say it in its own words. New in 0.8.0. Since 0.9.0 also the code of a
+   * scope that cannot be used (`DocumentScopeError`, `name` "DocumentScopeError"): "scope_missing"
+   * when the chat was deleted.
    */
-  code?: IngestErrorCode;
+  code?: IngestErrorCode | DocumentScopeErrorCode;
 };
 
 /**
@@ -301,7 +306,15 @@ export type IngestEvent =
       unit: "pages" | "parts" | "bytes" | "characters";
     })
   /** Always last when the ingest stores the document. */
-  | (EventBase & { type: "ingest.finish"; document: DocumentSummary })
+  | (EventBase & {
+      type: "ingest.finish";
+      document: DocumentSummary;
+      /**
+       * What the upload handler's `onUploaded` returned as `answer`, for the page: only in the
+       * event the handler sends, never in the events of `files.ingest`. New in 0.9.0.
+       */
+      app?: Record<string, unknown>;
+    })
   /** Always last when the ingest throws (a refusal or an abort included). */
   | (EventBase & { type: "ingest.error"; error: EventError });
 
@@ -324,13 +337,23 @@ export function newRunId(prefix = "run"): string {
 export function eventErrorOf(error: unknown, message?: string): EventError {
   // It never throws: an error whose fields throw when read (a getter, a proxy) is told plainly.
   try {
-    const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown };
+    const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown; code?: unknown };
     if (IngestError.is(error)) {
       // Its status is the upload's answer, not a model's.
       return { message: message ?? error.message, name: error.name, code: error.code, ...(error.status !== 422 ? { status: error.status } : {}) };
     }
+    // Its code tells a deleted chat from a scope the server gave wrong (errorInfoOf).
+    if (DocumentScopeError.is(error)) {
+      return { message: message ?? userMessageOf(error), name: "DocumentScopeError", ...(typeof error.code === "string" ? { code: error.code } : {}) };
+    }
     const out: EventError = { message: message ?? userMessageOf(error) };
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
+    else if (isModelStatus(record.status) && !DocumentStoreError.is(error) && !DocumentsNotFoundError.is(error)) {
+      // A model's error without a kind of its own (an adapter of yours, `httpError`): the kind its
+      // status gives, as its message is told, so that a model's EventError always has its kind.
+      const { code } = record;
+      out.kind = classifyModelError(record.status, error instanceof Error ? error.message : "", { code: typeof code === "string" ? code : undefined }).kind;
+    }
     if (typeof record.status === "number") out.status = record.status;
     if (typeof record.name === "string" && record.name) out.name = record.name;
     return out;
@@ -340,6 +363,9 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
 }
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
+
+/** A status of a model's error: 0 (no answer came) or an HTTP error, as `errorInfoOf` reads it. */
+const isModelStatus = (status: unknown): status is number => typeof status === "number" && (status === 0 || status >= 400);
 
 /**
  * A message for users: a model error by its kind and status, a storage error by its code, the

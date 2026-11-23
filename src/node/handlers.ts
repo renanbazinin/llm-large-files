@@ -1,10 +1,57 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { IngestError, isStoreWriteFailure } from "../errors.js";
+import { errorInfoOf, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE } from "../error-info.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, type IngestErrorCode } from "../errors.js";
 import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
-import { checkOwner, toDocumentSummary, type IngestInput, type LargeFiles } from "../library.js";
+import { checkOwner, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles } from "../library.js";
+import { DocumentsNotFoundError, errorKindOf, ModelRequestError, type ModelErrorKind } from "../model.js";
 import { formatBytes } from "../plan.js";
-import type { DocumentMeta } from "../types.js";
+import { checkScope } from "../scope.js";
+import type { DocumentMeta, DocumentScope } from "../types.js";
 import { writeSseEvents } from "./sse.js";
+
+/** What `onUploaded` is told besides the document. New in 0.9.0. */
+export type UploadedContext = {
+  /**
+   * The upload's request, for its headers and URL. Its body has been read: the bytes are not here,
+   * unless a framework left them in `request.body` (`express.raw()`), which keeps them until the
+   * request ends.
+   */
+  request: IncomingMessage;
+  /** What `getOwner` returned, when it returned an owner. */
+  owner?: string;
+  /** What `getScope` returned, when it returned a scope (a frozen copy). */
+  scope?: DocumentScope;
+  /**
+   * True when the client went away before the hook was called: the document is stored all the
+   * same, and nobody gets the answer. Record it, or remove it, as your app needs.
+   */
+  clientGone: boolean;
+};
+
+/**
+ * What `onUploaded` may return: nothing, or `{ answer }`, whose fields are added to the upload's
+ * answer (the `201` JSON, or `ingest.finish.app`). New in 0.9.0.
+ */
+export type UploadedResult = void | { answer?: Record<string, unknown> };
+
+/** What `onRemoved` is told besides the document's ID. New in 0.9.0. */
+export type RemovedContext = {
+  request: IncomingMessage;
+  owner?: string;
+  scope?: DocumentScope;
+};
+
+/**
+ * An error as the upload handler answers it (`uploadAnswerOf`): the HTTP status, the message of
+ * the JSON body `{ "error": … }`, the `IngestErrorCode` of a file that could not be read, and how
+ * long to wait before trying again (the `Retry-After` header of a 503). New in 0.9.0.
+ */
+export type UploadAnswer = {
+  status: number;
+  error: string;
+  code?: IngestErrorCode;
+  retryAfterMs?: number;
+};
 
 export type DocumentHandlerOptions = {
   /**
@@ -15,12 +62,48 @@ export type DocumentHandlerOptions = {
    * JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`,
    * say): `{"error":"Upload failed (owner is not a string)."}`.
    *
+   * When the library requires an owner (`requireOwner`), it is required here: the handlers cannot
+   * be made without it, and an undefined owner (or null, from JavaScript) is answered 401
+   * `{"error":"Sign in first."}` before the body is read, on every route (new in 0.9.0). An empty
+   * owner is then a 500 on every route too: `get` and `remove` answer
+   * `{"error":"The file could not be looked up (empty owner)."}` without calling the library.
+   *
    * To refuse a request, throw an error with a `status` (or `statusCode`) between 400 and 599, as
    * the `http-errors` package makes: the handler answers with that status and the error's message.
    * Any other error is answered with a 500 that does not repeat its message. It is called before
    * the upload is read, so a refused upload is not buffered.
    */
   getOwner?: (request: IncomingMessage) => string | undefined | Promise<string | undefined>;
+  /**
+   * The scope of this request, such as [userId, chatId] (`DocumentScope`): uploads are stored in
+   * it, and `get` and `remove` find only the documents of the same scope. Called after `getOwner`,
+   * before the body is read, on every route. Return undefined for no scope. A scope that is not
+   * valid is the server's mistake: a 500 `{"error":"Upload failed (invalid scope)."}`. Throw an
+   * error with a status to refuse a request, as for `getOwner`. Required when the library requires
+   * a scope (`requireScope`); an undefined scope is then a 500 `{"error":"Upload failed (no scope)."}`.
+   * New in 0.9.0.
+   */
+  getScope?: (request: IncomingMessage) => DocumentScope | undefined | Promise<DocumentScope | undefined>;
+  /**
+   * Called once an upload is stored, before it is answered: to record the document in your
+   * database, say. The `201` is sent, or `ingest.finish` on the event-stream path, once it
+   * resolves, with no time limit: bound your own calls. The upload's room
+   * (`maxPendingUploadBytes`) is given back, and the body the handler read is freed, before it is
+   * called. It is called even when the client went away meanwhile (`clientGone`). Return
+   * `{ answer }` to add its fields to the answer: to the `201` JSON (the summary's own fields win),
+   * or as `app` in `ingest.finish`. `answer` must be a plain object that JSON can hold.
+   *
+   * When it throws, or returns an `answer` that is not such an object, the document is deleted
+   * (best effort) and the upload is answered as for an error of `ingest`: with the error's status
+   * (400 to 599) and message, or a 500 `{"error":"Upload failed."}`. New in 0.9.0.
+   */
+  onUploaded?: (document: DocumentMeta, context: UploadedContext) => UploadedResult | Promise<UploadedResult>;
+  /**
+   * Called after `remove` deleted a document (`{ deleted: true }`), before it answers. When it
+   * throws, the answer is the error's status and message, or a 500; the document is deleted all
+   * the same, and a second `remove` answers `{ deleted: false }` without calling it. New in 0.9.0.
+   */
+  onRemoved?: (id: string, context: RemovedContext) => void | Promise<void>;
   /**
    * The most bytes of uploads these handlers hold at once: an upload is held whole in memory from
    * the moment its body is read until its ingest ends. An upload that would pass it is answered 503
@@ -47,18 +130,22 @@ export type DocumentHandlers = {
   /**
    * POST: the body is the raw file. Name it with an `X-File-Name` header (URI-encoded) or `?name=`.
    * A file that cannot be read is answered with a 422 and the reason. A store that fails while it
-   * writes is answered with a 500 that does not repeat its message, unless its error has a status.
+   * writes is answered with a 503 and `Retry-After`. Any other error is answered as
+   * `uploadAnswerOf` says.
    *
    * When the request's `Accept` header names `text/event-stream` (not with `q=0`, nor only through a
-   * wildcard), a file that passes the checks of the name, the owner and the size (which still
-   * answer with an HTTP error) is answered with a 200 and Server-Sent Events: the ingest's events (`ingest.start`, `ingest.progress`…), ending
-   * with `ingest.finish`, whose data is the summary a 201 would hold, or `ingest.error`, whose data
-   * is `{ error: { message, status } }` with the message and status a JSON answer would have.
+   * wildcard), a file that passes the checks of the name, the owner, the scope and the size (which
+   * still answer with an HTTP error) is answered with a 200 and Server-Sent Events: the ingest's
+   * events (`ingest.start`, `ingest.progress`…), ending with `ingest.finish`, whose data is the
+   * summary a 201 would hold (and `onUploaded`'s answer in `app`), or `ingest.error`, whose data is
+   * `{ error: { message, status } }` with the message and status a JSON answer would have, the
+   * `code` of a refused file, the `name` of a store that failed or of a scope error (with its
+   * `code`), and the `kind` of a model's error, for `errorInfoOf`.
    */
   upload(request: IncomingMessage, response: ServerResponse): Promise<void>;
-  /** GET: the document's summary, or 404. */
+  /** GET: the document's summary, or 404. With `getScope`, only a document of the request's scope. */
   get(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
-  /** DELETE: removes the document. Responds `{ deleted: boolean }`. */
+  /** DELETE: removes the document, then calls `onRemoved`. Responds `{ deleted: boolean }`. */
   remove(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
 };
 
@@ -69,13 +156,18 @@ class HttpError extends Error {
   }
 }
 
+/** A whole HTTP status of an error, from 400 to 599. */
+const isErrorStatus = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 400 && value <= 599;
+/** A wait in milliseconds: a finite number of 0 or more. */
+const isWait = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+
 /** The HTTP status an error carries: this module's, or one `getOwner` throws (`http-errors` style). */
 function statusOf(error: unknown): number | undefined {
   if (error instanceof HttpError) return error.status;
   if (!(error instanceof Error)) return undefined;
   const { status, statusCode } = error as Error & { status?: unknown; statusCode?: unknown };
   const value = typeof status === "number" ? status : statusCode;
-  return typeof value === "number" && Number.isInteger(value) && value >= 400 && value <= 599 ? value : undefined;
+  return isErrorStatus(value) ? value : undefined;
 }
 
 /**
@@ -87,39 +179,90 @@ function systemErrorCode(error: unknown): string | undefined {
   return typeof code === "string" && typeof syscall === "string" ? code : undefined;
 }
 
+/** What the handlers answer a scope that is gone (`DocumentScopeError` "scope_missing"): the chat was deleted. */
+const CHAT_GONE = "This chat no longer exists.";
+
 /**
- * The answer to a failed request. An error with a status keeps its status and message. Anything
- * else is the server's trouble: a 500 that says what failed and, for a system error, its code.
+ * An error as the handlers answer it, `failed` saying what failed ("Upload failed"). See
+ * `uploadAnswerOf`. It never throws: an error whose fields throw when read is a 500.
  */
-function answerOf(error: unknown, failed: string, tooLarge: string): { status: number; message: string } {
-  const status = statusOf(error);
-  if (status !== undefined) {
-    return { status, message: status === 413 ? tooLarge : error instanceof Error && error.message ? error.message : `${failed}.` };
+function answerFor(error: unknown, failed: string): UploadAnswer {
+  const plain: UploadAnswer = { status: 500, error: `${failed}.` };
+  try {
+    if (error instanceof HttpError) return { status: error.status, error: error.message || plain.error };
+    if (IngestError.is(error)) {
+      const status = isErrorStatus(error.status) ? error.status : 422;
+      return {
+        status,
+        // An unreadable file has the words of a parser, or of an extractor of your own, which may
+        // name a host: not words for a user (as for errorInfoOf).
+        error: error.code === "unreadable" ? UNREADABLE_MESSAGE : typeof error.message === "string" && error.message ? error.message : plain.error,
+        code: error.code,
+        ...(status === 503 && isWait(error.retryAfterMs) ? { retryAfterMs: error.retryAfterMs } : {}),
+      };
+    }
+    // Its message names what failed and a code, never a path or a host.
+    if (DocumentStoreError.is(error)) return { status: 503, error: errorInfoOf(error).message, retryAfterMs: STORE_RETRY_AFTER_MS };
+    // A scope the server gave wrong, or did not give, is its own bug: not the client's to fix.
+    if (DocumentScopeError.is(error)) return error.code === "scope_missing" ? { status: 404, error: CHAT_GONE } : plain;
+    // A model's error (an ingest or a hook of your own that asks one): its status is the provider's,
+    // and its message the provider's words, which may name a project or a key.
+    if (ModelRequestError.is(error) || errorKindOf(error) !== undefined) {
+      const info = errorInfoOf(error);
+      if (info.category === "model") return { status: info.status, error: info.message, ...(info.status === 429 || info.status === 503 ? retryOf(info.retryAfterMs) : {}) };
+    }
+    const status = statusOf(error);
+    if (status !== undefined) {
+      const message = (error as Error).message;
+      return { status, error: typeof message === "string" && message ? message : plain.error, ...(status === 503 ? retryOf((error as { retryAfterMs?: unknown }).retryAfterMs) : {}) };
+    }
+    const code = systemErrorCode(error);
+    return code ? { status: 500, error: `${failed} (${code}).` } : plain;
+  } catch {
+    return plain;
   }
-  const code = systemErrorCode(error);
-  return { status: 500, message: code ? `${failed} (${code}).` : `${failed}.` };
 }
 
-/** Answers a failed request with JSON (see `answerOf`). A refusal that says when to try again (a busy reader) sets `Retry-After`. */
+const retryOf = (value: unknown): { retryAfterMs?: number } => (isWait(value) ? { retryAfterMs: value } : {});
+
+/**
+ * How the upload handler answers an error, for a route of your own that ingests files and should
+ * answer as it does:
+ * - an `IngestError` (a file that could not be read): its status (422; 413, 409, or 503 for "busy"
+ *   with its `retryAfterMs`), its message and its `code`. Only an `IngestError` is a 422. An
+ *   "unreadable" file is told in fixed words, as `errorInfoOf` tells it: its own message is a
+ *   parser's, or that of an extractor of your own;
+ * - a `DocumentStoreError`: 503, its message (which names no path or host), and 5 s to wait;
+ * - a `DocumentScopeError` "scope_missing": 404 "This chat no longer exists."; the other codes
+ *   are the server's mistake: 500 "Upload failed.";
+ * - a model's error (`ModelRequestError`): the status and words of `errorInfoOf`, never the
+ *   provider's own;
+ * - any other error with a `status` (or `statusCode`) from 400 to 599: that status and its message;
+ * - a Node system error (a `code` and a `syscall`): 500 "Upload failed (ENOSPC).";
+ * - anything else: 500 "Upload failed.", without its message, which may name a host.
+ *
+ * It reads the errors of every copy of the package, and never throws. New in 0.9.0.
+ */
+export function uploadAnswerOf(error: unknown): UploadAnswer {
+  return answerFor(error, "Upload failed");
+}
+
+/**
+ * Answers a failed request with JSON (see `answerFor`). A 413 of the handler or of `ingest` gets the
+ * size message of the upload. An answer that says when to try again (a busy reader, a store, a
+ * model's rate limit) sets `Retry-After`.
+ */
 function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string, unread?: IncomingMessage): void {
-  const { status, message } = answerOf(error, failed, tooLarge);
-  const retryAfterMs = (error as { retryAfterMs?: unknown } | null)?.retryAfterMs;
-  if (status === 503 && typeof retryAfterMs === "number" && Number.isFinite(retryAfterMs) && !response.headersSent) {
-    response.setHeader("Retry-After", String(Math.max(1, Math.ceil(retryAfterMs / 1_000))));
+  const answer = answerFor(error, failed);
+  if (answer.retryAfterMs !== undefined && !response.headersSent) {
+    response.setHeader("Retry-After", String(Math.max(1, Math.ceil(answer.retryAfterMs / 1_000))));
   }
-  send(response, status, { error: message }, unread);
+  send(response, answer.status, { error: messageOf(answer, error, tooLarge) }, unread);
 }
 
-/**
- * An error of `ingest` as the upload answers it. A file that cannot be read is the client's 422,
- * with the reason. An error with a status keeps it, and a system error is the server's 500 with its
- * code. A store that failed in another way is the server's 500 too, without its message: that is
- * the store's own, and may name a database host. So is a value that is not an Error, whoever threw it.
- */
-function ingestFailure(error: unknown): unknown {
-  if (statusOf(error) !== undefined || systemErrorCode(error) !== undefined) return error;
-  if (isStoreWriteFailure(error) || !(error instanceof Error)) return error;
-  return new HttpError(422, error.message);
+/** The message of an answer: a 413 of the handler itself, or of `ingest`, says the upload limit. */
+function messageOf(answer: UploadAnswer, error: unknown, tooLarge: string): string {
+  return answer.status === 413 && (error instanceof HttpError || IngestError.is(error)) ? tooLarge : answer.error;
 }
 
 /**
@@ -137,26 +280,91 @@ function wantsEvents(request: IncomingMessage): boolean {
   });
 }
 
+/** Starts the ingest of an upload, with the fields of an event stream (`upload`). */
+type StartIngest = (more?: Pick<IngestInput, "runId" | "onEvent" | "signal">) => Promise<DocumentMeta>;
+
+/**
+ * What `onUploaded` came to for one upload: the fields to add to its answer, or the error to answer
+ * with instead (the document then deleted).
+ */
+type Hooked = { answer?: Record<string, unknown> } | { failure: unknown };
+
+/**
+ * An error as `ingest.error` carries it: the message, status and code of the JSON answer, and which
+ * of the library's errors it is, so that `errorInfoOf` reads it in the browser as on the server.
+ */
+function eventErrorFor(error: unknown, tooLarge: string): EventError {
+  const answer = answerFor(error, "Upload failed");
+  // A file that could not be read also says why, for a page that tells it in its own words.
+  return { message: messageOf(answer, error, tooLarge), status: answer.status, ...identityOf(error), ...(answer.code !== undefined ? { code: answer.code } : {}) };
+}
+
+/**
+ * The name of a store's failure, of documents that are gone, or of a scope that cannot be used
+ * (with its code, which tells a deleted chat apart), and the kind of a model's error (an ingest or
+ * a hook of yours that asks one), as `answerFor` answers it, for `EventError`. Nothing for other
+ * errors: a refused file is told by its `code`.
+ */
+function identityOf(error: unknown): Pick<EventError, "name" | "code" | "kind"> {
+  try {
+    if (DocumentStoreError.is(error)) return { name: "DocumentStoreError" };
+    if (DocumentsNotFoundError.is(error)) return { name: "DocumentsNotFoundError" };
+    if (DocumentScopeError.is(error)) return { name: "DocumentScopeError", ...(typeof error.code === "string" ? { code: error.code } : {}) };
+    // A model's EventError always has its kind, as in the events of a question.
+    if (ModelRequestError.is(error) || errorKindOf(error) !== undefined) {
+      const info = errorInfoOf(error);
+      if (info.category === "model") return { kind: info.code as ModelErrorKind };
+    }
+  } catch {
+    // A proxy whose traps throw: told plainly.
+  }
+  return {};
+}
+
 /**
  * Ingests the upload and answers with its events as Server-Sent Events. The last one is always
- * `ingest.finish` or `ingest.error`, even with a `LargeFiles` of your own whose `ingest` sends no events.
+ * `ingest.finish` or `ingest.error`, even with a `LargeFiles` of your own whose `ingest` sends no
+ * events. `uploaded` runs `onUploaded` once, before `ingest.finish` is sent; or after the stream, for
+ * a document stored once the client went away. `start` starts the ingest (see `upload`); `release`
+ * is called once the ingest ended, before `onUploaded`.
  */
-async function streamIngest(files: LargeFiles, input: IngestInput, response: ServerResponse, tooLarge: string): Promise<void> {
+async function streamIngest(
+  start: StartIngest,
+  signal: AbortSignal,
+  response: ServerResponse,
+  tooLarge: string,
+  uploaded: (meta: DocumentMeta) => Promise<Hooked>,
+  release: () => void,
+): Promise<void> {
   const runId = newRunId("ing");
   const stream = eventStream<IngestEvent, DocumentMeta>(
-    (onEvent, signal) => files.ingest({ ...input, runId, onEvent, signal }),
-    { signal: input.signal },
+    (onEvent, stop) => start({ runId, onEvent, signal: stop }),
+    { signal },
   );
+  // The ingest ended: its room is given back, while `onUploaded` may still run.
+  stream.result.then(release, release);
   // The error as a JSON answer would give it: the event's own may hold a store's message.
   const answer = async (fallback: EventError): Promise<EventError> => {
     try {
       await stream.result;
       return { message: fallback.message, ...(fallback.status !== undefined ? { status: fallback.status } : {}) };
     } catch (error) {
-      const failure = ingestFailure(error);
-      // A file that could not be read also says why, for a page that tells it in its own words.
-      return { ...answerOf(failure, "Upload failed", tooLarge), ...(failure instanceof IngestError ? { code: failure.code } : {}) };
+      return eventErrorFor(error, tooLarge);
     }
+  };
+  /** The last event of a stored document: `ingest.finish` once `onUploaded` is done, or `ingest.error` when it failed. */
+  const finished = async (base: { seq: number; runId: string; time: number }, last: (IngestEvent & { type: "ingest.finish" }) | undefined): Promise<IngestEvent> => {
+    let meta: DocumentMeta;
+    try {
+      meta = await stream.result;
+    } catch {
+      // An ingest of your own that sent ingest.finish, then failed.
+      return { ...base, type: "ingest.error", error: await answer({ message: "Upload failed." }) };
+    }
+    const hooked = await uploaded(meta);
+    if ("failure" in hooked) return { ...base, type: "ingest.error", error: eventErrorFor(hooked.failure, tooLarge) };
+    const event: IngestEvent = last ?? { ...base, type: "ingest.finish", document: toDocumentSummary(meta) };
+    return hooked.answer ? { ...event, app: hooked.answer } as IngestEvent : event;
   };
   async function* events(): AsyncGenerator<IngestEvent> {
     let seq = 0;
@@ -166,23 +374,23 @@ async function streamIngest(files: LargeFiles, input: IngestInput, response: Ser
         yield { ...event, error: await answer(event.error) };
         return;
       }
+      if (event.type === "ingest.finish") {
+        yield await finished({ seq: event.seq, runId: event.runId, time: event.time }, event);
+        return;
+      }
       yield event;
-      if (event.type === "ingest.finish") return;
     }
     // The ingest ended without a last event: a `LargeFiles` of your own whose ingest sends none.
-    const base = { seq: seq + 1, runId, time: Date.now() };
-    try {
-      yield { ...base, type: "ingest.finish", document: toDocumentSummary(await stream.result) };
-    } catch {
-      yield { ...base, type: "ingest.error", error: await answer({ message: "Upload failed." }) };
-    }
+    yield await finished({ seq: seq + 1, runId, time: Date.now() }, undefined);
   }
   // Each message is the event itself, as for a question: `ingest.finish` holds the summary a 201
   // answer would (`document`), `ingest.error` the message and status a JSON answer would (`error`).
   await writeSseEvents(response, events());
   // A client that went away ends the stream at once, while the ingest stops (a store write may still
-  // be under way): the upload is held until then, as on the JSON path.
-  await stream.result.catch(() => undefined);
+  // be under way): the upload is held until then, as on the JSON path. A document stored all the
+  // same still goes to `onUploaded` (with `clientGone`), once.
+  const meta = await stream.result.catch(() => undefined);
+  if (meta !== undefined) await uploaded(meta);
 }
 
 /**
@@ -200,9 +408,19 @@ function send(response: ServerResponse, status: number, value: unknown, unread?:
   drain(unread, response);
 }
 
-function header(request: IncomingMessage, name: string): string {
+/** A header's value as it came (the first, when it came more than once), or "". */
+function rawHeader(request: IncomingMessage, name: string): string {
   const raw = request.headers[name];
   const value = Array.isArray(raw) ? raw[0] : raw;
+  return value ?? "";
+}
+
+/**
+ * A header the page URI-encodes (`X-File-Name`, `X-File-Type`), decoded: a value that does not
+ * decode is used as it is.
+ */
+function header(request: IncomingMessage, name: string): string {
+  const value = rawHeader(request, name);
   if (!value) return "";
   try {
     return decodeURIComponent(value);
@@ -349,11 +567,23 @@ function drain(request: IncomingMessage, response: ServerResponse): void {
  */
 export function createDocumentHandlers(files: LargeFiles, options: DocumentHandlerOptions = {}): DocumentHandlers {
   const tooLarge = `The file is larger than the ${formatBytes(files.maxUploadBytes)} upload limit.`;
-  const owner = async (request: IncomingMessage) => options.getOwner?.(request);
   // The upload limit bounds each body, and the room for all of them: a LargeFiles of your own
   // without it (from JavaScript) had neither.
   if (typeof files.maxUploadBytes !== "number" || !(files.maxUploadBytes > 0)) {
     throw new TypeError(`createDocumentHandlers needs files.maxUploadBytes, a number above 0, and it is ${String(files.maxUploadBytes)}. A LargeFiles of your own must keep the one of the library it wraps.`);
+  }
+  for (const name of ["getScope", "onUploaded", "onRemoved"] as const) {
+    if (options[name] !== undefined && typeof options[name] !== "function") throw new TypeError(`${name} must be a function, and is ${typeof options[name]}.`);
+  }
+  // A library that requires an owner or a scope on every call cannot be served without them: every
+  // request would fail, after its body was read.
+  const requireOwner = files.access?.requireOwner === true;
+  const requireScope = files.access?.requireScope === true;
+  if (requireOwner && typeof options.getOwner !== "function") {
+    throw new TypeError("createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner).");
+  }
+  if (requireScope && typeof options.getScope !== "function") {
+    throw new TypeError("createDocumentHandlers needs getScope: the library requires a scope on every call (requireScope).");
   }
   const maxPending = pendingLimit(options.maxPendingUploadBytes, files.maxUploadBytes);
   const idleMs = idleLimit(options.uploadIdleTimeoutMs);
@@ -362,23 +592,68 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
   /** The bytes of the uploads held now, from the reading of their body to the end of their ingest. */
   let pending = 0;
 
+  /**
+   * Who is asking: the owner and the scope of the request, checked, before its body is read. Under
+   * `requireOwner`, a request without an owner is answered 401. An owner the library refuses (on
+   * the upload, or on every route under `requireOwner`), a scope that is not valid, or none under
+   * `requireScope`, is the server's mistake: a 500 that says which, and nothing else. `failed` says
+   * what failed ("Upload failed").
+   */
+  async function callerOf(request: IncomingMessage, failed: string, checkOwnerShape: boolean): Promise<Caller> {
+    const owner = await options.getOwner?.(request);
+    // No owner, or null (`req.user?.id ?? null` from JavaScript), is a request that is not signed in.
+    if (requireOwner && (owner === undefined || owner === null)) throw new HttpError(401, "Sign in first.");
+    // An owner that `ingest` would refuse ("", or an object such as `req.user` from JavaScript) is
+    // the server's mistake, answered with a 500 before the body is read. Its message says which, so
+    // that the operator knows where to look; it says nothing else. (Without `requireOwner`, `get`
+    // and `remove` pass it on, as before, so that documents of 0.5.0 with the owner "" stay
+    // readable. Under it, the library refuses such an owner on every call: so do they, in the same
+    // words as the upload.)
+    if (checkOwnerShape || requireOwner) {
+      try {
+        checkOwner(owner);
+      } catch {
+        const empty = typeof owner === "string" || owner === null;
+        throw new HttpError(500, empty ? `${failed} (empty owner).` : `${failed} (owner is not a string).`);
+      }
+    }
+    const given = options.getScope ? await options.getScope(request) : undefined;
+    let scope: DocumentScope | undefined;
+    try {
+      // Null is no scope, as for the library.
+      scope = checkScope(given ?? undefined);
+    } catch {
+      throw new HttpError(500, `${failed} (invalid scope).`);
+    }
+    if (requireScope && scope === undefined) throw new HttpError(500, `${failed} (no scope).`);
+    return { ...(owner !== undefined ? { owner } : {}), ...(scope !== undefined ? { scope } : {}) };
+  }
+
+  /**
+   * Runs `onUploaded` for a stored document. When it throws, or its `answer` is not a plain object
+   * that JSON can hold, the document is deleted (a failure to delete is not told: the upload has
+   * failed either way) and the error is what the upload answers.
+   */
+  async function uploaded(meta: DocumentMeta, request: IncomingMessage, caller: Caller, clientGone: boolean): Promise<Hooked> {
+    if (!options.onUploaded) return {};
+    try {
+      const returned: unknown = await options.onUploaded(meta, { request, ...caller, clientGone });
+      return hookAnswerOf(returned);
+    } catch (error) {
+      // A delete of your own that throws at once is told no more than one that rejects.
+      await Promise.resolve().then(() => files.delete(meta.id, caller)).catch(() => undefined);
+      return { failure: error };
+    }
+  }
+
   return {
     async upload(request, response) {
       try {
         const url = new URL(request.url ?? "/", "http://localhost");
         const name = header(request, "x-file-name").trim() || url.searchParams.get("name")?.trim() || "";
         if (!name) throw new HttpError(400, "Name the file with an X-File-Name header or a ?name= query parameter.");
-        // Who is asking comes first: a refused upload is not read into memory. An owner that
-        // `ingest` would refuse ("", or an object such as `req.user` from JavaScript) is the server's
-        // mistake, answered with a 500 before the body is read. Its message says which, so that the
-        // operator knows where to look; it says nothing else.
-        const currentOwner = await owner(request);
-        try {
-          checkOwner(currentOwner);
-        } catch {
-          const empty = typeof currentOwner === "string" || currentOwner === null;
-          throw new HttpError(500, empty ? "Upload failed (empty owner)." : "Upload failed (owner is not a string).");
-        }
+        // Who is asking comes first: a refused upload is not read into memory.
+        const caller = await callerOf(request, "Upload failed", true);
         // Too large is said first, before any wait for room.
         const declared = Number(request.headers["content-length"]);
         const parsed = (request as IncomingMessage & { body?: unknown }).body;
@@ -390,14 +665,24 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         let held = counted ? Math.min(expectedSize(request, files.maxUploadBytes), maxPending) : 0;
         if (pending > 0 && pending + held > maxPending) throw new IngestError("busy", BUSY, { retryAfterMs: BUSY_RETRY_MS });
         pending += held;
+        /**
+         * Gives the upload's room back, once: when its ingest ended, so that an `onUploaded` that
+         * waits on a database of your own does not hold it, or when the upload failed.
+         */
+        const release = () => {
+          pending -= held;
+          held = 0;
+        };
         try {
-          const bytes = await readBody(request, files.maxUploadBytes, idleMs);
+          let body: Uint8Array | undefined = await readBody(request, files.maxUploadBytes, idleMs);
           // Counted at its size once read (an upload without a Content-Length was counted at the limit).
           if (counted) {
-            pending += bytes.byteLength - held;
-            held = bytes.byteLength;
+            pending += body.byteLength - held;
+            held = body.byteLength;
           }
-          const contentType = header(request, "content-type");
+          // Content-Type is a header of HTTP, not one the page encodes: it is taken as it came (S11).
+          // `ingest` cleans what it keeps of either.
+          const contentType = rawHeader(request, "content-type");
           const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
           // A client that goes away before the answer stops the reading of its file: nobody would
           // get the document, and the server has other work.
@@ -406,25 +691,35 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
             if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
           };
           response.once("close", onClose);
-          const input: IngestInput = {
-            name,
-            bytes,
-            ...(mimeType ? { mimeType } : {}),
-            ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
-            signal: gone.signal,
+          /**
+           * Starts the upload's ingest, once. The body is then the ingest's alone: it is freed when
+           * the ingest ends, while `onUploaded` may still run. The input is built in this function,
+           * whose frame ends at once: a value in the frame of `upload`, an async function, is kept
+           * until it returns, the hook's wait included.
+           */
+          const start: StartIngest = (more) => {
+            const bytes = body!;
+            body = undefined;
+            return files.ingest({ name, bytes, ...(mimeType ? { mimeType } : {}), ...caller, signal: gone.signal, ...more });
           };
-          let meta;
+          const hook = (meta: DocumentMeta) => uploaded(meta, request, caller, gone.signal.aborted);
           try {
-            if (wantsEvents(request)) return await streamIngest(files, input, response, tooLarge);
-            meta = await files.ingest(input);
-          } catch (error) {
-            throw ingestFailure(error);
+            if (wantsEvents(request)) {
+              // `onUploaded` runs once, for the event before ingest.finish or after the stream.
+              let hooking: Promise<Hooked> | undefined;
+              return await streamIngest(start, gone.signal, response, tooLarge, (meta) => (hooking ??= hook(meta)), release);
+            }
+            const meta = await start();
+            release();
+            const hooked = await hook(meta);
+            if ("failure" in hooked) throw hooked.failure;
+            // The summary's own fields win over the hook's.
+            send(response, 201, { ...hooked.answer, ...toDocumentSummary(meta) });
           } finally {
             response.off("close", onClose);
           }
-          send(response, 201, toDocumentSummary(meta));
         } finally {
-          pending -= held;
+          release();
         }
       } catch (error) {
         // A body that stopped arriving is not drained: the answer ends, and so does the connection.
@@ -445,8 +740,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
 
     async get(request, response, id) {
       try {
-        const currentOwner = await owner(request);
-        const meta = await files.getMeta(id, currentOwner !== undefined ? { owner: currentOwner } : {});
+        const caller = await callerOf(request, "The file could not be looked up", false);
+        const meta = await files.getMeta(id, caller);
         if (meta) send(response, 200, toDocumentSummary(meta));
         else send(response, 404, { error: "This file is no longer available." });
       } catch (error) {
@@ -456,11 +751,32 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
 
     async remove(request, response, id) {
       try {
-        const currentOwner = await owner(request);
-        send(response, 200, { deleted: await files.delete(id, currentOwner !== undefined ? { owner: currentOwner } : {}) });
+        const caller = await callerOf(request, "The file could not be deleted", false);
+        const deleted = await files.delete(id, caller);
+        if (deleted && options.onRemoved) await options.onRemoved(id, { request, ...caller });
+        send(response, 200, { deleted });
       } catch (error) {
         fail(response, error, "The file could not be deleted", tooLarge);
       }
     },
   };
+}
+
+/** The owner and the scope of a request, as `getOwner` and `getScope` gave them, checked. */
+type Caller = AccessOptions;
+
+/**
+ * What `onUploaded` returned, as the fields to add to the answer: `{ answer }` with a plain object
+ * that JSON can hold (a copy of it, as JSON reads it back). Anything else without an `answer` (a
+ * database's own result) adds nothing. An `answer` of another kind is a TypeError.
+ */
+function hookAnswerOf(returned: unknown): { answer?: Record<string, unknown> } {
+  if (typeof returned !== "object" || returned === null) return {};
+  const answer: unknown = (returned as { answer?: unknown }).answer;
+  if (answer === undefined || answer === null) return {};
+  const proto: unknown = typeof answer === "object" ? Object.getPrototypeOf(answer) : undefined;
+  if (typeof answer !== "object" || Array.isArray(answer) || (proto !== Object.prototype && proto !== null)) {
+    throw new TypeError("onUploaded must return nothing, or { answer } with a plain object that JSON can hold.");
+  }
+  return { answer: JSON.parse(JSON.stringify(answer)) as Record<string, unknown> };
 }

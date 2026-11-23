@@ -137,7 +137,8 @@ before its body is read: `{ "error": "Upload failed (empty owner)." }` when `get
 when it returns something that is neither a string nor a finite number, such as the user object in
 place of its ID. Nothing is logged. Where every upload needs a signed-in user, throw a 401 as
 below. Return `undefined` only where anonymous uploads are meant (`user?.id || undefined`). GET and
-DELETE pass such an owner on as before.
+DELETE pass such an owner on as before, except under `requireOwner`, where the library refuses it
+on every call: they answer the same 500 then, "(empty owner)", without calling it (new in 0.9.0).
 
 ```ts
 import type { IncomingMessage } from "node:http";
@@ -155,6 +156,14 @@ export const documentHandlers = createDocumentHandlers(files, {
   },
 });
 ```
+
+New in 0.9.0: with `requireOwner: true` in `createLargeFiles`, the library refuses every call
+without an owner, and the handlers follow. `createDocumentHandlers` throws a `TypeError` without
+`getOwner`, and answers an owner of `undefined` with a `401` `{ "error": "Sign in first." }`, on
+every route, before the body is read. A mistake that would store an upload open to anyone fails
+at once instead. `requireScope` works the same way with `getScope`, which gives the scope of a
+request (such as `[userId, chatId]`): a scope that is not valid, or none, is a `500` before the
+body is read.
 
 The routes, statuses and the rest of the upload flow are in [Web app](./guides/web-app.md) and the
 [node reference](./reference/node.md).
@@ -891,15 +900,17 @@ server that memory is the server's heap. Choose the isolation with care:
   characters, and is never cut in the middle of a character (`file` when nothing is left). An
   emoji of several characters, such as a flag, can lose its end at the cut. A name that an
   earlier version cut in the middle of a character is sent with U+FFFD in place of the half.
-- **The MIME type is the client's word.** The handlers take it from an `X-File-Type` header, or
-  from `Content-Type` unless that is `application/octet-stream`. The format is picked from the file
-  name first, then from it. It is stored, and returned in summaries: do not trust it. Since 0.9.0
-  `ingest` keeps only its type and subtype, in lower case, without parameters, for every caller,
-  your own routes included: a value that is not a type/subtype of RFC 9110 token characters of at
-  most 127 characters, or that holds anything but printable ASCII anywhere (a line break, U+202E or
-  another text-direction control, a tag character), is stored as `application/octet-stream`. Before,
-  it was only trimmed, so a line break, a direction override or 8 KB of it reached the metadata, the
-  summaries, `ingest.finish` and your logs. It is never sent to the model.
+- **The MIME type is the client's word.** The handlers take it from an `X-File-Type` header, which
+  they URI-decode, or from `Content-Type` unless that is `application/octet-stream`. Since 0.9.0
+  `Content-Type` is taken as it came, not URI-decoded: before, `%0D%0A` in it became a line break
+  (S11). The format is picked from the file name first, then from it. It is stored, and returned in
+  summaries: do not trust it. Since 0.9.0 `ingest` keeps only its type and subtype, in lower case,
+  without parameters, for every caller, your own routes included: a value that is not a
+  type/subtype of RFC 9110 token characters of at most 127 characters, or that holds anything but
+  printable ASCII anywhere (a line break, U+202E or another text-direction control, a tag
+  character), is stored as `application/octet-stream`. Before, it was only trimmed, so a line
+  break, a direction override or 8 KB of it reached the metadata, the summaries, `ingest.finish`
+  and your logs. It is never sent to the model.
 - **A path is read as it is given.** `ingest({ source: { path } })` (new in 0.9.0) reads the file
   at that path, which can be any file the process may read: never build it from what a client sends.
   A link at the path is refused, not followed, and so is a folder, a pipe or a device. The file is
@@ -1053,14 +1064,26 @@ A store's own errors can name paths and hosts. Reads reach users and models only
 `DocumentStoreError` of operation `"write"`, `"delete"` or `"sweep"`, with status 503, and the
 upload handler answers it 503 with that message. (Before, writes were passed on as they came, and a
 write error with a `status` of its own was answered with its own message, which could name a host.)
-Two paths can still answer an error of your own 422 with its own message, so a database driver's
-host can reach the browser through them: an `ingest` of your own that throws a new error in place
-of the store's, as `ingestInProcess` in [Deployment](./guides/deployment.md#uploads-and-ingest)
-does, and a route of your own, as in [Web app](./guides/web-app.md#filesingest-and-its-errors).
-Pass the `DocumentStoreError` on as it is, and log its `cause` yourself, since the handlers log
-nothing: see [Storage](./guides/storage.md#errors) and the
-[node reference](./reference/node.md#uploadrequest-response). What to show a user is in
-[Errors and reliability](./guides/errors-and-reliability.md).
+The handler also adds `Retry-After: 5`.
+
+S12, closed in 0.9.0: the upload handler answered any `Error` without a status `422` with its
+message, as a file that could not be read. A `LargeFiles` of your own whose `ingest` threw a
+database driver's error (`MongoServerSelectionError: connect ECONNREFUSED mongo-prod.internal…:27017`)
+sent that host to the browser. Now only an `IngestError` is a `422` with its message, and an
+`IngestError` of code `"unreadable"` is told in fixed words: its message is a parser's, or that of
+an extractor of your own, which may name a host (an OCR service's). Any other error without a
+status is a `500` `{ "error": "Upload failed." }`, a system error adds only its code, and a model's
+error is told by its kind, never in the provider's words. The rule is
+`uploadAnswerOf` from `llm-large-files/node`: answer with it in a route of your own around
+`files.ingest` ([Web app](./guides/web-app.md#filesingest-and-its-errors)). An `ingest` of your own
+that refuses a file throws `new IngestError(code, message)`, as `ingestInProcess` in
+[Deployment](./guides/deployment.md#uploads-and-ingest) does. An error with a `status` of its own
+still keeps its message: give such errors words for users. Pass the `DocumentStoreError` on as it
+is, and log its `cause` yourself, since the handlers log nothing: see
+[Storage](./guides/storage.md#errors) and the
+[node reference](./reference/node.md#how-errors-are-answered). What to show a user, in your own
+words and language, is `errorInfoOf`'s job: see
+[Errors and reliability](./guides/errors-and-reliability.md#your-users-words-errorinfoof).
 
 ## What the library logs
 

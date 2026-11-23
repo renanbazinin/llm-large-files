@@ -272,7 +272,9 @@ Keep the `id` with the chat session. Not on a Node HTTP server, or taking multip
 
 `getOwner` returns the signed-in user's ID, or `undefined` for an anonymous upload. An empty
 string, a string of spaces or `null` would be one owner shared by every caller without a user, so
-the upload is refused: `500` with `{ "error": "Upload failed (empty owner)." }`. Return the ID
+the upload is refused: `500` with `{ "error": "Upload failed (empty owner)." }`. (With
+`requireOwner: true`, `undefined` and `null` are answered `401` "Sign in first.", new in 0.9.0.)
+Return the ID
 itself, not the user object (`{ "error": "Upload failed (owner is not a string)." }`). Both come
 before the body is read.
 
@@ -449,15 +451,20 @@ git clone https://github.com/renanbazinin/llm-large-files
 cd llm-large-files
 npm install
 npm run build
-GEMINI_API_KEY=... node examples/server.ts      # then open http://localhost:3000
+GEMINI_API_KEY=... node examples/server.ts      # then open http://127.0.0.1:3000
 GEMINI_API_KEY=... node examples/ask-cli.ts ./big.log "What failed first, and when?"
 ```
 
 - `examples/server.ts` is a chat server in one file, on `node:http`: an upload route
   (`createDocumentHandlers`), answers streamed as Server-Sent Events, and a small web page. It
-  stores uploads in `.data/large-files` and keeps PDFs, so the model can look at their pages.
-  `GEMINI_MODEL` picks the model (default `gemini-3.8-flash`), and `GEMINI_EXPLORER_MODEL` adds an
-  explorer model. Every upload is anonymous.
+  stores uploads in `.data/large-files` and keeps PDFs, so the model can look at their pages. It
+  reads PDF and Office files in child processes (`createIsolatedExtractors`). `GEMINI_MODEL` picks
+  the model (default `gemini-3.8-flash`), and `GEMINI_EXPLORER_MODEL` adds an explorer model.
+- It is a demo, not for production as is. It listens on `127.0.0.1` only (`HOST` and `PORT` change
+  that). It has no sign-in: the page gives each browser a random owner in an `HttpOnly`,
+  `SameSite=Strict` cookie, so two browsers cannot read each other's files or chats, but whoever
+  has the cookie is that owner. Since 0.9.0; before, every upload was anonymous and the server
+  listened on every interface.
 - `examples/ask-cli.ts` asks one question about one file from the command line. Two more
   arguments are optional: the model, and an explorer model.
 

@@ -360,35 +360,39 @@ itself is the isolation:
 
 ```ts
 // ingest-process.ts: one ingest, in a process of its own, forked by documents.ts below.
-import { createLargeFiles, FileDocumentStore, type IngestInput } from "llm-large-files";
+import {
+  createLargeFiles, DocumentScopeError, DocumentStoreError, FileDocumentStore, IngestError,
+  type DocumentScopeErrorCode, type DocumentStoreOperation, type IngestErrorCode, type IngestInput,
+} from "llm-large-files";
 
 const files = createLargeFiles({
   store: new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents"),
   keepOriginals: ["pdf"],
 });
 
+/** What the server needs to answer an error as createDocumentHandlers does: never a path or a host. */
+export type IngestFailure =
+  | { kind: "ingest"; code: IngestErrorCode; message: string; retryAfterMs?: number } // a file refused: its words are for the user
+  | { kind: "store"; operation: DocumentStoreOperation; code?: string } // the store failed: a 503 to try again
+  | { kind: "scope"; code: DocumentScopeErrorCode }
+  | { kind: "status"; status: number; message: string } // an error with a status, such as a 503 of an OCR service
+  | { kind: "other" }; // anything else: a 500 "Upload failed.", without its message
+
+function failureOf(error: unknown): IngestFailure {
+  if (IngestError.is(error)) return { kind: "ingest", code: error.code, message: error.message, ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}) };
+  if (DocumentStoreError.is(error)) return { kind: "store", operation: error.operation, ...(error.code ? { code: error.code } : {}) };
+  if (DocumentScopeError.is(error)) return { kind: "scope", code: error.code };
+  const { status } = (error ?? {}) as { status?: unknown };
+  if (error instanceof Error && typeof status === "number" && status >= 400 && status <= 599) return { kind: "status", status, message: error.message };
+  console.error("The ingest failed", error); // its own words, for your log only
+  return { kind: "other" };
+}
+
 process.once("message", async (message) => {
   try {
     process.send!({ meta: await files.ingest(message as IngestInput) });
   } catch (error) {
-    const { code, syscall, status, statusCode } = (error ?? {}) as { code?: unknown; syscall?: unknown; status?: unknown; statusCode?: unknown };
-    const httpStatus = typeof status === "number" ? status : typeof statusCode === "number" ? statusCode : undefined;
-    process.send!({
-      failed: error instanceof Error ? {
-        message: error.message,
-        // What createDocumentHandlers answers by: a status (a 503 from your store or an OCR service),
-        // or the code and syscall of a failure of the store (500). Without either, a 422 with this
-        // message, even for an error of your store (below).
-        ...(httpStatus !== undefined ? { status: httpStatus } : {}),
-        ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : {}),
-      } : {
-        // Not an Error: its code and syscall when it has both, or else a 500 with no message.
-        // createDocumentHandlers answers it as it does without this process: with the code, or with
-        // { "error": "Upload failed." }.
-        message: "",
-        ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : { status: 500 }),
-      },
-    });
+    process.send!({ failed: failureOf(error) });
   }
 });
 ```
@@ -399,21 +403,33 @@ takes any `LargeFiles`, so the rest stays as it is:
 ```ts
 // documents.ts: the upload routes. Each ingest runs in a process of its own, one at a time on this server.
 import { fork } from "node:child_process";
-import type { DocumentMeta, IngestInput } from "llm-large-files";
+import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentMeta, type IngestInput } from "llm-large-files";
 import { createDocumentHandlers } from "llm-large-files/node";
 import { files } from "./large-files.js";
 import { userIdOf } from "./auth.js"; // your sign-in
+import type { IngestFailure } from "./ingest-process.js";
 
 const INGESTS_AT_ONCE = 1;
 let running = 0;
 
-type IngestReply = { meta?: DocumentMeta; failed?: { message: string; code?: string; syscall?: string; status?: number } };
+type IngestReply = { meta?: DocumentMeta; failed?: IngestFailure };
+
+/** The process's failure as the error createDocumentHandlers answers: an IngestError is the only 422. */
+function errorOf(failed: IngestFailure): Error {
+  switch (failed.kind) {
+    case "ingest": return new IngestError(failed.code, failed.message, failed.retryAfterMs !== undefined ? { retryAfterMs: failed.retryAfterMs } : {});
+    case "store": return new DocumentStoreError(new Error("The store failed in the ingest process."), { operation: failed.operation, ...(failed.code ? { code: failed.code } : {}) });
+    case "scope": return new DocumentScopeError(failed.code);
+    case "status": return Object.assign(new Error(failed.message), { status: failed.status });
+    default: return new Error("The ingest process failed."); // answered 500 "Upload failed."
+  }
+}
 
 function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
   if (input.signal?.aborted) return Promise.reject(input.signal.reason);
   if (running >= INGESTS_AT_ONCE) {
-    // An error with a status is answered with that status and its message.
-    return Promise.reject(Object.assign(new Error("The server is reading other files. Try again in a minute."), { status: 503 }));
+    // Answered 503, with Retry-After.
+    return Promise.reject(new IngestError("busy", "The server is reading other files. Try again in a minute.", { retryAfterMs: 60_000 }));
   }
   running++;
   return new Promise<DocumentMeta>((resolve, reject) => {
@@ -446,13 +462,10 @@ function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
       running--;
       if (reply?.meta) resolve(reply.meta);
       else if (input.signal?.aborted) reject(input.signal.reason);
-      // With a status, that status and message (a 503 from your store or an OCR service); with a
-      // code and a syscall, a failure of the store (500); otherwise a file that cannot be read
-      // (422), even when the error came from your store (below).
-      else if (reply?.failed) reject(Object.assign(new Error(reply.failed.message), reply.failed));
-      else if (timedOut) reject(new Error(`${input.name} took too long to read.`));
+      else if (reply?.failed) reject(errorOf(reply.failed));
+      else if (timedOut) reject(new IngestError("timeout", `${input.name} took too long to read.`));
       // Out of memory, or crashed: that process is gone, and this server goes on.
-      else reject(new Error(`${input.name} could not be read on this server.`));
+      else reject(new IngestError("out_of_memory", `${input.name} could not be read on this server.`));
     };
     child.once("message", (message) => {
       reply = message as IngestReply;
@@ -477,13 +490,13 @@ Checked on Node 24: with `NODE_OPTIONS=--max-old-space-size=1024` on the server 
 for the child, a 2,000-page PDF ran the child out of memory; the upload was answered "book.pdf
 could not be read on this server.", and the next upload was ingested.
 
-The error that `ingestInProcess` rebuilds from the process's reply is a new `Error`, so
-`createDocumentHandlers` cannot tell a store that failed to write from a file that cannot be read.
-Given `files` itself, it answers a store's error that has no status, and no `code` and `syscall`,
-with 500 `{ "error": "Upload failed." }`. Through this process, it answers that error 422 with the
-store's own message, which may name a database host. Give your store's errors a status and a
-message of your own, as [Storage](./storage.md#errors) shows: the process passes the status on. A
-thrown value that is not an `Error` gets the same answer with the process as without it.
+Since 0.9.0 `createDocumentHandlers` answers `422` only an `IngestError`, and any other error
+without a status `500` "Upload failed.", without its message (S12). So the server rebuilds the
+error the process caught by its kind: an `IngestError` with its code and message, a
+`DocumentStoreError` (`503`, `Retry-After: 5`) with its operation and code, never the store's own
+words. The process logs the errors it cannot pass on. Until 0.9.0 this recipe rebuilt a plain
+`Error`, which the handler answered `422` with its message: a store's own message, which may name a
+database host.
 
 A process stopped by its limit or its timeout may leave the files of a document that was never
 finished. `FileDocumentStore` removes them at the first sweep after they are an hour old. One
