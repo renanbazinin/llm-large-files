@@ -22,6 +22,13 @@ npm run test:watch   # the tests again on every save
 | `npm test` | `vitest run`: every test in `test/`, in two Vitest projects: `unit`, files in parallel, then `timing`, one file at a time ([Tests](#tests)). No test calls a real model or needs a key. |
 | `npm run build` | Deletes `dist/` and compiles `src/` into it, with declarations and source maps (tsconfig.build.json). |
 
+`npm run coverage` runs the `unit` project with V8 coverage of `src/`, and prints the share of
+lines, statements, functions and branches the tests run (`coverage/coverage-summary.json` holds
+them). Counting makes the tests several times slower, so it gives each test 20 s. It sets no
+threshold yet. `@vitest/coverage-v8` asks for the exact version of `vitest`: raise both together.
+`node scripts/check-tarball.mjs` builds and packs the package, and checks the tarball as npm
+installs it ([publishing](docs/publishing.md#what-the-release-workflow-does)); it needs the network.
+
 The examples and most tests import the package by its names (`llm-large-files`,
 `llm-large-files/gemini` and the others), which tsconfig.json and vitest.config.ts map to `src/`.
 Tests of internals import from `src/` directly. So the typecheck and the tests need no build. When
@@ -33,8 +40,10 @@ DOCX, PPTX and PDF tests run.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: Node 22, 24
 and 26, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
-the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`). Each job runs `npm ci`, the typecheck, the tests, the build and `npm pack --dry-run`. Files
-use LF line endings (`.gitattributes`).
+the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`). Each job runs
+`npm ci`, the typecheck, the tests, the build and `npm pack --dry-run`. Two more jobs run on
+Ubuntu: `package` (Node 22 and 26) runs `scripts/check-tarball.mjs` on the packed tarball, and
+`coverage` (Node 24) runs `npm run coverage`. Files use LF line endings (`.gitattributes`).
 
 ## Rules the code keeps
 
