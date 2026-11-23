@@ -263,7 +263,9 @@ describe("the original file", () => {
     held.release();
     const output = await looking;
     expect(output.files).toEqual([]);
-    expect(JSON.stringify(output.result)).toContain("is no longer on the server");
+    expect(JSON.stringify(output.result)).not.toContain("bob");
+    // The document alice opened is gone for her: bob's is another owner's.
+    expect(output.result).toEqual({ error: "report is no longer available on the server. Ask the user to attach the file again." });
   });
 
   it("is missing when the bytes the store gives are not the size of the file that was ingested", async () => {
