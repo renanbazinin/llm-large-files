@@ -100,7 +100,7 @@ describe("search", () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "slow.txt", bytes: utf8(text) });
     const result = await files.tools([meta], { regexBudgetMs: 5 }).execute("search_document", { document_id: meta.id, query: "(ab)*line \\d+", mode: "regex", order: "last" });
-    expect(result.note).toMatch(/^These are the last \d+ matching lines found before the search stopped early .* The file may have later ones, after line \d+: search again with from_line \d+\.$/);
+    expect(result.note).toMatch(/^The scan stopped early; the total is a lower bound\. These are the last \d+ matching lines it found, in the order of the file\. There may be later ones, after line \d+: search again with from_line \d+\.$/);
   });
 
   it("checks a repeated group with \\w as it is compiled, for letters of every script", () => {
