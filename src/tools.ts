@@ -340,8 +340,9 @@ function groupedResult(base: ToolResult, counted: GroupResult, shown: number, li
 
 /** The most tables whose header rows one search result gives. */
 const MAX_TABLE_HEADERS = 5;
-/** Lines looked at above a row of a `| cell |` table, to find the table's first row. */
-const HEADER_SEARCH_LINES = 300;
+/** Lines read at a time above a row of a `| cell |` table, to find the table's first row; and the most read in all. */
+const HEADER_SEARCH_LINES = 500;
+const MAX_HEADER_LOOKBACK = 20_000;
 /** A section's title is given up to this many characters. */
 const MAX_SECTION = 80;
 
@@ -387,23 +388,50 @@ async function locationsOf(document: DocumentSource, matches: LineMatch[]): Prom
       if (matches.some((match) => match.line > 1)) await add(1);
     } else if (meta.format === "xlsx") {
       // A sheet's first row is two lines below its "## Sheet" heading, after its "Columns:" line.
+      const checked = new Set<number>();
       for (const match of matches) {
         const sheet = outline.filter((entry) => entry.title.startsWith("Sheet ") && entry.line <= match.line).at(-1);
-        if (!sheet || match.line <= sheet.line + 2) continue;
+        if (!sheet || match.line <= sheet.line + 2 || checked.has(sheet.line)) continue;
+        checked.add(sheet.line);
         const [first] = await document.readLines(sheet.line + 2, sheet.line + 2);
         if (first?.startsWith("Row ")) await add(sheet.line + 2);
       }
     } else {
       const seen = new Set<number>();
+      // The table found last: its first row, and its last line known to be a row. A later match in
+      // the same table is known by the rows between, read once, not by another look up the table.
+      let known: { first: number; end: number } | undefined;
       for (const match of matches) {
         if (!isPipeRow(match.text) || seen.size >= MAX_TABLE_HEADERS) continue;
-        const from = Math.max(1, match.line - HEADER_SEARCH_LINES);
-        const above = await document.readLines(from, match.line);
-        let first = above.length - 1;
-        while (first > 0 && isPipeRow(above[first - 1]!)) first--;
-        // A table longer than the lines looked at: its first row is not known.
-        if (first === 0 && from > 1) continue;
-        const line = from + first;
+        if (known && match.line >= known.first && match.line <= known.end) continue;
+        if (known && match.line > known.end && match.line - known.end <= HEADER_SEARCH_LINES) {
+          const between = await document.readLines(known.end + 1, match.line);
+          if (between.every(isPipeRow)) {
+            known.end = match.line;
+            continue;
+          }
+        }
+        // Up the table a block at a time, to the first line that is not a row, or the file's start.
+        let line: number | undefined = match.line;
+        for (let looked = 0; ; ) {
+          const from: number = Math.max(1, line - HEADER_SEARCH_LINES);
+          const above = await document.readLines(from, line - 1);
+          let first = above.length;
+          while (first > 0 && isPipeRow(above[first - 1]!)) first--;
+          if (first > 0 || from === 1) {
+            line = from + first;
+            break;
+          }
+          line = from;
+          looked += above.length;
+          // A table longer than this: its first row is not looked for.
+          if (looked >= MAX_HEADER_LOOKBACK) {
+            line = undefined;
+            break;
+          }
+        }
+        if (line === undefined) continue;
+        known = { first: line, end: match.line };
         if (line === match.line || seen.has(line)) continue;
         seen.add(line);
         await add(line);
@@ -926,6 +954,7 @@ export function createDocumentTools(options: {
         ...(result.otherRows > 0 ? { other_rows: result.otherRows, other_note: `Rows of groups past the first ${MAX_GROUP_KEYS.toLocaleString("en-US")} found.` } : {}),
         ...(Object.keys(result.notNumbers).length > 0 ? { values_not_numbers: result.notNumbers, values_note: "Cells of these columns that are not numbers were left out of the metric." } : {}),
         ...(result.repeatedHeaders > 0 ? { repeated_header_rows: result.repeatedHeaders } : {}),
+        ...(result.distinctCapped ? { distinct_note: "count_distinct stopped telling values apart after 1,000,000 in all: its counts are lower bounds. Filter, or group by fewer values." } : {}),
         ...(result.irregularRows > 0 ? { irregular_rows: result.irregularRows, irregular_note: "Rows with values past the header's columns: check columns and header_rows." } : {}),
       };
       const note = groups.length < result.totalGroups

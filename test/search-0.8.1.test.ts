@@ -117,3 +117,13 @@ describe("the quality of a document's text, on its card", () => {
     expect(meta.scripts).toBeUndefined();
   });
 });
+
+describe("table headers of many hits", () => {
+  it("finds the header of each of two long tables once", async () => {
+    const table = (name: string, rows: number) => [`| ${name} | Amount |`, ...Array.from({ length: rows }, (_, index) => `| item ${index} | ${index % 5 === 0 ? "hit" : "x"} |`)];
+    const text = ["# Report", ...table("First", 400), "", "Between the tables.", "", ...table("Second", 400)].join("\n");
+    const meta = await files.ingest({ name: "two.md", bytes: utf8(text) });
+    const result = await files.tools([meta]).execute("search_document", { document_id: meta.id, query: "| hit |", mode: "exact", max_results: 50 });
+    expect(result.table_headers).toEqual([{ line: 2, text: "| First | Amount |" }, { line: 406, text: "| Second | Amount |" }]);
+  });
+});

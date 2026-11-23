@@ -22,6 +22,8 @@ import { composed, foldCase, sliceWhole } from "./text.js";
 export const MAX_AGGREGATE_GROUPS = 10_000;
 /** The most groups shown in a result. */
 export const MAX_SHOWN_GROUPS = 200;
+/** Distinct values `count_distinct` holds, across all groups: past it, values are no longer told apart. */
+export const MAX_DISTINCT_VALUES = 1_000_000;
 /** Lines of the first rows kept for each group, to cite. */
 const CITED_LINES = 3;
 /** Columns a row may have, at most: past it, the rest are left out. */
@@ -88,6 +90,8 @@ export type AggregateResult = {
   repeatedHeaders: number;
   /** Rows with another number of cells than the header: read, and counted here, as a sign of a table read wrong. */
   irregularRows: number;
+  /** True when `count_distinct` reached `MAX_DISTINCT_VALUES`: its counts are lower bounds. */
+  distinctCapped: boolean;
   /** For each numeric metric, how many matched rows had a value in its column that is not a number (left out). */
   notNumbers: Record<string, number>;
 };
@@ -326,6 +330,8 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
   let lastHeaderKey: string | undefined;
   let repeatedHeaders = 0;
   let irregularRows = 0;
+  let distinctValues = 0;
+  let distinctCapped = false;
   let notNumbers: number[] = [];
   // CSV: the separator, the first lines read to find it, and a record that spans lines.
   let separator: string | undefined;
@@ -478,7 +484,16 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
       const raw = cell(metric.column);
       if (metric.op === "count_distinct") {
         const distinct = group!.distinct[index]!;
-        if (raw.trim() && distinct.size < MAX_AGGREGATE_GROUPS) distinct.add(valueKey(raw));
+        if (!raw.trim()) return;
+        const value = valueKey(raw);
+        if (distinct.has(value)) return;
+        // Bounded across every group: 10,000 groups of 10,000 values each would be 100 million strings.
+        if (distinctValues >= MAX_DISTINCT_VALUES) {
+          distinctCapped = true;
+          return;
+        }
+        distinct.add(value);
+        distinctValues++;
         return;
       }
       if (!raw.trim()) return;
@@ -633,6 +648,7 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
     ...(title !== undefined ? { title } : {}),
     repeatedHeaders,
     irregularRows,
+    distinctCapped,
     notNumbers: Object.fromEntries(metrics.flatMap((metric, index) => (notNumbers[index]! > 0 && (metric.op === "sum" || metric.op === "avg" || metric.op === "min" || metric.op === "max") ? [[metric.name, notNumbers[index]!]] : []))),
   };
 }
