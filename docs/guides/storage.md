@@ -226,7 +226,9 @@ await files.getMeta(notes.id, { owner: "user-42" });                         // 
 ```
 
 - The library keeps the scope in `meta.scope`, a copy, and passes it to every store call in the
-  [context](#writing-a-store-of-your-own). It never reaches the model, a summary or an event.
+  [context](#writing-a-store-of-your-own). It never reaches the model or a summary. An event holds
+  it only with `eventResults: true`, in the full plan of `run.finish` and `run.error`
+  ([events](../reference/events.md#documents-eventresults-and-eventresult)).
 - A document with a scope serves only a caller of the same scope, segment by segment: another
   scope, a longer or a shorter one, or none, finds it missing. A document without a scope serves a
   caller of any scope, unless the library has `requireScope`.

@@ -52,7 +52,7 @@ last argument, `context`, and it is optional too: a store whose methods take onl
 | A subclass of `DocumentStoreError` that declares its own `status`, or of `DocumentsNotFoundError` that declares its own `status` or `code` | They are `503`, and `404` and `"documents_missing"` | Leave them out |
 | A subclass of `IngestError`, `DocumentStoreError`, `DocumentsNotFoundError` or `ModelRequestError` with a static `is` that does not fit `(value: unknown) => value is …`, such as one that returns `boolean` (TS2417) | Each of them has a static `is` now | Return `value is` your class, or rename yours |
 | `fromGeminiContents` passed as a callback: `histories.map(fromGeminiContents)` (TS2345) | Its new second parameter would get the index | `histories.map((contents) => fromGeminiContents(contents))` |
-| Code that reads the `messages` of an `AskGeminiOptions` back, or types a history as `AskGeminiOptions["messages"]`, and reads `text` of a turn (TS2339) | `messages` is `ChatMessage[]`, as `askWithFiles` takes it: a turn may have `parts` instead of `text` | Type the history `Array<ChatTurn \| ToolTurn>`, or check `"text" in turn` |
+| Code that reads the `messages` of an `AskGeminiOptions` back, or types a history as `AskGeminiOptions["messages"]`, and reads `text` of a turn (TS2339), or passes it where `Array<ChatTurn \| ToolTurn>` is expected (TS2345) | `messages` is `ChatMessage[]`, as `askWithFiles` takes it: a turn may have `parts` instead of `text` | Type the history `Array<ChatTurn \| ToolTurn>`, or check `"text" in turn` |
 
 The fixes, for a page that words notices and the errors of uploads, and for a wrapper of the
 library:
@@ -266,6 +266,11 @@ With `askGemini`, pass it as `messages`, which takes what `askWithFiles` takes s
 - An error of an adapter of yours with a `status` and no `kind`, as `httpError` of
   `llm-large-files/testing` makes, gets a `kind` in its `EventError`: `"server"` for a 503. The
   retries go by that kind: a 429 of code `"insufficient_quota"` is a quota, and is not sent again.
+- The loop goes by that kind too. An `httpError(413)`, a 429 "Request too large … tokens per min",
+  or a 400 of code `context_length_exceeded` is a `"context_overflow"` it mends: older results are
+  shortened and the request is sent again (`"room_made"`), or a first request is planned again for a
+  smaller window (`"replanned"`). A test that expected such a question to fail at once sees one more
+  request, and an answer.
 - Thrown plain data with a status (`{ status: 429, message }`) is "Something went wrong." in its
   event.
 

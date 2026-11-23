@@ -152,7 +152,6 @@ Every other option goes to `askWithFiles` as it is. What `askGemini` cannot do:
 | An explorer with other headers, or of another provider | No: the same headers (with `vertexAi()` or `geminiApi()`, the same project, location and key too) | `explorer`: any adapter |
 | Different waits, `fetch` or `toolFilePlacement` for each model | No: one value for both | Each adapter its own |
 | A part reader of your own ([below](#whole-file-reads-in-parts)) | No | Yes |
-| Turns with native parts in `messages` | Use `contents` | `{ role, parts: [{ text }, { native }] }` |
 
 Start with `askGemini`. Move to `askWithFiles` when you need a row of this table:
 
@@ -572,8 +571,9 @@ does.
 
 ## Gemini history stored as contents
 
-`askGemini` takes plain turns and stored tool rounds in `messages`, or your own Gemini `contents`
-(with images and inline PDFs) in `contents`; given both, `contents` is used. The last turn must be
+`askGemini` takes `messages` as `askWithFiles` does (`ChatMessage[]`: plain turns, stored tool
+rounds, turns with native parts; since 0.9.0), or your own Gemini `contents` (with images and inline
+PDFs) in `contents`; given both, `contents` is used. The last turn must be
 the user's. Document text and cards are added at the start of the first user turn, and your array
 is not changed. `fromGeminiContents(contents)` turns `contents` into `messages` for `askWithFiles`,
 and `geminiToolTurns(result.toolTurns)` gives the tool rounds of a question as `contents`, to store

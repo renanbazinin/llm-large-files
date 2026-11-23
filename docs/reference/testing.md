@@ -86,8 +86,11 @@ for an HTTP status. The message is `HTTP <status>` by default. The loop sends a 
 after a status worth trying again (408, 409, 429 or 5xx), and waits `retryAfterMs` when it is
 there. It has no `kind`: its status, message and a `code` you add give one, as
 [`classifyModelError`](./errors-and-retries.md#classifymodelerrorstatus-message-signals) does, and
-a 429 of a quota (`code: "insufficient_quota"`) is not sent again (since 0.9.0). For the error
-classes of the library, throw [`ModelRequestError`](./errors-and-retries.md#modelrequesterror).
+a 429 of a quota (`code: "insufficient_quota"`) is not sent again (since 0.9.0). A 413, or a 429
+"Request too large … tokens per min", is a `"context_overflow"`: the loop makes the request smaller
+and sends it again, or plans the documents again, as for a `ModelRequestError` of that kind (since
+0.9.0). For the error classes of the library, throw
+[`ModelRequestError`](./errors-and-retries.md#modelrequesterror).
 
 ### Scripted
 
