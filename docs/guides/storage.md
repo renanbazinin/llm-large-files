@@ -454,10 +454,13 @@ The volume then holds:
   40 hex digits of the ID's SHA-256. Name the folders you make and remove with it too.
 - The store makes its own folder (`.llm-large-files`, the `folder` option) inside a chat's folder
   that exists, and never the chat's folder itself. To delete a chat, stop its questions, then remove
-  its folder: `rm(path.join(DOCUMENTS_DIR, userId, chatId), { recursive: true, force: true })`. An
-  upload that finishes after that throws a `DocumentScopeError` of code `"scope_missing"`, instead
-  of making the folder again. Reads in that chat find nothing. To delete a user, remove the user's
-  folder.
+  its folder: `rm(path.join(DOCUMENTS_DIR, userId, chatId), { recursive: true, force: true, maxRetries: 5 })`.
+  An upload that finishes after that throws a `DocumentScopeError` of code `"scope_missing"`,
+  instead of making the folder again. Reads in that chat find nothing. An upload being stored at
+  that moment can write its files into the folder while `rm` empties it. Without `maxRetries`, `rm`
+  then fails with `ENOTEMPTY`; with it, `rm` looks again and removes them. Remove the chat's other
+  data (its record, its messages) before the folder: if `rm` still fails, only files are left, for
+  a cleanup job. To delete a user, remove the user's folder the same way.
 - `createScopeFolders: true` makes the folders of a chat at its first upload, for an application
   that keeps none of its own. The removal above then cannot stop a late upload. It makes them one
   level at a time, and makes nothing where a link points.
