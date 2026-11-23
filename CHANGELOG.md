@@ -148,7 +148,11 @@ Some behavior is different. Check each point against your app:
   `concurrency` (2) at once and `maxQueue` (8) waiting. A file that exhausts its child's memory is
   refused (`"out_of_memory"`) and the server goes on; a full queue refuses at once (`"busy"`), and
   the upload handler answers that with 503 and `Retry-After`. Children are replaced after 50 files
-  and stopped when idle. See [isolated ingest](docs/reference/node.md#createisolatedextractorsoptions).
+  and stopped when idle. A reader that cannot start (a missing `childScript`, an `execArgv` Node
+  does not know) is the server's trouble: an `Error` with `status` 500, not an `IngestError`; one
+  that cannot be started for want of process slots is `"busy"`. For a server that bundles its code,
+  `llm-large-files/node/ingest-child.js` is exported, and `childScript` takes a path or a file
+  URL. See [isolated ingest](docs/reference/node.md#createisolatedextractorsoptions).
 
   ```ts
   import { createLargeFiles, FileDocumentStore } from "llm-large-files";
@@ -208,18 +212,26 @@ Search:
 
 - **Every script.** Keyword terms keep a mark with its letter (Hindi, Bengali, Tamil, Thai and
   pointed Hebrew lost their words), split Chinese, Japanese and Thai into words, and drop the
-  points of Hebrew. A Hebrew word with prefix letters (בחוזה, והחוזה) also searches its stem
-  (חוזה), and one that ends in a final letter its plain form too (כסף finds כספים).
+  points of a Hebrew query word, which then finds the word with or without points in the text
+  (בראשית finds בְּרֵאשִׁית). A Hebrew word with prefix letters (בחוזה, והחוזה) also searches its
+  stem (חוזה), and one that ends in a final letter its plain form too (כסף finds כספים); an acronym
+  keeps its gershayim or geresh (ש״ח, עו״ד are one term each).
 - **One way to write a character.** Queries are composed as the text is; a search that ignores
   case also folds Greek final sigma, curly quotes and primes, dashes and the minus sign, no-break
   and thin spaces, Hebrew geresh, gershayim and maqaf, and full-width forms: "don't" finds
   "don’t", צה"ל finds צה״ל.
 - **Regex `\w`, `\W`, `\b` and `\B` know the letters of every script**: `\bחוזה\b` matched
-  nothing, and `\w+` stopped at "é". A repeated group whose repeats a literal character separates,
+  nothing, and `\w+` stopped at "é". Emoji variation selectors and enclosing marks are not word
+  characters, for them and for `whole_word`. A repeated group whose repeats a literal character separates,
   as in `(\d{1,3}\.){3}\d{1,3}` or `(\w+\.)+com`, is no longer refused as a nested quantifier.
 - **Exact search counts every line where a text across lines starts** ("a\na" in "a\na\na" was
   counted once), and skips the rest of a line once it is counted: a short common text costs what
-  its lines do, not its occurrences.
+  its lines do, not its occurrences. It runs in slices with pauses, as a regex search does, and
+  stops after 3 seconds (the result then says the counts are lower bounds); a document held in
+  memory is scanned in pieces too.
+- **`case_sensitive` and `whole_word` given as text or as 1** ("true", "1", 1) are read as true; in
+  0.7.0, `case_sensitive: "true"` searched ignoring case. A search of this kind stored by 0.7.0 is
+  run again, not answered from what was stored.
 - **A cut list of matches says how to see the rest**: "search again with from_line 1941, or count
   them with group_by", where it said "narrow the search".
 - **Models count by group.** Live, asked for PAY-5031 errors per hour and the last one, both models
@@ -230,15 +242,21 @@ Documents:
 - **Word:** headings from paragraph styles (also in documents written in Hebrew, whose styles keep
   English names), list numbers in Word's formats (decimal, letters, roman numerals, Hebrew letters
   and numerals, bullets as "-", restarted lists), tables with empty and merged cells kept in their
-  columns, non-breaking hyphens ("555-0199" read "5550199") and symbol characters.
+  columns (text another program left in a continued merged cell is kept), lists defined through a
+  list style, legal numbering (`w:isLgl`: "Section 1.01"), non-breaking hyphens ("555-0199" read
+  "5550199") and symbol characters.
 - **PowerPoint:** slides in the order of `presentation.xml`, numbered by position ("Slide 5" for the
-  third slide is gone); tables; speaker notes after `[Speaker notes]`.
+  third slide is gone); tables; speaker notes after `[Speaker notes]`, the notes' own text only (not
+  the slide number, date and footer of the notes page).
 - **Excel:** each sheet a section, `## Sheet 1: Sales`, then `Columns: | A | B | C |` and a line a
   row, `Row 12: | East | 2026-03-01 | 1200.5 |`, with shared and inline strings, the values Excel
   last computed for formulas, dates and times from number formats (1900 and 1904 systems),
-  percentages, and hidden sheets marked. Every row of every sheet is read, within the text limit.
-- **HTML:** scripts and styles dropped, headings, lists, tables, `text (https://…)` for links, alt
-  text for images, entities decoded ("AT&T" is found), older encodings read as text files are.
+  percentages, durations of a day or more (`[h]:mm`: 36:00), Excel's `_x000D_` escapes, and hidden
+  sheets marked. Every row of every sheet is read, within the text limit.
+- **HTML:** scripts and styles dropped, headings, lists, tables (`colspan` and `rowspan` keep the
+  cells in their columns), `text (https://…)` for links, alt text for images, entities decoded
+  ("AT&T" is found), text a page hides (`hidden`, an inline `display: none`) marked as Word's hidden
+  text is, older encodings read as text files are.
 - **Logs:** the profile reads more timestamps (nginx's error log, access logs, syslog) and levels
   (see **Upgrading**).
 - **Outlines** take no heading from a fenced code block, nor from the `#` comments of a text file

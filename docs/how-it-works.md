@@ -489,7 +489,9 @@ that and 40,000 characters). In the loop it is cut further, never below 600 char
 share of the room left in the request or, for the answer of a whole-file read, to the room the
 other results of its turn left ([Room in the request](#room-in-the-request)). A list loses
 entries from its end (an exact or regex search loses them from the end of its first matches, and
-keeps the last one), a read loses lines, and the result says what was cut and where to go on.
+keeps the last one; with `order: "last"` it loses the earliest; with `group_by` it loses its
+smallest groups, and by time keeps the others in time order), a read loses lines, and the result
+says what was cut and where to go on.
 
 ## Looking at pages
 

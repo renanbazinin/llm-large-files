@@ -212,9 +212,10 @@ describe("times past what a timer can wait (findings 32, 39)", () => {
 
 describe("maxHeapMb (findings 36, 39)", () => {
   it("refuses a heap that would be Node's default or that Node cannot read", () => {
-    for (const maxHeapMb of [0.5, 0.999, Number.POSITIVE_INFINITY, 2 ** 64, 1e21]) {
-      expect(() => node.createIsolatedExtractors({ maxHeapMb })).toThrow(`maxHeapMb must be a finite number of 1 or more, and is ${String(maxHeapMb)}.`);
+    for (const maxHeapMb of [0.5, 0.999, Number.POSITIVE_INFINITY, 2 ** 64, 1e21, Number.MAX_SAFE_INTEGER, 1_048_577]) {
+      expect(() => node.createIsolatedExtractors({ maxHeapMb })).toThrow(`maxHeapMb must be a number from 1 to 1,048,576 (1 TB), and is ${String(maxHeapMb)}.`);
     }
+    expect(() => node.createIsolatedExtractors({ maxHeapMb: 1_048_576 })).not.toThrow();
     // The messages of 0.8.0 stay as they are.
     expect(() => node.createIsolatedExtractors({ maxHeapMb: Number.NaN })).toThrow("maxHeapMb must be a number above 0, and is NaN.");
     expect(() => node.createIsolatedExtractors({ maxHeapMb: 0 })).toThrow("maxHeapMb must be a number above 0, and is 0.");

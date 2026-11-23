@@ -253,7 +253,8 @@ function lastMatches(base: ToolResult, first: LineMatch | undefined, last: LineM
       if (end === undefined) {
         return { ...base, note: "The scan stopped early, out of time, before it found a matching line: the lines it did not reach may have some. Try a simpler pattern, mode \"exact\", or fewer lines with from_line and to_line.", matches: shown };
       }
-      const which = cut ? `Showing the last ${shown.length} matching lines it found to stay within the size limit` : `These are the last ${shown.length} matching lines it found`;
+      const lines = `${shown.length} ${plural(shown.length, "matching line")}`;
+      const which = cut ? `Showing the last ${lines} it found to stay within the size limit` : `These are the last ${lines} it found`;
       // The search goes on after the last line found, in the same range. When that line is the last
       // of the range, the scan stopped there and missed none of it: there is nothing to search on.
       const later = end < stopped.end
@@ -391,6 +392,9 @@ export function alreadyShown(call: { name: string; args: Record<string, unknown>
   const { result } = earlier;
   if (earlier.call.name !== call.name || earlier.call.args.document_id !== call.args.document_id) return undefined;
   if (result.dropped === true || result.already_shown === true || typeof result.error === "string" || result.truncated === true) return undefined;
+  // A search stored by 0.7.0 with case_sensitive or whole_word as text or 1 ("true", 1): 0.7.0 read
+  // those as off, 0.8.0 as on, so the call made now would not return what was stored.
+  if (stored && call.name === TOOL_NAMES.search && [earlier.call.args.case_sensitive, earlier.call.args.whole_word].some((value) => value !== undefined && value !== true && value !== false && flag(value))) return undefined;
   // A list that `fit` cut to the room it had, a read whose text was cut, or a search that ran out of
   // time ("the total is a lower bound"; a later question has time of its own): a call made now may get more.
   if (typeof result.note === "string" && (result.note.startsWith("Showing ") || result.note.startsWith("The scan stopped early"))) return undefined;

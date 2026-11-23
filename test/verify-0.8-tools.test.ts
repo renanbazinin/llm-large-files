@@ -170,3 +170,14 @@ describe("group_by by time, cut to its room (finding 28)", () => {
     expect(String(byCapture.note)).toMatch(/, the largest first\./);
   });
 });
+
+describe("follow-ups of the check of the tool fixes", () => {
+  it("runs again a search stored by 0.7.0 with case_sensitive as text", async () => {
+    const { alreadyShown } = await import("../src/tools.js");
+    const call = { name: "search_document", args: { document_id: "doc_1", query: "Error", mode: "exact", case_sensitive: true } };
+    const stored = { call: { name: "search_document", args: { document_id: "doc_1", query: "Error", mode: "exact", case_sensitive: "true" } }, result: { document: "a.log", mode: "exact", total_matching_lines: 1, matches: [{ line: 1, text: "Error" }] } };
+    expect(alreadyShown(call, stored, true)).toBeUndefined();
+    // In this question (not stored), the same call is pointed to.
+    expect(alreadyShown(call, stored, false)?.already_shown).toBe(true);
+  });
+});

@@ -210,3 +210,14 @@ describe("a time cell that float arithmetic left just under zero (#49)", () => {
     expect(rowsOf(text)).toEqual(["Row 1: | 00:00 | 06:00 |"]);
   });
 });
+
+describe("follow-ups of the check of the XLSX fixes", () => {
+  it("decodes _xHHHH_ escapes in one pass, and leaves what is not one", async () => {
+    const { decodeEscapesForTest } = await import("../src/xlsx.js");
+    expect(decodeEscapesForTest("a_x000D_b_x005F_x0041_c _x12_ _x00G0_ _x0041")).toBe("a\rb_x0041_c _x12_ _x00G0_ _x0041");
+    const many = "_x0041_".repeat(500_000);
+    const started = performance.now();
+    expect(decodeEscapesForTest(many)).toBe("A".repeat(500_000));
+    expect(performance.now() - started).toBeLessThan(3_000);
+  });
+});

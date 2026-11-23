@@ -407,7 +407,7 @@ numbers in its message:
 | `code` | Message | When |
 |---|---|---|
 | `"out_of_memory"` | `report.pdf needed more memory than is allowed for reading one file (512 MB). It may be built to exhaust the server, so it is not read. Split it, or save it as plain text, and attach that.` | The child ran out of its heap, `maxHeapMb`: its standard error says so, or it ended with `SIGABRT` or exit code 134. |
-| `"timeout"` | `report.pdf took too long to read (more than 2 minutes). Split it, or save it as plain text, and attach that.` | The file took longer than `timeoutMs`. The child is killed, even in the middle of a PDF page that pdf.js reads in one block, which `ingestTimeoutMs` cannot cut short. |
+| `"timeout"` | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` | The file took longer than `timeoutMs`. The child is killed, even in the middle of a PDF page that pdf.js reads in one block, which `ingestTimeoutMs` cannot cut short. |
 | `"busy"` | `The server is reading other files right now. Try again in a moment.` | `concurrency` files are being read and `maxQueue` wait. `retryAfterMs` is 5,000: the upload handler answers `503` with `Retry-After: 5` ([upload](#uploadrequest-response)). |
 | `"busy"` | `The server is shutting down. Try again in a moment.` | `close()` was called while the file waited or was read, or before it was sent. |
 | `"unreadable"` | `report.pdf could not be read: its reader stopped (SIGSEGV).`, or `(exit code 1)` | The child ended another way. |
@@ -418,7 +418,20 @@ trouble, not the file's: a `childScript` that is not there, an `execArgv` that N
 Such a file is refused with an `Error` that is not an `IngestError`, with `status` 500:
 `The server could not start a reader for report.pdf (exit code 1).` The upload handler answers it
 `500` with that message. The end of the child's standard error, which names paths of the server, is
-its `cause` only: log it.
+its `cause` only. The upload handler answers the error itself, so to log the cause there, wrap the
+extractors before you hand them to `createLargeFiles`:
+
+```ts
+const isolated = createIsolatedExtractors();
+const extractors = Object.fromEntries(Object.entries(isolated.extractors).map(([format, extract]) => [
+  format,
+  (bytes: Uint8Array, input: ExtractInput) => extract!(bytes, input).catch((error: unknown) => {
+    if ((error as { status?: unknown }).status === 500) console.error("reader did not start", (error as Error).cause);
+    throw error;
+  }),
+]));
+const files = createLargeFiles({ store, extractors });
+```
 
 A file the built-in extractor refuses in the child is refused with the same message as in the
 server, and the code of its words: a zip bomb or a PDF that would hold the server is `"hostile"`, a
@@ -452,7 +465,7 @@ type IsolatedExtractorOptions = {
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `maxHeapMb` | `number` | 512 | The heap of each child process, in MB, given as `--max-old-space-size`. A file that needs more is refused (`"out_of_memory"`), and the server goes on. At least 1, and finite; a fraction is cut to a whole number. Node reads `--max-old-space-size=0` as its default heap, so a value below 1 is refused rather than cut to 0. |
+| `maxHeapMb` | `number` | 512 | The heap of each child process, in MB, given as `--max-old-space-size`. A file that needs more is refused (`"out_of_memory"`), and the server goes on. From 1 to 1,048,576, and finite; a fraction is cut to a whole number. Node reads `--max-old-space-size=0` as its default heap, so a value below 1 is refused rather than cut to 0. |
 | `timeoutMs` | `number` | 120,000 | The most time one file may take, in milliseconds. Past it, its child is killed and the file refused (`"timeout"`). 0 sets none, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days), `Infinity` included, as for `ingestTimeoutMs`. With both at their defaults, the `ingestTimeoutMs` of `createLargeFiles` usually ends the ingest first, and its signal kills the child too. |
 | `concurrency` | `number` | 2 | How many files are read at once, each in a child process of its own. At least 1. |
 | `maxQueue` | `number` | 8 | How many files may wait for a child. Past it, a file is refused at once as `"busy"`. 0: none waits. |
@@ -466,7 +479,9 @@ type IsolatedExtractorOptions = {
 A number option that is not a number, NaN, below 0, or 0 where it must be above 0, throws a
 `RangeError` when `createIsolatedExtractors` is called: "maxHeapMb must be a number above 0, and is
 NaN.", or "timeoutMs must be a number above or equal to 0, and is -1.". So does a `maxHeapMb` below
-1 or not finite: "maxHeapMb must be a finite number of 1 or more, and is 0.5.".
+1, above 1,048,576 (1 TB, past which Node reads the flag wrong) or not finite: "maxHeapMb must be a
+number from 1 to 1,048,576 (1 TB), and is 0.5.". A heap below about 32 MB cannot start a reader
+that reads ordinary files: every file is then refused.
 
 ### `IsolatedExtractors`
 

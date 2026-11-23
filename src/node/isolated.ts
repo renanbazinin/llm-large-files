@@ -132,7 +132,18 @@ function afterStderr(child: ChildProcess, then: () => void): void {
 /** A time option as a timer takes it: one past the longest timer, `Infinity` included, is none (0). */
 const timerMs = (ms: number) => (ms > LONGEST_TIMER_MS ? 0 : ms);
 
-const formatDuration = (ms: number) => (ms >= 60_000 && ms % 60_000 === 0 ? `${ms / 60_000} ${ms === 60_000 ? "minute" : "minutes"}` : `${Math.round(ms / 1_000)} seconds`);
+/** A time limit as the refusal gives it, as `ingestTimeoutMs`'s does: "500 ms", "45 s", "2 min". */
+function formatDuration(ms: number): string {
+  if (ms < 1_000) return `${Math.max(1, Math.round(ms))} ms`;
+  if (ms < 120_000) return `${Number((ms / 1_000).toFixed(1))} s`;
+  return `${Number((ms / 60_000).toFixed(1))} min`;
+}
+
+/**
+ * The largest heap given to a child, in MB: 1 TB. Node reads a far larger --max-old-space-size
+ * wrong (Number.MAX_SAFE_INTEGER gave a 47 MB heap, and every file failed).
+ */
+const MAX_HEAP_MB = 1_048_576;
 
 /**
  * Extractors that read files in child processes, each with a heap limit and a kill timer, so that
@@ -158,7 +169,7 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
   const maxHeapMb = Math.trunc(positive("maxHeapMb", options.maxHeapMb, 512));
   // Node takes --max-old-space-size=0 for its default heap, not for none, and a child given a
   // value it cannot read stops at its start: every file would then be refused.
-  if (!Number.isSafeInteger(maxHeapMb) || maxHeapMb < 1) throw new RangeError(`maxHeapMb must be a finite number of 1 or more, and is ${String(options.maxHeapMb)}.`);
+  if (!Number.isSafeInteger(maxHeapMb) || maxHeapMb < 1 || maxHeapMb > MAX_HEAP_MB) throw new RangeError(`maxHeapMb must be a number from 1 to ${MAX_HEAP_MB.toLocaleString("en-US")} (1 TB), and is ${String(options.maxHeapMb)}.`);
   const timeoutMs = timerMs(positive("timeoutMs", options.timeoutMs, 120_000, true));
   const concurrency = Math.max(1, Math.trunc(positive("concurrency", options.concurrency, 2)));
   const maxQueue = Math.trunc(positive("maxQueue", options.maxQueue, 8, true));

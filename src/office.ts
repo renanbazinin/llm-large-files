@@ -742,9 +742,11 @@ class PartTooLarge extends Error {}
 /**
  * Reads the parts of one Office file, each a piece at a time as it is unpacked, counting what is
  * unpacked: a file that grows far past its size is refused as it grows, before that much is in
- * memory. JSZip can unpack megabytes of XML in one turn of the event loop, so the stream is paused
- * every few milliseconds of reading, and other requests get a turn: what JSZip still hands out
- * once paused is written in the slices after the pause.
+ * memory. The parsing is paused every few milliseconds, and other requests get a turn. The
+ * unpacking is not: JSZip inflates and decodes a whole deflated block (up to about 16 MB of XML)
+ * in one turn before any of it is handed out, and what it hands out once paused is held, and
+ * written in the slices after the pause, which costs memory for that block. Reading a file in a
+ * child process (`createIsolatedExtractors`) is what bounds both for files from users.
  */
 export function officeReader(archive: ZipArchive, kind: OfficeKind, size: number, input: ExtractInput | undefined): OfficeParts {
   const limit = Math.min(MAX_OFFICE_XML, Math.max(OFFICE_ALLOWANCE, size * MAX_OFFICE_EXPANSION));

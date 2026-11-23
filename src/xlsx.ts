@@ -1,4 +1,5 @@
 import { officeReader, openOffice, type OfficeParts } from "./office.js";
+import { sliceWhole } from "./text.js";
 import type { Extractor } from "./types.js";
 import { readRelationships, readXml, XmlStream, type XmlAttributes } from "./xml-stream.js";
 
@@ -23,6 +24,12 @@ import { readRelationships, readXml, XmlStream, type XmlAttributes } from "./xml
 const MAX_SHARED_STRINGS = 2_097_152;
 /** Columns of a sheet listed in its `Columns:` line, at most: past it, the line gives the range. */
 const MAX_LISTED_COLUMNS = 52;
+/** A sheet's name is kept up to this many characters. */
+const MAX_SHEET_NAME = 100;
+/** The longest part name looked up: no part of a workbook has a name near it. */
+const MAX_PART_NAME = 1_024;
+/** Excel's last date, 9999-12-31, as a serial. */
+const LAST_SERIAL = 2_958_465.99999;
 /** Excel's last column, XFD. */
 const MAX_COLUMN = 16_384;
 /** Written under the heading of a sheet with no value. */
@@ -98,6 +105,8 @@ export function excelDate(serial: number, kind: "date" | "time", date1904 = fals
  * when there are some.
  */
 function excelDuration(serial: number): string {
+  // Past Excel's last day (9999-12-31) a duration is a number Excel cannot show: written as it is.
+  if (!Number.isFinite(serial) || Math.abs(serial) > LAST_SERIAL) return numberText(serial);
   const total = Math.round(Math.abs(serial) * 86_400);
   const seconds = total % 60;
   return `${serial < 0 && total > 0 ? "-" : ""}${Math.floor(total / 3600)}:${pad(Math.floor(total / 60) % 60)}${seconds !== 0 ? `:${pad(seconds)}` : ""}`;
@@ -109,8 +118,24 @@ function excelDuration(serial: number): string {
  * `_x0041_` is `_x005F_x0041_`; read from left to right, each comes back as it was.
  */
 function decodeEscapes(text: string): string {
-  return text.includes("_x") ? text.replace(/_x([0-9A-Fa-f]{4})_/g, (_, code: string) => String.fromCharCode(Number.parseInt(code, 16))) : text;
+  let at = text.indexOf("_x");
+  if (at === -1) return text;
+  // One pass with indexOf and slices: a replace with a callback kept a string and its parts for
+  // each of millions of escapes, and a 405 KB workbook took 890 MB.
+  const pieces: string[] = [];
+  let kept = 0;
+  for (; at !== -1; at = text.indexOf("_x", at + 1)) {
+    if (at < kept || text.charCodeAt(at + 6) !== 95 || !HEX4.test(text.slice(at + 2, at + 6))) continue;
+    pieces.push(text.slice(kept, at), String.fromCharCode(Number.parseInt(text.slice(at + 2, at + 6), 16)));
+    kept = at + 7;
+    at = kept - 1;
+  }
+  if (pieces.length === 0) return text;
+  pieces.push(text.slice(kept));
+  return pieces.join("");
 }
+
+const HEX4 = /^[0-9A-Fa-f]{4}$/;
 
 /**
  * The text of a cell as a cell of a `| cell | cell |` row: on one line, its pipes escaped, as the
@@ -153,10 +178,15 @@ async function readWorkbook(read: OfficeParts, names: string[]): Promise<Workboo
   // relationship to worksheets/Sheet1.xml names the part xl/worksheets/sheet1.xml.
   const parts = new Set(names);
   let byLowerCase: Map<string, string> | undefined;
+  /** Each relationship's part, worked out once: a workbook can name one relationship in 400,000 sheets. */
+  const resolved = new Map<string, string | undefined>();
   const partOf = (target: string): string | undefined => {
     if (parts.has(target)) return target;
+    if (resolved.has(target)) return resolved.get(target);
     byLowerCase ??= new Map(names.map((name) => [name.toLowerCase(), name]));
-    return byLowerCase.get(target.toLowerCase());
+    const part = target.length > MAX_PART_NAME ? undefined : byLowerCase.get(target.toLowerCase());
+    resolved.set(target, part);
+    return part;
   };
   /** The part that a relationship of this type names, or else the part where Excel puts it, when the file has it. */
   const related = (type: string, usual: string): string | undefined => {
@@ -186,7 +216,8 @@ async function readWorkbook(read: OfficeParts, names: string[]): Promise<Workboo
       // A part listed again is not read again: a workbook can list one sheet 300,000 times.
       if (listed.has(part)) return;
       listed.add(part);
-      sheets.push({ name: decodeEscapes(attributes.name ?? `Sheet ${sheets.length + 1}`), part, hidden: attributes.state === "hidden" || attributes.state === "veryHidden" });
+      // Excel's names have at most 31 characters, LibreOffice's a few more: a name of thousands is cut.
+      sheets.push({ name: sliceWhole(decodeEscapes(attributes.name ?? `Sheet ${sheets.length + 1}`), MAX_SHEET_NAME), part, hidden: attributes.state === "hidden" || attributes.state === "veryHidden" });
     },
   });
   const styles = related("styles", "xl/styles.xml");
@@ -442,3 +473,6 @@ export const xlsx: Extractor = async (bytes, input) => {
   }
   return { text: sections.join("\n\n"), pages: workbook.sheets.length };
 };
+
+/** `decodeEscapes`, for tests. */
+export const decodeEscapesForTest = decodeEscapes;
