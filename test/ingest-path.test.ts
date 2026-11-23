@@ -369,6 +369,28 @@ describe("ingest from a path", () => {
     }
   });
 
+  // The working directory was asked for on every call, an absolute path's too: once it had been
+  // removed, process.cwd() threw ENOENT, and a file that was there was told as unreadable storage.
+  it("reads an absolute path when the working directory has been removed", async () => {
+    if (process.platform === "win32") return;
+    const before = process.cwd();
+    const at = await file("r.txt", "Still here.\n");
+    const removed = path.join(directory, "removed");
+    await mkdir(removed);
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    try {
+      process.chdir(removed);
+      await rm(removed, { recursive: true });
+      expect(() => process.cwd()).toThrow();
+      const meta = await files.ingest({ name: "r.txt", source: { path: at } });
+      expect(meta).toMatchObject({ bytes: 12, sha256: sha256(utf8("Still here.\n")) });
+      // A relative path has no working directory to be read against.
+      await expect(files.ingest({ name: "r.txt", source: { path: "r.txt" } })).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      process.chdir(before);
+    }
+  });
+
   it("gives an extractor that reads paths (readsPath) the path made absolute at the call", async () => {
     const before = process.cwd();
     const paths: unknown[] = [];

@@ -21,12 +21,15 @@ export const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (co
  * end, are the system's to resolve, as they are in an absolute path: both spellings of a path read
  * the same file. (`path.resolve` would remove them as text first.) On Windows, a path relative to
  * the working directory of a drive ("C:notes.txt") is made absolute by `path.resolve`, which alone
- * knows that directory. `paths` and `cwd` are given by tests.
+ * knows that directory. The working directory is asked for only for a relative path: an absolute
+ * one is read even when the working directory has been removed (where `process.cwd()` throws).
+ * `paths` and `cwd` are given by tests.
  */
-export function absolutePath(path: string, paths: PlatformPath = nodePath, cwd: string = process.cwd()): string {
+export function absolutePath(path: string, paths: PlatformPath = nodePath, cwd?: string): string {
   if (paths.isAbsolute(path)) return path;
   if (paths.sep === "\\" && /^[A-Za-z]:/.test(path)) return paths.resolve(path);
-  return cwd.endsWith(paths.sep) ? cwd + path : cwd + paths.sep + path;
+  const base = cwd ?? process.cwd();
+  return base.endsWith(paths.sep) ? base + path : base + paths.sep + path;
 }
 
 /** How much is read, and hashed, between two looks at the clock: 1 MB. */
