@@ -253,7 +253,7 @@ describe("Excel files (F7)", () => {
     expect(formatKind("yyyy\\-mm\\-dd")).toBe("date");
     expect(formatKind("[$-40D]dd/mm/yyyy")).toBe("date");
     expect(formatKind("h:mm:ss")).toBe("time");
-    expect(formatKind("[h]:mm")).toBe("time");
+    expect(formatKind("[h]:mm")).toBe("duration");
     expect(formatKind("0.00%")).toBe("percent");
     expect(formatKind('"₪"#,##0.00')).toBe("number");
     expect(formatKind("[Red]#,##0;-#,##0")).toBe("number");

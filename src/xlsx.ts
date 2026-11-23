@@ -13,9 +13,10 @@ import { readRelationships, readXml, XmlStream, type XmlAttributes } from "./xml
  * A row is written with its number in the sheet, so an answer can name the row a person finds in
  * Excel, and as `| cell | cell |`, its empty cells kept up to its last value, as tables of other
  * files are. A cell holds the value Excel last computed for it (a formula without one is written
- * as `=` and the formula); a date as 2026-11-10 (with the time when it has one), a percentage as
- * 12.5%, a number as Excel stores it, to 15 significant digits. Empty rows are left out. Nothing is
- * cut short: every row of every sheet is written, within the limits on text that every file has.
+ * as `=` and the formula); a date as 2026-11-10 (with the time when it has one), an elapsed time
+ * as its hours in total (36:00), a percentage as 12.5%, a number as Excel stores it, to 15
+ * significant digits. Empty rows are left out. Nothing is cut short: every row of every sheet is
+ * written, within the limits on text that every file has.
  */
 
 /** The shared strings of a workbook, at most: Excel's rows (1,048,576) times two. */
@@ -24,21 +25,28 @@ const MAX_SHARED_STRINGS = 2_097_152;
 const MAX_LISTED_COLUMNS = 52;
 /** Excel's last column, XFD. */
 const MAX_COLUMN = 16_384;
+/** Written under the heading of a sheet with no value. */
+const NO_VALUES = "[No values on this sheet]";
 
 /** Number formats Excel has built in that show a date, a time, or both. */
 const BUILT_IN_DATES = new Set([14, 15, 16, 17, 22, 27, 28, 29, 30, 31, 34, 35, 36, 50, 51, 52, 53, 54, 57, 58]);
-const BUILT_IN_TIMES = new Set([18, 19, 20, 21, 32, 33, 45, 46, 47, 55, 56]);
+const BUILT_IN_TIMES = new Set([18, 19, 20, 21, 32, 33, 45, 47, 55, 56]);
+/** Built-in format 46 is `[h]:mm:ss`: the hours elapsed, past 24. */
+const BUILT_IN_DURATIONS = new Set([46]);
 const BUILT_IN_PERCENT = new Set([9, 10]);
 
-type ValueKind = "date" | "time" | "percent" | "number";
+type ValueKind = "date" | "time" | "duration" | "percent" | "number";
 
-/** What a number format shows, from its code: a date, a time, a percentage, or a number. */
+/** What a number format shows, from its code: a date, a time of day, an elapsed time, a percentage, or a number. */
 export function formatKind(code: string): ValueKind {
-  // Quoted text, escaped characters, colours and locales ([Red], [$-409]) hold no date part. A
-  // format of Excel has at most 255 characters; a bracket body stops at the next bracket, so an
-  // unclosed "[" costs no scan to the end of the code.
-  const bare = code.slice(0, 255).replace(/"[^"]*"/g, "").replace(/\\./g, "").replace(/\[(?!h\]|m\]|s\])[^[\]]*\]/gi, "").toLowerCase();
+  // Quoted text, escaped characters, colours and locales ([Red], [$-409]) hold no date part; the
+  // brackets of elapsed time ([h], [mm], [ss]) are kept. A format of Excel has at most 255
+  // characters; a bracket body stops at the next bracket, so an unclosed "[" costs no scan to the
+  // end of the code.
+  const bare = code.slice(0, 255).replace(/"[^"]*"/g, "").replace(/\\./g, "").replace(/\[(?!(?:h+|m+|s+)\])[^[\]]*\]/gi, "").toLowerCase();
   if (bare === "general" || bare === "") return "number";
+  // Hours, minutes or seconds in total, which go on past a day: 1.5 is 36 hours, not a date.
+  if (/\[(?:h+|m+|s+)\]/.test(bare)) return "duration";
   if (/[yd]/.test(bare) || /(^|[^a-z])m{3,}/.test(bare)) return "date";
   if (/[hs]/.test(bare)) return "time";
   if (bare.includes("%")) return "percent";
@@ -74,13 +82,43 @@ export function excelDate(serial: number, kind: "date" | "time", date1904 = fals
   const whole = Math.floor(total / 86_400);
   const seconds = total - whole * 86_400;
   const time = `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}${seconds % 60 !== 0 ? `:${pad(seconds % 60)}` : ""}`;
-  // A time of day alone, as a format that shows no date writes it: 23:59:59.7 rounds to 00:00.
-  if (kind === "time" && Math.floor(serial) === 0) return whole === 0 ? time : "00:00";
+  // A time of day alone, as a format that shows no date writes it: 23:59:59.7 rounds to 00:00. So
+  // is what float arithmetic leaves of a difference of equal times (-1.1e-16): it rounds to day 0.
+  if (kind === "time" && (whole === 0 || Math.floor(serial) === 0)) return whole === 0 ? time : "00:00";
   const base = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, whole >= 61 ? 30 : 31);
   const date = new Date(base + whole * 86_400_000);
   if (Number.isNaN(date.getTime())) return String(serial);
   const day = `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
   return seconds === 0 && kind === "date" ? day : `${day} ${time}`;
+}
+
+/**
+ * An elapsed time, as a format of `[h]`, `[m]` or `[s]` shows it: its hours in total, and no date,
+ * so 1.5 days is 36:00. As a time of day, it is rounded to the second, and its seconds are written
+ * when there are some.
+ */
+function excelDuration(serial: number): string {
+  const total = Math.round(Math.abs(serial) * 86_400);
+  const seconds = total % 60;
+  return `${serial < 0 && total > 0 ? "-" : ""}${Math.floor(total / 3600)}:${pad(Math.floor(total / 60) % 60)}${seconds !== 0 ? `:${pad(seconds)}` : ""}`;
+}
+
+/**
+ * Excel writes a character that XML cannot hold as `_xHHHH_`: a carriage return of pasted text is
+ * `_x000D_`. An underscore that would start such an escape is written `_x005F_`, so the text
+ * `_x0041_` is `_x005F_x0041_`; read from left to right, each comes back as it was.
+ */
+function decodeEscapes(text: string): string {
+  return text.includes("_x") ? text.replace(/_x([0-9A-Fa-f]{4})_/g, (_, code: string) => String.fromCharCode(Number.parseInt(code, 16))) : text;
+}
+
+/**
+ * The text of a cell as a cell of a `| cell | cell |` row: on one line, its pipes escaped, as the
+ * tables of other files are written. Only white space that changes is matched (a run of it, a tab,
+ * a line break): the single spaces between words, most of a text, are not each replaced.
+ */
+function cellText(text: string): string {
+  return text.replace(/\s{2,}|[^\S ]/g, " ").replace(/\|/g, "\\|").trim();
 }
 
 /** A number as Excel stores it, to the 15 significant digits Excel keeps: 0.30000000000000004 is 0.3. */
@@ -89,32 +127,70 @@ function numberText(value: number): string {
   return String(Number.parseFloat(value.toPrecision(15)));
 }
 
-/** What a workbook says of itself: its sheets in order, the 1904 date system, and how each cell style shows a number. */
+/**
+ * What a workbook says of itself: its sheets in order, the part of its shared strings, the 1904
+ * date system, and how each cell style shows a number.
+ */
 type Workbook = {
   sheets: Array<{ name: string; part: string; hidden: boolean }>;
+  sharedStrings: string | undefined;
   date1904: boolean;
   /** The kind of value each cell style (`s`) shows, by its index. */
   styles: ValueKind[];
 };
 
-async function readWorkbook(read: OfficeParts, parts: Set<string>): Promise<Workbook> {
+/**
+ * The kind of sheet a relationship of the workbook names, at the end of its type. Only a worksheet
+ * holds cells of data: a chart sheet, a dialog sheet or a macro sheet does not.
+ */
+const SHEET_KIND = /\/(worksheet|chartsheet|dialogsheet|xlMacrosheet|xlIntlMacrosheet)$/i;
+
+async function readWorkbook(read: OfficeParts, names: string[]): Promise<Workbook> {
   const workbookXml = await read.small("xl/workbook.xml");
   if (!workbookXml) throw new Error("This XLSX does not contain xl/workbook.xml.");
   const relationships = readRelationships(await read.small("xl/_rels/workbook.xml.rels"), "xl");
+  // Letter case does not count in the names of the parts of a package, as it does in a ZIP: a
+  // relationship to worksheets/Sheet1.xml names the part xl/worksheets/sheet1.xml.
+  const parts = new Set(names);
+  let byLowerCase: Map<string, string> | undefined;
+  const partOf = (target: string): string | undefined => {
+    if (parts.has(target)) return target;
+    byLowerCase ??= new Map(names.map((name) => [name.toLowerCase(), name]));
+    return byLowerCase.get(target.toLowerCase());
+  };
+  /** The part that a relationship of this type names, or else the part where Excel puts it, when the file has it. */
+  const related = (type: string, usual: string): string | undefined => {
+    for (const relationship of relationships.values()) {
+      const part = !relationship.external && relationship.type.endsWith(`/${type}`) ? partOf(relationship.target) : undefined;
+      if (part) return part;
+    }
+    return partOf(usual);
+  };
   const sheets: Workbook["sheets"] = [];
+  const listed = new Set<string>();
   let date1904 = false;
   readXml(workbookXml, {
     open(name, attributes) {
       if (name === "workbookPr" || name.endsWith(":workbookPr")) date1904 = attributes.date1904 === "1" || attributes.date1904 === "true";
       if (name !== "sheet" && !name.endsWith(":sheet")) return;
       const id = attributes["r:id"] ?? Object.entries(attributes).find(([key]) => key.endsWith(":id"))?.[1];
-      const part = id ? relationships.get(id)?.target : undefined;
-      // A chart sheet has no cells; a sheet whose part is missing has nothing to read.
-      if (!part || !parts.has(part) || !/worksheets\//i.test(part)) return;
-      sheets.push({ name: attributes.name ?? `Sheet ${sheets.length + 1}`, part, hidden: attributes.state === "hidden" || attributes.state === "veryHidden" });
+      const relationship = id ? relationships.get(id) : undefined;
+      // A sheet whose part is missing has nothing to read.
+      const part = relationship && !relationship.external ? partOf(relationship.target) : undefined;
+      if (!relationship || !part) return;
+      // The type of the relationship tells a worksheet, wherever its part is, from a chart sheet,
+      // which has no cells. A relationship that names no kind of sheet is told by the folder that
+      // Excel puts worksheets in.
+      const kind = SHEET_KIND.exec(relationship.type)?.[1];
+      if (kind ? kind.toLowerCase() !== "worksheet" : !/worksheets\//i.test(part)) return;
+      // A part listed again is not read again: a workbook can list one sheet 300,000 times.
+      if (listed.has(part)) return;
+      listed.add(part);
+      sheets.push({ name: decodeEscapes(attributes.name ?? `Sheet ${sheets.length + 1}`), part, hidden: attributes.state === "hidden" || attributes.state === "veryHidden" });
     },
   });
-  return { sheets, date1904, styles: readCellStyles(await read.small("xl/styles.xml")) };
+  const styles = related("styles", "xl/styles.xml");
+  return { sheets, sharedStrings: related("sharedStrings", "xl/sharedStrings.xml"), date1904, styles: readCellStyles(styles ? await read.small(styles) : undefined) };
 }
 
 /** The kind of value each cell style shows, from the number format it names. */
@@ -135,7 +211,8 @@ function readCellStyles(xml: string | undefined): ValueKind[] {
         styles.push(kind !== undefined ? kind
           : BUILT_IN_DATES.has(id) ? "date"
             : BUILT_IN_TIMES.has(id) ? "time"
-              : BUILT_IN_PERCENT.has(id) ? "percent" : "number");
+              : BUILT_IN_DURATIONS.has(id) ? "duration"
+                : BUILT_IN_PERCENT.has(id) ? "percent" : "number");
       }
     },
     close(name) {
@@ -145,8 +222,12 @@ function readCellStyles(xml: string | undefined): ValueKind[] {
   return styles;
 }
 
-/** The shared strings of a workbook, read a piece at a time; the text of phonetic runs (`rPh`) is left out. */
-async function readSharedStrings(read: OfficeParts): Promise<string[]> {
+/**
+ * The shared strings of a workbook, read a piece at a time; the text of phonetic runs (`rPh`) is
+ * left out. Each is kept as a cell is written (`cellText`), made so once: a row can name one string
+ * thousands of times.
+ */
+async function readSharedStrings(read: OfficeParts, part: string): Promise<string[]> {
   const strings: string[] = [];
   let current: string[] | undefined;
   let inText = false;
@@ -169,7 +250,7 @@ async function readSharedStrings(read: OfficeParts): Promise<string[]> {
       else if (local === "rPh" && inPhonetic > 0) inPhonetic--;
       else if (local === "si" && current) {
         if (strings.length >= MAX_SHARED_STRINGS) throw new Error(`This XLSX has more than ${MAX_SHARED_STRINGS.toLocaleString("en-US")} different texts, more than a workbook holds. It may be built to exhaust the server, so it is not read.`);
-        const text = current.join("");
+        const text = cellText(decodeEscapes(current.join("")));
         strings.push(text.length < 13 ? text : (" " + text).slice(1));
         current = undefined;
       }
@@ -181,7 +262,7 @@ async function readSharedStrings(read: OfficeParts): Promise<string[]> {
       current.push(text);
     },
   });
-  await read.stream("xl/sharedStrings.xml", (piece) => xml.write(piece));
+  await read.stream(part, (piece) => xml.write(piece));
   return strings;
 }
 
@@ -191,13 +272,20 @@ type CellReading = { column: number; type: string; style: number; value: string[
 /**
  * Reads the rows of one sheet, a piece at a time, and gives each line of its section to `line`:
  * the `Columns:` line first (from the sheet's `dimension`, when it has one), then a line per row
- * that has a value.
+ * that has a value. `holding` is told, as the row grows, how many characters the row being read
+ * holds, to refuse it before it ends.
  */
-function sheetReader(workbook: Workbook, strings: string[], line: (text: string) => void, held: (characters: number) => void): XmlStream {
+function sheetReader(workbook: Workbook, strings: string[], line: (text: string) => void, holding: (characters: number) => void): XmlStream {
   let firstColumn = 1;
   let wroteColumns = false;
   let row: Map<number, string> | undefined;
   let rowNumber = 0;
+  /** The characters of the row being read: the text of its cells in the XML, and the shared strings they name. */
+  let held = 0;
+  const hold = (characters: number) => {
+    held += characters;
+    holding(held);
+  };
   let nextColumn = 1;
   let cell: CellReading | undefined;
   /** Which text of the cell is being read: its value, its formula, or the text of an inline string. */
@@ -213,24 +301,25 @@ function sheetReader(workbook: Workbook, strings: string[], line: (text: string)
       ? `Columns: | ${Array.from({ length: count }, (_, index) => columnName(firstColumn + index)).join(" | ")} |`
       : `Columns: ${columnName(firstColumn)} to ${columnName(last)}`);
   };
+  /** The value of a cell other than a shared string, as Excel shows it. */
   const valueOf = (reading: CellReading): string => {
     const raw = reading.value.join("");
     switch (reading.type) {
-      case "s": return strings[Number(raw)] ?? "";
-      case "inlineStr": return reading.inline.join("");
-      case "str": return raw;
+      case "inlineStr": return decodeEscapes(reading.inline.join(""));
+      case "str": return decodeEscapes(raw);
       case "b": return raw === "1" ? "TRUE" : raw === "0" ? "FALSE" : raw;
       case "e": return raw;
       case "d": return raw.replace("T", " ").replace(/(?::00)?(?:\.0+)?Z?$/, "");
     }
     if (raw === "") {
       const formula = reading.formula.join("");
-      return formula ? `=${formula}` : "";
+      return formula ? `=${decodeEscapes(formula)}` : "";
     }
     const number = Number(raw);
     if (!Number.isFinite(number)) return raw;
     const kind = workbook.styles[reading.style] ?? "number";
     if (kind === "date" || kind === "time") return excelDate(number, kind, workbook.date1904);
+    if (kind === "duration") return excelDuration(number);
     if (kind === "percent") return `${numberText(number * 100)}%`;
     return numberText(number);
   };
@@ -249,6 +338,7 @@ function sheetReader(workbook: Workbook, strings: string[], line: (text: string)
       } else if (tag === "row") {
         rowNumber = Number(attributes.r) || rowNumber + 1;
         nextColumn = firstColumn;
+        held = 0;
         row = new Map();
         if (empty) row = undefined;
       } else if (tag === "c" && row) {
@@ -274,8 +364,17 @@ function sheetReader(workbook: Workbook, strings: string[], line: (text: string)
       } else if (tag === "rPh") {
         if (inPhonetic > 0) inPhonetic--;
       } else if (tag === "c" && cell && row) {
-        const text = valueOf(cell);
-        if (text !== "") row.set(cell.column, text.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim());
+        let text: string;
+        if (cell.type === "s") {
+          // A shared string counts at its length each time a cell names it, before the row keeps
+          // it: in a few bytes each, one row can name a string of a million characters thousands
+          // of times. It was made a cell's text when it was read, and is kept, not copied.
+          text = strings[Number(cell.value.join(""))] ?? "";
+          hold(text.length);
+        } else {
+          text = cellText(valueOf(cell));
+        }
+        if (text !== "") row.set(cell.column, text);
         cell = undefined;
       } else if (tag === "row" && row) {
         if (row.size > 0) {
@@ -292,7 +391,7 @@ function sheetReader(workbook: Workbook, strings: string[], line: (text: string)
     text(text) {
       if (!cell || reading === undefined) return;
       // What a row holds is counted before the row ends: one cell can be megabytes of text.
-      held(text.length);
+      hold(text.length);
       if (reading === "inline") {
         if (inPhonetic === 0) cell.inline.push(text);
       } else {
@@ -307,34 +406,38 @@ export const xlsx: Extractor = async (bytes, input) => {
   const archive = await openOffice(bytes, "XLSX");
   input?.signal?.throwIfAborted();
   const read = officeReader(archive, "XLSX", bytes.byteLength, input);
-  const parts = new Set(Object.keys(archive.files));
-  const workbook = await readWorkbook(read, parts);
+  const workbook = await readWorkbook(read, Object.keys(archive.files));
   if (workbook.sheets.length === 0) throw new Error("This XLSX does not contain any sheets with cells.");
-  const strings = parts.has("xl/sharedStrings.xml") ? await readSharedStrings(read) : [];
+  const strings = workbook.sharedStrings ? await readSharedStrings(read, workbook.sharedStrings) : [];
   const sections: string[] = [];
   const tooMuch = () => new Error(read.limits.byTextLimit
     ? "This XLSX holds more text than is kept from one file. Split it, and attach the part you need."
     : "This XLSX holds more text than is read from one file. Split it, and attach the part you need.");
+  /** Counts a line of the text kept, and refuses the file past the limit. */
+  const kept = (text: string) => {
+    read.count.characters += text.length + 1;
+    if (read.count.characters > read.limits.maxCharacters) throw tooMuch();
+  };
   for (const [index, sheet] of workbook.sheets.entries()) {
-    const lines: string[] = [`## Sheet ${index + 1}: ${sheet.name.replace(/\s+/g, " ")}${sheet.hidden ? " (hidden sheet)" : ""}`];
-    const before = lines.length;
-    let holding = 0;
+    // The heading is text kept, as a row is: a workbook can have thousands of empty sheets.
+    const heading = `## Sheet ${index + 1}: ${sheet.name.replace(/\s+/g, " ")}${sheet.hidden ? " (hidden sheet)" : ""}`;
+    kept(heading);
+    const lines: string[] = [];
     const reader = sheetReader(workbook, strings, (text) => {
-      holding = 0;
-      read.count.characters += text.length + 1;
-      if (read.count.characters > read.limits.maxCharacters) throw tooMuch();
+      kept(text);
       lines.push(text);
     }, (characters) => {
-      holding += characters;
-      if (read.count.characters + holding > read.limits.maxCharacters) throw tooMuch();
+      if (read.count.characters + characters > read.limits.maxCharacters) throw tooMuch();
     });
     await read.stream(sheet.part, (piece) => reader.write(piece));
-    // A sheet with no value says so, rather than leaving its heading alone.
-    if (!lines.slice(before).some((text) => text.startsWith("Row "))) {
-      lines.length = before;
-      lines.push("[No values on this sheet]");
+    // A sheet with no value says so, rather than leaving its heading alone, or with its columns.
+    if (!lines.some((text) => text.startsWith("Row "))) {
+      for (const text of lines) read.count.characters -= text.length + 1;
+      lines.length = 0;
+      lines.push(NO_VALUES);
+      kept(NO_VALUES);
     }
-    sections.push(lines.join("\n"));
+    sections.push(`${heading}\n${lines.join("\n")}`);
     input?.onProgress?.({ done: index + 1, total: workbook.sheets.length, unit: "parts" });
   }
   return { text: sections.join("\n\n"), pages: workbook.sheets.length };
