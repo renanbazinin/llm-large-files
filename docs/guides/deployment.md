@@ -57,7 +57,8 @@ this:
   metadata must be able to read the text.
 - **The text is kept byte for byte.** `readTextRange` reads UTF-8 byte offsets that the line index
   computed at ingest. A text that changed is noticed ("The stored text of … did not match its
-  index. Try the call again.") and its index is built again.
+  index. Try the call again.") and its index is built again. A text of another length or number of
+  lines than its metadata says then reads as missing.
 - **`undefined` means "not there", and nothing else.** A read that failed (a timeout, a volume that
   does not answer) must throw: the library passes it on as `DocumentStoreError` instead of telling
   the user that the file is gone.

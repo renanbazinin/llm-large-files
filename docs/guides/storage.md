@@ -820,7 +820,9 @@ time ([the cache](#the-cache) has the sizes). The rules:
 - Return every byte asked for, unless the text ends first. A read that comes back short in the
   middle of the text is taken for a text that does not match its index: that call answers "The
   stored text of report.log did not match its index. Try the call again.", and the index is built
-  again.
+  again. When the index built again has another number of lines or characters than the metadata
+  says, the text is not the one that was ingested, and the document reads as missing (new in 0.9.0;
+  before, that text was read).
 - Return fewer bytes at the end of the text, and an empty array when `start` is at or past its end.
   That happens: the index is built by reading 4 MB at a time until a read comes back short, so a
   text whose size is a multiple of 4 MB ends with a read that starts at its end.
@@ -876,8 +878,13 @@ What the library does with what you throw depends on the call:
   there is this ingest's own (the same `createdAt`, owner and scope). Another document there is left.
   When it has not expired and is of another owner or scope, stored by another server meanwhile, the
   ingest throws an `IngestError` `"exists"` (409) instead: a `put` that refuses an ID it already has,
-  as an insert with a unique key does, ends that way. The document a replace was to remove, when that
-  `delete` failed, is left too, and the error is the 503 above.
+  as an insert with a unique key does, ends that way. Such a `put` must refuse before it writes
+  anything under the ID. One that writes the text first and then fails at the insert has written
+  over the text of the document that is left. The library reads that document as missing when its
+  text has another length or number of lines than its metadata says, but cannot tell a text of the
+  same length and lines. The [example](#example-object-storage-and-a-database) claims the record
+  first. The document a replace was to remove, when that `delete` failed, is left too, and the error
+  is the 503 above.
 - **`delete` and `sweep`**: your error comes out of `files.delete` and `files.sweep` as a
   `DocumentStoreError` of operation `"delete"` or `"sweep"`, with your error as `cause` (new in
   0.9.0: it came out as it was). The DELETE handler answers it 503 with its message.
@@ -909,7 +916,11 @@ What the library does with what you throw depends on the call:
   text. Several servers may do that at once, with the same bytes: let the last write win.
 - Make the metadata the point where a document exists. Write it last, in `put`, after the text, and
   remove it first in `delete`. A server that finds the metadata must be able to read all of the text.
-  `FileDocumentStore` gets this on a shared volume by writing under a temporary name and renaming.
+  `FileDocumentStore` gets this on a shared volume by writing under a temporary name and renaming. A
+  store that inserts the metadata under a unique key can insert it first instead, hidden from
+  `getMeta`, and show it once the text is written, as the
+  [example](#example-object-storage-and-a-database) does. A `put` that loses a race for an ID then
+  fails before it writes over the text of the one that won.
 - A document deleted by another server between `getMeta` and a read is answered as gone: return
   undefined from that read.
 
@@ -946,6 +957,8 @@ export type DocumentRecord = {
   meta: DocumentMeta;
   owner: string | null;
   expiresAt: Date;
+  /** Set while `put` writes the text: the document is not there yet. */
+  writing?: true;
 };
 
 /** A write that failed: a 503 from createDocumentHandlers, with a message that names no host. */
@@ -967,19 +980,26 @@ export class BlobDocumentStore implements DocumentStore {
     return `${this.prefix}/${id}.${kind}`;
   }
 
-  /** Called last at ingest. The text first, the record last: a document exists once its record does. */
+  /**
+   * Called last at ingest. The record first, marked as being written: a put that loses a race for
+   * the ID fails at the unique `_id`, before it writes over the text of the one that won. Then the
+   * text, then the mark goes: a document exists once its record is there without the mark.
+   */
   async put({ meta, text }: StoredDocument): Promise<void> {
     try {
+      await this.records.insertOne({ _id: meta.id, meta, owner: meta.owner ?? null, expiresAt: new Date(meta.expiresAt), writing: true });
       await this.blobs.write(this.key(meta.id, "txt"), new TextEncoder().encode(text));
-      await this.records.insertOne({ _id: meta.id, meta, owner: meta.owner ?? null, expiresAt: new Date(meta.expiresAt) });
+      // This put's record only: another server may have removed it meanwhile.
+      const { matchedCount } = await this.records.updateOne({ _id: meta.id, writing: true, "meta.createdAt": meta.createdAt }, { $unset: { writing: "" } });
+      if (matchedCount === 0) throw new Error(`The record of ${meta.id} was removed while its text was written.`);
     } catch (error) {
       throw notStored(error);
     }
   }
 
-  /** Called before every use of a document: one look-up by key. */
+  /** Called before every use of a document: one look-up by key. A record still being written is not a document yet. */
   async getMeta(id: string): Promise<DocumentMeta | undefined> {
-    return (await this.records.findOne({ _id: id }))?.meta;
+    return (await this.records.findOne({ _id: id, writing: { $exists: false } }))?.meta;
   }
 
   async get(id: string): Promise<StoredDocument | undefined> {
@@ -1061,6 +1081,14 @@ export const files = createLargeFiles({
   theirs, then throw. Since 0.9.0 the library turns them into a `DocumentStoreError` too, so an
   upload that meets a database that is down is answered 503 "The document could not be stored. Try
   again.", with `Retry-After: 5`, whatever the store's own error says.
+- `put` inserts the record first, marked `writing`, and `getMeta` does not see it until the text is
+  written. When two servers ingest one ID at the same moment, the one whose insert fails has written
+  no text. Its index and its original were written before `put`, so they can still land over the
+  other's. The library checks both: an index that does not match the metadata is built again from
+  the text, and an original of another size or SHA-256 reads as missing.
+- A record left marked by a server that stopped in the middle of a `put` is not a document. `sweep`
+  removes it once it has expired. A later ingest of that ID fails once with a 503, and removes it as
+  it cleans up.
 - `delete` removes the record first. If removing an object fails after that, the document is gone
   and the object stays behind. A lifecycle rule on the bucket that removes objects under the prefix
   some time after `ttlMs` cleans those up, when `ttlMs` is finite.

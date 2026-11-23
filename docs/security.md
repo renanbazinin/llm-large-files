@@ -98,6 +98,9 @@ What the library checks is the metadata, against the caller: the owner and `meta
 `getMeta` before every use of a document. When `get` returns a document whose metadata is not the
 one `getMeta` described (another ID, owner, scope or version: a wrapper that keeps what `get` gave
 by ID, or a document replaced on another server in between), the document is missing for that call.
+So is a text of another length or number of lines than its metadata says, read whole or by range
+(new in 0.9.0): a store that writes the text and the metadata apart can give one document's
+metadata with another's text, when two servers ingest one ID at the same moment.
 Bytes read by range and the original file carry no metadata: after they are read, the library asks
 `getMeta` again, and they are missing unless the store still describes the same document. That
 catches a document replaced while it was read. It cannot catch a store that answers `readTextRange`,
