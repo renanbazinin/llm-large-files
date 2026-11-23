@@ -7,10 +7,12 @@ import {
   askWithFiles,
   createLargeFiles,
   DocumentsNotFoundError,
+  IngestError,
   MemoryDocumentStore,
   ModelRequestError,
   type AskEvent,
   type AskOptions,
+  type MissingDocumentsAction,
   type MissingDocumentsContext,
   type ModelMessage,
 } from "llm-large-files";
@@ -108,6 +110,40 @@ describe("onMissingDocuments", () => {
     expect(result.missing).toBeUndefined();
     expect(result.plan.inline.map((meta) => meta.id)).toEqual([note.id, old.id]);
     expect(textOf(model.requests[0]!.messages[0])).toContain("The old total was 7.");
+  });
+
+  it("answers two questions of a chat that ingest the same document again at once, when the second takes \"exists\" as back (the sample of ask.md)", async () => {
+    const owner = "user-1";
+    const scope = ["user-1", "chat-1"];
+    const { files, note, old } = await documents(owner, scope);
+    // Both questions find the document missing; the second ingests it once the first has.
+    let asked = 0;
+    let bothAsked!: () => void;
+    const both = new Promise<void>((resolve) => { bothAsked = resolve; });
+    let firstIngested!: () => void;
+    const ingested = new Promise<void>((resolve) => { firstIngested = resolve; });
+    const onMissingDocuments = async (missing: string[], context: MissingDocumentsContext): Promise<MissingDocumentsAction> => {
+      const second = asked++ === 1;
+      if (asked === 2) bothAsked();
+      await both;
+      if (second) await ingested;
+      let back = 0;
+      for (const id of missing) {
+        try {
+          await files.ingest({ name: "old.txt", bytes: utf8("The old total was 7.\n"), id, owner: context.owner, scope: context.scope });
+        } catch (error) {
+          // Another question of the chat ingested it meanwhile.
+          if (!(IngestError.is(error) && error.code === "exists")) throw error;
+        }
+        back++;
+      }
+      if (!second) firstIngested();
+      return back === missing.length ? { retry: true } : "drop";
+    };
+    const ask = () => askWithFiles({ files, model: fakeModel([says("It was 7 (old.txt L1).")]), owner, scope, documentIds: [note.id, old.id], messages: question("Old total?"), onMissingDocuments });
+    const results = await Promise.all([ask(), ask()]);
+    expect(asked).toBe(2);
+    expect(results.map((result) => [result.answered, result.plan.inline.map((meta) => meta.id)])).toEqual([[true, [note.id, old.id]], [true, [note.id, old.id]]]);
   });
 
   it("fails with DocumentsNotFoundError when a retry finds them still missing", async () => {

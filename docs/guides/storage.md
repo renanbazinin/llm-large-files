@@ -690,8 +690,9 @@ export function ingestSaved(userId: string, chatId: string, uploadId: string, na
 ```
 
 - **The ref** is a string of 1 to 1,024 characters that your reader understands: for
-  `fileOriginals(root)`, a path relative to `root`. It is never sent to the model, nor in a summary
-  or an event. An ingest with `original` in a library without `originals` throws a `TypeError`. A
+  `fileOriginals(root)`, a path relative to `root`. It is never sent to the model, nor in a summary.
+  An event holds it only with `eventResults: true`, in the full plan of `run.finish` and
+  `run.error` ([events](../reference/events.md#documents-eventresults-and-eventresult)). An ingest with `original` in a library without `originals` throws a `TypeError`. A
   format that `keepOriginals` does not list records nothing, whatever the ref.
 - **What is recorded.** `meta.original` is `{ ref, bytes, sha256 }`: the ref, and the size and
   SHA-256 of the file at ingest. `meta.originalKept` is true, as for a copy. The store's

@@ -66,12 +66,11 @@ const messages: ChatMessage[] = [
 const second = await askWithFiles({ files, model, documentIds, messages });
 ```
 
-`askGemini` takes the conversation in one of two options. `messages` takes plain turns and stored
-tool rounds (`Array<ChatTurn | ToolTurn>`), and no native parts. `contents` takes Gemini
-`contents`, native parts included, and converts them with `fromGeminiContents`
-([below](#gemini-contents)). When both are given, `contents` is used. For native parts and stored
-tool rounds in one history, call `askWithFiles` with `gemini(endpoint)`, as above; an explorer
-model is then passed as `explorer` ([Explorer model](./explorer-model.md)).
+`askGemini` takes the conversation in one of two options. `messages` takes what `askWithFiles`
+takes (`ChatMessage[]`): plain turns, stored tool rounds and, since 0.9.0, turns with native parts,
+such as the chart's turn above. Before 0.9.0 it took only `Array<ChatTurn | ToolTurn>`. `contents` takes
+Gemini `contents`, native parts included, and converts them with `fromGeminiContents`
+([below](#gemini-contents)). When both are given, `contents` is used.
 
 Every field of these types is in the reference: [`askWithFiles(options)`](../reference/ask.md#askwithfilesoptions)
 and the rest of [ask.md](../reference/ask.md).
@@ -474,6 +473,7 @@ a repeated search was run again, nothing could be shortened, and they were sized
   the turn the model answers, as when your application ran the tools in a loop of its own and
   hands the conversation over.
 - `fromGeminiContents(contents, { rounds: false })` keeps every turn as its parts, as 0.8 did.
+  With `askGemini`, pass it as `messages`.
 - The stored rounds come back without `tool_turns_left`, as stored `ToolTurn`s are sent. The
   rounds that `geminiToolTurns` wrote never had it. Rounds that 0.5.0 converted have it in their
   responses: from 0.9.0 they are lifted too, and sent without it, and a call without `args` is

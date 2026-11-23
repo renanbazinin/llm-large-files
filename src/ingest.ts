@@ -706,7 +706,8 @@ async function ingestFile(
     id: target.id ?? `doc_${randomUUID().replaceAll("-", "")}`,
     metaVersion: DOCUMENT_META_VERSION,
     ...(input.owner !== undefined ? { owner: input.owner } : {}),
-    // Never sent to the model, nor in a summary or an event.
+    // Never sent to the model, nor in a summary. An event holds it only with eventResults: true, in
+    // the full plan of run.finish and run.error.
     ...(target.scope !== undefined ? { scope: [...target.scope] } : {}),
     // Nor these: the SHA-256 of the file, and where the application keeps it.
     sha256,

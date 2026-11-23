@@ -458,9 +458,22 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
   if (!skip.has("sweep")) {
     checks.push(check("sweeps the documents expired at the time it is given, every part of them, and no other", async ({ store, start, context }) => {
       needs(store, "sweep", ["sweep"]);
+      const originals = !skip.has("originals");
+      if (originals) needs(store, "originals", ["putOriginal", "getOriginal"]);
+      const indexes = Boolean(store.putIndex && store.getIndex) && !skip.has("index");
       const put = async (id: string, expiresAt: number, which: "a" | "b" = "a") => {
-        if (store.putIndex && !skip.has("index")) await store.putIndex(id, utf8("an index"), context(which));
+        if (originals) await must(() => store.putOriginal!(id, utf8("the upload"), context(which)), "putOriginal");
+        if (indexes) await store.putIndex!(id, utf8("an index"), context(which));
         await must(() => store.put({ meta: metaFor(id, TEXT, start, expiresAt, { scope: [...scopes[which]] }), text: TEXT }, context(which)), "put");
+      };
+      // An original or an index the sweep left is not read while the metadata is gone: it shows once
+      // a document is put again under the ID, without them, as the delete check does.
+      const left = async (id: string, which: "a" | "b" = "a") => {
+        if (!originals && !indexes) return;
+        await store.put({ meta: metaFor(id, TEXT, start, start + DAY, { scope: [...scopes[which]] }), text: TEXT }, context(which));
+        if (originals) same(await store.getOriginal!(id, context(which)), undefined, "getOriginal of a document put under the ID of a swept one, without an original");
+        if (indexes) same(await store.getIndex!(id, context(which)), undefined, "getIndex of a document put under the ID of a swept one, without an index");
+        await store.delete(id, context(which));
       };
       await put("check-ends", start + MINUTE);
       await put("check-stays", start + DAY);
@@ -468,13 +481,16 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
       same(await must(() => store.sweep!(new Date(start + 2 * MINUTE), {}), "sweep"), 1, "sweep(now) after one document expired (the time it is given, not the time of day)");
       same(await store.getMeta("check-ends", context()), undefined, "getMeta of a swept document");
       if (store.readTextRange && !skip.has("ranges")) same(await store.readTextRange("check-ends", 0, 4, context()), undefined, "readTextRange of a swept document");
-      if (store.getIndex && !skip.has("index")) same(await store.getIndex("check-ends", context()), undefined, "getIndex of a swept document");
+      if (indexes) same(await store.getIndex!("check-ends", context()), undefined, "getIndex of a swept document");
       if (!(await store.getMeta("check-stays", context()))) fail("sweep removed a document that had not expired.");
+      await left("check-ends");
       if (isolates) {
         await put("check-ends-a", start + MINUTE, "a");
         await put("check-ends-b", start + MINUTE, "b");
         same(await must(() => store.sweep!(new Date(start + 2 * MINUTE), { scope: scopes.a }), "sweep with a scope"), 1, "sweep(now, { scope }) with an expired document in that scope and one in another");
         same(await must(() => store.sweep!(new Date(start + 2 * MINUTE)), "sweep without a context"), 1, "sweep(now) after a sweep of one scope: the expired document of the other scope");
+        await left("check-ends-a", "a");
+        await left("check-ends-b", "b");
       }
     }));
   }
@@ -578,15 +594,34 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
   if (!skip.has("shared")) {
     checks.push(check("two stores over one storage, as two servers, see each other's writes and deletes", async ({ store, start, open, context }) => {
       const other = await open();
-      await store.put({ meta: metaFor("check-shared", TEXT, start, start + DAY), text: TEXT }, context());
+      const ranges = (each: DocumentStore) => each.readTextRange && !skip.has("ranges");
+      const meta = metaFor("check-shared", TEXT, start, start + DAY);
+      await store.put({ meta, text: TEXT }, context());
+      // The first store reads the document, as the library does before every use: what it read must
+      // not be served once the second store deleted or replaced the document.
+      same(await must(() => store.getMeta("check-shared", context()), "getMeta from the first store"), meta, "getMeta from the first store of a document it put");
+      same((await must(() => store.get("check-shared", context()), "get from the first store"))?.text, TEXT, "get from the first store of a document it put");
+      if (ranges(store)) same(bytesOf(await store.readTextRange!("check-shared", 0, 5, context()), "readTextRange"), utf8("first"), "readTextRange from the first store");
       same((await must(() => other.get("check-shared", context()), "get from the second store"))?.text, TEXT, "get from the second store of a document the first put");
-      if (other.readTextRange && !skip.has("ranges")) same(bytesOf(await other.readTextRange("check-shared", 0, 5, context()), "readTextRange"), utf8("first"), "readTextRange from the second store");
+      if (ranges(other)) same(bytesOf(await other.readTextRange!("check-shared", 0, 5, context()), "readTextRange"), utf8("first"), "readTextRange from the second store");
       if (other.putIndex && store.getIndex && !skip.has("index")) {
         await other.putIndex("check-shared", utf8("built on the second server"), context());
         same(bytesOf(await store.getIndex("check-shared", context()), "getIndex"), utf8("built on the second server"), "getIndex from the first store of an index the second put");
       }
       same(await other.delete("check-shared", context()), true, "delete from the second store");
       same(await store.getMeta("check-shared", context()), undefined, "getMeta from the first store after the second deleted the document");
+      same(await store.get("check-shared", context()), undefined, "get from the first store after the second deleted the document");
+      if (ranges(store)) same(await store.readTextRange!("check-shared", 0, 5, context()), undefined, "readTextRange from the first store after the second deleted the document");
+      // The second store puts a new document under the ID, as an ingest with ifExists: "replace" does.
+      const text = `${TEXT}\nwritten again on the second server`;
+      const replaced = metaFor("check-shared", text, start, start + 2 * DAY, { name: "again.txt" });
+      await must(() => other.put({ meta: replaced, text }, context()), "put from the second store");
+      same(await store.getMeta("check-shared", context()), replaced, "getMeta from the first store after the second put a new document under the ID");
+      same(await store.get("check-shared", context()), { meta: replaced, text }, "get from the first store after the second put a new document under the ID");
+      if (ranges(store)) {
+        const size = utf8(text).length;
+        same(bytesOf(await store.readTextRange!("check-shared", size - 6, size, context()), "readTextRange"), utf8("server"), "readTextRange from the first store after the second put a new document under the ID");
+      }
     }));
   }
 

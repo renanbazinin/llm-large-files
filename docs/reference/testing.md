@@ -220,8 +220,10 @@ What the checks cover:
   after a delete ("ranges").
 - The line index is kept byte for byte, as a copy, the last one written ("index").
 - The original is kept byte for byte, as a copy ("originals").
-- `sweep(now)` removes the documents expired at `now`, not at the time of day, every part of them,
-  and no other ("sweep"). With `isolatesScopes`, a sweep with a scope removes only that scope's.
+- `sweep(now)` removes the documents expired at `now`, not at the time of day, every part of them
+  (the text, the original and the index), and no other ("sweep"). An original or an index the sweep
+  left shows when a document is put again under the ID. With `isolatesScopes`, a sweep with a scope
+  removes only that scope's.
 - The IDs an application may choose ([`APP_DOCUMENT_ID_PATTERN`](./library.md#app_document_id_pattern)).
 - Every method takes a context. Without `requiresScope`, also no context, `{}`, and an owner alone.
 - With `requiresScope`: a call without a scope throws a
@@ -231,6 +233,9 @@ What the checks cover:
   reaches every call, and a document of one scope is missing from another scope and from no scope.
   A wrapper that forwards only the ID fails here.
 - Two stores over one storage, as two servers, see each other's writes and deletes ("shared").
+  The first store reads the document, the second deletes it, then puts a new one under the ID: the
+  first gives `undefined`, then the new text and metadata. A store that keeps what it read, on each
+  server, fails here.
 - The library over the store, with `wholeDocumentBytes: 0` (every document read by range), gives
   the same metadata, prepared blocks, search and read results, original and delete as over
   `MemoryDocumentStore`.

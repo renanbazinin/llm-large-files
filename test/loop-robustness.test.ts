@@ -302,6 +302,45 @@ describe("a request larger than the model takes", () => {
     expect(result.budget.contextTokens).toBe(8_192);
   });
 
+  it("mends an overflow of an adapter of your own, an error with a status and no kind, as its events tell it", async () => {
+    // httpError(413), a 429 for the tokens a minute allows, and a 400 of code context_length_exceeded
+    // are of kind "context_overflow" in their events and errorInfoOf: the loop makes room for them too.
+    const tpm = "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.";
+    const refusals: Array<[string, () => Error, string]> = [
+      ["413", () => httpError(413), "The request was larger than the model takes: older tool results were shortened, and it was sent again"],
+      ["429 TPM", () => httpError(429, tpm), "The request was larger than the provider allows in a minute: older tool results were shortened, and it was sent again"],
+      ["400 code", () => Object.assign(new Error("Bad request"), { status: 400, code: "context_length_exceeded" }), "The request was larger than the model takes: older tool results were shortened, and it was sent again"],
+    ];
+    for (const [label, refusal, step] of refusals) {
+      const { files, meta } = await largeLog();
+      const read = (from: number) => ({ name: "read_document", args: { document_id: meta.id, start_line: from, end_line: from + 199 } });
+      const model = fakeModel([calls([read(1)]), calls([read(1_001)]), calls([read(2_001)]), calls([read(3_001)]), refusal(), says("Done.")]);
+      const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick() });
+      expect(result, label).toMatchObject({ answered: true, text: "Done." });
+      expect(model.requests, label).toHaveLength(6);
+      expect(result.steps, label).toContain(step);
+      expect(answersOf(model.requests.at(-1)!.messages)[0], label).toMatchObject({ dropped: true });
+    }
+  });
+
+  it("plans the documents again when the first request is refused by an adapter of your own, with a status and no kind", async () => {
+    const tpm = "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.";
+    const refusals: Array<[string, () => Error, string]> = [
+      ["413", () => httpError(413), "The first request was larger than the model takes: the files were planned again for a smaller window"],
+      ["429 TPM", () => httpError(429, tpm), "The first request was larger than the 30,000 tokens a minute that the provider allows: the files were planned again to fit it"],
+    ];
+    for (const [label, refusal, step] of refusals) {
+      const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
+      const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
+      let refused = 0;
+      const model = fakeModel([() => (refused++ === 0 ? refusal() : says("Answered."))]);
+      const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick() });
+      expect(model.requests, label).toHaveLength(2);
+      expect(result, label).toMatchObject({ answered: true, text: "Answered." });
+      expect(result.steps[0], label).toBe(step);
+    }
+  });
+
   it("reports the provider's overflow when the document is gone, or the store fails, before the second plan", async () => {
     // Since 0.9.0 DocumentsNotFoundError (404) and DocumentStoreError (503) have a status; neither is
     // the model's error, so the first try's overflow is still the one reported, with its partial result.
@@ -363,6 +402,22 @@ describe("a request larger than the model takes", () => {
     // Two parts, each refused, then each read as two halves. The halves are not halved again.
     expect([...parts].sort()).toEqual(["1-1412", "1-2823", "1413-2823", "2824-3912", "2824-5000", "3913-5000"].sort());
     expect(answersOf(model.requests[1]!.messages)[0]).toMatchObject({ parts_read: 4, parts_with_relevant_content: 4, answer: "All errors are timeouts (L97)." });
+  });
+
+  it("reads a part as two halves when its refusal has a status and no kind (an SDK's error in a generateText of your own)", async () => {
+    const { files, meta } = await largeLog(5_000, { mapChunkTokens: 200_000 });
+    const parts: string[] = [];
+    const generateText: GenerateText = async ({ prompt }) => {
+      const lines = /lines (\d+)-(\d+)\./.exec(prompt);
+      if (!lines) return "All errors are timeouts (L97).";
+      parts.push(`${lines[1]}-${lines[2]}`);
+      if (Number(lines[2]) - Number(lines[1]) >= 2_000) throw httpError(413, "Request Entity Too Large");
+      return `Errors near (L${lines[1]}).`;
+    };
+    const model = fakeModel([calls([{ name: "analyze_whole_document", args: { document_id: meta.id, task: "List the errors." } }]), says("Done.")], { generateText });
+    await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick() });
+    expect([...parts].sort()).toEqual(["1-1412", "1-2823", "1413-2823", "2824-3912", "2824-5000", "3913-5000"].sort());
+    expect(answersOf(model.requests[1]!.messages)[0]).toMatchObject({ parts_read: 4, parts_with_relevant_content: 4 });
   });
 });
 

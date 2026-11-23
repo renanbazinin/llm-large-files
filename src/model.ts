@@ -417,11 +417,31 @@ export function errorKindOf(error: unknown): ModelErrorKind | undefined {
 }
 
 /**
+ * What a model's error is, as its events and `errorInfoOf` tell it: its own `kind`, with its own
+ * `limitTokens` and `requestedTokens`; or, for an error without a kind that has a model's status
+ * (an adapter of your own, `httpError`), what `classifyModelError` gives its status, message and
+ * `code`, with the numbers of an overflow its message gives. Undefined for an error with neither,
+ * and for thrown plain data, which is not an adapter's error. The retry policy and the loop act on
+ * this kind: the loop makes a request smaller, plans the documents again, or reads a part of a
+ * whole-file read as two halves, for a "context_overflow".
+ */
+export function modelErrorOf(error: unknown): { kind: unknown; limitTokens?: number; requestedTokens?: number } | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const { kind, limitTokens, requestedTokens } = error as { kind?: unknown; limitTokens?: number; requestedTokens?: number };
+  if (kind !== undefined) return { kind, limitTokens, requestedTokens };
+  const { status, message, code } = error as { status?: unknown; message?: unknown; code?: unknown };
+  if (!isModelStatus(status)) return undefined;
+  const proto: unknown = Object.getPrototypeOf(error);
+  if (proto === Object.prototype || proto === null) return undefined;
+  return classifyModelError(status, typeof message === "string" ? message : "", { code: typeof code === "string" ? code : undefined });
+}
+
+/**
  * For a request refused as larger than the tokens a minute (or a day) of the provider allows, not
  * than the model's window: that period. Undefined for any other error.
  */
 export function rateAllowanceOf(error: unknown): "minute" | "day" | undefined {
-  if (errorKindOf(error) !== "context_overflow" || !(error instanceof Error)) return undefined;
+  if (modelErrorOf(error)?.kind !== "context_overflow" || !(error instanceof Error)) return undefined;
   const period = RATE_TOO_SMALL.exec(error.message)?.[1];
   if (period === undefined) return undefined;
   return period.toLowerCase() === "day" ? "day" : "minute";

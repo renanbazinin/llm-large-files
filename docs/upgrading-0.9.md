@@ -52,6 +52,7 @@ last argument, `context`, and it is optional too: a store whose methods take onl
 | A subclass of `DocumentStoreError` that declares its own `status`, or of `DocumentsNotFoundError` that declares its own `status` or `code` | They are `503`, and `404` and `"documents_missing"` | Leave them out |
 | A subclass of `IngestError`, `DocumentStoreError`, `DocumentsNotFoundError` or `ModelRequestError` with a static `is` that does not fit `(value: unknown) => value is …`, such as one that returns `boolean` (TS2417) | Each of them has a static `is` now | Return `value is` your class, or rename yours |
 | `fromGeminiContents` passed as a callback: `histories.map(fromGeminiContents)` (TS2345) | Its new second parameter would get the index | `histories.map((contents) => fromGeminiContents(contents))` |
+| Code that reads the `messages` of an `AskGeminiOptions` back, or types a history as `AskGeminiOptions["messages"]`, and reads `text` of a turn (TS2339) | `messages` is `ChatMessage[]`, as `askWithFiles` takes it: a turn may have `parts` instead of `text` | Type the history `Array<ChatTurn \| ToolTurn>`, or check `"text" in turn` |
 
 The fixes, for a page that words notices and the errors of uploads, and for a wrapper of the
 library:
@@ -252,6 +253,8 @@ rounds that `geminiToolTurns` wrote. Rounds that 0.5.0 converted hold `tool_turn
 responses: they are now sent without it, so such a conversation misses the prompt cache once.
 
 **What to do.** Nothing. `fromGeminiContents(contents, { rounds: false })` gives the output of 0.8.
+With `askGemini`, pass it as `messages`, which takes what `askWithFiles` takes since 0.9.0:
+`askGemini({ files, endpoint, documentIds, messages: fromGeminiContents(contents, { rounds: false }) })`.
 
 ### Tests of the tool loop
 

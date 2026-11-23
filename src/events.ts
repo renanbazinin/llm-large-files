@@ -141,8 +141,9 @@ export type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
   toolTurns?: ToolTurn[];
   /**
    * Which documents went in whole and which were searched, named as `DocumentRef`s: their full
-   * `DocumentMeta` (owner, outline headings, the commonest lines of a log) is left out unless
-   * `eventResults` is true. The returned result has the full plan.
+   * `DocumentMeta` (owner, scope, the SHA-256 and the ref of the original, outline headings, the
+   * commonest lines of a log) is left out unless `eventResults` is true. The returned result has
+   * the full plan.
    */
   plan: { inline: Array<DocumentRef | DocumentMeta>; searchable: Array<DocumentRef | DocumentMeta> };
 };

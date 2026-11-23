@@ -3,7 +3,7 @@
 // is run as one asked with `messages` and `toolTurns`: a repeated call gets a pointer, and the
 // rounds can be shortened. The first request stays the same, byte for byte.
 import { describe, expect, it } from "vitest";
-import { createLargeFiles, MemoryDocumentStore, TOOL_TURN_VERSION, type AskEvent, type ChatTurn, type ToolTurn } from "llm-large-files";
+import { createLargeFiles, MemoryDocumentStore, TOOL_TURN_VERSION, type AskEvent, type ChatMessage, type ToolTurn } from "llm-large-files";
 import { askGemini, fromGeminiContents, geminiApi, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
 import { fakeFetch, serviceLog, utf8, type Sent } from "llm-large-files/testing";
 
@@ -25,7 +25,7 @@ async function setUp() {
   return { files, meta, gemini, q1 };
 }
 
-async function followUp(files: Awaited<ReturnType<typeof setUp>>["files"], fetch: typeof globalThis.fetch, documentIds: string[], history: { messages: Array<ChatTurn | ToolTurn> } | { contents: GeminiContent[] }) {
+async function followUp(files: Awaited<ReturnType<typeof setUp>>["files"], fetch: typeof globalThis.fetch, documentIds: string[], history: { messages: ChatMessage[] } | { contents: GeminiContent[] }) {
   const events: AskEvent[] = [];
   const result = await askGemini({ files, endpoint, fetch, documentIds, onEvent: (event) => events.push(event), ...history });
   const first = events.find((event) => event.type === "request.start");
@@ -44,6 +44,15 @@ describe("a follow-up asked with Gemini contents", () => {
     expect(viaContents.outcomes).toEqual(viaTurns.outcomes);
     // Sized alike: the same rounds.
     expect(viaContents.estimated).toBe(viaTurns.estimated);
+  });
+
+  it("keeps the rounds as their parts, as 0.8 did, given to askGemini as messages: fromGeminiContents(contents, { rounds: false })", async () => {
+    const { files, meta, gemini, q1 } = await setUp();
+    const contents: GeminiContent[] = [{ role: "user", parts: [{ text: "errors?" }] }, ...geminiToolTurns(q1.toolTurns), { role: "model", parts: [{ text: q1.text }] }, { role: "user", parts: [{ text: "again?" }] }];
+    const as08 = await followUp(files, gemini().fetch, [meta.id], { messages: fromGeminiContents(contents, { rounds: false }) });
+    // Not stored rounds: the search is run again, with no pointer.
+    expect(as08.result).toMatchObject({ answered: true, text: "51 errors." });
+    expect(as08.outcomes).toEqual(["ok", "ok"]);
   });
 
   it("sends the same first request, byte for byte, as with toolTurns", async () => {
