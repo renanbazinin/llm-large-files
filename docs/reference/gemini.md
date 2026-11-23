@@ -21,7 +21,8 @@ The entry point needs no Google SDK: it posts to the Generate Content REST API w
   [`AskGeminiOptions`](#askgeminioptions-1), [`AskGeminiResult`](#askgeminiresult)
 - [The model adapter](#the-model-adapter): [`gemini()`](#geminiendpoint-options),
   [`GeminiModelOptions`](#geminimodeloptions), [`GEMINI_PAGE_TOKENS`](#gemini_page_tokens)
-- [Gemini contents](#gemini-contents): [`fromGeminiContents()`](#fromgeminicontentscontents),
+- [Gemini contents](#gemini-contents): [`fromGeminiContents()`](#fromgeminicontentscontents-options),
+  [`FromGeminiContentsOptions`](#fromgeminicontentsoptions),
   [`geminiToolTurns()`](#geminitoolturnsturns), [`GeminiContent`](#geminicontent),
   [`GeminiPart`](#geminipart)
 - [Helpers for your own loop](#helpers-for-your-own-loop):
@@ -271,7 +272,7 @@ Shared with [`AskOptions`](./ask.md#askoptions), with the same meaning and defau
 `documentIds`, `documentPlacement`, `system`, `owner`, `limits`, `retry`, `budget`,
 `wholeDocumentAnalysis`, `viewPages`, `onText`, `onActivity`, `onStep`, `signal`, and, new in 0.7.0,
 `streamText`, `onEvent`, `runId` and `eventResults` (see [events](./events.md)), and, new in 0.9.0,
-`scope`. With Gemini:
+`scope` and `onMissingDocuments` ([missing documents](./ask.md#missing-documents)). With Gemini:
 
 - `messages` is optional and typed `Array<ChatTurn | ToolTurn>`: plain turns and the `toolTurns`
   of earlier questions. Turns with native parts (images, inline PDFs, thought signatures) go in
@@ -288,7 +289,7 @@ Fields `askGemini` adds:
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `endpoint` | [`GeminiEndpoint`](#geminiendpoint) | required | The model that answers, and the explorer when `explorerUrl` is set and differs from `url`. |
-| `contents` | [`GeminiContent[]`](#geminicontent) | none | The conversation as Gemini `contents`, with images, inline PDFs or function calls. Converted with [`fromGeminiContents()`](#fromgeminicontentscontents). It wins over `messages` when both are given. The array is not changed. The last turn must be the user's. |
+| `contents` | [`GeminiContent[]`](#geminicontent) | none | The conversation as Gemini `contents`, with images, inline PDFs or function calls. Converted with [`fromGeminiContents()`](#fromgeminicontentscontents-options), whose tool rounds come back as stored rounds (new in 0.9.0). It wins over `messages` when both are given. The array is not changed. The last turn must be the user's. |
 | `generationConfig` | `Record<string, unknown>` | none | Sent as `generationConfig` with every chat request of the answering model, and of the explorer unless `explorerGenerationConfig` is set: `temperature`, `maxOutputTokens`, `thinkingConfig` and so on. Not used for part reads. |
 | `explorerGenerationConfig` | `Record<string, unknown>` | `generationConfig` | The same, for the explorer's chat requests, when the two models do not take the same settings. Not used without an explorer. |
 | `toolFilePlacement` | [`GeminiToolFilePlacement`](#geminitoolfileplacement) | `"inside"` | Where the pages of `view_pages` go, for both models. `"beside"` for Gemini 2.5. |
@@ -470,20 +471,63 @@ of `pageTokens` in `gemini()`, and the value `askGemini` always uses. Guide: [PD
 
 For an application that keeps its conversations as Gemini `contents`.
 
-### fromGeminiContents(contents)
+### fromGeminiContents(contents, options?)
 
 ```ts
-declare function fromGeminiContents(contents: GeminiContent[]): ChatMessage[];
+declare function fromGeminiContents(contents: GeminiContent[], options?: FromGeminiContentsOptions): ChatMessage[];
 ```
 
 Gemini `contents` as the `messages` of `askWithFiles` ([`ChatMessage`](./ask.md#chatmessage)).
-The role `"user"` stays `"user"`, and `"model"` becomes `"assistant"`. A part that holds only
-`text` becomes `{ text }`. A part with `text` and other fields (a thought signature) becomes
-`{ native: part, text }`. Every other part (an image, an inline PDF, a function call) is kept as
-`{ native: part }`, which `gemini()` sends back as it is. The array and its parts are not changed.
-`askGemini` uses it for `contents`.
+`askGemini` uses it for `contents`. The array and its parts are not changed.
 
-Guide: [conversations](../guides/conversations.md).
+- **The tool rounds of earlier questions become stored rounds** ([`ToolTurn`](./ask.md#toolturn)),
+  as [`geminiToolTurns()`](#geminitoolturnsturns) wrote them: a `model` turn made only of
+  `functionCall` parts that call the library's tools ([`TOOL_NAMES`](./tools.md#tool_names)),
+  followed by the `user` turn of their `functionResponse` parts, one for each call, in the same
+  order, with the same names and `id`s. New in 0.9.0, and on by default (`rounds`).
+- The role `"user"` stays `"user"`, and `"model"` becomes `"assistant"`.
+- A part that holds only `text` becomes `{ text }`. A part with `text` and other fields (a thought
+  signature) becomes `{ native: part, text }`. The loop counts its tokens from the text and its
+  bytes from the whole part (the bytes since 0.9.0).
+- Every other part is kept as `{ native: part }`, which `gemini()` sends back as it is: an image,
+  an inline PDF, and a function call or response that is not part of such a round.
+- A `functionCall` or `functionResponse` part kept this way carries, as its `text`, the JSON of its
+  call or response. The loop counts its tokens from that text, as it counts a stored round, and
+  its bytes from the whole part, a thought signature next to the call included. One with files in
+  it (`parts` in a response) is sized as media. New in 0.9.0: before, every function part was
+  sized as media, at about a token for each 256 characters, and a follow-up whose rounds were in
+  `contents` was counted about 15,000 tokens short in a test of two calls.
+
+With its rounds as stored rounds, a follow-up asked with `contents` works as one asked with
+`messages` and `toolTurns`: a repeated call is answered with a pointer to its earlier result, the
+results can be shortened to make room, and they are sized alike. For a round that
+`geminiToolTurns` wrote, the request is the same, byte for byte, as before 0.9.0: the round is
+sent as it was written. When the loop shortens such a round, the later requests of the question
+hold its stand-ins. A round that 0.5.0 converted has `tool_turns_left` in its responses: it is
+lifted too, and sent without it, as stored rounds are, and a call without `args` is sent with
+`args: {}`. A conversation that holds such a round misses the prompt cache once after the
+upgrade, from that round on.
+
+A turn is kept as it is, part by part, when anything in it is not of that form: a function of
+your own, a call next to one of yours, a thought signature, a response with a file in it, or
+responses that do not match the calls. So is a round that ends `contents`, with no turn after it:
+its responses are the turn the model answers (an application that ran the tools in a loop of its
+own hands the conversation over). `askWithFiles` throws "The last message must be the user's." for
+a conversation that ends with a stored round.
+
+Guide: [conversations](../guides/conversations.md#gemini-contents).
+
+### `FromGeminiContentsOptions`
+
+```ts
+type FromGeminiContentsOptions = { rounds?: boolean };
+```
+
+New in 0.9.0.
+
+| Field | Type | Default | What it does |
+|---|---|---|---|
+| `rounds` | `boolean` | `true` | Turn the tool rounds of earlier questions into stored rounds (above). `false` keeps every turn as its parts, as 0.8 did. Function parts are sized by their JSON either way. |
 
 ### geminiToolTurns(turns)
 
@@ -497,7 +541,9 @@ of `functionResponse` parts, in call order. Put them between the question and it
 model sees in a later question what its tools returned in this one. The results leave out
 `tool_turns_left`, which counted the turns of their own question, as `askWithFiles` does with
 stored rounds (since 0.6.0): a history kept as `contents` gives the same request as one kept as
-`toolTurns`. Contents that 0.5.0 converted keep the field.
+`toolTurns`. Contents that 0.5.0 converted keep the field. Since 0.9.0 `fromGeminiContents` turns
+these turns back into stored rounds, so the loop treats them alike too, and the rounds of 0.5.0
+are then sent without the field (above).
 
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
@@ -531,8 +577,8 @@ type GeminiPart = Record<string, unknown>;
 ```
 
 One part of a turn, in Gemini's own form: `{ text }`, `{ inlineData }`, `{ functionCall }`,
-`{ functionResponse }` and so on. The library reads `text`, `thought` and `functionCall`, and
-passes every part on as it is.
+`{ functionResponse }` and so on. The library reads `text`, `thought` and `functionCall` (and,
+since 0.9.0, the function parts of `fromGeminiContents`), and passes every part on as it is.
 
 ## Helpers for your own loop
 

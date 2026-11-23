@@ -1,8 +1,11 @@
 import { safeErrorMessage } from "./errors.js";
+import { until } from "./http.js";
 import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
 import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
-import { cutPdfPages } from "./pdf-pages.js";
+import { cutPdfPages, type PageCut } from "./pdf-pages.js";
+import type { Limiter } from "./limiter.js";
+import { DocumentGoneError } from "./ranged.js";
 import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource, type LineMatch } from "./search.js";
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
@@ -677,6 +680,33 @@ export const unknownToolName = (name: string): string => `“${sliceWhole(name, 
  */
 const shownId = (id: string): string => (id.length > 64 ? `${sliceWhole(id, 64)}…` : id);
 
+/** A document that a call names is no longer in the store, as a read by range finds it: its message is the model's. */
+const gone = (id: string) => new DocumentGoneError(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+
+/** A look at pages that waited its turn for too long: its message is the model's. */
+class PagesBusyError extends Error {
+  constructor(readonly documentId: string, file: string) {
+    super(`${file}: The pages cannot be looked at right now; the server is busy. Answer from the text, or look again later.`);
+  }
+}
+
+/** A timer may wait at most this long (2^31 - 1 ms, 24.8 days). */
+const LONGEST_WAIT_MS = 2_147_483_647;
+
+/** How the looks at pages of a library take their turns (`maxConcurrentPageLooks`, `pageLookWaitMs`). */
+export type PageLookTurns = {
+  /** Shared by every tool set of the library: one look at a time, by default. */
+  limiter: Limiter;
+  /** How long a look waits for its turn before the model is told that the server is busy. Infinity: without end. */
+  waitMs: number;
+  /**
+   * How long a look may hold its turn while its original file is read from the store. Past it, the
+   * turn goes back and the model is told that the file could not be read in time: a store that
+   * never answers holds no turn for good. Left out, or Infinity: without end.
+   */
+  holdMs?: number;
+};
+
 export function createDocumentTools(options: {
   /** Loads a document the tools may access. Return undefined for anything out of scope. */
   load(documentId: string): Promise<DocumentSource | undefined>;
@@ -712,6 +742,11 @@ export function createDocumentTools(options: {
   viewableIds?: string[];
   /** Loads the uploaded file of a document, for `view_pages`. */
   loadOriginal?(documentId: string): Promise<Uint8Array | undefined>;
+  /**
+   * The turns of the looks at pages, shared by the tool sets of one library: a look waits for its
+   * turn before the original file is loaded. Without it, looks do not wait.
+   */
+  pageLooks?: PageLookTurns;
   /**
    * True when a document may hold a table (a CSV, a workbook, a document with `| cell |` rows):
    * `aggregate_table` is then declared. A call of it is answered either way. Defaults to false.
@@ -766,7 +801,6 @@ export function createDocumentTools(options: {
 
   /** The documents the calls under way loaded, by the arguments of the call: checked once it ends (`checkRead`). */
   const loaded = new WeakMap<object, Set<DocumentSource[]>>();
-  const gone = (id: string) => new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
 
   async function documentFor(args: Record<string, unknown>): Promise<DocumentSource> {
     const id = text(args.document_id, "document_id");
@@ -783,6 +817,51 @@ export function createDocumentTools(options: {
     for (const reads of loaded.get(args) ?? []) reads.push(document);
     names.set(id, document.meta.name);
     return document;
+  }
+
+  /**
+   * Waits for the turn of a look at pages of `file`, for at most `pageLookWaitMs`, or the call's
+   * `maxWaitMs` when that is less. Returns the function that gives the turn back. Past the wait, a
+   * `PagesBusyError`. The wait ends at once when the tool set is stopped, with the reason it was
+   * stopped for.
+   */
+  async function pageLookTurn(id: string, file: string, limits: ToolCallLimits): Promise<() => void> {
+    const turns = options.pageLooks;
+    if (!turns) return () => undefined;
+    const waited = new AbortController();
+    const callWait = typeof limits.maxWaitMs === "number" && !Number.isNaN(limits.maxWaitMs) ? limits.maxWaitMs : Infinity;
+    const waitMs = Math.max(0, Math.min(turns.waitMs, callWait));
+    const timer = waitMs <= LONGEST_WAIT_MS ? setTimeout(() => waited.abort(), waitMs) : undefined;
+    timer?.unref?.();
+    try {
+      return await turns.limiter.acquire(options.signal ? AbortSignal.any([options.signal, waited.signal]) : waited.signal);
+    } catch (error) {
+      if (options.signal?.aborted || !waited.signal.aborted) throw error;
+      throw new PagesBusyError(id, file);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The original file of a look, read while the look holds its turn: for at most `holdMs`, and
+   * only while the tool set runs. A read given up on goes on, but holds no turn.
+   */
+  async function originalOf(id: string, file: string): Promise<Uint8Array | undefined> {
+    const reading = until(options.loadOriginal!(id), options.signal);
+    const holdMs = options.pageLooks?.holdMs;
+    if (holdMs === undefined || !(holdMs <= LONGEST_WAIT_MS)) return reading;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // The timer keeps the process alive: a read that never ends may hold nothing that does, and
+    // the question waiting for it would be lost.
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`The original file of ${file} could not be read in time, so its pages cannot be shown. Answer from the text.`)), Math.max(0, holdMs));
+    });
+    try {
+      return await Promise.race([reading, late]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   const handlers: Record<string, (args: Record<string, unknown>, limits: ToolCallLimits, hooks: ToolCallHooks) => Promise<ToolResult>> = {
@@ -1046,7 +1125,7 @@ export function createDocumentTools(options: {
         : `Unknown document_id ${shownId(id)}. Use the document_id of an attached PDF.`);
     }
     const document = await options.load(id);
-    if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+    if (!document) throw gone(id);
     const file = document.meta.name;
     names.set(id, file);
     const from = pageNumber(args.from_page, "from_page");
@@ -1059,13 +1138,32 @@ export function createDocumentTools(options: {
     if (mostPages < 1) throw new Error("No more pages can be looked at for this question. Answer from the pages and the text you already have.");
     const maxBytes = whole(limits.maxFileBytes, defaultFileBytes);
     if (maxBytes < MIN_FILE_BYTES) throw new Error("There is no room left in this request to show more pages. Answer from the pages and the text you already have.");
-    const original = await options.loadOriginal!(id);
-    if (!original) throw new Error(`The original file of ${file} is no longer on the server, so its pages cannot be shown. Answer from the text.`);
-    let cut;
+    // Looks take their turns in the library (`maxConcurrentPageLooks`): they share one thread, and
+    // more of them at once only hold more memory. The original is loaded once the turn comes, so a
+    // look that waits holds none of its bytes, and the memory left is looked at then (`cutPdfPages`).
+    // A question stopped while its original is read gives the turn back at once, and so does a
+    // read that takes longer than the library allows its store calls (`holdMs`).
+    const release = await pageLookTurn(id, file, limits);
+    let cut: PageCut | undefined;
     try {
-      cut = await cutPdfPages(original, from, Math.min(asked, from + mostPages - 1), maxBytes, total);
-    } catch (error) {
-      throw new Error(`${file}: ${safeErrorMessage(error)}`);
+      options.signal?.throwIfAborted();
+      const original = await originalOf(id, file);
+      // Stopped while the original was read: no pages are cut for a question that has left.
+      options.signal?.throwIfAborted();
+      if (original) {
+        try {
+          cut = await cutPdfPages(original, from, Math.min(asked, from + mostPages - 1), maxBytes, total);
+        } catch (error) {
+          throw new Error(`${file}: ${safeErrorMessage(error)}`);
+        }
+      }
+    } finally {
+      release();
+    }
+    if (!cut) {
+      // The document may have gone while the look waited for its turn: that is told as such.
+      if (!await options.load(id)) throw gone(id);
+      throw new Error(`The original file of ${file} is no longer on the server, so its pages cannot be shown. Answer from the text.`);
     }
     const pages = pageRange(cut.from, cut.to);
     const shown = cut.to - cut.from + 1;
@@ -1084,8 +1182,16 @@ export function createDocumentTools(options: {
     };
   }
 
-  // What a tool could not do goes to the model, and from there to a user's screen: never a server path.
-  const failure = (error: unknown): ToolResult => ({ error: safeErrorMessage(error) });
+  /**
+   * What a tool could not do goes to the model, and from there to a user's screen: never a server
+   * path. A document found gone, or a look that waited too long, is also told to the call's hooks.
+   */
+  const failure = (error: unknown, args: Record<string, unknown>, hooks: ToolCallHooks): ToolResult => {
+    // Found gone when the call began, or while a read by range went through its text.
+    if (error instanceof DocumentGoneError && typeof args.document_id === "string") hooks.onDocumentGone?.(args.document_id);
+    else if (error instanceof PagesBusyError) hooks.onPagesBusy?.(error.documentId);
+    return { error: safeErrorMessage(error) };
+  };
 
   async function execute(name: string, args: Record<string, unknown>, limits: ToolCallLimits = {}, hooks: ToolCallHooks = {}): Promise<ToolResult> {
     if (!known.has(name)) return { error: `Unknown tool ${unknownToolName(name)}.` };
@@ -1113,7 +1219,7 @@ export function createDocumentTools(options: {
       return result;
     } catch (error) {
       if (options.signal?.aborted) throw error;
-      return failure(error);
+      return failure(error, args, hooks);
     } finally {
       calls?.delete(reads);
     }
@@ -1130,7 +1236,7 @@ export function createDocumentTools(options: {
         return await viewPages(args, limits);
       } catch (error) {
         if (options.signal?.aborted) throw error;
-        return { result: failure(error), files: [] };
+        return { result: failure(error, args, hooks), files: [] };
       }
     },
     describe(name, args) {

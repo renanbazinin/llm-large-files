@@ -11,7 +11,7 @@ import { checkScope } from "./scope.js";
 import { APP_DOCUMENT_ID_PATTERN } from "./stores.js";
 import { wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
-import { createDocumentTools } from "./tools.js";
+import { createDocumentTools, type PageLookTurns } from "./tools.js";
 import type {
   Budget,
   DocumentContext,
@@ -114,6 +114,22 @@ export type LargeFilesOptions = {
    * not finish sooner. `Infinity` for no limit (as before 0.8.2). Defaults to 2. New in 0.8.2.
    */
   maxConcurrentIngests?: number;
+  /**
+   * How many looks at pages (`view_pages`) run at once in this library, over all its questions.
+   * The others wait their turn, in order, before the PDF is loaded. A look parses the whole PDF on
+   * the one thread the questions share: more at once do not finish sooner, they only hold more
+   * memory (six at once held 352 MB more than one). `Infinity` for no limit (as before 0.9.0).
+   * Defaults to 1. A look reads its PDF from the store within `ingestTimeoutMs` (2 minutes when
+   * that is 0): past it, the turn goes back and the model is told that the file could not be read
+   * in time. New in 0.9.0.
+   */
+  maxConcurrentPageLooks?: number;
+  /**
+   * How long a look at pages waits for its turn, in milliseconds. Past it, the model is told that
+   * the server is busy and to answer from the text, and the question gets a "page_looks_busy"
+   * notice. `Infinity` waits without end; 0 does not wait. Defaults to 30,000. New in 0.9.0.
+   */
+  pageLookWaitMs?: number;
   /**
    * Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `prepare`,
    * `askWithFiles` (and `askStream`, `askGemini`), and `tools`, which then needs `access`. A call
@@ -354,6 +370,10 @@ export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
 
 /** Default for `wholeDocumentBytes`. */
 export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
+/** Looks at pages that run at once in a library, unless `maxConcurrentPageLooks` says otherwise. */
+const DEFAULT_PAGE_LOOKS = 1;
+/** How long a look at pages waits for its turn, unless `pageLookWaitMs` says otherwise. */
+const DEFAULT_PAGE_LOOK_WAIT_MS = 30_000;
 
 /**
  * A number option as it was given, or `fallback` when it was left out. NaN, which
@@ -452,6 +472,15 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const ingests = new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentIngests", options.maxConcurrentIngests, 2))));
   /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
   const slotCapMs = ingestTimeoutMs > 0 && ingestTimeoutMs <= LONGEST_TIMER_MS ? ingestTimeoutMs : DEFAULT_INGEST_TIMEOUT_MS;
+  /**
+   * The looks at pages of every question of this library take their turns (`maxConcurrentPageLooks`).
+   * A look reads its original within the time the library gives its store calls (`slotCapMs`).
+   */
+  const pageLooks: PageLookTurns = {
+    limiter: new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentPageLooks", options.maxConcurrentPageLooks, DEFAULT_PAGE_LOOKS)))),
+    waitMs: Math.max(0, numberOption("pageLookWaitMs", options.pageLookWaitMs, DEFAULT_PAGE_LOOK_WAIT_MS)),
+    holdMs: slotCapMs,
+  };
 
   const scannedPdfPages = Math.max(0, Math.trunc(numberOption("scannedPdfPages", options.scannedPdfPages, 30)));
   /** Whether the uploaded file of a document of this format is kept. */
@@ -718,7 +747,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         documentIds: documents.map((meta) => meta.id),
         names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, wellFormed(meta.name)])),
         budget,
-        ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal } : {}),
+        ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal, pageLooks } : {}),
         // `analyze_whole_document` is declared only when it can read at least one of the documents.
         wholeReads: documents.some((meta) => canBeReadWhole(meta, budget)),
         // `aggregate_table` only when one may hold a table.

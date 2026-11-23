@@ -1,5 +1,7 @@
 // Gemini (Generate Content REST) as a model of `askWithFiles`.
-import { laterResult, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { laterResult, TOOL_TURN_VERSION, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelPart, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { TOOL_NAMES } from "../tools.js";
+import type { ToolResult } from "../types.js";
 import { retryAfterMs } from "../retry.js";
 import { idleWatch, noteCutReply, readJson, streamedReply, type IdleWatch } from "../http.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
@@ -88,18 +90,102 @@ const textTurn = (message: ModelTextMessage): GeminiContent[] => {
   return parts.length > 0 ? [{ role: message.role === "user" ? "user" : "model", parts }] : [];
 };
 
+export type FromGeminiContentsOptions = {
+  /**
+   * Turn the tool rounds of earlier questions back into stored rounds (`ToolTurn`), as
+   * `geminiToolTurns` wrote them: a `model` turn made only of `functionCall` parts that call this
+   * library's tools (`TOOL_NAMES`), followed by the `user` turn of their `functionResponse` parts,
+   * one for each call, in the same order, with the same names and ids. The loop can then point a
+   * repeated call to them, shorten them to make room, and size them as it sizes `toolTurns`. The
+   * request is the same for the rounds `geminiToolTurns` wrote. A turn with anything else in it (a
+   * function of your own, a thought signature, a file in a response) stays as it is, and so does a
+   * round that ends `contents`: its responses are the turn the model answers. Defaults to true;
+   * false gives the turns of 0.8. New in 0.9.0.
+   */
+  rounds?: boolean;
+};
+
+/** The names of the library's tools. */
+const LIBRARY_TOOLS: ReadonlySet<string> = new Set(Object.values(TOOL_NAMES));
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+/** Whether `value` has no keys but those `allowed`. */
+const onlyKeys = (value: Record<string, unknown>, allowed: readonly string[]) => Object.keys(value).every((key) => allowed.includes(key));
+/** The field `name` of a part that has that field and no other, when it is an object. */
+const soleField = (part: GeminiPart | undefined, name: string): Record<string, unknown> | undefined => {
+  if (!isPlainObject(part)) return undefined;
+  const keys = Object.keys(part);
+  return keys.length === 1 && keys[0] === name && isPlainObject(part[name]) ? part[name] : undefined;
+};
+
 /**
- * Gemini `contents` as messages of `askWithFiles`: text parts as text, every other part (an image,
- * an inline PDF, a function call of an earlier question) as it is.
+ * A stored tool round of the library, in the form `geminiToolTurns` gives it: `asked` is a model
+ * turn of calls of the library's tools and nothing else, and `answered` the turn of their
+ * responses, in the same order. Undefined for anything else.
  */
-export function fromGeminiContents(contents: GeminiContent[]): ChatMessage[] {
-  return contents.map((content): ModelTextMessage => ({
-    role: content.role === "user" ? "user" : "assistant",
-    parts: content.parts.map((part) => {
-      if (typeof part.text !== "string") return { native: part };
-      return Object.keys(part).length === 1 ? { text: part.text } : { native: part, text: part.text };
-    }),
-  }));
+function liftedRound(asked: GeminiContent, answered: GeminiContent | undefined): ToolTurn | undefined {
+  if (asked.role !== "model" || answered?.role !== "user" || !Array.isArray(asked.parts) || !Array.isArray(answered.parts)) return undefined;
+  if (asked.parts.length === 0 || answered.parts.length !== asked.parts.length) return undefined;
+  const calls: ToolTurn["calls"] = [];
+  for (const [index, part] of asked.parts.entries()) {
+    const call = soleField(part, "functionCall");
+    const response = soleField(answered.parts[index], "functionResponse");
+    if (!call || !response || !onlyKeys(call, ["name", "args", "id"]) || !onlyKeys(response, ["name", "id", "response"])) return undefined;
+    const { name, args = {}, id } = call;
+    if (typeof name !== "string" || !LIBRARY_TOOLS.has(name) || !isPlainObject(args) || (id !== undefined && typeof id !== "string")) return undefined;
+    if (response.name !== name || response.id !== id || !isPlainObject(response.response)) return undefined;
+    calls.push({ ...(id ? { id } : {}), name, args, result: response.response as ToolResult });
+  }
+  return { role: "tools", version: TOOL_TURN_VERSION, calls };
+}
+
+/**
+ * The text a function part is sized by: the JSON of its call or response. Undefined for any other
+ * part, and for a response with files in it, which is sized as media.
+ */
+function sizingText(part: GeminiPart): string | undefined {
+  for (const name of ["functionCall", "functionResponse"]) {
+    const field = part[name];
+    if (!isPlainObject(field)) continue;
+    if (Array.isArray(field.parts) && field.parts.length > 0) return undefined;
+    return JSON.stringify(field);
+  }
+  return undefined;
+}
+
+/** A part of a turn that is not part of a stored round. */
+function partOf(part: GeminiPart): ModelPart {
+  if (typeof part.text !== "string") {
+    const text = sizingText(part);
+    return text === undefined ? { native: part } : { native: part, text };
+  }
+  return Object.keys(part).length === 1 ? { text: part.text } : { native: part, text: part.text };
+}
+
+/**
+ * Gemini `contents` as messages of `askWithFiles`: text parts as text, the tool rounds of earlier
+ * questions that `geminiToolTurns` gave as stored rounds (see `options.rounds`, since 0.9.0), and
+ * every other part (an image, an inline PDF, a function call of your own) as it is. A function
+ * part kept as it is is sized by the JSON of its call or response (since 0.9.0; before, as media).
+ */
+export function fromGeminiContents(contents: GeminiContent[], options: FromGeminiContentsOptions = {}): ChatMessage[] {
+  const lift = options.rounds !== false;
+  const messages: ChatMessage[] = [];
+  for (let at = 0; at < contents.length; at++) {
+    const content = contents[at]!;
+    // A round is lifted only when a turn follows it. Responses that end `contents` are the turn the
+    // model answers (an application that ran the tools in a loop of its own hands them over), and
+    // stay as they are, as in 0.8.
+    const round = lift && at + 2 < contents.length ? liftedRound(content, contents[at + 1]) : undefined;
+    if (round) {
+      messages.push(round);
+      at++;
+      continue;
+    }
+    const turn: ModelTextMessage = { role: content.role === "user" ? "user" : "assistant", parts: content.parts.map(partOf) };
+    messages.push(turn);
+  }
+  return messages;
 }
 
 /**

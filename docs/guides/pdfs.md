@@ -656,6 +656,39 @@ block:
 A look runs on the server that answers the question, not where the file was ingested
 ([Deployment](./deployment.md#pages-of-pdfs)).
 
+**Looks take their turns** (new in 0.9.0). Looks share the thread of your server, so more of them
+at once do not finish sooner: six at once each took about four times as long, and held 352 MB more
+than one. So one look runs at a time in a library, over all its questions, and the others wait in
+order, before their PDF is loaded:
+
+| Option (`createLargeFiles`) | Default | What it does |
+|---|---|---|
+| `maxConcurrentPageLooks` | 1 | How many looks run at once. `Infinity` for no limit, as before 0.9.0. |
+| `pageLookWaitMs` | 30,000 | How long a look waits for its turn. Past it, it is not run. |
+
+A look that waited too long tells the model "report.pdf: The pages cannot be looked at right now;
+the server is busy. Answer from the text, or look again later.", and the question gets a
+`page_looks_busy` notice ([events](../reference/events.md#noticecode-and-noticedisplay)). A
+question that is stopped stops waiting at once, and loads nothing. A question stopped while its
+PDF is read gives the turn back at once, and no pages are cut for it.
+
+A look holds its turn while it reads the PDF from the store, for at most `ingestTimeoutMs` (2
+minutes by default). Past it, the turn goes back, the next look runs, and the model reads "The
+original file of report.pdf could not be read in time, so its pages cannot be shown. Answer from
+the text." Give your store's `getOriginal` a time limit of its own: the read goes on.
+
+How long a question can wait for turns:
+
+- A look waits at most `pageLookWaitMs` (30 s) for its turn. A wait that ends with "busy" happens
+  at most once in a tool turn: after a look of the turn was told the server is busy, the other
+  looks of that turn do not wait. Each runs if a turn is free at that moment, and is told the
+  server is busy if not.
+- A look that gets its turn may still have waited for it up to `pageLookWaitMs`. So when other
+  questions hold the turn all that time, a tool turn can wait up to `pageLookWaitMs` for each of its
+  looks: 8 looks of 30 s, 4 minutes, with the defaults (`callsPerTurn` 8), and a question waits that
+  in each tool turn that looks at pages.
+- Lower `pageLookWaitMs`, or raise `maxConcurrentPageLooks`, for a chat that must answer sooner.
+
 ### Limits and cost
 
 | Limit | Value | When it is reached |

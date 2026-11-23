@@ -324,6 +324,13 @@ export type ToolCallLimits = {
    * halves only while that and `maxMapChunks` allow it.
    */
   maxRequests?: number;
+  /**
+   * The most milliseconds a look at pages (`view_pages`) of this call waits for its turn, when that
+   * is less than the library's `pageLookWaitMs`. 0: it runs only when a turn is free now, and is
+   * told the server is busy if not. `askWithFiles` gives 0 to the looks of a turn after one of them
+   * came back busy, so that a wait that ends busy comes once in a turn. New in 0.9.0.
+   */
+  maxWaitMs?: number;
 };
 /**
  * Listeners for one tool call, next to its limits. New in 0.7.0: with them, the progress of two
@@ -337,6 +344,18 @@ export type ToolCallHooks = {
    * returns about each retry of that request, and when it ends.
    */
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
+  /**
+   * The document this call names is no longer in the store: deleted or expired since it was
+   * planned, or not readable by the caller (which looks the same). The call answers the model with
+   * an error that says so. `askWithFiles` makes it a "document_gone" notice. New in 0.9.0.
+   */
+  onDocumentGone?: (documentId: string) => void;
+  /**
+   * A look at pages (`view_pages`) waited longer than `pageLookWaitMs` for its turn
+   * (`maxConcurrentPageLooks`) and was not run. The call answers the model with an error that says
+   * the server is busy. `askWithFiles` makes it a "page_looks_busy" notice. New in 0.9.0.
+   */
+  onPagesBusy?: (documentId: string) => void;
 };
 
 /** One model request of a tool call (`ToolCallHooks.onRequest`). */

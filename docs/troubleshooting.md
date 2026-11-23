@@ -516,7 +516,10 @@ handler's `get` answers `404` with `This file is no longer available.` for the s
 **Fix.** Pass the same `owner` to the question as to the upload: the value `getOwner` returned for
 the same user. Use a store that every server shares and that outlives a restart. Show the user which
 files to attach again: `error.ids` names the IDs, and your chat knows their file names. A
-document's `expiresAt` says when it goes.
+document's `expiresAt` says when it goes. Since 0.9.0 a question can go on without them:
+`onMissingDocuments: "drop"` answers from the other files and lists the missing ones in
+`result.missing`, and a function can ingest them again from uploads you kept
+([missing documents](./reference/ask.md#missing-documents)).
 
 See [Storage](./guides/storage.md) and
 [`DocumentsNotFoundError`](./reference/ask.md#documentsnotfounderror).
@@ -1045,9 +1048,11 @@ Look at `result.usage`: `inputTokens`, `cachedInputTokens` (read from the provid
 - **`documentPlacement: "last"`.** The documents then move to the latest turn, and a prompt cache
   cannot reuse them: keep the default, `"first"`.
 - **The first request of a follow-up question.** The tool rounds of an earlier question are sent
-  again without their `tool_turns_left` (since 0.6.0), so that request reads the cache only up to
-  the tool rounds of the question before it: the documents, the cards and the turns before those
-  rounds still hit. The later requests of the question hit as before.
+  again without their `tool_turns_left` (since 0.6.0), and as their calls alone: a stored round
+  keeps no thought signatures or thinking blocks, which the requests of its own question sent
+  back. Either one makes that request read the cache only up to the tool rounds of the question
+  before it: the documents, the cards and the turns before those rounds still hit. The later
+  requests of the question hit as before.
 - **The first request after the upgrade to 0.6.0.** The tool guide, the descriptions of
   `search_document` and `analyze_whole_document`, and the frame of every file sent whole changed,
   so the first request of each conversation reads from the cache at most what comes before the

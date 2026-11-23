@@ -13,7 +13,7 @@ import {
   EXPLORER_INSTRUCTION, FINAL_ANSWER_REQUEST, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_WITHOUT_TOOLS,
 } from "llm-large-files";
 import type {
-  AskOptions, AskLimits, AskResult,
+  AskOptions, AskLimits, AskResult, MissingDocumentsAction, MissingDocumentsContext,
   ChatMessage, ChatTurn, ToolTurn,
   ModelAdapter, ModelCapabilities, ModelRequest, ModelMessage, ModelTextMessage, ModelToolRound,
   ModelPart, ToolCall, ToolAnswer, SendHooks, ModelReply, GenerateText, GenerateUsage,
@@ -30,7 +30,9 @@ Contents:
   [`askStream(options)`](#askstreamoptions), [`AskOptions`](#askoptions),
   [`AskLimits`](#asklimits), [`AskResult`](#askresult),
   [`partialResultOf(error)`](#partialresultoferror),
-  [`DocumentsNotFoundError`](#documentsnotfounderror)
+  [`DocumentsNotFoundError`](#documentsnotfounderror), [missing documents](#missing-documents),
+  [`MissingDocumentsAction`](#missingdocumentsaction),
+  [`MissingDocumentsContext`](#missingdocumentscontext)
 - **What the loop adds to its requests:** [`EXPLORER_INSTRUCTION`](#explorer_instruction),
   [`FINAL_ANSWER_REQUEST`](#final_answer_request),
   [`FINAL_ANSWER_AFTER_PAGES`](#final_answer_after_pages),
@@ -76,8 +78,9 @@ What it does, in order:
    `options.budget` in place of its own, and fits it to what the adapters declare:
    `contextTokens`, `maxRequestBytes`, `tokenScale`, `outputTokens` (see
    [`ModelCapabilities`](#modelcapabilities)). `result.budget` is the outcome.
-2. **Plans the documents** with `files.prepare`, for the room the conversation leaves. A document
-   that is missing throws `DocumentsNotFoundError` before any model request.
+2. **Plans the documents** with `files.prepare`, for the room the conversation leaves. Documents
+   that are missing are settled by `onMissingDocuments` before any model request: by default the
+   question throws `DocumentsNotFoundError` ([missing documents](#missing-documents)).
 3. **Sends one request without tools** to `model` when every document went in whole and no PDF
    can be looked at, and returns its reply.
 4. **Otherwise runs tool rounds.** The model that explores (`explorer`, or `model` without one)
@@ -106,6 +109,16 @@ the provider allows (OpenAI's and Groq's TPM, HTTP 429 or 413) is this kind too,
 allowance as the window, and its steps say so.
 [How it works](../how-it-works.md#a-request-too-large-for-the-model) explains each step.
 
+New in 0.9.0: the first request of a question is not sent to be refused. When the stored rounds of
+earlier questions make it larger than the room it has in tokens, by the loop's own estimate (the
+window less half of `reservedTokens`), their results are shortened first, in the same steps, until
+it fits. The request is then what 0.8.2 sent again after the provider refused it, without the
+refused request before it. Only tokens are counted here, as in that recovery: a request is not
+shortened for its bytes alone. This is done for an `appendOnly` model too: a stored round has no
+thinking in it, and nothing of the question was sent yet. Before, such a question failed on Claude.
+`steps` says "Older tool results were shortened to make room in the request", once: a question
+planned again shortens them again without saying so twice.
+
 **Returns** an [`AskResult`](#askresult).
 
 **Throws:**
@@ -116,7 +129,9 @@ allowance as the window, and its steps say so.
 | `Error`: "The last message must be the user's." | `messages` is empty, or its last message is not a user turn. | undefined |
 | `RangeError`: "limits.… must be a number, and is NaN. Leave it out for the default.", or `TypeError`: "limits.… must be a number, and is …" | A field of `options.limits` is NaN, or not a number. Before any request. New in 0.7.1. | undefined |
 | [`DocumentStoreError`](./library.md#documentstoreerror) | The store could not be read while the documents were planned. The documents are not gone: try again. A store that fails during a tool call is not thrown: the model gets the message as the tool's `error`. | undefined |
-| [`DocumentsNotFoundError`](#documentsnotfounderror) | A document of `documentIds` was never stored, has expired or been deleted, or belongs to another `owner` or `scope`. Before any request. | undefined |
+| [`DocumentsNotFoundError`](#documentsnotfounderror) | A document of `documentIds` was never stored, has expired or been deleted, or belongs to another `owner` or `scope`, and `onMissingDocuments` is `"throw"` (the default) or returned it; or a retry or replace of `onMissingDocuments` did not bring it back. Before any request. | undefined |
+| `TypeError`: "onMissingDocuments must be "throw", "drop" or a function, and is …", or "onMissingDocuments returned …: it must return …" | `onMissingDocuments` is something else, or its function returned something else. New in 0.9.0. | undefined |
+| What the function of `onMissingDocuments` threw | It threw, or its promise rejected. Before any request. New in 0.9.0. | undefined |
 | `TypeError("owner is required: requireOwner is on")`, `TypeError("scope is required: requireScope is on")` | The library requires an owner or a scope ([`LargeFilesOptions`](./library.md#largefilesoptions)), and the question has none. Before any request. New in 0.9.0. | undefined |
 | [`DocumentScopeError`](./library.md#documentscopeerror) | `scope` is not a valid scope, or the store threw one. Before any request when the scope is not valid. New in 0.9.0. | undefined |
 | [`ModelRequestError`](./errors-and-retries.md#modelrequesterror), or the adapter's subclass (`GeminiRequestError`, `OpenAiRequestError`, `AnthropicRequestError`) | A chat request failed, and was not worth another try, still failed after `retry.retries` more, asked for a longer wait than `retry.maxDelayMs`, or had already shown text. A `context_overflow` that the recovery above did not mend. | What the question had done |
@@ -232,12 +247,13 @@ The options of `askWithFiles`.
 | `files` | [`LargeFiles`](./library.md#largefiles) | required | The library that holds the documents, plans them and makes the tools. |
 | `model` | [`ModelAdapter`](#modeladapter) | required | The model that answers. Without `explorer`, it also makes the tool calls and reads whole files in parts. |
 | `explorer` | `ModelAdapter \| undefined` | none | A second model, of any provider, that makes the tool calls (search, read, look at pages) and reads whole files in parts. `model` then writes the answer from what the tools returned. Its requests get [`EXPLORER_INSTRUCTION`](#explorer_instruction), and its text is not shown. Left out, or the same object as `model`: one model does both. |
-| `documentIds` | `string[]` | required | The documents this question may use. Duplicates count once. One that is missing throws [`DocumentsNotFoundError`](#documentsnotfounderror). |
+| `documentIds` | `string[]` | required | The documents this question may use. Duplicates count once. One that is missing throws [`DocumentsNotFoundError`](#documentsnotfounderror), unless `onMissingDocuments` says otherwise. |
 | `messages` | [`ChatMessage[]`](#chatmessage) | required | The conversation, oldest first. The last message must be the user's question. The loop works on copies: your array is not changed. |
 | `documentPlacement` | `"first" \| "last"` | `"first"` | Where document text and cards go. `"first"`: at the start of the first user turn, where they stay as the conversation grows, so the provider's prompt cache can reuse them on every follow-up question. `"last"`: after the text of the latest user turn; they then move on every turn and are billed in full each time. |
 | `system` | `string` | none | Your system instruction. It is trimmed, and the guide to the document tools is added after it when a document is reached through tools or has pages to look at. |
 | `owner` | `string` | none | The user (or tenant) asking. A document ingested with another owner is treated as missing. Without `owner`, only documents ingested without one can be used. |
 | `scope` | [`DocumentScope`](./library.md#documentscope) | none | The scope of the question, such as `[userId, chatId]`. Every store call of the question carries it, and a document ingested with another scope is treated as missing. The tools check the owner and scope the store holds against `owner` and `scope` (`ToolOptions.access`). New in 0.9.0. |
+| `onMissingDocuments` | `"throw" \| "drop" \| ((missing: string[], context: MissingDocumentsContext) => MissingDocumentsAction \| Promise<MissingDocumentsAction>)` | `"throw"` | What to do when documents of `documentIds` are missing: expired, deleted, never stored, or of another owner or scope, which look the same. Settled before any request. `"throw"`: [`DocumentsNotFoundError`](#documentsnotfounderror), as before 0.9.0. `"drop"`: the question is answered without them. A function: it gets the missing IDs, and says what to do. See [missing documents](#missing-documents). New in 0.9.0. |
 | `limits` | [`AskLimits`](#asklimits) | `{}` | The limits of this question: tool turns, calls per turn, whole-file reads, ceilings on tokens and requests. |
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | `{ retries: 3, baseDelayMs: 500, maxDelayMs: 60_000 }` | How a failed model request is sent again: chat requests and whole-file part reads. `{ retries: 0 }` turns it off. |
 | `budget` | `Partial<`[`Budget`](./library.md#budget)`>` | the library's | Budget fields for this question, in place of the library's. Fields given nowhere follow the context window. The budget is then fitted to the models either way: `result.budget` shows it. |
@@ -291,6 +307,7 @@ question that failed.
 | `evidence` | [`Evidence[]`](#evidence) | What each tool call showed the model: the document, and the lines or pages. In call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. Each has the `callId` of its call's events (new in 0.7.0). |
 | `toolTurns` | [`ToolTurn[]`](#toolturn) | The tool rounds of this question, as plain JSON, as the model last had them. Pass them back in `messages`, between this question and its answer, and a later question sees what was found here. Each result of a call made in this question has `tool_turns_left`, except a stand-in (`dropped: true`, see [`stubResult`](#stubresultcall-result-hadfiles)): a result shortened to make room, a pointer whose result was shortened, and the result of a call that showed pages. The pages are not kept: their stand-in says which pages were shown. A call's `problem` is left out. |
 | `plan` | [`DocumentPlan`](./library.md#documentplan) | Which documents went in whole (`inline`) and which were reached through tools (`searchable`). |
+| `missing` | `string[]`, optional | The documents of `documentIds` that were missing, and that the question was answered without (`onMissingDocuments` `"drop"`). Absent when none was. New in 0.9.0. |
 | `budget` | [`Budget`](./library.md#budget) | The budget the question ran with: the library's (with `options.budget`), fitted to the models. |
 | `turns` | `number` | Chat requests of the question, the explorer's among them; whole-file part reads are not counted. A request counts when it is sent, so one that failed counts too. One sent again after a failure counts once; one sent again smaller after an overflow counts again. |
 | `finishReason` | `string`, optional | The provider's own word for why the last reply that gave one ended (`"STOP"`, `"length"`, `"end_turn"`). |
@@ -356,7 +373,95 @@ available: ‹id›, ‹id›, ‹id›. Upload them again." New in 0.9.0: `code
 `status` is 404, and `DocumentsNotFoundError.is(error)` tells one apart also when another copy of
 the package made it (see [errors](./errors-and-retries.md#telling-errors-apart-across-copies-of-the-package)).
 
+Since 0.9.0 `onMissingDocuments` can answer without them, or bring them back, instead.
+
 Guide: [errors and reliability](../guides/errors-and-reliability.md).
+
+### Missing documents
+
+New in 0.9.0. `AskOptions.onMissingDocuments` says what a question does with documents of
+`documentIds` that are missing. A document that expired (`ttlMs`), was deleted, was never stored,
+or belongs to another owner or scope is missing: the four look the same, so another user's ID tells
+nothing. It is settled before any model request.
+
+- **`"throw"`** (the default): the question throws [`DocumentsNotFoundError`](#documentsnotfounderror),
+  as before.
+- **`"drop"`**: the question is answered without them.
+  - The system instruction gets one line at its end: "1 of the attached files is no longer
+    available; say so if the question needs it." (or "3 of the attached files are no longer
+    available; say so if the question needs them."). Only in this question.
+  - `AskResult.missing` lists their IDs, and a `"documents_missing"` notice names them
+    (`documentIds`), before the `plan` event.
+  - With no document left, the question is a plain chat: no tool guide, no tools.
+- **A function** gets the missing IDs and a [`MissingDocumentsContext`](#missingdocumentscontext),
+  and returns a [`MissingDocumentsAction`](#missingdocumentsaction), or a promise of one.
+  - `"throw"` or `"drop"`, as above.
+  - `{ retry: true }`: you ingested them again under the same IDs (`IngestInput.id`). The documents
+    are planned again, once.
+  - `{ replace: { [oldId]: newId } }`: you ingested them under new IDs. The documents are planned
+    again, once, with each new ID in the place of its old one.
+  - After a retry or a replace, an ID still missing fails the question with
+    `DocumentsNotFoundError`. When you cannot bring them all back, return `"drop"`: those you
+    ingested again are used from the next question.
+  - What it throws fails the question, as it came. When `signal` aborts while it runs, the
+    question ends at once with the signal's reason, whether the function looks at the signal or not.
+
+A question planned again for a smaller window (after the provider refused its first request) keeps
+what was settled: the function is not asked again about the same documents.
+
+```ts
+import { askWithFiles, type AskResult, type LargeFiles, type MissingDocumentsAction, type ModelAdapter } from "llm-large-files";
+
+declare const files: LargeFiles;
+declare const model: ModelAdapter;
+// The uploads you keep, by their ID, which is also the document's ID.
+declare const uploads: { find(userId: string, id: string): Promise<{ name: string; bytes: Uint8Array } | undefined> };
+
+export async function ask(userId: string, chatId: string, documentIds: string[], question: string): Promise<AskResult> {
+  return askWithFiles({
+    files,
+    model,
+    owner: userId,
+    scope: [userId, chatId],
+    documentIds,
+    messages: [{ role: "user", text: question }],
+    // Ingest again what was kept; answer without the files that are gone for good.
+    onMissingDocuments: async (missing, { owner, scope }): Promise<MissingDocumentsAction> => {
+      let back = 0;
+      for (const id of missing) {
+        const upload = await uploads.find(userId, id);
+        if (!upload) continue;
+        await files.ingest({ name: upload.name, bytes: upload.bytes, id, owner, scope });
+        back++;
+      }
+      return back === missing.length ? { retry: true } : "drop";
+    },
+  });
+}
+```
+
+### `MissingDocumentsAction`
+
+```ts
+type MissingDocumentsAction = "throw" | "drop" | { retry: true } | { replace: Record<string, string> };
+```
+
+New in 0.9.0. What a function of `onMissingDocuments` returns: see
+[missing documents](#missing-documents). Anything else is a `TypeError`: "onMissingDocuments returned
+…: it must return "throw", "drop", { retry: true } or { replace: { [oldId]: newId } }." The map of
+a replace is a plain object (made as `{}`, or with `Object.create(null)`), not a `Map` or an
+instance of a class, and its new IDs are strings that are not empty. An action with a key of
+another name, such as `{ retry: true, why: "…" }`, is a `TypeError` too.
+
+### `MissingDocumentsContext`
+
+```ts
+type MissingDocumentsContext = { owner?: string; scope?: DocumentScope; signal?: AbortSignal };
+```
+
+New in 0.9.0. What a function of `onMissingDocuments` is told besides the IDs: the `owner`, `scope`
+and `signal` of the question, when it has them. Ingest again with the same owner and scope, or the
+documents are still missing for the question.
 
 ## What the loop adds to its requests
 
@@ -633,7 +738,8 @@ type ModelPart = { text: string; native?: undefined } | { native: unknown; text?
 
 One piece of a message: plain text, or something in the provider's own form (an image, an inline
 PDF) that only its adapter reads. A native part may carry the text it holds in `text`: the loop
-then sizes it by that text; otherwise by the size of its JSON. Each built-in adapter passes a native
+then counts its tokens from that text, and its bytes from the larger of the text and the part's
+JSON (since 0.9.0; before, from the text alone); otherwise it sizes it by the size of its JSON. Each built-in adapter passes a native
 part on to its provider as it is, and the loop sends it to every model of the question, so with an
 explorer of another provider, that model gets it too.
 
@@ -914,12 +1020,16 @@ older tool results, and for the pages in `result.toolTurns`. Set `hadFiles` (def
 result whose files (pages) are dropped with it, however small its JSON is.
 
 It returns `undefined` when there is nothing to gain: the result is an error, is already a
-stand-in, or (without `hadFiles`) its JSON is under 700 characters. Otherwise, by tool:
+stand-in, or (without `hadFiles`) its JSON is under 700 characters, or is no larger than its
+stand-in would be. That last rule is new in 0.9.0: a search counted by group, or an
+`aggregate_table` result, of a few short groups came out larger as a stand-in (845 characters grew
+to 1,073), and replaced the result it was meant to shorten. Otherwise, by tool:
 
 | Tool | The stand-in keeps |
 |---|---|
 | `read_document` | `lines`, `total_lines` |
-| `search_document` | `mode`, `query` (its first 200 characters), `total_matching_lines`, `lines_shown` (up to 60 ranges, such as `"120-180"`, the last match's among them when the search showed it) |
+| `search_document` | `mode`, `query` (its first 200 characters), `total_matching_lines`, `lines_shown` (up to 60 ranges, such as `"120-180"`, the last match's among them when the search showed it); with `group_by`, `group_by`, `total_groups` and the first 30 `groups` |
+| `aggregate_table` | `table`, `rows_matched`, `total_groups`, and the first 30 `groups` |
 | `analyze_whole_document` | `parts_read`, and the first 6,000 characters of `answer`, followed by "…" when it was longer: the answer cannot be asked for again |
 | `view_pages` | `pages`, `total_pages` |
 | `get_document_overview`, any other | nothing more than `document` and the note |

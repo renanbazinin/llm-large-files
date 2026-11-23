@@ -185,6 +185,7 @@ export const files = createLargeFiles({
   store: new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents"),
   extractors: isolated.extractors,   // PDF, DOCX, PPTX and XLSX
   keepOriginals: ["pdf"],            // view_pages: a look reads the whole PDF into this heap
+  maxConcurrentPageLooks: 1,         // the default: one look at a time, the others wait their turn
   cacheBytes: 256 * 1024 * 1024,     // the default
   maxConcurrentScans: 4,             // the default
   maxConcurrentIngests: 2,           // the default: the others wait their turn
@@ -477,6 +478,14 @@ declares, not what they take: a crafted file that a process of its own ingested 
 chat server out of memory at its first look, or take memory outside the heap. And what
 `@cantoo/pdf-lib` keeps after each look adds up from file to file: files of 9 KB ran a heap of 1 GB
 out of memory at the seventh look ([Security](../security.md#reading-pdfs-for-pages-and-pictures)).
+Since 0.9.0 one look runs at a time in a library (`maxConcurrentPageLooks`, 1 by default), over
+all its questions: the others wait, before their PDF is loaded, for up to `pageLookWaitMs` (30 s),
+and then the model is told the server is busy. So the heap holds one parsed PDF at a time, not one
+for each question that looks. Raise it only with the heap to match: six looks at once took 352 MB
+more than one, and did not finish sooner. A look holds its turn while it reads the PDF from the
+store, for at most `ingestTimeoutMs` (2 minutes by default). Past it, the turn goes back and the
+model is told the file could not be read in time. The read itself goes on: give your store's
+`getOriginal` a time limit of its own, shorter than that, when it reads over a network.
 For the documents of users you do not trust, do not offer `view_pages` (`viewPages: false`), or keep
 no PDF originals. To offer it anyway, run each of their questions, the whole tool loop, in a process
 you fork, with its own heap and memory limits. What the model is told when pages cannot be shown,

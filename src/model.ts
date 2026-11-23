@@ -16,7 +16,8 @@ export type ToolAnswer = { call: ToolCall; result: ToolResult; files?: ToolFile[
 
 /**
  * One piece of a message: plain text, or something in the provider's own form (an image, an inline
- * PDF) that only its adapter reads. A native part may carry the text it holds, to be sized by.
+ * PDF) that only its adapter reads. A native part may carry the text it holds: its tokens are
+ * counted from that text, and its bytes from the larger of the text and the part's JSON.
  */
 export type ModelPart = { text: string; native?: undefined } | { native: unknown; text?: string };
 
