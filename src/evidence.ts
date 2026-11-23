@@ -124,12 +124,23 @@ const rangeText = ([from, to]: NumberRange) => (to > from ? `${from}-${to}` : St
  * A short stand-in for a tool result that is dropped from the request to make room: it keeps
  * which document it was about and which lines or pages it showed, so the model can read them
  * again, and says that it is a stand-in. Undefined when there is nothing to gain: the result is an
- * error, is small already, or is such a stand-in. `hadFiles` is true for a result whose files
- * (pages) are dropped with it, however small its JSON is.
+ * error, is small already, is such a stand-in, or is no larger than its stand-in would be (a search
+ * counted by group, or an `aggregate_table` result, of a few short groups: the stand-in keeps the
+ * groups and adds a note; since 0.9.0). `hadFiles` is true for a result whose files (pages) are
+ * dropped with it, however small its JSON is: its stand-in is always given.
  */
 export function stubResult(call: ToolCall, result: ToolResult, hadFiles = false): ToolResult | undefined {
   if (typeof result.error === "string" || result.dropped === true) return undefined;
-  if (!hadFiles && JSON.stringify(result).length < SMALL_RESULT_CHARACTERS) return undefined;
+  if (hadFiles) return standIn(call, result);
+  const size = JSON.stringify(result).length;
+  if (size < SMALL_RESULT_CHARACTERS) return undefined;
+  const stub = standIn(call, result);
+  // A stand-in as large as the result would take more room than it makes.
+  return JSON.stringify(stub).length < size ? stub : undefined;
+}
+
+/** The stand-in of `stubResult`, whatever its size. */
+function standIn(call: ToolCall, result: ToolResult): ToolResult {
   const evidence = evidenceOf(call, result);
   const base: ToolResult = { ...(typeof result.document === "string" ? { document: result.document } : {}), dropped: true };
   const lines = evidence?.lines?.slice(0, MOST_RANGES).map(rangeText);
