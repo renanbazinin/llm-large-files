@@ -41,8 +41,15 @@ export type ChatTurn = { role: "user" | "assistant" | "model"; text: string };
  * A round of tool use as an application stores it between a question and its answer
  * (`AskResult.toolTurns`): plain JSON. Passed back in `messages`, the model sees in a later
  * question what its tools returned in an earlier one, and does not have to search again.
+ *
+ * `version` is the version of this shape: `TOOL_TURN_VERSION` (1) on the rounds of 0.9.0 and later,
+ * absent on those of earlier versions. It is never sent to the model. `askWithFiles` refuses a
+ * round of a higher version, which a newer version of the package made, with a `TypeError`.
  */
-export type ToolTurn = { role: "tools"; calls: Array<ToolCall & { result: ToolResult }> };
+export type ToolTurn = { role: "tools"; version?: number; calls: Array<ToolCall & { result: ToolResult }> };
+
+/** The version of `ToolTurn` this package writes, and the highest it reads. New in 0.9.0. */
+export const TOOL_TURN_VERSION = 1;
 
 /**
  * A result of a stored tool round, as it is sent again in a later question: without

@@ -14,6 +14,12 @@ export const DOCUMENT_ID_PATTERN = /^doc_[a-f0-9]{32}$/;
  */
 export const APP_DOCUMENT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
+/**
+ * The version of `DocumentMeta` this package writes (`metaVersion`), and the highest it reads.
+ * New in 0.9.0: metadata without a version is that of an earlier version, and is read as before.
+ */
+export const DOCUMENT_META_VERSION = 1;
+
 function expired(meta: DocumentMeta, now = new Date()): boolean {
   return Date.parse(meta.expiresAt) <= now.getTime();
 }

@@ -7,7 +7,7 @@ import { Limiter } from "./limiter.js";
 import { canBeReadWhole, CARD_LINES, documentToolsInstruction, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
 import { DocumentGoneError, openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
-import { DOCUMENT_ID_PATTERN } from "./stores.js";
+import { DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
 import { wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
 import { createDocumentTools } from "./tools.js";
@@ -290,6 +290,20 @@ async function reading<T>(read: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Refuses metadata written by a newer version of the package (`metaVersion` above
+ * `DOCUMENT_META_VERSION`), which may mean what this version cannot tell: a `DocumentStoreError`
+ * with code "NEWER_VERSION", not a document that is missing, so that an application does not
+ * ingest the file again over it. Metadata without a version (before 0.9.0), or with null as a
+ * database gives a field that was left out, is read as before.
+ */
+function checkMetaVersion(meta: DocumentMeta): void {
+  const version: unknown = meta.metaVersion ?? 0;
+  if (typeof version === "number" && version <= DOCUMENT_META_VERSION) return;
+  const found = new RangeError(`The metadata of ${String(meta.id)} has metaVersion ${String(version)}; this version of llm-large-files reads up to ${DOCUMENT_META_VERSION}.`);
+  throw new DocumentStoreError(found, { operation: "read", code: "NEWER_VERSION" });
+}
+
 function allowed(meta: DocumentMeta, access: AccessOptions | undefined): boolean {
   return meta.owner === undefined || meta.owner === access?.owner;
 }
@@ -407,6 +421,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   async function currentMeta(id: string): Promise<DocumentMeta | undefined> {
     if (!isDocumentId(id)) return undefined;
     const meta = await reading(() => store.getMeta(id));
+    if (meta) checkMetaVersion(meta);
     if (!meta || Date.parse(meta.expiresAt) <= now().getTime()) {
       forget(id);
       return undefined;

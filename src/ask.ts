@@ -10,6 +10,7 @@ import {
   errorKindOf,
   laterResult,
   rateAllowanceOf,
+  TOOL_TURN_VERSION,
   UsageMeter,
   type ChatMessage,
   type ModelAdapter,
@@ -256,10 +257,25 @@ function pagesShown(result: ToolResult): number {
  */
 const carriedResult = (result: ToolResult): ToolResult => wellFormedJson(laterResult(result));
 
-/** The conversation as the loop keeps it: copies, so that nothing of the caller's is changed. */
+/**
+ * Refuses a stored tool round of a version this package does not read: one a newer version made
+ * (`ToolTurn.version` above `TOOL_TURN_VERSION`). A round without a version (before 0.9.0) is read
+ * as before. A `TypeError`, which an application can catch to leave such rounds out.
+ */
+function checkToolTurnVersion(turn: ToolTurn): void {
+  const version: unknown = turn.version ?? 0;
+  if (typeof version === "number" && version <= TOOL_TURN_VERSION) return;
+  throw new TypeError(`A stored tool round (toolTurns) has version ${String(version)}: a newer version of llm-large-files made it, and this one reads up to version ${TOOL_TURN_VERSION}. Leave it out of messages.`);
+}
+
+/**
+ * The conversation as the loop keeps it: copies, so that nothing of the caller's is changed. Of a
+ * stored tool round, only the calls are kept: its version is not sent to the model.
+ */
 function toMessages(given: ChatMessage[]): ModelMessage[] {
   const messages = given.map((message): ModelMessage => {
     if (message.role === "tools") {
+      checkToolTurnVersion(message);
       const answers = message.calls.map(({ result, ...call }) => ({ call, result: carriedResult(result) }));
       return { role: "tools", calls: answers.map((answer) => answer.call), answers };
     }
@@ -845,6 +861,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // The rounds as the model last had them. A file cannot be kept as JSON: what is kept says that it was shown.
     toolTurns: messages.slice(asked).filter(isRound).map((round) => ({
       role: "tools" as const,
+      version: TOOL_TURN_VERSION,
       calls: round.answers.map(({ call: { problem: _problem, ...call }, result: returned, files: shownFiles }) => ({
         ...call,
         result: shownFiles?.length ? stubResult(call, returned, true) ?? returned : returned,

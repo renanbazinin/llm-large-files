@@ -7,7 +7,7 @@ export { DEFAULT_BUDGET, resolveBudget } from "./budget.js";
 export type { ModelLimits } from "./budget.js";
 export { askStream, askWithFiles, EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "./ask.js";
 export type { AskLimits, AskOptions, AskResult } from "./ask.js";
-export { classifyModelError, DocumentsNotFoundError, errorKindOf, ModelRequestError, UsageMeter } from "./model.js";
+export { classifyModelError, DocumentsNotFoundError, errorKindOf, ModelRequestError, TOOL_TURN_VERSION, UsageMeter } from "./model.js";
 export type {
   ChatMessage,
   ModelErrorClass,
@@ -55,7 +55,7 @@ export { DEFAULT_FIRST_BYTE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./http.j
 export type { IdleWaits } from "./http.js";
 export { DocumentScopeError, DocumentStoreError, IngestError, ingestErrorCodeOf } from "./errors.js";
 export type { DocumentScopeErrorCode, DocumentStoreOperation, IngestErrorCode } from "./errors.js";
-export { APP_DOCUMENT_ID_PATTERN, DOCUMENT_ID_PATTERN, FileDocumentStore, MemoryDocumentStore } from "./stores.js";
+export { APP_DOCUMENT_ID_PATTERN, DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION, FileDocumentStore, MemoryDocumentStore } from "./stores.js";
 export { createPdfExtractor, defaultExtractors, detectFormat } from "./extract.js";
 export type { PdfExtractorOptions } from "./extract.js";
 export { estimateTokens, utf8Bytes, jsonBytes } from "./text.js";

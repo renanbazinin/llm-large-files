@@ -10,6 +10,7 @@ import type { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
+import { DOCUMENT_META_VERSION } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
 import { measureText, prepareText, removeInvisible, sliceWhole } from "./text.js";
 import type { DocumentFormat, DocumentMeta, DocumentStore, DocumentSummary, ExtractedText, ExtractProgress, Extractor } from "./types.js";
@@ -390,6 +391,7 @@ async function ingestFile(
   // JSON, as a store that keeps it as JSON gives it back.
   const meta: DocumentMeta = jsonCopy<DocumentMeta>({
     id: `doc_${randomUUID().replaceAll("-", "")}`,
+    metaVersion: DOCUMENT_META_VERSION,
     ...(input.owner !== undefined ? { owner: input.owner } : {}),
     name,
     mimeType,
