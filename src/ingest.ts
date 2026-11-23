@@ -12,7 +12,7 @@ import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
 import { checkScope } from "./scope.js";
-import { isSha256, readRanges, readSource, sha256InSlices, statSource } from "./source.js";
+import { isSha256, readRanges, readSource, sha256InSlices, statSource, type SourceRead } from "./source.js";
 import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
 import { measureText, prepareText, removeInvisible, sliceWhole } from "./text.js";
@@ -586,10 +586,13 @@ async function ingestFile(
       bytes = (input as IngestInput).bytes;
       size = bytes.byteLength;
     } else if (!extractorReads) {
-      const got = await readWithin(readSource(path, maxUploadBytes, { keep: true, slicer, signal }));
+      // Cleared once taken apart: a variable of a block would hold the bytes in the suspended
+      // function until the ingest ends.
+      let got: SourceRead | undefined = await readWithin(readSource(path, maxUploadBytes, { keep: true, slicer, signal }));
       size = checkedSize(name, got.size, maxUploadBytes);
       bytes = got.bytes;
       sha256 = got.sha256;
+      got = undefined;
     }
     // In a function of its own, so that the text as extracted is let go once it is prepared:
     // the steps after it hold only the prepared text.
@@ -617,6 +620,10 @@ async function ingestFile(
         work.abandoned = extraction;
         extracted = await untilAborted(extraction, signal);
         work.abandoned = undefined;
+        // The bytes read from a path go once the extractor is done with them: their SHA-256 was
+        // taken as they were read, and only a copy for the store needs them. (Bytes given are the
+        // caller's, and are hashed next.)
+        if (path !== undefined && !mayCopy) bytes = undefined;
       } finally {
         extracting = false;
       }

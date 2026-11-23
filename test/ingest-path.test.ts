@@ -5,6 +5,8 @@ import { createHash, randomBytes } from "node:crypto";
 import { appendFile, link, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLargeFiles, IngestError, MemoryDocumentStore, type Extractor, type IngestEvent } from "../src/index.js";
@@ -42,6 +44,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 const bytesRead = (file: string) => reads.opens.filter((entry) => entry.file === file).reduce((sum, entry) => sum + entry.bytes, 0);
 const opened = (file: string) => reads.opens.filter((entry) => entry.file === file).length;
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+
+setFlagsFromString("--expose-gc");
+const collectGarbage = runInNewContext("gc") as () => void;
 
 let directory: string;
 beforeEach(async () => {
@@ -120,6 +125,31 @@ describe("ingest from a path", () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     expect((await files.ingest({ name: "letters.txt", source: { path: at } })).sha256).toBe(sha256(bytes));
     expect((await files.ingest({ name: "letters.txt", bytes })).sha256).toBe(sha256(bytes));
+  });
+
+  it("lets the bytes read go once the extractor returns: they are not held while the text is prepared and stored", async () => {
+    const at = await file("big.txt", "the quick brown fox jumps over the lazy dog 0123456789\n".repeat(40_000));
+    let given: WeakRef<Uint8Array> | undefined;
+    const extractor: Extractor = async (bytes) => {
+      given = new WeakRef(bytes);
+      return { text: new TextDecoder().decode(bytes) };
+    };
+    // Whether the bytes the extractor was given are still held, after full collections, at the
+    // first progress of each stage after it.
+    const held: Record<string, boolean> = {};
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extractor } });
+    const meta = await files.ingest({
+      name: "big.txt",
+      source: { path: at },
+      onEvent: (event) => {
+        if (event.type !== "ingest.progress" || event.stage in held || !given) return;
+        collectGarbage();
+        collectGarbage();
+        held[event.stage] = given.deref() !== undefined;
+      },
+    });
+    expect(meta.bytes).toBe(55 * 40_000);
+    expect(held).toEqual({ prepare: false, store: false });
   });
 
   it("calls the extractor at the turn, before bytes given are hashed: ingests of one turn reach it in the order they came", async () => {
