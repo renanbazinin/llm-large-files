@@ -9,7 +9,7 @@ import { DocumentsNotFoundError, errorKindOf, ModelRequestError, type ModelError
 import { formatBytes } from "../plan.js";
 import { checkScope } from "../scope.js";
 import type { DocumentMeta, DocumentScope } from "../types.js";
-import { BodyFile, HttpError, parsedBody, readBody, Room, spoolFileIn, writeBody, type Held } from "./spool.js";
+import { BodyFile, checkRefFolders, HttpError, parsedBody, readBody, Room, spoolFileIn, writeBody, type Held } from "./spool.js";
 import { writeSseEvents } from "./sse.js";
 
 /** What `onUploaded` is told besides the document. New in 0.9.0. */
@@ -67,14 +67,18 @@ export type PreparedUpload = {
    * An absolute path where the body is saved as it arrives, then ingested from (`source`). The
    * file must not be there: it is made new (`"wx"`, mode `uploadFileMode`), and never written
    * through a file or a link already at that name (a 409). Its folder must exist: the handler makes
-   * no folder. The file is yours once the document is stored: the library never removes it, even
-   * when the document is deleted. When the upload fails, it is removed.
+   * no folder. A link in a folder above it is followed, except below the root of a ref (see
+   * `original`). The file is yours once the document is stored: the library never removes it, even
+   * when the document is deleted or expires. When the upload fails, it is removed.
    */
   path?: string;
   /**
    * The ref of the saved file for `LargeFilesOptions.originals` (`IngestInput.original`), such as
    * its path under the folder of `fileOriginals`: the store then keeps no copy of it. Give it with
-   * `path`: the handler does not make a ref of a path.
+   * `path`: the handler does not make a ref of a path, nor check that the ref names that file.
+   * When `path` ends with the ref (`<root>/<ref>`, as `fileOriginals(root)` reads it), a link in a
+   * folder below that root, which `fileOriginals` would refuse to read through, fails the upload
+   * before its body is read: a 500 "Upload failed (ELOOP).".
    */
   original?: { ref: string };
 };
@@ -763,6 +767,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           throw new HttpError(413, "");
         }
         const prepared = options.prepareUpload ? preparedOf(await options.prepareUpload(request, { name: cleanFileName(name), ...caller })) : {};
+        // A file `fileOriginals` would not read back by its ref is refused before anything is written.
+        if (prepared.path !== undefined && prepared.original !== undefined) await checkRefFolders(prepared.path, prepared.original.ref);
         // Where the body is while it is ingested: in the application's file (`prepareUpload`), in a
         // file of the spool, or in memory. Room is taken for it before it is read, so that a refused
         // upload is not read: in the spool, or in memory. The application's file takes none: it is

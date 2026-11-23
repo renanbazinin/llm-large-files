@@ -458,6 +458,67 @@ describe("prepareUpload with a path", () => {
     expect(await files.getMeta("up-1", ACCESS)).toBeUndefined();
   });
 
+  // fileOriginals refuses a link at any level below its root: such an upload was answered 201, its
+  // ref recorded, and view_pages then found the file gone. Written through a link that left the
+  // root, the body was saved outside it.
+  it("refuses a link in the folders between the root of the ref and the file, before the body is read", async () => {
+    const files = library();
+    const { options } = chatbot();
+    const base = await serve(files, options);
+    const chat = path.join(root, "alice", "chat-1");
+    const outside = await mkdtemp(path.join(tmpdir(), "llf-outside-"));
+    try {
+      // chat-1: uploads is a link to a folder beside it; chat-2: to a folder outside the root.
+      await rm(path.join(chat, "uploads"), { recursive: true });
+      await mkdir(path.join(chat, "real-uploads"));
+      await symlink(path.join(chat, "real-uploads"), path.join(chat, "uploads"), "junction");
+      await mkdir(path.join(root, "alice", "chat-2"));
+      await symlink(outside, path.join(root, "alice", "chat-2", "uploads"), "junction");
+      for (const chatId of ["chat-1", "chat-2"]) {
+        for (const events of [false, true]) {
+          const response = await upload(base, "report.pdf", numberedPdf(1), { "X-Chat": chatId }, events);
+          expect(response.status).toBe(500);
+          expect(await response.json()).toEqual({ error: "Upload failed (ELOOP)." });
+        }
+      }
+      expect(disk.opens.filter((entry) => entry.flags === "wx")).toEqual([]);
+      expect(await readdir(path.join(chat, "real-uploads"))).toEqual([]);
+      expect(await readdir(outside)).toEqual([]);
+
+      // The root itself may be a link, as for fileOriginals: taken, and view_pages reads the file.
+      const volume = path.join(outside, "volume");
+      await symlink(root, volume, "junction");
+      const linked = createLargeFiles({ store: new FileDocumentStore(volume, { scopes: { depth: 2 } }), keepOriginals: ["pdf"], originals: fileOriginals(volume), requireOwner: true, requireScope: true });
+      const throughLink = await serve(linked, {
+        getOwner: userOf,
+        getScope: scopeOf,
+        prepareUpload: (_request, info) => {
+          const ref = [...info.scope!, "real-uploads", "up-9"].join("/");
+          return { id: "up-9", path: path.join(volume, ref), original: { ref } };
+        },
+      });
+      expect((await upload(throughLink, "report.pdf", numberedPdf(2))).status).toBe(201);
+      const meta = (await linked.getMeta("up-9", ACCESS))!;
+      expect(meta.original).toMatchObject({ ref: "alice/chat-1/real-uploads/up-9" });
+      const { result } = await linked.tools([meta], { viewPages: true, access: ACCESS }).executeWithFiles("view_pages", { document_id: "up-9", from_page: 1, to_page: 1 });
+      expect(result).toMatchObject({ document: "report.pdf", pages: "1", total_pages: 2 });
+
+      // A ref that is not the end of the path is a reader's of your own: not checked.
+      const own = createLargeFiles({
+        store: new FileDocumentStore(root, { scopes: { depth: 2 } }),
+        keepOriginals: ["pdf"],
+        originals: { read: async (ref) => new Uint8Array(await readFile(path.join(chat, "real-uploads", ref.slice("upload:".length)))) },
+        requireOwner: true,
+        requireScope: true,
+      });
+      const byOwnRef = await serve(own, { getOwner: userOf, getScope: scopeOf, prepareUpload: () => ({ id: "up-10", path: path.join(chat, "uploads", "up-10"), original: { ref: "upload:up-10" } }) });
+      expect((await upload(byOwnRef, "report.pdf", numberedPdf(1))).status).toBe(201);
+      expect(await readdir(path.join(chat, "real-uploads"))).toEqual(["up-10", "up-9"]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it("answers a folder that is not there with its code, and makes no folder", async () => {
     const files = library();
     const base = await serve(files, { getOwner: userOf, getScope: scopeOf, prepareUpload: (_request, info) => ({ path: path.join(root, ...info.scope!, "gone", "up-1") }) });

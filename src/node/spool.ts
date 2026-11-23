@@ -6,7 +6,7 @@
 // always made new: opened with "wx", so that a file or a link already at its name is never written
 // through. New in 0.9.0; the reading into memory moved here from handlers.ts.
 import { randomUUID } from "node:crypto";
-import { open, rm, type FileHandle } from "node:fs/promises";
+import { open, realpath, rm, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import path from "node:path";
 import { IngestError } from "../errors.js";
@@ -231,6 +231,34 @@ export async function writeBody(request: IncomingMessage, file: string, options:
     throw writeError(error);
   }
   return size;
+}
+
+/**
+ * Refuses, before the body is read, a `file` that `fileOriginals` could not read back by its `ref`:
+ * when the path ends with the ref (`<root>/<ref>`, as `fileOriginals(root)` reads it), a link in a
+ * folder below that root (the root itself may be one). `"wx"` refuses a link only at the file's own
+ * name: a link in a folder above it is followed, and the upload would be stored with a ref that is
+ * never read back, its body written where the link leads. Refused as a system error, `ELOOP`: 500
+ * "Upload failed (ELOOP).". A ref that is not the end of the path is one of a reader of your own,
+ * and a folder that is not there is the opening's to tell (`ENOENT`): neither is checked here.
+ */
+export async function checkRefFolders(file: string, ref: string): Promise<void> {
+  const target = path.resolve(file);
+  let tail = path.normalize(ref);
+  while (tail.endsWith(path.sep)) tail = tail.slice(0, -1);
+  if (!tail || tail === "." || path.isAbsolute(tail) || tail === ".." || tail.startsWith(`..${path.sep}`) || !target.endsWith(`${path.sep}${tail}`)) return;
+  const root = target.slice(0, target.length - tail.length - 1) || path.parse(target).root;
+  const folder = path.dirname(target);
+  let real: string;
+  let realRoot: string;
+  try {
+    [real, realRoot] = await Promise.all([realpath(folder), realpath(root)]);
+  } catch {
+    return;
+  }
+  if (real !== path.join(realRoot, path.relative(root, folder))) {
+    throw Object.assign(new Error("A folder on the path of the upload's file is a link."), { code: "ELOOP", syscall: "open" });
+  }
 }
 
 /** A new name for a temporary file of the spool in `directory`: never one that is there ("wx" makes sure). */
