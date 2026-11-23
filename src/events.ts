@@ -301,7 +301,15 @@ export type IngestEvent =
       unit: "pages" | "parts" | "bytes" | "characters";
     })
   /** Always last when the ingest stores the document. */
-  | (EventBase & { type: "ingest.finish"; document: DocumentSummary })
+  | (EventBase & {
+      type: "ingest.finish";
+      document: DocumentSummary;
+      /**
+       * What the upload handler's `onUploaded` returned as `answer`, for the page: only in the
+       * event the handler sends, never in the events of `files.ingest`. New in 0.9.0.
+       */
+      app?: Record<string, unknown>;
+    })
   /** Always last when the ingest throws (a refusal or an abort included). */
   | (EventBase & { type: "ingest.error"; error: EventError });
 
