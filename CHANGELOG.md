@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.8.1 — not released yet
+## 0.8.1 — 2026-11-23
 
 Exact numbers from tables. `aggregate_table` counts, sums, averages and groups the rows of a CSV
 file, a sheet of a workbook or a `| cell |` table of any document, reading every row, with no code
