@@ -59,8 +59,8 @@ export type DocumentHandlerOptions = {
    * say): `{"error":"Upload failed (owner is not a string)."}`.
    *
    * When the library requires an owner (`requireOwner`), it is required here: the handlers cannot
-   * be made without it, and an undefined owner is answered 401 `{"error":"Sign in first."}`
-   * before the body is read (new in 0.9.0).
+   * be made without it, and an undefined owner (or null, from JavaScript) is answered 401
+   * `{"error":"Sign in first."}` before the body is read, on every route (new in 0.9.0).
    *
    * To refuse a request, throw an error with a `status` (or `statusCode`) between 400 and 599, as
    * the `http-errors` package makes: the handler answers with that status and the error's message.
@@ -579,6 +579,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
    */
   async function callerOf(request: IncomingMessage, failed: string, checkOwnerShape: boolean): Promise<Caller> {
     const owner = await options.getOwner?.(request);
+    // No owner, or null (`req.user?.id ?? null` from JavaScript), is a request that is not signed in.
+    if (requireOwner && (owner === undefined || owner === null)) throw new HttpError(401, "Sign in first.");
     // An owner that `ingest` would refuse ("", or an object such as `req.user` from JavaScript) is
     // the server's mistake, answered with a 500 before the body is read. Its message says which, so
     // that the operator knows where to look; it says nothing else. (`get` and `remove` pass it on,
@@ -591,7 +593,6 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         throw new HttpError(500, empty ? `${failed} (empty owner).` : `${failed} (owner is not a string).`);
       }
     }
-    if (requireOwner && (owner === undefined || owner === null)) throw new HttpError(401, "Sign in first.");
     const given = options.getScope ? await options.getScope(request) : undefined;
     let scope: DocumentScope | undefined;
     try {

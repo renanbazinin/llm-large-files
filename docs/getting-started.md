@@ -272,7 +272,9 @@ Keep the `id` with the chat session. Not on a Node HTTP server, or taking multip
 
 `getOwner` returns the signed-in user's ID, or `undefined` for an anonymous upload. An empty
 string, a string of spaces or `null` would be one owner shared by every caller without a user, so
-the upload is refused: `500` with `{ "error": "Upload failed (empty owner)." }`. Return the ID
+the upload is refused: `500` with `{ "error": "Upload failed (empty owner)." }`. (With
+`requireOwner: true`, `undefined` and `null` are answered `401` "Sign in first.", new in 0.9.0.)
+Return the ID
 itself, not the user object (`{ "error": "Upload failed (owner is not a string)." }`). Both come
 before the body is read.
 

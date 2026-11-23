@@ -168,9 +168,9 @@ either. The handlers call it before they read the body, so a refused upload is n
   above. Any other error is answered `500`, without its message, which may name your hosts.
 
 - **Under `requireOwner`** (new in 0.9.0): when the library is made with `requireOwner: true`,
-  `createDocumentHandlers` throws a `TypeError` without `getOwner`, and an owner of `undefined` is
-  answered `401` `{ "error": "Sign in first." }` on every route, before the body is read. No
-  document is then ever anyone's.
+  `createDocumentHandlers` throws a `TypeError` without `getOwner`, and an owner of `undefined`, or
+  `null` (`req.user?.id ?? null`), is answered `401` `{ "error": "Sign in first." }` on every route,
+  before the body is read. No document is then ever anyone's.
 
 The owner is one opaque string, compared as it is. Pass the same string as `owner` to `askGemini`
 or `askWithFiles`, and to `files.getMeta`, `files.getOriginal` and `files.delete`. To keep each

@@ -355,6 +355,26 @@ describe("requireOwner and requireScope in the handlers", () => {
     }
     expect((await upload(base, asUser("alice"))).status).toBe(201);
   });
+
+  // `req.user?.id ?? null` for a signed-out request: a 401 on every route, the upload's too (it
+  // was a 500 "empty owner" there, and a 401 on the others).
+  it("answers an owner of null 401 on every route under requireOwner", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: true });
+    const ingest = vi.fn((input: IngestInput) => files.ingest(input));
+    const base = await serve({ ...files, ingest }, { getOwner: () => null as unknown as string });
+    const refused = await upload(base, {});
+    expect(refused.status).toBe(401);
+    expect(await refused.json()).toEqual({ error: "Sign in first." });
+    for (const method of ["GET", "DELETE"]) {
+      const other = await fetch(`${base}/doc_0123456789abcdef0123456789abcdef`, { method });
+      expect(other.status).toBe(401);
+      expect(await other.json()).toEqual({ error: "Sign in first." });
+    }
+    expect(ingest).not.toHaveBeenCalled();
+    // An empty owner is still the server's mistake, as without requireOwner.
+    const empty = await serve(files, { getOwner: () => "" });
+    expect(await (await upload(empty, {})).json()).toEqual({ error: "Upload failed (empty owner)." });
+  });
 });
 
 describe("getScope", () => {
