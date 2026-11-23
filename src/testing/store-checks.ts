@@ -167,8 +167,12 @@ function callOf(method: string, args: unknown[]): string {
  * exists. The library, and checks of what a store throws, are given the store itself.
  */
 function named(store: DocumentStore): DocumentStore {
-  return new Proxy(store, {
-    get(target, key) {
+  // Over an empty target: a store whose methods are frozen own properties (Object.freeze({ put, … }))
+  // would make the proxy's invariants refuse a wrapped method.
+  const target = store;
+  return new Proxy(Object.create(null) as DocumentStore, {
+    has: (_, key) => Reflect.has(target, key),
+    get(_, key) {
       const value = Reflect.get(target, key, target) as unknown;
       if (typeof value !== "function") return value;
       return (...args: unknown[]) => {

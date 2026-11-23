@@ -108,3 +108,16 @@ describe("documentStoreChecks failure messages", () => {
     expect((error as Error).message).toBe(`The store failed the check: the check "${name}" threw RangeError: a getter that throws.`);
   });
 });
+
+describe("documentStoreChecks over a frozen store", () => {
+  it("passes a store whose methods are frozen own properties", async () => {
+    // A store written as Object.freeze({ put, get, … }): a proxy over it could not wrap its methods.
+    const create = ({ now }: { now: () => Date }): DocumentStore => {
+      const inner = new MemoryDocumentStore({ now });
+      const methods = ["put", "get", "getMeta", "delete", "sweep", "putOriginal", "getOriginal"] as const;
+      return Object.freeze(Object.fromEntries(methods.map((name) => [name, (...args: unknown[]) => (inner[name] as (...args: unknown[]) => unknown)(...args)]))) as unknown as DocumentStore;
+    };
+    const failed = await failures({ create, isolatesScopes: true, skip: ["ranges", "index", "shared"] });
+    expect([...failed]).toEqual([]);
+  });
+});

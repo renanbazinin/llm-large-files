@@ -235,6 +235,11 @@ describe("FileDocumentStore with scopes: the check of a folder, remembered for a
 
     await rm(path.join(root, "u1", "s1"), { recursive: true });
     await symlink(outside, path.join(root, "u1", "s1"));
+    // First a read while the check is still remembered: the expired document it finds through the
+    // link is not removed, because a removal checks the folder again.
+    const remembered = await store.getMeta("x", { scope }).catch((error: unknown) => error);
+    expect(remembered === undefined || (remembered as { code?: string }).code === "scope_invalid").toBe(true);
+    expect(await tree(outside)).toEqual([".llm-large-files/x.json", ".llm-large-files/x.txt"]);
     await expect(store.put(documentOf("b", "bravo"), { scope })).rejects.toMatchObject({ code: "scope_invalid" });
     await expect(store.delete("x", { scope })).rejects.toMatchObject({ code: "scope_invalid" });
     await expect(store.sweep(new Date(START), { scope })).rejects.toMatchObject({ code: "scope_invalid" });
