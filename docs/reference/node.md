@@ -372,7 +372,10 @@ With a `path`:
   client that leaves while the body arrives or while it is ingested, a full disk, a file the ingest
   refuses, an ID that is taken, or `onUploaded` throwing. After a call to the disk that did not
   answer, it is removed at once, or once the volume answers. A file that was already at the path is
-  never removed.
+  never removed. A server process that is killed in the middle of an upload (past its grace period,
+  or out of memory) cannot remove it: the partial file stays, and nothing removes it, since the
+  sweep removes only the store's files. Remove such files with a job of your own:
+  [Stopping a server](../guides/deployment.md#stopping-a-server).
 - **Nothing of it is sent.** The path and the ref are not in the answer, the events, the
   summaries, or anything sent to the model.
 

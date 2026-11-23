@@ -338,7 +338,9 @@ export const documents = createDocumentHandlers(files, {
   when the upload fails**, whatever the reason: too large, a body that stops, a browser that leaves
   before the ingest ends, a full disk (`503` with `Retry-After`), a disk that does not answer within
   `uploadIdleTimeoutMs` (`500` "Upload failed (ETIMEDOUT)."), a file that cannot be read, an ID
-  that is taken, or `onUploaded` throwing.
+  that is taken, or `onUploaded` throwing. A server that is killed in the middle of an upload
+  cannot remove it, and nothing else does: remove such files with a job of your own
+  ([Deployment](./deployment.md#stopping-a-server)).
 - **No memory.** The body is written as it arrives, and read again when the ingest's turn comes: it
   is not held while it waits, and takes no room of `maxPendingUploadBytes`.
 - **Nothing of it reaches the browser or the model.** The path and the ref are kept in the metadata,
