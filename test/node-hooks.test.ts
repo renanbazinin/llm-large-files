@@ -182,6 +182,24 @@ describe("onUploaded", () => {
     expect(stored).toHaveLength(4);
   });
 
+  it("answers the hook's error even when the delete after it throws at once", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const own: LargeFiles = {
+      ...files,
+      delete: () => {
+        throw new Error("The delete of your own failed at mongo-prod.internal.corp:27017.");
+      },
+    };
+    const base = await serve(own, {
+      onUploaded: () => {
+        throw Object.assign(new Error("This chat has too many files."), { status: 409 });
+      },
+    });
+    const response = await upload(base, {});
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "This chat has too many files." });
+  });
+
   it("fails the upload, and deletes the document, for an answer that is not a plain object JSON can hold", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     const stored: string[] = [];

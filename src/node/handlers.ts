@@ -590,7 +590,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
       const returned: unknown = await options.onUploaded(meta, { request, ...caller, clientGone });
       return hookAnswerOf(returned);
     } catch (error) {
-      await files.delete(meta.id, caller).catch(() => undefined);
+      // A delete of your own that throws at once is told no more than one that rejects.
+      await Promise.resolve().then(() => files.delete(meta.id, caller)).catch(() => undefined);
       return { failure: error };
     }
   }
