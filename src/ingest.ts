@@ -557,6 +557,17 @@ async function ingestFile(
   let sha256 = "";
   /** The bytes to keep in the store (`putOriginal`), until they are written. */
   let copy: Uint8Array | undefined;
+  /**
+   * A read of the file at `path`, or the signal's reason once it aborts: a volume that does not
+   * answer fails the ingest in its time, as an extractor does. The ingest keeps its turn until the
+   * read ends (`IngestSlot`).
+   */
+  const readWithin = async <T>(read: Promise<T>): Promise<T> => {
+    work.abandoned = read;
+    const got = await untilAborted(read, signal);
+    work.abandoned = undefined;
+    return got;
+  };
   let pages: number | undefined;
   let reading: ReturnType<typeof readingOf>;
   let text: string;
@@ -575,7 +586,7 @@ async function ingestFile(
       bytes = (input as IngestInput).bytes;
       size = bytes.byteLength;
     } else if (!extractorReads) {
-      const got = await readSource(path, maxUploadBytes, { keep: true, slicer, signal });
+      const got = await readWithin(readSource(path, maxUploadBytes, { keep: true, slicer, signal }));
       size = checkedSize(name, got.size, maxUploadBytes);
       bytes = got.bytes;
       sha256 = got.sha256;
@@ -627,7 +638,7 @@ async function ingestFile(
       // here, a slice at a time, and nothing of it is kept.
       let hashed = done.file;
       if (!hashed) {
-        const got = await readSource(path, maxUploadBytes, { keep: false, slicer, signal });
+        const got = await readWithin(readSource(path, maxUploadBytes, { keep: false, slicer, signal }));
         hashed = { bytes: got.size, sha256: got.sha256 };
       }
       size = checkedSize(name, hashed.bytes, maxUploadBytes);
@@ -819,7 +830,9 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
       // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
       // Of a file at a path, only the parts looked at are read.
       const bytes = (input as IngestInput).bytes;
-      const format = path !== undefined ? await formatAtPath(name, mimeType, path, stated!.size!) : detectFormat(name, mimeType, bytes instanceof Uint8Array ? bytes : undefined);
+      // The parts read to tell the format are given up on, with the caller's reason, when the caller leaves.
+      const sniffed = path !== undefined ? formatAtPath(name, mimeType, path, stated!.size!) : undefined;
+      const format = sniffed ? await (input.signal ? untilAborted(sniffed, input.signal) : sniffed) : detectFormat(name, mimeType, bytes instanceof Uint8Array ? bytes : undefined);
       if (target.id !== undefined) {
         // An ID another ingest of this library is storing: refused, whoever's it is to be.
         if (ingesting.has(target.id)) throw exists(name);

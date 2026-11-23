@@ -10,8 +10,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLargeFiles, IngestError, MemoryDocumentStore, type Extractor, type IngestEvent } from "../src/index.js";
 import { serviceLog, utf8 } from "./fake-model.js";
 
-/** What the server read, file by file: each opening of a file, and the bytes read through it. */
-const reads = vi.hoisted(() => ({ opens: [] as Array<{ file: string; bytes: number }> }));
+/**
+ * What the server read, file by file: each opening of a file, and the bytes read through it. The
+ * reads of the file `stuck` do not answer until `unstick()`, as a volume that hangs.
+ */
+const reads = vi.hoisted(() => ({ opens: [] as Array<{ file: string; bytes: number }>, stuck: undefined as string | undefined, waiting: [] as Array<() => void> }));
+const unstick = () => {
+  reads.stuck = undefined;
+  for (const release of reads.waiting.splice(0)) release();
+};
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -21,6 +28,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     reads.opens.push(entry);
     const read = handle.read.bind(handle) as (...given: unknown[]) => Promise<{ bytesRead: number }>;
     (handle as { read: unknown }).read = async (...given: unknown[]) => {
+      if (entry.file === reads.stuck) await new Promise<void>((resolve) => reads.waiting.push(resolve));
       const result = await read(...given);
       entry.bytes += result.bytesRead;
       return result;
@@ -41,6 +49,7 @@ beforeEach(async () => {
   reads.opens.length = 0;
 });
 afterEach(async () => {
+  unstick();
   await rm(directory, { recursive: true, force: true });
 });
 
@@ -214,6 +223,34 @@ describe("ingest from a path", () => {
     expect(missing).not.toBeInstanceOf(IngestError);
     expect(missing).toMatchObject({ code: "ENOENT" });
     expect(await files.ingest({ name: "folder.log", source: { path: directory } }).catch((error: unknown) => error)).toMatchObject({ code: "EISDIR" });
+  });
+
+  it("fails in its time when the volume does not answer the read, and keeps its turn until the read ends", async () => {
+    const at = await file("stuck.log", "one\ntwo\n");
+    reads.stuck = at;
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 100, maxConcurrentIngests: 1 });
+    await expect(files.ingest({ name: "stuck.log", source: { path: at } })).rejects.toMatchObject({ code: "timeout", message: "stuck.log took too long to read (more than 100 ms). Split it, or save it as plain text, and attach that." });
+    // The read still holds the turn: the next ingest waits for it, at most ingestTimeoutMs more.
+    let done = false;
+    const next = files.ingest({ name: "next.md", bytes: utf8("# Next") }).then((meta) => {
+      done = true;
+      return meta;
+    });
+    await settle();
+    expect(done).toBe(false);
+    unstick();
+    expect((await next).name).toBe("next.md");
+  });
+
+  it("gives up the parts read for the format, with the caller's reason, when the caller leaves", async () => {
+    const at = await file("noname", "%PDF-1.4");
+    reads.stuck = at;
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const controller = new AbortController();
+    const ingest = files.ingest({ name: "noname", source: { path: at }, signal: controller.signal });
+    while (opened(at) === 0) await settle();
+    controller.abort(new Error("Left."));
+    await expect(ingest).rejects.toThrow("Left.");
   });
 
   it("reads a second name of a file (a hard link) as the file it is", async () => {
