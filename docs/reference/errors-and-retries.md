@@ -53,6 +53,7 @@ declare class ModelRequestError extends Error {
   readonly retryAfterMs?: number;
   readonly limitTokens?: number;
   readonly requestedTokens?: number;
+  static is(value: unknown): value is ModelRequestError; // new in 0.9.0
 }
 ```
 
@@ -308,16 +309,47 @@ errorKindOf({ kind: "quota" });                                 // "quota": any 
 ### Other error classes
 
 The adapters' errors are `ModelRequestError`s, so `instanceof ModelRequestError` and
-`errorKindOf` work for all three. The three errors of the documents are not, and have no `kind`.
+`errorKindOf` work for all three. The four errors of the documents are not, and have no `kind`.
 
 | Class | Exported from | Extends | Fields of its own | Reference |
 |---|---|---|---|---|
 | `GeminiRequestError` | `llm-large-files/gemini` | `ModelRequestError` | none | [gemini.md](./gemini.md) |
 | `OpenAiRequestError` | `llm-large-files/openai` | `ModelRequestError` | `param`, `code` | [openai.md](./openai.md) |
 | `AnthropicRequestError` | `llm-large-files/anthropic` | `ModelRequestError` | `type` | [anthropic.md](./anthropic.md) |
-| `DocumentsNotFoundError` | `llm-large-files`, `llm-large-files/gemini` | `Error` | `ids` | [ask.md](./ask.md#documentsnotfounderror) |
-| `DocumentStoreError` | `llm-large-files` | `Error` | `code`, `syscall`, and the caught error as `cause` | [library.md](./library.md#documentstoreerror) |
-| `IngestError` | `llm-large-files` | `Error` | `code`, `status`, `retryAfterMs`, and the extractor's error as `cause`. New in 0.8.0 | [library.md](./library.md#ingesterror) |
+| `DocumentsNotFoundError` | `llm-large-files`, `llm-large-files/gemini` | `Error` | `ids`; `code` `"documents_missing"` and `status` 404, new in 0.9.0 | [ask.md](./ask.md#documentsnotfounderror) |
+| `DocumentStoreError` | `llm-large-files` | `Error` | `code`, `syscall`, and the caught error as `cause`; `operation` (`"read"`, `"write"`, `"delete"`, `"sweep"`) and `status` 503, new in 0.9.0 | [library.md](./library.md#documentstoreerror) |
+| `DocumentScopeError` | `llm-large-files` | `TypeError` | `code` (`"scope_required"`, `"scope_invalid"`, `"scope_missing"`). New in 0.9.0 | [library.md](./library.md#documentscopeerror) |
+| `IngestError` | `llm-large-files` | `Error` | `code`, `status`, `retryAfterMs`, and the extractor's error as `cause`. New in 0.8.0. Code `"exists"` (status 409) is new in 0.9.0 | [library.md](./library.md#ingesterror) |
+
+`DocumentStoreError` is the store failing: retry the call. `DocumentScopeError` is a scope the call
+should not have given, or should have: the same call fails again. The message of
+`DocumentStoreError` names its operation, never a path or a host:
+
+| `operation` | Message |
+|---|---|
+| `"read"` | `The document store could not be read (EIO). Try again.` |
+| `"write"` | `The document could not be stored (EIO). Try again.` |
+| `"delete"` | `The document could not be deleted (EIO). Try again.` |
+| `"sweep"` | `The document store could not be cleaned up (EIO). Try again.` |
+| code `"NEWER_VERSION"` | `The document was stored by a newer version of llm-large-files. Try again.` |
+
+#### Telling errors apart across copies of the package
+
+New in 0.9.0. Each of `ModelRequestError`, `DocumentsNotFoundError`, `DocumentStoreError`,
+`DocumentScopeError` and `IngestError` has a static `is(value)`. It is `true` for an error of that
+class, or of a class that extends it (`GeminiRequestError` for `ModelRequestError.is`), also when
+another copy of the package made it: two versions installed side by side, or one bundled into a
+dependency. `instanceof` is `false` then. `is` reads a mark that every copy puts on its errors
+(`Symbol.for`), so it never throws, and is `false` for an object that only has the same `name`.
+
+```ts
+import { DocumentsNotFoundError, DocumentStoreError, IngestError } from "llm-large-files";
+
+function statusOf(error: unknown): number {
+  if (IngestError.is(error) || DocumentStoreError.is(error) || DocumentsNotFoundError.is(error)) return error.status;
+  return 500;
+}
+```
 
 ### Errors in events: `EventError`
 
@@ -334,9 +366,9 @@ included: log that one.
 |---|---|---|
 | `message` | `string` | Words your users may see. A model error is told by its kind and status, never in the provider's words, which can name projects, hosts or keys: "The model was busy (HTTP 429).", "The model's quota has run out (HTTP 429).", "The model could not be reached.", "The model refused the key or token it was sent (HTTP 401)." A Node system error is told by its code ("The file could not be read from storage (ENOENT)."), a `DocumentStoreError` by its own message, which names only its code, and a store that failed to write in `ingest.error` as "The document could not be stored. Try again later.". The library's own errors (a refused file, `DocumentsNotFoundError`, an abort, the error a listener threw) keep their message, and so does any other `Error` without a `kind` or a numeric `status`, such as one an adapter or a token function of your own throws: give such errors a status, or words of your own. A value that is not an `Error` is "Something went wrong.". |
 | `kind` | [`ModelErrorKind`](#modelerrorkind), optional | For a model error: its kind, as [`errorKindOf`](#errorkindoferror) reads it. |
-| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. |
+| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also the status of the library's own errors: 503 for `DocumentStoreError`, 404 for `DocumentsNotFoundError`, and for an `IngestError` the status of every code but those of 422 (413, 409, 503). |
 | `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"GeminiRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"IngestError"`… |
-| `code` | [`IngestErrorCode`](./library.md#ingesterror), optional | For a file `ingest` could not read: why (`"too_large"`, `"no_text"`, `"busy"`…). New in 0.8.0. |
+| `code` | [`IngestErrorCode`](./library.md#ingesterror), optional | For a file `ingest` could not read: why (`"too_large"`, `"no_text"`, `"busy"`, `"exists"`…). New in 0.8.0. |
 
 To show your own words, map the error by `kind`, `status` or `name`, as you would the thrown one
 (see [Errors and reliability](../guides/errors-and-reliability.md)).

@@ -392,6 +392,12 @@ A store of your own implements `DocumentStore`: four methods are required, six a
 library calls them. Your application calls them only to test the store, or to sweep a store that no
 library uses.
 
+Every method takes a last, optional `context`, new in 0.9.0: the scope and the owner of the call
+([`DocumentContext`](../reference/library.md#documentcontext)), as in `getMeta(id, context?)`. The
+table below leaves it out. A store written for 0.8, without it, still compiles and works. A store
+that wraps another one, or a subclass that overrides a method, passes it on:
+`super.getMeta(id, context)`.
+
 ### The methods
 
 | Method | Required | When the library calls it | What it must do |
@@ -411,8 +417,10 @@ The library checks `expiresAt` itself, with its own clock, before every use. You
 `get` may return a document that has expired; your `sweep` must remove it.
 
 Keep every field of `meta`, including those your store does not know. Later versions add optional
-fields: 0.4.1 added `jsonBytes`, and 0.6.0 `encoding` and `replacedCharacters`, which say how a
-text file that was not valid UTF-8 was read ([PDFs and other formats](./pdfs.md#text-encodings)).
+fields: 0.4.1 added `jsonBytes`, 0.6.0 `encoding` and `replacedCharacters`, which say how a
+text file that was not valid UTF-8 was read ([PDFs and other formats](./pdfs.md#text-encodings)),
+and 0.9.0 `metaVersion`, on every document it ingests
+([`DOCUMENT_META_VERSION`](../reference/library.md#document_meta_version)).
 A store that checks `meta` against a fixed list of fields (a `$jsonSchema` with
 `additionalProperties: false`, a Mongoose schema in strict mode that throws) refuses the ingest of
 every file that has them: a text file not in UTF-8, a UTF-8 log cut at a byte count, an ASCII log
