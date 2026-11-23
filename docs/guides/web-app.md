@@ -248,8 +248,8 @@ input, an [`IngestInput`](../reference/library.md#ingestinput):
 | Field | What it is |
 |---|---|
 | `name` | The file's name. Cleaned as above. |
-| `mimeType` | Optional. Used for the format when the extension says nothing. |
-| `bytes` | The file, as a `Uint8Array`. A Node `Buffer` is one. |
+| `mimeType` | Optional. Used for the format when the extension says nothing. Kept as its type and subtype, in lower case, without parameters (0.9.0). |
+| `bytes` | The file, as a `Uint8Array`. A Node `Buffer` is one. Since 0.9.0, give `source: { path }` in its place for a file your route saved to disk: it is read at the ingest's turn ([`IngestFromSource`](../reference/library.md#ingestfromsource)). |
 | `owner` | Optional. The user (or tenant, or chat session) the document belongs to. Every later call must pass the same. A string that is not empty or only spaces: `""` and `null` throw a `TypeError` ([Storage](./storage.md#how-ownership-works)). Check it before you read the upload, as the handler does: the helper below would answer that error `422`. |
 | `signal` | Optional. Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws its `reason`, and nothing is stored. |
 

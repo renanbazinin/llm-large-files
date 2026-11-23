@@ -654,7 +654,8 @@ only what the answering model wrote.
 **Cause.** The model gets `view_pages` for a PDF only when all of these hold:
 
 - `keepOriginals` lists `"pdf"`, and the store has `putOriginal` and `getOriginal`
-  (`FileDocumentStore` and `MemoryDocumentStore` have both);
+  (`FileDocumentStore` and `MemoryDocumentStore` have both), or (0.9.0) the document was ingested
+  with `original: { ref }` and the library has `originals`;
 - the document was ingested after that: one ingested before has no file kept
   (`meta.originalKept` is not `true`);
 - every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput`, not
@@ -672,6 +673,19 @@ does not see them.
 look fails: install it ([above](#a-pdf-docx-or-pptx-upload-fails-needs-the-optional-dependency)).
 
 See [PDFs and other formats](./guides/pdfs.md).
+
+### `view_pages` says a file "changed on the server since it was read"
+
+The model reads `report.pdf changed on the server since it was read. Attach it again to look at its
+pages.`, and `files.getOriginal` gives `undefined`.
+
+**Cause.** The document was ingested with `original: { ref }` (0.9.0), and the file at that ref is
+no longer the one that was ingested: its size or SHA-256 differs from `meta.original`. It was saved
+again under the same name, cut short by a copy that failed, or edited. Its pages would not match the
+text the model has, so none are shown.
+
+**Fix.** Keep each upload under a name of its own, and never write over a file a document names.
+To use the new file, ingest it again (`ifExists: "replace"` under the same `id`).
 
 ### Whole-file reads never happen, or are refused
 
