@@ -66,6 +66,14 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...actual, open, rm, default: { ...actual, open, rm } };
 });
 
+/**
+ * The idle time of the tests that hold a call to the disk. Every other call must end within it too:
+ * on a Windows runner, opening a new file took more than 200 ms (the virus scanner), and the upload
+ * failed with ETIMEDOUT where the test held only the removal. Each call held waits that long: the
+ * tests that use it are given 30 s.
+ */
+const IDLE_MS = 1_000;
+
 /** The servers of a test, closed after it. */
 const servers: Server[] = [];
 let spool: string;
@@ -205,13 +213,13 @@ describe("uploadSpool", () => {
     expect(path.dirname(seen.at(-1)!.path!)).toBe(path.resolve(tmpdir()));
   });
 
-  it("removes the file when the upload fails: refused, too large, stopped, or onUploaded throws", async () => {
+  it("removes the file when the upload fails: refused, too large, stopped, or onUploaded throws", { timeout: 30_000 }, async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 1_000 });
     const stored: string[] = [];
     const contexts: UploadedContext[] = [];
     const base = await serve(files, {
       uploadSpool: { directory: spool, minBytes: 0 },
-      uploadIdleTimeoutMs: 200,
+      uploadIdleTimeoutMs: IDLE_MS,
       onUploaded: async (document, context) => {
         stored.push(document.id);
         contexts.push(context);
@@ -279,11 +287,11 @@ describe("uploadSpool", () => {
 
   // A volume that stops answering (a network volume whose server is gone) held the upload: no
   // answer, and its room of the spool kept for good, so that the next upload got a 503.
-  it("answers 500 (ETIMEDOUT) when the disk does not answer within uploadIdleTimeoutMs, and gives the room back", async () => {
+  it("answers 500 (ETIMEDOUT) when the disk does not answer within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: 200 });
+    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     for (const call of ["open", "write", "close"] as const) {
-      for (const send of [(name: string) => upload(base, name, "x".repeat(800), false, AbortSignal.timeout(3_000)), (name: string) => chunked(base, name, ["x".repeat(400), "x".repeat(400)])]) {
+      for (const send of [(name: string) => upload(base, name, "x".repeat(800), false, AbortSignal.timeout(10_000)), (name: string) => chunked(base, name, ["x".repeat(400), "x".repeat(400)])]) {
         let release!: () => void;
         disk.hold = { under: spool, call, gate: new Promise<void>((resolve) => (release = resolve)) };
         const hung = await send(`${call}.txt`);
@@ -302,16 +310,16 @@ describe("uploadSpool", () => {
 
   // A volume that stopped answering after a write failed: the closing or the removal of the file
   // held the answer, and the room of the spool for good.
-  it("answers a full disk when the closing or the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", async () => {
+  it("answers a full disk when the closing or the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: 200 });
+    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     for (const hung of ["close", "removal"] as const) {
       let release!: () => void;
       const gate = new Promise<void>((resolve) => (release = resolve));
       if (hung === "close") disk.hold = { under: spool, call: "close", gate };
       else disk.removalsHeld = { under: spool, gate };
       disk.fullUnder = spool;
-      const full = await upload(base, `${hung}.txt`, "x".repeat(800), false, AbortSignal.timeout(3_000));
+      const full = await upload(base, `${hung}.txt`, "x".repeat(800), false, AbortSignal.timeout(10_000));
       disk.fullUnder = undefined;
       disk.hold = undefined;
       disk.removalsHeld = undefined;
@@ -327,19 +335,19 @@ describe("uploadSpool", () => {
 
   // A volume that stopped answering while the file was ingested: its removal held the answer, and
   // the room of the spool for good, so that the next upload got a 503.
-  it("answers once the ingest ends when the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", async () => {
+  it("answers once the ingest ends when the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: 200 });
+    const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     let release!: () => void;
     disk.removalsHeld = { under: spool, gate: new Promise<void>((resolve) => (release = resolve)) };
-    expect((await upload(base, "first.txt", "x".repeat(800), false, AbortSignal.timeout(3_000))).status).toBe(201);
+    expect((await upload(base, "first.txt", "x".repeat(800), false, AbortSignal.timeout(10_000))).status).toBe(201);
     // Its room is back: the next upload of 800 bytes is taken, on the event-stream path too.
-    const streamed = await upload(base, "second.txt", "y".repeat(800), true, AbortSignal.timeout(3_000));
-    expect(streamed.status).toBe(200);
-    expect(await streamed.text()).toContain('"type":"ingest.finish"');
-    expect((await upload(base, "third.txt", "z".repeat(800), false, AbortSignal.timeout(3_000))).status).toBe(201);
+    const streamed = await upload(base, "second.txt", "y".repeat(800), true, AbortSignal.timeout(10_000));
+    // With the body, so that a failure says what it was.
+    expect({ status: streamed.status, body: await streamed.text() }).toMatchObject({ status: 200, body: expect.stringContaining('"type":"ingest.finish"') });
+    expect((await upload(base, "third.txt", "z".repeat(800), false, AbortSignal.timeout(10_000))).status).toBe(201);
     // A file that cannot be read is answered too.
-    expect((await upload(base, "blank.txt", "   \n\n  ", false, AbortSignal.timeout(3_000))).status).toBe(422);
+    expect((await upload(base, "blank.txt", "   \n\n  ", false, AbortSignal.timeout(10_000))).status).toBe(422);
     // The removals go on, and end once the volume answers.
     expect(await spooled()).toHaveLength(4);
     release();

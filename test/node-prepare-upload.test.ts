@@ -93,6 +93,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...actual, open, realpath, rm, default: { ...actual, open, realpath, rm } };
 });
 
+/**
+ * The idle time of the tests that hold a call to the disk, or a body. Every other call must end
+ * within it too: on a Windows runner, opening a new file can take more than 200 ms (the virus
+ * scanner). Each call held waits that long: the tests that use it are given 30 s.
+ */
+const IDLE_MS = 1_000;
+
 /** The servers of a test, closed after it. */
 const servers: Server[] = [];
 /** The uploads the servers of a test handled, each until its handler returned. */
@@ -294,7 +301,7 @@ describe("prepareUpload with a path", () => {
     expect(ingest).not.toHaveBeenCalled();
   });
 
-  it("removes the file when the upload fails: too large, stopped, left, refused, a taken ID, a full disk", async () => {
+  it("removes the file when the upload fails: too large, stopped, left, refused, a taken ID, a full disk", { timeout: 30_000 }, async () => {
     // A text extractor that holds a file named slow.txt until its ingest is stopped.
     let holding = 0;
     const text: Extractor = async (bytes, input) => {
@@ -310,7 +317,7 @@ describe("prepareUpload with a path", () => {
     const base = await serve(files, {
       getOwner: userOf,
       getScope: scopeOf,
-      uploadIdleTimeoutMs: 200,
+      uploadIdleTimeoutMs: IDLE_MS,
       prepareUpload: (_request, info) => {
         const id = next || `up-${ids.length + 1}`;
         ids.push(id);
@@ -479,9 +486,9 @@ describe("prepareUpload with a path", () => {
   });
 
   // A volume that stopped answering held the upload, unanswered, with its file.
-  it("removes the file, and answers 500 (ETIMEDOUT), when a write does not end within uploadIdleTimeoutMs", async () => {
+  it("removes the file, and answers 500 (ETIMEDOUT), when a write does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
     const files = library();
-    const { options, saved } = chatbot({ uploadIdleTimeoutMs: 200 });
+    const { options, saved } = chatbot({ uploadIdleTimeoutMs: IDLE_MS });
     const base = await serve(files, options);
     let release!: () => void;
     disk.writesHeldUnder = root;
@@ -502,14 +509,14 @@ describe("prepareUpload with a path", () => {
 
   // The look at the folders of the ref came before the first timed call to the disk: on a volume
   // that stopped answering, such an upload was never answered.
-  it("answers 500 (ETIMEDOUT), and writes nothing, when the look at the folders of the ref does not end within uploadIdleTimeoutMs", async () => {
+  it("answers 500 (ETIMEDOUT), and writes nothing, when the look at the folders of the ref does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
     const files = library();
-    const { options } = chatbot({ uploadIdleTimeoutMs: 200 });
+    const { options } = chatbot({ uploadIdleTimeoutMs: IDLE_MS });
     const base = await serve(files, options);
     disk.realpathHeldUnder = root;
     for (const events of [false, true]) {
       // Answered before the event stream starts: JSON on both paths.
-      const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events, AbortSignal.timeout(3_000));
+      const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events, AbortSignal.timeout(10_000));
       expect(response.status).toBe(500);
       expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
     }
@@ -536,10 +543,10 @@ describe("prepareUpload with a path", () => {
 
   // A volume that stopped answering after the body was written: the removal of the file of an
   // upload that failed held its answer.
-  it("answers an upload that failed when the removal of its file does not end within uploadIdleTimeoutMs, on both paths", async () => {
+  it("answers an upload that failed when the removal of its file does not end within uploadIdleTimeoutMs, on both paths", { timeout: 30_000 }, async () => {
     const files = library();
     const { options, saved } = chatbot({
-      uploadIdleTimeoutMs: 200,
+      uploadIdleTimeoutMs: IDLE_MS,
       onUploaded: (document) => {
         if (document.name.startsWith("refused")) throw Object.assign(new Error("This chat has too many files."), { status: 409 });
       },
@@ -550,8 +557,8 @@ describe("prepareUpload with a path", () => {
     disk.removalsGate = new Promise<void>((resolve) => (release = resolve));
     for (const events of [false, true]) {
       // The ingest refuses the file (422), or onUploaded throws (409).
-      const blank = await upload(base, "blank.txt", "   \n\n  ", {}, events, AbortSignal.timeout(3_000));
-      const refused = await upload(base, "refused.txt", "Notes.", {}, events, AbortSignal.timeout(3_000));
+      const blank = await upload(base, "blank.txt", "   \n\n  ", {}, events, AbortSignal.timeout(10_000));
+      const refused = await upload(base, "refused.txt", "Notes.", {}, events, AbortSignal.timeout(10_000));
       if (events) {
         for (const response of [blank, refused]) expect(await response.text()).toContain('"type":"ingest.error"');
       } else {

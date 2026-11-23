@@ -15,15 +15,21 @@ setFlagsFromString("--expose-gc");
 const collectGarbage = runInNewContext("gc") as () => void;
 
 /**
- * The heap in use after full collections, once pending timers have run. Three, a turn of the loop
- * apart: one collection right after an ingest has left 14 MB of its garbage for the next (Node 20).
+ * The heap in use once full collections free nothing more: collected a turn of the loop apart,
+ * until ten in a row free less than 256 KB. An ingest's 14 MB of garbage outlived the first
+ * collection after it on Node 20, and the first three under coverage on Node 22. A meta that kept
+ * the text would keep the heap up until it is copied, however long this waits.
  */
 async function heapKept(): Promise<number> {
-  for (let round = 0; round < 3; round++) {
+  let used = Number.POSITIVE_INFINITY;
+  for (let round = 0, calm = 0; round < 60 && calm < 10; round++) {
     await new Promise((resolve) => setTimeout(resolve, 10));
     collectGarbage();
+    const now = process.memoryUsage().heapUsed;
+    calm = used - now < 256 * 1024 ? calm + 1 : 0;
+    used = now;
   }
-  return process.memoryUsage().heapUsed;
+  return used;
 }
 
 let directory: string | undefined;
@@ -56,6 +62,10 @@ describe("the meta that ingest returns (0.8.2)", () => {
     for (const [name, text] of [["gateway.log", log.join("\n")], ["lease.md", markdown.join("\n")]] as const) {
       let meta = await files.ingest({ name, bytes: utf8(text) });
       expect(meta.format === "log" ? meta.logProfile?.firstTimestamp : meta.outline[0]?.title).toBeTruthy();
+      // Measured once for nothing first: under coverage on Node 24, 14 MB went only once this
+      // function had run again, whatever the meta was. A meta that kept the text is not caught on
+      // Node 24 anyway (its pieces do not hold the text there); the runs on Node 22 catch it (7 MB).
+      await heapKept();
       const holding = await heapKept();
       meta = JSON.parse(JSON.stringify(meta)) as typeof meta;
       const copied = await heapKept();
