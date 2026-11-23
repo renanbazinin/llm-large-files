@@ -26,6 +26,24 @@ const PAGE_LINE = /^--- Page (\d+) ---$/;
 const NO_TEXT_LINE = "[No text on this page. It may be a scan, a photo, or a chart.]";
 const PICTURE_LINE = "[Picture on this page. This text cannot show it.]";
 
+/**
+ * The script of the letter at `at`, or undefined when it is not a letter. The common scripts are
+ * known by their code points, with no regular expression; only rarer blocks are tested.
+ */
+function letterScript(text: string, at: number): string | undefined {
+  const code = text.charCodeAt(at);
+  if (code < 0x80) return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) ? "Latin" : undefined;
+  if (code >= 0x5d0 && code <= 0x5f2) return code <= 0x5ea || code >= 0x5f0 ? "Hebrew" : undefined;
+  if (code >= 0x591 && code <= 0x5cf) return undefined; // Hebrew points and marks
+  if (code >= 0xc0 && code <= 0x24f) return code === 0xd7 || code === 0xf7 ? undefined : "Latin";
+  if ((code >= 0x620 && code <= 0x64a) || (code >= 0x671 && code <= 0x6d3)) return "Arabic";
+  if (code >= 0x410 && code <= 0x44f) return "Cyrillic";
+  if (code >= 0x4e00 && code <= 0x9fff) return "CJK";
+  if (code >= 0xdc00 && code <= 0xdfff) return undefined;
+  const character = code >= 0xd800 && code <= 0xdbff ? text.slice(at, at + 2) : text[at]!;
+  return LETTER.test(character) ? scriptOf(character.codePointAt(0)!) : undefined;
+}
+
 /** The script of a letter, by its code point. */
 function scriptOf(code: number): string {
   if (code < 0x250) return "Latin";
@@ -69,6 +87,18 @@ export async function measureQuality(lines: string[], format: DocumentFormat, sl
   const letters = new Map<string, number>();
   let sampled = 0;
   let total = 0;
+  /** Adds a line of a PDF page to its counts, a character code at a time. */
+  const countPage = (line: string) => {
+    for (let at = 0; at < line.length; at++) {
+      const code = line.charCodeAt(at);
+      if (code === 32 || code === 9 || code === 0xa0 || code === 0x202f) continue;
+      // The second half of a character outside the basic plane is counted with its first.
+      if (code >= 0xdc00 && code <= 0xdfff) continue;
+      characters++;
+      if (code === 0xfffd) replaced++;
+      else if ((code >= 48 && code <= 57) || letterScript(line, at) !== undefined) wordy++;
+    }
+  };
   for (let index = 0; index < lines.length; index++) {
     if ((index & 4095) === 4095) await slicer.maybePause();
     const line = lines[index]!;
@@ -85,28 +115,15 @@ export async function measureQuality(lines: string[], format: DocumentFormat, sl
         noText = true;
         continue;
       }
-      if (line !== PICTURE_LINE) {
-        for (const character of line) {
-          if (character.trim() === "") continue;
-          characters++;
-          if (character === "�") replaced++;
-          else if (/[\p{L}\p{N}]/u.test(character)) wordy++;
-        }
-      }
+      if (line !== PICTURE_LINE) countPage(line);
     }
     if (sampled < SCRIPT_SAMPLE) {
       sampled += line.length + 1;
-      for (const character of line) {
-        const code = character.codePointAt(0)!;
-        // ASCII letters, the common case, without a regex.
-        if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
-          letters.set("Latin", (letters.get("Latin") ?? 0) + 1);
-          total++;
-        } else if (code >= 0x80 && LETTER.test(character)) {
-          const script = scriptOf(code);
-          letters.set(script, (letters.get(script) ?? 0) + 1);
-          total++;
-        }
+      for (let at = 0; at < line.length; at++) {
+        const script = letterScript(line, at);
+        if (script === undefined) continue;
+        letters.set(script, (letters.get(script) ?? 0) + 1);
+        total++;
       }
     }
   }
