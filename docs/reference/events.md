@@ -779,7 +779,7 @@ The events of `files.ingest`, through `IngestInput.onEvent`:
 |---|---|---|
 | `ingest.start` | `name: string`, `format: DocumentFormat`, `bytes: number` | Always first, before the input is checked. `name` is the file name as it will be stored; `format` is what the name and type say (a text file can still become a log); `bytes` is the size of the file. |
 | `ingest.progress` | `stage: IngestStage`, `done: number`, `total?: number`, `unit: "pages" \| "parts" \| "bytes" \| "characters"` | How far a stage is. `total` is absent when it is not known. See [Stages and units](#stages-and-units). |
-| `ingest.finish` | `document: DocumentSummary` | Always last when the document is stored. `document` is [`toDocumentSummary(meta)`](./library.md#documentsummary): the summary an upload's `201` holds, without `owner`. |
+| `ingest.finish` | `document: DocumentSummary`, `app?: Record<string, unknown>` | Always last when the document is stored. `document` is [`toDocumentSummary(meta)`](./library.md#documentsummary): the summary an upload's `201` holds, without `owner`. `app` is set only by the upload handler of `llm-large-files/node`: the `answer` its `onUploaded` returned (new in 0.9.0). `files.ingest` never sets it. |
 | `ingest.error` | `error: EventError` | Always last when the ingest throws: a refusal, an abort, a store that failed, or a listener that threw. |
 
 Each event also has `seq`, `runId` and `time`. Nothing comes after `ingest.finish` or
@@ -836,14 +836,17 @@ events when the request's `Accept` header names `text/event-stream` itself: not 
 not only through a wildcard such as `*/*` or `text/*`.
 
 1. The checks that answer with an HTTP error come first, as before, in JSON: a missing name
-   (`400`), an owner that `getOwner` refused or that is not allowed (its status, or `500`), a body
+   (`400`), an owner that `getOwner` refused or that is not allowed (its status, `401` or `500`), a
+   scope that `getScope` refused or that is not valid (its status, or `500`; new in 0.9.0), a body
    another middleware already parsed (`400`), and a file larger than `maxUploadBytes` (`413`).
 2. Then it answers `200` with Server-Sent Events, written by `writeSseEvents`: `ingest.start`,
    `ingest.progress`…, and last one of:
-   - `ingest.finish`, whose `document` is the summary a `201` would hold;
+   - `ingest.finish`, whose `document` is the summary a `201` would hold, and whose `app` is the
+     `answer` of `onUploaded` (new in 0.9.0). It is sent once `onUploaded` is done;
    - `ingest.error`, whose `error` is `{ message, status }`, the message and status a JSON answer
      would have: `422` with the reason for a file that cannot be read ("empty.txt is empty."),
-     `500` "Upload failed." for a store that failed, and so on, as in the
+     `503` "The document could not be stored. Try again." for a store that failed (since 0.9.0),
+     `500` "Upload failed." for any other error, what `onUploaded` threw, and so on, as in the
      [node reference](./node.md#uploadrequest-response). For a file that could not be read, it also
      has `code`, the `IngestError` code (`"empty"`, `"busy"`…; new in 0.8.0).
 3. When the client goes away, the ingest stops and nothing is stored.

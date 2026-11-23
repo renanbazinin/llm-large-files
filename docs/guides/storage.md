@@ -710,7 +710,8 @@ and 0.9.0 `metaVersion`, on every document it ingests
 A store that checks `meta` against a fixed list of fields (a `$jsonSchema` with
 `additionalProperties: false`, a Mongoose schema in strict mode that throws) refuses the ingest of
 every file that has them: a text file not in UTF-8, a UTF-8 log cut at a byte count, an ASCII log
-with a stray byte. `createDocumentHandlers` then answers 500 "Upload failed.". A store that keeps
+with a stray byte. `createDocumentHandlers` then answers 503 "The document could not be stored. Try
+again." (a 500 "Upload failed." before 0.9.0), and a retry fails the same way. A store that keeps
 fixed columns and drops the others keeps the text, read right, but the model is no longer told how
 the file was read. [The example below](#example-object-storage-and-a-database) stores `meta` whole.
 
@@ -784,7 +785,7 @@ What the library does with what you throw depends on the call:
   is "The document could not be stored (EIO). Try again.", with the code only when your error has a
   string `code`, and its status 503. A write that does not end within `ingestTimeoutMs` is one of
   code `"ETIMEDOUT"`. The `upload` handler of `createDocumentHandlers` answers it 503 with that
-  message, which names no host or path (before 0.9.0, a 500). The handlers log nothing: log your
+  message, which names no host or path, and `Retry-After: 5` (before 0.9.0, a 500). The handlers log nothing: log your
   error in the store before you throw, or log `error.cause`. See the
   [node reference](../reference/node.md#uploadrequest-response). Under an application's ID, the
   library first asks `getMeta(id)`, and calls `delete(id)` only when nothing is there or the document
@@ -798,7 +799,8 @@ What the library does with what you throw depends on the call:
   0.9.0: it came out as it was). The DELETE handler answers it 503 with its message.
 - **A scope you cannot keep**: throw a `DocumentScopeError` (`"scope_required"`, `"scope_invalid"`,
   `"scope_missing"`). It is passed on as it is from every call, reads and writes alike: it is a
-  mistake of the call, not a store to try again.
+  mistake of the call, not a store to try again. The handlers of `createDocumentHandlers` answer
+  `"scope_missing"` `404` "This chat no longer exists.", and the other two `500` (new in 0.9.0).
 - **`putIndex` on a later read**: an error is ignored. The index is used from memory, and built again
   the next time.
 
@@ -972,9 +974,9 @@ export const files = createLargeFiles({
 ```
 
 - Reads let their errors through: the library turns them into a `DocumentStoreError`. Writes log
-  theirs, then turn them into an error with status 503 and a message of their own, so an upload that
-  meets a database that is down is answered 503 "The file could not be stored. Try again.", not 500
-  "Upload failed.".
+  theirs, then throw. Since 0.9.0 the library turns them into a `DocumentStoreError` too, so an
+  upload that meets a database that is down is answered 503 "The document could not be stored. Try
+  again.", with `Retry-After: 5`, whatever the store's own error says.
 - `delete` removes the record first. If removing an object fails after that, the document is gone
   and the object stays behind. A lifecycle rule on the bucket that removes objects under the prefix
   some time after `ttlMs` cleans those up, when `ttlMs` is finite.

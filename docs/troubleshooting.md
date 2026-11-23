@@ -1201,7 +1201,8 @@ once with `chmod`. See [Deployment](./guides/deployment.md#a-shared-store).
 
 ### `DocumentScopeError`: "The scope no longer exists."
 
-An upload into a chat fails with a `DocumentScopeError` of code `"scope_missing"`.
+An upload into a chat fails with a `DocumentScopeError` of code `"scope_missing"`. The upload
+handler answers it `404` `{ "error": "This chat no longer exists." }`.
 
 **Cause.** The store is a `FileDocumentStore` with `scopes`, and the folder of the chat is gone:
 your application removed it when the chat was deleted, or never made it. The store makes its own
@@ -1238,22 +1239,31 @@ try again.
 
 See [Storage](./guides/storage.md) and [`DocumentStore`](./reference/library.md#documentstore).
 
-### `503`: "The document could not be stored. Try again.", or `422` with your database's message
+### `503`: "The document could not be stored. Try again.", or `500` "Upload failed."
 
 **Cause.** A store write that fails is a `DocumentStoreError` since 0.9.0 (it was thrown as it
 came, and answered `500` "Upload failed."). The upload handler answers it `503` with its message,
-"The document could not be stored (ENOSPC). Try again." when the store's error has a code. Your
-database's own message is its `cause`, and may name its host, so it is not sent, and the handlers
-log nothing.
+"The document could not be stored (ENOSPC). Try again." when the store's error has a code, and
+`Retry-After: 5`. Your database's own message is its `cause`, and may name its host, so it is not
+sent, and the handlers log nothing.
 
-Two paths can answer it `422` with your database's message instead, as a file that cannot be read:
-an `ingest` of your own that throws a new error in its place, as `ingestInProcess` in
-[Deployment](./guides/deployment.md#uploads-and-ingest) does, and a route of your own, as in
-[Web app](./guides/web-app.md#filesingest-and-its-errors). Every case is in the
-[node reference](./reference/node.md#uploadrequest-response).
+An `ingest` of your own that throws a new error in its place, without a status, gets `500`
+"Upload failed." since 0.9.0. Before, it got `422` with that error's message, which could name your
+database's host (S12). Every case is in the [node reference](./reference/node.md#how-errors-are-answered).
 
 **Fix.** Log `error.cause` where you catch it, and fix the storage. An `ingest` of your own must
-pass the `DocumentStoreError` on as it is, or copy its `status` onto the error it throws.
+pass the `DocumentStoreError` on as it is, or rebuild it, as `ingestInProcess` in
+[Deployment](./guides/deployment.md#uploads-and-ingest) does. A route of your own answers it with
+`uploadAnswerOf` ([Web app](./guides/web-app.md#filesingest-and-its-errors)).
+
+### `500` "Upload failed." for a file your own `ingest` refused
+
+**Cause.** Since 0.9.0, the upload handler answers `422` only an `IngestError`. A `LargeFiles` of
+your own whose `ingest` throws a plain `Error` for a file it refuses gets `500` "Upload failed.",
+without its message, which could name a host.
+
+**Fix.** Throw `new IngestError(code, message)` (exported from `llm-large-files`), with a message
+written for the user. Its code says why: `"unreadable"`, `"too_large"`, `"no_text"`…
 
 See [Storage](./guides/storage.md) and [`llm-large-files/node` reference](./reference/node.md).
 
