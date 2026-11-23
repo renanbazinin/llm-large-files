@@ -414,7 +414,7 @@ A question planned again for a smaller window (after the provider refused its fi
 what was settled: the function is not asked again about the same documents.
 
 ```ts
-import { askWithFiles, type AskResult, type LargeFiles, type MissingDocumentsAction, type ModelAdapter } from "llm-large-files";
+import { askWithFiles, IngestError, type AskResult, type LargeFiles, type MissingDocumentsAction, type ModelAdapter } from "llm-large-files";
 
 declare const files: LargeFiles;
 declare const model: ModelAdapter;
@@ -435,7 +435,12 @@ export async function ask(userId: string, chatId: string, documentIds: string[],
       for (const id of missing) {
         const upload = await uploads.find(userId, id);
         if (!upload) continue;
-        await files.ingest({ name: upload.name, bytes: upload.bytes, id, owner, scope });
+        try {
+          await files.ingest({ name: upload.name, bytes: upload.bytes, id, owner, scope });
+        } catch (error) {
+          // Another question of the chat ingested it meanwhile.
+          if (!(IngestError.is(error) && error.code === "exists")) throw error;
+        }
         back++;
       }
       return back === missing.length ? { retry: true } : "drop";
@@ -443,6 +448,11 @@ export async function ask(userId: string, chatId: string, documentIds: string[],
   });
 }
 ```
+
+- Two questions of one chat can find the same document missing at once: a second tab, or a
+  question sent again. The second ingest gets an [`IngestError`](./library.md#ingesterror) of code
+  `"exists"`, and the ID counts as back. If the first has not stored it yet, that question fails
+  with `DocumentsNotFoundError`, and can be asked again.
 
 ### `MissingDocumentsAction`
 
