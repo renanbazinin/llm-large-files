@@ -1,4 +1,5 @@
 // One rule for sending a model request again, used by the chat loop and by whole-file part reads.
+import { classifyModelError, isModelStatus } from "./model.js";
 
 /**
  * How a model request that failed is sent again. A field that is not a finite number (NaN,
@@ -37,6 +38,20 @@ export function statusOf(error: unknown): number | undefined {
  */
 export function isRetryableStatus(status: number): boolean {
   return status === 0 || status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+/**
+ * The kind of a model's error, as its events and `errorInfoOf` tell it: its own `kind`, or, for an
+ * error without one that has a model's status (an adapter of your own, `httpError`), the kind its
+ * status, message and `code` give. Thrown plain data has none: it is not an adapter's error.
+ */
+function kindOf(error: unknown): unknown {
+  if (typeof error !== "object" || error === null) return undefined;
+  const { kind, status, message, code } = error as { kind?: unknown; status?: unknown; message?: unknown; code?: unknown };
+  if (kind !== undefined || !isModelStatus(status)) return kind;
+  const proto: unknown = Object.getPrototypeOf(error);
+  if (proto === Object.prototype || proto === null) return undefined;
+  return classifyModelError(status, typeof message === "string" ? message : "", { code: typeof code === "string" ? code : undefined }).kind;
 }
 
 /** A wait that ends early, with the signal's reason, when the signal aborts. */
@@ -118,7 +133,9 @@ export type RetryNotice = {
  * - An error of kind "quota" (a daily cap, no credit left) is not retried: a wait does not mend it.
  *   Nor is one of kind "context_overflow", whatever its status: only a smaller request can pass
  *   (OpenAI's request larger than a minute's allowance of tokens comes as HTTP 429). Nor is one
- *   whose provider said not to try again (Claude's `x-should-retry: false`).
+ *   whose provider said not to try again (Claude's `x-should-retry: false`). An error without a
+ *   kind of its own (an adapter of your own) has the kind its status and `code` give, as its events
+ *   do: a 429 of code "insufficient_quota" is a quota.
  * - An error of kind "timeout" with status 0 (nothing came from the model for the adapter's whole
  *   wait) is retried once: another such wait is long, and a model that went silent twice will most
  *   likely do so again. A timeout the provider reports (HTTP 408) is retried like any other.
@@ -146,7 +163,7 @@ export async function withRetry<T>(run: () => Promise<T>, options: {
       return await run();
     } catch (error) {
       if (options.signal?.aborted || options.canRetry?.() === false) throw error;
-      const kind = (error as { kind?: unknown } | null)?.kind;
+      const kind = kindOf(error);
       if (kind === "quota" || kind === "context_overflow") throw error;
       if (typeof error === "object" && error !== null && notToRetry.has(error)) throw error;
       if (kind === "timeout" && statusOf(error) === 0) {

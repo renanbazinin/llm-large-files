@@ -201,9 +201,9 @@ describe("errorInfoOf", () => {
       [httpError(503, "acme-prod is down."), { code: "server", status: 502, retryable: true, message: "The model failed on its side (HTTP 503)." }],
       [httpError(401, "API key not valid for acme-prod."), { code: "auth", status: 500, retryable: false, message: "The model refused the key or token it was sent (HTTP 401)." }],
       [httpError(0, "connect ECONNREFUSED acme-prod.example:443"), { code: "unreachable", status: 502, retryable: true, message: "The model could not be reached." }],
-      // Its code says what its words do not: the events read it, and so does errorInfoOf. The retry
-      // policy sends a 429 again by its status.
-      [Object.assign(httpError(429, "Too many."), { code: "insufficient_quota" }), { code: "quota", status: 503, retryable: false, message: "The model's quota has run out (HTTP 429)." }, true],
+      // Its code says what its words do not: the events read it, errorInfoOf does, and so does the
+      // retry policy, which sent this 429 again by its status, between events that called it a quota.
+      [Object.assign(httpError(429, "Too many."), { code: "insufficient_quota" }), { code: "quota", status: 503, retryable: false, message: "The model's quota has run out (HTTP 429)." }],
     ];
     for (const [error, expected, sentAgain = expected.retryable] of cases) {
       const events: AskEvent[] = [];

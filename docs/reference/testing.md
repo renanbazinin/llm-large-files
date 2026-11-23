@@ -84,8 +84,10 @@ declare function httpError(status: number, message?: string, retryAfterMs?: numb
 An `Error` with a `status` (and a `retryAfterMs`, when given), as an adapter of your own may throw
 for an HTTP status. The message is `HTTP <status>` by default. The loop sends a request again
 after a status worth trying again (408, 409, 429 or 5xx), and waits `retryAfterMs` when it is
-there. For the error classes of the
-library, throw [`ModelRequestError`](./errors-and-retries.md#modelrequesterror).
+there. It has no `kind`: its status, message and a `code` you add give one, as
+[`classifyModelError`](./errors-and-retries.md#classifymodelerrorstatus-message-signals) does, and
+a 429 of a quota (`code: "insufficient_quota"`) is not sent again (since 0.9.0). For the error
+classes of the library, throw [`ModelRequestError`](./errors-and-retries.md#modelrequesterror).
 
 ### Scripted
 

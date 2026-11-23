@@ -139,6 +139,24 @@ describe("sending again", () => {
     }, { retry: quick() });
     expect({ result, runs }).toEqual({ result: "ok", runs: 3 });
   });
+
+  // An adapter's error without a kind of its own was sent again by its status alone, while its
+  // events and errorInfoOf called it a quota (or a request too large), not to be retried.
+  it("reads the kind of an error without one from its status and code, as its events do", async () => {
+    const sentAgain = async (error: unknown) => {
+      let runs = 0;
+      await withRetry(async () => {
+        runs++;
+        throw error;
+      }, { retry: quick() }).catch(() => undefined);
+      return runs;
+    };
+    expect(await sentAgain(Object.assign(httpError(429, "Too many."), { code: "insufficient_quota" }))).toBe(1);
+    expect(await sentAgain(httpError(429, "Request too large for gpt-4o on tokens per min (TPM): Limit 30000, Requested 45237."))).toBe(1);
+    expect(await sentAgain(httpError(429, "Too many."))).toBe(4);
+    // Thrown plain data is not an adapter's error: it has no kind, and is sent again by its status.
+    expect(await sentAgain({ status: 429, code: "insufficient_quota", message: "Too many." })).toBe(4);
+  });
 });
 
 describe("a model that goes silent (firstByteTimeoutMs, idleTimeoutMs)", () => {

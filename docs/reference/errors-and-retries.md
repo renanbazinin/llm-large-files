@@ -504,8 +504,9 @@ declare function withRetry<T>(run: () => Promise<T>, options?: {
 Runs `run`, and runs it again when it failed in a way that another try can mend. It is the rule
 `askWithFiles` and `askGemini` use for each chat request, and the whole-file part reads use for
 each part. It reads three fields of what `run` throws, so any error with them works, not only a
-`ModelRequestError`: `status` (a finite number), `kind` and `retryAfterMs`. `run` is called again
-as it is: build the request inside it.
+`ModelRequestError`: `status` (a finite number), `kind` and `retryAfterMs`. An error without a
+`kind` also has its `message` and `code` read, for the kind they give. `run` is called again as it
+is: build the request inside it.
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
@@ -521,7 +522,12 @@ What happens to an error, checked in this order:
 2. Its `kind` is `"quota"` or `"context_overflow"`: it is thrown. A wait does not mend a daily cap
    or an empty balance, and only a smaller request passes a limit of size, whatever its status
    (OpenAI's request larger than the tokens a minute allows comes as 429). 0.5.0, which had no
-   kinds, sent both again when their status was 0, 408, 409, 429 or 500 and more.
+   kinds, sent both again when their status was 0, 408, 409, 429 or 500 and more. An error without
+   a `kind` of its own that has a `status` of 0 or 400 to 599 (an adapter of yours, `httpError`)
+   has the kind [`classifyModelError`](#classifymodelerrorstatus-message-signals) gives its status,
+   message and `code`, as its events have it: a 429 of code `"insufficient_quota"` is a quota, and
+   is thrown. Plain data thrown (an object of no class) has no kind. New in 0.9.0: such an error
+   was sent again by its status, while its `retry` event and `errorInfoOf` called it not retryable.
 3. The provider said not to send it again: the adapter took note of Claude's
    `x-should-retry: false`. It is thrown, whatever its status. The note is internal: an error of
    your own cannot carry it.

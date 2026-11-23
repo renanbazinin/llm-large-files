@@ -405,8 +405,8 @@ brand(ModelRequestError, MODEL_REQUEST_ERROR);
 
 /**
  * A status of a model's error: 0 (no answer came) or an HTTP error, 400 to 599. `errorInfoOf`, the
- * events and `modelFailureReason` tell the kind of an error without one of its own (an adapter of
- * your own, `httpError`) from such a status.
+ * events, `modelFailureReason` and the retry policy tell the kind of an error without one of its
+ * own (an adapter of your own, `httpError`) from such a status.
  */
 export const isModelStatus = (status: unknown): status is number => typeof status === "number" && (status === 0 || (status >= 400 && status <= 599));
 
