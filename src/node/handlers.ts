@@ -803,6 +803,10 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
             if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
           };
           response.once("close", onClose);
+          // One that left already is told no more: while the last piece of its body was written,
+          // or its file closed (where a network volume writes what it held back), or before a body
+          // a framework read was taken.
+          if (response.destroyed || request.socket?.destroyed) onClose();
           const chosen = { ...(prepared.id !== undefined ? { id: prepared.id } : {}), ...(prepared.original !== undefined ? { original: prepared.original } : {}) };
           /**
            * Starts the upload's ingest, once. A body in memory is then the ingest's alone: it is

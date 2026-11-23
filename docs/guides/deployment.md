@@ -239,17 +239,24 @@ of them filled the default room, and a third was refused 503 while they arrived.
 ```ts
 const documents = createDocumentHandlers(files, {
   getOwner: userIdOf,
-  uploadSpool: { directory: "/var/spool/uploads" }, // on a disk: not a tmpfs
+  uploadSpool: { directory: "/var/spool/uploads" }, // this server's own folder, on a disk: not a tmpfs
 });
 ```
 
 - **Put the spool on a disk.** A Kubernetes `emptyDir` with `medium: Memory` is a tmpfs: what is
   written there counts against the pod's memory limit, and spooling there saves nothing. So does a
   `/tmp` that is a tmpfs, as in some images, and `os.tmpdir()` is the default directory. Point
-  `directory` at the shared volume, or at a disk-backed `emptyDir` (no `medium`), with room for
-  `maxSpooledUploadBytes`.
-- **Give the spool a folder of its own.** A server that stops in the middle of an upload leaves its
-  file (named `llf-upload-` and a UUID). Empty the folder when the server starts.
+  `directory` at a disk-backed `emptyDir` (no `medium`), or at a folder on the shared volume, with
+  room for `maxSpooledUploadBytes`.
+- **Give each server process a spool folder of its own.** A server that stops in the middle of an
+  upload leaves its file (named `llf-upload-` and a UUID). The name does not say which server
+  wrote it. So each server empties its own folder when it starts, and no other. A disk-backed
+  `emptyDir` is one pod's already, and goes with the pod. On the shared volume, make a folder for
+  each server, such as `path.join("/data/spool", os.hostname())` (a pod's hostname is its name). A
+  pod that is replaced gets a new name, and leaves its folder behind: remove the folders of pods
+  that are gone. Never empty a folder that several servers share: a server that starts would
+  remove the files of uploads the others are still ingesting, and those uploads fail with `500`
+  `{ "error": "Upload failed (ENOENT)." }`.
 - **It costs a write and a read.** Each spooled upload is written once, and read once at its turn.
   On a network volume, that is the price of taking it off the heap.
 - **A volume that stops answering.** Each call to the disk (opening the file, each write, closing
@@ -728,11 +735,52 @@ export function stopOnSigterm(server: Server, graceMs = 25_000): void {
 ```
 
 Abort with an `Error`, as here, not a string: `partialResultOf` needs an object to look the
-question up by. An upload cut by the restart leaves files that the sweep removes an hour later.
-With [`createIsolatedExtractors`](../reference/node.md#createisolatedextractorsoptions), call
+question up by. With
+[`createIsolatedExtractors`](../reference/node.md#createisolatedextractorsoptions), call
 `isolated.close()` when the grace period ends, next to `stopping.abort`: it kills its child
 processes, and refuses the files still waiting or being read as `"busy"` (503 "The server is
 shutting down. Try again in a moment.").
+
+An upload cut by the restart, or by a server killed past its grace period or out of memory, can
+leave files of three kinds:
+
+- **The store's.** The files of `FileDocumentStore` for a document that was never finished. The
+  sweep removes them once they are an hour old.
+- **The spool's.** The server removes them when it starts again and empties its own spool folder.
+  An `emptyDir` goes with its pod ([Uploads and ingest](#uploads-and-ingest)).
+- **The partial file at the `path` of `prepareUpload`.** Nothing removes it: the sweep removes only
+  the store's files, and no document refers to it. A record of your own that `prepareUpload` wrote
+  for it stays too. Remove such files with a job of your own, now and then: each file of `uploads/`
+  older than any upload takes, whose document is not stored (`files.getMeta(id, { owner, scope })`
+  gives `undefined`). An upload takes up to `server.requestTimeout` (5 minutes) for its body, then
+  its wait for a turn, `ingestTimeoutMs` (2 minutes) and your `onUploaded`: an hour leaves room.
+
+```ts
+// remove-cut-uploads.ts: run now and then, for each chat (a CronJob, or a timer on one server).
+import { readdir, rm, stat } from "node:fs/promises";
+import path from "node:path";
+import type { LargeFiles } from "llm-large-files";
+
+/** Longer than any upload takes: its body, its wait for a turn, its ingest and onUploaded. */
+const CUT_AFTER_MS = 60 * 60_000;
+
+/** Removes the files a server left in <user>/<chat>/uploads when it was killed during their upload. */
+export async function removeCutUploads(files: LargeFiles, volume: string, user: string, chat: string): Promise<void> {
+  const folder = path.join(volume, user, chat, "uploads");
+  for (const id of await readdir(folder)) {
+    const file = path.join(folder, id);
+    // Still arriving, or waiting for its ingest.
+    if (Date.now() - (await stat(file)).mtimeMs < CUT_AFTER_MS) continue;
+    // Its document is stored: the file is the document's, and yours.
+    if (await files.getMeta(id, { owner: user, scope: [user, chat] })) continue;
+    await rm(file, { force: true });
+  }
+}
+```
+
+Each file is named by its document's ID, as in the examples of
+[`prepareUpload`](../reference/node.md#saving-the-body-prepareupload). The folder holds only those
+files: anything else in it an hour old, with no document of its name, goes too.
 
 After a restart the cache is empty: the first tool calls read their documents from the store again,
 and a thinking model's first whole-file read in the new process may spend one request finding the

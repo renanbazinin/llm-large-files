@@ -300,11 +300,20 @@ const documents = createDocumentHandlers(files, {
   getScope: (request) => [userIdOf(request), chatIdOf(request)],
   prepareUpload: async (_request, { scope }) => {
     const id = await uploads.newId(); // your database: lowercase letters, digits, "_" and "-"
+    // <user>/<chat>/uploads is made with the chat (below): the handler makes no folder.
     const ref = [...scope!, "uploads", id].join("/"); // <user>/<chat>/uploads/<id>
     return { id, path: path.join(VOLUME, ref), original: { ref } };
   },
 });
 ```
+
+The folders are yours: the handler makes no folder. Make `<user>/<chat>/uploads` when the chat is
+made, with `mode: 0o700`, as
+[the web app guide](../guides/web-app.md#save-each-upload-where-you-keep-it-prepareupload) says:
+`mkdir(path.join(VOLUME, user, chat, "uploads"), { recursive: true, mode: 0o700 })`, with the IDs
+checked first ([Storage](../guides/storage.md#files-in-a-folder-per-user-or-per-chat)). Without it,
+every upload is answered `500` `{ "error": "Upload failed (ENOENT)." }`, even when the chat's own
+folder is there.
 
 `prepareUpload(request, info)`:
 
@@ -372,7 +381,10 @@ With a `path`:
   client that leaves while the body arrives or while it is ingested, a full disk, a file the ingest
   refuses, an ID that is taken, or `onUploaded` throwing. After a call to the disk that did not
   answer, it is removed at once, or once the volume answers. A file that was already at the path is
-  never removed.
+  never removed. A server process that is killed in the middle of an upload (past its grace period,
+  or out of memory) cannot remove it: the partial file stays, and nothing removes it, since the
+  sweep removes only the store's files. Remove such files with a job of your own:
+  [Stopping a server](../guides/deployment.md#stopping-a-server).
 - **Nothing of it is sent.** The path and the ref are not in the answer, the events, the
   summaries, or anything sent to the model.
 
@@ -385,7 +397,7 @@ to a temporary file instead, and are ingested from its path.
 ```ts
 const documents = createDocumentHandlers(files, {
   getOwner: (request) => userIdOf(request),
-  uploadSpool: { directory: "/var/spool/uploads" }, // a folder of its own, on a disk
+  uploadSpool: { directory: "/var/spool/uploads" }, // this server's own folder, on a disk
 });
 ```
 
@@ -405,8 +417,11 @@ const documents = createDocumentHandlers(files, {
   then. `onUploaded` runs after the removal, and is not told the path. A removal is waited for no
   longer than `uploadIdleTimeoutMs`: on a volume that stops answering, the upload is answered and
   gives its room back, and the removal goes on alone. A server that stops in the middle of an
-  upload leaves its file: point the spool at a folder of its own, and empty it when the server
-  starts.
+  upload leaves its file. So the folder belongs to one server process: a disk-backed `emptyDir`,
+  or a folder of its own on the shared volume, such as `path.join("/data/spool", os.hostname())`.
+  Each server empties its own folder when it starts, and no other. Never empty a folder that
+  several servers share: the files of uploads the others are still ingesting would go, and those
+  uploads fail with `500` "Upload failed (ENOENT).".
 - **Room.** `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the bytes of the spool's
   files at once, as `maxPendingUploadBytes` bounds memory: an upload takes its `Content-Length`, or
   `maxUploadBytes` without one, before its body is read, then its size once written, until its file
@@ -494,7 +509,7 @@ The request:
 | `X-File-Name` header | The file name, URI-encoded with `encodeURIComponent` so that any name survives a header. It is decoded with `decodeURIComponent` (a value that does not decode is used as it is) and trimmed. |
 | `?name=` query parameter | The file name, when there is no `X-File-Name`. One of the two is required. |
 | `X-File-Type` header | Optional: the MIME type, URI-decoded (a value that does not decode is used as it is). |
-| `Content-Type` header | The MIME type when there is no `X-File-Type`, unless it starts with `application/octet-stream`. It is taken as it came: since 0.9.0 it is not URI-decoded, so `%0D%0A` in it stays three characters and cannot become a line break (S11). The value is kept whole, parameters included: a `fetch` with a string body sends `text/plain;charset=UTF-8`, and that is the type passed to `files.ingest`. A type with parameters does not set the format, so name the file with its extension. With neither header, the document's `mimeType` is `application/octet-stream`. Send `application/octet-stream`, which JSON and form parsers leave alone. |
+| `Content-Type` header | The MIME type when there is no `X-File-Type`, unless it starts with `application/octet-stream`. It is taken as it came: since 0.9.0 it is not URI-decoded, so `%0D%0A` in it stays three characters and cannot become a line break (S11). It is passed to `files.ingest` with its parameters, and `files.ingest` keeps only its type/subtype, in lower case: that is the document's `mimeType`. A `fetch` with a string body sends `text/plain;charset=UTF-8`, and the document's `mimeType` is `text/plain`. The type sets the format when the name has no known extension: `text/csv; charset=utf-8` with the name `data` is read as CSV. With neither header, the document's `mimeType` is `application/octet-stream`. Send `application/octet-stream`, which JSON and form parsers leave alone. |
 | `Content-Length` header | Optional. When it is larger than `maxUploadBytes`, the handler answers `413` before it reads anything. |
 | `Accept` header | Optional. When it names `text/event-stream`, the ingest is answered with its progress as Server-Sent Events: see [upload with progress](#upload-with-progress-accept-textevent-stream). New in 0.7.0. |
 

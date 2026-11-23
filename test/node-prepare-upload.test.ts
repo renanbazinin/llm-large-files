@@ -34,7 +34,9 @@ import { numberedPdf } from "./pdf-fixtures.js";
  * `writesHeldUnder` set, each write to such a file waits for `writesGate`, as on a volume that
  * stopped answering, then runs. With `realpathHeldUnder` set, a look at the real path of a file
  * under that folder never ends; `realpaths` has the path of every look. With `removalsHeldUnder` set, a removal (`rm`) of a file under that
- * folder waits for `removalsGate`, then runs.
+ * folder waits for `removalsGate`, then runs. With `closesHeldUnder` set, the closing of a file
+ * opened to write ("wx") under that folder waits for `closesGate`, as on a network volume that
+ * writes then what it held back; `closesWaiting` counts the closings that wait.
  */
 const disk = vi.hoisted(() => ({
   opens: [] as Array<{ file: string; flags: unknown; mode: unknown }>,
@@ -45,6 +47,9 @@ const disk = vi.hoisted(() => ({
   realpaths: [] as string[],
   removalsHeldUnder: undefined as string | undefined,
   removalsGate: Promise.resolve(),
+  closesHeldUnder: undefined as string | undefined,
+  closesGate: Promise.resolve(),
+  closesWaiting: 0,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -66,6 +71,15 @@ vi.mock("node:fs/promises", async (importOriginal) => {
         return write(...rest);
       };
     }
+    if (disk.closesHeldUnder !== undefined && file.startsWith(disk.closesHeldUnder) && args[1] === "wx") {
+      const close = handle.close.bind(handle);
+      const gate = disk.closesGate;
+      (handle as { close: unknown }).close = async () => {
+        disk.closesWaiting++;
+        await gate;
+        return close();
+      };
+    }
     return handle;
   }) as typeof actual.open;
   const realpath = ((...args: Parameters<typeof actual.realpath>) => {
@@ -81,6 +95,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 /** The servers of a test, closed after it. */
 const servers: Server[] = [];
+/** The uploads the servers of a test handled, each until its handler returned. */
+const handled: Array<Promise<void>> = [];
 let root: string;
 beforeEach(async () => {
   // A distinctive folder name, looked for in every answer, event and model request.
@@ -92,11 +108,15 @@ beforeEach(async () => {
   disk.realpathHeldUnder = undefined;
   disk.realpaths.length = 0;
   disk.removalsHeldUnder = undefined;
+  disk.closesHeldUnder = undefined;
+  disk.closesWaiting = 0;
+  handled.length = 0;
 });
 afterEach(async () => {
   // The folder of the test is removed by a removal that is not held.
   disk.realpathHeldUnder = undefined;
   disk.removalsHeldUnder = undefined;
+  disk.closesHeldUnder = undefined;
   for (const server of servers.splice(0)) {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -110,7 +130,7 @@ async function serve(files: LargeFiles, options: DocumentHandlerOptions): Promis
   const server = createServer((request, response) => {
     const parsed = request.headers["x-parsed-body"];
     if (typeof parsed === "string") (request as IncomingMessage & { body?: unknown }).body = Buffer.from(parsed);
-    void documents.upload(request, response);
+    handled.push(documents.upload(request, response));
   });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -629,6 +649,96 @@ describe("prepareUpload with a path", () => {
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "Upload failed (ENOENT)." });
     expect(await exists(path.join(root, "alice", "chat-1", "gone"))).toBe(false);
+  });
+});
+
+/** Sends an upload whole through node:http, and gives the client, to destroy. */
+function sendWhole(base: string, name: string, body: string, headers: Record<string, string> = {}) {
+  const url = new URL(base);
+  const client = httpRequest({ host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "X-File-Name": name, ...ALICE, ...headers } });
+  client.on("error", () => undefined);
+  client.end(body);
+  return client;
+}
+
+/** How many connections of the last server closed: once one has, its answer was told the client left. */
+function closedConnections(): () => number {
+  let closed = 0;
+  servers.at(-1)!.on("connection", (socket) => socket.once("close", () => closed++));
+  return () => closed;
+}
+
+describe("a client that leaves once its body has arrived", () => {
+  // Closing the body's file is where a network volume writes what it held back, and it can take
+  // long. A client that leaves then is noticed, as one that leaves earlier: no document is kept,
+  // the hook is not called, the file goes, and so does the upload's room.
+  const BODY = "The meeting is on Tuesday at ten.";
+  for (const { label, events, spooled } of [
+    { label: "saved by prepareUpload, JSON", events: false, spooled: false },
+    { label: "saved by prepareUpload, events", events: true, spooled: false },
+    { label: "spooled, JSON", events: false, spooled: true },
+    { label: "spooled, events", events: true, spooled: true },
+  ]) {
+    it(`is noticed while the file is closed: ${label}`, async () => {
+      const files = library();
+      const spoolFolder = path.join(root, "spool");
+      await mkdir(spoolFolder);
+      let count = 0;
+      const { options, contexts } = chatbot(spooled
+        ? { prepareUpload: () => ({ id: `up-${++count}` }), uploadSpool: { directory: spoolFolder, minBytes: 0 }, maxSpooledUploadBytes: BODY.length }
+        : {});
+      const base = await serve(files, options);
+      const closed = closedConnections();
+      const held = spooled ? spoolFolder : path.join(root, "alice", "chat-1", "uploads");
+      let openGate!: () => void;
+      disk.closesGate = new Promise<void>((resolve) => (openGate = resolve));
+      disk.closesHeldUnder = held;
+
+      const client = sendWhole(base, "notes.txt", BODY, events ? { Accept: "text/event-stream" } : {});
+      await expect.poll(() => disk.closesWaiting).toBe(1);
+      client.destroy();
+      await expect.poll(closed).toBe(1);
+      openGate();
+      await expect.poll(() => handled.length).toBe(1);
+      await Promise.all(handled);
+      expect(contexts.map((context) => context.clientGone)).toEqual([]);
+      expect(await files.getMeta("up-1", ACCESS)).toBeUndefined();
+      expect(await readdir(held)).toEqual([]);
+
+      // The next upload is stored: the room of the first was given back (maxSpooledUploadBytes holds one).
+      disk.closesHeldUnder = undefined;
+      const next = await upload(base, "next.txt", BODY);
+      expect(next.status).toBe(201);
+      expect(contexts.map((context) => context.clientGone)).toEqual([false]);
+      expect(await files.getMeta("up-2", ACCESS)).toMatchObject({ id: "up-2" });
+    });
+  }
+
+  it("is noticed when it left before a body a framework read was saved", async () => {
+    const files = library();
+    let asked = 0;
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => (openGate = resolve));
+    const { options, contexts, saved } = chatbot({
+      getOwner: async (request) => {
+        asked++;
+        await gate;
+        return userOf(request);
+      },
+    });
+    const base = await serve(files, options);
+    const closed = closedConnections();
+    // express.raw(): the body is in request.body, and nothing more is read from the client.
+    const client = sendWhole(base, "notes.txt", BODY, { "X-Parsed-Body": BODY });
+    await expect.poll(() => asked).toBe(1);
+    client.destroy();
+    await expect.poll(closed).toBe(1);
+    openGate();
+    await expect.poll(() => handled.length).toBe(1);
+    await Promise.all(handled);
+    expect(contexts.map((context) => context.clientGone)).toEqual([]);
+    expect(await files.getMeta("up-1", ACCESS)).toBeUndefined();
+    expect(await exists(saved("up-1"))).toBe(false);
   });
 });
 

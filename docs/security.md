@@ -992,8 +992,11 @@ New in 0.9.0. `createDocumentHandlers` writes no file unless it is asked to: by 
   `onUploaded` throwing), and is yours once its document is stored: the library never removes it,
   even when the document is deleted or expires.
   A removal that fails (a file another process holds open, on Windows) is tried three times, then
-  left. A server that stops in the middle of an upload leaves its file: give the spool a folder of
-  its own, and empty it when the server starts.
+  left. A server that stops in the middle of an upload leaves its file. Empty the spool when the
+  server starts: give each server process a spool folder of its own, and let each empty only its
+  own. Never empty a folder that several servers share: it holds the uploads the others are still
+  ingesting. The partial file of `prepareUpload` stays until a job of yours removes it
+  ([Stopping a server](./guides/deployment.md#stopping-a-server)).
 - **Bounded.** A body written to a file has the same limits as one in memory: `maxUploadBytes` and
   `uploadIdleTimeoutMs`, which also bounds each call to the disk (a volume that stops answering is
   a `500` "Upload failed (ETIMEDOUT).", and gives the upload's room back). `maxSpooledUploadBytes`

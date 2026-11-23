@@ -338,7 +338,9 @@ export const documents = createDocumentHandlers(files, {
   when the upload fails**, whatever the reason: too large, a body that stops, a browser that leaves
   before the ingest ends, a full disk (`503` with `Retry-After`), a disk that does not answer within
   `uploadIdleTimeoutMs` (`500` "Upload failed (ETIMEDOUT)."), a file that cannot be read, an ID
-  that is taken, or `onUploaded` throwing.
+  that is taken, or `onUploaded` throwing. A server that is killed in the middle of an upload
+  cannot remove it, and nothing else does: remove such files with a job of your own
+  ([Deployment](./deployment.md#stopping-a-server)).
 - **No memory.** The body is written as it arrives, and read again when the ingest's turn comes: it
   is not held while it waits, and takes no room of `maxPendingUploadBytes`.
 - **Nothing of it reaches the browser or the model.** The path and the ref are kept in the metadata,
@@ -355,7 +357,7 @@ ingested. `uploadSpool` writes the larger ones to a temporary file instead:
 ```ts
 const documents = createDocumentHandlers(files, {
   getOwner: (request) => currentUserId(request),
-  uploadSpool: { directory: "/var/spool/uploads" }, // a folder of its own, on a disk
+  uploadSpool: { directory: "/var/spool/uploads" }, // this server's own folder, on a disk
 });
 ```
 
@@ -370,7 +372,10 @@ const documents = createDocumentHandlers(files, {
   without a `Content-Length` no longer fill it.
 - **Where.** On a disk, not a memory-backed folder, which would take the memory back
   ([Deployment](./deployment.md#uploads-and-ingest)). A server that stops in the middle of an upload
-  leaves its file: empty the folder when the server starts.
+  leaves its file. So give each server process a folder of its own (a disk-backed `emptyDir`, or
+  `path.join("/data/spool", os.hostname())` on the shared volume), and empty it when that server
+  starts. Never empty a folder that several servers share: the uploads the others are still
+  ingesting would fail.
 
 ### What the browser sends
 

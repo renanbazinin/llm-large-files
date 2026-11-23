@@ -49,6 +49,13 @@ describe("createDocumentHandlers", () => {
     expect(((await response.json()) as DocumentSummary).format).toBe("markdown");
   });
 
+  it("passes Content-Type to ingest, which keeps its type/subtype and reads a name with no extension by it", async () => {
+    const base = await start();
+    const response = await fetch(base, { method: "POST", headers: { "Content-Type": "text/csv; charset=utf-8", "X-File-Name": "data" }, body: "city,people\nHaifa,285000\n" });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ name: "data", format: "csv", mimeType: "text/csv" });
+  });
+
   it("keeps each user's uploads private", async () => {
     const base = await start();
     const upload = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt", "X-User": "alice" }, body: "alice's notes" });
