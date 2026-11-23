@@ -252,4 +252,26 @@ describe("originals by reference", () => {
     const told = JSON.stringify([ingestEvents, events, toDocumentSummary(meta)]);
     for (const secret of [REF, "upload-c3", meta.sha256!]) expect(told).not.toContain(secret);
   });
+
+  // The answer that a file changed is the model's to tell, as a tool's result: it is not an error
+  // of the question, so neither run.error nor errorInfoOf has anything to read, and it names
+  // neither the ref nor the folder.
+  it("tells the model that a file changed, and the question goes on to its answer", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: fileOriginals(root), budget: { inlineTokens: 1 } });
+    const at = await save(numberedPdf(3));
+    const meta = await files.ingest({ name: "report.pdf", source: { path: at }, original: { ref: REF }, ...ACCESS });
+    await writeFile(at, numberedPdf(4));
+    const model = fakeModel([calls([{ id: "c1", name: "view_pages", args: { document_id: meta.id, from_page: 1 } }]), says("It changed; attach it again.")]);
+    const events: AskEvent[] = [];
+    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: [{ role: "user", text: "What is on page 1?" }], ...ACCESS, onEvent: (event) => events.push(event) });
+    expect(result).toMatchObject({ answered: true, text: "It changed; attach it again." });
+    expect(events.find((event) => event.type === "tool.end")).toMatchObject({ outcome: "error", error: CHANGED });
+    expect(events.some((event) => event.type === "run.error")).toBe(false);
+    expect(events.at(-1)?.type).toBe("run.finish");
+    const sent = JSON.stringify(model.requests);
+    expect(sent).toContain(CHANGED);
+    for (const told of [sent, JSON.stringify(events)]) {
+      for (const secret of [REF, "upload-c3", root, meta.sha256!]) expect(told).not.toContain(secret);
+    }
+  });
 });
