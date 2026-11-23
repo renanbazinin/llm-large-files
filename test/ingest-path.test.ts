@@ -241,6 +241,19 @@ describe("ingest from a path", () => {
     expect(bytesRead(at)).toBeLessThanOrEqual(1_001);
   });
 
+  it("refuses a file that grew past the limit while an extractor that reads paths read it, hashing no more than one byte past it", async () => {
+    // An extractor of your own that reads the path and does not say what it read (no `file`): the
+    // library hashes the file itself, and finds it grown past the limit.
+    const at = await file("growing.txt", "x".repeat(600));
+    const extractor: Extractor = Object.assign(async () => {
+      await appendFile(at, "y".repeat(3 * 1024 * 1024));
+      return { text: "x" };
+    }, { readsPath: true as const });
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 1_000, extractors: { text: extractor } });
+    await expect(files.ingest({ name: "growing.txt", source: { path: at } })).rejects.toMatchObject({ code: "too_large", message: "growing.txt is larger than the 1000 B upload limit." });
+    expect(bytesRead(at)).toBeLessThanOrEqual(1_001);
+  });
+
   it("knows a DOCX without an extension from ranged reads of it, not the whole file", async () => {
     const zip = new JSZip();
     zip.file("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');

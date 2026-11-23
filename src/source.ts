@@ -110,7 +110,8 @@ export async function readSource(path: string, maxBytes: number, options: { keep
         }
         filled = 0;
       }
-      const { bytesRead } = await handle.read(current, filled, Math.min(SLICE_BYTES, current.byteLength - filled), size);
+      // Never past the limit: the slice read into again and again (not kept) is larger than what is left.
+      const { bytesRead } = await handle.read(current, filled, Math.min(SLICE_BYTES, current.byteLength - filled, limit - size), size);
       if (bytesRead === 0) break;
       hash.update(current.subarray(filled, filled + bytesRead));
       filled += bytesRead;
