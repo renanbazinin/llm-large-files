@@ -392,7 +392,11 @@ nothing. It is settled before any model request.
     available; say so if the question needs them."). Only in this question.
   - `AskResult.missing` lists their IDs, and a `"documents_missing"` notice names them
     (`documentIds`), before the `plan` event.
-  - With no document left, the question is a plain chat: no tool guide, no tools.
+  - With no document left, the question is a plain chat: no tool guide, no tools. The model may
+    then answer from what it knows, without saying the files are gone. To refuse instead, give a
+    function that throws when none is left:
+    `(missing) => (missing.length === new Set(documentIds).size ? "throw" : "drop")`, with the
+    question's own `documentIds`.
 - **A function** gets the missing IDs and a [`MissingDocumentsContext`](#missingdocumentscontext),
   and returns a [`MissingDocumentsAction`](#missingdocumentsaction), or a promise of one.
   - `"throw"` or `"drop"`, as above.
