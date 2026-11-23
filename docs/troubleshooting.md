@@ -258,8 +258,10 @@ New in 0.8.2. `createDocumentHandlers` answers `503` with `Retry-After: 5`, befo
 **Cause.** The handlers already hold uploads, and this one would bring them past
 `maxPendingUploadBytes` (twice `maxUploadBytes`, 200 MB by default). An upload is held from the
 reading of its body to the end of its ingest, and its room is taken from its `Content-Length`
-before its body arrives. Many users sending files at once, or a few clients that send their
-headers and then their bodies slowly, fill it.
+before its body arrives (`maxUploadBytes` for a body sent without a `Content-Length`, until it is
+read: two such uploads fill the default room). Many users sending files at once, or a few clients
+that send their headers and then their bodies slowly, fill it. With `uploadSpool` (new in 0.9.0),
+the same answer comes when the spool's files reach `maxSpooledUploadBytes`.
 
 **Fix.** Send the file again after `Retry-After` seconds, as the browser code in
 [Web app](./guides/web-app.md#upload-from-the-browser) does. To take more at once, raise
@@ -267,8 +269,14 @@ headers and then their bodies slowly, fill it.
 half to five and a half times its size while it is ingested over a `FileDocumentStore`,
 [measurements](./measurements.md#the-server); ingests take turns, `maxConcurrentIngests`). Put a
 proxy that reads whole bodies before passing them on in front, so that slow clients hold no room.
-"The server is reading other files right now." is the other `503`: the readers of
+Or take the bodies off the heap: `uploadSpool` writes the larger ones, and those without a
+`Content-Length`, to temporary files, and `maxPendingUploadBytes` then counts only the bodies kept
+in memory ([Deployment](./guides/deployment.md#uploads-and-ingest)).
+"The server is reading other files right now." is another `503`: the readers of
 `createIsolatedExtractors` are busy ([Node reference](./reference/node.md#uploadrequest-response)).
+So is "The server has no room for this file right now. Try again later." (new in 0.9.0, with
+`Retry-After: 30`): the disk the body was written to, the spool's or the folder of
+`prepareUpload`, is full.
 
 ### `408`: "The upload stopped arriving: nothing came for 30 s. Send it again."
 

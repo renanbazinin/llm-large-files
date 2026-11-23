@@ -199,7 +199,7 @@ export const files = createLargeFiles({
 |---|---|
 | The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF, and the ingests: the text and its copies (an ingest of a 95 MB log fitted in a heap of 256 MB, and in 0.9.0 with Node 22 in one of 192) |
 | One PDF or Office file at a time, read in a child process with a heap of 512 MB | What the parsers take. A process takes about 50 MB more for Node itself |
-| Outside the heaps | The upload being read (up to 100 MB) and its copy sent to the child process, files read from the store, Node itself. Also what the PDF parsers unpack, which no heap limit bounds: a crafted PDF of 1.6 KB took 1.6 GB at ingest and 1.1 GB at a look, far more than this row has left. For uploads you do not trust, ingest in a container of its own, and do not offer `view_pages` on their documents |
+| Outside the heaps | The upload being read (up to 100 MB; while it waits for its turn, none with `uploadSpool`) and its copy sent to the child process, files read from the store, Node itself. Also what the PDF parsers unpack, which no heap limit bounds: a crafted PDF of 1.6 KB took 1.6 GB at ingest and 1.1 GB at a look, far more than this row has left. For uploads you do not trust, ingest in a container of its own, and do not offer `view_pages` on their documents |
 
 Raise `cacheBytes` to spend memory on speed: at 1 GB, the decoded pieces of an ASCII log of up to
 about 125 MB are kept between searches. Lower `maxUploadBytes` if large uploads are not needed:
@@ -207,12 +207,14 @@ an ingest is one of the largest single uses of memory.
 
 ### Uploads and ingest
 
-`createDocumentHandlers` reads the whole upload into memory before it calls `ingest`. It refuses a
-body whose `Content-Length` is over `maxUploadBytes` before reading it, and stops reading one that
-grows past it (HTTP 413). Node's own `server.requestTimeout` (300,000 ms by default) ends an upload
+By default `createDocumentHandlers` reads the whole upload into memory before it calls `ingest`.
+Since 0.9.0 it can write the body to a file as it arrives instead, and ingest it from there: the
+path `prepareUpload` gives, or a temporary file of the spool (`uploadSpool`, below). Either way it
+refuses a body whose `Content-Length` is over `maxUploadBytes` before reading it, and stops reading
+one that grows past it (HTTP 413). Node's own `server.requestTimeout` (300,000 ms by default) ends an upload
 that takes longer than five minutes to arrive: raise it for users on slow links.
 
-Since 0.8.2 the handlers hold uploads of at most `maxPendingUploadBytes` at once (twice
+Since 0.8.2 the handlers hold uploads of at most `maxPendingUploadBytes` at once in memory (twice
 `maxUploadBytes` by default), and answer one that would pass it 503 with `Retry-After: 5` before
 reading its body. The room of an upload is taken before its body arrives, from its `Content-Length`
 (or `maxUploadBytes` when it declares none), so a client that sends headers and then nothing, or
@@ -222,6 +224,37 @@ now and then keeps it until `server.requestTimeout`. Behind a reverse proxy that
 body before it passes the request on (nginx does by default, `proxy_request_buffering on`), bodies
 arrive at once and none of this happens; otherwise, limit the connections of each client at the
 proxy.
+
+**Spooling uploads to disk.** New in 0.9.0. With `uploadSpool`, the handlers write each body over
+`minBytes` (1 MiB), and each body sent without a `Content-Length`, to a temporary file as it
+arrives, and ingest it from its path. So a body is not held in memory while it waits for its turn,
+and the copy the ingest reads at its turn is the only one. The file is made new with mode `0o600`,
+and removed once the ingest ends, whatever the end. `maxSpooledUploadBytes` (ten times
+`maxUploadBytes`, 1 GB by default) bounds the files at once, and a full disk (`ENOSPC`) is answered
+503 with `Retry-After`. `maxPendingUploadBytes` then counts only the bodies kept in memory: in
+memory, a body without a `Content-Length` takes `maxUploadBytes` of room until it is read, so two
+of them filled the default room, and a third was refused 503 while they arrived.
+
+```ts
+const documents = createDocumentHandlers(files, {
+  getOwner: userIdOf,
+  uploadSpool: { directory: "/var/spool/uploads" }, // on a disk: not a tmpfs
+});
+```
+
+- **Put the spool on a disk.** A Kubernetes `emptyDir` with `medium: Memory` is a tmpfs: what is
+  written there counts against the pod's memory limit, and spooling there saves nothing. So does a
+  `/tmp` that is a tmpfs, as in some images, and `os.tmpdir()` is the default directory. Point
+  `directory` at the shared volume, or at a disk-backed `emptyDir` (no `medium`), with room for
+  `maxSpooledUploadBytes`.
+- **Give the spool a folder of its own.** A server that stops in the middle of an upload leaves its
+  file (named `llf-upload-` and a UUID). Empty the folder when the server starts.
+- **The disk is read twice.** Each spooled upload is written once and read once at its turn. On a
+  network volume, that is the cost of taking it off the heap.
+- **Saving the upload where you keep it.** When your app keeps each upload anyway, `prepareUpload`
+  gives its path, and the body is written there instead, once, and kept by reference
+  ([Web app](./web-app.md#save-each-upload-where-you-keep-it-prepareupload)). Such a body takes no
+  room of either limit: it is on your volume, and stays.
 
 **Ingest from a path.** New in 0.9.0. Code that saves an upload to disk before it ingests it (to
 keep it, or to take it off the heap while it waits) can give `files.ingest` the path in place of the
@@ -362,7 +395,7 @@ itself is the isolation:
 // ingest-process.ts: one ingest, in a process of its own, forked by documents.ts below.
 import {
   createLargeFiles, DocumentScopeError, DocumentStoreError, FileDocumentStore, IngestError,
-  type DocumentScopeErrorCode, type DocumentStoreOperation, type IngestErrorCode, type IngestInput,
+  type DocumentScopeErrorCode, type DocumentStoreOperation, type IngestErrorCode, type IngestFromSource, type IngestInput,
 } from "llm-large-files";
 
 const files = createLargeFiles({
@@ -390,7 +423,8 @@ function failureOf(error: unknown): IngestFailure {
 
 process.once("message", async (message) => {
   try {
-    process.send!({ meta: await files.ingest(message as IngestInput) });
+    // The path of the file (`source`): this process reads it itself. Bytes only for a body a framework read.
+    process.send!({ meta: await files.ingest(message as IngestInput | IngestFromSource) });
   } catch (error) {
     process.send!({ failed: failureOf(error) });
   }
@@ -403,7 +437,7 @@ takes any `LargeFiles`, so the rest stays as it is:
 ```ts
 // documents.ts: the upload routes. Each ingest runs in a process of its own, one at a time on this server.
 import { fork } from "node:child_process";
-import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentMeta, type IngestInput } from "llm-large-files";
+import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentMeta, type IngestFromSource, type IngestInput } from "llm-large-files";
 import { createDocumentHandlers } from "llm-large-files/node";
 import { files } from "./large-files.js";
 import { userIdOf } from "./auth.js"; // your sign-in
@@ -425,7 +459,7 @@ function errorOf(failed: IngestFailure): Error {
   }
 }
 
-function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
+function ingestInProcess(input: IngestInput | IngestFromSource): Promise<DocumentMeta> {
   if (input.signal?.aborted) return Promise.reject(input.signal.reason);
   if (running >= INGESTS_AT_ONCE) {
     // Answered 503, with Retry-After.
@@ -438,7 +472,7 @@ function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
       // flag (the table above has the flags of other versions). This flag wins over a
       // --max-old-space-size in NODE_OPTIONS, which the child inherits.
       execArgv: ["--max-old-space-size=320"],
-      serialization: "advanced", // the bytes go as they are, not as JSON
+      serialization: "advanced", // bytes, when there are any, go as they are, not as JSON
     });
     let reply: IngestReply | undefined;
     let timedOut = false;
@@ -476,19 +510,32 @@ function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
       child.kill();
       settle();
     });
-    // The bytes are copied to the process. A signal cannot be sent: the process has its own
-    // ingestTimeoutMs, and is killed when this one aborts.
+    // With the spool, the message holds the path of the file, not its bytes: the process reads it.
+    // The handler removes the file once this promise settles, after the process is gone. A signal
+    // cannot be sent: the process has its own ingestTimeoutMs, and is killed when this one aborts.
     const { signal: _signal, ...message } = input;
     child.send(message);
   });
 }
 
-export const documents = createDocumentHandlers({ ...files, ingest: ingestInProcess }, { getOwner: userIdOf });
+export const documents = createDocumentHandlers({ ...files, ingest: ingestInProcess }, {
+  getOwner: userIdOf,
+  // Every body to a file of the spool, so that only its path goes to the process.
+  uploadSpool: { directory: "/var/spool/uploads", minBytes: 0 },
+});
 ```
 
 Checked on Node 24: with `NODE_OPTIONS=--max-old-space-size=1024` on the server and a heap of 48 MB
 for the child, a 2,000-page PDF ran the child out of memory; the upload was answered "book.pdf
 could not be read on this server.", and the next upload was ingested.
+
+Since 0.9.0 the server sends the process the path of the upload, not its bytes: with
+`uploadSpool` and `minBytes: 0`, every body the handler reads is written to a file of the spool, and
+`ingest` gets `source: { path }`. The process reads the file itself, so the upload is neither held
+in the server while the process starts nor copied over the IPC channel. The process runs as the
+server's user, so it can read the spool's `0o600` files. A body a framework already read
+(`express.raw()`) still comes as bytes, and is copied. The handler removes the file once the
+promise of `ingestInProcess` settles, which is after the process exited.
 
 Since 0.9.0 `createDocumentHandlers` answers `422` only an `IngestError`, and any other error
 without a status `500` "Upload failed.", without its message (S12). So the server rebuilds the

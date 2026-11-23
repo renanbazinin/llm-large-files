@@ -585,6 +585,8 @@ through your reader.
   one byte past the size recorded, and only reads.
 - **It is still a file of the user.** `delete` and `sweep` never touch it: remove the upload with
   its chat, and with the user's other data when the account is closed.
+- **The upload handler can write it.** `prepareUpload` gives the path and the ref, and the handler
+  saves the body there as it arrives, made new: [Files the upload handler writes](#files-the-upload-handler-writes).
 
 How `view_pages` works, and what to weigh before you keep originals, is in [PDFs](./guides/pdfs.md).
 
@@ -720,10 +722,11 @@ server that memory is the server's heap. Choose the isolation with care:
   `express.raw()`) has already read the body, it buffered it under its own `limit`: set that one
   too. `files.ingest` checks the bytes you give it, which are already in memory.
 - **Memory.** The handlers buffer the whole upload, up to `maxUploadBytes`, before reading its
-  text, and an ingest then holds several copies of the text at once (several times the size of the
-  text), in your server's heap. Since 0.8.2 the handlers hold uploads of at most
-  `maxPendingUploadBytes` at once (twice `maxUploadBytes`), and answer the others 503 before reading
-  their body; each library lets `maxConcurrentIngests` (2) ingests work at once, and queues the
+  text, unless it is written to a file (`uploadSpool`, or the `path` of `prepareUpload`, new in
+  0.9.0: [below](#files-the-upload-handler-writes)), and an ingest then holds several copies of the
+  text at once (several times the size of the text), in your server's heap. Since 0.8.2 the
+  handlers hold uploads of at most `maxPendingUploadBytes` at once in memory (twice
+  `maxUploadBytes`), and answer the others 503 before reading their body; each library lets `maxConcurrentIngests` (2) ingests work at once, and queues the
   others. A route of your own must bound the bodies it reads itself. The room of an upload is
   taken from its `Content-Length` before its body arrives, so a few clients that send headers and
   then trickle their bodies can hold all of it: `uploadIdleTimeoutMs` (30 s) frees the room of a
@@ -953,6 +956,42 @@ server that memory is the server's heap. Choose the isolation with care:
 Formats, optional dependencies and the messages of refused files are in [PDFs](./guides/pdfs.md);
 the upload routes in [Web app](./guides/web-app.md).
 
+### Files the upload handler writes
+
+New in 0.9.0. `createDocumentHandlers` writes no file unless it is asked to: by the `path` that
+`prepareUpload` returns, or by `uploadSpool`.
+
+- **Where.** The body of an upload goes to the absolute path `prepareUpload` returns, in your app's
+  folder, or to `<directory>/llf-upload-<random UUID>` of the spool (`os.tmpdir()` by default).
+  Nothing else is written by the handler. Build the path from IDs your server chose and checked (the
+  user, the chat, the upload), never from the file's name or another value the client sent.
+- **Modes.** A file is made with mode `0o600`, minus the umask of the process: only the server's
+  user can read it. `uploadFileMode` changes it for the files of `prepareUpload` (`0o640` lets a
+  group read them); the spool's files are always `0o600`. The handler makes no folder: the folders,
+  and their modes, are yours.
+- **Never through a link, never over a file.** Each file is opened with `"wx"` (`O_CREAT` with
+  `O_EXCL`): when anything is already at its name, a file or a link (even one that points nowhere),
+  the open fails and nothing is written. That upload is answered `409`, and what was there stays as
+  it is: it is never written through, truncated or removed. So the handler never follows a link at
+  the file's name. The folders on the way are not checked: keep the folders of the uploads, and the
+  spool, writable only by your server.
+- **Removed when they are not needed.** A file of the spool is removed when its ingest ends,
+  whatever the end. A file of `prepareUpload` is removed when its upload fails (too large, stopped,
+  a client that left, a full disk, a file refused, an ID taken, `onUploaded` throwing), and is yours
+  once its document is stored: the library never removes it, even when the document is deleted.
+  A removal that fails (a file another process holds open, on Windows) is tried three times, then
+  left. A server that stops in the middle of an upload leaves its file: give the spool a folder of
+  its own, and empty it when the server starts.
+- **Bounded.** A body written to a file has the same limits as one in memory: `maxUploadBytes` and
+  `uploadIdleTimeoutMs`. `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the spool's
+  files at once. A full disk (`ENOSPC`, `EDQUOT`) is answered `503`, and the file removed. The files
+  of `prepareUpload` are bounded by your disk only.
+- **Not sent.** The path of a file and its ref are never in an answer, an event, a summary, or a
+  request to a model. A system error that names a path, such as Node's `ENOENT` for a folder that is
+  not there, is answered with its code only: `"Upload failed (ENOENT)."`.
+- **Not on a memory-backed volume.** A spool on a tmpfs (a Kubernetes `emptyDir` with
+  `medium: Memory`) counts against the pod's memory: [Deployment](./guides/deployment.md#uploads-and-ingest).
+
 ## Regex search
 
 The model writes the regex, and the model reads untrusted file text, so a file can ask for a slow
@@ -1142,6 +1181,9 @@ What you log is your choice, and some of what the library hands you holds user d
 - Keep the bound on uploads held at once (`maxPendingUploadBytes` of the handlers, or your own in a
   route of your own), limit uploads per user, and set the limit of any body parser in front of the
   handlers ([Uploads](#uploads)).
+- With `uploadSpool` or the `path` of `prepareUpload`, keep those folders writable only by your
+  server, on a disk rather than a tmpfs, and build each path from IDs your server chose
+  ([Files the upload handler writes](#files-the-upload-handler-writes)).
 - Keep the limits on one file (`maxTextBytes`, `maxPdfPages`, `ingestTimeoutMs`) as low as your
   users allow ([Uploads](#uploads)).
 - For untrusted uploads, parse them in a process of their own with a memory limit, not in a worker

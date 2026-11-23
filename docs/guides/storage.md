@@ -386,10 +386,11 @@ export async function deleteChat(userId: string, sessionId: string): Promise<voi
   nothing left to do for it.
 - Over a `FileDocumentStore` with `scopes`, `deleteChat` can remove the chat's folder in place of
   each document ([below](#files-in-a-folder-per-user-or-per-chat)).
-- The `upload` handler of `createDocumentHandlers` answers the request itself, so it cannot record
-  the new ID in your session. Call `attach` from a route of your own, or record the ID the browser
-  sends back in a second request, after checking it with `files.getMeta(id, { owner, scope })`.
-  Routes are in [Web app](./web-app.md).
+- The `upload` handler of `createDocumentHandlers` answers the request itself. Since 0.9.0 its
+  hooks do what `attach` does: `prepareUpload` gives the upload its ID (and can save the body in the
+  chat's folder), and `onUploaded` records the ID in your session, or fails the upload
+  ([Web app](./web-app.md#save-each-upload-where-you-keep-it-prepareupload)). Otherwise call
+  `attach` from a route of your own.
 - To delete everything of a user (an account that is closed), collect the IDs from the user's chats.
   The library cannot find a user's documents. A store of your own can, if it keeps the owner where it
   can query it, as the [example store](#example-object-storage-and-a-database) does: the context of
@@ -648,7 +649,10 @@ export async function sendOriginal(response: ServerResponse, id: string, owner: 
 ### The file your application keeps
 
 New in 0.9.0. When your application saves each upload anyway (to send it back, or to ingest it
-again later), keep only that one. The ingest says where it is, and the library reads it from there:
+again later), keep only that one. The ingest says where it is, and the library reads it from there.
+With `createDocumentHandlers`, `prepareUpload` saves the body there and gives the ref
+([Web app](./web-app.md#save-each-upload-where-you-keep-it-prepareupload)); a route of your own
+saves it, then calls `ingest`:
 
 ```ts
 import path from "node:path";

@@ -60,7 +60,7 @@ and never rejects, so you can call it without a `catch`, from `node:http` or fro
 
 | Handler | Route it for | What it does |
 |---|---|---|
-| `upload(request, response)` | `POST` | Asks `getOwner` who is asking and `getScope` which chat it is for, reads the raw body up to `files.maxUploadBytes`, ingests it with that owner and scope, calls `onUploaded`, and answers `201` with the document's summary. |
+| `upload(request, response)` | `POST` | Asks `getOwner` who is asking and `getScope` which chat it is for, asks `prepareUpload` for an ID and where to save the body, reads the raw body up to `files.maxUploadBytes` (into memory, or into a file), ingests it with that owner and scope, calls `onUploaded`, and answers `201` with the document's summary. |
 | `get(request, response, id)` | `GET` | Answers `200` with the summary, or `404` when the document is unknown, expired, deleted, or another owner's or another chat's. |
 | `remove(request, response, id)` | `DELETE` | Deletes the document, its text and any kept original, calls `onRemoved`, and answers `200` with `{ "deleted": true }`, or `{ "deleted": false }` when this owner had no such document in this chat. |
 
@@ -263,6 +263,105 @@ const documents = createDocumentHandlers(files, {
 
 [The node reference](../reference/node.md#the-hooks-onuploaded-and-onremoved) has every detail.
 
+### Save each upload where you keep it: `prepareUpload`
+
+New in 0.9.0. When your app keeps the uploads of a chat in its folder anyway (to show a file
+again, or to ingest it again later), let the handler save the body there, once, as it arrives.
+`prepareUpload` runs before the body is read, and returns the document's ID, the path of the file
+and its ref. The file is then ingested from that path, and kept by reference: `view_pages` reads it
+there through `fileOriginals`, and the store keeps no second copy.
+
+```ts
+// documents.ts: each upload saved once as /data/<user>/<chat>/uploads/<id>, beside the store's files.
+import { randomUUID } from "node:crypto";
+import { rm } from "node:fs/promises";
+import path from "node:path";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { createDocumentHandlers, fileOriginals } from "llm-large-files/node";
+
+const VOLUME = "/data";
+
+export const files = createLargeFiles({
+  store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }), // /data/<user>/<chat>/.llm-large-files/
+  keepOriginals: ["pdf"],
+  originals: fileOriginals(VOLUME), // reads the uploads back by their ref
+  requireOwner: true,
+  requireScope: true,
+});
+
+export const documents = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request),
+  getScope: async (request) => {
+    const userId = currentUserId(request)!;
+    const chatId = String(request.headers["x-chat-id"] ?? "");
+    if (!(await chats.belongsTo(chatId, userId))) throw Object.assign(new Error("This chat no longer exists."), { status: 404 });
+    return [userId, chatId];
+  },
+  // Before the body is read: the upload's ID, where its body goes, and the ref fileOriginals reads.
+  prepareUpload: (_request, { scope }) => {
+    const id = `up-${randomUUID().replaceAll("-", "")}`;
+    const ref = [...scope!, "uploads", id].join("/"); // <user>/<chat>/uploads/<id>
+    return { id, path: path.join(VOLUME, ref), original: { ref } };
+  },
+  // Once it is stored: the chat lists it. Throw, and the document and the file are removed.
+  onUploaded: async (document, { scope }) => {
+    await chats.addFile(scope![1]!, { documentId: document.id, name: document.name, sha256: document.sha256 });
+  },
+  // The library never removes the file it was read from: remove it with the document.
+  onRemoved: async (id, { scope }) => {
+    await chats.removeFile(scope![1]!, id);
+    await rm(path.join(VOLUME, ...scope!, "uploads", id), { force: true });
+  },
+});
+```
+
+- **The folders are yours.** The handler makes no folder: make `<user>/<chat>/uploads` when the chat
+  is made, with `mode: 0o700`. A folder that is not there is answered `500`
+  `{ "error": "Upload failed (ENOENT)." }`; a chat that was deleted should be refused in
+  `getScope`, with a `404`, as above. Removing the chat's folder removes the store's files and the
+  uploads together ([Storage](./storage.md#files-in-a-folder-per-user-or-per-chat)).
+- **Safe names.** The user and chat IDs are the scope's segments, and the folder names: lowercase
+  letters, digits, `_` and `-`. For other IDs, name both folders with `hashedScopeSegment`, as the
+  store does. Never build the path from the file's name: it is the client's.
+- **The file is made new**, with `"wx"` and mode `0o600` (`uploadFileMode`; `0o640` when pods of
+  another user read the volume through a group). A file or a link already at the path is never
+  written through: the upload gets `409` `{ "error": "A file is already saved for this upload." }`.
+- **It stays once the document is stored,** and `onUploaded` is told its `path`. **It is removed
+  when the upload fails**, whatever the reason: too large, a body that stops, a browser that leaves
+  before the ingest ends, a full disk (`503` with `Retry-After`), a file that cannot be read, an ID
+  that is taken, or `onUploaded` throwing.
+- **No memory.** The body is written as it arrives, and read again when the ingest's turn comes: it
+  is not held while it waits, and takes no room of `maxPendingUploadBytes`.
+- **Nothing of it reaches the browser or the model.** The path and the ref are kept in the metadata,
+  for the server.
+- **Without a path,** `prepareUpload` can still give the ID alone: `return { id }`.
+
+Every rule is in the [node reference](../reference/node.md#saving-the-body-prepareupload).
+
+### Large uploads off the heap: `uploadSpool`
+
+New in 0.9.0. Without a path from `prepareUpload`, the handler holds each body in memory while it is
+ingested. `uploadSpool` writes the larger ones to a temporary file instead:
+
+```ts
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request),
+  uploadSpool: { directory: "/var/spool/uploads" }, // a folder of its own, on a disk
+});
+```
+
+- **Which bodies.** Those over `minBytes` (1 MiB by default), and those without a `Content-Length`.
+  Smaller ones stay in memory. `uploadSpool: true` takes the defaults, with `os.tmpdir()`.
+- **The file** is made new (`"wx"`), with a random name and mode `0o600`, ingested from its path, and
+  removed once the ingest ends, whatever the end. `onUploaded` runs after, without a path.
+- **Room.** `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the spool's files at once:
+  past it, and on a full disk, the upload gets `503` with `Retry-After`. `maxPendingUploadBytes`
+  then counts only the bodies held in memory, so several uploads sent without a `Content-Length` no
+  longer fill it.
+- **Where.** On a disk, not a memory-backed folder, which would take the memory back
+  ([Deployment](./deployment.md#uploads-and-ingest)). A server that stops in the middle of an upload
+  leaves its file: empty the folder when the server starts.
+
 ### What the browser sends
 
 - **The body is the file**, as raw bytes, not a form.
@@ -305,10 +404,11 @@ for the file saved as UTF-8.
 Everything else is JSON `{ "error": "…" }`, with a message you can show: `400` for a missing name or
 a body another middleware already parsed, `401` "Sign in first." under `requireOwner`, `404` "This
 chat no longer exists." for a chat whose folder is gone, `413` over `maxUploadBytes`, `422` for a
-file that cannot be read, `503` with `Retry-After` when the server holds as many uploads as it
-takes at once, its readers are busy, or the store failed (send the file again after `Retry-After`
-seconds), `408` for a body that stopped arriving, an error's own status (400 to 599) from
-`getOwner`, `getScope`, `onUploaded` or an extractor, and `500` for a failure of the server, among
+file that cannot be read, `409` "A file is already saved for this upload." when a file is already at the
+path of `prepareUpload`, `503` with `Retry-After` when the server holds as many uploads as it
+takes at once, its readers are busy, its disk is full, or the store failed (send the file again
+after `Retry-After` seconds), `408` for a body that stopped arriving, an error's own status (400 to 599) from
+`getOwner`, `getScope`, `prepareUpload`, `onUploaded` or an extractor, and `500` for a failure of the server, among
 them `Upload failed (empty owner).`, `Upload failed (owner is not a string).`,
 `Upload failed (invalid scope).` and `Upload failed.`. `get` answers `404` for a document this owner
 cannot see in this chat, and `get` and `remove` answer `503` when the store cannot be read. Every

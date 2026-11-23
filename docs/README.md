@@ -224,8 +224,9 @@ One task each, with samples:
 - [An explorer model](./guides/explorer-model.md): a second, cheaper model that explores the
   documents while another answers: who does what, what changes for your app, cost, any pair of
   providers.
-- [Web app](./guides/web-app.md): uploads (`createDocumentHandlers`, direct `ingest`, the
-  browser), answers and progress streamed over server-sent events, cancelling.
+- [Web app](./guides/web-app.md): uploads (`createDocumentHandlers`, its hooks, saving each upload
+  in the chat's folder, spooling to disk, direct `ingest`, the browser), answers and progress
+  streamed over server-sent events, cancelling.
 - [Conversations](./guides/conversations.md): the message format, keeping tool turns, history
   across requests and servers, staying inside the window, converters, pointers for repeated calls,
   mixing providers.
@@ -263,7 +264,7 @@ import from.
 | `llm-large-files/gemini` | [Gemini](./reference/gemini.md) | `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()` and the other Gemini exports |
 | `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
-| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `createIsolatedExtractors`, files read in child processes; `fileOriginals`, the uploads your application keeps, read back by their ref; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
+| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses, `prepareUpload` and `uploadSpool`; `createIsolatedExtractors`, files read in child processes; `fileOriginals`, the uploads your application keeps, read back by their ref; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
 | `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents; `documentStoreChecks`, the checks of a store of your own |
 
 ## Internals and measurements
