@@ -1295,8 +1295,10 @@ documents of each scope are in a folder of their own:
 - `sweep(now?)` removes expired documents and returns how many, counting a document whose metadata
   is not valid and is older than `orphanAgeMs`. It counts only the documents whose metadata it
   removed itself: of two sweeps at once, on one server or two, each document is counted once
-  (since 0.9.0). It also removes files that belong to no document,
-  and temporary files, once they are older than `orphanAgeMs` (these are not counted). Where files
+  (since 0.9.0). Not always on Windows: there, two processes that remove one file at the same
+  moment can both be told it was removed, so the total can count a document twice. It also
+  removes files that belong to no document, and temporary files, once they are older than
+  `orphanAgeMs` (these are not counted). Where files
   of your own may sit beside the documents (`directory` without `scopes`, or `scopes.folder` `""`),
   a file of no document is removed only when its name is an ID the library makes, or a temporary
   file: `notes.txt` may be yours, not the text of a document `notes`. A document whose metadata

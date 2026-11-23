@@ -122,8 +122,9 @@ With `scopes` (new in 0.9.0), the files of each scope are in a folder of their o
 - `readTextRange` reads only the bytes asked for, so a tool call never loads a large file whole.
   The whole text is read only when the plan sends it in the prompt.
 - `sweep` removes expired documents and returns how many: those whose metadata it removed itself,
-  so two sweeps at once count each document once. It also removes files that belong to no
-  document (an upload that failed, a server that stopped while writing) and temporary files, once
+  so two sweeps at once count each document once (on Windows, two removals of one file at the
+  same moment can both succeed, and a document can be counted twice). It also removes files that
+  belong to no document (an upload that failed, a server that stopped while writing) and temporary files, once
   they are `orphanAgeMs` old, one hour by default: a younger one may be an upload in progress on
   another server. In a folder that may hold files of yours too (`directory` without `scopes`), it
   removes such a file only when its name is an ID the library makes, or a temporary file:

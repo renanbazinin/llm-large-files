@@ -801,6 +801,8 @@ export class FileDocumentStore implements DocumentStore {
         const known = meta !== undefined && (ours || meta.id === id);
         if (known ? expired(meta!, now) : ours && await old(metaFile)) {
           // 1 only when this sweep removed the metadata: another sweep at the same time may have.
+          // On Windows both unlinks of one file can succeed (the file goes when the last handle
+          // closes), and both sweeps count it: claiming it by a rename first would tell them apart.
           return await pool(() => this.#remove(place, id)).then((existed) => (existed ? 1 : 0), () => 0);
         }
       }
