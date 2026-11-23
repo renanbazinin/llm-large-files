@@ -286,7 +286,7 @@ async function reading<T>(read: () => Promise<T>): Promise<T> {
   try {
     return await read();
   } catch (error) {
-    throw error instanceof DocumentStoreError ? error : new DocumentStoreError(error);
+    throw DocumentStoreError.is(error) ? error : new DocumentStoreError(error);
   }
 }
 
@@ -407,7 +407,10 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     maxPdfPages,
     ingestTimeoutMs,
     scannedPdfPages,
-    extractors: options.extractors,
+    // Read at each ingest, as before the move: an application may set them after.
+    get extractors() {
+      return options.extractors;
+    },
     ingests,
     slotCapMs,
     keeps,

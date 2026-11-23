@@ -284,6 +284,25 @@ describe("a request larger than the model takes", () => {
     expect(result.budget.contextTokens).toBe(8_192);
   });
 
+  it("reports the provider's overflow when the document is gone, or the store fails, before the second plan", async () => {
+    // Since 0.9.0 DocumentsNotFoundError (404) and DocumentStoreError (503) have a status; neither is
+    // the model's error, so the first try's overflow is still the one reported, with its partial result.
+    for (const failure of ["deleted", "store"] as const) {
+      const store = new MemoryDocumentStore();
+      const files = createLargeFiles({ store, budget: { contextTokens: 200_000 } });
+      const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
+      const overflow = new ModelRequestError("This model's maximum context length is 8192 tokens. However, your messages resulted in 21000 tokens.", 400);
+      const model = fakeModel([async () => {
+        if (failure === "deleted") await files.delete(meta.id);
+        else store.getMeta = async () => { throw Object.assign(new Error("read failed"), { code: "EIO", syscall: "read" }); };
+        return overflow;
+      }]);
+      const error = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") }).catch((caught: unknown) => caught);
+      expect(error, failure).toBe(overflow);
+      expect(model.requests, failure).toHaveLength(1);
+    }
+  });
+
   it("is reported, with what the question found, for a model whose conversation may only grow", async () => {
     const { files, meta } = await largeLog();
     const usage = { inputTokens: 900, outputTokens: 10 };

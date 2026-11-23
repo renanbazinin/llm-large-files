@@ -43,7 +43,8 @@ function storeMessage(operation: DocumentStoreOperation, code: string | undefine
     : operation === "delete" ? "The document could not be deleted"
     : operation === "sweep" ? "The document store could not be cleaned up"
     : "The document store could not be read";
-  return `${what}${code ? ` (${code})` : ""}. Try again.`;
+  // A code is shown only when it reads as one (EIO, ETIMEDOUT): a driver may put a host in `code`.
+  return `${what}${code && /^[A-Z][A-Z0-9_]{0,31}$/.test(code) ? ` (${code})` : ""}. Try again.`;
 }
 
 /**
@@ -148,7 +149,7 @@ export function isStoreWriteFailure(error: unknown): boolean {
  * message names a path or a host of the server. Of that one only the code is passed on.
  */
 export function safeErrorMessage(error: unknown): string {
-  if (error instanceof DocumentStoreError) return error.message;
+  if (DocumentStoreError.is(error)) return (error as Error).message;
   const { code, syscall } = systemError(error);
   if (code && syscall) return `The file could not be read from storage (${code}). Try the call again.`;
   return error instanceof Error ? error.message : String(error);
@@ -264,7 +265,7 @@ export function ingestErrorCodeOf(message: string): IngestErrorCode {
  * own that reads a file).
  */
 export function toIngestError(error: unknown): unknown {
-  if (error instanceof IngestError || !(error instanceof Error)) return error;
+  if (IngestError.is(error) || !(error instanceof Error)) return error;
   const { code, syscall } = systemError(error);
   const { status, statusCode } = error as { status?: unknown; statusCode?: unknown };
   if ((code && syscall) || typeof status === "number" || typeof statusCode === "number") return error;

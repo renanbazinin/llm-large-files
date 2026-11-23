@@ -304,7 +304,7 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
   // It never throws: an error whose fields throw when read (a getter, a proxy) is told plainly.
   try {
     const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown };
-    if (error instanceof IngestError) {
+    if (IngestError.is(error)) {
       // Its status is the upload's answer, not a model's.
       return { message: message ?? error.message, name: error.name, code: error.code, ...(error.status !== 422 ? { status: error.status } : {}) };
     }
@@ -327,7 +327,7 @@ const SOMETHING_WENT_WRONG = "Something went wrong.";
  */
 function userMessageOf(error: unknown): string {
   // The library's own errors with a status (503, 404) are not model errors: their words are safe.
-  if (error instanceof DocumentStoreError || error instanceof DocumentsNotFoundError) return error.message;
+  if (DocumentStoreError.is(error) || DocumentsNotFoundError.is(error)) return (error as Error).message;
   if (typeof error !== "object" || error === null) return SOMETHING_WENT_WRONG;
   const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; message?: unknown };
   // A model error: the provider's words stay on the error.

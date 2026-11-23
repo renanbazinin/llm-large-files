@@ -182,7 +182,8 @@ function pageProgress(input: ExtractInput | undefined, stage: ExtractProgress["s
  * missing, but 1.5.0 to 1.6.0 do not: there, the first PDF throws where nothing can catch it, and
  * the whole process stops. An error of unpdf while it loads pdf.js is passed on as it is.
  * The message gives the major version of Node only: an upload can be answered with it. Its start,
- * "The unpdf installed", is what `ingestErrorCodeOf` reads as missing_dependency.
+ * "The unpdf installed would stop the whole server", is what `ingestErrorCodeOf` (errors.ts) reads
+ * as missing_dependency.
  */
 export async function checkUnpdf(unpdf: { getResolvedPDFJS?: unknown }, node: string = process.versions.node): Promise<void> {
   if (typeof unpdf.getResolvedPDFJS !== "function") return;

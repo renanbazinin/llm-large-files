@@ -72,6 +72,24 @@ describe("llm-large-files/testing", () => {
     expect(api.sent[1]!.body.stream).toBe(true);
   });
 
+  it("rejects with the signal's reason, also while a reply waits, and reads a Request's own headers and body", async () => {
+    const slow = fakeFetch([async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      return Response.json({ late: true });
+    }]);
+    const controller = new AbortController();
+    const reason = new Error("Gave up.");
+    const pending = slow.fetch("https://llm.test/slow", { signal: controller.signal });
+    setTimeout(() => controller.abort(reason), 20);
+    const started = performance.now();
+    await expect(pending).rejects.toBe(reason);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    await expect(slow.fetch("https://llm.test/slow", { signal: AbortSignal.abort(reason) })).rejects.toBe(reason);
+    const api = fakeFetch([Response.json({ ok: true })]);
+    await api.fetch(new Request("https://llm.test/r", { method: "POST", headers: { "X-Key": "k" }, body: JSON.stringify({ model: "m" }) }));
+    expect(api.sent[0]).toEqual({ url: "https://llm.test/r", method: "POST", headers: { "content-type": "text/plain;charset=UTF-8", "x-key": "k" }, body: { model: "m" } });
+  });
+
   it("answers a Response more than once, each time with a copy", async () => {
     const api = fakeFetch([Response.json({ n: 1 })]);
     expect(await (await api.fetch("https://llm.test/a")).json()).toEqual({ n: 1 });

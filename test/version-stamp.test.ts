@@ -122,16 +122,26 @@ describe("ToolTurn.version", () => {
       ...(version === undefined ? {} : { version: version as number }),
       calls: [{ id: "r1", name: "read_document", args: { document_id: log.id, start_line: 1, end_line: 2 }, result: { lines: "1-2", text: "…" } }],
     });
-    const ask = (turn: ToolTurn) => askWithFiles({
-      files,
-      model: fakeModel([says("Done.")]),
-      documentIds: [log.id],
-      messages: [{ role: "user", text: "Read the start." }, turn, { role: "assistant", text: "It starts with INFO lines." }, { role: "user", text: "And then?" }],
-    });
-    for (const version of [2, "1", Number.NaN]) {
+    let model = fakeModel([says("Done.")]);
+    const ask = (turn: ToolTurn) => {
+      model = fakeModel([says("Done.")]);
+      return askWithFiles({
+        files,
+        model,
+        documentIds: [log.id],
+        messages: [{ role: "user", text: "Read the start." }, turn, { role: "assistant", text: "It starts with INFO lines." }, { role: "user", text: "And then?" }],
+      });
+    };
+    for (const [version, message] of [
+      [2, /stored tool round \(toolTurns\) has version 2: a newer version of llm-large-files made it/],
+      ["1", /stored tool round \(toolTurns\) has a version that is not a number \("1"\)/],
+      [Number.NaN, /stored tool round \(toolTurns\) has a version that is not a number \(NaN\)/],
+    ] as const) {
       const refused = ask(round(version));
       await expect(refused, String(version)).rejects.toBeInstanceOf(TypeError);
-      await expect(refused, String(version)).rejects.toThrow(/stored tool round \(toolTurns\) has version .*a newer version of llm-large-files made it/);
+      await expect(refused, String(version)).rejects.toThrow(message);
+      // Refused before any request.
+      expect(model.requests, String(version)).toHaveLength(0);
     }
     expect((await ask(round(1))).text).toBe("Done.");
     expect((await ask(round())).text).toBe("Done.");

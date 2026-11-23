@@ -35,6 +35,13 @@ describe("DocumentStoreError", () => {
     expect(new DocumentStoreError(new Error("mongo-1.internal:27017 refused"), { operation: "write" }).message).toBe("The document could not be stored. Try again.");
   });
 
+  it("shows a cause's code only when it reads as one, never a driver's text such as a host", () => {
+    expect(new DocumentStoreError(Object.assign(new Error("x"), { code: "EIO", syscall: "read" })).message).toBe("The document store could not be read (EIO). Try again.");
+    const hosted = new DocumentStoreError(Object.assign(new Error("x"), { code: "mongo-1.internal:27017" }), { operation: "write" });
+    expect(hosted.message).toBe("The document could not be stored. Try again.");
+    expect(hosted.message).not.toContain("mongo");
+  });
+
   it("takes a code of its own, such as NEWER_VERSION", () => {
     const error = new DocumentStoreError(new RangeError("metaVersion 2"), { code: "NEWER_VERSION" });
     expect(error).toMatchObject({ operation: "read", status: 503, code: "NEWER_VERSION", message: "The document was stored by a newer version of llm-large-files. Try again." });

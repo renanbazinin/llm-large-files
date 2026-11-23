@@ -17,21 +17,37 @@ export type FakeFetch = {
 /**
  * A `fetch` for the real adapters that answers from a script, without the network: each request
  * gets the next reply, and the last one repeats. A `Response` is answered with a copy, since a body
- * can be read only once. Every request is recorded in `sent`.
+ * can be read only once. Every request is recorded in `sent`. As a real `fetch` does, it rejects with
+ * the reason of the request's `signal` once that aborts, also while a reply made by a function waits.
  */
 export function fakeFetch(replies: FakeReply[]): FakeFetch {
   if (replies.length === 0) throw new TypeError("fakeFetch needs at least one reply.");
   const sent: Sent[] = [];
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const given = typeof input === "object" && !(input instanceof URL) ? input : undefined;
+    const signal = init?.signal ?? given?.signal ?? undefined;
+    signal?.throwIfAborted();
     const request: Sent = {
       url: typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
-      method: init?.method ?? (typeof input === "object" && "method" in input ? input.method : "GET"),
-      headers: headersOf(init?.headers),
-      body: bodyOf(init?.body),
+      method: init?.method ?? given?.method ?? "GET",
+      // A Request carries its own headers and body when `init` does not.
+      headers: init?.headers !== undefined || !given ? headersOf(init?.headers) : Object.fromEntries(given.headers),
+      body: init?.body !== undefined || !given ? bodyOf(init?.body) : bodyOf(await given.clone().text()),
     };
     sent.push(request);
     const reply = replies[Math.min(sent.length - 1, replies.length - 1)]!;
-    return typeof reply === "function" ? reply(request, sent.length) : reply.clone();
+    const answer = Promise.resolve(typeof reply === "function" ? reply(request, sent.length) : reply.clone());
+    if (!signal) return answer;
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_, reject) => {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([answer, aborted]);
+    } finally {
+      signal.removeEventListener("abort", onAbort!);
+    }
   };
   return { fetch: fetch as typeof globalThis.fetch, sent };
 }

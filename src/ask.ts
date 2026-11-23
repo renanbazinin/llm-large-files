@@ -24,6 +24,7 @@ import {
   type ToolTurn,
   type UsageTotals,
 } from "./model.js";
+import { DocumentStoreError } from "./errors.js";
 import { estimateParts, REQUEST_BYTES_MARGIN } from "./plan.js";
 import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
@@ -265,6 +266,9 @@ const carriedResult = (result: ToolResult): ToolResult => wellFormedJson(laterRe
 function checkToolTurnVersion(turn: ToolTurn): void {
   const version: unknown = turn.version ?? 0;
   if (typeof version === "number" && version <= TOOL_TURN_VERSION) return;
+  if (typeof version !== "number" || Number.isNaN(version)) {
+    throw new TypeError(`A stored tool round (toolTurns) has a version that is not a number (${typeof version === "string" ? JSON.stringify(version) : String(version)}). Leave it out of messages, or store it as it was given.`);
+  }
   throw new TypeError(`A stored tool round (toolTurns) has version ${String(version)}: a newer version of llm-large-files made it, and this one reads up to version ${TOOL_TURN_VERSION}. Leave it out of messages.`);
 }
 
@@ -621,7 +625,9 @@ async function askPlanned(options: AskOptions, state: RunState): Promise<AskResu
       // Failed before it sent anything (a budget of the application's that cannot work with the
       // smaller window): the provider's error, with what the first try found, is the one to report.
       // (The question's own record: `partialResultOf` gives nothing for an error another question threw too.)
-      if (state.failed?.error !== again && (again as { status?: unknown } | null)?.status === undefined) {
+      // (A store that failed, or a document gone, has a status since 0.9.0, but is not the model's.)
+      const fromModel = (again as { status?: unknown } | null)?.status !== undefined && !DocumentStoreError.is(again) && !DocumentsNotFoundError.is(again);
+      if (state.failed?.error !== again && !fromModel) {
         keepPartial(error.overflow, state, error.partial);
         throw error.overflow;
       }

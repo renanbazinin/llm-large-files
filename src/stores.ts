@@ -38,9 +38,9 @@ export class MemoryDocumentStore implements DocumentStore {
   private readonly documents = new Map<string, StoredDocument>();
   /** The original files of the documents of no scope. */
   private readonly originals = new Map<string, Uint8Array>();
-  private readonly unscoped: Shelf = { scope: undefined, documents: this.documents, originals: this.originals };
+  readonly #unscoped: Shelf = { scope: undefined, documents: this.documents, originals: this.originals };
   /** The documents of each scope, by the key of the scope (`scopeKey`). */
-  private readonly scoped = new Map<string, Shelf>();
+  readonly #scoped = new Map<string, Shelf>();
   private readonly now: () => Date;
 
   constructor(options: { now?: () => Date } = {}) {
@@ -48,16 +48,16 @@ export class MemoryDocumentStore implements DocumentStore {
   }
 
   /** The documents of the scope of `context`. Those of a scope that has none yet are made when `create` asks for them. */
-  private shelf(context: DocumentContext | undefined, create: true): Shelf;
-  private shelf(context: DocumentContext | undefined, create?: false): Shelf | undefined;
-  private shelf(context: DocumentContext | undefined, create = false): Shelf | undefined {
+  #shelf(context: DocumentContext | undefined, create: true): Shelf;
+  #shelf(context: DocumentContext | undefined, create?: false): Shelf | undefined;
+  #shelf(context: DocumentContext | undefined, create = false): Shelf | undefined {
     const scope = checkScope(context?.scope);
-    if (scope === undefined) return this.unscoped;
+    if (scope === undefined) return this.#unscoped;
     const key = scopeKey(scope);
-    let shelf = this.scoped.get(key);
+    let shelf = this.#scoped.get(key);
     if (!shelf && create) {
       shelf = { scope, documents: new Map(), originals: new Map() };
-      this.scoped.set(key, shelf);
+      this.#scoped.set(key, shelf);
     }
     return shelf;
   }
@@ -66,11 +66,11 @@ export class MemoryDocumentStore implements DocumentStore {
   // does: an app that changes the metadata it was handed (deletes its owner before sending it to a
   // browser) must not change the document's owner or expiry.
   async put(document: StoredDocument, context?: DocumentContext): Promise<void> {
-    this.shelf(context, true).documents.set(document.meta.id, { meta: structuredClone(document.meta), text: document.text });
+    this.#shelf(context, true).documents.set(document.meta.id, { meta: structuredClone(document.meta), text: document.text });
   }
 
   async get(id: string, context?: DocumentContext): Promise<StoredDocument | undefined> {
-    const document = this.shelf(context)?.documents.get(id);
+    const document = this.#shelf(context)?.documents.get(id);
     if (document && expired(document.meta, this.now())) {
       await this.delete(id, context);
       return undefined;
@@ -83,18 +83,18 @@ export class MemoryDocumentStore implements DocumentStore {
   }
 
   async delete(id: string, context?: DocumentContext): Promise<boolean> {
-    const shelf = this.shelf(context);
+    const shelf = this.#shelf(context);
     if (!shelf) return false;
     shelf.originals.delete(id);
     const existed = shelf.documents.delete(id);
     // A scope with nothing left takes no memory: one for each chat would add up.
-    if (shelf !== this.unscoped && shelf.documents.size === 0 && shelf.originals.size === 0) this.scoped.delete(scopeKey(shelf.scope));
+    if (shelf !== this.#unscoped && shelf.documents.size === 0 && shelf.originals.size === 0) this.#scoped.delete(scopeKey(shelf.scope));
     return existed;
   }
 
   /** Removes expired documents: those of the scope of `context`, or those of every scope when it has none. */
   async sweep(now = this.now(), context?: DocumentContext): Promise<number> {
-    const shelves = context?.scope === undefined ? [this.unscoped, ...this.scoped.values()] : [this.shelf(context)];
+    const shelves = context?.scope === undefined ? [this.#unscoped, ...this.#scoped.values()] : [this.#shelf(context)];
     let removed = 0;
     for (const shelf of shelves) {
       if (!shelf) continue;
@@ -110,12 +110,12 @@ export class MemoryDocumentStore implements DocumentStore {
 
   async putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void> {
     // A copy: the caller may reuse its buffer after the upload.
-    this.shelf(context, true).originals.set(id, bytes.slice());
+    this.#shelf(context, true).originals.set(id, bytes.slice());
   }
 
   async getOriginal(id: string, context?: DocumentContext): Promise<Uint8Array | undefined> {
     // A copy too, new in 0.9.0: a caller that changed the bytes it was handed changed the stored file.
-    return await this.get(id, context) ? this.shelf(context)?.originals.get(id)?.slice() : undefined;
+    return await this.get(id, context) ? this.#shelf(context)?.originals.get(id)?.slice() : undefined;
   }
 }
 
