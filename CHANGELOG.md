@@ -70,6 +70,12 @@ Code written for 0.8.1 compiles with 0.8.2 as it is: the three new options are o
   (`uploadIdleTimeoutMs`).
   **What to do:** nothing, unless your users send large files over links that stall for longer:
   raise `uploadIdleTimeoutMs`, or set 0 to wait as before.
+- **A store write that does not end within `ingestTimeoutMs` (2 minutes by default, and when it is
+  0) fails the ingest**, as a failure of the store (`The store did not finish writing app.log within
+  2 min.`; the upload handler answers 500), and the document is removed once the write ends. Such a
+  write held the ingest, and with the new limits its turn and its upload's room, forever.
+  **What to do:** nothing, unless your store takes longer than that to write a file: raise
+  `ingestTimeoutMs`.
 - **A `LargeFiles` of your own given to `createDocumentHandlers` must have `maxUploadBytes`**, as its
   type says: without a number above 0 (from JavaScript), `createDocumentHandlers` throws a
   `TypeError`. Such an object had no upload limit at all.
@@ -93,9 +99,8 @@ Code written for 0.8.1 compiles with 0.8.2 as it is: the three new options are o
   nothing stored. An empty file, or one over `maxUploadBytes`, is refused without waiting. An
   ingest keeps its turn until its work ends: when its time is up or its caller left while an
   extractor goes on (one that does not stop on the signal, such as the parse of a PDF by
-  `@cantoo/pdf-lib`), until that extractor ends. A store write, or such an extractor, that never
-  ends gives the turn back after `ingestTimeoutMs` more (2 minutes when that is 0), so that it cannot
-  stop every later ingest. An extractor of your own must not wait on an ingest of the same library
+  `@cantoo/pdf-lib`), until that extractor ends, or `ingestTimeoutMs` more (2 minutes when that is
+  0) when it never does, so that it cannot stop every later ingest. An extractor of your own must not wait on an ingest of the same library
   (to store the parts of an archive, say): that ingest waits for a turn like the others, and with
   every turn held by such extractors, each waits on itself until its time is up. A library sends `createIsolatedExtractors` at most `maxConcurrentIngests` files at
   once, so its own queue fills only when several libraries share one set of readers.

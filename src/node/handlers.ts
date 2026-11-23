@@ -218,12 +218,19 @@ const LONGEST_TIMER_MS = 2_147_483_647;
 function withinIdle<T>(next: Promise<T>, idleMs: number): Promise<T> {
   // Once the upload is refused, the read it waited on ends with the connection: nobody awaits it.
   next.catch(() => undefined);
+  let settled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const idle = new Promise<never>((_, reject) => {
     const after = idleMs >= 1_000 ? `${Math.round(idleMs / 1_000)} s` : `${idleMs} ms`;
-    timer = setTimeout(() => reject(new HttpError(408, `The upload stopped arriving: nothing came for ${after}. Send it again.`, true)), idleMs);
+    timer = setTimeout(() => {
+      // After the thread was held longer than `idleMs`, timers run before the data that came in the
+      // meantime is read: it is read first, in this turn of the loop, and the upload goes on.
+      setImmediate(() => {
+        if (!settled) reject(new HttpError(408, `The upload stopped arriving: nothing came for ${after}. Send it again.`, true));
+      });
+    }, idleMs);
   });
-  return Promise.race([next, idle]).finally(() => clearTimeout(timer));
+  return Promise.race([next.finally(() => (settled = true)), idle]).finally(() => clearTimeout(timer));
 }
 
 /**

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http";
 import { connect, type AddressInfo } from "node:net";
 import { mkdtemp, rm, unlink } from "node:fs/promises";
@@ -183,7 +184,7 @@ describe("maxConcurrentIngests (0.8.2)", () => {
     expect(most).toBe(1);
   }, 15_000);
 
-  it("gives the turn back when a store write never ends, after the time limit of an ingest", async () => {
+  it("fails an ingest whose store write does not end, after its time limit, and gives the turn back", async () => {
     class HangingStore extends MemoryDocumentStore {
       hung = 0;
       override async put(document: StoredDocument): Promise<void> {
@@ -196,12 +197,34 @@ describe("maxConcurrentIngests (0.8.2)", () => {
     }
     const store = new HangingStore();
     const files = createLargeFiles({ store, ingestTimeoutMs: 300 });
-    void files.ingest({ name: "a.txt", bytes: utf8("a") });
-    void files.ingest({ name: "b.txt", bytes: utf8("b") });
+    const hung = [files.ingest({ name: "a.txt", bytes: utf8("a") }), files.ingest({ name: "b.txt", bytes: utf8("b") })].map((ingest) => ingest.catch((error: unknown) => error));
     await until(() => store.hung === 2);
-    // Both turns are held by writes that never end; the third gets one 300 ms later.
+    // The third gets a turn once the writes have failed, 300 ms later.
     const third = await files.ingest({ name: "c.txt", bytes: utf8("c") });
     expect(third.name).toBe("c.txt");
+    const errors = await Promise.all(hung);
+    expect((errors[0] as Error).message).toBe("The store did not finish writing a.txt within 300 ms.");
+  }, 15_000);
+
+  it("removes a document whose write ended after the ingest failed for it", async () => {
+    class LateStore extends MemoryDocumentStore {
+      override async put(document: StoredDocument): Promise<void> {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        return super.put(document);
+      }
+    }
+    const store = new LateStore();
+    const files = createLargeFiles({ store, ingestTimeoutMs: 150 });
+    let id: string | undefined;
+    const spy = store.put.bind(store);
+    store.put = async (document) => {
+      id = document.meta.id;
+      return spy(document);
+    };
+    await expect(files.ingest({ name: "a.txt", bytes: utf8("a") })).rejects.toThrow("The store did not finish writing a.txt within 150 ms.");
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(id).toMatch(/^doc_/);
+    expect(await store.getMeta(id!)).toBeUndefined();
   }, 15_000);
 
   it("starts the time limit of an ingest when its turn comes, not while it waits", async () => {
@@ -361,6 +384,61 @@ describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
     store.finish.splice(0).forEach((resolve) => resolve());
     expect((await next).status).toBe(201);
   });
+
+  it("gives the room of uploads back when their store writes do not end", async () => {
+    class HangingStore extends MemoryDocumentStore {
+      hung = 0;
+      override async put(document: StoredDocument): Promise<void> {
+        if (this.hung < 2) {
+          this.hung++;
+          return new Promise<void>(() => {});
+        }
+        return super.put(document);
+      }
+    }
+    const store = new HangingStore();
+    const files = createLargeFiles({ store, maxUploadBytes: 1_000, ingestTimeoutMs: 300 });
+    const documents = createDocumentHandlers(files);
+    server = createServer((request, response) => void documents.upload(request, response));
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(server!.address() as AddressInfo).port}/upload`;
+    const upload = (name: string, size: number) => fetch(url, { method: "POST", headers: { "X-File-Name": name }, body: "x".repeat(size) });
+    // Two uploads fill the room (twice maxUploadBytes), and their writes never end.
+    const hung = [upload("a.txt", 1_000), upload("b.txt", 1_000)];
+    await until(() => store.hung === 2);
+    expect((await upload("c.txt", 1)).status).toBe(503);
+    // After the time limit they fail with the server's 500, and the room is back.
+    expect((await Promise.all(hung)).map((response) => response.status)).toEqual([500, 500]);
+    expect((await upload("d.txt", 1)).status).toBe(201);
+  }, 15_000);
+
+  it("does not answer 408 a body that arrived while the server's thread was held", async () => {
+    const { state, url } = await start({ uploadIdleTimeoutMs: 200 });
+    const { port } = new URL(url);
+    // A client in a process of its own sends 10 bytes every 20 ms, 400 in all.
+    const client = spawn(process.execPath, ["-e", `
+      const socket = require("node:net").connect(${port}, "127.0.0.1", () => {
+        socket.write("POST /upload HTTP/1.1\\r\\nHost: x\\r\\nX-File-Name: steady.txt\\r\\nContent-Length: 400\\r\\n\\r\\n");
+        let sent = 0;
+        const timer = setInterval(() => { socket.write("x".repeat(10)); if (++sent === 40) clearInterval(timer); }, 20);
+      });
+      let answer = "";
+      socket.on("data", (chunk) => { answer += chunk; if (answer.includes("\\r\\n\\r\\n")) { process.stdout.write(answer.split("\\r\\n")[0]); socket.destroy(); } });
+    `]);
+    let status = "";
+    client.stdout.on("data", (chunk: Buffer) => (status += chunk.toString()));
+    // 250 ms in, this thread is held for 500 ms, inside a turn of the loop where I/O is read.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise<void>((resolve) => setImmediate(() => {
+      const heldUntil = performance.now() + 500;
+      while (performance.now() < heldUntil) { /* held */ }
+      resolve();
+    }));
+    await until(() => state.running === 1);
+    state.releaseAll();
+    await new Promise<void>((resolve) => client.on("exit", () => resolve()));
+    expect(status).toMatch(/^HTTP\/1\.1 201 /);
+  }, 15_000);
 
   it("checks the option", () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });

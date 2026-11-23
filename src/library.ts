@@ -357,12 +357,20 @@ export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
 /** The longest a Node.js timer waits: a longer one fires at once. A limit past it is no limit. */
 const LONGEST_TIMER_MS = 2 ** 31 - 1;
 
+/** `work`, or the error `late` makes once `ms` have passed without it settling. */
+function settleWithin<T>(work: Promise<T>, ms: number, late: () => Error): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeUp = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(late()), ms);
+  });
+  return Promise.race([work, timeUp]).finally(() => clearTimeout(timer));
+}
+
 /**
  * The turn of one ingest (`maxConcurrentIngests`). It is given back when the ingest ends; when the
  * ingest gave up on work that goes on (an extractor that does not stop on the signal, such as a
- * PDF being parsed when its caller left), once that work ends. Work that does not end (a store
- * write that never settles, an extractor that hangs) gives it back `capMs` after the ingest began
- * to wait on it, so that it cannot stop every later ingest.
+ * PDF being parsed when its caller left), once that work ends, or `capMs` later when it does not.
+ * (Store writes that do not end fail the ingest after `capMs`: see `ingestFile`.)
  */
 class IngestSlot {
   private released = false;
@@ -377,12 +385,13 @@ class IngestSlot {
     this.release();
   };
 
-  /** Gives the turn back `capMs` from now at the latest. */
+  /**
+   * Gives the turn back `capMs` from now at the latest. The timer keeps the process alive: work
+   * that never ends may hold nothing that does, and ingests waiting for the turn would be lost.
+   */
   limit(): void {
     if (this.released || this.timer !== undefined) return;
     this.timer = setTimeout(this.free, this.capMs);
-    // Work that never ends keeps the process alive, not this timer.
-    (this.timer as { unref?: () => void }).unref?.();
   }
 
   /** The ingest is over: the turn goes back now, or once `abandoned` ends (`capMs` at the latest). */
@@ -689,7 +698,6 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     detected: DocumentFormat,
     progress: IngestProgress | undefined,
     storeFailed: () => void,
-    slot: IngestSlot,
     work: { abandoned?: Promise<unknown> },
   ): Promise<DocumentMeta> {
     let format = detected;
@@ -808,10 +816,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         throw error;
       }
     };
-    // A store that never answers keeps the turn for `slotCapMs` at most.
-    slot.limit();
-    try {
-      // The files first, the document last: a document is there once its metadata is.
+    // The files first, the document last: a document is there once its metadata is.
+    const storing = (async () => {
       if (keepOriginal) {
         await store.putOriginal!(meta.id, input.bytes);
         wrote(false);
@@ -822,10 +828,17 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       }
       await store.put({ meta, text });
       wrote(true);
+    })();
+    try {
+      // A store that does not answer fails the ingest after `slotCapMs`: it held the ingest's turn,
+      // and the upload handler's room for the file, for as long as it did not answer.
+      await settleWithin(storing, slotCapMs, () => new Error(`The store did not finish writing ${name} within ${formatDuration(slotCapMs)}.`));
     } catch (error) {
       // Do not leave a file of up to the upload limit, or a part of one, behind for a document
-      // that does not exist.
-      await store.delete(meta.id).catch(() => undefined);
+      // that does not exist: once the writes have ended, when they have not yet. The removal is not
+      // waited for longer than the writes were.
+      const removal = storing.then(() => store.delete(meta.id), () => store.delete(meta.id)).catch(() => undefined);
+      await settleWithin(removal, slotCapMs, () => new Error("")).catch(() => undefined);
       if (listenerFailed?.error !== error) {
         noteStoreWriteFailure(error);
         storeFailed();
@@ -877,7 +890,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
           const slot = new IngestSlot(await ingests.acquire(input.signal), slotCapMs);
           const work: { abandoned?: Promise<unknown> } = {};
           try {
-            meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true), slot, work);
+            meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true), work);
           } finally {
             slot.end(work.abandoned);
           }
