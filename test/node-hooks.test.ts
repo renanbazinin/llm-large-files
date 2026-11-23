@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  askWithFiles,
   createLargeFiles,
   DocumentScopeError,
   DocumentStoreError,
@@ -21,6 +22,7 @@ import {
   type LargeFiles,
 } from "llm-large-files";
 import { createDocumentHandlers, uploadAnswerOf, type DocumentHandlerOptions, type UploadedContext } from "llm-large-files/node";
+import { fakeModel, says, serviceLog } from "./fake-model.js";
 
 let server: Server | undefined;
 afterEach(() => new Promise<void>((resolve) => {
@@ -538,5 +540,34 @@ describe("the MIME type of an upload (S11)", () => {
     await upload(base, { "Content-Type": "text/markdown; charset=utf-8" });
     await upload(base, { "Content-Type": "text/plain", "X-File-Type": "text%2Fmarkdown" });
     expect(types).toEqual(["text/plain%0D%0AX-Injected:%201", "text/markdown; charset=utf-8", "text/markdown"]);
+  });
+});
+
+describe("what reaches the model", () => {
+  it("never holds the owner, the scope, the MIME type or the hook's answer of an upload", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 } });
+    const base = await serve(files, {
+      getOwner: () => "owner-7f3a",
+      getScope: () => ["owner-7f3a", "chat-91c2"],
+      onUploaded: () => ({ answer: { secret: "answer-5d1e" } }),
+    });
+    const small = (await (await upload(base, { "X-File-Type": "text%2Fx-private-type" }, "The meeting is on Tuesday.")).json()) as { id: string; secret: string };
+    const large = (await (await upload(base, { "Content-Type": "text/x-other-private-type" }, serviceLog(2_000), true)).text());
+    const largeId = (parse(large).at(-1)!.data as { document: { id: string } }).document.id;
+    expect(small.secret).toBe("answer-5d1e");
+    const model = fakeModel([says("On Tuesday.")]);
+    const result = await askWithFiles({
+      files,
+      model,
+      documentIds: [small.id, largeId],
+      owner: "owner-7f3a",
+      scope: ["owner-7f3a", "chat-91c2"],
+      messages: [{ role: "user", text: "When is the meeting?" }],
+    });
+    expect(result.plan.inline.map((document) => document.id)).toEqual([small.id]);
+    expect(result.plan.searchable.map((document) => document.id)).toEqual([largeId]);
+    const sent = JSON.stringify(model.requests);
+    expect(sent).toContain("The meeting is on Tuesday.");
+    for (const secret of ["owner-7f3a", "chat-91c2", "x-private-type", "x-other-private-type", "answer-5d1e"]) expect(sent).not.toContain(secret);
   });
 });
