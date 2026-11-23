@@ -87,3 +87,33 @@ describe("the format of a file whose name says nothing", () => {
     expect(meta.format).toBe("pdf");
   });
 });
+
+describe("the quality of a document's text, on its card", () => {
+  it("names the pages without text and those that look garbled, and the scripts of the text", async () => {
+    const page = (number: number, body: string) => `--- Page ${number} ---\n${body}`;
+    const text = [
+      page(1, "חוזה שכירות בין הצדדים, לתקופה של עשרים וארבעה חודשים, החל מיום 1.1.2027."),
+      page(2, "[No text on this page. It may be a scan, a photo, or a chart.]"),
+      page(3, "ÞÞÞ ¶¶¶ ÞÞ ¶¶ ÞÞÞÞ ¶¶ ÞÞÞ ¶¶¶ ÞÞ ¶¶ ÞÞÞÞ ¶¶ ÞÞÞ ¶¶¶ ÞÞ ¶¶ ÞÞÞÞ ¶¶ ÞÞÞ ¶¶¶ ÞÞ ¶¶ ÞÞÞÞ ¶¶".replace(/[Þ¶]/g, (c) => (c === "Þ" ? "§" : "¶"))),
+      page(4, "�".repeat(20) + " some words here and there to fill the page with characters"),
+      page(5, ["השוכר ישלם דמי שכירות חודשיים בסך 4,750 ש\"ח, כולל מע\"מ.", "Payment by bank transfer to the account of ACME Ltd."].join("\n")),
+    ].join("\n\n").repeat(1);
+    const own = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 }, extractors: { pdf: async () => ({ text: text + "\n" + "השוכר ".repeat(60), pages: 5 }) } });
+    const meta = await own.ingest({ name: "lease.pdf", bytes: utf8("%PDF-1.4") });
+    expect(meta.pagesWithoutText).toEqual([2]);
+    expect(meta.garbledPages).toEqual([3, 4]);
+    expect(meta.scripts?.[0]?.script).toBe("Hebrew");
+    expect(meta.scripts?.some((share) => share.script === "Latin")).toBe(true);
+    const card = (await own.prepare([meta.id], { tokens: 0, bytes: 0 })).blocks.get(meta.id)!;
+    expect(card).toContain("Pages without text (scans, photos or charts, whose content is not in the text): 2.");
+    expect(card).toContain("Pages whose text looks garbled, not to be relied on: 3, 4.");
+    expect(card).toMatch(/Written in: Hebrew \d+%, Latin \d+%\. Search in the language of the text\./);
+  });
+
+  it("says nothing for a clean English text", async () => {
+    const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe meeting was moved to Friday afternoon, after the review.\n".repeat(40)) });
+    expect(meta.pagesWithoutText).toBeUndefined();
+    expect(meta.garbledPages).toBeUndefined();
+    expect(meta.scripts).toBeUndefined();
+  });
+});

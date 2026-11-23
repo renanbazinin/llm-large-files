@@ -1,3 +1,4 @@
+import { pageList } from "./quality.js";
 import { plural, sliceWhole, wellFormed } from "./text.js";
 import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.js";
 
@@ -162,6 +163,7 @@ export function renderCard(meta: DocumentMeta, head: string, viewable = false, w
     HOW_TO_READ[wholeRead],
     ...(viewable ? ["Its text cannot show pictures. To see a picture, a chart or the layout of a page, look at the page with view_pages."] : []),
     ...(note ? [note] : []),
+    ...qualityLines(meta, viewable),
   ];
   const profile = meta.logProfile;
   if (profile) {
@@ -181,6 +183,16 @@ export function renderCard(meta: DocumentMeta, head: string, viewable = false, w
   out.push(`First lines:`, head.split("\n").map((line) => `  ${sliceWhole(line, 300)}`).join("\n"));
   out.push(`--- End large attached file: ${meta.name} ---`);
   return out.join("\n");
+}
+
+/** What the card says of the quality of a document's text (see `measureQuality`). */
+function qualityLines(meta: DocumentMeta, viewable: boolean): string[] {
+  const out: string[] = [];
+  const look = viewable ? " Look at them with view_pages." : "";
+  if (meta.pagesWithoutText?.length) out.push(`Pages without text (scans, photos or charts, whose content is not in the text): ${pageList(meta.pagesWithoutText)}.${look}`);
+  if (meta.garbledPages?.length) out.push(`Pages whose text looks garbled, not to be relied on: ${pageList(meta.garbledPages)}.${look}`);
+  if (meta.scripts?.length) out.push(`Written in: ${meta.scripts.map((share) => `${share.script} ${share.percent}%`).join(", ")}. Search in the language of the text.`);
+  return out;
 }
 
 /**

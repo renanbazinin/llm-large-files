@@ -69,6 +69,23 @@ export type DocumentMeta = {
   originalKept?: boolean;
   outline: OutlineEntry[];
   logProfile?: LogProfile;
+  /**
+   * The pages of a PDF that have no text at all: scans, photos, charts. Up to 200 are listed.
+   * Absent when there are none, and on documents from before 0.8.1.
+   */
+  pagesWithoutText?: number[];
+  /**
+   * The pages of a PDF whose text looks garbled: few letters and digits among their characters, or
+   * many replacement characters (a font without a Unicode map). Up to 200 are listed. Absent when
+   * there are none, and on documents from before 0.8.1.
+   */
+  garbledPages?: number[];
+  /**
+   * The scripts the text is written in, by their share of its letters in percent ("Hebrew" 81,
+   * "Latin" 19), from its first 2 MB, those of 5% or more. Absent for a text in Latin letters alone,
+   * one with few letters, and documents from before 0.8.1.
+   */
+  scripts?: Array<{ script: string; percent: number }>;
   createdAt: string;
   expiresAt: string;
 };
