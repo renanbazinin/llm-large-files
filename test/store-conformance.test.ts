@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FileDocumentStore, MemoryDocumentStore, type DocumentStore } from "llm-large-files";
+import { FileDocumentStore, MemoryDocumentStore, type DocumentContext, type DocumentStore, type StoredDocument } from "llm-large-files";
 import { documentStoreChecks, type DocumentStoreChecksOptions } from "llm-large-files/testing";
 
 let root = "";
@@ -78,12 +78,14 @@ describe("documentStoreChecks", () => {
     expect(() => documentStoreChecks({ create: () => new MemoryDocumentStore(), scopeDepth: 9 })).toThrow(TypeError);
   });
 
+  /** Runs the check whose name matches `name`: undefined when the store passes it, else the message of the failure. */
+  const run = async (options: DocumentStoreChecksOptions, name: RegExp) => {
+    const check = documentStoreChecks(options).find((each) => name.test(each.name));
+    expect(check, String(name)).toBeDefined();
+    return check!.run().then(() => undefined, (error: unknown) => (error as Error).message);
+  };
+
   it("fail a store that loses the context, keeps an owner as null, or leaves a part behind, and say what it did", async () => {
-    const run = async (options: DocumentStoreChecksOptions, name: RegExp) => {
-      const check = documentStoreChecks(options).find((each) => name.test(each.name));
-      expect(check, String(name)).toBeDefined();
-      return check!.run().then(() => undefined, (error: unknown) => (error as Error).message);
-    };
     // A wrapper that passes on only the ID: the documents of two scopes become one.
     class ForwardsTheIdOnly implements DocumentStore {
       readonly inner = new MemoryDocumentStore();
@@ -121,5 +123,88 @@ describe("documentStoreChecks", () => {
 
     // A store without readTextRange that does not say so.
     expect(await run({ create: () => new MemoryDocumentStore() }, /by range, as UTF-8/)).toMatch(/it has no readTextRange\. Pass skip: \["ranges"\]/);
+  });
+
+  it("fail a store that serves, from what it read before, a document another store over the storage deleted", async () => {
+    // A store that keeps what it read, for each server: it serves a document another server deleted.
+    const storages = new Map<string, MemoryDocumentStore>();
+    class ReadCaching implements DocumentStore {
+      readonly #read = new Map<string, StoredDocument>();
+      constructor(readonly inner: MemoryDocumentStore) {}
+      async put(document: StoredDocument, context?: DocumentContext) {
+        this.#read.delete(document.meta.id);
+        await this.inner.put(document, context);
+      }
+      async get(id: string, context?: DocumentContext) {
+        const kept = this.#read.get(id);
+        if (kept) return structuredClone(kept);
+        const document = await this.inner.get(id, context);
+        if (document) this.#read.set(id, structuredClone(document));
+        return document;
+      }
+      getMeta = async (id: string, context?: DocumentContext) => (await this.get(id, context))?.meta;
+      async delete(id: string, context?: DocumentContext) {
+        this.#read.delete(id);
+        return this.inner.delete(id, context);
+      }
+      putOriginal = (id: string, bytes: Uint8Array, context?: DocumentContext) => this.inner.putOriginal(id, bytes, context);
+      getOriginal = (id: string, context?: DocumentContext) => this.inner.getOriginal(id, context);
+      async sweep(now?: Date, context?: DocumentContext) {
+        this.#read.clear();
+        return this.inner.sweep(now, context);
+      }
+    }
+    const readCaching: DocumentStoreChecksOptions = {
+      create: ({ now, storage }) => {
+        const inner = storages.get(storage) ?? new MemoryDocumentStore({ now });
+        storages.set(storage, inner);
+        return new ReadCaching(inner);
+      },
+      skip: ["ranges", "index"],
+    };
+    expect(await run(readCaching, /two stores over one storage/)).toMatch(/getMeta from the first store after the second deleted the document: expected undefined, got \{/);
+  });
+
+  it("fail a sweep that leaves the original or the index of an expired document in storage", async () => {
+    // A sweep apart from delete that leaves a part of each expired document in storage. Its
+    // getOriginal and getIndex look at the metadata first, so the part shows only once a document
+    // is put again under the ID.
+    class SweepLeaves extends MemoryDocumentStore {
+      readonly #parts = { original: new Map<string, Uint8Array>(), index: new Map<string, Uint8Array>() };
+      #sweeping = false;
+      constructor(readonly leaves: "original" | "index" | "nothing", options: { now: () => Date }) {
+        super(options);
+      }
+      override async putOriginal(id: string, bytes: Uint8Array) {
+        this.#parts.original.set(id, bytes.slice());
+      }
+      override async getOriginal(id: string, context?: DocumentContext) {
+        return await this.getMeta(id, context) ? this.#parts.original.get(id)?.slice() : undefined;
+      }
+      async putIndex(id: string, bytes: Uint8Array) {
+        this.#parts.index.set(id, bytes.slice());
+      }
+      async getIndex(id: string, context?: DocumentContext) {
+        return await this.getMeta(id, context) ? this.#parts.index.get(id)?.slice() : undefined;
+      }
+      override async delete(id: string, context?: DocumentContext) {
+        for (const part of ["original", "index"] as const) if (!(this.#sweeping && part === this.leaves)) this.#parts[part].delete(id);
+        return super.delete(id, context);
+      }
+      override async sweep(now?: Date, context?: DocumentContext) {
+        this.#sweeping = true;
+        try {
+          return await super.sweep(now, context);
+        } finally {
+          this.#sweeping = false;
+        }
+      }
+    }
+    for (const leaves of ["original", "index"] as const) {
+      expect(await run({ create: ({ now }) => new SweepLeaves(leaves, { now }), skip: ["ranges", "shared"] }, /sweeps the documents expired/))
+        .toMatch(leaves === "original" ? /getOriginal of a document put under the ID of a swept one/ : /getIndex of a document put under the ID of a swept one/);
+    }
+    // The same store, with a sweep that leaves nothing, passes.
+    expect(await run({ create: ({ now }) => new SweepLeaves("nothing", { now }), skip: ["ranges", "shared"] }, /sweeps the documents expired/)).toBeUndefined();
   });
 });
