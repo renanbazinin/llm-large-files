@@ -680,6 +680,12 @@ const shownId = (id: string): string => (id.length > 64 ? `${sliceWhole(id, 64)}
 export function createDocumentTools(options: {
   /** Loads a document the tools may access. Return undefined for anything out of scope. */
   load(documentId: string): Promise<DocumentSource | undefined>;
+  /**
+   * Asked, once a call of a text tool has ended, about the document it read: false when the store
+   * no longer describes it as it was loaded, so that what was read of it may be another document's.
+   * The call then answers that the document is no longer available.
+   */
+  checkRead?(document: DocumentSource): Promise<boolean>;
   documentIds: string[];
   /** File names by document ID, so `describe` can name files before they are loaded. */
   names?: Record<string, string>;
@@ -758,6 +764,10 @@ export function createDocumentTools(options: {
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
+  /** The documents the calls under way loaded, by the arguments of the call: checked once it ends (`checkRead`). */
+  const loaded = new WeakMap<object, Set<DocumentSource[]>>();
+  const gone = (id: string) => new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+
   async function documentFor(args: Record<string, unknown>): Promise<DocumentSource> {
     const id = text(args.document_id, "document_id");
     // Scope check: a model can only reach files attached to this conversation.
@@ -769,7 +779,8 @@ export function createDocumentTools(options: {
         : `Unknown document_id ${shownId(id)}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
     }
     const document = await options.load(id);
-    if (!document) throw new Error(`${id} is no longer available on the server. Ask the user to attach the file again.`);
+    if (!document) throw gone(id);
+    for (const reads of loaded.get(args) ?? []) reads.push(document);
     names.set(id, document.meta.name);
     return document;
   }
@@ -1081,11 +1092,21 @@ export function createDocumentTools(options: {
     // The pages are a file, and this method returns only JSON. Saying that pages are attached
     // with nothing attached would be worse than saying that they could not be shown.
     if (name === TOOL_NAMES.view) return { error: FILES_NOT_DELIVERED };
+    // The documents this call loads (`documentFor`), by its arguments: calls given the same object
+    // at once each note them all.
+    const reads: DocumentSource[] = [];
+    const calls = typeof args === "object" && args !== null ? loaded.get(args) ?? new Set<DocumentSource[]>() : undefined;
+    if (calls) loaded.set(args, calls.add(reads));
     try {
-      return await handlers[name]!(args, limits, hooks);
+      const result = await handlers[name]!(args, limits, hooks);
+      // Once, after all the reads of the call: a document stored under the ID meanwhile is not the one read.
+      for (const document of reads) if (options.checkRead && !await options.checkRead(document)) throw gone(document.meta.id);
+      return result;
     } catch (error) {
       if (options.signal?.aborted) throw error;
       return failure(error);
+    } finally {
+      calls?.delete(reads);
     }
   }
 

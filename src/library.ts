@@ -5,7 +5,7 @@ import type { IngestEvent } from "./events.js";
 import { ingestDocument, LONGEST_TIMER_MS, type IngestContext } from "./ingest.js";
 import { Limiter } from "./limiter.js";
 import { canBeReadWhole, CARD_LINES, documentToolsInstruction, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
-import { DocumentGoneError, openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
+import { DocumentGoneError, openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { checkScope } from "./scope.js";
 import { APP_DOCUMENT_ID_PATTERN } from "./stores.js";
@@ -559,6 +559,23 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   }
 
   /**
+   * Whether `document`, which a call of `caller` has just read, is still the one the store describes
+   * for `caller`. A document loaded whole was checked as it was read (see `open`). The bytes of one
+   * read by range carry nothing to check them by, and another server, or this one, may delete the
+   * document and store another under its ID while they are read, or between the look-up and the
+   * reads: so the store is asked again once they are, as `originalOf` does. When it no longer
+   * describes the same document, of the same owner and scope, what was read may be another's: the
+   * copy kept of it, read from the store too, is forgotten, and the read is missing.
+   */
+  async function stillOpened(document: DocumentSource, caller: Caller): Promise<boolean> {
+    if (!(document instanceof RangedDocument)) return true;
+    const after = await metaFor(document.meta.id, caller);
+    if (after && documentVersion(after) === documentVersion(document.meta)) return true;
+    forgetKey(documentKey(caller, document.meta.id));
+    return false;
+  }
+
+  /**
    * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
    * by now. A copy found to disagree with the store is opened again once.
    */
@@ -566,20 +583,21 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     for (let attempt = 0; attempt < 2; attempt++) {
       const document = await load(id, caller, attempt === 0 ? meta : undefined);
       if (!document) return undefined;
+      let text: string;
       try {
-        return whole
+        text = whole
           ? renderInline(document.meta, await document.readText())
           : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead);
       } catch (error) {
         // The text is gone while its metadata is still there (removed outside the library): the
         // same as missing. It was a plain Error, which failed the whole question.
         if (error instanceof DocumentGoneError) return undefined;
-        if (!document.broken) {
-          // Deleted between the look-up and the read: the same as missing.
-          if (!await metaFor(id, caller)) return undefined;
-          throw error;
-        }
+        if (document.broken) continue;
+        // Deleted between the look-up and the read: the same as missing.
+        if (!await metaFor(id, caller)) return undefined;
+        throw error;
       }
+      return await stillOpened(document, caller) ? text : undefined;
     }
     return undefined;
   }
@@ -692,6 +710,11 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       });
       return createDocumentTools({
         load: checkedLoad,
+        // Once a call has read a document by range: the store is asked again (`stillOpened`).
+        checkRead: async (document) => {
+          const caller = callerFor(document.meta.id);
+          return caller !== undefined && await stillOpened(document, caller);
+        },
         documentIds: documents.map((meta) => meta.id),
         names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, wellFormed(meta.name)])),
         budget,

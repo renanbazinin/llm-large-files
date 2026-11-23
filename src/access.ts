@@ -89,17 +89,15 @@ export function heldBy(found: DocumentMeta, owner: string | undefined, scope: Do
 
 /**
  * The context of the reads of a document's text (`get`, `readTextRange`, `getIndex`, and `putIndex`
- * when its index is built again), once `caller` may use it (`mayUse`): the document's own owner and
- * scope, not the caller's. The copy kept in memory is shared by every caller of the scope, whose
- * owners differ when the document has none: so its reads carry one context whoever makes them,
- * and go where the document lives. The scope is the caller's frozen copy, which `mayUse` found the
- * same as the document's; so is the owner.
+ * when its index is built again), once `caller` may use it (`mayUse`): the caller's scope, where
+ * `getMeta` found the document, and the document's owner, not the caller's. The copy kept in memory
+ * is kept under the caller's scope, and shared by every caller of it, whose owners differ when the
+ * document has none: so its reads carry one context whoever makes them. A document whose metadata
+ * has no scope (one of 0.8, moved into a scope) is still read in the scope it was found in. The
+ * owner is the caller's, which `mayUse` found the same as the document's.
  */
 export function documentContext(meta: DocumentMeta, caller: Caller): DocumentContext {
-  return storeContext(
-    (meta.scope ?? undefined) === undefined ? undefined : caller.scope,
-    (meta.owner ?? undefined) === undefined ? undefined : caller.owner,
-  );
+  return storeContext(caller.scope, (meta.owner ?? undefined) === undefined ? undefined : caller.owner);
 }
 
 /**

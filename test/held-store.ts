@@ -62,11 +62,44 @@ export class StoreOf08 implements DocumentStore {
   }
 }
 
+/** `StoreOf08` that also reads by range and keeps line indexes, by ID alone. Any call can be held. */
+export class RangedStoreOf08 extends StoreOf08 {
+  readonly indexes = new Map<string, Uint8Array>();
+
+  override async delete(id: string) {
+    this.indexes.delete(id);
+    return super.delete(id);
+  }
+  async readTextRange(id: string, start: number, end: number, context?: DocumentContext) {
+    await this.holds.pass("readTextRange", context);
+    const document = this.documents.get(id);
+    return document && new TextEncoder().encode(document.text).subarray(start, end);
+  }
+  async putIndex(id: string, index: Uint8Array, context?: DocumentContext) {
+    await this.holds.pass("putIndex", context);
+    this.indexes.set(id, index.slice());
+  }
+  async getIndex(id: string, context?: DocumentContext) {
+    await this.holds.pass("getIndex", context);
+    return this.indexes.get(id)?.slice();
+  }
+}
+
 /** A `MemoryDocumentStore` (scopes kept apart) whose `put` can be held. */
 export class HeldMemoryStore extends MemoryDocumentStore {
   readonly holds = new Holds();
   override async put(document: StoredDocument, context?: DocumentContext) {
     await this.holds.pass("put", context);
     return super.put(document, context);
+  }
+}
+
+/** A `MemoryDocumentStore` (scopes kept apart) that also reads by range, and whose reads by range can be held. */
+export class HeldRangedMemoryStore extends MemoryDocumentStore {
+  readonly holds = new Holds();
+  async readTextRange(id: string, start: number, end: number, context?: DocumentContext) {
+    await this.holds.pass("readTextRange", context);
+    const document = await this.get(id, context);
+    return document && new TextEncoder().encode(document.text).subarray(start, end);
   }
 }

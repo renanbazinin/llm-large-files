@@ -1,13 +1,13 @@
 // Reads of documents once an application chooses their IDs (0.9.0), and another document can be
-// stored under an ID: a document replaced on another server while it is read, whole or its
-// original file; copies kept in memory, which must not cross owners; and the context a store sees
-// for the reads of a document's text. Two libraries over one store stand for two servers; a held
+// stored under an ID: a document replaced on another server while it is read, whole, by range or
+// its original file; copies kept in memory, which must not cross owners; and the context a store
+// sees for the reads of a document's text. Two libraries over one store stand for two servers; a held
 // store call stands for a slow one.
 import "./load-pdf-libraries.js";
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore, type DocumentContext, type DocumentMeta, type DocumentStore, type LargeFiles, type StoredDocument } from "llm-large-files";
 import { utf8 } from "./fake-model.js";
-import { StoreOf08 } from "./held-store.js";
+import { HeldRangedMemoryStore, RangedStoreOf08, StoreOf08 } from "./held-store.js";
 import { pdfWithPages, textLine } from "./pdf-fixtures.js";
 
 const base = { tokens: 0, bytes: 0 };
@@ -117,6 +117,90 @@ describe("a document read whole", () => {
     const b = await files.prepare(["shared"], base, { scope: ["b"] });
     expect(b.missing).toEqual(["shared"]);
     expect(JSON.stringify([...b.blocks.values()])).not.toContain("alpha");
+  });
+});
+
+describe("a document read by range", () => {
+  const GONE = { error: "report is no longer available on the server. Ask the user to attach the file again." };
+
+  for (const sameSize of [true, false]) {
+    it(`is missing when another server put another document under the ID while it was read (a text of ${sameSize ? "the same" : "another"} size)`, async () => {
+      const store = new RangedStoreOf08();
+      const one = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+      const two = createLargeFiles({ store, wholeDocumentBytes: 0 });
+      const alice = { owner: "alice", scope: ["alice", "s1"] };
+      const bob = { owner: "bob", scope: ["bob", "s1"] };
+      const meta = await one.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "report", ...alice });
+      // Server one has checked alice's document, and waits for its index.
+      const held = store.holds.hold("getIndex");
+      const reading = one.tools([meta], { access: alice }).execute("read_document", { document_id: "report", start_line: 1, end_line: 3 });
+      await held.reached;
+      // Server two: alice deletes it, and bob uploads a file under the same ID in his own chat.
+      await two.delete("report", alice);
+      const second = await two.ingest({ name: "app.log", bytes: utf8(log(sameSize ? "bravo" : "bravo-bravo")), id: "report", ...bob });
+      held.release();
+      expect(await reading).toEqual(GONE);
+      // Bob reads his own, on either server.
+      const bobs = await one.tools([second], { access: bob }).execute("read_document", { document_id: "report", start_line: 1, end_line: 1 });
+      expect(bobs.text).toContain("bravo");
+    });
+  }
+
+  for (const servers of [2, 1]) {
+    it(`is missing when another owner stored the ID in the same scope during a search of a kept copy (${servers === 2 ? "on another server" : "in the same library"})`, async () => {
+      // A store that keeps scopes apart, as the contract asks: the two owners share one scope.
+      const store = new HeldRangedMemoryStore();
+      const one = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+      const other = servers === 2 ? createLargeFiles({ store, wholeDocumentBytes: 0 }) : one;
+      const scope = ["org"];
+      const x = { owner: "x", scope };
+      const y = { owner: "y", scope };
+      const meta = await one.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "report", ...x });
+      const tools = one.tools([meta], { access: x });
+      // Its index is kept: the search reads only the text.
+      await tools.execute("read_document", { document_id: "report", start_line: 1, end_line: 2 });
+      const held = store.holds.hold("readTextRange");
+      const searching = tools.execute("search_document", { document_id: "report", query: "bravo", mode: "exact" });
+      await held.reached;
+      await other.delete("report", x);
+      const second = await other.ingest({ name: "app.log", bytes: utf8(log("bravo")), id: "report", ...y });
+      held.release();
+      expect(await searching).toEqual(GONE);
+      expect(await matches(one, y, second, "bravo")).toBe(400);
+      expect(await matches(one, y, second, "alpha")).toBe(0);
+    });
+  }
+
+  it("is missing from prepare when another server put another document under the ID while its text was read", async () => {
+    const store = new RangedStoreOf08();
+    const one = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const two = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const alice = { owner: "alice", scope: ["alice", "s1"] };
+    const bob = { owner: "bob", scope: ["bob", "s1"] };
+    await one.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "report", ...alice });
+    const held = store.holds.hold("readTextRange");
+    const preparing = one.prepare(["report"], base, alice);
+    await held.reached;
+    await two.delete("report", alice);
+    await two.ingest({ name: "app.log", bytes: utf8(log("bravo")), id: "report", ...bob });
+    held.release();
+    const prepared = await preparing;
+    expect(prepared.missing).toEqual(["report"]);
+    expect(JSON.stringify([...prepared.blocks.values()])).not.toContain("bravo");
+    expect(await textOf(one, "report", bob)).toContain("bravo");
+  });
+
+  it("asks the store once more after a call, however many ranges the call read", async () => {
+    const store = new RangedStore();
+    const files = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "report" });
+    const tools = files.tools([meta], { access: {} });
+    store.calls.length = 0;
+    // A scan of every piece, then the lines of the best passages.
+    const found = await tools.execute("search_document", { document_id: "report", query: "alpha request", max_results: 5 });
+    expect(found.error).toBeUndefined();
+    expect(store.calls.filter((call) => call.method === "readTextRange").length).toBeGreaterThan(5);
+    expect(store.calls.filter((call) => call.method === "getMeta")).toHaveLength(2);
   });
 });
 
@@ -231,9 +315,10 @@ describe("the context of the reads of a document's text", () => {
     const read = (owner: string, line: number) => files.tools([meta], { access: { owner, scope } }).execute("read_document", { document_id: "shared-log", start_line: line, end_line: line + 1 });
     expect((await read("x", 1)).lines).toBe("1-2");
     expect((await read("y", 300)).lines).toBe("300-301");
-    // The look-ups are the caller's. The reads of the text, its index and its rebuilt index are the
-    // document's: the same for every caller of the copy, and where the document lives.
-    expect(store.calls.filter((call) => call.method === "getMeta").map((call) => call.context)).toEqual([{ scope, owner: "x" }, { scope, owner: "y" }]);
+    // The look-ups are the caller's: before each call, and once more after its reads by range. The
+    // reads of the text, its index and its rebuilt index are the document's: the same for every
+    // caller of the copy, and where the document lives.
+    expect(store.calls.filter((call) => call.method === "getMeta").map((call) => call.context)).toEqual([{ scope, owner: "x" }, { scope, owner: "x" }, { scope, owner: "y" }, { scope, owner: "y" }]);
     const reads = store.calls.filter((call) => call.method !== "getMeta");
     expect(new Set(reads.map((call) => call.method))).toEqual(new Set(["getIndex", "readTextRange"]));
     for (const call of reads) expect(call.context, call.method).toEqual({ scope });
@@ -244,6 +329,26 @@ describe("the context of the reads of a document's text", () => {
     expect(await textOf(whole, "shared-log", { owner: "x", scope })).toContain("alpha request 0000");
     expect(store.calls.map((call) => [call.method, call.context])).toEqual([["getMeta", { scope, owner: "x" }], ["get", { scope }]]);
   });
+
+  for (const ranged of [false, true]) {
+    it(`is the caller's scope for a document whose metadata has none, found in that scope (${ranged ? "read by range" : "loaded whole"})`, async () => {
+      const store = ranged ? new RangedStore() : new MemoryDocumentStore();
+      const files = createLargeFiles({ store, ...(ranged ? { wholeDocumentBytes: 0 } : {}) });
+      // Ingested without a scope, as in 0.8, then moved into scope ["a"] by the application.
+      const meta = await files.ingest({ name: "old.txt", bytes: utf8("an old document\n") });
+      await store.put((await store.get(meta.id))!, { scope: ["a"] });
+      await store.delete(meta.id);
+      if (store instanceof RangedStore) store.calls.length = 0;
+      expect((await files.getMeta(meta.id, { scope: ["a"] }))?.name).toBe("old.txt");
+      expect(await textOf(files, meta.id, { scope: ["a"] })).toContain("an old document");
+      if (store instanceof RangedStore) {
+        // Its index, rebuilt from its text, and its text: all read where it was found.
+        const reads = store.calls.filter((call) => call.method !== "getMeta");
+        expect(new Set(reads.map((call) => call.method))).toEqual(new Set(["getIndex", "readTextRange", "putIndex"]));
+        for (const call of reads) expect(call.context, call.method).toEqual({ scope: ["a"] });
+      }
+    });
+  }
 
   it("puts the index of a rebuild with the document's context", async () => {
     class NoSavedIndex extends RangedStore {
