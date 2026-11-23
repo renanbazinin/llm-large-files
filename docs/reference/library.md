@@ -113,6 +113,8 @@ type LargeFilesOptions = {
   scanChunkBytes?: number;
   maxConcurrentScans?: number;
   maxConcurrentIngests?: number;
+  requireOwner?: boolean; // new in 0.9.0
+  requireScope?: boolean; // new in 0.9.0
   now?: () => Date;
 };
 ```
@@ -125,7 +127,7 @@ type LargeFilesOptions = {
 | `maxUploadBytes` | `number` | 100 MB (104,857,600) | The largest file `ingest` accepts. The upload handler of [`llm-large-files/node`](./node.md) reads no more than this. |
 | `maxTextBytes` | `number` | [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes), 100 MB, or `maxUploadBytes` when that is larger | The most text kept from one file, in UTF-8 bytes. A file's text can be larger than the file: a PDF of 3 KB built for it drew 107 MB. The PDF, DOCX, PPTX and XLSX extractors refuse a file as soon as its text passes this (a PDF page by page, and also past 100 times its size after the first 16 MB; an Office file also past 32 million characters, whatever this allows), and `ingest` refuses a larger text from any other extractor, the text extractor and yours included. Your extractor receives it as `ExtractInput.maxTextBytes`. At least 1. |
 | `maxPdfPages` | `number` | [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), 5,000 | The most pages read from one PDF. A PDF with more is refused before any page is read. Your PDF extractor receives it as `ExtractInput.maxPages`. At least 1. |
-| `ingestTimeoutMs` | `number` | [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms), 120,000 (2 minutes) | The most time one `ingest` may take to extract the text, build its line index and profile it, in milliseconds. The store's writes are not counted, but a store write that does not end within this time (2 minutes when it is 0) fails the ingest with `The store did not finish writing <name> within 2 min.`, as a failure of the store, and the document is removed once the write ends (new in 0.8.2). Past it, `ingest` throws `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.`, and stores nothing. 0 sets no limit, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days). Your extractor receives the limit as `ExtractInput.signal`. Within one page of a PDF the limit is not looked at: see [security](../security.md#uploads). |
+| `ingestTimeoutMs` | `number` | [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms), 120,000 (2 minutes) | The most time one `ingest` may take to extract the text, build its line index and profile it, in milliseconds. The store's writes are not counted, but a store write that does not end within this time (2 minutes when it is 0) fails the ingest as a failure of the store, and the document is removed once the write ends (new in 0.8.2). Since 0.9.0 that is a `DocumentStoreError` of operation `"write"` and code `"ETIMEDOUT"`, whose `cause` says `The store did not finish writing <name> within 2 min.`; it was a plain `Error` with that message. Past it, `ingest` throws `<name> took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.`, and stores nothing. 0 sets no limit, and so does a value past what a timer can wait (2,147,483,647 ms, 24.8 days). Your extractor receives the limit as `ExtractInput.signal`. Within one page of a PDF the limit is not looked at: see [security](../security.md#uploads). |
 | `extractors` | `Partial<Record<DocumentFormat, Extractor>>` | the built-ins, [`defaultExtractors`](#defaultextractors) | An [`Extractor`](#extractor) per format, used in place of the built-in one. The formats are fixed ([`DocumentFormat`](#documentformat)): you can replace the extractor of a format, not add a format. |
 | `keepOriginals` | `DocumentFormat[]` | `[]` | Formats whose uploaded file is kept in the store next to its text, for example `["pdf"]`, which `view_pages` needs. Takes effect only with a store that has `putOriginal`. A kept file takes as much space as the upload until its document expires or is deleted. |
 | `scannedPdfPages` | `number` | 30 | The most pages a PDF without any text (a scan) may have and still be accepted, so that its pages can be shown to the model. It applies only when `"pdf"` is in `keepOriginals` and the store has `putOriginal`. Otherwise, and with 0, such a PDF is refused. Your own PDF extractor receives it as `ExtractInput.scannedPages`. |
@@ -135,6 +137,8 @@ type LargeFilesOptions = {
 | `scanChunkBytes` | `number` | 1 MB (1,048,576) | Reading by range: about how many bytes of text are read and searched at a time. At least 1. |
 | `maxConcurrentScans` | `number` | 4 | Reading by range: how many scans of whole documents (searches, counting the parts of a file) run at once in this library (each `createLargeFiles` call has its own queue). The others wait their turn. At least 1. |
 | `maxConcurrentIngests` | `number` | 2 | How many ingests do their work at once in this library. The others wait their turn, in the order they came; their `ingestTimeoutMs` starts when their turn comes, and a caller that aborts its `signal` while it waits gets its own reason, with nothing stored. An empty file, or one over `maxUploadBytes`, is refused without waiting. An ingest holds about five times its file in memory while it works, and the steps it runs in your server's thread share that thread with the others: more of them at once do not finish sooner (100 logs of 2 MB: all answered in 28 to 42 s all at once, 28 to 33 s two at a time, with a peak of 817 to 830 MB of memory against 329 to 356 MB). An ingest keeps its turn until its work ends: when its time is up or its caller left while an extractor goes on (one that does not stop on the signal, such as the parse of a PDF by `@cantoo/pdf-lib`), until that extractor ends; such an extractor that never ends gives the turn back after `ingestTimeoutMs` more (2 minutes when that is 0), and a store write that never ends fails the ingest after `ingestTimeoutMs` (above). An extractor of your own must not wait on an ingest of the same library (to store the parts of an archive, say): that ingest waits for a turn like any other, and with every turn held by such extractors, each waits on itself until its time is up. With [`createIsolatedExtractors`](./node.md#createisolatedextractorsoptions), at most this many files reach its readers at once from this library. `Infinity` for no limit, as before 0.8.2. At least 1. New in 0.8.2. |
+| `requireOwner` | `boolean` | `false` | Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles`, `askStream` and `askGemini`, and `tools`, which then needs `access`. A call without one throws `TypeError("owner is required: requireOwner is on")`, before the store is asked anything. An owner that `ingest` would refuse (`""`, spaces only) is refused too. A document stored without an owner reads as missing. Use it on a server where every document belongs to a signed-in user: a call that forgot the owner fails, rather than reaching every document stored without one. New in 0.9.0. |
+| `requireScope` | `boolean` | `false` | The same for scopes ([`DocumentScope`](#documentscope)): a call without one throws `TypeError("scope is required: requireScope is on")`, and a document stored without a scope reads as missing. `files.sweep()` without a scope is still allowed: it is upkeep, not a user's access. New in 0.9.0. |
 | `now` | `() => Date` | `() => new Date()` | The clock, for tests. It dates `createdAt` and `expiresAt`, decides whether a document has expired, and is passed to the store's `sweep`. |
 
 Since 0.7.1, `ttlMs`, `maxUploadBytes`, `scannedPdfPages`, `cacheBytes`, `cacheSize`,
@@ -161,11 +165,12 @@ interface LargeFiles {
   readonly budget: Budget;
   budgetFor(overrides?: Partial<Budget>, limits?: ModelLimits): Budget;
   readonly maxUploadBytes: number;
+  readonly access?: { readonly requireOwner: boolean; readonly requireScope: boolean }; // new in 0.9.0
   ingest(input: IngestInput): Promise<DocumentMeta>;
   getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
   getOriginal(id: string, access?: AccessOptions): Promise<Uint8Array | undefined>;
   delete(id: string, access?: AccessOptions): Promise<boolean>;
-  sweep(): Promise<number>;
+  sweep(options?: { scope?: DocumentScope }): Promise<number>;
   prepare(ids: string[], base: { tokens: number; bytes: number }, options?: PrepareOptions): Promise<PreparedContext>;
   tools(documents: DocumentMeta[], options?: ToolOptions): ToolSet;
 }
@@ -175,19 +180,40 @@ The object `createLargeFiles` returns. Below, its members are shown on a `LargeF
 
 The members that read the store (`getMeta`, `getOriginal`, `delete` and `prepare`) throw
 [`DocumentStoreError`](#documentstoreerror) when the store cannot be read: retry, the document is
-not gone. A tool call that meets it answers the model with its message instead. What the store
-throws while writing (in `ingest`, the removal in `delete`, `sweep`) is passed on unchanged: log it,
-and do not show it to a user, since its message may name a path or a host.
+not gone. A tool call that meets it answers the model with its message instead. Since 0.9.0, what
+the store throws while writing is a `DocumentStoreError` too, with the store's own error as
+`cause`: operation `"write"` in `ingest`, `"delete"` in `delete`, `"sweep"` in `sweep`. Before, it
+was passed on unchanged. Log `error.cause`, and do not show it to a user, since its message may name
+a path or a host. A [`DocumentScopeError`](#documentscopeerror) the store throws is passed on as it
+is, for reads and writes alike: it is a mistake of the call, not a store to try again.
+
+Every store call carries a [`DocumentContext`](#documentcontext), new in 0.9.0: the scope and the
+owner of the call (of the document, at ingest). It is a frozen object, and a field that is absent is
+left out, so a call without either gets `{}`. A document a store returns for another ID, or with
+the owner `null` (as a MongoDB driver writes a field that was left out), is read as missing, or as
+without an owner.
+
+#### `files.access`
+
+`readonly access?: { readonly requireOwner: boolean; readonly requireScope: boolean }`
+
+New in 0.9.0. What the library requires of every call: `requireOwner` and `requireScope` as they
+were given, `false` when left out. The object is frozen. Code that serves a library, such as the
+upload handlers, reads it to require an owner or a scope too. It is optional in the type, so a
+`LargeFiles` of your own still compiles.
 
 #### `files.ingest(input)`
 
 `ingest(input: IngestInput): Promise<DocumentMeta>`
 
-Extracts the text of a file, normalizes it, profiles it, and stores it under a new ID. Returns the
-new document's [`DocumentMeta`](#documentmeta).
+Extracts the text of a file, normalizes it, profiles it, and stores it under a new ID, or under the
+ID the application gives (`input.id`, new in 0.9.0). Returns the new document's
+[`DocumentMeta`](#documentmeta).
 
-1. The owner is checked (see [`IngestInput`](#ingestinput)), the name is cleaned, and the format
-   is picked by [`detectFormat(name, mimeType)`](#detectformatname-mimetype-bytes).
+1. The owner, the scope and the ID are checked (see [`IngestInput`](#ingestinput)), the name is
+   cleaned, and the format is picked by [`detectFormat(name, mimeType)`](#detectformatname-mimetype-bytes).
+   With an `id`, the store is asked whether a document of that ID is there
+   ([`ifExists`](#ingestinput)), before the file is read.
 2. The extractor of that format turns the bytes into text. It receives the limits `maxTextBytes`
    and `maxPdfPages`, the ingest's signal, and, when someone listens to the ingest's events, an
    `onProgress` to report how far it is ([`ExtractInput`](#extractinput)). A text longer
@@ -214,7 +240,9 @@ new document's [`DocumentMeta`](#documentmeta).
    (`ERROR`, `WARN`, `INFO`...), or have the shape of an access log of nginx or Apache, a JSON log
    line, klog or logfmt (since 0.8.0).
 5. The store is written: the original file (when it is kept), then the line index (when the store
-   has `putIndex`), then `put` last.
+   has `putIndex`), then `put` last. Each call carries the document's owner and scope. With an
+   `id`, the store is asked again just before, for a document stored under it meanwhile; one that
+   `ifExists: "replace"` replaces is deleted first.
 
 Steps 2 to 4 work in slices of about 12 ms, with a pause for other requests between two slices:
 between the pages of a PDF, as a DOCX, PPTX or XLSX is unpacked, and while the text is normalized,
@@ -237,8 +265,9 @@ write) ([stages and units](./events.md#stages-and-units)). A stage sends at most
 `ingest.progress` about every 12 ms, and its last one when it ends. An extractor of your own reports
 only what it passes to `onProgress`. The error of `ingest.error` is told in words for users, with
 the `code` of an [`IngestError`](#ingesterror) (new in 0.8.0): a store that failed to write is "The
-document could not be stored. Try again later.", whatever it threw, and the store's own error is the
-one `ingest` throws. A listener that throws ends the ingest with that error, and nothing is stored;
+document could not be stored. Try again later.", whatever it threw, and `ingest` throws a
+`DocumentStoreError` whose `cause` is the store's own error (new in 0.9.0: it threw the store's
+error itself). A listener that throws ends the ingest with that error, and nothing is stored;
 a throw on `ingest.finish` removes the document that was just stored. `createDocumentHandlers` sends
 these events to a client that asks for them with `Accept: text/event-stream` ([upload with
 progress](./node.md#upload-with-progress-accept-textevent-stream)).
@@ -246,6 +275,11 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | It throws | When |
 |---|---|
 | `TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.")` | `owner` is `""`, spaces only or `null`, or, from JavaScript, neither a string nor a finite number (an object, `true`, `NaN`). Before anything is read. New in 0.6.0: 0.5.0 accepted them. |
+| `TypeError("owner is required: requireOwner is on")`, `TypeError("scope is required: requireScope is on")` | The library requires an owner or a scope, and `input` has none. Before anything is read. New in 0.9.0. |
+| [`DocumentScopeError`](#documentscopeerror) `"scope_invalid"` | `scope` is not a valid [`DocumentScope`](#documentscope). Before anything is read. New in 0.9.0. |
+| `TypeError('id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN).')` | `id` does not match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern). The message does not repeat the ID. New in 0.9.0. |
+| `TypeError('ifExists must be "fail" or "replace".')` | Another `ifExists`. New in 0.9.0. |
+| `IngestError` `"exists"`: `<name>: a document with this ID already exists.` | A document of `id` is there and `ifExists` does not let it be replaced. Status 409. It says nothing of the document that has the ID. New in 0.9.0. |
 | [`IngestError`](#ingesterror) `"empty"`: `<name> is empty.` | The file has no bytes. |
 | `IngestError` `"too_large"`: `<name> is larger than the 100 MB upload limit.` | The file is larger than `maxUploadBytes`. The message gives your limit. |
 | An `IngestError` with the extractor's message | The extractor refused the file: a binary or compressed file, an Office file of before 2007 or with a password, a PDF with a password or without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server; or a parser failed on a damaged file. The `code` comes from the message ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)), `"unreadable"` for one the library does not know, and the extractor's error is `cause`. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. |
@@ -254,24 +288,25 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | `signal.reason` | `IngestInput.signal` was aborted, before or during the ingest. |
 | `IngestError` `"no_text"`: `<name> did not contain any text.` | The extracted text is blank. |
 | What an extractor of your own threw | An error with a `status` or `statusCode`, a Node system error (one with a `code` and a `syscall`), and a value that is not an `Error`, as they are. Any other `Error` becomes an `IngestError`, as above. |
-| The store's own error | A write failed. `ingest` first calls `store.delete(id)` to remove what was written (an error of that call is ignored), then throws the store's error unchanged. It is not a `DocumentStoreError`. |
+| [`DocumentStoreError`](#documentstoreerror), operation `"write"` | A write failed, or did not end within `ingestTimeoutMs` (code `"ETIMEDOUT"`; 2 minutes when that is 0). `ingest` first calls `store.delete(id)` to remove what was written (an error of that call is ignored). The store's error is `cause`, and the message names no path or host: `The document could not be stored (EIO). Try again.` New in 0.9.0: it threw the store's error unchanged, and the time limit as `The store did not finish writing <name> within 2 min.`, which is now the message of `cause`. A `DocumentScopeError` of the store is thrown as it is. |
+| `DocumentStoreError`, operation `"read"` | With an `id`: the store could not be read when it was asked whether the ID is taken. Code `"NEWER_VERSION"` when `ifExists: "replace"` meets a document written by a newer version of the package, which is never replaced. New in 0.9.0. |
 
 Until 0.8.0 the refusals were plain `Error`s, with the same messages. The `TypeError` of an owner is
 a mistake of the server's code, not of the file: the upload handler of
 [`llm-large-files/node`](./node.md) checks the owner itself, and answers `500` before it reads the
-body. The store's error, a listener of the events that threw, and the reason of an aborted signal
-are thrown as they are, never as an `IngestError`. The upload handler of
-[`llm-large-files/node`](./node.md) takes an error that carries an HTTP `status` or `statusCode`
-(400 to 599), or a Node system error (`code` and `syscall`), for the store's: it answers with that
-status, or with 500 and the code. An `IngestError` carries a `status` too, and is answered with it:
-422, 413 for `"too_large"`, 503 with `Retry-After` for `"busy"`. `ingest` also keeps a mark of each
-error a store throws while it writes. The handler answers a marked error without a status or a code,
-and a thrown value that is not an `Error`, with 500 `{ "error": "Upload failed." }`, without its
-message. It answers any other `Error` with 422 and its message, as a file that cannot be read. The
-package does not export the mark: behind an `ingest` of your own that throws a new error, or in a
-route of your own, a store's error is answered as a file that cannot be read (see [the upload
-handler](./node.md#uploadrequest-response)). Give your store's write errors a `status` and a message
-of your own. See [errors and reliability](../guides/errors-and-reliability.md).
+body. The store's `DocumentStoreError`, a listener of the events that threw, and the reason of an
+aborted signal are thrown as they are, never as an `IngestError`. The upload handler of
+[`llm-large-files/node`](./node.md) answers an error that carries an HTTP `status` or `statusCode`
+(400 to 599) with that status and its message, and a Node system error (`code` and `syscall`) with
+500 and the code. A `DocumentStoreError` has the status 503, and a message that names no path or
+host: since 0.9.0 a store that failed to write is answered 503 `{ "error": "The document could not
+be stored (EIO). Try again." }`, where it was a 500. An `IngestError` carries a `status` too, and is
+answered with it: 422, 413 for `"too_large"`, 409 for `"exists"`, 503 with `Retry-After` for
+`"busy"`. A thrown value that is not an `Error` is answered 500 `{ "error": "Upload failed." }`, and
+any other `Error` 422 with its message, as a file that cannot be read (see [the upload
+handler](./node.md#uploadrequest-response)). Behind an `ingest` of your own, throw a
+`DocumentStoreError` for a store that failed. See
+[errors and reliability](../guides/errors-and-reliability.md).
 
 Guides: [web app](../guides/web-app.md) for uploads, [PDFs](../guides/pdfs.md) for what PDF
 extraction writes.
@@ -280,10 +315,12 @@ extraction writes.
 
 `getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>`
 
-The document's metadata, or `undefined` when the ID does not match
-[`DOCUMENT_ID_PATTERN`](#document_id_pattern), the document was never there, was deleted, has
-expired (the library compares `expiresAt` with its clock itself, whatever the store returns), or
-belongs to another owner ([`AccessOptions`](#accessoptions)). Throws `DocumentStoreError` when the
+The document's metadata, or `undefined` when the ID has neither shape of a document ID
+([`isDocumentId`](#isdocumentidvalue)), the document was never there, was deleted, has expired (the
+library compares `expiresAt` with its clock itself, whatever the store returns), or belongs to
+another owner or another scope ([`AccessOptions`](#accessoptions)). The store is asked with the
+caller's owner and scope. Metadata the store returns for another ID is missing too (new in 0.9.0).
+An owner of `null` is left out of the metadata returned (new in 0.9.0). Throws `DocumentStoreError` when the
 store cannot be read, and, new in 0.9.0, with code `"NEWER_VERSION"` when a newer version of the
 package wrote the metadata ([`DOCUMENT_META_VERSION`](#document_meta_version)). A name that 0.5.0
 or earlier stored cut inside an emoji comes back with a replacement character (U+FFFD) in place of
@@ -305,17 +342,23 @@ Throws `DocumentStoreError` as `getMeta` does.
 
 Removes a document, with its original and its index. It looks the document up as `getMeta` does,
 and returns `false` when it is not there for this caller: another owner's document is never
-deleted. Otherwise it drops what this process keeps of the document in memory and returns what
-`store.delete(id)` returns. Throws `DocumentStoreError` when the look-up cannot read the store; an
-error of `store.delete` itself is passed on unchanged.
+deleted. Otherwise it drops what this process keeps of the document in memory, in every scope,
+and returns what `store.delete(id, context)` returns. Throws `DocumentStoreError` when the look-up
+cannot read the store, and, new in 0.9.0, a `DocumentStoreError` of operation `"delete"` when
+`store.delete` fails, with the store's error as `cause` (it was passed on unchanged). Its message
+names no path: `The document could not be deleted (EPERM). Try again.`
 
-#### `files.sweep()`
+#### `files.sweep(options?)`
 
-`sweep(): Promise<number>`
+`sweep(options?: { scope?: DocumentScope }): Promise<number>`
 
 Calls the store's `sweep` with the library's clock and returns how many expired documents it
-removed: 0 when the store has no `sweep`. Errors of the store are passed on unchanged. The library
-never sweeps on its own: run it on a schedule, from one place (see [deployment](../guides/deployment.md)).
+removed: 0 when the store has no `sweep`. With `scope` (new in 0.9.0), the store is asked to sweep
+that scope only (`store.sweep(now, { scope })`); without one, every scope (`store.sweep(now, {})`).
+It needs no scope under `requireScope`. A scope that is not valid is a `DocumentScopeError`. Since
+0.9.0 a store that fails is a `DocumentStoreError` of operation `"sweep"`, with the store's error as
+`cause` (it was passed on unchanged). The library never sweeps on its own: run it on a schedule,
+from one place (see [deployment](../guides/deployment.md)).
 
 #### `files.prepare(ids, base, options?)`
 
@@ -328,7 +371,7 @@ model reads through the tools.
 |---|---|---|
 | `ids` | `string[]` | The document IDs of the request. A repeated ID counts once. |
 | `base` | `{ tokens: number; bytes: number }` | The size of everything else in the request: messages, system prompt, other files. `estimateTokens` and `jsonBytes` measure text the way the plan does. |
-| `options` | [`PrepareOptions`](#prepareoptions) | The owner, a budget for this request, whether your loop can show pages, and whether your tools have `analyze_whole_document`. |
+| `options` | [`PrepareOptions`](#prepareoptions) | The owner and the scope, a budget for this request, whether your loop can show pages, and whether your tools have `analyze_whole_document`. |
 
 Documents are taken smallest first, by `estimatedTokens`. Each one goes in whole when, with the
 ones already taken, it still fits both the token room,
@@ -374,13 +417,22 @@ answers with an error that lists the IDs it may use. Pass `prepared.plan.searcha
 set for each question: the time budget of regex searches and the count of whole-document reads
 belong to the tool set.
 
-It takes the owner from the metadata it is handed. Each call that reads a document's text or the
-pages of its PDF compares the owner stored with the document with the `owner` of the
-`DocumentMeta` given for that ID, and answers a document whose owners differ as it answers one
-that is gone: `doc_… is no longer available on the server. Ask the user to attach the file again.`
-So metadata built from an ID alone, or with another owner, reads nothing of a document that has an
-owner. A document stored without an owner is read whatever the metadata says. Pass documents that
-you got from `prepare` or `getMeta` with the caller's owner: they carry the stored owner.
+Each call that reads a document's text or the pages of its PDF asks the store for the document,
+and checks the owner and the scope the store holds. A document that the caller may not use is
+answered as one that is gone: `doc_… is no longer available on the server. Ask the user to attach
+the file again.`, and `view_pages` shows no page.
+
+- With `access` (new in 0.9.0), the caller is `access`: the store is asked with its owner and scope,
+  and the document's are compared with them, as `getMeta(id, access)` does. The metadata handed in
+  decides nothing: metadata read from the store for another user reads nothing. `askWithFiles`
+  passes it. Under `requireOwner` or `requireScope`, `access` is required, with the owner or scope:
+  without it `tools` throws the `TypeError` of [`LargeFilesOptions`](#largefilesoptions).
+- Without `access`, as before 0.9.0, the caller of each document is the `owner` and `scope` of the
+  `DocumentMeta` handed in for it. So metadata built from an ID alone, or with another owner or
+  scope, reads nothing of a document that has one. A document stored without an owner is read
+  whatever the metadata says. Pass documents that you got from `prepare` or `getMeta` with the
+  caller's owner and scope. An owner of `null` counts as none (new in 0.9.0: such a document was
+  missing for `getMeta`, and open to the tools).
 
 It declares `search_document`, `read_document` and `get_document_overview`;
 `analyze_whole_document` when `generate` is given and at least one document is small enough to be
@@ -426,6 +478,9 @@ type IngestInput = {
   signal?: AbortSignal;
   onEvent?: (event: IngestEvent) => void;
   runId?: string;
+  id?: string; // new in 0.9.0
+  ifExists?: "fail" | "replace"; // new in 0.9.0
+  scope?: DocumentScope; // new in 0.9.0
 };
 ```
 
@@ -440,6 +495,9 @@ The argument of [`files.ingest`](#filesingestinput).
 | `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX, PPTX, XLSX and HTML extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written changes nothing. `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
 | `onEvent` | `(event: IngestEvent) => void` | none | What the ingest does as it goes: `ingest.start`, `ingest.progress` for each stage, then `ingest.finish` or `ingest.error` (see [`files.ingest`](#filesingestinput) and [events](./events.md)). Progress is worked out only when it is given. New in 0.7.0. |
 | `runId` | `string` | `"ing_"` and 16 hex digits | The `runId` of those events. New in 0.7.0. |
+| `id` | `string` | `"doc_"` and 32 hex digits, made | The document's ID, chosen by the application, such as the ID of its upload. It must match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern): lowercase letters, digits, `_` and `-`, up to 64 characters, starting with a letter or a digit. Another ID is a `TypeError`. The model sees the ID (in the cards and the tool calls), so it must hold no personal data, such as an email address. Over a store that keeps no scopes apart, it must be unique in the whole store: `ifExists` makes sure. New in 0.9.0. |
+| `ifExists` | `"fail" \| "replace"` | `"fail"` | What to do when a document of `id` is already there, as the store sees it for this scope. `"fail"`: an `IngestError` `"exists"` (status 409). `"replace"`: the document is deleted, then the new one is stored; only one of the same owner and scope, or one whose text is gone (its metadata is there, its text is not). Another is `"exists"` too. A document that has expired is written over in both cases. The store is asked before the file is read and again just before the writes. Replacing is not atomic for readers on other servers: for a moment the document is missing. New in 0.9.0. |
+| `scope` | [`DocumentScope`](#documentscope) | none | Where the document belongs, such as `[userId, chatId]`. Every store call of the ingest carries it, and it is kept in `meta.scope`, a copy: only a caller of the same scope may use the document, segment by segment. Never sent to the model, nor in a summary or an event. Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
 
 Guide: [web app](../guides/web-app.md).
 
@@ -546,15 +604,17 @@ const error = new IngestError(ingestErrorCodeOf(message), message);
 ### `AccessOptions`
 
 ```ts
-type AccessOptions = { owner?: string };
+type AccessOptions = { owner?: string; scope?: DocumentScope };
 ```
 
 Who is asking. `getMeta`, `getOriginal`, `delete` and `prepare` (through
-[`PrepareOptions`](#prepareoptions)) take it, and so does `askWithFiles`.
+[`PrepareOptions`](#prepareoptions)) take it, `tools` as `ToolOptions.access`, and `askWithFiles`
+takes the same two options. Each store call carries both ([`DocumentContext`](#documentcontext)).
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `owner` | `string` | none | Compared with the document's `owner` with `===`. A document that has an owner can be used only with that exact owner. A document without one can be used by anyone. Another owner's document looks exactly like a missing one. |
+| `owner` | `string` | none | Compared with the document's `owner` with `===`. A document that has an owner can be used only with that exact owner. A document without one can be used by anyone, unless the library has `requireOwner`. Another owner's document looks exactly like a missing one. `null` counts as none. |
+| `scope` | [`DocumentScope`](#documentscope) | none | The scope of the caller, such as `[userId, chatId]`. A document stored with a scope serves only a caller of the same scope, segment by segment: a caller with another scope, a longer or shorter one, or none, finds it missing. A document stored without a scope serves any caller, unless the library has `requireScope`. A store that keeps scopes apart (`MemoryDocumentStore`) does not even find a document of another scope. Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
 
 The library has no notion of a session and cannot list documents by owner: record the IDs in your
 own data. See [storage](../guides/storage.md) and [security](../security.md).
@@ -574,6 +634,7 @@ The options of [`files.prepare`](#filesprepareids-base-options).
 | Option | Type | Default | What it does |
 |---|---|---|---|
 | `owner` | `string` | none | As in [`AccessOptions`](#accessoptions). Another owner's documents are listed in `missing` and are not read. |
+| `scope` | [`DocumentScope`](#documentscope) | none | As in [`AccessOptions`](#accessoptions). Documents of another scope are listed in `missing`. New in 0.9.0. |
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for this request, as in `LargeFilesOptions.budget`. `askWithFiles` passes the budget fitted to its model. |
 | `viewPages` | `boolean` | `false` | Says that your loop can pass files to the model. `viewable` then lists the PDFs whose original is kept (with a store that has `getOriginal`), and the instruction and the cards tell the model about `view_pages`. Without it, `viewable` is empty and nothing mentions `view_pages`. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Says whether your tool set has `analyze_whole_document`. Pass `false` when you call `tools` without `generate`: the instruction then does not name it, and the cards do not offer a whole-file read or say that a file is too large for one. Each says `This file is NOT in your context. Use the document tools to search it and to read line ranges.` `askWithFiles` passes `false` when the model that explores has no `generateText`, and when its own `wholeDocumentAnalysis` is `false`. |
@@ -584,6 +645,7 @@ Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
 ```ts
 type ToolOptions = {
+  access?: AccessOptions; // new in 0.9.0
   generate?: GenerateText;
   onProgress?: ProgressListener;
   signal?: AbortSignal;
@@ -599,6 +661,7 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
+| `access` | [`AccessOptions`](#accessoptions) | none | Who uses the tools. With it, each call checks the owner and scope the store holds against `access`, not against the metadata handed in ([`files.tools`](#filestoolsdocuments-options)). Required under `requireOwner` or `requireScope`. `askWithFiles` passes it. New in 0.9.0. |
 | `generate` | [`GenerateText`](./ask.md#generatetext) | none | A plain text completion. It enables `analyze_whole_document`, which reads a whole file in parts. The tool is declared only when at least one of the documents is small enough: about `maxMapChunks` parts or fewer. Without `generate`, pass `wholeDocumentAnalysis: false` to `prepare`, so that the instruction does not name the tool and the cards do not offer a whole-file read. |
 | `onProgress` | [`ProgressListener`](#progresslistener) | none | Progress of whole-document reads, for status messages. |
 | `signal` | `AbortSignal` | none | Stops searches and whole-document reads. Once it has aborted, a call that fails throws instead of answering `{ error }`. |
@@ -746,9 +809,11 @@ reads it as any other.
 declare function isDocumentId(value: unknown): value is string;
 ```
 
-`true` for a string that matches [`DOCUMENT_ID_PATTERN`](#document_id_pattern). Use it to check IDs
-that come from a browser. The library's own methods already treat any other string as a missing
-document.
+`true` for a string that has the shape of a document ID: one `ingest` makes
+([`DOCUMENT_ID_PATTERN`](#document_id_pattern)), or, since 0.9.0, one an application gives
+([`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern), which the made ones match too). Use it to
+check IDs that come from a browser. The library's own methods already treat any other string as a
+missing document.
 
 ### toDocumentSummary(meta)
 
@@ -887,8 +952,8 @@ A store that wraps another one, or a subclass that overrides a method, passes th
 |---|---|---|
 | `put(document)` | yes | Store the text and the metadata. Called last at ingest. A document should exist once its metadata does: `FileDocumentStore` writes the metadata last. Keep every field of `meta`, the optional ones too, and those a later version adds (0.6.0 added `encoding` and `replacedCharacters`): a store that keeps a fixed list of fields loses them, and one that checks `meta` against a fixed schema refuses the ingest of every file that has them. |
 | `get(id)` | yes | The whole document, or `undefined` when there is no such document. It may return an expired one: the library checks `expiresAt` itself. Called to load a document whole: its text is at most `wholeDocumentBytes`, or the store has no `readTextRange`. |
-| `getMeta(id)` | yes | The metadata, or `undefined` when there is no such document (an expired one may be returned; the library checks `expiresAt`). Called by every `prepare`, `getMeta`, `getOriginal` and `delete`, and by every tool call: keep it cheap, apart from the text. |
-| `delete(id)` | yes | Remove the document, its original and its index, and return whether it existed. Also called by `ingest` after a failed write, so it must cope with a document that was written only in part. |
+| `getMeta(id)` | yes | The metadata, or `undefined` when there is no such document (an expired one may be returned; the library checks `expiresAt`). Called by every `prepare`, `getMeta`, `getOriginal` and `delete`, by every tool call, and by `ingest` with an application's `id`: keep it cheap, apart from the text. Return the owner absent, not `null` (the library reads `null` as none). |
+| `delete(id)` | yes | Remove the document, its original and its index, and return whether it existed. Also called by `ingest` after a failed write, so it must cope with a document that was written only in part, and before a document that `ifExists: "replace"` replaces. |
 | `sweep(now?)` | no | Remove the documents expired at `now` (with their originals and indexes) and return how many. Without it, `files.sweep()` returns 0; expire the data another way, such as a TTL index of your database. |
 | `putOriginal(id, bytes)` | no | Keep the uploaded file. Called at ingest, before `putIndex` and `put`, for the formats in `keepOriginals`. Without it, no original is kept, whatever `keepOriginals` says. |
 | `getOriginal(id)` | no | The kept file, or `undefined` when none was kept or there is no such document. Without it, `view_pages` is never offered. |
@@ -903,8 +968,10 @@ Errors:
   `readTextRange` and `getOriginal` throw reaches the caller as
   [`DocumentStoreError`](#documentstoreerror), so that it retries instead of telling a user that the
   file is gone. A `DocumentStoreError` you throw yourself is passed on as it is.
-- What `put`, `putOriginal` and `putIndex` throw at ingest is thrown by `ingest` unchanged, after it
-  calls `delete(id)`. What `delete` and `sweep` throw is passed on unchanged.
+- What `put`, `putOriginal` and `putIndex` throw at ingest reaches the caller as a
+  `DocumentStoreError` of operation `"write"`, after `ingest` calls `delete(id)`; what `delete` and
+  `sweep` throw, as one of operation `"delete"` or `"sweep"`. Your error is `cause`. Before 0.9.0
+  they were passed on unchanged.
 - Throw a [`DocumentScopeError`](#documentscopeerror) for a scope your store cannot keep, or a call
   without one when your store needs one.
 - Keep fields of `meta` you do not know, `metaVersion` included
@@ -912,9 +979,12 @@ Errors:
 - The library compares `expiresAt` with its clock itself, so an expired document is never used. The
   store must still remove it, in `sweep` or by its own expiry.
 
-The library makes the IDs (see [`DOCUMENT_ID_PATTERN`](#document_id_pattern)), and every method
-except `put` receives only the ID and the context: no metadata. A store that lays documents out per
-user or per chat session finds the place from `context.scope`.
+The library makes the IDs (see [`DOCUMENT_ID_PATTERN`](#document_id_pattern)), or the application
+gives them ([`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern)), and every method except `put`
+receives only the ID and the context: no metadata. A store that lays documents out per user or per
+chat session finds the place from `context.scope`. A store that ignores the context still works:
+the library keeps scopes apart through `meta.scope`, and an application's IDs must then be unique
+in the whole store.
 
 Guide: [storage](../guides/storage.md), which also shows a store of your own.
 
@@ -926,7 +996,10 @@ type DocumentContext = { readonly scope?: DocumentScope; readonly owner?: string
 
 New in 0.9.0. Who a store call is for: the last argument of every [`DocumentStore`](#documentstore)
 method. A store may keep the documents of each scope apart, as `MemoryDocumentStore` does, and may
-index them by owner. Both fields may be absent.
+index them by owner. The library always passes one, frozen, with the fields that are absent left
+out: `{}` for a call without a scope or an owner. At ingest they are the document's; on every other
+call, the caller's (`AccessOptions`), or for `tools` without `access`, those of the metadata handed
+in. `sweep` gets the scope only.
 
 | Field | Type | What it holds |
 |---|---|---|
@@ -1058,7 +1131,7 @@ declare const DOCUMENT_ID_PATTERN: RegExp; // /^doc_[a-f0-9]{32}$/
 ```
 
 The shape of every document ID that `ingest` makes: `doc_` and 32 lowercase hexadecimal digits
-(a random UUID without its dashes). [`isDocumentId`](#isdocumentidvalue) tests a value against it.
+(a random UUID without its dashes), when the application gives none (`IngestInput.id`).
 
 ### `APP_DOCUMENT_ID_PATTERN`
 
@@ -1066,8 +1139,9 @@ The shape of every document ID that `ingest` makes: `doc_` and 32 lowercase hexa
 declare const APP_DOCUMENT_ID_PATTERN: RegExp; // /^[a-z0-9][a-z0-9_-]{0,63}$/
 ```
 
-New in 0.9.0. The shape of a document ID an application chooses: lowercase letters, digits, `_`
-and `-`, up to 64 characters, starting with a letter or a digit. The IDs `ingest` makes have it too.
+New in 0.9.0. The shape of a document ID an application chooses (`IngestInput.id`): lowercase
+letters, digits, `_` and `-`, up to 64 characters, starting with a letter or a digit. The IDs
+`ingest` makes have it too. [`isDocumentId`](#isdocumentidvalue) tests a value against it.
 
 ### `DOCUMENT_META_VERSION`
 
@@ -1118,7 +1192,10 @@ New in 0.9.0.
 
 `files.getMeta`, `files.getOriginal`, `files.delete` (its look-up) and `files.prepare` throw it,
 and so does `askWithFiles`. A tool call that meets it answers the model with its message instead of
-throwing. Errors of writes are never wrapped in it (see [`DocumentStore`](#documentstore)).
+throwing. Since 0.9.0 the library also wraps the errors of writes in it: `files.ingest` (operation
+`"write"`, and code `"ETIMEDOUT"` for a write that did not end in time), `files.delete`
+(`"delete"`) and `files.sweep` (`"sweep"`). Until then they were passed on unchanged (see
+[`DocumentStore`](#documentstore)). A `DocumentScopeError` is never wrapped.
 
 ```ts
 import { DocumentStoreError, toDocumentSummary, type LargeFiles } from "llm-large-files";
@@ -1451,6 +1528,7 @@ type DocumentMeta = {
   id: string;
   metaVersion?: number; // new in 0.9.0
   owner?: string;
+  scope?: string[]; // new in 0.9.0
   name: string;
   mimeType: string;
   format: DocumentFormat;
@@ -1481,9 +1559,10 @@ browser instead.
 
 | Field | Type | What it holds |
 |---|---|---|
-| `id` | `string` | `doc_` and 32 hexadecimal digits ([`DOCUMENT_ID_PATTERN`](#document_id_pattern)). |
+| `id` | `string` | `doc_` and 32 hexadecimal digits ([`DOCUMENT_ID_PATTERN`](#document_id_pattern)), or the ID the application gave (`IngestInput.id`, new in 0.9.0). |
 | `metaVersion` | `number \| undefined` | The version of this shape: [`DOCUMENT_META_VERSION`](#document_meta_version) (1) on documents ingested by 0.9.0 and later, absent on older ones. A higher one is refused. Never sent to the model. New in 0.9.0. |
 | `owner` | `string \| undefined` | The owner given at ingest. Absent when none was given. |
+| `scope` | `string[] \| undefined` | The scope given at ingest (`IngestInput.scope`), as a copy. Absent when none was given. Only a caller of the same scope may use the document. Never sent to the model, nor in a summary or an event. New in 0.9.0. |
 | `name` | `string` | The cleaned file name (see [`IngestInput`](#ingestinput)). |
 | `mimeType` | `string` | The MIME type given, trimmed, or `"application/octet-stream"`. |
 | `format` | [`DocumentFormat`](#documentformat) | The format. |

@@ -41,7 +41,7 @@ import {
   toolResultSummary,
   unknownToolName,
 } from "./tools.js";
-import type { Budget, DocumentMeta, DocumentPlan, GenerateText, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import type { Budget, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
@@ -120,6 +120,11 @@ export type AskOptions = {
   system?: string;
   /** The user asking. Documents ingested with a different owner are treated as missing. */
   owner?: string;
+  /**
+   * The scope of the question, such as [userId, chatId] (`DocumentScope`). It is passed to every
+   * store call, and documents ingested with another scope are treated as missing. New in 0.9.0.
+   */
+  scope?: DocumentScope;
   limits?: AskLimits;
   /** How a model request that failed is sent again. Defaults to three more tries, with a wait that doubles. */
   retry?: RetryOptions;
@@ -676,8 +681,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const meter = new RequestMeter(pageTokens);
   const asText = textSize(messages, options.system);
   const earlier = meter.rounds(messages);
-  const prepared = await files.prepare(options.documentIds, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
+  // Who asks: the documents are looked up, and every tool call reads them, for this owner and scope.
+  const access = {
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
+    ...(options.scope !== undefined ? { scope: options.scope } : {}),
+  };
+  const prepared = await files.prepare(options.documentIds, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
+    ...access,
     viewPages: options.viewPages !== false && canShowFiles,
     // The guide and the cards name `analyze_whole_document` only when the tools will have it.
     wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof toolModel.generateText === "function",
@@ -1130,6 +1140,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       return text;
     });
     const tools = files.tools(searchable, {
+      // The owner and scope the store holds are checked against the question's own, not against
+      // the metadata handed in.
+      access,
       ...(generate ? { generate } : {}),
       onProgress: (event) => options.onActivity?.(`${event.message}…`),
       signal: halt.signal,

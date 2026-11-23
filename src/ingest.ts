@@ -1,8 +1,9 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
+import { checkMetaVersion, checkOwner, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
-import { isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type IngestEvent, type IngestStage } from "./events.js";
 import { detectFormat, extractText } from "./extract.js";
 import type { IngestInput } from "./library.js";
@@ -10,10 +11,13 @@ import type { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
-import { DOCUMENT_META_VERSION } from "./stores.js";
+import { checkScope, sameScope } from "./scope.js";
+import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
 import { measureText, prepareText, removeInvisible, sliceWhole } from "./text.js";
-import type { DocumentFormat, DocumentMeta, DocumentStore, DocumentSummary, ExtractedText, ExtractProgress, Extractor } from "./types.js";
+import type { DocumentContext, DocumentFormat, DocumentMeta, DocumentScope, DocumentStore, DocumentSummary, ExtractedText, ExtractProgress, Extractor } from "./types.js";
+
+export { checkOwner } from "./access.js";
 
 /** What `ingest` needs of the library it belongs to: its options, as the library read them, and its state. */
 export type IngestContext = {
@@ -32,9 +36,75 @@ export type IngestContext = {
   readonly slotCapMs: number;
   /** Whether the uploaded file of a document of this format is kept. */
   readonly keeps: (format: DocumentFormat) => boolean;
-  /** Forgets everything kept in memory of a document: the document, and its pieces. */
+  /** Forgets everything kept in memory of a document, in every scope: the document, and its pieces. */
   readonly forget: (id: string) => void;
+  /** What every call must name (`requireOwner`, `requireScope`). */
+  readonly rules: AccessRules;
 };
+
+/**
+ * Where an ingest writes: the ID the application gave (`IngestInput.id`), when it gave one, what
+ * to do when it is taken, and the owner and scope of the document, which every store call carries.
+ */
+type Target = {
+  readonly id: string | undefined;
+  readonly ifExists: "fail" | "replace";
+  readonly owner: string | undefined;
+  readonly scope: DocumentScope | undefined;
+  /** The context of every store call of the ingest. */
+  readonly context: DocumentContext;
+};
+
+/** The TypeError of an `IngestInput.id` of another shape. It does not repeat the ID, which may hold what it must not. */
+const ID_SHAPE = 'id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN).';
+
+/** The ID, `ifExists`, owner and scope of an ingest, checked (the owner already is). */
+function targetOf(input: IngestInput, rules: AccessRules): Target {
+  if (rules.requireOwner && input.owner === undefined) throw new TypeError(OWNER_REQUIRED);
+  // Null is no scope, as a database gives a field that was left out.
+  const scope = checkScope(input.scope ?? undefined);
+  if (rules.requireScope && scope === undefined) throw new TypeError(SCOPE_REQUIRED);
+  const { id, ifExists = "fail" } = input;
+  if (id !== undefined && (typeof id !== "string" || !APP_DOCUMENT_ID_PATTERN.test(id))) throw new TypeError(ID_SHAPE);
+  if (ifExists !== "fail" && ifExists !== "replace") throw new TypeError('ifExists must be "fail" or "replace".');
+  return { id, ifExists, owner: input.owner, scope, context: storeContext(scope, input.owner) };
+}
+
+/** The refusal of an application's ID that is taken (`ifExists`). It says nothing of the document that has it. */
+const exists = (name: string) => new IngestError("exists", `${name}: a document with this ID already exists.`);
+
+/** Whether the text of a document whose metadata is there is gone: it cannot be read, and may be replaced. */
+async function textGone(store: DocumentStore, id: string, context: DocumentContext): Promise<boolean> {
+  if (typeof store.readTextRange === "function") return await storeCall("read", () => store.readTextRange!(id, 0, 1, context)) === undefined;
+  return await storeCall("read", () => store.get(id, context)) === undefined;
+}
+
+/**
+ * Whether the application's ID may be written, as the store sees it for this context: a document
+ * of that ID that is there is an `IngestError` "exists", unless `ifExists` is "replace" and the
+ * document has the same owner and scope, or its text is gone. A document written by a newer version
+ * of the package is never replaced (`DocumentStoreError` "NEWER_VERSION"). Returns true when there
+ * is a document to delete before the new one is written: the one being replaced, or one expired.
+ */
+async function claim(context: IngestContext, target: Target & { id: string }, name: string): Promise<boolean> {
+  const { store, now } = context;
+  const { id } = target;
+  const found = metaOf(await storeCall("read", () => store.getMeta(id, target.context)), id);
+  if (!found) return false;
+  if (Date.parse(found.expiresAt) <= now().getTime()) return true;
+  if (target.ifExists === "fail") throw exists(name);
+  checkMetaVersion(found);
+  const scope: unknown = found.scope;
+  const same = found.owner === target.owner && (scope === undefined ? target.scope === undefined : Array.isArray(scope) && sameScope(scope as string[], target.scope));
+  if (same || await textGone(store, id, target.context)) return true;
+  throw exists(name);
+}
+
+/** A store that did not answer in time, as it wrote or was read at ingest: its cause says for how long it was waited for. */
+const storeTimeout = (name: string, ms: number, operation: "write" | "read" = "write") => new DocumentStoreError(
+  Object.assign(new Error(`The store did not ${operation === "write" ? "finish writing" : "answer about"} ${name} within ${formatDuration(ms)}.`), { code: "ETIMEDOUT" }),
+  { operation, code: "ETIMEDOUT" },
+);
 
 /** The fields of a document that are safe to return to a browser. */
 export function toDocumentSummary(meta: DocumentMeta): DocumentSummary {
@@ -96,16 +166,6 @@ export function cleanFileName(raw: string): string {
   const name = removeInvisible(spaced).replace(/\s+/g, " ").trim();
   // At most 255 characters, never half of an emoji. A flag cut short loses the tags left of it.
   return (name.length > 255 ? removeInvisible(sliceWhole(name, 255)) : name) || "file";
-}
-
-/**
- * Refuses an owner that every caller without a user would share: an empty string (what
- * `user?.id ?? ""` gives), one of spaces only, or null. Undefined is no owner. A number is let
- * through, as before, for JavaScript code that passes numeric user IDs.
- */
-export function checkOwner(owner: unknown): void {
-  if (owner === undefined || (typeof owner === "string" && owner.trim() !== "") || (typeof owner === "number" && Number.isFinite(owner))) return;
-  throw new TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.");
 }
 
 /**
@@ -304,6 +364,7 @@ class IngestProgress {
 async function ingestFile(
   context: IngestContext,
   input: IngestInput,
+  target: Target,
   name: string,
   mimeType: string,
   detected: DocumentFormat,
@@ -311,7 +372,7 @@ async function ingestFile(
   storeFailed: () => void,
   work: { abandoned?: Promise<unknown> },
 ): Promise<DocumentMeta> {
-  const { store, now, ttlMs, maxTextBytes, maxPdfPages, ingestTimeoutMs, scannedPdfPages, extractors, slotCapMs, keeps } = context;
+  const { store, now, ttlMs, maxTextBytes, maxPdfPages, ingestTimeoutMs, scannedPdfPages, extractors, slotCapMs, keeps, forget } = context;
   let format = detected;
   const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
   // Each long step works in slices, with pauses for other requests: one large upload no longer
@@ -390,9 +451,11 @@ async function ingestFile(
   // text: 25 MB of heap for a log of 10 MB in Hebrew, 194 MB for one of 100 MB. Copied through
   // JSON, as a store that keeps it as JSON gives it back.
   const meta: DocumentMeta = jsonCopy<DocumentMeta>({
-    id: `doc_${randomUUID().replaceAll("-", "")}`,
+    id: target.id ?? `doc_${randomUUID().replaceAll("-", "")}`,
     metaVersion: DOCUMENT_META_VERSION,
     ...(input.owner !== undefined ? { owner: input.owner } : {}),
+    // Never sent to the model, nor in a summary or an event.
+    ...(target.scope !== undefined ? { scope: [...target.scope] } : {}),
     name,
     mimeType,
     format,
@@ -430,41 +493,56 @@ async function ingestFile(
       throw error;
     }
   };
-  // The files first, the document last: a document is there once its metadata is.
+  // An application's ID is looked at again just before the writes: a document may have been
+  // stored under it while the file was read. Within the time the writes are given, as they are.
+  const clear = target.id !== undefined
+    && await settleWithin(claim(context, { ...target, id: target.id }, name), slotCapMs, () => storeTimeout(name, slotCapMs, "read"));
+  // The files first, the document last: a document is there once its metadata is. Every call
+  // carries the owner and scope of the document.
   const storing = (async () => {
+    if (clear) {
+      await store.delete(meta.id, target.context);
+      forget(meta.id);
+    }
     if (keepOriginal) {
-      await store.putOriginal!(meta.id, input.bytes);
+      await store.putOriginal!(meta.id, input.bytes, target.context);
       wrote(false);
     }
     if (savedIndex) {
-      await store.putIndex!(meta.id, savedIndex);
+      await store.putIndex!(meta.id, savedIndex, target.context);
       wrote(false);
     }
-    await store.put({ meta, text });
+    await store.put({ meta, text }, target.context);
     wrote(true);
   })();
   try {
     // A store that does not answer fails the ingest after `slotCapMs`: it held the ingest's turn,
     // and the upload handler's room for the file, for as long as it did not answer.
-    await settleWithin(storing, slotCapMs, () => new Error(`The store did not finish writing ${name} within ${formatDuration(slotCapMs)}.`));
+    await settleWithin(storing, slotCapMs, () => storeTimeout(name, slotCapMs));
   } catch (error) {
     // Do not leave a file of up to the upload limit, or a part of one, behind for a document
     // that does not exist: once the writes have ended, when they have not yet. The removal is not
     // waited for longer than the writes were.
-    const removal = storing.then(() => store.delete(meta.id), () => store.delete(meta.id)).catch(() => undefined);
+    const remove = () => store.delete(meta.id, target.context);
+    const removal = storing.then(remove, remove).catch(() => undefined);
     await settleWithin(removal, slotCapMs, () => new Error("")).catch(() => undefined);
-    if (listenerFailed?.error !== error) {
-      noteStoreWriteFailure(error);
-      storeFailed();
-    }
-    throw error;
+    // What the listener of the events threw is passed on as it is, and so is a scope the store
+    // cannot use: a mistake of the call, which the same call would make again.
+    if (listenerFailed?.error === error || DocumentScopeError.is(error)) throw error;
+    // The store's own error may name a path, a host or a bucket: it is the cause.
+    const failure = DocumentStoreError.is(error) ? error : new DocumentStoreError(error, { operation: "write" });
+    noteStoreWriteFailure(failure);
+    storeFailed();
+    throw failure;
   }
+  // A copy of an earlier document of this ID, kept in memory, is not this one.
+  if (target.id !== undefined) forget(meta.id);
   return meta;
 }
 
 /** `files.ingest` of the library that `context` describes. */
 export async function ingestDocument(context: IngestContext, input: IngestInput): Promise<DocumentMeta> {
-  const { store, maxUploadBytes, ingests, slotCapMs, forget } = context;
+  const { maxUploadBytes, ingests, slotCapMs, forget } = context;
   // The events first, so that every ingest that throws, even on what it was given, ends with ingest.error.
   // What the caller's listener throws is passed on as it is, not told as a file that could not be read.
   let listenerFailure: { error: unknown } | undefined;
@@ -481,6 +559,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
   try {
     if (events.active) events.emit({ type: "ingest.start", ...startOf(input) });
     checkOwner(input.owner);
+    const target = targetOf(input, context.rules);
     const name = cleanFileName(input.name);
     const mimeType = input.mimeType?.trim() || "application/octet-stream";
     // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
@@ -494,6 +573,8 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
       if (input.bytes.byteLength > maxUploadBytes) {
         throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
       }
+      // An application's ID that is taken, before the file is read (again before it is written).
+      if (target.id !== undefined) await claim(context, { ...target, id: target.id }, name);
       // Its turn (`maxConcurrentIngests`): a caller that gives up while it waits gets its own
       // reason, as it would once the work had begun. (An ingest started inside another of this
       // library, by an extractor of your own, waits for a turn like any other. Telling it apart
@@ -501,21 +582,21 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
       const slot = new IngestSlot(await ingests.acquire(input.signal), slotCapMs);
       const work: { abandoned?: Promise<unknown> } = {};
       try {
-        meta = await ingestFile(context, input, name, mimeType, format, progress, () => (storeFailed = true), work);
+        meta = await ingestFile(context, input, target, name, mimeType, format, progress, () => (storeFailed = true), work);
       } finally {
         slot.end(work.abandoned);
       }
     } catch (error) {
-      // A store that failed, and a caller that gave up (its own reason), are passed on as they
-      // are; a file that could not be read is told with a code.
-      if (storeFailed || (input.signal?.aborted && error === input.signal.reason) || isStoreWriteFailure(error) || (listenerFailure && error === listenerFailure.error)) throw error;
+      // A store that failed, a scope it cannot use, and a caller that gave up (its own reason), are
+      // passed on as they are; a file that could not be read is told with a code.
+      if (storeFailed || (input.signal?.aborted && error === input.signal.reason) || isStoreWriteFailure(error) || DocumentScopeError.is(error) || (listenerFailure && error === listenerFailure.error)) throw error;
       throw toIngestError(error);
     }
     try {
       events.emit({ type: "ingest.finish", document: toDocumentSummary(meta) });
     } catch (error) {
       // The caller never gets the id: the document goes, as on a throw of the listener a moment earlier.
-      await store.delete(meta.id).catch(() => undefined);
+      await context.store.delete(meta.id, target.context).catch(() => undefined);
       forget(meta.id);
       throw error;
     }

@@ -327,7 +327,10 @@ describe("ingest events", () => {
       }
       const files = createLargeFiles({ store: new FailingStore() });
       const record = recorder();
-      await expect(files.ingest({ name: "notes.txt", bytes: encoder.encode("text"), onEvent: record.onEvent })).rejects.toBe(failure);
+      // Thrown as the cause of a DocumentStoreError since 0.9.0, as it was.
+      const thrown = await files.ingest({ name: "notes.txt", bytes: encoder.encode("text"), onEvent: record.onEvent }).catch((error: unknown) => error);
+      expect(thrown).toMatchObject({ name: "DocumentStoreError", operation: "write", status: 503 });
+      expect((thrown as Error).cause).toBe(failure);
       expectWellFormed(record.events);
       expect((record.events.at(-1) as Extract<IngestEvent, { type: "ingest.error" }>).error).toEqual({ message: "The document could not be stored. Try again later." });
     }

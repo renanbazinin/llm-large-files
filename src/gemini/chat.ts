@@ -3,7 +3,7 @@ import type { LargeFiles } from "../library.js";
 import type { AskEvent } from "../events.js";
 import type { ChatTurn, ToolTurn } from "../model.js";
 import type { RetryOptions } from "../retry.js";
-import type { Budget } from "../types.js";
+import type { Budget, DocumentScope } from "../types.js";
 import { fromGeminiContents, gemini, type GeminiContent } from "./adapter.js";
 import type { GeminiEndpoint } from "./endpoints.js";
 import type { GeminiToolFilePlacement } from "./generate.js";
@@ -51,6 +51,11 @@ export type AskGeminiOptions = {
   explorerGenerationConfig?: Record<string, unknown>;
   /** The user asking. Documents ingested with a different owner are treated as missing. */
   owner?: string;
+  /**
+   * The scope of the question, such as [userId, chatId] (`AskOptions.scope`): documents ingested
+   * with another scope are treated as missing. New in 0.9.0.
+   */
+  scope?: DocumentScope;
   /** The limits of the question: tool turns, calls in a turn, whole-file reads, tokens and requests. */
   limits?: AskLimits;
   /** `limits.toolTurns`, under the name it had before 0.5.0. Defaults to 12. */
@@ -137,6 +142,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     messages: options.contents ? fromGeminiContents(options.contents) : options.messages ?? [],
     ...(options.system !== undefined ? { system: options.system } : {}),
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
+    ...(options.scope !== undefined ? { scope: options.scope } : {}),
     limits: {
       ...(options.maxToolTurns !== undefined ? { toolTurns: options.maxToolTurns } : {}),
       ...(options.maxToolCallsPerTurn !== undefined ? { callsPerTurn: options.maxToolCallsPerTurn } : {}),

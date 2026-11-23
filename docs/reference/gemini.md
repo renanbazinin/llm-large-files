@@ -231,7 +231,7 @@ another endpoint.
 **Throws** what `askWithFiles` throws ([ask reference](./ask.md)). Among them:
 
 - `DocumentsNotFoundError`, before any model request, when a document ID was never uploaded, has
-  expired, or belongs to another `owner`.
+  expired, or belongs to another `owner` or `scope`.
 - `Error("The last message must be the user's.")`, when the last turn of `messages` or `contents`
   is not the user's, or when both are left out.
 - `DocumentStoreError`, when the store could not be read.
@@ -270,7 +270,8 @@ takes their place.
 Shared with [`AskOptions`](./ask.md#askoptions), with the same meaning and defaults: `files`,
 `documentIds`, `documentPlacement`, `system`, `owner`, `limits`, `retry`, `budget`,
 `wholeDocumentAnalysis`, `viewPages`, `onText`, `onActivity`, `onStep`, `signal`, and, new in 0.7.0,
-`streamText`, `onEvent`, `runId` and `eventResults` (see [events](./events.md)). With Gemini:
+`streamText`, `onEvent`, `runId` and `eventResults` (see [events](./events.md)), and, new in 0.9.0,
+`scope`. With Gemini:
 
 - `messages` is optional and typed `Array<ChatTurn | ToolTurn>`: plain turns and the `toolTurns`
   of earlier questions. Turns with native parts (images, inline PDFs, thought signatures) go in

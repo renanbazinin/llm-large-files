@@ -630,18 +630,18 @@ answered `503` with `Retry-After`, and a reader that could not start at all (a `
 is not there) is not an `IngestError`, but an `Error` with `status` 500
 ([node reference](../reference/node.md#createisolatedextractorsoptions)).
 
-A store that fails while it writes throws its own error, as it came: its message may name a path or
-a host, so log it and show a general message. `createDocumentHandlers` answers a file it cannot take
-with 422 and the error's message, and a Node system error of the store (one with a `code` and a
-`syscall`) with 500 and only its code ("Upload failed (ENOSPC)."). Any other store error, one
-without a `status` (or `statusCode`) from 400 to 599, is answered 500 "Upload failed.", without its
-message, and so is a thrown value that is not an `Error`. The handlers log nothing: log the error in
-your store before you throw it. Two paths still answer a store's error 422 with its message, which
-may name a host: an `ingest` of your own that throws a new error in its place, as `ingestInProcess`
-in [Deployment](./deployment.md#uploads-and-ingest) does, and a route of your own, as in
-[Web app](./web-app.md#filesingest-and-its-errors). So a custom store should throw an error with a
-`status` and a message fit for the user (both are sent as they are): every path keeps that status.
-See [the node reference](../reference/node.md#uploadrequest-response).
+A store that fails while it writes is a `DocumentStoreError` since 0.9.0: operation `"write"` in
+`ingest` (code `"ETIMEDOUT"` for a write that did not end in time), `"delete"` in `files.delete`,
+`"sweep"` in `files.sweep`. Its status is 503, its message ("The document could not be stored
+(EIO). Try again.") names no path or host and can be shown, and the store's own error is `cause`:
+log that one. Before 0.9.0 the store's error came out as it was. `createDocumentHandlers` answers a
+file it cannot take with 422 and the error's message, and a store that failed with 503 and the
+`DocumentStoreError`'s message (it was a 500). A thrown value that is not an `Error` is answered
+500 "Upload failed.". The handlers log nothing: log `error.cause`. Two paths still answer an error
+of your own 422 with its message, which may name a host: an `ingest` of your own that throws a new
+error in its place, as `ingestInProcess` in [Deployment](./deployment.md#uploads-and-ingest) does,
+and a route of your own, as in [Web app](./web-app.md#filesingest-and-its-errors). Pass the
+`DocumentStoreError` on as it is. See [the node reference](../reference/node.md#uploadrequest-response).
 
 Every read of the store goes through the library: `prepare`, `getMeta`, `getOriginal`, the tools.
 What the store throws there becomes a `DocumentStoreError`, which does not mean the document is

@@ -208,7 +208,9 @@ describe("maxConcurrentIngests (0.8.2)", () => {
     const third = await files.ingest({ name: "c.txt", bytes: utf8("c") });
     expect(third.name).toBe("c.txt");
     const errors = await Promise.all(hung);
-    expect((errors[0] as Error).message).toBe("The store did not finish writing a.txt within 300 ms.");
+    // A DocumentStoreError since 0.9.0, with the code ETIMEDOUT; what happened is its cause.
+    expect(errors[0]).toMatchObject({ name: "DocumentStoreError", operation: "write", code: "ETIMEDOUT", status: 503, message: "The document could not be stored (ETIMEDOUT). Try again." });
+    expect(((errors[0] as Error).cause as Error).message).toBe("The store did not finish writing a.txt within 300 ms.");
   }, 15_000);
 
   it("removes a document whose write ended after the ingest failed for it", async () => {
@@ -226,7 +228,7 @@ describe("maxConcurrentIngests (0.8.2)", () => {
       id = document.meta.id;
       return spy(document);
     };
-    await expect(files.ingest({ name: "a.txt", bytes: utf8("a") })).rejects.toThrow("The store did not finish writing a.txt within 150 ms.");
+    await expect(files.ingest({ name: "a.txt", bytes: utf8("a") })).rejects.toMatchObject({ code: "ETIMEDOUT", cause: new Error("The store did not finish writing a.txt within 150 ms.") });
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(id).toMatch(/^doc_/);
     expect(await store.getMeta(id!)).toBeUndefined();
@@ -412,8 +414,8 @@ describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
     const hung = [upload("a.txt", 1_000), upload("b.txt", 1_000)];
     await until(() => store.hung === 2);
     expect((await upload("c.txt", 1)).status).toBe(503);
-    // After the time limit they fail with the server's 500, and the room is back.
-    expect((await Promise.all(hung)).map((response) => response.status)).toEqual([500, 500]);
+    // After the time limit they fail with the store's 503 (a 500 before 0.9.0), and the room is back.
+    expect((await Promise.all(hung)).map((response) => response.status)).toEqual([503, 503]);
     expect((await upload("d.txt", 1)).status).toBe(201);
   }, 15_000);
 

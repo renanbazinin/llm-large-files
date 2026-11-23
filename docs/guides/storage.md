@@ -18,7 +18,9 @@ parts under the document's ID:
 | Original | The uploaded file, byte for byte. | When `keepOriginals` lists the format and the store has `putOriginal`. |
 
 The library makes the ID: `doc_` and 32 hexadecimal digits of a random UUID. It is new at every
-ingest and never reused. `DOCUMENT_ID_PATTERN` (`/^doc_[a-f0-9]{32}$/`) matches it, and
+ingest and never reused. `DOCUMENT_ID_PATTERN` (`/^doc_[a-f0-9]{32}$/`) matches it. Since 0.9.0 the
+application may give the ID instead ([Application IDs](#application-ids)), of the shape
+`APP_DOCUMENT_ID_PATTERN` (`/^[a-z0-9][a-z0-9_-]{0,63}$/`), which the made IDs fit too.
 `isDocumentId(value)` tests a value against it: use it on IDs that arrive in a request before they
 reach your database. The library tests every ID itself before it asks the store. An ID that does
 not match counts as missing, so a store only ever receives IDs that match.
@@ -100,7 +102,7 @@ directory, which it creates at the first write. There are no subdirectories:
 Several servers can share the directory on a network volume. What that needs, from where to run the
 sweep to servers of two versions during an upgrade, is in [Deployment](./deployment.md).
 
-## Owners
+## Owners and scopes
 
 ### How ownership works
 
@@ -119,15 +121,15 @@ await files.delete(meta.id, { owner: "user-7" });    // false: nothing is remove
 await files.delete(meta.id, { owner: "user-42" });   // true
 ```
 
-| Call | Takes the owner as | A document of another owner |
+| Call | Takes the owner (and the scope) as | A document of another owner or scope |
 |---|---|---|
-| `files.ingest(input)` | `input.owner` | |
-| `files.getMeta(id, access)` | `access.owner` | `undefined` |
-| `files.getOriginal(id, access)` | `access.owner` | `undefined` |
-| `files.delete(id, access)` | `access.owner` | `false`, and nothing is removed |
-| `files.prepare(ids, base, options)` | `options.owner` | Listed in `missing`, and never read |
-| `files.tools(documents, options)` | the `owner` of each `DocumentMeta` in `documents` (and in `viewPages`) | Each call that reads it answers `doc_… is no longer available on the server. Ask the user to attach the file again.` |
-| `askWithFiles(options)`, `askGemini(options)` | `options.owner` | `DocumentsNotFoundError`, before any model request |
+| `files.ingest(input)` | `input.owner`, `input.scope` | |
+| `files.getMeta(id, access)` | `access.owner`, `access.scope` | `undefined` |
+| `files.getOriginal(id, access)` | `access.owner`, `access.scope` | `undefined` |
+| `files.delete(id, access)` | `access.owner`, `access.scope` | `false`, and nothing is removed |
+| `files.prepare(ids, base, options)` | `options.owner`, `options.scope` | Listed in `missing`, and never read |
+| `files.tools(documents, options)` | `options.access` (new in 0.9.0); without it, the `owner` and `scope` of each `DocumentMeta` in `documents` (and in `viewPages`) | Each call that reads it answers `doc_… is no longer available on the server. Ask the user to attach the file again.` |
+| `askWithFiles(options)`, `askStream(options)`, `askGemini(options)` | `options.owner`, `options.scope` | `DocumentsNotFoundError`, before any model request |
 | `createDocumentHandlers(files, options)` | `options.getOwner(request)` | 404 "This file is no longer available." on GET; `{ "deleted": false }` on DELETE |
 
 - An owner is a string that is not empty or only spaces. `ingest` throws a `TypeError` for `""`,
@@ -138,7 +140,7 @@ await files.delete(meta.id, { owner: "user-42" });   // true
   It throws the same for an owner from JavaScript that is neither a string nor a finite number,
   such as the user object in place of its ID. A number is accepted, as before. Reads with
   `owner: ""` work as before, so documents that 0.5.0 stored with that owner stay readable until
-  they expire.
+  they expire (not under `requireOwner`, which refuses `""` on every call).
 - In `createDocumentHandlers`, a `getOwner` that returns such an owner is the server's mistake: the
   upload is answered 500 `{ "error": "Upload failed (empty owner)." }` for `""`, spaces only or
   `null`, and `{ "error": "Upload failed (owner is not a string)." }` for an object, a boolean,
@@ -150,29 +152,114 @@ await files.delete(meta.id, { owner: "user-42" });   // true
 - The comparison is exact (`===`): `"alice"` does not reach a document of `"Alice"` or of
   `"alice/chat-1"`. There is no hierarchy and no wildcard.
 - A document ingested without an owner can be used by anyone who has its ID, whether they pass an
-  owner or not. With signed-in users, always pass one. In `createDocumentHandlers`, a `getOwner` that
+  owner or not. With signed-in users, always pass one, and turn on
+  [`requireOwner`](#requiring-an-owner-and-a-scope). In `createDocumentHandlers`, a `getOwner` that
   returns undefined makes an anonymous upload. To refuse a request without a user, throw from it with
   a status ([Web app](./web-app.md)).
+- An owner of `null` from your store (a MongoDB driver writes a field that was left out as `null`)
+  counts as no owner, new in 0.9.0. Before, `getMeta` read such a document as missing for every
+  owner, and the tools as open to all.
 - The owner cannot be changed after ingest. Use a stable, opaque ID, not an email address that may
   change.
-- `files.tools(documents)` takes no owner option: it compares the owner stored with each document
-  with the `owner` of the metadata it is given, and answers a mismatch as a document that is gone
-  (`doc_… is no longer available on the server. …`). In a loop of your own, pass it only metadata
-  from `prepare(ids, base, { owner })` or `getMeta(id, { owner })`
-  ([Your own adapter and loop](./own-adapter-and-loop.md)). `askWithFiles` does this for you.
+- `files.tools(documents, { access })` asks the store for each document with the owner and scope of
+  `access`, and checks the ones the store holds against them, as `getMeta` does. `askWithFiles`
+  passes it. Without `access`, as before 0.9.0, `tools` compares the owner and scope stored with
+  each document with those of the metadata it is given, and answers a mismatch as a document that
+  is gone. In a loop of your own, pass `access`
+  ([Your own adapter and loop](./own-adapter-and-loop.md)).
 
-### Choosing the owner string
+### Scopes
 
-The owner is any string you choose. The library has no notion of a chat or session, and cannot list
-documents by owner. Two schemes work well:
+A scope says where a document belongs, from the widest part to the narrowest: `[userId, chatId]`.
+It is new in 0.9.0. Pass it at ingest and on every later call, as the owner:
 
-| Owner | What the library enforces | What your application does |
+```ts
+// `files` and `bytes` as above.
+const scope = ["user-42", "chat-7"];
+const notes = await files.ingest({ name: "notes.txt", bytes, owner: "user-42", scope });
+
+await files.getMeta(notes.id, { owner: "user-42", scope });                  // the metadata
+await files.getMeta(notes.id, { owner: "user-42", scope: ["user-42", "chat-8"] }); // undefined
+await files.getMeta(notes.id, { owner: "user-42" });                         // undefined
+```
+
+- The library keeps the scope in `meta.scope`, a copy, and passes it to every store call in the
+  [context](#writing-a-store-of-your-own). It never reaches the model, a summary or an event.
+- A document with a scope serves only a caller of the same scope, segment by segment: another
+  scope, a longer or a shorter one, or none, finds it missing. A document without a scope serves a
+  caller of any scope, unless the library has `requireScope`.
+- A store may keep the documents of each scope apart: `MemoryDocumentStore` does, so one ID in two
+  scopes is two documents. A store that ignores the context, as every store written for 0.8 does,
+  still keeps scopes apart for the library, through `meta.scope`: a caller of scope B never reads a
+  document of scope A.
+- What the library keeps in memory is kept by scope too: a cached copy of a document of one scope
+  is never served to a caller of another, even when both documents have the same ID.
+- A scope has 1 to 8 segments of 1 to 256 characters, with no control character, no `/` or `\`, and
+  none of them `.` or `..`. Another is a `DocumentScopeError` of code `"scope_invalid"`, whose
+  message never repeats a segment. `null` counts as no scope.
+- Segments are compared exactly: `"Chat-7"` is not `"chat-7"`.
+
+The owner says who may use a document. The scope says where it belongs. With both, one user's two
+chats cannot use each other's files, and a store can lay the files of each chat out apart.
+
+### Requiring an owner and a scope
+
+New in 0.9.0. On a server where every document belongs to a signed-in user, turn both on:
+
+```ts
+import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
+
+export const strict = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: true, requireScope: true });
+```
+
+- Every call must then name its owner and its scope: `ingest`, `getMeta`, `getOriginal`, `delete`,
+  `prepare`, `askWithFiles`, `askStream`, `askGemini`, and `tools`, which needs `access`. A call
+  without one throws `TypeError("owner is required: requireOwner is on")` or
+  `TypeError("scope is required: requireScope is on")`, before the store is asked anything. A
+  forgotten owner fails loudly, instead of reaching every document stored without one.
+- A document stored without an owner, or without a scope, then reads as missing, for every caller.
+- `files.sweep()` needs no scope: it is upkeep of the store, not a user's access.
+- `files.access` says which are on, for code that serves the library (the upload handlers).
+
+### Application IDs
+
+New in 0.9.0. Give `ingest` the document's ID, such as the ID of the upload in your database:
+
+```ts
+// `strict` and `bytes` as above; "upload-3f9a" is the ID of the upload in your own records.
+const report = await strict.ingest({ name: "report.txt", bytes, owner: "user-42", scope: ["user-42", "chat-7"], id: "upload-3f9a" });
+```
+
+- The ID must match `APP_DOCUMENT_ID_PATTERN`: lowercase letters, digits, `_` and `-`, up to 64
+  characters, starting with a letter or a digit. Another is a `TypeError`. Without an `id`, the
+  library makes one, as before.
+- The model sees the ID, in the cards and the tool calls. It must hold no personal data: not an
+  email address, not a name.
+- `ifExists: "fail"`, the default, refuses an ID that is taken with an `IngestError` of code
+  `"exists"` (status 409), before the file is read. `ifExists: "replace"` deletes the document there,
+  then stores the new one, but only one of the same owner and scope, or one whose text is gone.
+  Another is `"exists"` too. A document that has expired is written over in both cases.
+- The store is asked "is this ID taken?" in the scope of the ingest. Over a store that ignores the
+  context, the question spans every scope: one chat cannot write over another chat's document, and
+  the IDs must be unique in the whole store.
+- Replacing a document is not atomic for readers on other servers: for a moment it is missing.
+- An ID you choose keeps the stored rounds of a conversation valid: a file ingested again under the
+  same ID is found by the `toolTurns` that name it ([Conversations](./conversations.md)).
+
+### Choosing the owner and the scope
+
+The owner and the scope are strings you choose. The library cannot list documents by owner or by
+scope. A good fit for a chat application:
+
+| Field | Value | What the library enforces |
 |---|---|---|
-| The user: `userId` | No user can use another user's documents. | Keeps each chat's document IDs in its session record and passes those, never a list from the browser as it came. A document can serve several chats of its user. |
-| The user and the chat: `` `${userId}/${sessionId}` `` | A document can be used only in the chat it was uploaded to. | Builds the same string for every call: upload, questions, GET, DELETE. `getOwner` must then know the chat, from the URL or a header. A file used in two chats is uploaded twice. |
+| `owner` | `userId` | No user can use another user's documents. |
+| `scope` | `[userId, chatId]` | A document can be used only in the chat it was uploaded to. A file used in two chats is uploaded twice. |
+| `id` | the upload's ID | The ID your session record keeps is the document's ID. |
 
-The [Conversations](./conversations.md) guide uses the first scheme. To switch to the second,
-change the `owner` you pass, everywhere.
+Build the same owner and scope for every call: upload, questions, GET, DELETE. Before 0.9.0, an
+owner of `` `${userId}/${sessionId}` `` did the work of the scope. It still works, but a store
+cannot lay files out by it, and the owner is no longer one user.
 
 ### A layout per user and per chat
 
@@ -183,17 +270,20 @@ list of a chat's documents:
 ```ts
 // chat-documents.ts. `files` is your library; `sessions` and `turns` are the collections of the
 // Conversations guide.
+import { randomUUID } from "node:crypto";
 import { toDocumentSummary, type DocumentSummary } from "llm-large-files";
 
-/** Adds a file to a chat. The user owns it, and the session record lists it. */
+/** Adds a file to a chat. The user owns it, the chat is its scope, and the session record lists it. */
 export async function attach(userId: string, sessionId: string, file: { name: string; mimeType?: string; bytes: Uint8Array }): Promise<DocumentSummary> {
   if (!await sessions.findOne({ _id: sessionId, userId })) throw new Error("No such chat.");
-  const meta = await files.ingest({ ...file, owner: userId });
+  const scope = [userId, sessionId];
+  // The document's ID is yours: here a new one, as the ID of an upload record would be.
+  const meta = await files.ingest({ ...file, owner: userId, scope, id: `up-${randomUUID().replaceAll("-", "")}` });
   try {
     await sessions.updateOne({ _id: sessionId, userId }, { $addToSet: { documentIds: meta.id } });
   } catch (error) {
     // A document that no chat lists would stay until it expires.
-    await files.delete(meta.id, { owner: userId }).catch(() => undefined);
+    await files.delete(meta.id, { owner: userId, scope }).catch(() => undefined);
     throw error;
   }
   return toDocumentSummary(meta);
@@ -210,35 +300,33 @@ export async function documentsFor(userId: string, sessionId: string, picked?: s
 export async function deleteChat(userId: string, sessionId: string): Promise<void> {
   const session = await sessions.findOne({ _id: sessionId, userId });
   if (!session) return;
-  for (const id of session.documentIds) await files.delete(id, { owner: userId });
+  for (const id of session.documentIds) await files.delete(id, { owner: userId, scope: [userId, sessionId] });
   await turns.deleteMany({ sessionId });
   await sessions.deleteOne({ _id: sessionId, userId });
 }
 ```
 
-- Ask with `owner: userId` and `documentIds: await documentsFor(userId, sessionId)`. When documents
-  have expired, the question throws `DocumentsNotFoundError` with their IDs:
-  [Conversations](./conversations.md) shows how to take them off the chat and ask the user for them
-  again.
+- Ask with `owner: userId`, `scope: [userId, sessionId]` and
+  `documentIds: await documentsFor(userId, sessionId)`. When documents have expired, the question
+  throws `DocumentsNotFoundError` with their IDs: [Conversations](./conversations.md) shows how to
+  take them off the chat and ask the user for them again.
 - `files.delete` gives false for a document that has already expired or been deleted. There is
   nothing left to do for it.
-- If your application lets a document serve several chats, delete it only when no other chat lists
-  it.
 - The `upload` handler of `createDocumentHandlers` answers the request itself, so it cannot record
   the new ID in your session. Call `attach` from a route of your own, or record the ID the browser
-  sends back in a second request, after checking it with `files.getMeta(id, { owner })`. Routes are
-  in [Web app](./web-app.md).
+  sends back in a second request, after checking it with `files.getMeta(id, { owner, scope })`.
+  Routes are in [Web app](./web-app.md).
 - To delete everything of a user (an account that is closed), collect the IDs from the user's chats.
   The library cannot find a user's documents. A store of your own can, if it keeps the owner where it
-  can query it, as the [example store](#example-object-storage-and-a-database) does.
+  can query it, as the [example store](#example-object-storage-and-a-database) does: the context of
+  every call gives it the owner and the scope.
 
 ### Files in a folder per user or per chat
 
-Every call but `put` gives a store the document ID without its metadata. `putOriginal` and
-`putIndex` come before `put`, so a store cannot know the owner of a file it is writing.
-A store therefore keys its files by document ID, and the layout by user and chat lives in your
-database: the session record lists the IDs, and a store of your own can keep the owner next to each
-document.
+Since 0.9.0, every store call carries the owner and the scope of the call (its context), so a store
+of your own can lay its files out by scope, `putOriginal` and `putIndex` included.
+`FileDocumentStore` keeps every document in one folder: the scope is then only an access rule,
+kept in `meta.scope`.
 
 If your storage rules need each chat's files in a folder of their own, give each chat a library of
 its own, over its own `FileDocumentStore`:
@@ -486,19 +574,20 @@ What the library does with what you throw depends on the call:
   to. What to show the user is in [Errors and reliability](./errors-and-reliability.md).
 - **`getIndex`**: an error is not passed on. The index is built from the text instead.
 - **Writes at ingest** (`putOriginal`, `putIndex`, `put`): the library calls `delete(id)` to remove
-  what was written, ignores any error of that, and throws your error as it came. Through the `upload`
-  handler of `createDocumentHandlers`, an error with a `status` (or `statusCode`) from 400 to 599 is
-  answered with that status and its message (a 413 with "The file is larger than the … upload
-  limit.", and an empty message with "Upload failed."). A Node system error (a string `code` and
-  `syscall`) is answered 500 "Upload failed (CODE).". Any other error, or a thrown value that is not
-  an `Error`, is answered 500 "Upload failed.", without its message, which may name a database host.
-  The handlers log nothing: log your error in the store before you throw. Two paths cannot tell
-  your error from a file that cannot be read, and answer it 422 with its message, host and all: an
-  `ingest` of your own that throws a new error in place of yours, and a route of your own. See the
-  [node reference](../reference/node.md#uploadrequest-response). Give your write errors a status and
-  a message of your own, as the example below does: every path keeps that status.
-- **`delete` and `sweep`**: your error comes out of `files.delete` and `files.sweep` as it came. The
-  DELETE handler answers it 500 without its message, unless it has a status.
+  what was written, ignores any error of that, and throws a `DocumentStoreError` of operation
+  `"write"`, whose `cause` is your error (new in 0.9.0: it threw your error as it came). Its message
+  is "The document could not be stored (EIO). Try again.", with the code only when your error has a
+  string `code`, and its status 503. A write that does not end within `ingestTimeoutMs` is one of
+  code `"ETIMEDOUT"`. The `upload` handler of `createDocumentHandlers` answers it 503 with that
+  message, which names no host or path (before 0.9.0, a 500). The handlers log nothing: log your
+  error in the store before you throw, or log `error.cause`. See the
+  [node reference](../reference/node.md#uploadrequest-response).
+- **`delete` and `sweep`**: your error comes out of `files.delete` and `files.sweep` as a
+  `DocumentStoreError` of operation `"delete"` or `"sweep"`, with your error as `cause` (new in
+  0.9.0: it came out as it was). The DELETE handler answers it 503 with its message.
+- **A scope you cannot keep**: throw a `DocumentScopeError` (`"scope_required"`, `"scope_invalid"`,
+  `"scope_missing"`). It is passed on as it is from every call, reads and writes alike: it is a
+  mistake of the call, not a store to try again.
 - **`putIndex` on a later read**: an error is ignored. The index is used from memory, and built again
   the next time.
 

@@ -102,6 +102,11 @@ export class DocumentCache<T extends Sized> {
 
   /** Drops every entry whose key starts with `prefix`: all the pieces of one document. */
   deletePrefix(prefix: string): void {
-    for (const key of [...this.entries.keys()]) if (key.startsWith(prefix)) this.delete(key);
+    this.deleteWhere((key) => key.startsWith(prefix));
+  }
+
+  /** Drops every entry whose key passes `test`: one document in every scope, with its pieces. */
+  deleteWhere(test: (key: string) => boolean): void {
+    for (const key of [...this.entries.keys()]) if (test(key)) this.delete(key);
   }
 }

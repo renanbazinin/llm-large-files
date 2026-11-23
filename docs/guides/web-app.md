@@ -262,8 +262,10 @@ the cases of the `422` above (an empty, binary or compressed file, no text, a mi
 dependency, a file past `maxTextBytes` or `maxPdfPages`, one that took longer than
 `ingestTimeoutMs`), and a file larger than `maxUploadBytes` ("app.log is larger than the 100 MB
 upload limit."). [PDFs and other formats](./pdfs.md#what-is-refused) lists every message. A store
-that fails while it writes throws its own error, as it came. This helper tells them apart by the
-rule `createDocumentHandlers` uses, with two differences, given below the code:
+that fails while it writes is a `DocumentStoreError` since 0.9.0, with status 503, a message that
+names no path or host, and the store's error as `cause` (it threw the store's error as it came).
+This helper tells them apart by the rule `createDocumentHandlers` uses, with one difference, given
+below the code:
 
 ```ts
 // ingest-failure.ts
@@ -286,14 +288,12 @@ export function ingestFailure(error: unknown): { status: number; error: string }
 }
 ```
 
-The first difference is a store's write error with no status and no system error code. The
-handler knows it by a mark that `ingest` keeps, and answers it `500` "Upload failed.", without the
-store's message. The package does not export the mark, so this helper answers it `422` with the
-store's own message, and the routes below send that message to the browser: it may name your hosts.
-Give your store's write errors a status and a message of your own ([Storage](./storage.md#errors)),
-and the handler and this helper answer them alike, except for the second difference. That one is a
-status of `413`: the handler answers it with its upload-limit message ("The file is larger than the
-100 MB upload limit."), and this helper with the error's own message.
+A store that failed reaches the helper as a `DocumentStoreError`, whose status is 503: it answers
+`503` with its message, as the handler does. An error of your own without a status, thrown in place
+of it, would be answered `422` with its message, which may name your hosts: pass the
+`DocumentStoreError` on as it is ([Storage](./storage.md#errors)). The difference is a status of
+`413`: the handler answers it with its upload-limit message ("The file is larger than the 100 MB
+upload limit."), and this helper with the error's own message.
 
 Check the size before you call `ingest`, and refuse with `413` while you read: `ingest` checks it
 too, but only once the whole file is in memory.

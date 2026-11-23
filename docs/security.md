@@ -20,20 +20,24 @@ import { askGemini } from "llm-large-files/gemini";
 // your sign-in session, never from the request body. `bytes`, `documentIds` and `messages` (an
 // array of `ChatTurn` and `ToolTurn`, which both calls take) are yours.
 const owner = userId;
+// New in 0.9.0, and optional: the chat the document belongs to. `chatId` comes from your session too.
+const scope = [userId, chatId];
 
-const meta = await files.ingest({ name: "app.log", bytes, owner });
-const current = await files.getMeta(meta.id, { owner });
-const original = await files.getOriginal(meta.id, { owner });
-const result = await askWithFiles({ files, model, documentIds, messages, owner });
-// askGemini passes `owner` on to askWithFiles.
-const geminiResult = await askGemini({ files, endpoint, documentIds, messages, owner });
-const deleted = await files.delete(meta.id, { owner });
+const meta = await files.ingest({ name: "app.log", bytes, owner, scope });
+const current = await files.getMeta(meta.id, { owner, scope });
+const original = await files.getOriginal(meta.id, { owner, scope });
+const result = await askWithFiles({ files, model, documentIds, messages, owner, scope });
+// askGemini passes `owner` and `scope` on to askWithFiles.
+const geminiResult = await askGemini({ files, endpoint, documentIds, messages, owner, scope });
+const deleted = await files.delete(meta.id, { owner, scope });
 ```
 
 A document that has an owner is used only by calls that pass that owner. A call with another
 owner, or with none, gets what it gets for a document that does not exist: `undefined`, `false`,
 `missing`, `DocumentsNotFoundError` or a 404 (the table is in
-[Storage](./guides/storage.md#how-ownership-works)).
+[Storage](./guides/storage.md#how-ownership-works)). A document that has a scope (new in 0.9.0) is
+used only by calls that pass the same scope, segment by segment, in the same way
+([Scopes](./guides/storage.md#scopes)). Every refusal reads as missing, never as forbidden.
 
 A caller cannot tell a document of another owner from one that never existed or has expired.
 `toDocumentSummary`, which the upload handlers answer with, leaves the owner out.
@@ -47,14 +51,36 @@ others whose IDs it has. From JavaScript, an owner that is neither a string nor 
 (the user object in place of its ID, `true`, `NaN`, an array) is refused with the same error. A
 number is accepted, as before. Only `ingest` and the upload handler refuse: calls that read with
 `owner: ""` work as before, so documents that 0.5.0 stored with that owner stay readable until
-they expire.
+they expire. Under `requireOwner` (below), every call refuses such an owner, and those documents
+can no longer be read.
 
 **A document ingested without an owner is open to every call that has its ID**, with an owner or
-without. Its ID then works like a password. An ID is `doc_` and 32 hex digits, a random UUID with
-122 random bits: it cannot be guessed, but it can leak. The ID of a document the model reads
-through tools is in its card and in the system instruction your model provider receives (so a
-model can repeat it in an answer), and IDs end up in your URLs, in browser storage and in logs.
-Give every document an owner.
+without. Its ID then works like a password. An ID the library makes is `doc_` and 32 hex digits, a
+random UUID with 122 random bits: it cannot be guessed, but it can leak. An ID your application
+gives (`IngestInput.id`, new in 0.9.0) may be guessed, if it counts up or follows a pattern. The ID
+of a document the model reads through tools is in its card and in the system instruction your model
+provider receives (so a model can repeat it in an answer), and IDs end up in your URLs, in browser
+storage and in logs. So an ID must never hold personal data, and every document should have an
+owner.
+
+**Fail closed with `requireOwner` and `requireScope`.** New in 0.9.0, both off by default. With
+`createLargeFiles({ ..., requireOwner: true })`, every call must name an owner: `ingest`,
+`getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles`, `askStream`, `askGemini`, and
+`tools`, which then needs `access`. A call without one throws
+`TypeError("owner is required: requireOwner is on")` before the store is asked anything, and a
+document stored without an owner reads as missing. So a route that forgot the owner fails, instead
+of reaching every document stored without one. `requireScope` does the same for scopes
+(`"scope is required: requireScope is on"`); `files.sweep()` without a scope stays allowed. Turn on
+both where every document belongs to a signed-in user and a chat. A document a store gives back
+with the owner `null` (a MongoDB driver writes a field that was left out that way) counts as having
+no owner: open without `requireOwner`, missing with it.
+
+**A store that forgets the context fails closed.** Every store call carries the owner and the scope
+(new in 0.9.0). A wrapper or a subclass that passes on only the ID (`super.getMeta(id)`) loses
+them. Over a store that keeps scopes apart, the documents then look missing; over a
+`FileDocumentStore` with scoped folders, the calls throw a `DocumentScopeError`. Neither serves a
+document of one scope to another: the library checks `meta.scope` itself. Pass the context on, as
+[Writing a store of your own](./guides/storage.md#writing-a-store-of-your-own) shows.
 
 What the owner should be (a user, or a user and a chat session), and how to keep a list of a
 session's documents, is in [Storage](./guides/storage.md). The owner stops one user from reaching
@@ -109,19 +135,26 @@ may use. `view_pages` has its own list: the PDFs whose original is kept (in a st
 that only its text was kept, any other is an unknown `document_id`.
 
 `askWithFiles` and `askGemini` make one tool set per question, from the plan that `prepare` made
-with the question's owner. You have nothing to do.
+with the question's owner and scope, and pass them to the tools as `access`. You have nothing to do.
 
-**`files.tools()` checks owners through the metadata it is given.** It has no owner option. On
-every call that reads a document's text or the pages of its PDF, it checks that the document is
-still in the store and has not expired, and compares the owner stored with the document with the
-`owner` of the `DocumentMeta` you passed for that ID. When they differ, the call answers
-`doc_… is no longer available on the server. Ask the user to attach the file again.`, as for a
-document that is gone, and `view_pages` shows no page. So metadata built from an ID a client sent,
-with no owner or another one, reads nothing of a document that has an owner. The check compares
-strings: metadata that carries the stored owner reads the document, wherever it came from, and a
-document stored without an owner is open to any metadata. (Before 0.6.0, `tools()` checked no
-owner.) In a tool loop of your own, give it only metadata that `prepare(ids, base, { owner })` or
-`getMeta(id, { owner })` returned, never objects built from IDs a client sent:
+**`files.tools(documents, { access })` checks the owner and scope the store holds.** New in 0.9.0.
+On every call that reads a document's text or the pages of its PDF, it asks the store for the
+document with the owner and scope of `access`, checks that it is still there and has not expired,
+and compares its stored owner and scope with `access`, as `getMeta(id, access)` does. When they
+differ, the call answers `doc_… is no longer available on the server. Ask the user to attach the
+file again.`, as for a document that is gone, and `view_pages` shows no page. The metadata handed
+in decides nothing: metadata read straight from the store for another user (such as
+`await store.getMeta(id)`) reads nothing with `access: { owner: "bob" }`. Under `requireOwner` or
+`requireScope`, `tools` throws without `access`.
+
+**Without `access`, `files.tools()` checks owners through the metadata it is given**, as before
+0.9.0. It compares the owner and scope stored with the document with those of the `DocumentMeta`
+you passed for that ID. So metadata built from an ID a client sent, with no owner or another one,
+reads nothing of a document that has an owner. But the check compares strings: metadata that
+carries the stored owner reads the document, wherever it came from, and a document stored without
+an owner is open to any metadata. (Before 0.6.0, `tools()` checked no owner.) In a tool loop of
+your own, pass `access`, and give `tools` only metadata that `prepare(ids, base, { owner, scope })`
+or `getMeta(id, { owner, scope })` returned, never objects built from IDs a client sent:
 
 ```ts
 import { DocumentsNotFoundError } from "llm-large-files";
@@ -129,9 +162,9 @@ import { DocumentsNotFoundError } from "llm-large-files";
 // Your own loop: `base` is the size of the rest of your request. The tools below have no
 // `generate`: `wholeDocumentAnalysis: false` keeps the instruction from naming
 // `analyze_whole_document`, and the cards from offering a whole-file read.
-const prepared = await files.prepare(documentIds, base, { owner, wholeDocumentAnalysis: false });
+const prepared = await files.prepare(documentIds, base, { owner, scope, wholeDocumentAnalysis: false });
 if (prepared.missing.length > 0) throw new DocumentsNotFoundError(prepared.missing);
-const tools = files.tools(prepared.plan.searchable);
+const tools = files.tools(prepared.plan.searchable, { access: { owner, scope } });
 ```
 
 Writing your own loop is covered in [Your own adapter and loop](./guides/own-adapter-and-loop.md),
@@ -900,17 +933,17 @@ Waits, retries and deadlines are explained in
 ## Storage errors
 
 A store's own errors can name paths and hosts. Reads reach users and models only as
-`DocumentStoreError`, whose message names neither, with the original error as its `cause`. Writes
-are passed on as they came, and the upload handler answers a write error that has neither a
-`status` (or `statusCode`) from 400 to 599 nor a Node system error's `code` and `syscall` with 500
-"Upload failed.", without the error's own message. A write error with such a status, such as an
-SDK's error with `statusCode`, is answered with that status and its own message, which can name a
-host. Two paths answer a store's write error 422 with its own message, so a database driver's host
-can reach the browser through them: an `ingest` of your own that throws a new error in place of the
-store's, as `ingestInProcess` in [Deployment](./guides/deployment.md#uploads-and-ingest) does, and a
-route of your own, as in [Web app](./guides/web-app.md#filesingest-and-its-errors). Give your
-store's write errors a status and a message of your own, and log the cause yourself, since the
-handlers log nothing: see [Storage](./guides/storage.md#errors) and the
+`DocumentStoreError`, whose message names neither, with the original error as its `cause`. Since
+0.9.0 so do writes: a store that fails in `ingest`, `files.delete` or `files.sweep` is a
+`DocumentStoreError` of operation `"write"`, `"delete"` or `"sweep"`, with status 503, and the
+upload handler answers it 503 with that message. (Before, writes were passed on as they came, and a
+write error with a `status` of its own was answered with its own message, which could name a host.)
+Two paths can still answer an error of your own 422 with its own message, so a database driver's
+host can reach the browser through them: an `ingest` of your own that throws a new error in place
+of the store's, as `ingestInProcess` in [Deployment](./guides/deployment.md#uploads-and-ingest)
+does, and a route of your own, as in [Web app](./guides/web-app.md#filesingest-and-its-errors).
+Pass the `DocumentStoreError` on as it is, and log its `cause` yourself, since the handlers log
+nothing: see [Storage](./guides/storage.md#errors) and the
 [node reference](./reference/node.md#uploadrequest-response). What to show a user is in
 [Errors and reliability](./guides/errors-and-reliability.md).
 

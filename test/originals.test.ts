@@ -118,7 +118,9 @@ describe("original files", () => {
       getOriginal: async (id) => originals.get(id),
     };
     const files = createLargeFiles({ store: failing, keepOriginals: ["pdf"] });
-    await expect(files.ingest({ name: "report.pdf", bytes: pdf })).rejects.toThrow("disk full");
+    // The store's own error is the cause of a DocumentStoreError since 0.9.0.
+    const failure = await files.ingest({ name: "report.pdf", bytes: pdf }).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ name: "DocumentStoreError", operation: "write", cause: new Error("disk full") });
     // The file is written first and the document last; the file is removed when the document fails.
     expect(calls).toEqual(["putOriginal", "put", "delete"]);
     expect(originals.size).toBe(0);

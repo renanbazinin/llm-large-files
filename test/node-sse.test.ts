@@ -500,7 +500,8 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     const url = await start({ store: new CustomStore() });
     const body = await (await upload(url, "a.txt", "notes")).text();
     expect(body).not.toContain("mongo-prod-1");
-    expect(parse(body).messages.at(-1)).toMatchObject({ event: "ingest.error", data: { type: "ingest.error", error: { message: "Upload failed.", status: 500 } } });
+    // A DocumentStoreError since 0.9.0, answered 503 in its own words (it was a 500, "Upload failed.").
+    expect(parse(body).messages.at(-1)).toMatchObject({ event: "ingest.error", data: { type: "ingest.error", error: { message: "The document could not be stored. Try again.", status: 503 } } });
   });
 
   it("still answers a missing name, a refused owner and a file too large with an HTTP error in JSON", async () => {

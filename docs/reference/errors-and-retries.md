@@ -333,6 +333,11 @@ should not have given, or should have: the same call fails again. The message of
 | `"sweep"` | `The document store could not be cleaned up (EIO). Try again.` |
 | code `"NEWER_VERSION"` | `The document was stored by a newer version of llm-large-files. Try again.` |
 
+The library throws `"read"` from every look-up, `"write"` from `files.ingest` (code `"ETIMEDOUT"`
+for a write that did not end within `ingestTimeoutMs`), `"delete"` from `files.delete` and
+`"sweep"` from `files.sweep`. Until 0.9.0 the errors of writes came out as the store threw them. A
+`DocumentScopeError` the store throws is never wrapped.
+
 #### Telling errors apart across copies of the package
 
 New in 0.9.0. Each of `ModelRequestError`, `DocumentsNotFoundError`, `DocumentStoreError`,
