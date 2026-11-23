@@ -459,7 +459,7 @@ describe("a PDF page that would hold the server is refused before pdf.js reads i
   });
 
   // About 4.5 s with one test file at a time. Beside the other files, 14 s at a load of 14, and
-  // 17.5 s under coverage.
+  // 17.5 to 20.5 s under coverage.
   it("reads such a page with checkPages: false", { timeout: 60_000 }, async () => {
     // 14,400 paints of a form with text: past the limit, and about 1.1 s of pdf.js.
     const bomb = formsInForms(2, 120);
