@@ -464,13 +464,22 @@ U+FFFD. `meta.replacedCharacters` counts the U+FFFD, and the model is told of th
   `directoryMode: 0o750`, never more. Files written before 0.9.0 keep their modes: change them once
   with `chmod` to narrow them.
 - **No path traversal.** File names are document IDs, and only IDs of the shape
-  `APP_DOCUMENT_ID_PATTERN` (lowercase letters, digits, `_` and `-`), and not names Windows keeps
-  for a device, reach the file system. With `scopes`, each segment of a scope names a folder, and
-  must pass `isSafeScopeSegment` (the same shape, no `.` or `..`), or the call is refused. Every call
-  checks that the folder of its scope is where its path says inside the directory, so a link there,
-  to another chat or out of the volume, is refused, and `sweep` follows no link. A store with
-  `scopes` never makes the folder of a chat again once you removed it, unless `createScopeFolders`
-  is on ([Storage](./guides/storage.md#files-in-a-folder-per-user-or-per-chat)).
+  `APP_DOCUMENT_ID_PATTERN` (lowercase letters, digits, `_` and `-`, and no name Windows keeps for
+  a device) reach the file system. With `scopes`, each segment of a scope names a folder, and must
+  pass `isSafeScopeSegment` (the same shape, no `.` or `..`), or the call is refused. A call checks
+  that the folder of its scope is where its path says inside the directory, so a link there, to
+  another chat or out of the volume, is refused, and `sweep` follows no link. Writes and deletes
+  check every time; a read takes a check made less than a second ago, so a link put in place of a
+  chat's folder is seen by reads within a second. `createScopeFolders` makes a scope's folders one
+  level at a time, and nothing where a link points. A read does not follow a link at a file name
+  either (`O_NOFOLLOW`), except on Windows, which has no such flag: there, only links in the
+  folders are refused. A store with `scopes` never makes the folder of a chat again once you
+  removed it, unless `createScopeFolders` is on
+  ([Storage](./guides/storage.md#files-in-a-folder-per-user-or-per-chat)).
+- **Your files beside the store's.** In the store's directory without `scopes`, or with
+  `scopes.folder` `""`, the names `<id>.json`, `.txt`, `.idx` and `.bin`, and their temporary
+  files, belong to the store for every ID it is given: an ingest writes over your file of such a
+  name. Keep your own files in a subfolder, or under other names.
 - `MemoryDocumentStore` keeps everything in the memory of one process, until it restarts. It is for
   tests and single-process demos. It copies the metadata it is given and the metadata it hands out,
   so deleting `owner` from what `ingest` or `getMeta` returned, before you send it to a browser,

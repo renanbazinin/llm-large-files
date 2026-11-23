@@ -20,7 +20,8 @@ parts under the document's ID:
 The library makes the ID: `doc_` and 32 hexadecimal digits of a random UUID. It is new at every
 ingest and never reused. `DOCUMENT_ID_PATTERN` (`/^doc_[a-f0-9]{32}$/`) matches it. Since 0.9.0 the
 application may give the ID instead ([Application IDs](#application-ids)), of the shape
-`APP_DOCUMENT_ID_PATTERN` (`/^[a-z0-9][a-z0-9_-]{0,63}$/`), which the made IDs fit too.
+`APP_DOCUMENT_ID_PATTERN` (`/^(?!(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$)[a-z0-9][a-z0-9_-]{0,63}$/`:
+no name Windows keeps for a device), which the made IDs fit too.
 `isDocumentId(value)` tests a value against it: use it on IDs that arrive in a request before they
 reach your database. The library tests every ID itself before it asks the store. An ID that does
 not match counts as missing, so a store only ever receives IDs that match.
@@ -96,10 +97,17 @@ With `scopes` (new in 0.9.0), the files of each scope are in a folder of their o
   remove is left for `sweep` (new in 0.9.0: it threw). A document never appears without its text,
   and is never listed once its text is gone.
 - File names are document IDs: the library's (`doc_` and 32 hex digits), or, since 0.9.0, an
-  application's ([Application IDs](#application-ids)). An ID that Windows keeps for a device (`con`,
-  `nul`, `com1` and the like) is refused, since `con.json` is not a file there. A read or a `delete`
-  with an ID that is not valid finds nothing, and `put`, `putIndex` and `putOriginal` throw "Invalid
-  document ID." The library's IDs keep the names they had, so servers of 0.8 still read them.
+  application's ([Application IDs](#application-ids)). `APP_DOCUMENT_ID_PATTERN` leaves out the
+  names Windows keeps for devices (`con`, `nul`, `com1` and the like), since `con.json` is not a
+  file there: `ingest` refuses them with a `TypeError`. A read or a `delete` with an ID that is not
+  valid finds nothing, and `put`, `putIndex` and `putOriginal` throw "Invalid document ID." The
+  library's IDs keep the names they had, so servers of 0.8 still read them.
+- The names `<id>.json`, `<id>.txt`, `<id>.idx` and `<id>.bin`, and their temporary files, belong
+  to the store for every ID it is given. Without `scopes`, `directory` is a folder where your files
+  may sit too: an ingest under the ID `report` writes over your `report.txt`, and a `delete` or
+  `ifExists: "replace"` removes it. Keep your own files in a subfolder, or under other names.
+- A read does not follow a link at a file name (new in 0.9.0): a document file that is a link counts
+  as missing. Windows cannot refuse such a link, so there it is followed.
 - Files are written `0600` and folders made `0700` (new in 0.9.0: before, `0666` and `0777`, minus
   the umask, which gave `0664` and `0775` under the usual `0002`). Only the user the server runs as
   reads them. Servers or a backup job that run as other users of one group (a Kubernetes `fsGroup`)
@@ -113,7 +121,8 @@ With `scopes` (new in 0.9.0), the files of each scope are in a folder of their o
   undefined. Since 0.9.0 it does so also when the removal fails: the next `sweep` tries again.
 - `readTextRange` reads only the bytes asked for, so a tool call never loads a large file whole.
   The whole text is read only when the plan sends it in the prompt.
-- `sweep` removes expired documents and returns how many. It also removes files that belong to no
+- `sweep` removes expired documents and returns how many: those whose metadata it removed itself,
+  so two sweeps at once count each document once. It also removes files that belong to no
   document (an upload that failed, a server that stopped while writing) and temporary files, once
   they are `orphanAgeMs` old, one hour by default: a younger one may be an upload in progress on
   another server. In a folder that may hold files of yours too (`directory` without `scopes`), it
@@ -361,7 +370,7 @@ every chat, with each chat's files in a folder of its own:
 ```ts
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { createLargeFiles, FileDocumentStore, toDocumentSummary } from "llm-large-files";
+import { createLargeFiles, FileDocumentStore, isSafeScopeSegment, toDocumentSummary } from "llm-large-files";
 
 const DOCUMENTS_DIR = process.env.DOCUMENTS_DIR!;
 
@@ -369,10 +378,19 @@ const DOCUMENTS_DIR = process.env.DOCUMENTS_DIR!;
 export const store = new FileDocumentStore(DOCUMENTS_DIR, { scopes: { depth: 2 } });
 export const files = createLargeFiles({ store, requireOwner: true, requireScope: true });
 
+/**
+ * Makes the folder of a chat. Call it once, when you create the chat's record, not on each upload:
+ * an upload after you removed the folder must fail, not make it again.
+ */
+export async function startChat(userId: string, chatId: string) {
+  // Check the IDs before they become a path. For IDs that do not pass, use hashedScopeSegment.
+  if (!isSafeScopeSegment(userId) || !isSafeScopeSegment(chatId)) throw new TypeError("The user or chat ID cannot name a folder.");
+  await mkdir(path.join(DOCUMENTS_DIR, userId, chatId), { recursive: true, mode: 0o700 });
+}
+
 /** Adds a file to a chat. `uploadId` is the ID of the upload in your records: lowercase, as UUIDs are. */
 export async function upload(userId: string, chatId: string, uploadId: string, file: { name: string; bytes: Uint8Array }) {
-  // The folder of a chat is yours: make it when the chat starts. The store makes only its own in it.
-  await mkdir(path.join(DOCUMENTS_DIR, userId, chatId), { recursive: true });
+  // The store makes only its own folder in the chat's. A chat whose folder is gone: "scope_missing".
   const meta = await files.ingest({ ...file, owner: userId, scope: [userId, chatId], id: uploadId });
   return toDocumentSummary(meta);
 }
@@ -407,13 +425,25 @@ The volume then holds:
   of making the folder again. Reads in that chat find nothing. To delete a user, remove the user's
   folder.
 - `createScopeFolders: true` makes the folders of a chat at its first upload, for an application
-  that keeps none of its own. The removal above then cannot stop a late upload.
-- `folder: ""` puts the store's files in the chat's folder itself, beside yours.
+  that keeps none of its own. The removal above then cannot stop a late upload. It makes them one
+  level at a time, and makes nothing where a link points.
+- `folder: ""` puts the store's files in the chat's folder itself, beside yours. The names
+  `<id>.json`, `.txt`, `.idx` and `.bin`, and their temporary files, then belong to the store for
+  every ID it is given: an ingest under the ID `report` writes over your `report.txt`. Keep your own
+  files in a subfolder, such as `uploads/`, or under other names.
 - `files.sweep()` sweeps every chat: it goes down exactly `depth` levels of folders, into folders
   whose names a segment may have, and never follows a link. `files.sweep({ scope })` sweeps one
   chat's folder. Run it from one server ([Deployment](./deployment.md#sweeping-expired-documents)).
-- A folder of a scope that is a link, or lies under one, is refused with `"scope_invalid"`: every
-  call checks that the folder is where its path says, inside `DOCUMENTS_DIR`.
+- A folder of a scope that is a link, or lies under one, is refused with `"scope_invalid"`: a call
+  checks that the folder is where its path says, inside `DOCUMENTS_DIR`. Writes, deletes and sweeps
+  check every time. A read takes a folder checked less than a second ago as checked, so a link put
+  in place of a chat's folder is seen by reads within a second. A link at a file name is not
+  followed either, except on Windows.
+- That check costs one `realpath` of the chat's folder, a look at each folder on its path. Reads
+  share it for a second, so a search that reads a large document by range checks once a second,
+  not once a read. On a local SSD, 10,000 ranged reads in a chat's folder took 0 to 17% longer than
+  in the flat layout; when each read checked, they took 40 to 60% longer. On a network volume each
+  of those looks can be a round trip.
 - Documents ingested before 0.9.0 are in `DOCUMENTS_DIR` itself. `unscoped: "root"` serves a call
   without a scope from there, as before, until they expire, and `files.sweep()` sweeps them too.
   It cannot go with `requireScope`, which refuses such calls first.

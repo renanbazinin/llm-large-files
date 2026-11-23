@@ -499,7 +499,7 @@ The argument of [`files.ingest`](#filesingestinput).
 | `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX, PPTX, XLSX and HTML extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written changes nothing. `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
 | `onEvent` | `(event: IngestEvent) => void` | none | What the ingest does as it goes: `ingest.start`, `ingest.progress` for each stage, then `ingest.finish` or `ingest.error` (see [`files.ingest`](#filesingestinput) and [events](./events.md)). Progress is worked out only when it is given. New in 0.7.0. |
 | `runId` | `string` | `"ing_"` and 16 hex digits | The `runId` of those events. New in 0.7.0. |
-| `id` | `string` | `"doc_"` and 32 hex digits, made | The document's ID, chosen by the application, such as the ID of its upload. It must match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern): lowercase letters, digits, `_` and `-`, up to 64 characters, starting with a letter or a digit. Another ID is a `TypeError`. The model sees the ID (in the cards and the tool calls), so it must hold no personal data, such as an email address. Over a store that keeps no scopes apart, it must be unique in the whole store: `ifExists` makes sure. New in 0.9.0. |
+| `id` | `string` | `"doc_"` and 32 hex digits, made | The document's ID, chosen by the application, such as the ID of its upload. It must match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern): lowercase letters, digits, `_` and `-`, up to 64 characters, starting with a letter or a digit, and not a name Windows keeps for a device (`con`, `nul`, `com1`). Another ID is a `TypeError`. The model sees the ID (in the cards and the tool calls), so it must hold no personal data, such as an email address. Over a store that keeps no scopes apart, it must be unique in the whole store: `ifExists` makes sure. New in 0.9.0. |
 | `ifExists` | `"fail" \| "replace"` | `"fail"` | What to do when a document of `id` is already there, as the store sees it for this scope. `"fail"`: an `IngestError` `"exists"` (status 409). `"replace"`: the document is deleted, then the new one is stored; only one of the same owner and scope, or one whose text is gone (its metadata is there, its text is not). Another is `"exists"` too. A document that has expired is written over in both cases. The store is asked before the file is read and again just before the writes. Replacing is not atomic for readers on other servers: for a moment the document is missing. New in 0.9.0. |
 | `scope` | [`DocumentScope`](#documentscope) | none | Where the document belongs, such as `[userId, chatId]`. Every store call of the ingest carries it, and it is kept in `meta.scope`, a copy: only a caller of the same scope may use the document, segment by segment. Never sent to the model, nor in a summary or an event. Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
 
@@ -1110,6 +1110,10 @@ documents of each scope are in a folder of their own:
 - The files are in `directory` itself, without `scopes`. A call's context is then not used: a scope
   is only an access rule of the library (`meta.scope`). With `scopes`, they are in
   `<directory>/<scope segments>/<scopes.folder>/` ([`FileDocumentScopes`](#filedocumentscopes)).
+- The names `<id>.json`, `<id>.txt`, `<id>.idx` and `<id>.bin`, and their temporary files, belong
+  to the store for every ID it is given. Where files of your own may sit (`directory` without
+  `scopes`, or `scopes.folder` `""`), an ingest writes over your file of such a name, and `delete`
+  or `ifExists: "replace"` removes it. Keep your own files in a subfolder, or under other names.
 - The directory is created at the first write, as are its own folders in the folder of each scope.
   Since 0.9.0, it writes files with `fileMode` (0o600) and makes folders with `directoryMode`
   (0o700), minus the umask of the process. Files and folders written before keep their modes.
@@ -1118,8 +1122,8 @@ documents of each scope are in a folder of their own:
   Windows, another process has the file open for a moment) is tried again ten more times, with
   pauses of 2,630 ms in all: about 2.6 seconds. Removals are tried again since 0.9.0.
 - File names are document IDs. Since 0.9.0 an ID may be an application's
-  ([`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern)), except a name Windows keeps for a device
-  (`con`, `prn`, `aux`, `nul`, `com0` to `com9`, `lpt0` to `lpt9`). `put`, `putOriginal` and
+  ([`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern)), which leaves out the names Windows keeps
+  for devices (`con`, `prn`, `aux`, `nul`, `com0` to `com9`, `lpt0` to `lpt9`). `put`, `putOriginal` and
   `putIndex` throw `Error("Invalid document ID.")` for another ID; for such an ID the reads return
   `undefined` and `delete` returns `false`. The IDs the library makes keep their names, so a server
   of 0.8 still reads them. A server of 0.8 does not read documents under an application's ID.
@@ -1129,12 +1133,17 @@ documents of each scope are in a folder of their own:
   returns `undefined`: since 0.9.0 also when the removal fails, which `sweep` then tries again.
   `get`, `readTextRange` and `getOriginal` return `undefined` for a missing file. Any other failure
   of a read is thrown. `getIndex` returns `undefined` for any failure.
+- Since 0.9.0, a read does not follow a link at a file name (`O_NOFOLLOW`): a document file that is
+  a link counts as missing. Windows has no such flag, so there a link at a file name is followed;
+  links in the folders of a scope are refused on every platform (`"scope_invalid"`).
 - `delete` removes the metadata first. When that fails, it throws, and nothing else is removed: the
   document stays whole. Then it removes the text, the index and the original, and returns whether
   the metadata existed. Since 0.9.0, a part that cannot be removed then is left for `sweep`, and
   `delete` still returns `true`: the document is gone once its metadata is.
 - `sweep(now?)` removes expired documents and returns how many, counting a document whose metadata
-  is not valid and is older than `orphanAgeMs`. It also removes files that belong to no document,
+  is not valid and is older than `orphanAgeMs`. It counts only the documents whose metadata it
+  removed itself: of two sweeps at once, on one server or two, each document is counted once
+  (since 0.9.0). It also removes files that belong to no document,
   and temporary files, once they are older than `orphanAgeMs` (these are not counted). Where files
   of your own may sit beside the documents (`directory` without `scopes`, or `scopes.folder` `""`),
   a file of no document is removed only when its name is an ID the library makes, or a temporary
@@ -1196,8 +1205,8 @@ a folder of their own: `<directory>/<segment 1>/…/<segment depth>/<folder>/<id
 | Field | Default | What it does |
 |---|---|---|
 | `depth` | Required | How many segments every scope has, from 1 to 8: 2 for `[userId, chatId]`. |
-| `folder` | `".llm-large-files"` | The store's folder in the folder of each scope. `""` puts the files in the scope's folder itself, beside files of your own. |
-| `createScopeFolders` | `false` | Whether a write makes the folders of a scope that has none. With `false`, the folders of a scope are yours: the store only makes its own `folder` in one that exists. |
+| `folder` | `".llm-large-files"` | The store's folder in the folder of each scope. `""` puts the files in the scope's folder itself, beside files of your own. The names `<id>.json`, `.txt`, `.idx` and `.bin`, and their temporary files, then belong to the store for every ID it is given: an ingest writes over your file of such a name. Keep your own files in a subfolder, such as `uploads/`, or under other names. |
+| `createScopeFolders` | `false` | Whether a write makes the folders of a scope that has none. With `false`, the folders of a scope are yours: the store only makes its own `folder` in one that exists. With `true`, it makes them one level at a time, and checks that each is a folder and not a link before it goes into it: it makes nothing where a link points. |
 | `unscoped` | `"refuse"` | What a call without a scope does. `"refuse"`: a `DocumentScopeError` of code `"scope_required"`. `"root"`: it uses the files in `directory` itself, as a store without `scopes`, to keep reading documents written there before. |
 
 What a call's scope must be, or the call throws a [`DocumentScopeError`](#documentscopeerror)
@@ -1212,8 +1221,11 @@ whose message names no segment:
 - Segments are lowercase only because SMB and Azure Files ignore case: `Alice` and `alice` would
   be one folder. Pass [`hashedScopeSegment(value)`](#hashedscopesegmentvalue) as the segment for an
   ID in mixed case or in Hebrew, at ingest and on every later call.
-- Every call checks the folder's real path once. A read of a scope with no folder costs that one
-  look.
+- A call checks the real path of its scope's folder (`realpath`). A read takes a folder that passed
+  the check less than a second ago as checked; the store remembers up to 4,096 such folders. A
+  write, a `delete` and a `sweep` with a scope check again every time, and so does the first read
+  after a read that found no file. A read of a scope with no folder costs that one look. Swapping a
+  chat's folder for a link is therefore seen by reads within a second, and by writes at once.
 - A wrapper or a subclass that does not pass the context on gets `"scope_required"` on every call:
   pass it on ([Writing a store of your own](../guides/storage.md#writing-a-store-of-your-own)).
 
@@ -1225,10 +1237,10 @@ declare function isSafeScopeSegment(value: string): boolean;
 
 New in 0.9.0. Whether a [`FileDocumentStore`](#filedocumentstore) with `scopes` takes `value` as a
 segment of a scope, that is, as the name of a folder: lowercase letters, digits, `_` and `-`, 1 to
-64 characters, starting with a letter or a digit (`/^[a-z0-9][a-z0-9_-]{0,63}$/`, the shape of
-[`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern)), and not a name Windows keeps for a device
-(`con`, `prn`, `aux`, `nul`, `com0` to `com9`, `lpt0` to `lpt9`). UUIDs and MongoDB ObjectIds in
-lowercase hex pass it as they are.
+64 characters, starting with a letter or a digit, and not a name Windows keeps for a device
+(`con`, `prn`, `aux`, `nul`, `com0` to `com9`, `lpt0` to `lpt9`): the shape of
+[`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern). UUIDs and MongoDB ObjectIds in lowercase
+hex pass it as they are.
 
 ### hashedScopeSegment(value)
 
@@ -1265,12 +1277,15 @@ The shape of every document ID that `ingest` makes: `doc_` and 32 lowercase hexa
 ### `APP_DOCUMENT_ID_PATTERN`
 
 ```ts
-declare const APP_DOCUMENT_ID_PATTERN: RegExp; // /^[a-z0-9][a-z0-9_-]{0,63}$/
+declare const APP_DOCUMENT_ID_PATTERN: RegExp; // /^(?!(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$)[a-z0-9][a-z0-9_-]{0,63}$/
 ```
 
 New in 0.9.0. The shape of a document ID an application chooses (`IngestInput.id`): lowercase
-letters, digits, `_` and `-`, up to 64 characters, starting with a letter or a digit. The IDs
-`ingest` makes have it too. [`isDocumentId`](#isdocumentidvalue) tests a value against it.
+letters, digits, `_` and `-`, up to 64 characters, starting with a letter or a digit. It does not
+match a name Windows keeps for a device (`con`, `prn`, `aux`, `nul`, `com0` to `com9`, `lpt0` to
+`lpt9`), since `con.json` is not a file there. Longer names, such as `console` or `com10`, match.
+`ingest` refuses an `id` that does not match with a `TypeError`, before it calls the store. The IDs
+`ingest` makes have the shape too. [`isDocumentId`](#isdocumentidvalue) tests a value against it.
 
 ### `DOCUMENT_META_VERSION`
 
