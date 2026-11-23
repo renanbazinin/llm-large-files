@@ -2,29 +2,92 @@ name: Release
 
 # Stages the version on npm when a version tag (v1.2.3) is pushed: a maintainer then approves it on
 # npmjs.com (Staged Packages, with two-factor approval) and it goes public. See docs/publishing.md.
+#
+# Two jobs. "build" checks the tag, runs every check, packs the tarball and checks it as npm
+# installs it, without an identity token: the tests and the dependencies run where nothing can ask
+# for one. "publish" holds the identity token, and runs no code of the repository or of its
+# dependencies: it stages the very tarball that "build" checked.
 on:
   push:
     tags: ["v*"]
 
 permissions:
   contents: read
-  id-token: write # npm trusted publishing and provenance
 
+# Actions are pinned by commit, as in ci.yml (which says how to update them).
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          # No dependency cache when releasing: a poisoned cache would run its code in this job and
+          # could change what goes in the tarball.
+          package-manager-cache: false
+      # No install scripts. Nothing in the tree needs one: esbuild (under vitest) has a postinstall
+      # that only checks its binary, which it finds in its @esbuild/<platform> package without it.
+      - run: npm ci --ignore-scripts
+      - name: Check the tag matches package.json
+        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
+      # The typecheck, the tests, and the build into dist/.
+      - run: npm run check
+      - name: Pack
+        id: pack
+        # The shasum and integrity are those npm shows for the version (npm view llm-large-files@<version> dist).
+        run: |
+          npm pack --ignore-scripts --json > "${RUNNER_TEMP}/pack.json"
+          tarball="$(node -p 'require(process.argv[1])[0].filename' "${RUNNER_TEMP}/pack.json")"
+          node -p 'const [packed] = require(process.argv[1]); `npm shasum: ${packed.shasum}\nnpm integrity: ${packed.integrity}`' "${RUNNER_TEMP}/pack.json"
+          sha256sum "${tarball}"
+          echo "tarball=${tarball}" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "${tarball}" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      # Installed without and with the optional peers, every subpath imported and required, an
+      # ingest in a child process, a consumer compiled three ways, publint and attw.
+      - name: Check the tarball as npm installs it
+        run: node scripts/check-tarball.mjs "${{ steps.pack.outputs.tarball }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package
+          path: ${{ steps.pack.outputs.tarball }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    env:
+      TARBALL: ${{ needs.build.outputs.tarball }}
+      SHA256: ${{ needs.build.outputs.sha256 }}
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          # No dependency cache when publishing: a poisoned cache could expose the publish token.
           package-manager-cache: false
-      - run: npm ci
-      - name: Check the tag matches package.json
-        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
-      - run: npm run check
+      # The artifact action checks the digest of what it downloads (digest-mismatch: error); the
+      # step after it checks the tarball against the hash the build job printed.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: release
+      - name: Check the tarball is the one the build job checked
+        run: echo "${SHA256}  release/${TARBALL}" | sha256sum --check --strict
+      - name: Check this npm can stage (npm 11.15.0 or later)
+        run: |
+          npm --version
+          node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 15)) { console.log("::error::npm " + process.argv[1] + " has no npm stage publish: it needs npm 11.15.0 or later."); process.exit(1); }' "$(npm --version)"
       - name: Check that this job can identify itself to npm
         run: |
           if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL}" ]; then
@@ -39,4 +102,7 @@ jobs:
       # Staged publishing: the trusted publisher allows "npm stage publish" only, so this job can
       # never make a version public by itself; a maintainer's two-factor approval does. A plain
       # "npm publish" is refused with "403 … OIDC permission denied for this action".
-      - run: npm stage publish --provenance --access public --loglevel verbose
+      # The tarball, not the folder: npm stages those bytes as they are, and runs no script of the
+      # package (it runs prepublishOnly and the like only for a folder). The path starts with "./":
+      # npm would read "release/llm-large-files-0.9.0.tgz" as a GitHub repository.
+      - run: npm stage publish "./release/${TARBALL}" --provenance --access public --loglevel verbose
