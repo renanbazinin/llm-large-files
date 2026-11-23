@@ -14,7 +14,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 describe("llm-large-files/testing", () => {
   it("exports the fakes, and test/fake-model.ts gives the same ones", () => {
-    expect(Object.keys(testing).sort()).toEqual(["calls", "fakeFetch", "fakeModel", "httpError", "says", "serviceLog", "sse", "utf8"]);
+    expect(Object.keys(testing).sort()).toEqual(["calls", "documentStoreChecks", "fakeFetch", "fakeModel", "httpError", "says", "serviceLog", "sse", "utf8"]);
     for (const name of ["calls", "fakeModel", "httpError", "says", "serviceLog", "utf8"] as const) expect(local[name]).toBe(testing[name]);
   });
 
