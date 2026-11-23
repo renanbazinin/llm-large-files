@@ -347,15 +347,19 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
       return { message: message ?? userMessageOf(error), name: "DocumentScopeError", ...(typeof error.code === "string" ? { code: error.code } : {}) };
     }
     const out: EventError = { message: message ?? userMessageOf(error) };
+    const own = DocumentStoreError.is(error) ? "DocumentStoreError" : DocumentsNotFoundError.is(error) ? "DocumentsNotFoundError" : undefined;
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
-    else if (isModelStatus(record.status) && !DocumentStoreError.is(error) && !DocumentsNotFoundError.is(error)) {
+    else if (isModelStatus(record.status) && own === undefined) {
       // A model's error without a kind of its own (an adapter of yours, `httpError`): the kind its
       // status gives, as its message is told, so that a model's EventError always has its kind.
       const { code } = record;
       out.kind = classifyModelError(record.status, error instanceof Error ? error.message : "", { code: typeof code === "string" ? code : undefined }).kind;
     }
     if (typeof record.status === "number") out.status = record.status;
-    if (typeof record.name === "string" && record.name) out.name = record.name;
+    // A store's own subclass of DocumentStoreError, of a name of its own, is told by the name
+    // errorInfoOf reads, as the upload handlers tell it.
+    if (own !== undefined) out.name = own;
+    else if (typeof record.name === "string" && record.name) out.name = record.name;
     return out;
   } catch {
     return { message: message ?? SOMETHING_WENT_WRONG };

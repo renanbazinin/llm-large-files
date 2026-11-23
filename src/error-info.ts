@@ -103,6 +103,17 @@ function modelKindOf(error: object): ModelErrorKind | undefined {
 }
 
 /**
+ * The code in the library's own words for a system error, as an `EventError` holds them: "The
+ * file could not be read from storage (ELOOP)." of `ingest.error` and `run.error`, "Upload failed
+ * (ENOSPC)." of the upload handlers' `ingest.error`. The error itself has the code: its event, only
+ * these words.
+ */
+function codeInWords(message: unknown): string | undefined {
+  const code = typeof message === "string" ? /^(?:The file could not be read from storage|Upload failed) \(([A-Z][A-Z0-9_]{0,31})\)\.$/.exec(message)?.[1] : undefined;
+  return isCode(code) ? code : undefined;
+}
+
+/**
  * Whether `message` is the library's own words for a model's error of `kind`, with any status:
  * "The model was busy (HTTP 429).". An `EventError` holds them, and the upload handlers' names the
  * provider's status in them and the answer's in `status` ("The model failed on its side (HTTP
@@ -182,9 +193,9 @@ function infoOf(error: unknown): ErrorInfo {
     if (fromEvent) return fromEvent;
     // Plain data without a `kind` is not a model's error: an `EventError` of one always has its
     // kind. The `ingest.error` of the upload handler for a hook that failed ({ message, status })
-    // keeps its status.
-    const { kind, status } = error as { kind?: unknown; status?: unknown };
-    if (typeof kind !== "string") return plainInfo(error, status);
+    // keeps its status, and that of a system error its code.
+    const { kind, status, message } = error as { kind?: unknown; status?: unknown; message?: unknown };
+    if (typeof kind !== "string") return plainInfo(error, status, systemCode(error) ?? codeInWords(message));
   }
   const kind = modelKindOf(error);
   if (kind !== undefined) {
@@ -205,11 +216,11 @@ function infoOf(error: unknown): ErrorInfo {
 }
 
 /**
- * Anything else: "unknown", with the code of a system error, never its message. `status`, of plain
- * data, is kept when it is one of an error (400 to 599), and says whether to retry.
+ * Anything else: "unknown", with the code of a system error (of its event, from the library's
+ * words), never its message. `status`, of plain data, is kept when it is one of an error (400 to
+ * 599), and says whether to retry.
  */
-function plainInfo(error: object, status: unknown): ErrorInfo {
-  const code = systemCode(error);
+function plainInfo(error: object, status: unknown, code = systemCode(error)): ErrorInfo {
   return {
     category: "unknown",
     ...(code ? { code } : {}),

@@ -753,7 +753,9 @@ data (`EventError`), so a stream to the browser can carry the same words. It rea
 `code` (a refused file, a scope), its `name` (a store, documents or a scope) and its `kind` (a
 model). A model's error always has its `kind` there: an error of an adapter of your own that has a
 `status` and no `kind` gets the kind its status gives, as `errorInfoOf` gives it for the error
-itself (`"rate_limit"` for a 429, `"server"` for a 503, `"auth"` for a 401). Data with none of them
+itself (`"rate_limit"` for a 429, `"server"` for a 503, `"auth"` for a 401). A system error's event (a path
+`ingest` could not read: "The file could not be read from storage (ELOOP).") gives its code, as the
+error does. Data with none of them
 is `"unknown"`, with its `status` kept when it is 400 to 599 (a hook of yours that threw a `409`),
 and `retryable` for 429, 502, 503 and 504:
 
