@@ -478,9 +478,12 @@ function isNumeric(text: string): boolean {
 
 type Direction = "ltr" | "rtl";
 
+/** Arabic-Indic and Persian digits and the Arabic separators: in the right-to-left block, but numbers. */
+const ARABIC_DIGITS = /[\u0660-\u0669\u066b\u066c\u06f0-\u06f9]/g;
+
 /** The direction of the letters of a piece; none for a piece without letters, or with as many of each. */
 function letterDirection(text: string): Direction | undefined {
-  const rightToLeft = text.match(RIGHT_TO_LEFT)?.length ?? 0;
+  const rightToLeft = (text.match(RIGHT_TO_LEFT)?.length ?? 0) - (text.match(ARABIC_DIGITS)?.length ?? 0);
   const leftToRight = text.match(LEFT_TO_RIGHT)?.length ?? 0;
   return rightToLeft === leftToRight ? undefined : rightToLeft > leftToRight ? "rtl" : "ltr";
 }
@@ -496,18 +499,26 @@ function around(directions: Array<Direction | undefined>, index: number): [Direc
 
 /**
  * The direction each piece is read in, for pieces from left to right; `spaced[i]` says whether a
- * gap shows between pieces i and i + 1. A number reads left to right next to a left-to-right word
- * ("AB" + "-12") or joined to another number ("8,300" + ",000"). Any other piece without letters
- * takes the direction of the pieces on both sides when they agree, else the region's: in a
- * right-to-left cell, "09:00 - 17:00" is laid out with the first time on the right.
+ * gap shows between pieces i and i + 1. A number reads left to right when it touches, with no gap
+ * and through pieces without letters only, a left-to-right word ("AB" + "-12") or another number
+ * ("8,300" + ",000"). Any other piece without letters takes the direction of the pieces on both
+ * sides when they agree, else the region's: in a right-to-left cell, "09:00 - 17:00" is laid out
+ * with the first time on the right, and "16 GB" with the number on the right, as two items.
  */
 function pieceDirections(pieces: Piece[], spaced: boolean[], rightToLeft: boolean): Direction[] {
   const letters = pieces.map((piece) => letterDirection(piece.text));
-  const isNumber = pieces.map((piece, index) => !letters[index] && /\d/.test(piece.text));
+  const isNumber = pieces.map((piece, index) => !letters[index] && /[\d\u0660-\u0669\u06f0-\u06f9]/.test(piece.text));
+  /** Whether the piece at `index` touches a left-to-right word or a number, walking by `step` through pieces without letters. */
+  const touches = (index: number, step: 1 | -1): boolean => {
+    for (let other = index + step; other >= 0 && other < pieces.length && !spaced[Math.min(other, other - step)]; other += step) {
+      if (letters[other] === "ltr" || isNumber[other]) return true;
+      if (letters[other]) return false;
+    }
+    return false;
+  };
   const numbers = letters.map((direction, index) => {
     if (direction || !isNumber[index]) return direction;
-    const joined = (index > 0 && !spaced[index - 1] && isNumber[index - 1]) || (!spaced[index] && isNumber[index + 1]);
-    return joined || around(letters, index).includes("ltr") ? "ltr" : undefined;
+    return touches(index, -1) || touches(index, 1) ? "ltr" : undefined;
   });
   return numbers.map((direction, index) => {
     const [before, after] = around(numbers, index);

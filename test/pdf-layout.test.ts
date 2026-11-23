@@ -154,6 +154,29 @@ describe("layoutPageText", () => {
     expect(tableRows(layoutPageText(items))).toEqual(["| עיר | שעות | מבקרים |", "| חיפה | 09:00 - 17:00 | 8,300,000 |", "| עכו | 10:00 | 1,200,000 |", "| צפת | 08:30 | 450,000 |"]);
   });
 
+  it("keeps a number before its unit or currency in a right-to-left table, as LibreOffice and Chrome lay them out", () => {
+    // "16 GB" and "1,000 USD" in a right-to-left cell: two items, the unit on the left and the
+    // number on its right, with a space between them.
+    // The cells are aligned on their right edges (340 and 240), as a right-to-left table is.
+    const items = [
+      ...line(700, [[430, "מוצר"], [310, "זיכרון"], [220, "מחיר"]]),
+      ...line(680, [[430, "מחשב נייד"], [316, "GB"], [329, "16"], [197, "USD"], [215, "1,000"]]),
+      ...line(660, [[430, "טאבלט"], [321, "GB"], [334, "8"], [207, "EUR"], [225, "118"]]),
+      ...line(640, [[430, "שרת"], [311, "GB"], [324, "128"], [192, "ILS"], [210, "12,400"]]),
+    ];
+    expect(tableRows(layoutPageText(items))).toEqual(["| מוצר | זיכרון | מחיר |", "| מחשב נייד | 16 GB | 1,000 USD |", "| טאבלט | 8 GB | 118 EUR |", "| שרת | 128 GB | 12,400 ILS |"]);
+  });
+
+  it("keeps a number in Arabic-Indic or Persian digits in several touching pieces in order inside a left-to-right table", () => {
+    const items = [
+      ...line(700, [[72, "Item"], [200, "Amount"], [300, "Date"]]),
+      ...line(680, [[72, "Rent"], [200, "١٢٣,"], [220, "٤٥٦"], [300, "٢٠٢٦/"], [325, "٠١/٠٣"]]),
+      ...line(660, [[72, "Food"], [200, "۱۲۳"], [215, "۴۵۶"], [300, "2026-02-01"]]),
+      ...line(640, [[72, "Fuel"], [200, "310"], [300, "2026-03-01"]]),
+    ];
+    expect(tableRows(layoutPageText(items))).toEqual(["| Item | Amount | Date |", "| Rent | ١٢٣,٤٥٦ | ٢٠٢٦/٠١/٠٣ |", "| Food | ۱۲۳۴۵۶ | 2026-02-01 |", "| Fuel | 310 | 2026-03-01 |"]);
+  });
+
   it("reads a table that is printed sideways", () => {
     // Text running up the page: rows go left to right, cells from the bottom of the page upwards.
     const sideways = (text: string, x: number, y: number): PdfTextItem => ({ str: text, transform: [0, 10, -10, 0, x, y], width: text.length * 5, height: 10, hasEOL: false });
