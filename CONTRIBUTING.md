@@ -19,12 +19,12 @@ npm run test:watch   # the tests again on every save
 | Script | What it does |
 | --- | --- |
 | `npm run typecheck` | `tsc --noEmit` over `src/`, `test/` and `examples/`, in strict mode with `noUncheckedIndexedAccess` and no unused locals or parameters. The examples must compile too. |
-| `npm test` | `vitest run`: every test in `test/`, in two Vitest projects: `unit`, files in parallel, then `timing`, one file at a time ([Tests](#tests)). No test calls a real model or needs a key. |
+| `npm test` | `vitest run`: every test in `test/`, in two Vitest projects: `unit`, files in parallel, then `timing`, the files of `test/timing/` one at a time ([Tests](#tests)). No test calls a real model or needs a key. |
 | `npm run build` | Deletes `dist/` and compiles `src/` into it, with declarations and source maps (tsconfig.build.json). |
 
-`npm run coverage` runs the `unit` project with V8 coverage of `src/`, and prints the share of
-lines, statements, functions and branches the tests run (`coverage/coverage-summary.json` holds
-them). Counting makes the tests several times slower, so it gives each test 20 s; a test that
+`npm run coverage` runs the `unit` project with V8 coverage of `src/`, without the tests of
+`test/timing/`, and prints the share of lines, statements, functions and branches the tests run
+(`coverage/coverage-summary.json` holds them). Counting makes the tests several times slower, so it gives each test 20 s; a test that
 sets a timeout of its own keeps it, and can run past it under coverage (the `coverage` job in CI
 reports such a failure without failing). It sets no threshold yet. `@vitest/coverage-v8` asks for the exact version of `vitest`: raise both together.
 `node scripts/check-tarball.mjs` builds and packs the package, and checks the tarball as npm
@@ -103,14 +103,17 @@ Add a test for every change in behavior. No test calls a real model:
   usual run and on a busy machine. When a test could reach the library's own time limits on a busy
   machine (the regex limits read `performance.now()`), stop that clock with
   `vi.useFakeTimers({ toFake: ["performance"] })`, as `test/volume.test.ts` does.
-- **A test that holds work to the clock** goes in a file of the `timing` project: one of the files
-  listed in `TIMING` in `vitest.config.ts`, or a new file added to that list. That is a test that
-  checks an elapsed time or an event-loop gap under a bound less than about 10 times what the work
-  takes on an idle machine, or counts the pauses that work leaves for a timer. Those files run one
-  at a time, after the others, with one retry and 20 s for each test: other files running beside
-  them slowed them, and on a busy machine they failed. A wait on a timer alone (a 50 ms limit
-  checked under 2 s) stays in the `unit` project. `npx vitest run --project unit` runs the rest
-  alone.
+- **A test that holds work to the clock** goes in a file of `test/timing/`, the `timing` project:
+  `test/timing/<topic>.timing.test.ts`, a file of its subject or a new one. The other tests of
+  its subject stay in their own file, and helpers both use go in a module of `test/` that both
+  import (`test/pdf-fixtures.ts`, `test/word-fixtures.ts`); what the clock is read with is in
+  `test/timing/clock.ts`. Such a test checks an elapsed time or an event-loop gap of work under a
+  bound, counts the pauses that work leaves for a timer, or counts events in a time. With a bound
+  less than about 10 times what the work takes on an idle machine, these failed when other files
+  ran beside them on a busy machine, and coverage slows the work several times more. The files of
+  `test/timing/` run one at a time, after the others, with one retry and 20 s for each test, and
+  `npm run coverage` leaves them out. A wait on a timer alone (a 50 ms limit checked under 2 s)
+  stays in the `unit` project. `npx vitest run --project unit` runs the rest alone.
 
 A test of the loop, from start to answer:
 

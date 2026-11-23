@@ -46,24 +46,6 @@ describe("where a search hit sits", () => {
   });
 });
 
-describe("a large document held in memory (LLF-044)", () => {
-  it("is searched in pieces, with the results of one scan, letting other work run", async () => {
-    const { grep, grepSource, rankPassages, rankSource, SearchableDocument } = await import("../src/search.js");
-    const text = Array.from({ length: 160_000 }, (_, index) => `2026-01-01 10:00:${String(index % 60).padStart(2, "0")} ${index % 13 === 0 ? "ERROR payment declined" : "INFO request served"} id=${index}`).join("\n");
-    const document = new SearchableDocument({ meta: { id: "doc_m", name: "m.log", outline: [] } as never, text });
-    let ticks = 0;
-    const timer = setInterval(() => ticks++, 1);
-    const exact = await grepSource(document, "ERROR", { maxResults: 5, contextLines: 1 });
-    const keywords = await rankSource(document, "payment declined", 3);
-    const last = await grepSource(document, "declined", { maxResults: 2, contextLines: 0, order: "last" });
-    clearInterval(timer);
-    expect(ticks).toBeGreaterThan(0);
-    expect(exact).toEqual(grep(document, "ERROR", { maxResults: 5, contextLines: 1 }));
-    expect(keywords).toEqual(rankPassages(document, "payment declined", 3));
-    expect(last.matches.map((match) => match.line)).toEqual([159_979, 159_992]);
-  });
-});
-
 describe("the format of a file whose name says nothing", () => {
   it("is found from its bytes: PDF, DOCX, XLSX, HTML; a .txt stays text", async () => {
     const { default: JSZip } = await import("jszip");

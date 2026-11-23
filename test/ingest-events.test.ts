@@ -1,44 +1,15 @@
+// The tests of how often progress is sent, which hold the work to the clock, are in
+// test/timing/ingest.timing.test.ts.
 import "./load-pdf-libraries.js";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { gzipSync } from "node:zlib";
 import JSZip from "jszip";
 import { afterEach, describe, expect, it } from "vitest";
-import { createLargeFiles, DocumentStoreError, FileDocumentStore, MemoryDocumentStore, toDocumentSummary, type ExtractInput, type Extractor, type IngestEvent, type StoredDocument } from "llm-large-files";
+import { createLargeFiles, DocumentStoreError, MemoryDocumentStore, toDocumentSummary, type ExtractInput, type Extractor, type IngestEvent, type StoredDocument } from "llm-large-files";
 import { isStoreWriteFailure } from "../src/errors.js";
+import { expectWellFormed, fileStore, logText, type Progress, recorder, removeFileStores } from "./ingest-recorder.js";
 import { numberedPdf } from "./pdf-fixtures.js";
 
 const encoder = new TextEncoder();
-type Progress = Extract<IngestEvent, { type: "ingest.progress" }>;
-
-/** Collects the events of one ingest. */
-function recorder() {
-  const events: IngestEvent[] = [];
-  /** When each event arrived, by `performance.now()`: the clock the library spaces progress with. */
-  const arrived = new Map<IngestEvent, number>();
-  return {
-    events,
-    arrived,
-    onEvent: (event: IngestEvent) => {
-      arrived.set(event, performance.now());
-      events.push(event);
-    },
-    progress: (stage?: Progress["stage"]) => events.filter((event): event is Progress => event.type === "ingest.progress" && (stage === undefined || event.stage === stage)),
-    /** The stages in the order they first reported. */
-    stages: () => [...new Set(events.flatMap((event) => (event.type === "ingest.progress" ? [event.stage] : [])))],
-  };
-}
-
-/** What every ingest's events have in common: seq from 1 without gaps, one run, start first, one terminal event last. */
-function expectWellFormed(events: IngestEvent[]): void {
-  expect(events.map((event) => event.seq)).toEqual(events.map((_, index) => index + 1));
-  expect(new Set(events.map((event) => event.runId)).size).toBe(1);
-  expect(events[0]!.type).toBe("ingest.start");
-  const terminal = events.filter((event) => event.type === "ingest.finish" || event.type === "ingest.error");
-  expect(terminal).toHaveLength(1);
-  expect(events.at(-1)).toBe(terminal[0]);
-}
 
 /** The last progress of a stage says it ran to its end. */
 function expectStageEnded(progress: Progress[], unit: Progress["unit"], total?: number): void {
@@ -51,27 +22,7 @@ function expectStageEnded(progress: Progress[], unit: Progress["unit"], total?: 
   for (let index = 1; index < progress.length; index++) expect(progress[index]!.done).toBeGreaterThanOrEqual(progress[index - 1]!.done);
 }
 
-function logText(lines: number): string {
-  const out: string[] = [];
-  for (let index = 1; index <= lines; index++) {
-    const second = String(index % 60).padStart(2, "0");
-    out.push(index % 500 === 0
-      ? `2026-05-01 12:00:${second} ERROR payment-service: timeout after ${index}ms calling ledger`
-      : `2026-05-01 12:00:${second} INFO handled request ${index} in ${index % 40}ms`);
-  }
-  return out.join("\n");
-}
-
-const directories: string[] = [];
-afterEach(async () => {
-  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
-});
-
-async function fileStore(): Promise<FileDocumentStore> {
-  const directory = await mkdtemp(path.join(tmpdir(), "llm-ingest-events-"));
-  directories.push(directory);
-  return new FileDocumentStore(directory);
-}
+afterEach(removeFileStores);
 
 describe("ingest events", () => {
   it("reports a PDF page by page: the check, the text, the pictures, then the writes", async () => {
@@ -192,37 +143,6 @@ describe("ingest events", () => {
     expect(record.stages()).toEqual(["prepare", "store"]);
   });
 
-  it("sends at most one progress event every 12 ms for a stage, and the last one", { timeout: 30_000 }, async () => {
-    // An extractor that reports 20,000 times as fast as it can.
-    const chatty: Extractor = async (_bytes, input) => {
-      for (let done = 1; done <= 20_000; done++) input.onProgress?.({ done, total: 20_000, unit: "parts" });
-      return { text: "done" };
-    };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: chatty } });
-    const record = recorder();
-    const started = performance.now();
-    await files.ingest({ name: "notes.txt", bytes: encoder.encode("ignored"), onEvent: record.onEvent });
-    const extract = record.progress("extract");
-    expect(extract.length).toBeLessThanOrEqual(2 + Math.ceil((performance.now() - started) / 12));
-    expect(extract[0]!.done).toBe(1);
-    expect(extract.at(-1)).toMatchObject({ done: 20_000, total: 20_000 });
-
-    // A large log: the steps between two events of a stage, but its last, are at least about 12 ms apart.
-    const big = createLargeFiles({ store: await fileStore() });
-    const log = recorder();
-    await big.ingest({ name: "big.log", bytes: encoder.encode(logText(400_000)), onEvent: log.onEvent });
-    expectWellFormed(log.events);
-    for (const stage of log.stages()) {
-      const progress = log.progress(stage);
-      // Measured as the library spaces them, by performance.now() (events are sent at once, so
-      // they arrive when they are sent): the wall clock of `time` can be moved on a busy machine,
-      // and read 7 ms between events sent 12 ms apart. A pause of the collector between the
-      // library's reading of the clock and the listener's can still take a few ms off a gap (9.4 ms
-      // on a CI machine); events sent at every step would be microseconds apart.
-      for (let index = 1; index < progress.length - 1; index++) expect(log.arrived.get(progress[index]!)! - log.arrived.get(progress[index - 1]!)!).toBeGreaterThanOrEqual(6);
-    }
-  });
-
   it("passes on an error of the listener, and stores nothing", async () => {
     const store = new MemoryDocumentStore();
     const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
@@ -240,41 +160,6 @@ describe("ingest events", () => {
       if (event.type === "ingest.progress" && event.stage === "check") throw thrown;
     };
     await expect(files.ingest({ name: "report.pdf", bytes: numberedPdf(2), onEvent: onCheck })).rejects.toBe(thrown);
-  });
-
-  it("keeps the throttle of each stage when stages take turns, and sends what each held back in the order they began", { timeout: 30_000 }, async () => {
-    // An extractor that reports two stages in turn on every page, as fast as it can.
-    const alternating: Extractor = async (_bytes, input) => {
-      for (let done = 1; done <= 20_000; done++) {
-        input.onProgress?.({ done, total: 20_000, unit: "pages" });
-        input.onProgress?.({ stage: "pictures", done, total: 20_000, unit: "pages" });
-      }
-      return { text: "done" };
-    };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: alternating } });
-    const record = recorder();
-    const started = performance.now();
-    await files.ingest({ name: "notes.txt", bytes: encoder.encode("ignored"), onEvent: record.onEvent });
-    const most = 3 + Math.ceil((performance.now() - started) / 12);
-    for (const stage of ["extract", "pictures"] as const) {
-      const progress = record.progress(stage);
-      expect(progress.length).toBeLessThanOrEqual(most);
-      expect(progress.at(-1)).toMatchObject({ done: 20_000, total: 20_000 });
-    }
-
-    // Held back, then sent when the extractor returns: first the stage that began first.
-    const halfway: Extractor = async (_bytes, input) => {
-      input.onProgress?.({ done: 1, total: 3, unit: "pages" });
-      input.onProgress?.({ stage: "pictures", done: 1, total: 3, unit: "pages" });
-      input.onProgress?.({ done: 2, total: 3, unit: "pages" });
-      input.onProgress?.({ stage: "pictures", done: 2, total: 3, unit: "pages" });
-      return { text: "done" };
-    };
-    const held = recorder();
-    await createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: halfway } })
-      .ingest({ name: "notes.txt", bytes: encoder.encode("ignored"), onEvent: held.onEvent });
-    expectWellFormed(held.events);
-    expect(held.progress().slice(0, 4).map((event) => [event.stage, event.done])).toEqual([["extract", 1], ["pictures", 1], ["extract", 2], ["pictures", 2]]);
   });
 
   it("drops what an extractor reports after it returned", async () => {

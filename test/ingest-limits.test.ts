@@ -11,21 +11,9 @@ import { buildTextIndex, buildTextIndexInSlices, serializeTextIndex } from "../s
 import { estimateTokens, measureText, normalizeText, prepareText, textSizes, wrapLongLines } from "../src/text.js";
 import { readZipDirectory } from "../src/zip-directory.js";
 import { serviceLog } from "./fake-model.js";
-import { HELVETICA, numberedPdf, pdfFromObjects, pdfStream, textLine } from "./pdf-fixtures.js";
+import { FORM, formsInForms, HELVETICA, numberedPdf, pageObject as page, pdfFromObjects, pdfStream, textLine } from "./pdf-fixtures.js";
 
 const encoder = new TextEncoder();
-
-/** Counts the beats of a 2 ms timer while `work` runs: 0 when the work never lets a timer run. */
-async function beatsDuring<T>(work: () => Promise<T>): Promise<{ beats: number; result: T }> {
-  let beats = 0;
-  const timer = setInterval(() => beats++, 2);
-  try {
-    const result = await work();
-    return { beats, result };
-  } finally {
-    clearInterval(timer);
-  }
-}
 
 async function docxOf(documentXml: string): Promise<Uint8Array> {
   const zip = new JSZip();
@@ -54,7 +42,8 @@ describe("ingest work in slices gives the results of 0.5.0", () => {
     }
   });
 
-  it("builds the same log profile, outline and line index", async () => {
+  // About 3 s with one test file at a time, 8 s beside the other files on a busy machine.
+  it("builds the same log profile, outline and line index", { timeout: 20_000 }, async () => {
     const log = serviceLog(30_000).split("\n");
     expect(await buildLogProfileInSlices(log, new TimeSlicer())).toEqual(buildLogProfile(log));
     const book = Array.from({ length: 30_000 }, (_, n) => (n % 7 === 0 ? `## Chapter ${n}` : n % 7 === 1 ? "" : `Line ${n} of the book.`));
@@ -101,32 +90,6 @@ describe("ingest work in slices gives the results of 0.5.0", () => {
     const long = `short\n${"x".repeat(5_000)}\nshort`;
     expect(wrapLongLines(long).wrapped).toBe(1);
     expect(wrapLongLines(long).text.split("\n").every((line) => line.length <= 2_000)).toBe(true);
-  });
-});
-
-describe("ingest lets other work run", () => {
-  it("pauses while a large log is ingested", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const bytes = encoder.encode(serviceLog(120_000));
-    const { beats, result } = await beatsDuring(() => files.ingest({ name: "app.log", bytes }));
-    expect(result.lines).toBe(120_000);
-    // Before 0.6.0 the whole ingest was one block, and a timer never ran during it.
-    expect(beats).toBeGreaterThanOrEqual(3);
-  });
-
-  it("pauses between the pages of a PDF", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const { beats, result } = await beatsDuring(() => files.ingest({ name: "book.pdf", bytes: numberedPdf(300) }));
-    expect(result.pages).toBe(300);
-    expect(beats).toBeGreaterThanOrEqual(3);
-  });
-
-  it("pauses while a large DOCX is unpacked", async () => {
-    const docx = await docxOf(`<w:document><w:body>${"<w:p><w:r><w:t>Forty characters of text in a paragraph.</w:t></w:r></w:p>".repeat(150_000)}</w:body></w:document>`);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const { beats, result } = await beatsDuring(() => files.ingest({ name: "long.docx", bytes: docx }));
-    expect(result.lines).toBe(150_000);
-    expect(beats).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -312,7 +275,8 @@ describe("the parts of a DOCX or PPTX are counted as JSZip reads them, before it
     expect((await files.ingest({ name: "prefixed.docx", bytes: prefixed })).lines).toBe(1);
   });
 
-  it("refuses more than 20,000 parts, when the end record says fewer", async () => {
+  // About 1.7 s with one test file at a time, 4.7 s beside the other files on a busy machine.
+  it("refuses more than 20,000 parts, when the end record says fewer", { timeout: 20_000 }, async () => {
     // 20,001 parts, with an end record that says 2, or 0.
     const parts = docxParts(20_000);
     for (const count of [2, 0]) {
@@ -438,24 +402,6 @@ describe("the parts of a DOCX or PPTX are counted as JSZip reads them, before it
   });
 });
 
-const FORM = "/Type /XObject /Subtype /Form /BBox [0 0 612 792]";
-const page = (contents: string, resources: string) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} /Resources ${resources} >>`;
-
-/**
- * One page that paints a form, which paints the next form `fanout` times, `depth` deep. The last
- * form shows a line of text. Objects: 1 catalog, 2 pages, 3 the page, 4 the font, 5 the content,
- * 6 the form with text, then one form for each level. `split` writes the page's content in two
- * streams, "q /" and "X Do Q"; `content` replaces the stream of the page's content.
- */
-function formsInForms(depth: number, fanout: number, { split = false, content }: { split?: boolean; content?: Uint8Array } = {}): Uint8Array {
-  const contents = split ? `[5 0 R ${7 + depth} 0 R]` : "5 0 R";
-  const objects: Array<string | Uint8Array> = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page(contents, `<< /XObject << /X ${6 + depth} 0 R >> >>`), HELVETICA, content ?? pdfStream("", split ? "q /" : "q /X Do Q")];
-  objects.push(pdfStream(`${FORM} /Resources << /Font << /F1 4 0 R >> >>`, textLine("Words painted many times.")));
-  for (let level = 1; level <= depth; level++) objects.push(pdfStream(`${FORM} /Resources << /XObject << /X ${5 + level} 0 R >> >>`, "q /X Do Q\n".repeat(fanout)));
-  if (split) objects.push(pdfStream("", "X Do Q"));
-  return pdfFromObjects(objects);
-}
-
 /** Lines of text operators, `megabytes` of them, packed with Flate: a few kilobytes. */
 function packedText(megabytes: number): Uint8Array {
   const line = `(${"A".repeat(200)}) '\n`;
@@ -465,17 +411,6 @@ function packedText(megabytes: number): Uint8Array {
 describe("a PDF page that would hold the server is refused before pdf.js reads it", () => {
   const files = createLargeFiles({ store: new MemoryDocumentStore() });
   const heavy = "Page 1 of this PDF draws far more than its file holds, and reading it would hold the server for a long time.";
-
-  it("refuses a page that paints forms inside forms", async () => {
-    // 3 KB: 125,000 forms with text. pdf.js held the event loop for 13 to 14 s reading it.
-    const bomb = formsInForms(3, 50);
-    expect(bomb.length).toBeLessThan(4_000);
-    const started = performance.now();
-    await expect(files.ingest({ name: "forms.pdf", bytes: bomb })).rejects.toThrow(heavy);
-    expect(performance.now() - started).toBeLessThan(2_000);
-    // A few forms inside forms is what real files do.
-    expect((await files.ingest({ name: "few.pdf", bytes: formsInForms(2, 3) })).pages).toBe(1);
-  });
 
   it("refuses a page whose content is packed hundreds of times", async () => {
     const content = packedText(12);
@@ -504,24 +439,6 @@ describe("a PDF page that would hold the server is refused before pdf.js reads i
     await expect(files.ingest({ name: "glyphs.pdf", bytes: pdfFromObjects(objects) })).rejects.toThrow(heavy);
   });
 
-  it("reads two forms that paint each other, as pdf.js does, and refuses forms that all paint each other", async () => {
-    // pdf.js skips a form that is already being painted: A paints B, and B's paint of A is skipped.
-    const loop = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page("5 0 R", "<< /XObject << /A 6 0 R >> /Font << /F1 4 0 R >> >>"), HELVETICA,
-      pdfStream("", `/A Do ${textLine("Text.")}`),
-      pdfStream(`${FORM} /Resources << /XObject << /B 7 0 R >> >>`, "/B Do"),
-      pdfStream(`${FORM} /Resources << /XObject << /A 6 0 R >> >>`, "/A Do")]);
-    expect((await files.ingest({ name: "loop.pdf", bytes: loop })).pages).toBe(1);
-    // Eight forms with text that each paint all eight: pdf.js follows paths through them until each
-    // meets a form already open, and held the event loop for 6 s on this 3 KB file.
-    const names = Array.from({ length: 8 }, (_, index) => `/F${index} ${7 + index} 0 R`).join(" ");
-    const clique = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", page("5 0 R", "6 0 R"), HELVETICA,
-      pdfStream("", "/F0 Do"), `<< /XObject << ${names} >> /Font << /F1 4 0 R >> >>`,
-      ...Array.from({ length: 8 }, () => pdfStream(`${FORM} /Resources 6 0 R`, `${textLine("Text.")} /F0 Do /F1 Do /F2 Do /F3 Do /F4 Do /F5 Do /F6 Do /F7 Do`))]);
-    const started = performance.now();
-    await expect(files.ingest({ name: "clique.pdf", bytes: clique })).rejects.toThrow(heavy);
-    expect(performance.now() - started).toBeLessThan(2_000);
-  });
-
   it("follows a name cut between two streams of a page's content", async () => {
     // pdf.js joins the streams with nothing between them: "q /" and "X Do Q" paint /X.
     await expect(files.ingest({ name: "split.pdf", bytes: formsInForms(3, 50, { split: true }) })).rejects.toThrow(heavy);
@@ -540,7 +457,8 @@ describe("a PDF page that would hold the server is refused before pdf.js reads i
     await expect(files.ingest({ name: "jpeg.pdf", bytes: jpeg })).rejects.toThrow("Page 1 of this PDF stores its content in a way that cannot be checked before it is read, so it is not read.");
   });
 
-  it("reads such a page with checkPages: false", async () => {
+  // About 4.5 s with one test file at a time, 7 s beside the other files on a busy machine.
+  it("reads such a page with checkPages: false", { timeout: 20_000 }, async () => {
     // 14,400 paints of a form with text: past the limit, and about 1.1 s of pdf.js.
     const bomb = formsInForms(2, 120);
     await expect(files.ingest({ name: "forms.pdf", bytes: bomb })).rejects.toThrow(heavy);
@@ -555,20 +473,6 @@ describe("a PDF page that would hold the server is refused before pdf.js reads i
     const work = await checkPageWork(parsed!.library, parsed!.document, bytes.byteLength);
     expect(work).toBeGreaterThan(pageWorkLimit(bytes.byteLength) * 0.6);
     expect(work).toBeLessThan(pageWorkLimit(bytes.byteLength));
-  });
-
-  it("reads a list of drawings that many pages share once, not once for each page", async () => {
-    // 200 pages with resources of their own that point to one list of 60,000 drawings. Read for each
-    // page, a list of 140,000 shared by 300 pages filled 4 GB.
-    const names = Array.from({ length: 60_000 }, (_, index) => `/x${index} 5 0 R`).join("");
-    const kids = Array.from({ length: 200 }, (_, index) => `${7 + index} 0 R`).join(" ");
-    const bytes = pdfFromObjects(["<< /Type /Catalog /Pages 2 0 R >>", `<< /Type /Pages /Kids [${kids}] /Count 200 >>`, `<< ${names} >>`, HELVETICA,
-      pdfStream(`${FORM} /Resources << /Font << /F1 4 0 R >> >>`, textLine("Stamp.")), pdfStream("", "/x1 Do"),
-      ...Array.from({ length: 200 }, () => page("6 0 R", "<< /XObject 3 0 R /Font << /F1 4 0 R >> >>"))]);
-    const parsed = await parsePdf(bytes);
-    const started = performance.now();
-    await checkPageWork(parsed!.library, parsed!.document, bytes.byteLength);
-    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   it("reads a page that paints a drawing without text 50,000 times, as a chart does", async () => {

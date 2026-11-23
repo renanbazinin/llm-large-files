@@ -1,12 +1,12 @@
 // Regression tests for the findings of the verification of 0.8.0 in search: each finding, with an
-// input that showed it. The timing bounds leave room for a busy machine.
+// input that showed it. Those that hold the work to the clock are in test/timing/search.timing.test.ts
+// and test/timing/text.timing.test.ts.
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildOutline } from "../src/analyze.js";
 import { createLargeFiles, FileDocumentStore, MemoryDocumentStore, type DocumentMeta, type LargeFiles, type ToolResult } from "../src/index.js";
 import { Limiter } from "../src/limiter.js";
 import { TimeSlicer } from "../src/pause.js";
@@ -39,26 +39,6 @@ const doc = (text: string) => new SearchableDocument({ meta: { id: "doc_v", name
 const BUSY_TIMEOUT_MS = 20_000;
 const linesOf = (result: ToolResult) => (result.matches as Array<{ line: number }>).map((match) => match.line);
 
-/** The time `work` takes, and the longest time the event loop went without a turn meanwhile. */
-async function measured<T>(work: () => T | Promise<T>): Promise<{ value: T; ms: number; gap: number }> {
-  let gap = 0;
-  let last = performance.now();
-  const timer = setInterval(() => {
-    const now = performance.now();
-    gap = Math.max(gap, now - last);
-    last = now;
-  }, 2);
-  const started = performance.now();
-  // A turn first, so that the timer has started.
-  await new Promise((resolve) => setImmediate(resolve));
-  last = performance.now();
-  const value = await work();
-  const ms = performance.now() - started;
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  clearInterval(timer);
-  return { value, ms, gap: Math.max(gap, performance.now() - last - 5) };
-}
-
 /** The same file in memory, and read by range from a folder in pieces of one passage: the results must agree. */
 async function bothWays(name: string, text: string, scanChunkBytes = 64): Promise<Array<{ files: LargeFiles; meta: DocumentMeta; how: string }>> {
   const memory = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
@@ -74,46 +54,14 @@ async function bothWays(name: string, text: string, scanChunkBytes = 64): Promis
 const errorLog = (count: number) => Array.from({ length: count }, (_, index) => `2026-11-10T14:${String(index % 60).padStart(2, "0")}:17Z ERROR job ${index} failed at 10.0.${index % 256}.1 id=${(index * 7919).toString(16)}`).join("\n");
 
 describe("a document held in memory is searched in pieces, within a time limit (6, 50)", () => {
-  it("finds a whole word among 30 MB of long words without holding the server", async () => {
-    const word = "a".repeat(1_999);
-    const lines = Array.from({ length: 15_000 }, () => word);
-    lines[100] = "x a y";
-    lines[14_000] = "a";
-    const document = doc(lines.join("\n"));
-    const { value, gap } = await measured(() => grepSource(document, "a", { maxResults: 5, contextLines: 0, wholeWord: true, caseSensitive: true, timeLimitMs: 60_000 }));
-    expect(value.stoppedEarly).toBe(false);
-    expect(value.matches.map((match) => match.line)).toEqual([101, 14_001]);
-    // Held as one piece, the scan took one look per occurrence, and 820 ms of 10 MB in one go.
-    expect(gap).toBeLessThan(500);
-    const ignoringCase = grep(document, "A", { maxResults: 5, contextLines: 0, wholeWord: true, timeLimitMs: 60_000 });
-    expect(ignoringCase.totalMatchingLines).toBe(2);
-  }, BUSY_TIMEOUT_MS);
-
-  it("counts the lines of an exact search by shape with other work in between", async () => {
-    const document = doc(errorLog(250_000));
-    const { value, gap } = await measured(() => grepSource(document, "ERROR", { maxResults: 5, contextLines: 0, groupBy: "shape" }));
-    const groups = value.groups!;
-    expect(groups.groups.reduce((sum, group) => sum + group.count, 0) + groups.otherCount + groups.ungrouped).toBe(value.totalMatchingLines);
-    expect(gap).toBeLessThan(500);
-  }, BUSY_TIMEOUT_MS);
-
-  it("counts the lines of a regex search by shape within its time slices", async () => {
-    const document = doc(errorLog(250_000));
-    const { value, gap } = await measured(() => grepSource(document, "ERR(OR)", { regex: true, maxResults: 5, contextLines: 0, groupBy: "shape", timeLimitMs: 60_000 }));
-    const groups = value.groups!;
-    expect(groups.groups.reduce((sum, group) => sum + group.count, 0) + groups.otherCount + groups.ungrouped).toBe(value.totalMatchingLines);
-    expect(value.totalMatchingLines).toBe(250_000);
-    // A slice is 250 ms; the lines it found were grouped after it, outside the time limit, for seconds.
-    expect(gap).toBeLessThan(800);
-  }, BUSY_TIMEOUT_MS);
-
+  // Under a second with one test file at a time, 2.3 s beside the other files on a busy machine.
   it("stops an exact search at its time limit, and says the counts are lower bounds", () => {
     const document = doc(errorLog(250_000));
     const result = grep(document, "ERROR", { maxResults: 5, contextLines: 0, groupBy: "shape", timeLimitMs: 20 });
     expect(result.stoppedEarly).toBe(true);
     expect(result.totalMatchingLines).toBeLessThan(250_000);
     expect(grep(document, "ERROR", { maxResults: 5, contextLines: 0, timeLimitMs: 60_000 }).totalMatchingLines).toBe(250_000);
-  });
+  }, BUSY_TIMEOUT_MS);
 
   it("keeps nothing for each line a regex slice finds", async () => {
     const document = doc(Array.from({ length: 1_500_000 }, (_, index) => `ln${String(index).padStart(10, "0")}x`).join("\n"));
@@ -279,17 +227,6 @@ describe("a ranged keyword search reads and counts only what it needs (13, 53, 5
     expect(read).toBeLessThan(bytes.length / 10);
   });
 
-  it("goes through only the occurrences in the lines ranked, in memory", async () => {
-    const document = doc(Array.from({ length: 150_000 }, (_, index) => `${"zq zw zx ".repeat(13)}${index}`).join("\n"));
-    const { value, ms } = await measured(() => rankPassages(document, "zq zw zx", 3, { from: 149_901, to: 150_000 }));
-    expect(value.length).toBe(3);
-    for (const passage of value) expect(passage.to).toBeGreaterThanOrEqual(149_901);
-    // Every occurrence in the file was looked at, and its line found: 1.5 seconds of 100,000 lines.
-    expect(ms).toBeLessThan(500);
-    const ranged = await rankSource(document, "zq zw zx", 3, undefined, { from: 149_901, to: 150_000 });
-    expect(ranged).toEqual(value);
-  });
-
   it("does not let phrases before the range fill the cap on phrase passages", () => {
     const pad = (line: string) => line.padEnd(99, " z");
     const filler = (index: number) => pad(`filler line ${index} lorem ipsum dolor sit amet`);
@@ -319,36 +256,6 @@ describe("a regex checked as it is compiled (55)", () => {
 });
 
 describe("ingest of text with many marks (45, 47, 48)", () => {
-  it("decides whether a text is code without backtracking over the spaces after \"function\"", () => {
-    const started = performance.now();
-    buildOutline(Array.from({ length: 100 }, () => `function${" ".repeat(1_991)}x`), "text");
-    buildOutline(Array.from({ length: 100 }, () => `function${"\u3000".repeat(1_991)}x`), "text");
-    expect(performance.now() - started).toBeLessThan(1_000);
-    // Code is still code, and its "# " lines are comments; prose keeps its headings.
-    for (const code of ["function foo() {", "function(a) {", "function  foo  (a) {"]) expect(buildOutline(["# Title", "", code, "", "# Not a heading", ""], "text"), code).toEqual([]);
-    expect(buildOutline(["", "# Title", "", "function of the board", ""], "text")).toHaveLength(1);
-  });
-
-  it("composes runs of 30 marks, more than any letter has but no more than the stream-safe form allows, in linear time", () => {
-    const thirty = ("a" + "\u0301".repeat(30)).repeat(60_000);
-    const started = performance.now();
-    const result = composed(thirty);
-    expect(performance.now() - started).toBeLessThan(600);
-    expect(result).toBe(thirty.normalize("NFC"));
-  });
-
-  it("composes a run of millions of marks, and ingests it without holding the server", async () => {
-    const run = `a${"\u0301\u0316".repeat(2_000_000)}`;
-    const result = composed(run);
-    expect(result.split("\u034f")).toHaveLength(Math.ceil(4_000_000 / 30));
-    // Composing it again changes nothing: a grapheme joiner ends a run.
-    expect(composed(result.slice(0, 100_000))).toBe(result.slice(0, 100_000));
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const { value, gap } = await measured(() => files.ingest({ name: "marks.txt", bytes: utf8(`${run}\nafter\n`) }));
-    expect(value.lines).toBeGreaterThan(2_000);
-    expect(gap).toBeLessThan(600);
-  }, BUSY_TIMEOUT_MS);
-
   it("cleans a long line in pieces as it cleans it whole, marks, joiners and Hangul included", async () => {
     const slicer = new TimeSlicer();
     const atoms = ["a", "e", " ", "\n", "\u0301", "\u0316", "\u0308", "\u034f", "\u1100", "\u1161", "\u11a8", "\uac00", "\uac01", "\u200b", "\u00ad", "\u{1D167}", "\u0bc6", "\u0bbe", "\u05b0", "\u05bc", "\u0085", "\u00c4\u0085", "\u{1F600}", "\u0301".repeat(29), "\u0316\u0301".repeat(16), "\u200b\u0301"];
