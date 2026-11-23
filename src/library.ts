@@ -357,6 +357,11 @@ export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
 /** The longest a Node.js timer waits: a longer one fires at once. A limit past it is no limit. */
 const LONGEST_TIMER_MS = 2 ** 31 - 1;
 
+/** `value` copied through JSON: new strings, none of them a piece of a larger one. */
+function jsonCopy<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 /** `work`, or the error `late` makes once `ms` have passed without it settling. */
 function settleWithin<T>(work: Promise<T>, ms: number, late: () => Error): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -775,8 +780,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     const keepOriginal = keeps(format);
     // A copy: the outline's headings and the log's timestamps are pieces of the text, and a piece
     // keeps the whole text in memory as long as it is held. A meta an application kept held its
-    // text: 25 MB of heap for a log of 10 MB in Hebrew, 194 MB for one of 100 MB.
-    const meta: DocumentMeta = structuredClone<DocumentMeta>({
+    // text: 25 MB of heap for a log of 10 MB in Hebrew, 194 MB for one of 100 MB. Copied through
+    // JSON, as a store that keeps it as JSON gives it back: structuredClone kept the text on Node 20.
+    const meta: DocumentMeta = jsonCopy<DocumentMeta>({
       id: `doc_${randomUUID().replaceAll("-", "")}`,
       ...(input.owner !== undefined ? { owner: input.owner } : {}),
       name,

@@ -123,7 +123,8 @@ Code written for 0.8.1 compiles with 0.8.2 as it is: the three new options are o
   first and last timestamps of a log, and the headings of an outline, were pieces of the text, and
   a piece keeps the whole text it was cut from: a meta an application held took 25 MB of heap for a
   log of 10 MB in Hebrew, 194 MB for one of 100 MB, and 13 MB for 5.5 MB of Markdown. It is now a
-  copy, and takes a few KB. The store's copy was never affected.
+  copy made through JSON, as `FileDocumentStore` gives it back, and takes a few KB. The store's copy
+  was never affected.
 - **A document whose text was removed while its metadata stayed is reported missing**, by
   `prepare` and by `askWithFiles` (`DocumentsNotFoundError` with its ID), as one whose metadata is
   gone. When it was read by range (more than `wholeDocumentBytes` of text, 2 MB by default), the
