@@ -1,7 +1,7 @@
 import { askWithFiles, type AskLimits, type AskOptions, type AskResult } from "../ask.js";
 import type { LargeFiles } from "../library.js";
 import type { AskEvent } from "../events.js";
-import type { ChatTurn, ToolTurn } from "../model.js";
+import type { ChatMessage } from "../model.js";
 import type { RetryOptions } from "../retry.js";
 import type { Budget, DocumentScope } from "../types.js";
 import { fromGeminiContents, gemini, type GeminiContent } from "./adapter.js";
@@ -34,10 +34,12 @@ export type AskGeminiOptions = {
    */
   documentPlacement?: "first" | "last";
   /**
-   * Plain chat history; the last turn must be the user's question. It may hold the tool rounds of
-   * earlier questions (`toolTurns` of their results). Use this or `contents`.
+   * The chat history, as `askWithFiles` takes it; the last turn must be the user's question. It
+   * may hold the tool rounds of earlier questions (`toolTurns` of their results), and turns with
+   * parts, such as `fromGeminiContents(contents, { rounds: false })` gives. Use this or
+   * `contents`. Typed `ChatMessage[]` since 0.9.0; before, `Array<ChatTurn | ToolTurn>`.
    */
-  messages?: Array<ChatTurn | ToolTurn>;
+  messages?: ChatMessage[];
   /** Your own Gemini `contents` (with images, inline PDFs, etc.). The last turn must be the user's. */
   contents?: GeminiContent[];
   system?: string;

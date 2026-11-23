@@ -274,10 +274,12 @@ Shared with [`AskOptions`](./ask.md#askoptions), with the same meaning and defau
 `streamText`, `onEvent`, `runId` and `eventResults` (see [events](./events.md)), and, new in 0.9.0,
 `scope` and `onMissingDocuments` ([missing documents](./ask.md#missing-documents)). With Gemini:
 
-- `messages` is optional and typed `Array<ChatTurn | ToolTurn>`: plain turns and the `toolTurns`
-  of earlier questions. Turns with native parts (images, inline PDFs, thought signatures) go in
-  `contents` instead. Give `messages` or `contents`: with neither, the question throws "The last
-  message must be the user's."
+- `messages` is optional and typed [`ChatMessage[]`](./ask.md#chatmessage), as in `askWithFiles`:
+  plain turns, the `toolTurns` of earlier questions, and turns with parts, such as
+  `fromGeminiContents(contents, { rounds: false })` gives. Before 0.9.0 it was typed
+  `Array<ChatTurn | ToolTurn>`. Turns with native parts (images, inline PDFs, thought signatures)
+  usually go in `contents`. Give `messages` or `contents`: with neither, the question throws "The
+  last message must be the user's."
 - `onText` streams only when the endpoint has a `streamUrl`. Without one, it gets the text of each
   reply once the reply has arrived. The same holds for `streamText` (on by default with `onText`):
   it asks for the answer as it is written only from an endpoint with a `streamUrl`.
@@ -289,7 +291,7 @@ Fields `askGemini` adds:
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `endpoint` | [`GeminiEndpoint`](#geminiendpoint) | required | The model that answers, and the explorer when `explorerUrl` is set and differs from `url`. |
-| `contents` | [`GeminiContent[]`](#geminicontent) | none | The conversation as Gemini `contents`, with images, inline PDFs or function calls. Converted with [`fromGeminiContents()`](#fromgeminicontentscontents-options), whose tool rounds come back as stored rounds (new in 0.9.0). It wins over `messages` when both are given. The array is not changed. The last turn must be the user's. |
+| `contents` | [`GeminiContent[]`](#geminicontent) | none | The conversation as Gemini `contents`, with images, inline PDFs or function calls. Converted with [`fromGeminiContents()`](#fromgeminicontentscontents-options), whose tool rounds come back as stored rounds (new in 0.9.0). For the conversion of 0.8, pass `messages: fromGeminiContents(contents, { rounds: false })` instead. It wins over `messages` when both are given. The array is not changed. The last turn must be the user's. |
 | `generationConfig` | `Record<string, unknown>` | none | Sent as `generationConfig` with every chat request of the answering model, and of the explorer unless `explorerGenerationConfig` is set: `temperature`, `maxOutputTokens`, `thinkingConfig` and so on. Not used for part reads. |
 | `explorerGenerationConfig` | `Record<string, unknown>` | `generationConfig` | The same, for the explorer's chat requests, when the two models do not take the same settings. Not used without an explorer. |
 | `toolFilePlacement` | [`GeminiToolFilePlacement`](#geminitoolfileplacement) | `"inside"` | Where the pages of `view_pages` go, for both models. `"beside"` for Gemini 2.5. |
@@ -527,7 +529,7 @@ New in 0.9.0.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `rounds` | `boolean` | `true` | Turn the tool rounds of earlier questions into stored rounds (above). `false` keeps every turn as its parts, as 0.8 did. Function parts are sized by their JSON either way. |
+| `rounds` | `boolean` | `true` | Turn the tool rounds of earlier questions into stored rounds (above). `false` keeps every turn as its parts, as 0.8 did. Function parts are sized by their JSON either way. With `askGemini`: `messages: fromGeminiContents(contents, { rounds: false })`. |
 
 ### geminiToolTurns(turns)
 
@@ -837,7 +839,7 @@ passed in as `code` and `details` to tell the `kind`, and are not kept on the er
 import { askGemini, DocumentsNotFoundError, GeminiRequestError, partialResultOf } from "llm-large-files/gemini";
 
 // files and endpoint as above; documentIds: string[];
-// messages: Array<ChatTurn | ToolTurn> (plain turns and stored toolTurns).
+// messages: ChatMessage[] (plain turns and stored toolTurns).
 try {
   const result = await askGemini({ files, endpoint, documentIds, messages });
   console.log(result.text);
