@@ -61,14 +61,14 @@ function withinIdle<T>(next: Promise<T>, idleMs: number): Promise<T> {
 }
 
 /**
- * A call to the disk for an upload's file (`syscall`: its opening, a write, its closing) that did
- * not end within the idle time: the volume stopped answering. Answered as a system error, with its
- * code only: 500 "Upload failed (ETIMEDOUT).".
+ * A call to the disk for an upload's file (`syscall`: the check of its folders, its opening, a
+ * write, its closing) that did not end within the idle time: the volume stopped answering.
+ * Answered as a system error, with its code only: 500 "Upload failed (ETIMEDOUT).".
  */
 class DiskTimeout extends Error {
   readonly code = "ETIMEDOUT";
   constructor(readonly syscall: string) {
-    super("The upload's file could not be written in time.");
+    super("A call to the disk for the upload's file did not end in time.");
   }
 }
 
@@ -240,9 +240,11 @@ export async function writeBody(request: IncomingMessage, file: string, options:
  * name: a link in a folder above it is followed, and the upload would be stored with a ref that is
  * never read back, its body written where the link leads. Refused as a system error, `ELOOP`: 500
  * "Upload failed (ELOOP).". A ref that is not the end of the path is one of a reader of your own,
- * and a folder that is not there is the opening's to tell (`ENOENT`): neither is checked here.
+ * and a folder that is not there is the opening's to tell (`ENOENT`): neither is checked here. The
+ * check of the folders is waited for no longer than `idleMs` (0 for no limit): past it, the upload
+ * fails with a `DiskTimeout`, before anything is written.
  */
-export async function checkRefFolders(file: string, ref: string): Promise<void> {
+export async function checkRefFolders(file: string, ref: string, idleMs: number): Promise<void> {
   const target = path.resolve(file);
   let tail = path.normalize(ref);
   while (tail.endsWith(path.sep)) tail = tail.slice(0, -1);
@@ -252,8 +254,10 @@ export async function checkRefFolders(file: string, ref: string): Promise<void> 
   let real: string;
   let realRoot: string;
   try {
-    [real, realRoot] = await Promise.all([realpath(folder), realpath(root)]);
-  } catch {
+    [real, realRoot] = await inTime(Promise.all([realpath(folder), realpath(root)]), idleMs, "realpath");
+  } catch (error) {
+    // A volume that does not answer fails the upload; any other error is the opening's to tell.
+    if (error instanceof DiskTimeout) throw error;
     return;
   }
   if (real !== path.join(realRoot, path.relative(root, folder))) {

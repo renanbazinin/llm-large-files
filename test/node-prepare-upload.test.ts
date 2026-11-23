@@ -32,13 +32,15 @@ import { numberedPdf } from "./pdf-fixtures.js";
  * The files the handlers opened to write ("wx"), and the flags of every opening of a file. With
  * `fullUnder` set, a write to a file under that folder fails as a full disk does (ENOSPC). With
  * `writesHeldUnder` set, each write to such a file waits for `writesGate`, as on a volume that
- * stopped answering, then runs.
+ * stopped answering, then runs. With `realpathHeldUnder` set, a look at the real path of a file
+ * under that folder never ends.
  */
 const disk = vi.hoisted(() => ({
   opens: [] as Array<{ file: string; flags: unknown; mode: unknown }>,
   fullUnder: undefined as string | undefined,
   writesHeldUnder: undefined as string | undefined,
   writesGate: Promise.resolve(),
+  realpathHeldUnder: undefined as string | undefined,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -62,7 +64,9 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     }
     return handle;
   }) as typeof actual.open;
-  return { ...actual, open, default: { ...actual, open } };
+  const realpath = ((...args: Parameters<typeof actual.realpath>) =>
+    disk.realpathHeldUnder !== undefined && String(args[0]).startsWith(disk.realpathHeldUnder) ? new Promise<never>(() => undefined) : actual.realpath(...args)) as typeof actual.realpath;
+  return { ...actual, open, realpath, default: { ...actual, open, realpath } };
 });
 
 /** The servers of a test, closed after it. */
@@ -75,6 +79,7 @@ beforeEach(async () => {
   disk.opens.length = 0;
   disk.fullUnder = undefined;
   disk.writesHeldUnder = undefined;
+  disk.realpathHeldUnder = undefined;
 });
 afterEach(async () => {
   for (const server of servers.splice(0)) {
@@ -105,8 +110,8 @@ const scopeOf = (request: IncomingMessage): DocumentScope | undefined => {
 const ALICE = { "X-User": "alice", "X-Chat": "chat-1" };
 const ACCESS = { owner: "alice", scope: ["alice", "chat-1"] };
 
-const upload = (base: string, name: string, body: string | Uint8Array, headers: Record<string, string> = {}, events = false) =>
-  fetch(base, { method: "POST", headers: { "X-File-Name": name, ...ALICE, ...headers, ...(events ? { Accept: "text/event-stream" } : {}) }, body });
+const upload = (base: string, name: string, body: string | Uint8Array, headers: Record<string, string> = {}, events = false, signal?: AbortSignal) =>
+  fetch(base, { method: "POST", headers: { "X-File-Name": name, ...ALICE, ...headers, ...(events ? { Accept: "text/event-stream" } : {}) }, body, ...(signal ? { signal } : {}) });
 
 type Answer = { status: number; headers: IncomingHttpHeaders; body: string };
 /**
@@ -458,6 +463,26 @@ describe("prepareUpload with a path", () => {
     await pause(20);
     expect(await uploads()).toEqual([]);
     expect(await files.getMeta("up-1", ACCESS)).toBeUndefined();
+  });
+
+  // The look at the folders of the ref came before the first timed call to the disk: on a volume
+  // that stopped answering, such an upload was never answered.
+  it("answers 500 (ETIMEDOUT), and writes nothing, when the look at the folders of the ref does not end within uploadIdleTimeoutMs", async () => {
+    const files = library();
+    const { options } = chatbot({ uploadIdleTimeoutMs: 200 });
+    const base = await serve(files, options);
+    disk.realpathHeldUnder = root;
+    for (const events of [false, true]) {
+      // Answered before the event stream starts: JSON on both paths.
+      const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events, AbortSignal.timeout(3_000));
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
+    }
+    expect(disk.opens.filter((entry) => entry.flags === "wx")).toEqual([]);
+    expect(await uploads()).toEqual([]);
+    disk.realpathHeldUnder = undefined;
+    expect((await upload(base, "notes.txt", "The meeting is on Tuesday.")).status).toBe(201);
+    expect(await uploads()).toEqual(["up-3"]);
   });
 
   // fileOriginals refuses a link at any level below its root: such an upload was answered 201, its

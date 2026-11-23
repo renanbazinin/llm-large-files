@@ -222,9 +222,9 @@ export type DocumentHandlerOptions = {
    * An upload whose body stops arriving for this many milliseconds is answered 408, its connection
    * closed and its room given back: a client that sends its headers and then nothing, or stalls,
    * holds its room no longer. Since 0.9.0 it also bounds each call to the disk for a body written
-   * to a file (its opening, each write, its closing): a volume that stops answering fails the
-   * upload with a 500 "Upload failed (ETIMEDOUT).", and its room is given back. 0 or `Infinity` for
-   * no limit. Defaults to 30,000. New in 0.8.2.
+   * to a file (the check of its folders for a link, its opening, each write, its closing): a volume
+   * that stops answering fails the upload with a 500 "Upload failed (ETIMEDOUT).", and its room is
+   * given back. 0 or `Infinity` for no limit. Defaults to 30,000. New in 0.8.2.
    */
   uploadIdleTimeoutMs?: number;
 };
@@ -768,7 +768,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         }
         const prepared = options.prepareUpload ? preparedOf(await options.prepareUpload(request, { name: cleanFileName(name), ...caller })) : {};
         // A file `fileOriginals` would not read back by its ref is refused before anything is written.
-        if (prepared.path !== undefined && prepared.original !== undefined) await checkRefFolders(prepared.path, prepared.original.ref);
+        if (prepared.path !== undefined && prepared.original !== undefined) await checkRefFolders(prepared.path, prepared.original.ref, idleMs);
         // Where the body is while it is ingested: in the application's file (`prepareUpload`), in a
         // file of the spool, or in memory. Room is taken for it before it is read, so that a refused
         // upload is not read: in the spool, or in memory. The application's file takes none: it is
