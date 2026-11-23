@@ -286,8 +286,12 @@ headings, each pointing to its new home.
 - [Publishing](./publishing.md): releasing a version to npm.
 - [Contributing](https://github.com/renanbazinin/llm-large-files/blob/main/CONTRIBUTING.md): how to work on the code and its tests.
 
-## Changelog
+## Changelog and upgrading
 
 [CHANGELOG.md](../CHANGELOG.md) says what changed in each version. From 0.6.0 on, each version
 starts with what you must change when you upgrade, then what you can add, what works differently
 and what was fixed.
+
+[Upgrading to 0.9](./upgrading-0.9.md) takes an application from 0.8.x to 0.9.0: what no longer
+compiles, behavior to check, stores of your own, servers of two versions on one store, and a worked
+example of a chatbot with a folder per user and chat on a shared volume.

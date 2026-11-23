@@ -756,6 +756,7 @@ same conversations.
   they answer such documents as missing, and the user is asked for the file again. Upgrade every
   server at once, or keep each chat on servers of one version until the rollout ends. Files that
   0.9.0 writes are `0600`: servers of 0.8 that run as another user cannot read them either.
+  [Upgrading to 0.9](../upgrading-0.9.md#several-servers-and-rolling-deploys) has the steps.
 - **A document keeps what the version that ingested it extracted**: its text, outline and log
   profile. A better extractor applies to files uploaded after the upgrade. A text file in an older
   encoding that 0.5.0 stored holds U+FFFD where 0.6.0 reads its letters, and text that 0.5.0
@@ -763,8 +764,10 @@ same conversations.
   again to get the new reading. A document that 0.5.0 stored with the owner `""` stays readable
   with that owner until it expires.
 - **Conversations.** `toolTurns` are plain JSON, and their type (`ToolTurn`) has not changed since
-  they appeared in 0.5.0. Both versions read the ones the other stored. 0.6.0 sends the rounds of
-  an earlier question without their `tool_turns_left`
+  they appeared in 0.5.0, but for `version`, which 0.9.0 adds to the rounds it makes. Both versions
+  read the ones the other stored: a version before 0.9.0 ignores `version`, and 0.9.0 refuses a
+  round whose `version` is above 1, made by a later version, with a `TypeError`. 0.6.0 sends the
+  rounds of an earlier question without their `tool_turns_left`
   ([Conversations](./conversations.md#what-toolturns-holds)).
 - **Provider caches.** The tool guide in the system instruction, the descriptions of
   `analyze_whole_document` and `search_document`, and the frame lines of a file sent whole changed
