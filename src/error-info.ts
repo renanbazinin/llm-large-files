@@ -1,6 +1,6 @@
 // What an error means for an application: one record to choose a status, a retry and words of
 // your own by, in any language. New in 0.9.0.
-import { DocumentScopeError, DocumentStoreError, IngestError, type IngestErrorCode } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import { eventErrorOf } from "./events.js";
 import { classifyModelError, DocumentsNotFoundError, ModelRequestError, type ModelErrorKind } from "./model.js";
 
@@ -63,6 +63,11 @@ const MODEL_STATUS: Record<ModelErrorKind, number> = {
 };
 const RETRYABLE_KINDS = new Set<ModelErrorKind>(["rate_limit", "timeout", "unreachable", "server"]);
 
+/** Every `DocumentScopeErrorCode`, to read the `code` of an `EventError`. */
+const SCOPE_CODES: Record<DocumentScopeErrorCode, true> = { scope_required: true, scope_invalid: true, scope_missing: true };
+/** Statuses of plain data that say "try again later": too many requests, and a server that could not answer. */
+const RETRY_STATUSES = new Set([429, 502, 503, 504]);
+
 /** Every `IngestErrorCode`, to read the `code` of an `EventError`. */
 const INGEST_CODES: Record<IngestErrorCode, true> = {
   empty: true, too_large: true, too_much_text: true, too_many_pages: true, not_text: true, compressed: true, legacy_office: true,
@@ -116,6 +121,16 @@ const storeInfo = (code: unknown, message: string): ErrorInfo => ({
 });
 
 /**
+ * A scope that cannot be used: a chat that is gone, or a scope the server should have given, or
+ * given right (its bug, not the user's). Its own words are not used: a store of your own wrote them.
+ */
+function scopeInfo(code: unknown): ErrorInfo {
+  if (code === "scope_missing") return { category: "missing", code: "scope_missing", status: 404, retryable: false, message: CHAT_GONE };
+  const known = typeof code === "string" && Object.hasOwn(SCOPE_CODES, code);
+  return { category: "input", ...(known ? { code } : {}), status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
+}
+
+/**
  * An `EventError`: the plain data of `run.error`, `request.end`, `retry` and `ingest.error`, which
  * the library made from an error with words safe to show. It is read by its `name` and `code`;
  * a model error by its `kind`, below, as any error with one. Undefined for other data.
@@ -123,10 +138,11 @@ const storeInfo = (code: unknown, message: string): ErrorInfo => ({
 function eventInfoOf(record: { name?: unknown; code?: unknown; kind?: unknown; status?: unknown; message?: unknown }): ErrorInfo | undefined {
   const { name, code, kind, status, message } = record;
   if (typeof message !== "string" || kind !== undefined) return undefined;
-  // `ingest.error` of the upload handler has no name.
+  // `ingest.error` of the upload handler has no name for a refused file.
   if (typeof code === "string" && Object.hasOwn(INGEST_CODES, code) && (name === undefined || name === "IngestError")) return ingestInfo(code, status, undefined, message);
   if (name === "DocumentStoreError") return storeInfo(undefined, message || "The document store could not be used. Try again.");
   if (name === "DocumentsNotFoundError") return { category: "missing", code: "documents_missing", status: 404, retryable: false, message: message || "A document is no longer available. Upload it again." };
+  if (name === "DocumentScopeError") return scopeInfo(code);
   return undefined;
 }
 
@@ -137,20 +153,21 @@ function infoOf(error: unknown): ErrorInfo {
   if (DocumentsNotFoundError.is(error)) {
     return { category: "missing", code: "documents_missing", status: 404, retryable: false, message: eventErrorOf(error).message };
   }
-  if (DocumentScopeError.is(error)) {
-    if (error.code === "scope_missing") return { category: "missing", code: "scope_missing", status: 404, retryable: false, message: CHAT_GONE };
-    // A scope the server should have given, or given right: its bug, not the user's.
-    return { category: "input", code: String(error.code), status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
-  }
+  if (DocumentScopeError.is(error)) return scopeInfo(error.code);
   if (typeof error !== "object" || error === null) return { category: "unknown", status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
+  const { name, retryAfterMs } = error as { name?: unknown; retryAfterMs?: unknown };
+  if (name === "AbortError") return { category: "aborted", code: "aborted", status: 503, retryable: true, message: "It was stopped before it finished." };
+  if (name === "TimeoutError") return { category: "aborted", code: "timeout", status: 504, retryable: true, message: "It took too long, and was stopped. Try again." };
   const proto: unknown = Object.getPrototypeOf(error);
   if (proto === Object.prototype || proto === null) {
     const fromEvent = eventInfoOf(error);
     if (fromEvent) return fromEvent;
+    // Plain data without a `kind` is not a model's error: an `EventError` of one always has its
+    // kind. The `ingest.error` of the upload handler for a hook that failed ({ message, status })
+    // keeps its status.
+    const { kind, status } = error as { kind?: unknown; status?: unknown };
+    if (typeof kind !== "string") return plainInfo(error, status);
   }
-  const { name, retryAfterMs } = error as { name?: unknown; retryAfterMs?: unknown };
-  if (name === "AbortError") return { category: "aborted", code: "aborted", status: 503, retryable: true, message: "It was stopped before it finished." };
-  if (name === "TimeoutError") return { category: "aborted", code: "timeout", status: 504, retryable: true, message: "It took too long, and was stopped. Try again." };
   const kind = modelKindOf(error);
   if (kind !== undefined) {
     return {
@@ -164,9 +181,22 @@ function infoOf(error: unknown): ErrorInfo {
     };
   }
   if (error instanceof TypeError || error instanceof RangeError) return { category: "input", status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
+  return plainInfo(error, undefined);
+}
+
+/**
+ * Anything else: "unknown", with the code of a system error, never its message. `status`, of plain
+ * data, is kept when it is one of an error (400 to 599), and says whether to retry.
+ */
+function plainInfo(error: object, status: unknown): ErrorInfo {
   const code = systemCode(error);
-  if (code) return { category: "unknown", code, status: 500, retryable: false, message: `Something went wrong (${code}).` };
-  return { category: "unknown", status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
+  return {
+    category: "unknown",
+    ...(code ? { code } : {}),
+    status: isStatus(status) ? status : 500,
+    retryable: RETRY_STATUSES.has(status as number),
+    message: code ? `Something went wrong (${code}).` : SOMETHING_WENT_WRONG,
+  };
 }
 
 /**
@@ -174,8 +204,10 @@ function infoOf(error: unknown): ErrorInfo {
  * its category and code, the HTTP status to answer with, whether to retry it, and a message in
  * English that is safe to show (never a path, a host, a stack or a provider's words). It reads
  * the errors of every copy of the package (two versions side by side, or one bundled), and the
- * `EventError` of an event (`run.error`, `ingest.error`), whose words it keeps. It never throws:
- * what it cannot read is "unknown". New in 0.9.0.
+ * `EventError` of an event (`run.error`, `ingest.error`, the upload handlers' `ingest.error` too),
+ * by its `code`, `name` and `kind`, keeping the words the library wrote. Plain data with none of
+ * them is "unknown", with its status. It never throws: what it cannot read is "unknown". New in
+ * 0.9.0.
  */
 export function errorInfoOf(error: unknown): ErrorInfo {
   try {

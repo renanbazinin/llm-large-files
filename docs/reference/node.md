@@ -408,7 +408,7 @@ of [`IngestEvent`](./events.md#ingestevent), stamped with `seq` (1, 2, 3… with
 | `ingest.start` | `name` (cleaned), `format` (what the name and the type say: a text file can still become a log), `bytes` | First. |
 | `ingest.progress` | `stage` (`"decode"`, `"extract"`, `"check"`, `"pictures"`, `"prepare"`, `"index"` or `"store"`), `done`, `total` (absent when not known), `unit` (`"pages"`, `"parts"`, `"bytes"` or `"characters"`) | At most about every 12 ms for a stage, and once more when the stage ends. A stage with nothing to report may send none ([stages and units](./events.md#stages-and-units)). |
 | `ingest.finish` | `document`: the [`DocumentSummary`](./library.md#documentsummary), the same fields as the body of a `201`. `app`: the `answer` of `onUploaded`, when it returned one (new in 0.9.0) | Last, when the document is stored and `onUploaded`, when there is one, is done. |
-| `ingest.error` | `error`: `{ "message": …, "status": … }`, the message and status the JSON answer would have, and for a file that could not be read `"code"`, the [`IngestError`](./library.md#ingesterror) code (new in 0.8.0) | Last, when the ingest fails. |
+| `ingest.error` | `error`: `{ "message": …, "status": … }`, the message and status the JSON answer would have, and for a file that could not be read `"code"`, the [`IngestError`](./library.md#ingesterror) code (new in 0.8.0). For a store that failed, `"name": "DocumentStoreError"`; for a scope error, `"name": "DocumentScopeError"` and its `"code"`; for documents that are gone, `"name": "DocumentsNotFoundError"` (new in 0.9.0) | Last, when the ingest fails. |
 
 ```text
 id: 4
@@ -425,9 +425,14 @@ data: {"type":"ingest.finish","document":{"id":"doc_f6502d2f94694d709c7db2ec634c
   isolated readers that are all busy `{ "message": "The server is reading other files right now. Try
   again in a moment.", "status": 503, "code": "busy" }`, with no `Retry-After` (the headers are
   sent). A store that failed is `{ "message": "The document could not be stored. Try again.", "status": 503 }`
-  (since 0.9.0; it was `"Upload failed."` and 500), never the store's own message, which may name a host. An error with a status keeps it. The error has no `kind` or
-  `name` here, unlike the `EventError` of `files.ingest`'s own events; `code` is new in 0.8.0, so
-  that a page can say why in its own words.
+  (since 0.9.0; it was `"Upload failed."` and 500), never the store's own message, which may name a host. An error with a status keeps it. The error has no `kind` here,
+  unlike the `EventError` of `files.ingest`'s own events; `code` is new in 0.8.0, so that a page
+  can say why in its own words. Since 0.9.0 the library's own errors other than a refused file
+  also have their `name`: `"DocumentStoreError"` (with `"name"` added to the 503 above),
+  `"DocumentScopeError"` with its `code` (`{ "message": "This chat no longer exists.", "status":
+  404, "name": "DocumentScopeError", "code": "scope_missing" }`), and `"DocumentsNotFoundError"`.
+  So [`errorInfoOf`](./errors-and-retries.md#errorinfooferror) reads `ingest.error` as it reads the
+  error itself; an error that is none of these is `"unknown"` there, with its status.
 - **`onUploaded` runs before `ingest.finish`.** The event waits for it. When it throws, the
   document is deleted, and the stream ends with `ingest.error` holding the error's answer instead
   ([the hooks](#the-hooks-onuploaded-and-onremoved)). New in 0.9.0.

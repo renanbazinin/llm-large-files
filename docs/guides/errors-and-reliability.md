@@ -743,7 +743,10 @@ file name in Latin letters inside a sentence stays in its place.
 
 Use it where an error reaches your code: the `catch` of a question, and a route of your own that
 ingests files. It also reads the `error` of a `run.error` or `ingest.error` event, which is plain
-data (`EventError`), so a stream to the browser can carry the same words:
+data (`EventError`), so a stream to the browser can carry the same words. It reads such data by its
+`code` (a refused file, a scope), its `name` (a store, documents or a scope) and its `kind` (a
+model). Data with none of them is `"unknown"`, with its `status` kept when it is 400 to 599 (a hook
+of yours that threw a `409`), and `retryable` for 429, 502, 503 and 504:
 
 ```ts
 import type { ServerResponse } from "node:http";
@@ -761,7 +764,10 @@ export async function streamInHebrew(res: ServerResponse, options: AskOptions): 
 
 The upload handlers of `llm-large-files/node` answer in English. To answer in Hebrew there, ingest
 in a route of your own and answer with `hebrewAnswer(error)`, or word the `error` of the JSON answer
-and of `ingest.error` in the browser, by its status and `code`.
+and of `ingest.error` in the browser, by its status and `code`. The `ingest.error` of the handlers
+also has the `name` of a store that failed (`"DocumentStoreError"`) and of a scope error
+(`"DocumentScopeError"`, with `code` `"scope_missing"` for a deleted chat), so `errorInfoOf` reads
+it as it reads the error itself.
 
 ## Putting it together: a chat route
 

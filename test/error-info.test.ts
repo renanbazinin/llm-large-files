@@ -138,6 +138,39 @@ describe("errorInfoOf", () => {
     expect(errorInfoOf({ kind: "quota", status: 429, message: "Quota of acme-prod exceeded." }).message).toBe("The model's quota has run out (HTTP 429).");
   });
 
+  // run.error of a scope error had no code: a deleted chat was "unknown" and 500.
+  it("reads the EventError of a scope error by its name and code", () => {
+    const gone = eventErrorOf(new DocumentScopeError("scope_missing"));
+    expect(gone).toEqual({ message: "The scope no longer exists.", name: "DocumentScopeError", code: "scope_missing" });
+    expect(errorInfoOf(gone)).toEqual({ category: "missing", code: "scope_missing", status: 404, retryable: false, message: "This chat no longer exists." });
+    expect(errorInfoOf(eventErrorOf(new DocumentScopeError("scope_invalid")))).toEqual({ category: "input", code: "scope_invalid", status: 500, retryable: false, message: "Something went wrong." });
+    expect(errorInfoOf(eventErrorOf(new DocumentScopeError("scope_required")))).toMatchObject({ category: "input", code: "scope_required", status: 500 });
+    // Its own words, which a store of your own wrote, are not the info's.
+    expect(errorInfoOf({ message: "Folder /srv/u1/c1 is gone.", name: "DocumentScopeError", code: "scope_missing" }).message).toBe("This chat no longer exists.");
+    expect(errorInfoOf({ message: "x", name: "DocumentScopeError", code: "not_a_code" })).toEqual({ category: "input", status: 500, retryable: false, message: "Something went wrong." });
+  });
+
+  // Plain data with a status and no kind was read as a model's error: the handler's
+  // { message: "Upload failed.", status: 500 } became "The model failed on its side", and 502.
+  it("reads plain data without a kind, a name it knows or an ingest code as unknown, keeping its status", () => {
+    const cases: Array<[Record<string, unknown>, ErrorInfo]> = [
+      [{ message: "Upload failed.", status: 500 }, { category: "unknown", status: 500, retryable: false, message: "Something went wrong." }],
+      [{ message: "This chat no longer exists.", status: 404 }, { category: "unknown", status: 404, retryable: false, message: "Something went wrong." }],
+      [{ message: `Down at ${HOST}.`, status: 503 }, { category: "unknown", status: 503, retryable: true, message: "Something went wrong." }],
+      [{ message: "Slow down.", status: 429 }, { category: "unknown", status: 429, retryable: true, message: "Something went wrong." }],
+      [{ message: "No answer.", status: 0, name: "Error" }, { category: "unknown", status: 500, retryable: false, message: "Something went wrong." }],
+      [{ message: "Not a status.", status: 200 }, { category: "unknown", status: 500, retryable: false, message: "Something went wrong." }],
+      [Object.assign(Object.create(null) as object, { message: "x", status: 502 }), { category: "unknown", status: 502, retryable: true, message: "Something went wrong." }],
+    ];
+    for (const [data, expected] of cases) {
+      const info = errorInfoOf(data);
+      expect(info, JSON.stringify(data)).toEqual(expected);
+      expectSafe(info);
+    }
+    // An Error with a status and no kind is still an adapter's of your own.
+    expect(errorInfoOf(Object.assign(new Error("Busy."), { status: 503 }))).toMatchObject({ category: "model", code: "server" });
+  });
+
   it("reads the errors of another copy of the package", async () => {
     vi.resetModules();
     const errors = await import("../src/errors.js");

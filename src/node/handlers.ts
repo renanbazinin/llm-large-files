@@ -3,7 +3,7 @@ import { errorInfoOf, STORE_RETRY_AFTER_MS } from "../error-info.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, type IngestErrorCode } from "../errors.js";
 import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
 import { checkOwner, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles } from "../library.js";
-import { errorKindOf, ModelRequestError } from "../model.js";
+import { DocumentsNotFoundError, errorKindOf, ModelRequestError } from "../model.js";
 import { formatBytes } from "../plan.js";
 import { checkScope } from "../scope.js";
 import type { DocumentMeta, DocumentScope } from "../types.js";
@@ -130,7 +130,9 @@ export type DocumentHandlers = {
    * still answer with an HTTP error) is answered with a 200 and Server-Sent Events: the ingest's
    * events (`ingest.start`, `ingest.progress`…), ending with `ingest.finish`, whose data is the
    * summary a 201 would hold (and `onUploaded`'s answer in `app`), or `ingest.error`, whose data is
-   * `{ error: { message, status } }` with the message and status a JSON answer would have.
+   * `{ error: { message, status } }` with the message and status a JSON answer would have, the
+   * `code` of a refused file, and the `name` of a store that failed or of a scope error (with its
+   * `code`), for `errorInfoOf`.
    */
   upload(request: IncomingMessage, response: ServerResponse): Promise<void>;
   /** GET: the document's summary, or 404. With `getScope`, only a document of the request's scope. */
@@ -272,11 +274,30 @@ function wantsEvents(request: IncomingMessage): boolean {
  */
 type Hooked = { answer?: Record<string, unknown> } | { failure: unknown };
 
-/** An error as `ingest.error` carries it: the message, status and code of the JSON answer. */
+/**
+ * An error as `ingest.error` carries it: the message, status and code of the JSON answer, and which
+ * of the library's errors it is, so that `errorInfoOf` reads it in the browser as on the server.
+ */
 function eventErrorFor(error: unknown, tooLarge: string): EventError {
   const answer = answerFor(error, "Upload failed");
   // A file that could not be read also says why, for a page that tells it in its own words.
-  return { message: messageOf(answer, error, tooLarge), status: answer.status, ...(answer.code !== undefined ? { code: answer.code } : {}) };
+  return { message: messageOf(answer, error, tooLarge), status: answer.status, ...identityOf(error), ...(answer.code !== undefined ? { code: answer.code } : {}) };
+}
+
+/**
+ * The name of a store's failure, of documents that are gone, or of a scope that cannot be used
+ * (with its code, which tells a deleted chat apart), for `EventError`. Nothing for other errors:
+ * a refused file is told by its `code`.
+ */
+function identityOf(error: unknown): Pick<EventError, "name" | "code"> {
+  try {
+    if (DocumentStoreError.is(error)) return { name: "DocumentStoreError" };
+    if (DocumentsNotFoundError.is(error)) return { name: "DocumentsNotFoundError" };
+    if (DocumentScopeError.is(error)) return { name: "DocumentScopeError", ...(typeof error.code === "string" ? { code: error.code } : {}) };
+  } catch {
+    // A proxy whose traps throw: told plainly.
+  }
+  return {};
 }
 
 /**

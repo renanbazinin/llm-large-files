@@ -10,7 +10,9 @@ import {
   askWithFiles,
   createLargeFiles,
   DocumentScopeError,
+  DocumentsNotFoundError,
   DocumentStoreError,
+  errorInfoOf,
   FileDocumentStore,
   IngestError,
   MemoryDocumentStore,
@@ -538,6 +540,64 @@ describe("errors as the upload answers them (S12)", () => {
     ];
     for (const [index, [error, answer]] of cases.entries()) {
       expect(uploadAnswerOf(error), `case ${index}`).toEqual(answer);
+    }
+  });
+});
+
+describe("errorInfoOf on the upload's ingest.error", () => {
+  /** The `error` of the last event of an upload with events. */
+  async function eventError(base: string, headers: Record<string, string> = {}): Promise<Record<string, unknown>> {
+    const last = parse(await (await upload(base, headers, "notes", true)).text()).at(-1)!;
+    expect(last.event).toBe("ingest.error");
+    return (last.data as { error: Record<string, unknown> }).error;
+  }
+
+  // The handler's ingest.error had no name: errorInfoOf took a store's 503 and a deleted chat's 404
+  // for a model's errors ("The model failed on its side (HTTP 503).", "The model refused the
+  // request (HTTP 404).").
+  it("reads a store that failed, a chat that is gone and a hook that failed as the JSON answer does", async () => {
+    class DownStore extends MemoryDocumentStore {
+      override async put(): Promise<void> {
+        throw Object.assign(new Error("EIO: i/o error, write '/srv/large-files/doc_1.json'"), { code: "EIO", syscall: "write" });
+      }
+    }
+    const down = await eventError(await serve(createLargeFiles({ store: new DownStore() })));
+    expect(down).toEqual({ message: "The document could not be stored (EIO). Try again.", status: 503, name: "DocumentStoreError" });
+    expect(errorInfoOf(down)).toEqual({ category: "store", status: 503, retryable: true, retryAfterMs: 5_000, message: "The document could not be stored (EIO). Try again." });
+
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    let thrown: unknown = new DocumentScopeError("scope_missing");
+    const base = await serve(files, { onUploaded: () => { throw thrown; } });
+    const gone = await eventError(base);
+    expect(gone).toEqual({ message: "This chat no longer exists.", status: 404, name: "DocumentScopeError", code: "scope_missing" });
+    expect(errorInfoOf(gone)).toEqual({ category: "missing", code: "scope_missing", status: 404, retryable: false, message: "This chat no longer exists." });
+
+    thrown = new DocumentScopeError("scope_invalid");
+    expect(errorInfoOf(await eventError(base))).toEqual({ category: "input", code: "scope_invalid", status: 500, retryable: false, message: "Something went wrong." });
+
+    thrown = new DocumentsNotFoundError(["doc_1"]);
+    expect(errorInfoOf(await eventError(base))).toMatchObject({ category: "missing", code: "documents_missing", status: 404 });
+
+    thrown = new Error("MongoServerSelectionError: connect ECONNREFUSED mongo-prod.internal.corp:27017");
+    const failed = await eventError(base);
+    expect(failed).toEqual({ message: "Upload failed.", status: 500 });
+    expect(errorInfoOf(failed)).toEqual({ category: "unknown", status: 500, retryable: false, message: "Something went wrong." });
+
+    // The hook's own status is kept; its words are the app's, and not read.
+    thrown = Object.assign(new Error("This chat has too many files."), { status: 409 });
+    expect(errorInfoOf(await eventError(base))).toEqual({ category: "unknown", status: 409, retryable: false, message: "Something went wrong." });
+    thrown = Object.assign(new Error("Later."), { status: 503 });
+    expect(errorInfoOf(await eventError(base))).toEqual({ category: "unknown", status: 503, retryable: true, message: "Something went wrong." });
+  });
+
+  it("reads a chat whose folder is gone, from the store itself", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "llf-hooks-"));
+    try {
+      const files = createLargeFiles({ store: new FileDocumentStore(root, { scopes: { depth: 2 } }) });
+      const base = await serve(files, { getOwner: userOf, getScope: scopeOf });
+      expect(errorInfoOf(await eventError(base, asUser("alice", "c1")))).toEqual({ category: "missing", code: "scope_missing", status: 404, retryable: false, message: "This chat no longer exists." });
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

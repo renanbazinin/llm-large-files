@@ -445,8 +445,8 @@ An error in an event is plain data, safe to send to a browser:
 | `message` | `string` | A message your users may see. |
 | `kind` | `ModelErrorKind`, optional | For a model error: what kind it is (`errorKindOf`): `"rate_limit"`, `"timeout"`, `"auth"`… |
 | `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also 503 for a `DocumentStoreError` and 404 for a `DocumentsNotFoundError`. |
-| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"IngestError"`… |
-| `code` | `IngestErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. |
+| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentScopeError"`, `"IngestError"`… |
+| `code` | `IngestErrorCode` or `DocumentScopeErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. Since 0.9.0 also the code of a [`DocumentScopeError`](./library.md#documentscopeerror), with `name` `"DocumentScopeError"`: `"scope_missing"` when the chat was deleted. |
 
 How `message` is written:
 
@@ -467,7 +467,9 @@ An [`IngestError`](./library.md#ingesterror) is told by its message, with `name:
 its `code`, and with its `status` only for `"too_large"` (413), `"exists"` (409, new in 0.9.0) and
 `"busy"` (503): that status is the answer of an upload, not of a model, and the others are all 422. Until 0.8.0 the same refusals were
 plain `Error`s, and their events said `name: "Error"`; a test that expects that needs
-`"IngestError"`. A store that failed, an abort and a listener that threw have no `code`.
+`"IngestError"`. A [`DocumentScopeError`](./library.md#documentscopeerror) is told by its message, with
+`name: "DocumentScopeError"` and its `code` (new in 0.9.0). A store that failed, an abort and a
+listener that threw have no `code`.
 
 Where errors appear: `retry.error`, `request.end.error`, `run.error.error` and `ingest.error.error`
 are `EventError`s. `tool.end.error` is a string: the error the model was sent, or, for a call
@@ -848,7 +850,10 @@ not only through a wildcard such as `*/*` or `text/*`.
      `503` "The document could not be stored. Try again." for a store that failed (since 0.9.0),
      `500` "Upload failed." for any other error, what `onUploaded` threw, and so on, as in the
      [node reference](./node.md#uploadrequest-response). For a file that could not be read, it also
-     has `code`, the `IngestError` code (`"empty"`, `"busy"`…; new in 0.8.0).
+     has `code`, the `IngestError` code (`"empty"`, `"busy"`…; new in 0.8.0). Since 0.9.0, a store
+     that failed also has `name` `"DocumentStoreError"`, and a scope error `name`
+     `"DocumentScopeError"` and its `code` (`"scope_missing"`, 404, for a deleted chat), so that
+     [`errorInfoOf`](./errors-and-retries.md#errorinfooferror) reads it.
 3. When the client goes away, the ingest stops and nothing is stored.
 
 It always ends with `ingest.finish` or `ingest.error`, even with a `LargeFiles` of your own whose

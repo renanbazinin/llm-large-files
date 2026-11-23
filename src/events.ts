@@ -1,7 +1,7 @@
 // What a question or an ingest does while it runs, as typed data in order. The callbacks of
 // earlier versions (onText, onActivity, onStep) still get the same strings, at the same moments.
 import type { AskResult } from "./ask.js";
-import { DocumentStoreError, IngestError, type IngestErrorCode } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
 import { DocumentsNotFoundError, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
@@ -43,9 +43,11 @@ export type EventError = {
   name?: string;
   /**
    * For a file `ingest` could not read: why, as `IngestError.code` ("too_large", "no_text",
-   * "busy"…), so a page can say it in its own words. New in 0.8.0.
+   * "busy"…), so a page can say it in its own words. New in 0.8.0. Since 0.9.0 also the code of a
+   * scope that cannot be used (`DocumentScopeError`, `name` "DocumentScopeError"): "scope_missing"
+   * when the chat was deleted.
    */
-  code?: IngestErrorCode;
+  code?: IngestErrorCode | DocumentScopeErrorCode;
 };
 
 /**
@@ -336,6 +338,10 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
     if (IngestError.is(error)) {
       // Its status is the upload's answer, not a model's.
       return { message: message ?? error.message, name: error.name, code: error.code, ...(error.status !== 422 ? { status: error.status } : {}) };
+    }
+    // Its code tells a deleted chat from a scope the server gave wrong (errorInfoOf).
+    if (DocumentScopeError.is(error)) {
+      return { message: message ?? userMessageOf(error), name: "DocumentScopeError", ...(typeof error.code === "string" ? { code: error.code } : {}) };
     }
     const out: EventError = { message: message ?? userMessageOf(error) };
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
