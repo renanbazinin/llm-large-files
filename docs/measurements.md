@@ -358,6 +358,25 @@ MB, and about 220 MB with `cacheBytes` at 1 GB, which keeps the decoded pieces. 
 event loop for about 0.8 to 1.5 seconds (25 MB) and 3 to 5 seconds (95 MB). Linux was not
 measured. [Deployment](./guides/deployment.md) turns these into sizing advice.
 
+**Many uploads at once (0.8.2, November 2026, Node 22 on Linux, 8 cores).** 100 logs of 2 MB
+(190.7 MB, about 10% of the lines in Hebrew), read into memory first as the upload handler does,
+then all sent to `files.ingest` at once, over a `FileDocumentStore` on a local disk. Peak memory
+is the resident set the kernel recorded; the machine ran other work too.
+
+| `maxConcurrentIngests` | Peak memory | Peak heap | First answered | Half answered | All answered |
+|---|---|---|---|---|---|
+| `Infinity` (0.8.1) | 817 to 830 MB | 475 MB | 25 to 39 s | 27 to 40 s | 28 to 42 s |
+| 4 | 391 MB | 105 MB | 0.9 s | 13.8 s | 29.9 s |
+| 2 (the default since 0.8.2), 2 runs | 329 to 356 MB | 48 to 74 MB | 0.5 to 0.7 s | 13.4 to 17.4 s | 27.6 to 33.4 s |
+
+About 190 MB of each peak is the 100 uploads, held until their ingest ends. Ingests at once share
+one thread, so taking turns costs no time overall. One upload of 100 MB took a peak of 560 MB, and
+one of 50 MB 325 to 345 MB from a process of about 70 MB. After the ingests the heap is back at
+about 10 MB: nothing of a document stays in memory with a `FileDocumentStore`. Until 0.8.2 the
+meta that `ingest` returned kept the whole text in memory while it was held (194 MB of heap for
+the meta of the 100 MB log). A search of that 100 MB log, read by range in a new process, took a
+peak of 108 MB (1.8 s); eight at once took 115 to 159 MB, and up to 9 s.
+
 **Ingest of large and hostile files (0.6.0, November 2026, Node 24 on Windows).** Each file was
 ingested into a `MemoryDocumentStore` in a fresh process, with the parsers loaded first, 5157e7f
 (which ingests as 0.5.0 does) and 0.6.0 in turn, on a machine that ran other work too. A stall is

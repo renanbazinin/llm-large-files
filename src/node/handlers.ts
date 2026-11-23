@@ -21,6 +21,15 @@ export type DocumentHandlerOptions = {
    * the upload is read, so a refused upload is not buffered.
    */
   getOwner?: (request: IncomingMessage) => string | undefined | Promise<string | undefined>;
+  /**
+   * The most bytes of uploads these handlers hold at once: an upload is held whole in memory from
+   * the moment its body is read until its ingest ends. An upload that would pass it is answered 503
+   * with `Retry-After` before its body is read, while another upload is held: one upload alone is
+   * always taken. An upload counts its `Content-Length` (or `maxUploadBytes` without one, then its
+   * size once read). `Infinity` for no limit (as before 0.8.2). Defaults to twice `maxUploadBytes`.
+   * New in 0.8.2.
+   */
+  maxPendingUploadBytes?: number;
 };
 
 /**
@@ -218,6 +227,31 @@ async function readBody(request: IncomingMessage, limit: number): Promise<Uint8A
   return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
 }
 
+const BUSY = "The server is receiving other files right now. Try again in a moment.";
+/** When a client refused for `maxPendingUploadBytes` is told to try again. */
+const BUSY_RETRY_MS = 5_000;
+
+/** `maxPendingUploadBytes`, checked: a number above 0 (Infinity for no limit). */
+function pendingLimit(value: unknown, maxUploadBytes: number): number {
+  if (value === undefined) return 2 * maxUploadBytes;
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
+    throw new RangeError(`maxPendingUploadBytes must be a number above 0, and is ${typeof value === "number" ? value : typeof value}. Leave it out for the default.`);
+  }
+  return value;
+}
+
+/**
+ * The bytes an upload will hold: a body a framework already read, its declared `Content-Length`,
+ * or the upload limit when it declares none. Never more than the limit: a larger one is refused
+ * when it is read (413).
+ */
+function expectedSize(request: IncomingMessage, limit: number): number {
+  const parsed = (request as IncomingMessage & { body?: unknown }).body;
+  if (parsed instanceof Uint8Array) return Math.min(parsed.byteLength, limit);
+  const declared = Number(request.headers["content-length"]);
+  return Number.isFinite(declared) && declared >= 0 ? Math.min(declared, limit) : limit;
+}
+
 /**
  * The most bytes of an upload's body that are read and dropped after it was answered before the
  * body was read to its end (too large, no name). Past it the connection is closed.
@@ -262,6 +296,9 @@ function drain(request: IncomingMessage, response: ServerResponse): void {
 export function createDocumentHandlers(files: LargeFiles, options: DocumentHandlerOptions = {}): DocumentHandlers {
   const tooLarge = `The file is larger than the ${formatBytes(files.maxUploadBytes)} upload limit.`;
   const owner = async (request: IncomingMessage) => options.getOwner?.(request);
+  const maxPending = pendingLimit(options.maxPendingUploadBytes, files.maxUploadBytes);
+  /** The bytes of the uploads held now, from the reading of their body to the end of their ingest. */
+  let pending = 0;
 
   return {
     async upload(request, response) {
@@ -280,33 +317,47 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           const empty = typeof currentOwner === "string" || currentOwner === null;
           throw new HttpError(500, empty ? "Upload failed (empty owner)." : "Upload failed (owner is not a string).");
         }
-        const bytes = await readBody(request, files.maxUploadBytes);
-        const contentType = header(request, "content-type");
-        const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
-        // A client that goes away before the answer stops the reading of its file: nobody would
-        // get the document, and the server has other work.
-        const gone = new AbortController();
-        const onClose = () => {
-          if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
-        };
-        response.once("close", onClose);
-        const input: IngestInput = {
-          name,
-          bytes,
-          ...(mimeType ? { mimeType } : {}),
-          ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
-          signal: gone.signal,
-        };
-        let meta;
+        // Too large is said first, before any wait for room.
+        const declared = Number(request.headers["content-length"]);
+        if (Number.isFinite(declared) && declared > files.maxUploadBytes) throw new HttpError(413, "");
+        // Room for the upload, before its body is read: a refused upload is not buffered.
+        let held = expectedSize(request, files.maxUploadBytes);
+        if (pending > 0 && pending + held > maxPending) throw new IngestError("busy", BUSY, { retryAfterMs: BUSY_RETRY_MS });
+        pending += held;
         try {
-          if (wantsEvents(request)) return await streamIngest(files, input, response, tooLarge);
-          meta = await files.ingest(input);
-        } catch (error) {
-          throw ingestFailure(error);
+          const bytes = await readBody(request, files.maxUploadBytes);
+          // Counted at its size once read (an upload without a Content-Length was counted at the limit).
+          pending -= held - bytes.byteLength;
+          held = bytes.byteLength;
+          const contentType = header(request, "content-type");
+          const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
+          // A client that goes away before the answer stops the reading of its file: nobody would
+          // get the document, and the server has other work.
+          const gone = new AbortController();
+          const onClose = () => {
+            if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
+          };
+          response.once("close", onClose);
+          const input: IngestInput = {
+            name,
+            bytes,
+            ...(mimeType ? { mimeType } : {}),
+            ...(currentOwner !== undefined ? { owner: currentOwner } : {}),
+            signal: gone.signal,
+          };
+          let meta;
+          try {
+            if (wantsEvents(request)) return await streamIngest(files, input, response, tooLarge);
+            meta = await files.ingest(input);
+          } catch (error) {
+            throw ingestFailure(error);
+          } finally {
+            response.off("close", onClose);
+          }
+          send(response, 201, toDocumentSummary(meta));
         } finally {
-          response.off("close", onClose);
+          pending -= held;
         }
-        send(response, 201, toDocumentSummary(meta));
       } catch (error) {
         // Answered before the body was read to its end (too large, no name): the rest is drained.
         fail(response, error, "Upload failed", tooLarge, request);

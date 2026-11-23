@@ -36,6 +36,62 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.8.2 — not released yet
+
+Memory when many users upload at once. A review of how the library holds files found that every
+upload a server received was ingested at the same time, with nothing to bound the memory, and that
+the meta `ingest` returns kept the whole text of its file in memory. Ingests now take turns, two at
+a time in each library; the upload handler stops taking uploads once it holds twice the upload
+limit, and answers the others 503 with `Retry-After` before reading them; and the meta is a copy.
+Measured with 100 logs of 2 MB sent at once: a peak of 329 to 356 MB of memory instead of 817 MB
+(about 190 MB of it the 100 uploads themselves), the first user answered after 0.5 to 0.7 s instead
+of 25 s, half of them after 13 to 17 s instead of 27 s, and all of them in 28 to 33 s, as before.
+
+### Upgrading: what you need to change
+
+Code written for 0.8.1 compiles with 0.8.2 as it is: the two new options are optional.
+
+- **Ingests of one library take turns, two at a time** (`maxConcurrentIngests`). The others wait,
+  in the order they came, and their time limit (`ingestTimeoutMs`) starts when their turn comes.
+  An upload sent while two others are read is answered later than before, and the first ones
+  sooner; together they take about as long.
+  **What to do:** nothing. To have every ingest start at once, as before, set
+  `maxConcurrentIngests: Infinity`. With `createIsolatedExtractors`, its own queue (`maxQueue`) now
+  fills only when several libraries share one set of readers, or with a limit above its own.
+- **`createDocumentHandlers` answers an upload 503, with `Retry-After: 5`, when it already holds
+  uploads of twice `maxUploadBytes`** (200 MB by default) and that one would pass it. An upload is
+  held from the reading of its body to the end of its ingest. One upload alone is always taken.
+  **What to do:** a client that sends many files at once retries the 503 after `Retry-After`, as it
+  does for a busy `createIsolatedExtractors`. To change the limit, set `maxPendingUploadBytes`;
+  `Infinity` turns it off.
+
+### New: what you can add
+
+- **`maxConcurrentIngests`** in `createLargeFiles` (see
+  [the options](docs/reference/library.md#createlargefilesoptions)): how many ingests do their work
+  at once in the library, 2 by default. An ingest holds about five times its file in memory while
+  it works, and ingests at once share one thread: more at once do not finish sooner.
+- **`maxPendingUploadBytes`** in `createDocumentHandlers` (see
+  [the options](docs/reference/node.md#documenthandleroptions)): the most bytes of uploads the
+  handlers hold at once, twice `maxUploadBytes` by default. An upload counts its `Content-Length`,
+  or `maxUploadBytes` until its body is read when it declares none.
+
+### Fixed
+
+- **The meta that `ingest` returns no longer keeps the whole text of its file in memory.** The
+  first and last timestamps of a log, and the headings of an outline, were pieces of the text, and
+  a piece keeps the whole text it was cut from: a meta an application held took 25 MB of heap for a
+  log of 10 MB in Hebrew, 194 MB for one of 100 MB, and 13 MB for 5.5 MB of Markdown. It is now a
+  copy, and takes a few KB. The store's copy was never affected.
+- **A document whose text was removed while its metadata stayed is reported missing**, by
+  `prepare` and by `askWithFiles` (`DocumentsNotFoundError` with its ID), as one whose metadata is
+  gone. When it was read by range (more than `wholeDocumentBytes` of text, 2 MB by default), the
+  question failed with a plain `Error` ("doc_… is no longer available on the server"). A cleanup
+  outside the library, such as removing a chat's folder while a question runs, leaves documents so.
+
+Docs: the memory of a search of a document read by range is tens of MB at its peak (30 to 70 MB for
+a log of 95 MB), not "a few MB" ([Deployment](docs/guides/deployment.md#memory-on-each-server)).
+
 ## 0.8.1 — 2026-11-23
 
 Exact numbers from tables. `aggregate_table` counts, sums, averages and groups the rows of a CSV

@@ -20,6 +20,8 @@ rebuild from the store.
 | Which documents belong to which user or chat | Your application, and `owner` on each document | Yours to share | Yours |
 | Documents ready to search, decoded pieces of large ones, line indexes | A cache in each `LargeFiles`, within `cacheBytes` | No | Empty; filled again from the store |
 | Searches of large files waiting their turn | A queue in each `LargeFiles` (`maxConcurrentScans`) | No | Empty |
+| Ingests waiting their turn | A queue in each `LargeFiles` (`maxConcurrentIngests`, new in 0.8.2) | No | Empty: the uploads in it get no answer, and must be sent again |
+| Uploads being received | A count in each set of `createDocumentHandlers` (`maxPendingUploadBytes`, new in 0.8.2) | No | Empty |
 | The output limit a thinking model needs for whole-file part reads | Each process, by URL and model | No | Learned again, at the cost of one request |
 | The name of the output limit an OpenAI-compatible server takes | Each `openAiCompatible()` adapter | No | Learned again, at the cost of one refused request |
 
@@ -95,10 +97,10 @@ The built-in stores:
 | Documents kept ready to search | Up to `cacheBytes`, 256 MB by default | `cacheBytes`; `cacheSize` also caps their number |
 | A document loaded whole: text up to `wholeDocumentBytes` (2 MB), or any size when the store has no `readTextRange` | Its text and a lowercased copy: 2 bytes a character for ASCII text, 4 for any other | Counted in `cacheBytes`. One larger than `cacheBytes` is loaded again for each call and not kept |
 | A document read by range | Its line index: about 8 bytes a line (8.2 MB for a log of a million lines) | Counted in `cacheBytes` |
-| Searches of documents read by range | A few MB each: `scanChunkBytes` (1 MB) of text read, decoded and lowercased, and the next piece read ahead | `maxConcurrentScans` (4) per `LargeFiles`. The others wait, and those waiting for the same file share one pass over it |
+| Searches of documents read by range | Tens of MB each at their peak (30 to 70 MB for a search of a log of 95 MB): `scanChunkBytes` (1 MB) of text read, decoded and lowercased, the next piece read ahead, and what the pieces leave until the next collection | `maxConcurrentScans` (4) per `LargeFiles`. The others wait, and those waiting for the same file share one pass over it |
 | Decoded pieces of a document read by range | Up to its whole decoded text | Kept within `cacheBytes`, and only for a document whose decoded text takes at most a quarter of it |
-| An upload | The body, buffered whole | `maxUploadBytes`, 100 MB by default |
-| An ingest | Several copies of the text at once (below), and what the parsers of PDF, DOCX, PPTX and XLSX take while they read. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing in the server bounds what the parsers build or unpack: read PDF and Office files with `createIsolatedExtractors`, in child processes with a heap limit of their own, or ingest in a process of its own with a memory limit of its own (below) |
+| An upload | The body, buffered whole, from the reading of the body to the end of its ingest. 100 uploads of 2 MB sent at once held 190 MB | `maxUploadBytes` (100 MB by default) for one; `maxPendingUploadBytes` of `createDocumentHandlers` (twice `maxUploadBytes`) for all those the handlers hold, the others answered 503 before their body is read. A route of your own must bound them itself (below) |
+| An ingest | About five times the file at its peak: several copies of the text at once (below), and what the parsers of PDF, DOCX, PPTX and XLSX take while they read. `maxConcurrentIngests` (2 by default) of them at once in a `LargeFiles`; the others wait, holding only their upload. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing in the server bounds what the parsers build or unpack: read PDF and Office files with `createIsolatedExtractors`, in child processes with a heap limit of their own, or ingest in a process of its own with a memory limit of its own (below) |
 | A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects). A crafted file can take far more: a look at a PDF of 8 MB that is one array of numbers took 422 to 427 MB of heap, one of 16 MB ran a heap of 512 MB out of memory, and one at the PDF of 1.6 KB above took 1.1 GB outside the heap. What `@cantoo/pdf-lib` keeps after a look adds up from file to file, until the server restarts | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold. A crafted file of few objects passes that check. Ingested in a process of its own (below), with `@cantoo/pdf-lib` installed, a file that needs more than that process's heap fails there and is not stored; one that fits is parsed again by each look, which takes more than its ingest did (232 to 244 MB for that file of 8 MB). For the documents of users you do not trust, `viewPages: false`, or no PDF originals |
 | A question in flight | Its conversation, and each request it builds: up to `maxRequestBytes` (10 MB by default) of JSON, the pages it was shown included as base64 | The budget ([Costs and limits](./costs-and-limits.md)) |
 
@@ -174,6 +176,7 @@ export const files = createLargeFiles({
   keepOriginals: ["pdf"],            // view_pages: a look reads the whole PDF into this heap
   cacheBytes: 256 * 1024 * 1024,     // the default
   maxConcurrentScans: 4,             // the default
+  maxConcurrentIngests: 2,           // the default: the others wait their turn
   maxUploadBytes: 100 * 1024 * 1024, // the default
 });
 ```
@@ -240,8 +243,14 @@ end after the time limit. Four ways to bound that:
   to 704 MB, depending on the version of Node, as the tables above show) and a kill timer (120 s),
   and a file that runs the child out of memory is refused while the server goes on.
 - **Accept one or two ingests at a time** per server, and answer the others with 503: this bounds
-  memory and keeps stalls from adding up. `createIsolatedExtractors` does it for the files it reads
-  (`concurrency` and `maxQueue`); the recipe at the end of this section does it for whole ingests.
+  memory and keeps stalls from adding up. Since 0.8.2 the library does it by default: each
+  `LargeFiles` lets `maxConcurrentIngests` (2) ingests work at once and queues the others, and
+  `createDocumentHandlers` answers 503 with `Retry-After` once it holds `maxPendingUploadBytes`
+  (twice `maxUploadBytes`) of uploads, before reading the next body. A route of your own around
+  `files.ingest` gets the queue, but must bound the bodies it reads itself: count the bytes of the
+  uploads it holds, and answer 503 before reading one that would pass your limit.
+  `createIsolatedExtractors` bounds the files it reads too (`concurrency` and `maxQueue`); the
+  recipe at the end of this section runs whole ingests in a process of their own.
 - **Ingest in a process of its own**, the whole ingest, with a heap limit and a time limit: at the
   end of this section. It also keeps the copies of the text off your server's heap, and runs an
   extractor of your own, such as OCR, apart. A process that runs out of memory stops alone, and the

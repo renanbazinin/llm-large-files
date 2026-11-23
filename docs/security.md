@@ -584,10 +584,14 @@ server that memory is the server's heap. Choose the isolation with care:
   too. `files.ingest` checks the bytes you give it, which are already in memory.
 - **Memory.** The handlers buffer the whole upload, up to `maxUploadBytes`, before reading its
   text, and an ingest then holds several copies of the text at once (several times the size of the
-  text), in your server's heap. Cap concurrent uploads in front (a reverse proxy, a rate limiter),
-  or read PDF and Office files with `createIsolatedExtractors`, whose `concurrency` (2) and
-  `maxQueue` (8) bound how many are read and wait, or ingest in a process of its own:
-  [Deployment](./guides/deployment.md) has measurements and recipes.
+  text), in your server's heap. Since 0.8.2 the handlers hold uploads of at most
+  `maxPendingUploadBytes` at once (twice `maxUploadBytes`), and answer the others 503 before reading
+  their body; each library lets `maxConcurrentIngests` (2) ingests work at once, and queues the
+  others. A route of your own must bound the bodies it reads itself. A rate limiter per user in
+  front still keeps one user from taking that room from the others. Read PDF and Office files with
+  `createIsolatedExtractors`, whose `concurrency` (2) and `maxQueue` (8) bound how many are read and
+  wait, or ingest in a process of its own: [Deployment](./guides/deployment.md) has measurements
+  and recipes.
 - **Text.** A small file can hold far more text than its size: a PDF of 3 KB whose page tree listed
   one dense page 150 times drew 107 MB of text in 0.5.0. `maxTextBytes` (100 MB by default, or
   `maxUploadBytes` when that is larger) bounds the text kept from one file, in UTF-8 bytes. The PDF
@@ -957,8 +961,9 @@ What you log is your choice, and some of what the library hands you holds user d
   ([Original files](#original-files)).
 - Set `limits` and a deadline, and log `usage` for failed questions too
   ([What a question can cost](#what-a-question-can-cost)).
-- Cap concurrent uploads, and set the limit of any body parser in front of the handlers
-  ([Uploads](#uploads)).
+- Keep the bound on uploads held at once (`maxPendingUploadBytes` of the handlers, or your own in a
+  route of your own), limit uploads per user, and set the limit of any body parser in front of the
+  handlers ([Uploads](#uploads)).
 - Keep the limits on one file (`maxTextBytes`, `maxPdfPages`, `ingestTimeoutMs`) as low as your
   users allow ([Uploads](#uploads)).
 - For untrusted uploads, parse them in a process of their own with a memory limit, not in a worker

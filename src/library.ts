@@ -9,7 +9,7 @@ import { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
 import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
-import { openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
+import { DocumentGoneError, openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { DOCUMENT_ID_PATTERN } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
@@ -111,6 +111,13 @@ export type LargeFilesOptions = {
    * run at once in this process. The others wait their turn. Defaults to 4.
    */
   maxConcurrentScans?: number;
+  /**
+   * How many ingests do their work at once in this library. The others wait their turn, in order,
+   * and their time limit (`ingestTimeoutMs`) starts when their turn comes. An ingest holds about five
+   * times its file in memory while it works, and ingests at once share one thread: more of them do
+   * not finish sooner. `Infinity` for no limit (as before 0.8.2). Defaults to 2. New in 0.8.2.
+   */
+  maxConcurrentIngests?: number;
   /** Clock override, for tests. */
   now?: () => Date;
 };
@@ -546,6 +553,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
   };
   const keepOriginals = new Set<DocumentFormat>(options.keepOriginals ?? []);
+  /** The ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). */
+  const ingests = new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentIngests", options.maxConcurrentIngests, 2))));
   const scannedPdfPages = Math.max(0, Math.trunc(numberOption("scannedPdfPages", options.scannedPdfPages, 30)));
   /** Whether the uploaded file of a document of this format is kept. */
   const keeps = (format: DocumentFormat) => keepOriginals.has(format) && typeof options.store.putOriginal === "function";
@@ -611,6 +620,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
           ? renderInline(document.meta, await document.readText())
           : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead);
       } catch (error) {
+        // The text is gone while its metadata is still there (removed outside the library): the
+        // same as missing. It was a plain Error, which failed the whole question.
+        if (error instanceof DocumentGoneError) return undefined;
         if (!document.broken) {
           // Deleted between the look-up and the read: the same as missing.
           if (!await currentMeta(id)) return undefined;
@@ -711,7 +723,10 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     const created = now();
     const expires = created.getTime() + ttlMs;
     const keepOriginal = keeps(format);
-    const meta: DocumentMeta = {
+    // A copy: the outline's headings and the log's timestamps are pieces of the text, and a piece
+    // keeps the whole text in memory as long as it is held. A meta an application kept held its
+    // text: 25 MB of heap for a log of 10 MB in Hebrew, 194 MB for one of 100 MB.
+    const meta: DocumentMeta = structuredClone<DocumentMeta>({
       id: `doc_${randomUUID().replaceAll("-", "")}`,
       ...(input.owner !== undefined ? { owner: input.owner } : {}),
       name,
@@ -733,7 +748,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       createdAt: created.toISOString(),
       // Never, for a time to live without end (or one that runs past what a date can hold).
       expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
-    };
+    });
     const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && index.textBytes === meta.textBytes
       ? serializeTextIndex(index)
       : undefined;
@@ -806,7 +821,14 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const progress = events.active ? new IngestProgress(events) : undefined;
         let meta: DocumentMeta;
         try {
-          meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true));
+          // Its turn first (`maxConcurrentIngests`): a caller that gives up while it waits gets its
+          // own reason, as it would once the work had begun.
+          const release = await ingests.acquire(input.signal);
+          try {
+            meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true));
+          } finally {
+            release();
+          }
         } catch (error) {
           // A store that failed, and a caller that gave up (its own reason), are passed on as they
           // are; a file that could not be read is told with a code.

@@ -107,6 +107,7 @@ type LargeFilesOptions = {
   wholeDocumentBytes?: number;
   scanChunkBytes?: number;
   maxConcurrentScans?: number;
+  maxConcurrentIngests?: number;
   now?: () => Date;
 };
 ```
@@ -128,10 +129,12 @@ type LargeFilesOptions = {
 | `wholeDocumentBytes` | `number` | [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes), 2 MB | Documents whose text (`textBytes`) is at most this size are loaded whole into memory. Larger ones are read by range when the store has `readTextRange`, as `FileDocumentStore` does: a tool call reads only the lines it needs, and a search reads the text a piece at a time. `Infinity` loads every document whole; 0 reads every one by range. |
 | `scanChunkBytes` | `number` | 1 MB (1,048,576) | Reading by range: about how many bytes of text are read and searched at a time. At least 1. |
 | `maxConcurrentScans` | `number` | 4 | Reading by range: how many scans of whole documents (searches, counting the parts of a file) run at once in this library (each `createLargeFiles` call has its own queue). The others wait their turn. At least 1. |
+| `maxConcurrentIngests` | `number` | 2 | How many ingests do their work at once in this library. The others wait their turn, in the order they came; their `ingestTimeoutMs` starts when their turn comes, and a caller that aborts its `signal` while it waits gets its own reason, with nothing stored. An ingest holds about five times its file in memory while it works, and ingests at once share one thread: more of them at once do not finish sooner (100 logs of 2 MB: 28 s either way, and a peak of 817 MB of memory all at once against 356 MB two at a time). `Infinity` for no limit, as before 0.8.2. At least 1. New in 0.8.2. |
 | `now` | `() => Date` | `() => new Date()` | The clock, for tests. It dates `createdAt` and `expiresAt`, decides whether a document has expired, and is passed to the store's `sweep`. |
 
 Since 0.7.1, `ttlMs`, `maxUploadBytes`, `scannedPdfPages`, `cacheBytes`, `cacheSize`,
-`wholeDocumentBytes`, `scanChunkBytes` and `maxConcurrentScans` are checked when the library is
+`wholeDocumentBytes`, `scanChunkBytes` and `maxConcurrentScans` (and `maxConcurrentIngests`, new in
+0.8.2) are checked when the library is
 made: NaN, which `Number(process.env.X)` gives for a variable that is not set, throws a
 `RangeError` ("maxConcurrentScans must be a number, and is NaN. Leave it out for the default."),
 a value that is not a number throws a `TypeError`, and so does `Infinity` for `scanChunkBytes`. NaN
