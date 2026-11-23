@@ -27,7 +27,7 @@ import type {
 } from "./types.js";
 
 export { DEFAULT_BUDGET } from "./budget.js";
-export { checkOwner, cleanFileName, NEVER_EXPIRES, toDocumentSummary } from "./ingest.js";
+export { checkOwner, cleanFileName, cleanMimeType, NEVER_EXPIRES, toDocumentSummary } from "./ingest.js";
 
 export type LargeFilesOptions = {
   /** Where extracted text is kept: `new FileDocumentStore(dir)`, `new MemoryDocumentStore()`, or your own. */

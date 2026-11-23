@@ -193,6 +193,29 @@ export function cleanFileName(raw: string): string {
   return (name.length > 255 ? removeInvisible(sliceWhole(name, 255)) : name) || "file";
 }
 
+/** The MIME type of a file that says nothing of what it is. */
+const OCTET_STREAM = "application/octet-stream";
+/** A token of RFC 9110: the characters a type or a subtype of a MIME type is made of. */
+const MIME_TOKEN = "[!#$%&'*+.^_`|~0-9a-z-]+";
+const MIME_TYPE = new RegExp(`^${MIME_TOKEN}/${MIME_TOKEN}$`);
+/** Printable ASCII, and tabs: a header value without a line break, or a character that shows nothing. */
+const PRINTABLE = /^[\t\x20-\x7e]*$/;
+/** The longest type/subtype kept: 127 characters. */
+const MAX_MIME_TYPE = 127;
+
+/**
+ * A file's MIME type as it is kept: its type and subtype, in lower case, without parameters
+ * ("Text/CSV; charset=x" is "text/csv"). One that is not a type/subtype of RFC 9110 token
+ * characters, of at most 127 characters, or that holds anything but printable ASCII anywhere (a
+ * line break, a text-direction control, a tag character), is "application/octet-stream". The
+ * library never used the parameters: a text's encoding is found from its bytes. New in 0.9.0.
+ */
+export function cleanMimeType(raw: unknown): string {
+  if (typeof raw !== "string" || !PRINTABLE.test(raw)) return OCTET_STREAM;
+  const type = raw.split(";", 1)[0]!.trim().toLowerCase();
+  return type.length <= MAX_MIME_TYPE && MIME_TYPE.test(type) ? type : OCTET_STREAM;
+}
+
 /**
  * The `expiresAt` of a document that never expires (`ttlMs: Infinity`): the last instant of the
  * year 9999. A date, so that every comparison, and a server of an older version, reads it as any other.
@@ -317,7 +340,7 @@ const isCount = (value: unknown): value is number => typeof value === "number" &
 function startOf(input: IngestInput | undefined): { name: string; format: DocumentFormat; bytes: number } {
   try {
     const name = typeof input?.name === "string" ? cleanFileName(input.name) : "";
-    const mimeType = (typeof input?.mimeType === "string" ? input.mimeType.trim() : "") || "application/octet-stream";
+    const mimeType = cleanMimeType(input?.mimeType);
     const bytes = input?.bytes?.byteLength;
     return { name, format: detectFormat(name, mimeType), bytes: isCount(bytes) ? bytes : 0 };
   } catch {
@@ -619,7 +642,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
     checkOwner(input.owner);
     const target = targetOf(input, context.rules);
     const name = cleanFileName(input.name);
-    const mimeType = input.mimeType?.trim() || "application/octet-stream";
+    const mimeType = cleanMimeType(input.mimeType);
     // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
     const format = detectFormat(name, mimeType, input.bytes instanceof Uint8Array ? input.bytes : undefined);
     // Progress is worked out only for someone who listens.
