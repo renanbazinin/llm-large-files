@@ -295,7 +295,7 @@ Pass every argument on:
 ```ts
 import type { DocumentContext, DocumentStore, StoredDocument } from "llm-large-files";
 
-/** Logs the time of each read of metadata, and passes every argument on: the context too. */
+/** Logs the time of each read of metadata, and passes every method and argument on: the context too. */
 export function timed(inner: DocumentStore): DocumentStore {
   return {
     put: (document: StoredDocument, context?: DocumentContext) => inner.put(document, context),
@@ -309,14 +309,22 @@ export function timed(inner: DocumentStore): DocumentStore {
       }
     },
     delete: (id, context) => inner.delete(id, context),
-    sweep: (now, context) => inner.sweep?.(now, context) ?? Promise.resolve(0),
+    // The optional methods, each only when the inner store has it: the library checks for them.
+    ...(inner.sweep && { sweep: (now, context) => inner.sweep!(now, context) }),
+    ...(inner.readTextRange && { readTextRange: (id, start, end, context) => inner.readTextRange!(id, start, end, context) }),
+    ...(inner.putIndex && { putIndex: (id, index, context) => inner.putIndex!(id, index, context) }),
+    ...(inner.getIndex && { getIndex: (id, context) => inner.getIndex!(id, context) }),
+    ...(inner.putOriginal && { putOriginal: (id, bytes, context) => inner.putOriginal!(id, bytes, context) }),
+    ...(inner.getOriginal && { getOriginal: (id, context) => inner.getOriginal!(id, context) }),
   };
 }
 ```
 
-A subclass writes `super.getMeta(id, context)`, not `super.getMeta(id)`. A wrapper of a store with
-optional methods, such as `readTextRange` and `getOriginal`, passes those on the same way: a
-wrapper without them hides them from the library.
+A subclass writes `super.getMeta(id, context)`, not `super.getMeta(id)`. A wrapper that leaves out
+an optional method hides it from the library: without `readTextRange`, every document is loaded
+whole; without `putOriginal` and `getOriginal`, the store keeps no copy of an upload for
+`view_pages`; without `getIndex`, each opening of a document reads its whole text first, to build
+its line index.
 
 ### Use the context, or not
 
