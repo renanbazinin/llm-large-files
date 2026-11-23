@@ -487,24 +487,33 @@ Gemini `contents` as the `messages` of `askWithFiles` ([`ChatMessage`](./ask.md#
   order, with the same names and `id`s. New in 0.9.0, and on by default (`rounds`).
 - The role `"user"` stays `"user"`, and `"model"` becomes `"assistant"`.
 - A part that holds only `text` becomes `{ text }`. A part with `text` and other fields (a thought
-  signature) becomes `{ native: part, text }`.
+  signature) becomes `{ native: part, text }`. The loop counts its tokens from the text and its
+  bytes from the whole part (the bytes since 0.9.0).
 - Every other part is kept as `{ native: part }`, which `gemini()` sends back as it is: an image,
   an inline PDF, and a function call or response that is not part of such a round.
 - A `functionCall` or `functionResponse` part kept this way carries, as its `text`, the JSON of its
-  call or response. The loop sizes it by that text, as it sizes a stored round. One with files in
+  call or response. The loop counts its tokens from that text, as it counts a stored round, and
+  its bytes from the whole part, a thought signature next to the call included. One with files in
   it (`parts` in a response) is sized as media. New in 0.9.0: before, every function part was
   sized as media, at about a token for each 256 characters, and a follow-up whose rounds were in
   `contents` was counted about 15,000 tokens short in a test of two calls.
 
 With its rounds as stored rounds, a follow-up asked with `contents` works as one asked with
 `messages` and `toolTurns`: a repeated call is answered with a pointer to its earlier result, the
-results can be shortened to make room, and they are sized alike. The request is the same, byte for
-byte, as before 0.9.0: the round is sent as `geminiToolTurns` wrote it. When the loop shortens such
-a round, the later requests of the question hold its stand-ins.
+results can be shortened to make room, and they are sized alike. For a round that
+`geminiToolTurns` wrote, the request is the same, byte for byte, as before 0.9.0: the round is
+sent as it was written. When the loop shortens such a round, the later requests of the question
+hold its stand-ins. A round that 0.5.0 converted has `tool_turns_left` in its responses: it is
+lifted too, and sent without it, as stored rounds are, and a call without `args` is sent with
+`args: {}`. A conversation that holds such a round misses the prompt cache once after the
+upgrade, from that round on.
 
 A turn is kept as it is, part by part, when anything in it is not of that form: a function of
 your own, a call next to one of yours, a thought signature, a response with a file in it, or
-responses that do not match the calls.
+responses that do not match the calls. So is a round that ends `contents`, with no turn after it:
+its responses are the turn the model answers (an application that ran the tools in a loop of its
+own hands the conversation over). `askWithFiles` throws "The last message must be the user's." for
+a conversation that ends with a stored round.
 
 Guide: [conversations](../guides/conversations.md#gemini-contents).
 
@@ -533,7 +542,8 @@ model sees in a later question what its tools returned in this one. The results 
 `tool_turns_left`, which counted the turns of their own question, as `askWithFiles` does with
 stored rounds (since 0.6.0): a history kept as `contents` gives the same request as one kept as
 `toolTurns`. Contents that 0.5.0 converted keep the field. Since 0.9.0 `fromGeminiContents` turns
-these turns back into stored rounds, so the loop treats them alike too.
+these turns back into stored rounds, so the loop treats them alike too, and the rounds of 0.5.0
+are then sent without the field (above).
 
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";

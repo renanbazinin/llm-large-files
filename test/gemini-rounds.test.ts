@@ -56,16 +56,41 @@ describe("a follow-up asked with Gemini contents", () => {
   });
 });
 
+describe("contents that end with the responses of the library's tools", () => {
+  it("are answered, as in 0.8.2: an application that ran the tools in its own loop hands them over", async () => {
+    // 0.9.0 before its checks lifted the last round too, and the question failed with "The last
+    // message must be the user's."
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
+    const args = { document_id: meta.id, query: "ERROR", mode: "exact" };
+    const turns: ToolTurn[] = [{ role: "tools", calls: [{ name: "search_document", args, result: await files.tools([meta]).execute("search_document", args) }] }];
+    const contents: GeminiContent[] = [{ role: "user", parts: [{ text: "How many errors?" }] }, ...geminiToolTurns(turns)];
+    const gemini = fakeFetch([say("51.")]);
+    const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], contents });
+    expect(result).toMatchObject({ answered: true, text: "51." });
+    // The responses are sent as they were given, as the last turn.
+    expect((gemini.sent[0]!.body.contents as GeminiContent[]).slice(-2)).toEqual(contents.slice(-2));
+  });
+});
+
 describe("fromGeminiContents", () => {
   const search = { name: "search_document", args: { document_id: "doc_a", query: "ERROR", mode: "exact" } };
   const result = { document: "app.log", mode: "exact", total_matching_lines: 2, matches: [] };
 
   it("turns a round of the library's tools back into a stored round, with its ids", () => {
     const turns: ToolTurn[] = [{ role: "tools", calls: [{ id: "c1", ...search, result }, { name: "get_document_overview", args: { document_id: "doc_a" }, result: { document: "app.log", lines: 5 } }] }];
-    expect(fromGeminiContents([{ role: "user", parts: [{ text: "?" }] }, ...geminiToolTurns(turns)])).toEqual([
+    expect(fromGeminiContents([{ role: "user", parts: [{ text: "?" }] }, ...geminiToolTurns(turns), { role: "model", parts: [{ text: "2." }] }])).toEqual([
       { role: "user", parts: [{ text: "?" }] },
       { role: "tools", version: TOOL_TURN_VERSION, calls: turns[0]!.calls },
+      { role: "assistant", parts: [{ text: "2." }] },
     ]);
+  });
+
+  it("leaves a round at the end of contents as it is: its responses are the turn to answer", () => {
+    const contents: GeminiContent[] = [{ role: "user", parts: [{ text: "?" }] }, ...geminiToolTurns([{ role: "tools", calls: [{ ...search, result }] }])];
+    const converted = fromGeminiContents(contents);
+    expect(converted.map((message) => message.role)).toEqual(["user", "assistant", "user"]);
+    expect(converted.flatMap((message) => ("parts" in message ? message.parts.map((part) => part.native ?? { text: part.text }) : []))).toEqual(contents.flatMap((content) => content.parts));
   });
 
   it("leaves an application's own function turns as they are, sized by their JSON", () => {

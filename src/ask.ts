@@ -415,7 +415,9 @@ function textSize(messages: ModelMessage[], system: string | undefined): Size {
     for (const part of message.parts) {
       if (typeof part.text === "string") {
         tokens += estimateTokens(part.text);
-        bytes += jsonBytes(part.text);
+        // A part in the provider's own form is sent whole: its text, and what is next to it (a
+        // thought signature), or the call that the text stands for.
+        bytes += part.native === undefined ? jsonBytes(part.text) : Math.max(jsonBytes(part.text), (JSON.stringify(part.native) ?? "").length);
       } else {
         const size = (JSON.stringify(part.native) ?? "").length;
         bytes += size;

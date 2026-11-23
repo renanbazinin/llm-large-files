@@ -78,4 +78,18 @@ describe("the bytes of a request", () => {
     // line for documents left out. The number is what 0.8.2's sizing gives this question.
     expect(await roomForPages()).toBe(ROOM_082);
   });
+
+  it("count a thought signature of a function part kept as Gemini's own", async () => {
+    // 0.9.0 before its checks sized such a part by the JSON of its call alone: a signature of
+    // 40,000 characters added nothing. Its tokens are still those of the call.
+    const own = (signature?: string): ChatMessage[] => fromGeminiContents([
+      { role: "user", parts: [{ text: "Weather?" }] },
+      { role: "model", parts: [{ functionCall: { name: "get_weather", args: { city: "Haifa" } }, ...(signature ? { thoughtSignature: signature } : {}) }] },
+      { role: "user", parts: [{ functionResponse: { name: "get_weather", response: { celsius: 31 } } }] },
+      { role: "model", parts: [{ text: "31 degrees." }] },
+    ]);
+    const without = await roomForPages(own());
+    const withSignature = await roomForPages(own("s".repeat(40_000)));
+    expect(without! - withSignature!).toBeGreaterThanOrEqual(Math.floor((40_000 + '"thoughtSignature":"",'.length) * 3 / 4) - 1);
+  });
 });

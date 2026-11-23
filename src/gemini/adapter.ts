@@ -97,9 +97,10 @@ export type FromGeminiContentsOptions = {
    * library's tools (`TOOL_NAMES`), followed by the `user` turn of their `functionResponse` parts,
    * one for each call, in the same order, with the same names and ids. The loop can then point a
    * repeated call to them, shorten them to make room, and size them as it sizes `toolTurns`. The
-   * request is the same. A turn with anything else in it (a function of your own, a thought
-   * signature, a file in a response) stays as it is. Defaults to true; false gives the turns of
-   * 0.8. New in 0.9.0.
+   * request is the same for the rounds `geminiToolTurns` wrote. A turn with anything else in it (a
+   * function of your own, a thought signature, a file in a response) stays as it is, and so does a
+   * round that ends `contents`: its responses are the turn the model answers. Defaults to true;
+   * false gives the turns of 0.8. New in 0.9.0.
    */
   rounds?: boolean;
 };
@@ -172,7 +173,10 @@ export function fromGeminiContents(contents: GeminiContent[], options: FromGemin
   const messages: ChatMessage[] = [];
   for (let at = 0; at < contents.length; at++) {
     const content = contents[at]!;
-    const round = lift ? liftedRound(content, contents[at + 1]) : undefined;
+    // A round is lifted only when a turn follows it. Responses that end `contents` are the turn the
+    // model answers (an application that ran the tools in a loop of its own hands them over), and
+    // stay as they are, as in 0.8.
+    const round = lift && at + 2 < contents.length ? liftedRound(content, contents[at + 1]) : undefined;
     if (round) {
       messages.push(round);
       at++;

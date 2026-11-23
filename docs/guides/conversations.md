@@ -450,26 +450,35 @@ export async function next(files: LargeFiles, endpoint: GeminiEndpoint, document
 - `geminiToolTurns` gives, for each round, a `model` turn of `functionCall` parts and a `user` turn
   of `functionResponse` parts. A call's `id` is in both when it has one. Each result is given
   without its `tool_turns_left`, as the loop sends the rounds of an earlier question. `contents`
-  that 0.5.0 converted keep it, and are sent as they are.
+  that 0.5.0 converted keep it; from 0.9.0 their rounds are sent without it (below).
 - `fromGeminiContents` makes a `"user"` turn a user turn and a `"model"` turn an assistant turn,
   and the rounds that `geminiToolTurns` wrote stored rounds again (below). A text part is text. A
-  text part with more fields (a `thoughtSignature`) is kept whole as a native part, sized by its
-  text. Every other part is a native part, as it is: an image, an inline PDF, and the
-  `functionCall` and `functionResponse` parts of your own functions.
+  text part with more fields (a `thoughtSignature`) is kept whole as a native part: its tokens are
+  counted from its text, and its bytes from the whole part. Every other part is a native part, as
+  it is: an image, an inline PDF, and the `functionCall` and `functionResponse` parts of your own
+  functions.
 
 Since 0.9.0, `contents` and `messages` with `ToolTurn`s behave alike. `fromGeminiContents` turns
 the rounds `geminiToolTurns` wrote back into stored rounds: a `model` turn of `functionCall` parts
-of the library's tools, followed by the `user` turn of their `functionResponse` parts. The request
-is the same, byte for byte, as before. But now the loop can shorten them to make room, point a
+of the library's tools, followed by the `user` turn of their `functionResponse` parts. For the
+rounds that `geminiToolTurns` wrote, the request is the same, byte for byte, as before. But now
+the loop can shorten them to make room, point a
 repeated call to them, and size them as it sizes `toolTurns`. Before, it saw them as plain parts:
 a repeated search was run again, nothing could be shortened, and they were sized as media, about
 15,000 tokens short for a round of two calls.
 
 - A turn of your own functions, or one with a thought signature or a file in a response, stays as
-  it is, sized by the JSON of its calls and responses.
+  it is. Its tokens are counted from the JSON of its calls and responses, and its bytes from the
+  whole parts, a thought signature included.
+- A round at the end of `contents`, with no turn after it, stays as it is too. Its responses are
+  the turn the model answers, as when your application ran the tools in a loop of its own and
+  hands the conversation over.
 - `fromGeminiContents(contents, { rounds: false })` keeps every turn as its parts, as 0.8 did.
-- The stored rounds come back without `tool_turns_left` (the converters left it out), as stored
-  `ToolTurn`s are sent. `contents` that 0.5.0 converted keep it, and are not changed.
+- The stored rounds come back without `tool_turns_left`, as stored `ToolTurn`s are sent. The
+  rounds that `geminiToolTurns` wrote never had it. Rounds that 0.5.0 converted have it in their
+  responses: from 0.9.0 they are lifted too, and sent without it, and a call without `args` is
+  sent with `args: {}`. Such a conversation misses the prompt cache once, in its first request
+  after the upgrade, from that round on.
 
 ### Chat Completions messages
 
