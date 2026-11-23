@@ -300,11 +300,20 @@ const documents = createDocumentHandlers(files, {
   getScope: (request) => [userIdOf(request), chatIdOf(request)],
   prepareUpload: async (_request, { scope }) => {
     const id = await uploads.newId(); // your database: lowercase letters, digits, "_" and "-"
+    // <user>/<chat>/uploads is made with the chat (below): the handler makes no folder.
     const ref = [...scope!, "uploads", id].join("/"); // <user>/<chat>/uploads/<id>
     return { id, path: path.join(VOLUME, ref), original: { ref } };
   },
 });
 ```
+
+The folders are yours: the handler makes no folder. Make `<user>/<chat>/uploads` when the chat is
+made, with `mode: 0o700`, as
+[the web app guide](../guides/web-app.md#save-each-upload-where-you-keep-it-prepareupload) says:
+`mkdir(path.join(VOLUME, user, chat, "uploads"), { recursive: true, mode: 0o700 })`, with the IDs
+checked first ([Storage](../guides/storage.md#files-in-a-folder-per-user-or-per-chat)). Without it,
+every upload is answered `500` `{ "error": "Upload failed (ENOENT)." }`, even when the chat's own
+folder is there.
 
 `prepareUpload(request, info)`:
 
