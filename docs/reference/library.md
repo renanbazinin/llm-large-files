@@ -221,7 +221,11 @@ ID the application gives (`input.id`, new in 0.9.0). Returns the new document's
 [`DocumentMeta`](#documentmeta). The file is given as bytes ([`IngestInput`](#ingestinput)), or,
 new in 0.9.0, as a path ([`IngestFromSource`](#ingestfromsource)), which is read when the ingest's
 turn comes and not held while it waits. `IngestInput` keeps its required `bytes`: a `LargeFiles`
-of your own whose `ingest` takes `IngestInput` only still compiles, since `ingest` is a method.
+of your own whose `ingest` declares its parameter `(input: IngestInput)` still compiles, since
+`ingest` is a method. A wrapper whose parameter type is inferred does not:
+`{ ...files, ingest: (input) => … }` now gets `IngestInput | IngestFromSource`, where `bytes` may be
+undefined. Annotate it `(input: IngestInput)`, or narrow it (`if (input.bytes)`, or
+`"source" in input`) before it reads `bytes`.
 
 1. The owner, the scope and the ID are checked (see [`IngestInput`](#ingestinput)), the name and
    the MIME type are cleaned, and the format is picked by

@@ -150,5 +150,30 @@ export class OwnIngest implements Pick<LargeFiles, "ingest"> {
     return files.ingest(input);
   }
 }
+/**
+ * The one change that breaks a LargeFiles of your own: a wrapper whose parameter type is inferred
+ * now gets `IngestInput | IngestFromSource`, where `bytes` may be undefined. It must annotate its
+ * parameter, as `ownFiles` does, or narrow it before it reads `bytes`.
+ */
+const takesBytes = (input: IngestInput) => files.ingest(input);
+export const inferred: LargeFiles = {
+  ...files,
+  // @ts-expect-error -- 'input.bytes' is possibly 'undefined' (TS18048).
+  ingest: (input) => (input.bytes.byteLength > 0 ? files.ingest(input) : files.ingest(input)),
+};
+export const passedOn: LargeFiles = {
+  ...files,
+  // @ts-expect-error -- an IngestFromSource is not an IngestInput (TS2345).
+  ingest: (input) => takesBytes(input),
+};
+export const narrowed: LargeFiles = {
+  ...files,
+  ingest: (input) => (input.bytes ? takesBytes({ ...input, bytes: input.bytes }) : files.ingest(input)),
+};
+export const narrowedBySource: LargeFiles = {
+  ...files,
+  ingest: (input) => ("source" in input ? files.ingest(input) : takesBytes(input)),
+};
+
 /** An ingest from a path, with the file kept by the application (0.9). */
 export const fromPath = () => files.ingest({ name: "a.pdf", source: { path: "/uploads/a.pdf" }, original: { ref: "u/c/uploads/a.pdf" } });
