@@ -45,8 +45,19 @@ const MAX_RAW_TAG = 1_024;
 /** Grid columns one table cell may span (`w:gridSpan`); Word allows 63 columns in a table. */
 const MAX_CELL_SPAN = 63;
 /** Tags whose attributes are read, beside `w:vanish` and `p:sld`. */
-const WORD_ATTRIBUTE_TAGS = new Set(["w:pStyle", "w:numId", "w:ilvl", "w:outlineLvl", "w:gridSpan", "w:vMerge", "w:sym"]);
-const DRAWING_ATTRIBUTE_TAGS = new Set(["a:tc"]);
+const WORD_ATTRIBUTE_TAGS = new Set(["w:pStyle", "w:numId", "w:ilvl", "w:outlineLvl", "w:gridSpan", "w:gridBefore", "w:gridAfter", "w:sym"]);
+const DRAWING_ATTRIBUTE_TAGS = new Set(["p:ph"]);
+/** The properties of a Word table row and cell, and those of them that are read. */
+const TABLE_PROPERTY_TAGS = new Set(["w:trPr", "/w:trPr", "w:tcPr", "/w:tcPr", "w:gridSpan", "w:gridBefore", "w:gridAfter"]);
+/**
+ * The placeholders of a notes page whose text is not the speaker's notes: the slide number, the
+ * date, the header and the footer (Header & Footer, Notes and Handouts), and the picture of the
+ * slide. The notes are in the body placeholder; a text box the presenter added is kept too.
+ */
+const NOTES_PAGE_PLACEHOLDERS: ReadonlySet<string> = new Set(["sldNum", "dt", "hdr", "ftr", "sldImg"]);
+
+/** How the text of a part is read: with Word's numbering, or as a PowerPoint notes page. */
+type PartOptions = { numbering?: WordNumbering; notesPage?: boolean };
 
 /** A table cell's text as a cell of a `| cell | cell |` row: one line, its pipes escaped, as the PDF extractor writes them. */
 function cellText(text: string): string {
@@ -199,10 +210,11 @@ class OfficeText {
   private readonly open: Array<{ slot: number; pieces: string[]; hidden: string[] | undefined; length: number; runs: number; hiddenFrom: number; runProperties: number; style: ParagraphStyle | undefined }> = [];
   /**
    * The table being read, and how deep in tables (a table in a cell is read as text of that cell).
-   * Its rows so far, the row and the cell open, and for the cell open: how many grid columns it
-   * spans (Word), and whether it continues a merged cell, written empty.
+   * Its rows so far, the row and the cell open, and in Word: how many grid columns the cell open
+   * spans, how many empty columns end the row open (`w:gridAfter`), and how deep in the properties
+   * of the row or cell the reading is (those of a change they record are one level deeper).
    */
-  private table: { slot: number; depth: number; rows: string[][]; row: string[] | undefined; cell: string[] | undefined; span: number; merged: boolean } | undefined;
+  private table: { slot: number; depth: number; rows: string[][]; row: string[] | undefined; cell: string[] | undefined; span: number; after: number; properties: number } | undefined;
   private readonly tableTag: string;
   private readonly rowTag: string;
   private readonly cellTag: string;
@@ -220,12 +232,18 @@ class OfficeText {
   private tag: { name: string; named: boolean; quote: number; last: number; attributes: AttributeReader | undefined; raw: string | undefined } | undefined;
   /** A PowerPoint slide that the slide show skips (`<p:sld show="0">`). */
   hiddenSlide = false;
+  /** Word's styles and lists, to write headings as `#` lines and each paragraph with its list number. */
+  private readonly numbering: WordNumbering | undefined;
+  /** On a notes page, the placeholders whose text is left out (`NOTES_PAGE_PLACEHOLDERS`). */
+  private readonly leftOut: ReadonlySet<string> | undefined;
+  /** In PowerPoint, whether a shape (`p:sp`) is open, and whether it is a placeholder left out. */
+  private inShape = false;
+  private inLeftOut = false;
 
-  /**
-   * `count`: what the other parts of the same file held, shared with them. `numbering`: Word's
-   * styles and lists, to write headings as `#` lines and each paragraph with its list number.
-   */
-  constructor(prefix: "w" | "a", private readonly limits: OfficeLimits = NO_OFFICE_LIMITS, private readonly count: OfficeCount = { characters: 0, paragraphs: 0 }, private readonly numbering?: WordNumbering) {
+  /** `count`: what the other parts of the same file held, shared with them. */
+  constructor(prefix: "w" | "a", private readonly limits: OfficeLimits = NO_OFFICE_LIMITS, private readonly count: OfficeCount = { characters: 0, paragraphs: 0 }, options: PartOptions = {}) {
+    this.numbering = options.numbering;
+    this.leftOut = options.notesPage ? NOTES_PAGE_PLACEHOLDERS : undefined;
     this.paragraphTag = `${prefix}:p`;
     this.paragraphEnd = `/${prefix}:p`;
     this.textTag = `${prefix}:t`;
@@ -308,7 +326,7 @@ class OfficeText {
   /** Adds text to the innermost open paragraph. */
   private add(piece: string): void {
     const paragraph = this.open.at(-1);
-    if (!paragraph) return;
+    if (!paragraph || this.inLeftOut) return;
     this.pending += piece.length;
     paragraph.length += piece.length;
     // The decoded text is counted when its paragraph closes. Until then, what is held is bounded too.
@@ -331,10 +349,15 @@ class OfficeText {
     this.pending -= paragraph.length;
     let shown = decodeXmlEntities(paragraph.pieces.join(""));
     if (this.numbering && paragraph.style) {
-      // The number is counted for an empty paragraph too, as Word shows it there.
-      const label = this.numbering.label(paragraph.style);
-      const level = paragraph.slot !== -1 && shown.trim() ? this.numbering.headingLevel(paragraph.style) : undefined;
-      if (shown.trim()) shown = `${level ? `${"#".repeat(level)} ` : ""}${label ? `${label} ` : ""}${shown}`;
+      // An empty paragraph is counted in its list too, as Word shows its number there. The number
+      // is written only before text: empty paragraphs count toward no limit, and a file of them
+      // would have its numbers written, at up to 64 characters each, only to be thrown away.
+      const counted = this.numbering.count(paragraph.style);
+      if (shown.trim()) {
+        const label = counted && this.numbering.labelOf(counted);
+        const level = paragraph.slot !== -1 ? this.numbering.headingLevel(paragraph.style) : undefined;
+        shown = `${level ? `${"#".repeat(level)} ` : ""}${label ? `${label} ` : ""}${shown}`;
+      }
     }
     const text = paragraph.hidden ? this.withHiddenText(shown, decodeXmlEntities(paragraph.hidden.join(""))) : shown;
     if (paragraph.slot === -1) {
@@ -427,7 +450,7 @@ class OfficeText {
         if (!inCell) this.paragraphs.push(null);
       }
     } else if (name === this.tableTag || name === this.rowTag || name === this.cellTag || name === `/${this.tableTag}` || name === `/${this.rowTag}` || name === `/${this.cellTag}`) {
-      this.readTable(name, empty, raw);
+      this.readTable(name, empty);
     } else if (name === this.paragraphEnd) {
       this.close();
       this.inText = false;
@@ -445,9 +468,16 @@ class OfficeText {
       else if (this.breakTags.has(name)) this.add("\n");
       else if (this.word && name === "w:noBreakHyphen") this.add("-");
       else if (this.word && name === "w:sym") this.addSymbol(raw);
-      else if (this.word && (name === "w:gridSpan" || name === "w:vMerge")) this.readCellProperty(name, raw);
+      else if (this.word && TABLE_PROPERTY_TAGS.has(name)) this.readTableProperty(name, empty, raw);
       else if (this.word) this.readRun(name, empty, found);
       else if (name === "p:sld" && found) this.hiddenSlide = true;
+      else if (name === "p:sp" || name === "/p:sp") {
+        this.inShape = name === "p:sp" && !empty;
+        this.inLeftOut = false;
+      } else if (name === "p:ph" && this.inShape && this.leftOut?.has(parseAttributes(raw ?? "").type ?? "")) {
+        // The placeholder of the shape comes before its text (`p:nvSpPr`, then `p:txBody`).
+        this.inLeftOut = true;
+      }
     } else if (this.inProperties === 1 && this.word && raw !== undefined) {
       // The paragraph's own properties; those of a change it records (`w:pPrChange`) are one level deeper.
       this.readParagraphProperty(name, raw);
@@ -479,25 +509,47 @@ class OfficeText {
     if (plain >= 0x20 && plain <= 0x7e) this.add(String.fromCharCode(plain));
   }
 
-  /** `w:gridSpan` and `w:vMerge` in the properties of the Word table cell that is open. */
-  private readCellProperty(name: string, raw: string | undefined): void {
+  /**
+   * The properties of the Word table row and cell that are open: `w:gridSpan` of a cell, and
+   * `w:gridBefore` and `w:gridAfter` of a row, the grid columns that the row leaves empty before its
+   * first cell and after its last. Those of a change the properties record (`w:tcPrChange`,
+   * `w:trPrChange`) are the properties before the change, one level deeper, and are not read.
+   */
+  private readTableProperty(name: string, empty: boolean, raw: string | undefined): void {
     const table = this.table;
-    if (!table || table.depth !== 1 || !table.cell) return;
-    const value = parseAttributes(raw ?? "")["w:val"];
-    if (name === "w:gridSpan") table.span = Math.min(MAX_CELL_SPAN, Math.max(1, Number.parseInt(value ?? "1", 10) || 1));
-    // A cell that continues a cell merged down (`<w:vMerge/>`) is written empty; "restart" starts one.
-    else table.merged = value === undefined || value === "continue";
+    if (!table || table.depth !== 1) return;
+    if (name === "w:trPr" || name === "w:tcPr") {
+      if (!empty) table.properties++;
+      return;
+    }
+    if (name === "/w:trPr" || name === "/w:tcPr") {
+      if (table.properties > 0) table.properties--;
+      return;
+    }
+    if (table.properties > 1) return;
+    const columns = Math.min(MAX_CELL_SPAN, Math.max(0, Number.parseInt(parseAttributes(raw ?? "")["w:val"] ?? "", 10) || 0));
+    if (name === "w:gridSpan") {
+      if (table.cell) table.span = Math.max(1, columns);
+    } else if (name === "w:gridBefore") {
+      // Once, before the row's first cell.
+      if (table.row?.length === 0 && !table.cell) for (let index = 0; index < columns; index++) this.addCell(table.row, "");
+    } else if (table.row && !table.cell) {
+      table.after = columns;
+    }
   }
 
   /**
    * The start and end of tables, rows and cells. A table becomes one paragraph, written when it
    * closes: a line for each row, as `| cell | cell |  |`, with its empty cells, as the PDF extractor
    * writes rows. A Word cell that spans grid columns is followed by an empty cell for each column
-   * past the first, and one that continues a merged cell is empty, so that every row keeps its
-   * columns. In PowerPoint the cells a merged cell covers are in the XML already (`hMerge`,
-   * `vMerge`), and are written empty. A table inside a cell is read as text of that cell.
+   * past the first, and a row that leaves grid columns empty before its first cell or after its
+   * last has an empty cell for each, so that every row keeps its columns. A cell that continues a
+   * merged cell (`w:vMerge` in Word; in PowerPoint, where the cells a merged cell covers are in the
+   * XML already, `hMerge` and `vMerge`) is written in its column: Word and PowerPoint leave it
+   * empty, and the text another program left in it is kept. A table inside a cell is read as text
+   * of that cell.
    */
-  private readTable(name: string, empty: boolean, raw: string | undefined): void {
+  private readTable(name: string, empty: boolean): void {
     if (name === this.tableTag) {
       if (empty) return;
       if (this.table) {
@@ -505,7 +557,7 @@ class OfficeText {
         return;
       }
       // Inside a paragraph of a cell of no table (a malformed file): the table is that paragraph's.
-      this.table = { slot: this.paragraphs.length, depth: 1, rows: [], row: undefined, cell: undefined, span: 1, merged: false };
+      this.table = { slot: this.paragraphs.length, depth: 1, rows: [], row: undefined, cell: undefined, span: 1, after: 0, properties: 0 };
       this.paragraphs.push(null);
       return;
     }
@@ -518,26 +570,33 @@ class OfficeText {
     }
     if (table.depth !== 1) return;
     if (name === this.rowTag) {
-      this.closeCell();
-      if (table.row && table.row.length > 0) table.rows.push(table.row);
+      this.closeRow();
       table.row = empty ? undefined : [];
+      table.properties = 0;
     } else if (name === `/${this.rowTag}`) {
-      this.closeCell();
-      if (table.row && table.row.length > 0) table.rows.push(table.row);
-      table.row = undefined;
+      this.closeRow();
     } else if (name === this.cellTag) {
       this.closeCell();
       table.span = 1;
-      table.merged = false;
-      if (!this.word && raw !== undefined) {
-        const attributes = parseAttributes(raw);
-        table.merged = ["1", "true"].includes(attributes.hMerge ?? "") || ["1", "true"].includes(attributes.vMerge ?? "");
-      }
+      table.properties = 0;
       table.cell = [];
       if (empty) this.closeCell();
     } else if (name === `/${this.cellTag}`) {
       this.closeCell();
     }
+  }
+
+  /**
+   * Adds a cell to a row. Each cell is counted as a paragraph, empty or not, and its separator as
+   * text: a table of millions of empty cells is bounded as a document of millions of paragraphs is.
+   */
+  private addCell(row: string[], text: string): void {
+    if (++this.count.paragraphs > MAX_OFFICE_PARAGRAPHS) {
+      throw new Error(`This ${this.limits.kind} has more than ${MAX_OFFICE_PARAGRAPHS.toLocaleString("en-US")} paragraphs and table cells, more than a document holds. It may be built to exhaust the server, so it is not read.`);
+    }
+    this.count.characters += 3;
+    if (this.count.characters > this.limits.maxCharacters) throw this.tooMuchText();
+    row.push(text);
   }
 
   /** Ends the table cell that is open, if any: its paragraphs become one cell of the row. */
@@ -546,29 +605,32 @@ class OfficeText {
     if (!table?.cell) return;
     // Paragraphs of the cell left open (a malformed file) give their text to it first.
     while (this.open.length > 0 && this.open.at(-1)!.slot === -1) this.close();
-    const text = table.merged ? "" : cellText(table.cell.join(" "));
+    const text = cellText(table.cell.join(" "));
     table.cell = undefined;
     const row = (table.row ??= []);
     const cells = this.word ? table.span : 1;
-    // Each cell is counted as a paragraph, empty or not, and its separator as text: a table of
-    // millions of empty cells is bounded as a document of millions of paragraphs is.
-    for (let index = 0; index < cells; index++) {
-      if (++this.count.paragraphs > MAX_OFFICE_PARAGRAPHS) {
-        throw new Error(`This ${this.limits.kind} has more than ${MAX_OFFICE_PARAGRAPHS.toLocaleString("en-US")} paragraphs and table cells, more than a document holds. It may be built to exhaust the server, so it is not read.`);
-      }
-      this.count.characters += 3;
-      if (this.count.characters > this.limits.maxCharacters) throw this.tooMuchText();
-      row.push(index === 0 ? text : "");
+    for (let index = 0; index < cells; index++) this.addCell(row, index === 0 ? text : "");
+  }
+
+  /** Ends the table row that is open, if any, with an empty cell for each grid column it leaves empty after its last cell. */
+  private closeRow(): void {
+    const table = this.table;
+    if (!table) return;
+    this.closeCell();
+    const row = table.row;
+    if (row && row.length > 0) {
+      for (let index = 0; index < table.after; index++) this.addCell(row, "");
+      table.rows.push(row);
     }
+    table.row = undefined;
+    table.after = 0;
   }
 
   /** Ends the table: its rows become the text of its paragraph. Also when the file ends inside it. */
   private closeTable(): void {
     const table = this.table;
     if (!table) return;
-    this.closeCell();
-    if (table.row && table.row.length > 0) table.rows.push(table.row);
-    table.row = undefined;
+    this.closeRow();
     this.table = undefined;
     if (table.rows.some((row) => row.some((cell) => cell !== ""))) {
       const text = table.rows.map((row) => `| ${row.join(" | ")} |`).join("\n");
@@ -653,8 +715,11 @@ export type OfficeKind = "DOCX" | "PPTX" | "XLSX";
 
 /** What `officeReader` gives: ways to read the parts of one Office file, under one count of what is unpacked. */
 export type OfficeParts = {
-  /** The paragraphs of a part of Word (`w`) or DrawingML (`a`) XML; none when the part is missing. */
-  paragraphs(name: string, prefix: "w" | "a", numbering?: WordNumbering): Promise<{ paragraphs: string[]; hiddenSlide: boolean }>;
+  /**
+   * The paragraphs of a part of Word (`w`) or DrawingML (`a`) XML; none when the part is missing.
+   * `options`: Word's numbering, for the document itself; or that the part is a notes page.
+   */
+  paragraphs(name: string, prefix: "w" | "a", options?: PartOptions): Promise<{ paragraphs: string[]; hiddenSlide: boolean }>;
   /**
    * A small part whole (styles, relationships, the list of slides or sheets), or undefined when it
    * is missing or larger than `maxCharacters`: it is then read no further, and the file is read
@@ -678,7 +743,8 @@ class PartTooLarge extends Error {}
  * Reads the parts of one Office file, each a piece at a time as it is unpacked, counting what is
  * unpacked: a file that grows far past its size is refused as it grows, before that much is in
  * memory. JSZip can unpack megabytes of XML in one turn of the event loop, so the stream is paused
- * every few milliseconds of reading, and other requests get a turn.
+ * every few milliseconds of reading, and other requests get a turn: what JSZip still hands out
+ * once paused is written in the slices after the pause.
  */
 export function officeReader(archive: ZipArchive, kind: OfficeKind, size: number, input: ExtractInput | undefined): OfficeParts {
   const limit = Math.min(MAX_OFFICE_XML, Math.max(OFFICE_ALLOWANCE, size * MAX_OFFICE_EXPANSION));
@@ -706,10 +772,18 @@ export function officeReader(archive: ZipArchive, kind: OfficeKind, size: number
     let stopped = false;
     let pausing = false;
     let ended = false;
+    /**
+     * The pieces that came while the stream was paused, and the next one to write. Pausing JSZip
+     * does not stop the block it is unpacking: it hands out the rest of it, up to 16 MB of XML from
+     * 16 KB of a deflated part, in the same turn. Those pieces wait for the next slice.
+     */
+    let waiting: string[] = [];
+    let next = 0;
     const unzip = file.internalStream("string");
     const stop = (error: unknown) => {
       if (stopped) return;
       stopped = true;
+      waiting = [];
       unzip.pause();
       reject(error);
     };
@@ -721,6 +795,24 @@ export function officeReader(archive: ZipArchive, kind: OfficeKind, size: number
         stop(error);
       }
     };
+    /** Pauses, then writes the pieces that came meanwhile, a slice at a time, and goes on with the stream. */
+    const pauseThenGoOn = async () => {
+      try {
+        do {
+          await slicer.pauseNow();
+          while (!stopped && next < waiting.length && !slicer.due) write(waiting[next++]!);
+          if (stopped) return;
+        } while (next < waiting.length);
+      } catch (error) {
+        stop(error);
+        return;
+      }
+      waiting = [];
+      next = 0;
+      pausing = false;
+      if (ended) finish();
+      else unzip.resume();
+    };
     unzip
       .on("data", (chunk) => {
         if (stopped) return;
@@ -728,9 +820,14 @@ export function officeReader(archive: ZipArchive, kind: OfficeKind, size: number
           stop(input.signal.reason);
           return;
         }
+        // Counted as it comes, written or not: a file that grows past the limit is refused at once.
         unpacked += chunk.length;
         if (unpacked > limit) {
           stop(new Error(refusal));
+          return;
+        }
+        if (pausing) {
+          waiting.push(chunk);
           return;
         }
         try {
@@ -739,15 +836,10 @@ export function officeReader(archive: ZipArchive, kind: OfficeKind, size: number
           stop(error);
           return;
         }
-        if (!pausing && slicer.due) {
+        if (slicer.due) {
           pausing = true;
           unzip.pause();
-          slicer.pauseNow().then(() => {
-            pausing = false;
-            if (stopped) return;
-            if (ended) finish();
-            else unzip.resume();
-          }, stop);
+          void pauseThenGoOn();
         }
       })
       .on("error", stop)
@@ -761,8 +853,8 @@ export function officeReader(archive: ZipArchive, kind: OfficeKind, size: number
     limits,
     count,
     stream: (name, write) => stream(name, write),
-    async paragraphs(name, prefix, numbering) {
-      const text = new OfficeText(prefix, limits, count, numbering);
+    async paragraphs(name, prefix, options) {
+      const text = new OfficeText(prefix, limits, count, options);
       let result = { paragraphs: [] as string[], hiddenSlide: false };
       await stream(name, (piece) => text.write(piece), () => {
         result = { paragraphs: text.texts(), hiddenSlide: text.hiddenSlide };
@@ -865,7 +957,7 @@ export const docx: Extractor = async (bytes, input) => {
   const read = officeReader(archive, "DOCX", bytes.byteLength, input);
   const numbering = new WordNumbering(await read.small("word/styles.xml"), await read.small("word/numbering.xml"));
   const total = 1 + extra.length;
-  const sections = [(await read.paragraphs("word/document.xml", "w", numbering)).paragraphs.join("\n")];
+  const sections = [(await read.paragraphs("word/document.xml", "w", { numbering })).paragraphs.join("\n")];
   input?.onProgress?.({ done: 1, total, unit: "parts" });
   const seen = new Set<string>();
   for (const [index, { name, title }] of extra.entries()) {
@@ -938,8 +1030,9 @@ export const pptx: Extractor = async (bytes, input) => {
   for (const [index, name] of names.entries()) {
     const { paragraphs, hiddenSlide } = await read.paragraphs(name, "a");
     const notesPart = await notesOf(read, name);
-    // The notes page holds the slide's number and the date as text too: only the notes are kept.
-    const notes = notesPart ? (await read.paragraphs(notesPart, "a")).paragraphs.filter((paragraph) => !/^\s*\d+\s*$/.test(paragraph)) : [];
+    // The notes page holds the slide's number, and may hold the date, a header and a footer, as
+    // text of placeholders of their own: those are left out, and a note that is only a number is kept.
+    const notes = notesPart ? (await read.paragraphs(notesPart, "a", { notesPage: true })).paragraphs : [];
     const text = paragraphs.join("\n");
     // A hidden slide keeps its text, and says that the slide show skips it.
     slides.push(`## Slide ${index + 1}${hiddenSlide ? ` ${HIDDEN_SLIDE}` : ""}\n${text || "[No text on this slide]"}${notes.length > 0 ? `\n${SPEAKER_NOTES}\n${notes.join("\n")}` : ""}`);
