@@ -95,7 +95,7 @@ Some behavior is different. Check each point against your app:
   Ubuntu and Windows. npm only warns (`EBADENGINE`) unless `engine-strict` is set, so an app on
   Node 20 still installs, untested. There, an `unpdf` that cannot load pdf.js now throws its own
   error, not "The unpdf installed cannot read PDF files on Node 20".
-  **What to do:** run Node 22.12 or later, and `@types/node` ^22 in TypeScript projects.
+  **What to do:** run Node 22.12 or later, and `@types/node` 22 or later in TypeScript projects.
 - **The upload handler answers 422 only for an `IngestError` (S12).** A plain `Error` from a
   `LargeFiles` of your own, without a `status` or a system `code`, is answered 500
   `{ "error": "Upload failed." }`: it was 422 with its message, which could name a database host.
@@ -175,6 +175,11 @@ Some behavior is different. Check each point against your app:
   read (EACCES)".
   **What to do:** for those, set `fileMode: 0o640` and `directoryMode: 0o750` on every store. Files
   written before keep their modes: `chmod` them once to narrow them.
+- **`FileDocumentStore` follows no link at a document's file name**, except on Windows, which
+  cannot refuse one. A document whose `.json` or `.txt` file is a link (left by a migration or a
+  deduplication, say) reads as missing on Linux and macOS, and a kept copy (`.bin`) that is a link
+  as not kept.
+  **What to do:** replace such links with the files they point to before you upgrade.
 - **`FileDocumentStore.delete` returns true once the metadata is gone.** A text, index or original
   it cannot remove is left for `sweep`; it used to throw. Removals are tried again for about 2.6 s
   on `EPERM`, `EACCES` and `EBUSY`, as renames are.

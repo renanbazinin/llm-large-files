@@ -31,8 +31,8 @@ ordinary chats, so the provider's prompt cache is not lost at the upgrade
   cannot `require()` the package from CommonJS. CI runs Node 22, 24 and 26, on Ubuntu and Windows.
   npm only warns (`EBADENGINE`) unless `engine-strict` is set, so an app on Node 20 still installs,
   but nothing is tested there.
-- **TypeScript:** `@types/node` ^22. The package is checked without the DOM library, as a server
-  app compiles, and its declarations need nothing else.
+- **TypeScript:** `@types/node` 22 or later. The package is checked without the DOM library, as a
+  server app compiles, and its declarations need nothing else.
 - **The optional dependencies are unchanged:** `unpdf` `^1.4.0 || ^2.0.0`, `jszip` `^3.10.0`,
   `@cantoo/pdf-lib` `^2.11.1`.
 
@@ -67,7 +67,7 @@ export function noticeLabel(code: NoticeCode): string | undefined {
     case "page_looks_busy":
       return "The pages could not be looked at right now.";
     default:
-      return undefined; // "document_gone", and the codes a later version adds
+      return undefined; // every other code: "document_gone", those of 0.8, and those a later version adds
   }
 }
 
@@ -180,6 +180,15 @@ be read (EACCES)".
 
 **What to do.** For those, set `fileMode: 0o640` and `directoryMode: 0o750` on every store. Files
 written before keep their modes: `chmod` them once to narrow them.
+
+### `FileDocumentStore` follows no link at a file name
+
+On Linux and macOS, the store no longer follows a link at a document's file name. A document whose
+`.json` or `.txt` file is a link, left by a migration or a deduplication, reads as missing. A kept
+copy (`.bin`) that is a link reads as not kept. Windows cannot refuse such a link, so there it is
+followed.
+
+**What to do.** Replace such links with the files they point to before you upgrade.
 
 ### `files.delete` and leftovers
 
