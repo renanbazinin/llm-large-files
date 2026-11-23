@@ -973,19 +973,24 @@ New in 0.9.0. `createDocumentHandlers` writes no file unless it is asked to: by 
   `O_EXCL`): when anything is already at its name, a file or a link (even one that points nowhere),
   the open fails and nothing is written. That upload is answered `409`, and what was there stays as
   it is: it is never written through, truncated or removed. So the handler never follows a link at
-  the file's name. The folders on the way are not checked: keep the folders of the uploads, and the
-  spool, writable only by your server.
+  the file's name. A link in a folder on the way is followed, except where `fileOriginals` would
+  not read through it: when the path of `prepareUpload` ends with the ref of its `original`
+  (`<root>/<ref>`), a link in a folder below that root is refused before anything is written
+  (`500` "Upload failed (ELOOP)."). Keep the folders of the uploads, and the spool, writable only
+  by your server.
 - **Removed when they are not needed.** A file of the spool is removed when its ingest ends,
   whatever the end. A file of `prepareUpload` is removed when its upload fails (too large, stopped,
-  a client that left, a full disk, a file refused, an ID taken, `onUploaded` throwing), and is yours
-  once its document is stored: the library never removes it, even when the document is deleted.
+  a client that left, a full disk, a disk that does not answer, a file refused, an ID taken,
+  `onUploaded` throwing), and is yours once its document is stored: the library never removes it,
+  even when the document is deleted or expires.
   A removal that fails (a file another process holds open, on Windows) is tried three times, then
   left. A server that stops in the middle of an upload leaves its file: give the spool a folder of
   its own, and empty it when the server starts.
 - **Bounded.** A body written to a file has the same limits as one in memory: `maxUploadBytes` and
-  `uploadIdleTimeoutMs`. `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the spool's
-  files at once. A full disk (`ENOSPC`, `EDQUOT`) is answered `503`, and the file removed. The files
-  of `prepareUpload` are bounded by your disk only.
+  `uploadIdleTimeoutMs`, which also bounds each call to the disk (a volume that stops answering is
+  a `500` "Upload failed (ETIMEDOUT).", and gives the upload's room back). `maxSpooledUploadBytes`
+  (ten times `maxUploadBytes`) bounds the spool's files at once. A full disk (`ENOSPC`, `EDQUOT`) is
+  answered `503`, and the file removed. The files of `prepareUpload` are bounded by your disk only.
 - **Not sent.** The path of a file and its ref are never in an answer, an event, a summary, or a
   request to a model. A system error that names a path, such as Node's `ENOENT` for a folder that is
   not there, is answered with its code only: `"Upload failed (ENOENT)."`.

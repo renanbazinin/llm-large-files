@@ -142,7 +142,7 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 | `maxSpooledUploadBytes` | `number` | ten times `files.maxUploadBytes` (1 GB by default) | New in 0.9.0. The most bytes of the spool's files at once, counted as `maxPendingUploadBytes` counts memory. An upload that would pass it is answered `503` with `Retry-After: 5` before its body is read. `Infinity` for no limit. A value that is not a number above 0 throws a `RangeError`. |
 | `uploadFileMode` | `number` | `0o600` | New in 0.9.0. The mode of the files saved to the `path` of `prepareUpload`, minus the umask of the process. `0o640` lets a group read them: pods of another user that share the volume through a group (`fsGroup`). The spool's files are always `0o600`. |
 | `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold in memory at once. Since 0.9.0 a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`) does not count. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Since 0.9.0 its room is given back, and the body the handler read is freed, before `onUploaded` runs: a hook that waits on your database holds neither. Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
-| `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
+| `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. Since 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`), it also bounds each call to the disk: the opening of the file, each write, and its closing. A volume that stops answering then fails the upload with `500` `{ "error": "Upload failed (ETIMEDOUT)." }`, and its room is given back. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
 
 What `getOwner` returns decides what each handler does:
 
@@ -290,6 +290,7 @@ const files = createLargeFiles({
   store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }),
   keepOriginals: ["pdf"],
   originals: fileOriginals(VOLUME),
+  ttlMs: Infinity, // kept as long as the chat, as its uploads are
   requireOwner: true,
   requireScope: true,
 });
@@ -320,38 +321,55 @@ const documents = createDocumentHandlers(files, {
     upload with `409` (`IngestError` `"exists"`).
   - `path`: an absolute path where the body is saved. See below.
   - `original`: `{ ref }` of the saved file, for `LargeFilesOptions.originals`
-    (`IngestInput.original`). Only with `path`: the handler does not make a ref of a path.
+    (`IngestInput.original`). Only with `path`: the handler does not make a ref of a path, and does
+    not check that the ref names the file at `path` (a reader of your own may have refs of its
+    own). With `fileOriginals(root)`, the path is `<root>/<ref>`: see the folders below.
     Without `original`, the file is saved and ingested all the same, and a store with `putOriginal`
     keeps its own copy, as `keepOriginals` says. A library without `originals` refuses a ref
     (`TypeError`): `500` "Upload failed.", and the file is removed.
   - Anything else (a relative path, an ID that is not a string, a ref without a path) is the
     server's mistake: `500` `{ "error": "Upload failed." }`, before the body is read.
 - **When it throws,** the upload is answered as for `getOwner`: an error with a `status` from 400
-  to 599 gives that status and its message, and any other error a `500`. Nothing is written.
+  to 599 gives that status and its message, and any other error a `500` "Upload failed.". Nothing
+  is written.
 
 With a `path`:
 
 - **The file is made new.** It is opened with `"wx"` and mode `uploadFileMode` (`0o600`), minus the
   umask. A file already at the path, or a link (even one that points nowhere), is never written
   through: the upload is answered `409` `{ "error": "A file is already saved for this upload." }`,
-  before its body is read, and what is there stays as it is.
+  before its body is read, and what is there stays as it is. That `409` is not an `IngestError`,
+  and has no `code`: `"exists"` is the code of a taken ID.
 - **Its folder must exist.** The handler makes no folder. A folder that is not there is answered
   `500` `{ "error": "Upload failed (ENOENT)." }`. A chat your app deleted should be refused before,
   in `getScope` or `prepareUpload`, with a `404`.
+- **No link in its folders, with a ref.** `"wx"` refuses a link only at the file's own name: a link
+  in a folder above it (`uploads` pointing to another disk) is followed. `fileOriginals` refuses a
+  link at any level below its root, so such a file could never be read back. So when the path ends
+  with the ref of `original` (`<root>/<ref>`), the handler checks the folders from that root down
+  before it reads the body. A link among them is answered `500`
+  `{ "error": "Upload failed (ELOOP)." }`, and nothing is written. The root itself may be a link,
+  as for `fileOriginals`. A ref that is not the end of the path is not checked.
 - **The body is written as it arrives,** under the same limits as in memory: a body over
   `maxUploadBytes` is answered `413`, and one that stops arriving for `uploadIdleTimeoutMs` `408`.
   A disk that is full (`ENOSPC`, `EDQUOT`) is answered `503`
   `{ "error": "The server has no room for this file right now. Try again later." }` with
-  `Retry-After: 30`. A body a framework already read (`express.raw()`) is written whole.
+  `Retry-After: 30`. Each call to the disk (the opening, each write, the closing) is waited for no
+  longer than `uploadIdleTimeoutMs`: a volume that stops answering is answered `500`
+  `{ "error": "Upload failed (ETIMEDOUT)." }`. A body a framework already read (`express.raw()`) is
+  written whole.
 - **It is ingested from the file:** `files.ingest({ name, source: { path }, id, original, … })`
   ([`IngestFromSource`](./library.md#ingestfromsource)). The body is never held in memory, and the
   upload takes no room of `maxPendingUploadBytes` or `maxSpooledUploadBytes`: it is on your disk.
 - **It stays once the document is stored.** It is yours: `onUploaded` is told its `path`, and the
   library never removes it, even when the document is deleted or expires. Remove it yourself, in
-  `onRemoved` or with its chat.
+  `onRemoved` or with its chat. A document that expires (`ttlMs`) is removed without a call to
+  `onRemoved`, and leaves its file: keep the documents as long as their chat (`ttlMs: Infinity`, as
+  above), or remove the files with the chat.
 - **It is removed when the upload fails,** whatever the reason: too large, a body that stops, a
   client that leaves while the body arrives or while it is ingested, a full disk, a file the ingest
-  refuses, an ID that is taken, or `onUploaded` throwing. A file that was already at the path is
+  refuses, an ID that is taken, or `onUploaded` throwing. After a call to the disk that did not
+  answer, it is removed at once, or once the volume answers. A file that was already at the path is
   never removed.
 - **Nothing of it is sent.** The path and the ref are not in the answer, the events, the
   summaries, or anything sent to the model.
@@ -375,9 +393,11 @@ const documents = createDocumentHandlers(files, {
   that has bytes. The `path` of `prepareUpload` wins over the spool.
 - **The file.** It is made new in `directory` (`os.tmpdir()` by default, which must exist), named
   `llf-upload-` and a random UUID, opened with `"wx"` and mode `0o600`. The body is written as it
-  arrives, under `maxUploadBytes` and `uploadIdleTimeoutMs`, then ingested with
-  `files.ingest({ name, source: { path }, … })`. With `createIsolatedExtractors`, a PDF or Office
-  file is read from that path by its child process.
+  arrives, under `maxUploadBytes` and `uploadIdleTimeoutMs` (for each piece of the body, and each
+  call to the disk), then ingested with `files.ingest({ name, source: { path }, … })`. With
+  `createIsolatedExtractors`, a PDF or Office file is read from that path by its child process,
+  unless the store keeps a copy of it (`keepOriginals`, a store with `putOriginal`, and no
+  `original`): the server then reads it to copy it, and sends the bytes to the child.
 - **It is always removed,** once the ingest ends: stored, refused, aborted because the client left,
   or failed. A body that fails while it is written (`413`, `408`, a client that leaves) is removed
   then. `onUploaded` runs after the removal, and is not told the path. A server that stops in the
@@ -388,7 +408,8 @@ const documents = createDocumentHandlers(files, {
   `maxUploadBytes` without one, before its body is read, then its size once written, until its file
   is removed. One that would pass the limit while others hold room is answered `503` with
   `Retry-After: 5` before its body is read; one upload alone is always taken. A disk that is full is
-  answered `503` with `Retry-After: 30`, and the file is removed.
+  answered `503` with `Retry-After: 30`, and the file is removed. A disk that does not answer within
+  `uploadIdleTimeoutMs` is answered `500` "Upload failed (ETIMEDOUT).", and gives the room back.
 - **Memory.** `maxPendingUploadBytes` then counts only the bodies held in memory. In memory, a body
   without a `Content-Length` takes `maxUploadBytes` of room until it is read, so two of them filled
   the default room and a third was answered `503`. Spooled, they take room on disk.
@@ -421,7 +442,7 @@ type PreparedUpload = { id?: string; path?: string; original?: { ref: string } }
 |---|---|
 | `id` | The document's ID (`IngestInput.id`): lowercase letters, digits, `_` and `-`, up to 64 characters (`APP_DOCUMENT_ID_PATTERN`). The model sees it: no personal data in it. |
 | `path` | An absolute path where the body is saved, made new, then ingested from. The file stays once the document is stored, and is removed when the upload fails. |
-| `original` | `{ ref }`: where `LargeFilesOptions.originals` reads the saved file, such as its path under the folder of [`fileOriginals`](#fileoriginalsroot). Only with `path`. |
+| `original` | `{ ref }`: where `LargeFilesOptions.originals` reads the saved file, such as its path under the folder of [`fileOriginals`](#fileoriginalsroot). Only with `path`. When `path` ends with the ref, a link in a folder below that root is refused (`500` "Upload failed (ELOOP)."). |
 
 ##### `UploadSpoolOptions`
 
@@ -489,16 +510,18 @@ What it does, in order:
    `requireScope`, is answered `500` ([what `getScope` returns](#what-getscope-returns)). New in
    0.9.0.
 4. Answers `413` a `Content-Length`, or a body in `request.body`, over `maxUploadBytes`. Then
-   calls `prepareUpload`, when there is one ([saving the body](#saving-the-body-prepareupload); new
-   in 0.9.0).
+   calls `prepareUpload`, when there is one, and checks the folders of a path with a ref (`500`
+   "Upload failed (ELOOP)." for a link) ([saving the body](#saving-the-body-prepareupload); new in
+   0.9.0).
 5. Makes room for the upload: in memory ([`maxPendingUploadBytes`](#documenthandleroptions)), or in
    the spool for a body that is spooled (`maxSpooledUploadBytes`, new in 0.9.0). A body saved to the
    `path` of `prepareUpload` takes none. An upload that would bring the uploads held past the
    limit, while others are held, is answered `503`, before its body is read. New in 0.8.2.
 6. Reads the body, up to `files.maxUploadBytes`: into memory, or, new in 0.9.0, into a file as it
    arrives, at the `path` of `prepareUpload` or in the spool (`uploadSpool`). A file is made new
-   (`"wx"`): one already at the path is answered `409`, and a disk that is full `503` with
-   `Retry-After: 30`. On any failure of the body, the file is removed.
+   (`"wx"`): one already at the path is answered `409`, a disk that is full `503` with
+   `Retry-After: 30`, and a call to the disk that does not end within `uploadIdleTimeoutMs` `500`
+   "Upload failed (ETIMEDOUT).". On any failure of the body, the file is removed.
    - a `Uint8Array` or `Buffer` that a framework left in `request.body` (`express.raw()`) is used
      as the file, with the same limit;
    - an object with fields in `request.body` (`express.json()` on a JSON request) is answered
@@ -547,16 +570,18 @@ The responses:
 | `503` | `{ "error": "The server is receiving other files right now. Try again in a moment." }`, with `Retry-After: 5` | Uploads are already held, and this one would bring them past `maxPendingUploadBytes`, or, for a body that is spooled, past `maxSpooledUploadBytes` (new in 0.9.0). Answered before the body is read, also to a request with `Accept: text/event-stream`. New in 0.8.2. |
 | `503` | `{ "error": "The server is reading other files right now. Try again in a moment." }`, with `Retry-After: 5` | The isolated readers of [`createIsolatedExtractors`](#createisolatedextractorsoptions) are all busy and their queue is full: an `IngestError` of code `"busy"`. The header is its `retryAfterMs` in seconds, rounded up, at least 1. While they shut down (`close()`): "The server is shutting down. Try again in a moment." New in 0.8.0. |
 | `409` | `{ "error": "report.pdf: a document with this ID already exists." }` | `files.ingest` threw an `IngestError` of code `"exists"`: a document of the ID the upload was given (`prepareUpload`'s `id`) is there. New in 0.9.0. |
-| `409` | `{ "error": "A file is already saved for this upload." }` | A file or a link is already at the `path` of `prepareUpload`. It is not written through, nor removed. The body is not read. New in 0.9.0. |
+| `409` | `{ "error": "A file is already saved for this upload." }` | A file or a link is already at the `path` of `prepareUpload`. It is not written through, nor removed. The body is not read. It is not an `IngestError`, and has no `code`: `"exists"` is the code of a taken ID (the row above). New in 0.9.0. |
 | `503` | `{ "error": "The server has no room for this file right now. Try again later." }`, with `Retry-After: 30` | The disk the body was written to is full (`ENOSPC`, `EDQUOT`): the `path` of `prepareUpload`, or the spool. The file is removed. New in 0.9.0. |
 | `503` | `{ "error": "The document could not be stored (ENOSPC). Try again." }`, with `Retry-After: 5` | The store failed while it wrote the document, or did not finish writing it within `ingestTimeoutMs` (code `ETIMEDOUT`): `files.ingest` threw a [`DocumentStoreError`](./library.md#documentstoreerror) of operation `"write"`. The code is shown only when the store's error has one. The store's own message is not sent. New in 0.9.0: it was answered `500` "Upload failed (ENOSPC)." or "Upload failed.", with no `Retry-After`. |
-| 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, `getScope`, `onUploaded` or an extractor threw an error with that `status` or `statusCode`. A model's error (`ModelRequestError`) is the exception: it is answered with the status and words of [`errorInfoOf`](./errors-and-retries.md#errorinfooferror), never the provider's. |
+| 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, `getScope`, `prepareUpload`, `onUploaded` or an extractor threw an error with that `status` or `statusCode`. A model's error (`ModelRequestError`) is the exception: it is answered with the status and words of [`errorInfoOf`](./errors-and-retries.md#errorinfooferror), never the provider's. |
 | `500` | `{ "error": "Upload failed (empty owner)." }` | `getOwner` returned `""`, spaces only or `null` (`null` is a `401` under `requireOwner`). The body is not read. New in 0.6.0. |
 | `500` | `{ "error": "Upload failed (invalid scope)." }` | `getScope` returned a scope that is not valid. The body is not read. New in 0.9.0. |
 | `500` | `{ "error": "Upload failed (no scope)." }` | The library has `requireScope`, and `getScope` returned `undefined`. The body is not read. New in 0.9.0. |
 | `500` | `{ "error": "Upload failed (owner is not a string)." }` | `getOwner` returned, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array. The body is not read. New in 0.6.0. |
+| `500` | `{ "error": "Upload failed (ELOOP)." }` | `prepareUpload` gave a `path` that ends with the ref of its `original`, and a folder between that root and the file is a link: `fileOriginals` would never read the file back. Nothing is written, and the body is not read. New in 0.9.0. |
+| `500` | `{ "error": "Upload failed (ETIMEDOUT)." }` | A call to the disk for the file of `prepareUpload` or of the spool (its opening, a write, its closing) did not end within `uploadIdleTimeoutMs`: the volume stopped answering. The upload's room is given back, and the file is removed at once, or once the volume answers. New in 0.9.0. |
 | `500` | `{ "error": "Upload failed (ENOSPC)." }` | An extractor of your own failed with a Node system error, one with a `code` and a `syscall`; or the file of `prepareUpload` or of the spool could not be made, as `"Upload failed (ENOENT)."` for a folder that is not there (new in 0.9.0). Only the code is passed on, and only when it reads as one (capitals, digits and `_`): since 0.9.0 a code that does not, such as a host a driver put in `code`, is left out, and the answer is "Upload failed.". |
-| `500` | `{ "error": "Upload failed." }` | `getOwner` threw an error without a status, or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of either kind that has a `code` and a `syscall` is answered as in the row above, with its code. |
+| `500` | `{ "error": "Upload failed." }` | `getOwner` or `prepareUpload` threw an error without a status, or `prepareUpload` returned a value that is not a `PreparedUpload` (a relative path, an ID that is not a string, a ref without a path): the body is not read (`prepareUpload` is new in 0.9.0). Or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of one of these kinds that has a `code` and a `syscall` is answered as in the row above, with its code. |
 | `500` | `{ "error": "Upload failed." }` | `files.ingest` or `onUploaded` threw an error that is none of the above: not an `IngestError`, with no status and no system error's `code` and `syscall`. Its message is not sent: it may name a host, as a database driver's does. A `DocumentScopeError` of code `"scope_invalid"` or `"scope_required"`, the server's mistake, is answered so too. New in 0.9.0: an `Error` of a `LargeFiles` of your own was answered `422` with its message (S12). So is a value that is not an `Error` (an extractor of your own that throws a string, say), as before. |
 
 A store that fails while it writes reaches the handler as a `DocumentStoreError` since 0.9.0, and is
@@ -596,8 +621,9 @@ refusal or a bad owner from `getOwner` (its status, `401` or `500`), a refusal o
 `getScope` (its status, or `500`; new in 0.9.0), a refusal from `prepareUpload` or what it should not
 return (its status, or `500`; new in 0.9.0), a body another middleware parsed (`400`), a file over
 `maxUploadBytes` (`413`), an upload that finds no room (`503`, new in 0.8.2), a file already at the
-path of `prepareUpload` (`409`) or a full disk (`503`), both new in 0.9.0, and a body that stops
-arriving (`408`, new in 0.8.2). Only a file that passes them is answered `200`
+path of `prepareUpload` (`409`), a link in the folders of a path with a ref (`500` "ELOOP"), a full
+disk (`503`) or a disk that does not answer (`500` "ETIMEDOUT"), all new in 0.9.0, and a body that
+stops arriving (`408`, new in 0.8.2). Only a file that passes them is answered `200`
 with the event-stream headers of [`writeSseEvents()`](#writesseeventsresponse-events-options) and
 a `: keep-alive` comment every 15 seconds.
 

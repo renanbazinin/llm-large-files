@@ -285,6 +285,22 @@ the client's connection stalled, or a proxy held the body. The connection is clo
 the file again. For users on slow or unsteady links, raise `uploadIdleTimeoutMs` of
 `createDocumentHandlers`.
 
+### `500`: "Upload failed (ETIMEDOUT)." or "Upload failed (ELOOP)."
+
+New in 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`).
+
+- **"ETIMEDOUT".** A call to the disk (opening the file, a write, closing it) did not end within
+  `uploadIdleTimeoutMs` (30 s): the volume stopped answering, such as a network volume whose server
+  is gone. The upload's room is given back, and the file is removed once the volume answers. **Fix.**
+  Check the volume. A slow network volume can take long to close a file it held writes for: raise
+  `uploadIdleTimeoutMs`.
+- **"ELOOP".** `prepareUpload` gave a path that ends with the ref of its `original`, and a folder
+  between that root and the file is a link. `fileOriginals` would never read the file back through
+  it, so nothing is written. **Fix.** Replace the link with the folder itself, or mount the other
+  disk there. The root itself may be a link.
+
+See [saving the body](./reference/node.md#saving-the-body-prepareupload).
+
 ### `400`: "Name the file with an X-File-Name header or a ?name= query parameter."
 
 **Cause.** The upload request names no file. The name decides the format, and is shown to the

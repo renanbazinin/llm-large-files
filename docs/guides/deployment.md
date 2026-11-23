@@ -251,6 +251,12 @@ const documents = createDocumentHandlers(files, {
   file (named `llf-upload-` and a UUID). Empty the folder when the server starts.
 - **It costs a write and a read.** Each spooled upload is written once, and read once at its turn.
   On a network volume, that is the price of taking it off the heap.
+- **A volume that stops answering.** Each call to the disk (opening the file, each write, closing
+  it) is waited for no longer than `uploadIdleTimeoutMs` (30 s). Past it, the upload is answered
+  `500` `{ "error": "Upload failed (ETIMEDOUT)." }`, and its room is given back. The file is removed
+  at once, or once the volume answers. On a network volume, closing a file can wait for the writes
+  the system held back: on a slow one, raise `uploadIdleTimeoutMs`. The same holds for the `path`
+  of `prepareUpload`.
 - **Saving the upload where you keep it.** When your app keeps each upload anyway, `prepareUpload`
   gives its path, and the body is written there instead, once, and kept by reference
   ([Web app](./web-app.md#save-each-upload-where-you-keep-it-prepareupload)). Such a body takes no
@@ -270,7 +276,8 @@ on Node 22 with 100 ingests of 2 MB logs waiting behind one that held the turn: 
 73 MB (RSS) with paths, against 282 to 286 MB with the bytes given, 200 MB of which were the
 uploads. With all 100 run, two at a time (the default), the peak was 159 to 160 MB with paths,
 against 265 to 277 MB, in the same time. With `createIsolatedExtractors`, a PDF or Office file at a
-path is read by its child process, and the server reads none of it (below).
+path is read by its child process, and the server reads none of it (below), unless the store keeps
+a copy of it (as above): the server then reads it, and sends the bytes to the child.
 The library never writes, moves or deletes the file: remove it once it is ingested, or keep it and
 let `view_pages` read it from there ([Storage](./storage.md#keeping-the-uploaded-files)). Never
 build the path from what a client sends.
@@ -351,7 +358,8 @@ end after the time limit. Four ways to bound that:
 **Child processes for the parsers.** With the `extractors` of `createIsolatedExtractors`, each PDF,
 DOCX, PPTX or XLSX file is copied to a child process, read there by the built-in extractor, and its
 text sent back; a file ingested from a path is not copied: since 0.9.0 the child reads it from its
-path, within `maxUploadBytes`, and nothing of it waits in the server for a child; the text is then normalized, profiled, indexed and stored in your server, as
+path, within `maxUploadBytes`, and nothing of it waits in the server for a child (unless the store
+keeps a copy of it: `keepOriginals`, a store with `putOriginal`, and no `original`); the text is then normalized, profiled, indexed and stored in your server, as
 before. Text files, HTML included, are read in the server, in slices. What a file can do from there:
 
 - run its child out of memory: the child stops, and the file is refused with an `IngestError` of

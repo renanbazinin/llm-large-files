@@ -285,6 +285,7 @@ export const files = createLargeFiles({
   store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }), // /data/<user>/<chat>/.llm-large-files/
   keepOriginals: ["pdf"],
   originals: fileOriginals(VOLUME), // reads the uploads back by their ref
+  ttlMs: Infinity, // the documents stay as long as the chat, as its uploads do
   requireOwner: true,
   requireScope: true,
 });
@@ -320,6 +321,13 @@ export const documents = createDocumentHandlers(files, {
   `{ "error": "Upload failed (ENOENT)." }`; a chat that was deleted should be refused in
   `getScope`, with a `404`, as above. Removing the chat's folder removes the store's files and the
   uploads together ([Storage](./storage.md#files-in-a-folder-per-user-or-per-chat)).
+- **No links below `/data`.** `fileOriginals` does not read a file through a link in its folders
+  (`uploads` pointing to another disk, say). So the handler refuses such a path before it writes:
+  `500` `{ "error": "Upload failed (ELOOP)." }`. `/data` itself may be a link. Mount another disk
+  there rather than link to it: a mount is not a link.
+- **Kept as long as the chat.** `ttlMs: Infinity`: a document that expires is removed without a
+  call to `onRemoved`, and would leave its upload and the chat's record behind. Remove the
+  documents with their chat ([Storage](./storage.md#files-in-a-folder-per-user-or-per-chat)).
 - **Safe names.** The user and chat IDs are the scope's segments, and the folder names: lowercase
   letters, digits, `_` and `-`. For other IDs, name both folders with `hashedScopeSegment`, as the
   store does. Never build the path from the file's name: it is the client's.
@@ -328,7 +336,8 @@ export const documents = createDocumentHandlers(files, {
   written through: the upload gets `409` `{ "error": "A file is already saved for this upload." }`.
 - **It stays once the document is stored,** and `onUploaded` is told its `path`. **It is removed
   when the upload fails**, whatever the reason: too large, a body that stops, a browser that leaves
-  before the ingest ends, a full disk (`503` with `Retry-After`), a file that cannot be read, an ID
+  before the ingest ends, a full disk (`503` with `Retry-After`), a disk that does not answer within
+  `uploadIdleTimeoutMs` (`500` "Upload failed (ETIMEDOUT)."), a file that cannot be read, an ID
   that is taken, or `onUploaded` throwing.
 - **No memory.** The body is written as it arrives, and read again when the ingest's turn comes: it
   is not held while it waits, and takes no room of `maxPendingUploadBytes`.
@@ -355,9 +364,10 @@ const documents = createDocumentHandlers(files, {
 - **The file** is made new (`"wx"`), with a random name and mode `0o600`, ingested from its path, and
   removed once the ingest ends, whatever the end. `onUploaded` runs after, without a path.
 - **Room.** `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the spool's files at once:
-  past it, and on a full disk, the upload gets `503` with `Retry-After`. `maxPendingUploadBytes`
-  then counts only the bodies held in memory, so several uploads sent without a `Content-Length` no
-  longer fill it.
+  past it, and on a full disk, the upload gets `503` with `Retry-After`. A disk that does not answer
+  within `uploadIdleTimeoutMs` gets `500` "Upload failed (ETIMEDOUT).", and gives the room back.
+  `maxPendingUploadBytes` then counts only the bodies held in memory, so several uploads sent
+  without a `Content-Length` no longer fill it.
 - **Where.** On a disk, not a memory-backed folder, which would take the memory back
   ([Deployment](./deployment.md#uploads-and-ingest)). A server that stops in the middle of an upload
   leaves its file: empty the folder when the server starts.
