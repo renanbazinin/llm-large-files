@@ -57,10 +57,11 @@ question ─► plan the documents for the room left in the request, smallest fi
      after the text of its paragraph that shows, each of its lines starting with
      `[Hidden text, not shown in the document]`, and a long line is cut into pieces, each marked.
      Text hidden through a style is not told apart
-     ([Security](./security.md#hidden-text-in-word-and-powerpoint)). **XLSX**: a `## Sheet N: name`
+     ([Security](./security.md#hidden-text-in-word-powerpoint-and-html)). **XLSX**: a `## Sheet N: name`
      section for each sheet, a `Columns:` line, then a line a row, `Row 12: | East | 1200.5 |`,
      and the sheet count as `pages`. **HTML**: the text a browser shows, with headings, lists,
-     tables and the addresses of links. DOCX, PPTX and XLSX need the optional `jszip`.
+     tables and the addresses of links; text the page hides (the `hidden` attribute, an inline
+     `display: none` or `visibility: hidden`) comes after its line, marked as Word's is. DOCX, PPTX and XLSX need the optional `jszip`.
    - **Text, logs, Markdown, JSON and CSV** are read as UTF-8, or as UTF-16 when they start with a
      byte-order mark or about half of their first bytes are zeros. A file that is not valid UTF-8
      is read in the older encoding it was saved in, or as UTF-8 with its characters that are not

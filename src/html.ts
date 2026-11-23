@@ -4,7 +4,6 @@ import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 import { MAX_LINE_CHARACTERS, sliceWhole } from "./text.js";
 import type { Extractor } from "./types.js";
-import { parseAttributes } from "./xml-stream.js";
 
 /**
  * HTML pages, as text a model can search and cite: the text a browser shows, without scripts,
@@ -78,7 +77,9 @@ const MAX_SPANNED_COLUMNS = 64;
  * fit on one line, which ingest does not cut: past `MAX_LINE_CHARACTERS` it would put the rest of
  * the hidden line on a line of its own, without the mark.
  */
-const HIDDEN_PIECE = MAX_LINE_CHARACTERS - HIDDEN_TEXT.length - 1;
+// A tenth is kept free: ingest composes the text (NFC) and bounds runs of marks after it is cut,
+// which can lengthen a line, and a line past the wrap limit would leave its rest without a mark.
+const HIDDEN_PIECE = Math.floor((MAX_LINE_CHARACTERS - HIDDEN_TEXT.length - 1) * 0.9);
 const HIDDEN_MARK = `${HIDDEN_TEXT} `;
 /**
  * Runs of white space, made one space as a browser shows them (a no-break space is one too). A
@@ -324,7 +325,12 @@ type Row = {
  * and is not itself a list, item, table or part of one, so that the next item, the next cell or the
  * end of the table ends it, as a browser closes it there.
  */
-type Hidden = { name: string; depth: number; lists: number; tables: number; keepsPlace: boolean; listed: boolean; celled: boolean };
+type Hidden = { name: string; depth: number; lists: number; tables: number; keepsPlace: boolean; listed: boolean; celled: boolean; outer: number };
+
+/** Elements open around the one being read, at most: past it, end tags are matched no further. */
+const MAX_OPEN = 512;
+/** Elements a browser closes and opens again around what follows them, not ends at an end tag around them. */
+const FORMATTING = new Set(["a", "b", "big", "code", "em", "font", "i", "nobr", "s", "small", "strike", "strong", "tt", "u"]);
 
 /**
  * Builds the text of a page as its tags and text go past. A table row is collected cell by cell
@@ -350,6 +356,13 @@ class HtmlText {
   /** The link open, to write its address after its text: the text its text went to, and that text's length before it. */
   private link: { href: string; run: Run; length: number } | undefined;
   private hidden: Hidden | undefined;
+  /**
+   * The names of the elements open, outermost first, up to `MAX_OPEN`: a hidden element ends at the
+   * end tag of an element that was open around it (`<p>a <span hidden>b</p>`), as a browser ends it.
+   * Elements a page leaves open (a `<p>` with no end tag) stay in it; they only make such an end
+   * less likely to be seen, never wrongly seen.
+   */
+  private readonly opened: string[] = [];
 
   /** `maxCharacters`: the page is refused as soon as its text grows past it. */
   constructor(private readonly maxCharacters = Number.POSITIVE_INFINITY) {}
@@ -376,8 +389,9 @@ class HtmlText {
     } else if (hides) {
       const listed = this.listDepth > 0 && !LISTS.has(name) && name !== "li" && name !== "dl" && name !== "dt" && name !== "dd";
       const celled = this.row?.cell !== undefined && !TABLE_PARTS.has(name) && name !== "table";
-      this.hidden = { name, depth: 1, lists: 0, tables: 0, keepsPlace: hides === "invisible", listed, celled };
+      this.hidden = { name, depth: 1, lists: 0, tables: 0, keepsPlace: hides === "invisible", listed, celled, outer: this.opened.length };
     }
+    if (!VOID.has(name) && this.opened.length < MAX_OPEN) this.opened.push(name);
     if (name === "table") {
       this.tableDepth++;
       if (this.tableDepth === 1) {
@@ -432,7 +446,7 @@ class HtmlText {
     if (LISTS.has(name)) {
       this.flush();
       if (++this.listDepth <= MAX_LISTS) {
-        this.lists.push({ ordered: name === "ol", count: Number.parseInt(htmlAttributes(attributes).start ?? "1", 10) - 1 || 0 });
+        this.lists.push({ ordered: name === "ol", count: Number.parseInt(attributeOf(attributes, "start", 16) ?? "1", 10) - 1 || 0 });
       }
       return;
     }
@@ -451,6 +465,7 @@ class HtmlText {
       else this.line.prefix = `${indent}- `;
     } else if (name === "hr") {
       this.write("---", [], 3);
+      this.line.prefix = "";
     } else if (name === "blockquote") {
       this.line.prefix = "> ";
     }
@@ -462,8 +477,11 @@ class HtmlText {
       return;
     }
     if (this.skipping > 0) return;
+    // The innermost open element of this name is closed, and those inside it.
+    const index = this.opened.lastIndexOf(name);
     this.end(name);
-    if (this.hidden && this.endedByEnd(this.hidden, name)) this.hidden = undefined;
+    if (this.hidden && (this.endedByEnd(this.hidden, name) || (index !== -1 && index < this.hidden.outer && !FORMATTING.has(name)))) this.hidden = undefined;
+    if (index !== -1) this.opened.length = index;
   }
 
   text(raw: string): void {
@@ -530,6 +548,8 @@ class HtmlText {
     if (LISTS.has(name)) {
       this.flush();
       if (this.listDepth > 0 && this.listDepth-- <= MAX_LISTS) this.lists.pop();
+      // The mark of a last item left with no text (an icon, a picture without words) is not given to what follows the list.
+      if (this.heading === 0) this.line.prefix = "";
       return;
     }
     if (HEADING.test(name)) this.heading = 0;
@@ -580,7 +600,9 @@ class HtmlText {
    */
   private writeHidden(pieces: Iterable<string>): void {
     let rest = "";
-    for (const piece of pieces) {
+    for (const written of pieces) {
+      // A U+0085 ends a line in a text with no other line break: ingest would split the text from its mark there.
+      const piece = written.includes("\x85") ? written.replace(/\x85/g, " ") : written;
       rest = rest === "" ? piece.trimStart() : rest + piece;
       while (rest.length > HIDDEN_PIECE) {
         const window = sliceWhole(rest, HIDDEN_PIECE);
@@ -596,12 +618,13 @@ class HtmlText {
 
   private image(attributes: string): void {
     // Up to `MAX_ALT` characters, read from the start of the text only: an attribute can be megabytes long.
-    const alt = sliceWhole(decodeSpaces((htmlAttributes(attributes).alt ?? "").slice(0, MAX_ALT * 4)).trim(), MAX_ALT).trim();
+    const alt = sliceWhole(decodeSpaces(attributeOf(attributes, "alt", MAX_ALT * 4) ?? "").trim(), MAX_ALT).trim();
     if (alt) this.text(` [Image: ${alt}] `);
   }
 
   private startLink(attributes: string): void {
-    const written = htmlAttributes(attributes).href ?? "";
+    // An address too long to follow is not decoded at all.
+    const written = attributeOf(attributes, "href", MAX_ADDRESS * 2 + 1) ?? "";
     if (written.length > MAX_ADDRESS * 2) return;
     // A browser leaves out the tabs and line breaks of an address.
     const href = written.replace(/[\t\n\r]/g, "").trim();
@@ -632,8 +655,10 @@ class HtmlText {
   /** Starts a row of the table. `hidden`: the page hides the whole row, which is written marked. */
   private startRow(hidden: boolean): Row {
     // The columns that cells above cover in this row; after it, each covers one row fewer.
-    const covered = this.spans.map((rows) => rows > 0);
-    this.spans = this.spans.map((rows) => Math.max(0, rows - 1));
+    // Most tables span no rows: then nothing is worked out for each row.
+    const spanning = this.spans.some((rows) => rows > 0);
+    const covered = spanning ? this.spans.map((rows) => rows > 0) : [];
+    if (spanning) this.spans = this.spans.map((rows) => Math.max(0, rows - 1));
     return { parts: [], size: 0, blocks: [], columns: 0, text: false, cell: undefined, hidden, hiddenText: undefined, held: 0, covered };
   }
 
@@ -648,9 +673,8 @@ class HtmlText {
       // The columns that cells above cover come first, empty, so that this cell is under its heading.
       while (row.columns < row.covered.length && row.covered[row.columns]) this.addCell(row, undefined);
       if (/span/i.test(attributes)) {
-        const read = htmlAttributes(attributes);
-        colspan = Math.min(MAX_SPANNED_COLUMNS, Math.max(1, Number.parseInt(read.colspan ?? "1", 10) || 1));
-        const rows = Number.parseInt(read.rowspan ?? "1", 10);
+        colspan = Math.min(MAX_SPANNED_COLUMNS, Math.max(1, Number.parseInt(attributeOf(attributes, "colspan", 16) ?? "1", 10) || 1));
+        const rows = Number.parseInt(attributeOf(attributes, "rowspan", 16) ?? "1", 10);
         // `rowspan="0"` spans the rest of the rows of its group.
         rowspan = rows === 0 ? MAX_ROWSPAN : Math.min(MAX_ROWSPAN, Math.max(1, rows || 1));
       }
@@ -801,15 +825,50 @@ class HtmlText {
 /** Runs of white space as one space, as a browser shows them; a no-break space stays a space. */
 const decodeSpaces = (text: string) => text.replace(/\s+/g, " ");
 
-/** The attributes of an HTML tag, by their names in lower case: HTML reads `HREF` as `href`. */
-function htmlAttributes(inside: string): Record<string, string | undefined> {
-  const read = parseAttributes(inside);
-  const names = Object.keys(read);
-  if (names.every((name) => name === name.toLowerCase())) return read;
-  const attributes: Record<string, string> = Object.create(null) as Record<string, string>;
-  for (const name of names) attributes[name.toLowerCase()] ??= read[name]!;
-  return attributes;
+const isAttributeSpace = (code: number) => code === 32 || code === 9 || code === 10 || code === 13 || code === 12;
+
+/**
+ * The value of one attribute of an HTML tag, by its name in lower case (HTML reads `HREF` as
+ * `href`, and keeps the first of two of a name), with its character references decoded, or
+ * undefined when the tag has none. Only the first `maxRaw` characters of the value are decoded:
+ * an attribute can be megabytes of references (`alt="&amp;&amp;…"`), and decoding all of them, or
+ * every attribute of the tag, held the server and, at 100 MB, ran it out of memory. One pass over
+ * the tag, with no regular expression.
+ */
+function attributeOf(inside: string, wanted: string, maxRaw: number): string | undefined {
+  const length = inside.length;
+  let at = 0;
+  while (at < length) {
+    while (at < length && (isAttributeSpace(inside.charCodeAt(at)) || inside[at] === "/")) at++;
+    const start = at;
+    while (at < length && !isAttributeSpace(inside.charCodeAt(at)) && inside[at] !== "=" && inside[at] !== "/" && inside[at] !== ">") at++;
+    const name = at - start === wanted.length ? inside.slice(start, at).toLowerCase() : undefined;
+    while (at < length && isAttributeSpace(inside.charCodeAt(at))) at++;
+    if (inside[at] !== "=") {
+      if (name === wanted) return "";
+      if (at === start) at++;
+      continue;
+    }
+    at++;
+    while (at < length && isAttributeSpace(inside.charCodeAt(at))) at++;
+    const quote = inside[at];
+    let valueStart: number;
+    let valueEnd: number;
+    if (quote === "\"" || quote === "'") {
+      valueStart = at + 1;
+      const end = inside.indexOf(quote, valueStart);
+      valueEnd = end === -1 ? length : end;
+      at = end === -1 ? length : end + 1;
+    } else {
+      valueStart = at;
+      while (at < length && !isAttributeSpace(inside.charCodeAt(at)) && inside[at] !== ">") at++;
+      valueEnd = at;
+    }
+    if (name === wanted) return decodeHtmlEntities(inside.slice(valueStart, Math.min(valueEnd, valueStart + maxRaw)));
+  }
+  return undefined;
 }
+
 
 /**
  * Whether a tag's attributes hide its element: "none" for the `hidden` attribute or an inline style
@@ -820,11 +879,18 @@ function htmlAttributes(inside: string): Record<string, string | undefined> {
 function hiding(attributes: string): "none" | "invisible" | undefined {
   if (attributes.length < 5) return undefined;
   const inside = attributes.length > MAX_TAG ? attributes.slice(0, MAX_TAG) : attributes;
-  if (!/hidden|style/i.test(inside)) return undefined;
-  const read = htmlAttributes(inside);
-  if (read.hidden !== undefined) return "none";
-  return read.style === undefined ? undefined : styleHiding(read.style);
+  // Most tags have none of these words: their attributes are not read at all.
+  if (!/hidden|none|collapse/i.test(inside)) return undefined;
+  if (attributeOf(inside, "hidden", 0) !== undefined) return "none";
+  const style = attributeOf(inside, "style", MAX_STYLE);
+  return style === undefined ? undefined : styleHiding(style);
 }
+
+/** An inline style is read up to this many characters for whether it hides its element. */
+const MAX_STYLE = 4_096;
+/** The values of `display` and `visibility` a browser takes: a declaration with another value is dropped, as CSS drops it. */
+const DISPLAY_VALUES = /^(?:none|block|inline|inline-block|flex|inline-flex|grid|inline-grid|contents|flow|flow-root|list-item|table|inline-table|table-row|table-cell|table-row-group|table-header-group|table-footer-group|table-column|table-column-group|table-caption|ruby|ruby-base|ruby-text|run-in|math|inherit|initial|unset|revert|revert-layer)$/;
+const VISIBILITY_VALUES = /^(?:visible|hidden|collapse|inherit|initial|unset|revert|revert-layer)$/;
 
 /** `hiding` of an inline style: the last `display` and `visibility` of it count, an `!important` one first. */
 function styleHiding(style: string): "none" | "invisible" | undefined {
@@ -837,6 +903,8 @@ function styleHiding(style: string): "none" | "invisible" | undefined {
     let value = declaration.slice(colon + 1).trim().toLowerCase();
     const important = /!\s*important$/.test(value);
     if (important) value = value.slice(0, value.lastIndexOf("!")).trim();
+    // "display: foo" is dropped by CSS, and the declaration before it stays.
+    if (!(property === "display" ? DISPLAY_VALUES : VISIBILITY_VALUES).test(value)) continue;
     if (important || !values.get(property)?.important) values.set(property, { value, important });
   }
   if (values.get("display")?.value === "none") return "none";

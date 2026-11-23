@@ -88,7 +88,9 @@ const MAX_ATTRIBUTE_PART = 6;
  * fit on one line, which ingest does not cut: past `MAX_LINE_CHARACTERS` it would put the rest of
  * the hidden line on a line of its own, without the mark.
  */
-const HIDDEN_PIECE = MAX_LINE_CHARACTERS - HIDDEN_TEXT.length - 1;
+// A tenth is kept free: ingest composes the text (NFC) and bounds runs of marks after it is cut,
+// which can lengthen a line, and a line past the wrap limit would leave its rest without a mark.
+const HIDDEN_PIECE = Math.floor((MAX_LINE_CHARACTERS - HIDDEN_TEXT.length - 1) * 0.9);
 /**
  * What ends a line of hidden text: a line break, a carriage return (ingest makes it one), a U+0085
  * (ingest makes it one in a text with no other line break), or a line or paragraph separator

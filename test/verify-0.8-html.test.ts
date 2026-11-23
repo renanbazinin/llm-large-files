@@ -266,7 +266,8 @@ describe("text the page hides (finding 24)", () => {
     // A hidden row and a hidden table of many cells too; and never between the two halves of an emoji.
     const row = await htmlToText(`<table><tr hidden>${"<td>cell".repeat(1_000)}</tr></table>`);
     expect(row.split("\n").every((line) => line.startsWith(MARK) && line.length <= 2_000)).toBe(true);
-    expect(await htmlToText(`<p hidden>${"a".repeat(1_958)}\u{1F600}b</p>`)).toBe(`${MARK}${"a".repeat(1_958)}\n${MARK}\u{1F600}b`);
+    const piece = Math.floor((2_000 - MARK.length) * 0.9);
+    expect(await htmlToText(`<p hidden>${"a".repeat(piece - 1)}\u{1F600}b</p>`)).toBe(`${MARK}${"a".repeat(piece - 1)}\n${MARK}\u{1F600}b`);
   });
 
   it("keeps the mark on the text after a U+0085 or a line separator in hidden text", async () => {
@@ -288,5 +289,42 @@ describe("the title of a page (finding 27)", () => {
     // The page's own title still names it, wherever it is.
     expect(await htmlToText("<html><head><title>Q3 &amp; more</title></head><body><svg><title>Logo</title></svg><h1>Other</h1></body></html>")).toBe("# Q3 & more\n\n# Other");
     expect(await htmlToText("<html><body><svg><title>Logo</title></svg><p>x</p><title>Late</title></body></html>")).toBe("# Late\n\nx");
+  });
+});
+
+describe("follow-ups of the check of the HTML fixes", () => {
+  it("does not decode a huge attribute of references whole", async () => {
+    const references = "&amp;".repeat(2_000_000);
+    for (const page of [`<img alt="${references}">`, `<a href="${references}">x</a>`, `<ol start="${references}"><li>a</ol>`, `<table><tr><td colspan="${references}">c</td></tr></table>`]) {
+      const started = performance.now();
+      await htmlToText(page);
+      expect(performance.now() - started).toBeLessThan(3_000);
+    }
+    // A picture whose address is a data URL of megabytes keeps its alt text, read after it.
+    expect(await htmlToText(`<img src="data:image/png;base64,${"A".repeat(3_000_000)}" alt="Sales chart">`)).toBe("[Image: Sales chart]");
+  });
+
+  it("ends a hidden element at the end tag of an element around it", async () => {
+    const text = await htmlToText("<p>Contact <span style=\"display:none\">old number</p><h2>Prices</h2><p>Shown again.</p>");
+    expect(text).toBe(`Contact\n${MARK}old number\n## Prices\nShown again.`);
+    // A formatting element around it does not end it.
+    expect(await htmlToText("<p><b>x <span hidden>y</b> z</span></p>")).toBe(`x\n${MARK}y z`);
+  });
+
+  it("gives no list mark to the text after a list whose last item has none, nor after a rule", async () => {
+    expect(await htmlToText("<ul><li>one<li><img src=x.png></ul><p>After the list.</p>")).toBe("- one\nAfter the list.");
+    expect(await htmlToText("<ul><li><hr><p>After the rule.</p></ul>")).toBe("---\nAfter the rule.");
+  });
+
+  it("keeps a U+0085 of a hidden row from splitting the row from its mark", async () => {
+    const text = await htmlToText("<table><tr hidden><td>a\u0085b</td></tr></table>");
+    expect(text.includes("\u0085")).toBe(false);
+    expect(text.startsWith(MARK)).toBe(true);
+  });
+
+  it("takes only display and visibility values CSS takes, and the first style attribute", async () => {
+    expect(await htmlToText("<p style=\"display:none;display:foo\">x</p>")).toBe(`${MARK}x`);
+    expect(await htmlToText("<p style=\"display:none;display:block\">x</p>")).toBe("x");
+    expect(await htmlToText("<p style=\"display:none\" style=\"display:block\">x</p>")).toBe(`${MARK}x`);
   });
 });

@@ -215,7 +215,7 @@ language.
 **`exact`** finds every line that contains the text. A line counts once, however many times it
 contains the text. A text with a line break matches across lines and counts on each line where it
 starts, overlapping ones included: "a\na" counts 2 lines of "a\na\na" (1 until 0.8.0). The scan
-stops after 1,000,000 matching lines. The query is composed (NFC), as the text is at ingest, so
+stops after 1,000,000 matching lines, and with `whole_word` or `group_by` after 3 seconds. The query is composed (NFC), as the text is at ingest, so
 "é" typed as "e" and an accent finds "é". Without `case_sensitive`, both sides are folded: lower
 case, Greek final sigma as σ, curly quotes and primes as `'` and `"`, dashes and the minus sign as
 `-`, no-break and thin spaces as a space, Hebrew geresh, gershayim and maqaf as `'`, `"` and `-`,
@@ -253,7 +253,7 @@ Results of `exact` and `regex`:
 | `searched_lines` | string, optional | With `from_line` or `to_line`: the lines searched, as `"1941-3000"`. The counts are of those lines. Keyword results have it too. New in 0.8.0. |
 | `total_matching_lines` | number | Every matching line in the file (or in `searched_lines`), not only those shown. This is the number to count with. |
 | `order` | `"last"`, optional | With `order: "last"` ([below](#the-last-matches-order-last)). |
-| `note` | string, optional | When more lines match than are shown: "N of the M matching lines are shown: the first K and the last (line L). To see the ones in between, search again with from_line F, or count them with group_by." ("the first and the last" when K is 1). Until 0.8.0 it ended "narrow the search." When the scan stopped (1,000,000 lines, or a regex limit): "The scan stopped early; the total is a lower bound, and the last match in the file is not known." Or a size-limit note (below). Absent when every match is shown. |
+| `note` | string, optional | When more lines match than are shown: "N of the M matching lines are shown: the first K and the last (line L). To see the ones in between, search again with from_line F, or count them with group_by." ("the first and the last" when K is 1). Until 0.8.0 it ended "narrow the search." When the scan stopped (1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit): "The scan stopped early; the total is a lower bound, and the last match in the file is not known." Or a size-limit note (below). Absent when every match is shown. |
 | `next_from_line` | number, optional | When matches between the first ones and the last one are not shown: the line after the last of the first ones (F above). A search with `from_line` set to it shows the ones after. Absent when every match is shown, when the scan stopped early, with `order: "last"` and with `group_by`. New in 0.8.0. |
 | `matches` | array | The first `max_results` matching lines, in file order, then the last matching line of the file when it is not among them. A scan that stopped early shows no last line, since it did not reach the end. With `order: "last"`, the last `max_results` matching lines, in file order. |
 | `matches[].line` | number | The line number. |
@@ -330,7 +330,7 @@ To fit its room, it loses the earliest of them first, and keeps the very last. T
 file: the last match is on line L, and the first on line F. Narrow the query or read specific
 lines."
 
-When the scan stopped early (1,000,000 lines, or a regex limit), the lines shown are the last of
+When the scan stopped early (1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit), the lines shown are the last of
 those it found, and the line of the first match is not named. The note is then "The scan stopped
 early; the total is a lower bound. These are the last N matching lines it found, in the order of
 the file. There may be later ones, after line L: search again with from_line F." (F is L + 1;

@@ -11,9 +11,10 @@ const MAX_PHRASE_PASSAGES = 10_000;
 /** The most time one regex search may spend matching. */
 export const REGEX_TIME_LIMIT_MS = 3_000;
 /**
- * The most time one exact search may spend. Exact search takes time in proportion to the text, but
- * of a file of 100 MB, a whole-word search for "a" inside long words took 17 seconds, and a count
- * of a million lines by message shape 10: it stops, as a regex search does.
+ * The most time one exact search with `wholeWord` or `groupBy` may spend. Exact search takes time in
+ * proportion to the text, but of a file of 100 MB, a whole-word search for "a" inside long words
+ * took 17 seconds, and a count of a million lines by message shape 10: it stops, as a regex search
+ * does. A plain exact search has no such limit: it pauses, and its count stays whole.
  */
 const EXACT_TIME_LIMIT_MS = 3_000;
 /**
@@ -130,6 +131,8 @@ export class SearchableDocument implements DocumentSource {
   private pieceLines?: Array<readonly [number, number]>;
   /** Each piece lowercased with `foldCase`, once a search has needed it. */
   private readonly lowerPieces: Array<string | undefined> = [];
+  /** Each piece's text and line table, made once: a search of a document of short lines rebuilt every table. */
+  private readonly madePieces: Array<{ text: string; lines: LineIndex } | undefined> = [];
 
   constructor(document: StoredDocument) {
     this.meta = document.meta;
@@ -147,12 +150,12 @@ export class SearchableDocument implements DocumentSource {
 
   /**
    * Memory this document takes once it has been searched: the text, its lowercased copy (a piece
-   * at a time), and the line index. A text of ASCII only is held at one byte a character, any
-   * other at two.
+   * at a time), and the line index with each piece's copy of it. A text of ASCII only is held at
+   * one byte a character, any other at two.
    */
   get memoryBytes(): number {
     const ascii = this.meta.textBytes !== undefined && this.meta.textBytes === this.text.length;
-    return this.text.length * (ascii ? 1 : 2) * 2 + this.lines.lineCount * 4 + 1_024;
+    return this.text.length * (ascii ? 1 : 2) * 2 + this.lines.lineCount * 8 + 1_024;
   }
 
   /** First line of each passage: groups of lines up to about 1,500 characters. */
@@ -222,7 +225,7 @@ export class SearchableDocument implements DocumentSource {
     const ranges = this.pieceRanges();
     for (let index = 0; index < ranges.length; index++) {
       const [firstLine, lastLine] = ranges[index]!;
-      const { text, lines } = this.lines.piece(firstLine, lastLine);
+      const { text, lines } = (this.madePieces[index] ??= this.lines.piece(firstLine, lastLine));
       yield { firstLine, startCharacter: this.lines.startOf(firstLine), text, lines, lower: () => (this.lowerPieces[index] ??= foldCase(text)) };
     }
   }
@@ -630,7 +633,10 @@ class LineSearch {
         if (this.wordStart || this.wordEnd) this.wholeWords = new RegExp(`${this.wordStart ? `(?<!${WORD_BUT_LOW_LINE})` : ""}${pattern}${this.wordEnd ? `(?!${WORD_BUT_LOW_LINE})` : ""}`, "gu");
       }
     }
-    this.timeLeft = settings.timeLimitMs ?? (settings.regex ? REGEX_TIME_LIMIT_MS : EXACT_TIME_LIMIT_MS);
+    // A plain exact search runs to the end, in slices with pauses: its time follows the text, and its
+    // count must be whole. Only the work that grows with each occurrence (a whole-word check, a group
+    // key) has a limit, as a regex search does.
+    this.timeLeft = settings.timeLimitMs ?? (settings.regex ? REGEX_TIME_LIMIT_MS : settings.wholeWord || settings.groupBy ? EXACT_TIME_LIMIT_MS : Number.POSITIVE_INFINITY);
     this.lastOnes = settings.order === "last";
     if (settings.groupBy) {
       if (settings.groupBy === "capture" && !settings.regex) throw new Error("group_by \"capture\" counts by the first group of a regex: use mode \"regex\" with a group, as in PAY-(\\d+).");
@@ -1082,6 +1088,15 @@ export function searchTerms(query: string): QueryTerm[] {
       const bare = piece.replace(HEBREW_POINTS, "");
       if (bare.length < 2 || STOPWORDS.has(bare)) continue;
       add(bare, hebrewVariants(bare), true);
+      // Prefix letters before a quoted word (ה"ספק, ב"הסכם: a defined term of a contract): the word
+      // itself is a term too, as the text may write it without the quote or the prefix.
+      const quote = bare.search(/["']/);
+      if (quote > 0 && quote <= 3 && [...bare.slice(0, quote)].every((letter) => HEBREW_PREFIXES.includes(letter)) && bare.length - quote - 1 >= 2) {
+        const word = bare.slice(quote + 1);
+        if (!/["']/.test(word)) add(word, hebrewVariants(word), true);
+      }
+      // Prefix letters are stripped while at least 3 letters are left (בש"ח gives ש"ח). An acronym
+      // whose first letter is one (מע"מ) also gives a stem (ע"מ): its own term ranks its passages first.
       let stem = bare;
       for (let stripped = 0; stripped < 3 && stem.length > 3 && HEBREW_PREFIXES.includes(stem[0]!) && !"'\"".includes(stem[1]!); stripped++) stem = stem.slice(1);
       if (stem !== bare) add(stem, hebrewVariants(stem), true);

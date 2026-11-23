@@ -227,7 +227,8 @@ Search:
 - **Exact search counts every line where a text across lines starts** ("a\na" in "a\na\na" was
   counted once), and skips the rest of a line once it is counted: a short common text costs what
   its lines do, not its occurrences. It runs in slices with pauses, as a regex search does, and
-  stops after 3 seconds (the result then says the counts are lower bounds); a document held in
+  its count stays whole; with `whole_word` or `group_by`, whose work grows with each occurrence,
+  it stops after 3 seconds (the result then says the counts are lower bounds). A document held in
   memory is scanned in pieces too.
 - **`case_sensitive` and `whole_word` given as text or as 1** ("true", "1", 1) are read as true; in
   0.7.0, `case_sensitive: "true"` searched ignoring case. A search of this kind stored by 0.7.0 is
@@ -1465,7 +1466,7 @@ Ingest:
   million characters of a DOCX. The mark is a hint, not a filter: text hidden through a style,
   white or 1-point text, and a few rarer forms are read as ordinary text, and a document's own
   text can write the mark. See
-  [Hidden text in Word and PowerPoint](docs/security.md#hidden-text-in-word-and-powerpoint).
+  [Hidden text in Word and PowerPoint](docs/security.md#hidden-text-in-word-powerpoint-and-html).
 - **A hidden slide says so.** The heading of a slide that the slide show skips (`show="0"`) reads
   `## Slide 2 (hidden, not shown in the slide show)`. Its text is kept. Shapes hidden on a slide
   that shows are read as ordinary text. See [DOCX and PPTX](docs/guides/pdfs.md#docx-and-pptx).

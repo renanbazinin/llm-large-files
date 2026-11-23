@@ -153,12 +153,15 @@ function streamSafe(text: string, first: number, carried = 0): { text: string; r
       if (pair) at++;
       continue;
     }
-    if (run === MAX_MARKS) {
+    // These four become two marks each under NFC (UAX #15 counts the marks of the decomposition):
+    // counted as one, a run of 30 grew past 30 once composed, and composing it again changed it.
+    const weight = code === 0x0344 || code === 0x0f73 || code === 0x0f75 || code === 0x0f81 ? 2 : 1;
+    if (run + weight > MAX_MARKS) {
       (pieces ??= []).push(text.slice(copied, at), "\u034f");
       copied = at;
       run = 0;
     }
-    run++;
+    run += weight;
     if (pair) at++;
   }
   if (!pieces) return { text, run };
@@ -345,8 +348,26 @@ export function foldCase(text: string): string {
   }
   SEARCH_FOLD.lastIndex = 0;
   if (!SEARCH_FOLD.test(lower)) return lower;
-  return lower.replace(SEARCH_FOLD, (unit) => SEARCH_FOLDS[unit] ?? String.fromCharCode(unit.charCodeAt(0) - 0xfee0));
+  // One pass over the character codes, with a table: a replace with a callback for each character
+  // took seconds on a text full of curly quotes and dashes, which counted against a search's time.
+  const codes = new Uint16Array(lower.length);
+  for (let index = 0; index < lower.length; index++) {
+    const code = lower.charCodeAt(index);
+    codes[index] = FOLDED[code] || code;
+  }
+  // From the codes a block at a time: a decoder would make a lone half of a surrogate pair U+FFFD.
+  const parts: string[] = [];
+  for (let at = 0; at < codes.length; at += 8_192) parts.push(String.fromCharCode(...codes.subarray(at, at + 8_192)));
+  return parts.join("");
 }
+
+/** For each UTF-16 unit, the unit `foldCase` makes of it, or 0 when it keeps it. */
+const FOLDED = (() => {
+  const table = new Uint16Array(0x10000);
+  for (const [from, to] of Object.entries(SEARCH_FOLDS)) table[from.charCodeAt(0)] = to.charCodeAt(0);
+  for (let code = 0xff01; code <= 0xff5e; code++) table[code] = code - 0xfee0;
+  return table;
+})();
 
 /** The first and the second half of a character outside the basic plane, as JavaScript holds it. */
 const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;

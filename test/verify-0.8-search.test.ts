@@ -347,3 +347,37 @@ describe("ingest of text with many marks (45, 47, 48)", () => {
     }
   });
 });
+
+describe("follow-ups of the check of the search fixes", () => {
+  it("lets a plain exact search of a text full of curly quotes run to its end, with a whole count", async () => {
+    const { foldCase } = await import("../src/text.js");
+    const { grepSource, SearchableDocument } = await import("../src/search.js");
+    expect(foldCase("Don’t “go” – ＡＢ \ud800 x")).toBe("don't \"go\" - ab \ud800 x");
+    const line = "it’s “quoted” — and – dashed’s ".repeat(20);
+    const text = Array.from({ length: 60_000 }, (_, index) => `${line}${index % 1_000 === 999 ? " needle" : ""}`).join("\n");
+    const document = new SearchableDocument({ meta: { id: "doc_q", name: "q.txt", outline: [] } as never, text });
+    const result = await grepSource(document, "needle", { maxResults: 5, contextLines: 0 });
+    expect(result.stoppedEarly).toBe(false);
+    expect(result.totalMatchingLines).toBe(60);
+  }, 30_000);
+});
+
+describe("Hebrew prefixes before a quoted word, and short acronyms", () => {
+  it("adds the word after a quote that follows prefix letters", async () => {
+    const { queryTerms } = await import("../src/search.js");
+    expect(queryTerms("ה\"ספק")).toEqual(["ה\"ספק", "ספק"]);
+    expect(queryTerms("ב״הסכם")).toEqual(["ב\"הסכם", "הסכם"]);
+    expect(queryTerms("מע״מ")).toEqual(["מע\"מ", "ע\"מ"]);
+    expect(queryTerms("ש״ח")).toEqual(["ש\"ח"]);
+  });
+});
+
+describe("composing twice", () => {
+  it("changes nothing the second time, also for marks that NFC splits in two", async () => {
+    const { composed } = await import("../src/text.js");
+    for (const text of [`a${"̈́".repeat(40)}`, `ཀ${"ཱི".repeat(25)}${"́".repeat(10)}`, `e${"̖́".repeat(50)}`]) {
+      const once = composed(text);
+      expect(composed(once)).toBe(once);
+    }
+  });
+});

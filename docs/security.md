@@ -215,7 +215,7 @@ What limits the damage:
   tag characters, zero-width spaces, the controls that reorder what a person sees
   ([Characters that show nothing](#characters-that-show-nothing)).
 - **Text of hidden runs in Word, and slides the slide show skips, are marked** as such; text hidden
-  in other ways is not ([Hidden text in Word and PowerPoint](#hidden-text-in-word-and-powerpoint)).
+  in other ways is not ([Hidden text in Word, PowerPoint and HTML](#hidden-text-in-word-powerpoint-and-html)).
 - **A file name cannot add lines to the instruction.** At ingest it is reduced to one printable line
   without most characters that show nothing (see [Uploads](#uploads)), and the system instruction
   and the frame quote it as a JSON string. It is still text the model reads, like the file's
@@ -235,7 +235,7 @@ What a hostile file can still do:
 - **Hide text from a person, but not from the model**, in what the cleaning and the marks leave:
   characters that scripts and emoji need, Word text hidden by a style, a text file in an older
   encoding that an editor shows as � ([Characters that show nothing](#characters-that-show-nothing),
-  [Hidden text in Word and PowerPoint](#hidden-text-in-word-and-powerpoint),
+  [Hidden text in Word, PowerPoint and HTML](#hidden-text-in-word-powerpoint-and-html),
   [Text files that were not UTF-8](#text-files-that-were-not-utf-8)).
 - **Reach every model of the question**, an explorer model included.
 - **Stay in the conversation.** The `toolTurns` you store hold the text the tools returned,
@@ -326,10 +326,10 @@ into fewer pieces than 0.5.0 split it, which moves the lines after it. Documents
 earlier version keep their text until they expire. Steps and activity lines drop the same
 characters ([What the library logs](#what-the-library-logs)).
 
-### Hidden text in Word and PowerPoint
+### Hidden text in Word, PowerPoint and HTML
 
-A DOCX can hold text that Word does not show, and a PPTX slides that the slide show skips. Their
-text is kept, and marked:
+A DOCX can hold text that Word does not show, a PPTX slides that the slide show skips, and an HTML
+page text that a browser does not show. Their text is kept, and marked:
 
 - **Text of a hidden run** (`<w:vanish/>` in the run's own properties) comes after the text of its
   paragraph that shows, and each of its lines starts with
@@ -339,6 +339,12 @@ text is kept, and marked:
   as the reading of a ruby, is marked too, and so is the rest of the hidden run after it.
 - **A hidden slide** (`show="0"`) has the heading
   `## Slide 2 (hidden, not shown in the slide show)`. Its text is kept.
+- **Text an HTML page hides** (an element with the `hidden` attribute, or an inline style of
+  `display: none` or `visibility: hidden` or `collapse`) is marked the same way, line by line and
+  in pieces. Hidden text inside a line that shows comes after that line, not where it stood. A row
+  of a table that the page hides is written marked, in its place. The hiding ends where the element
+  does; an element the page never closes hides the rest of its parent. A `hidden` attribute or a
+  style is read in the first 4,096 characters of its value.
 
 The attributes of `w:vanish` and of a slide's `p:sld` are read however long the tag is, and by
 their exact names, as XML reads them: `W:VAL="0"` is another attribute, and the run stays hidden.
@@ -347,6 +353,8 @@ The mark is a hint, not a filter. Text without it may still be hidden, and a doc
 can write the mark. Not told apart, and read as text that shows:
 
 - text hidden through a character or paragraph style, and white or tiny text;
+- in HTML, text hidden by a style sheet, a class, a script, `opacity`, a position off the page or
+  a `<template>` (dropped, like scripts), and an `aria-hidden` element, which a browser shows;
 - hidden shapes on a slide that shows;
 - the content of `mc:Choice`, which the library reads where Word may show `mc:Fallback` instead
   (the Fallback is not read);
