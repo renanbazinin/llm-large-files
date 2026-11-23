@@ -61,8 +61,8 @@ describe("cutting pages out of a PDF lets other work run", () => {
     expect(searches).toBeLessThan(10);
   });
 
-  // Over 20 s under coverage on a busy machine.
-  it("writes the same cut, to the byte, as when the copier copied everything at once", { timeout: 60_000 }, async () => {
+  // About 10 s beside the other files on a busy machine, and 32 s under coverage there.
+  it("writes the same cut, to the byte, as when the copier copied everything at once", { timeout: 120_000 }, async () => {
     // Some producers reuse a page object: here the page tree lists A, B, A.
     const twice = pdfFromObjects([
       "<< /Type /Catalog /Pages 2 0 R >>",

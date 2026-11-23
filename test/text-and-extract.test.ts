@@ -202,7 +202,7 @@ describe("extraction", () => {
   });
 
   // Builds and compresses about 20 MB of XML: under 2 s in a usual run, over 5 s on a busy machine,
-  // and over 20 s under coverage on a busy machine.
+  // and 28 s under coverage on a busy machine.
   it("refuses a DOCX that unpacks to far more than its size, before it is all unpacked", { timeout: 60_000 }, async () => {
     const docx = new JSZip();
     const paragraph = "<w:p><w:r><w:t>The same words, over and over again.</w:t></w:r></w:p>";
