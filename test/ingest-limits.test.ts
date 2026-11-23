@@ -42,8 +42,9 @@ describe("ingest work in slices gives the results of 0.5.0", () => {
     }
   });
 
-  // About 3 s with one test file at a time, 8 s beside the other files on a busy machine.
-  it("builds the same log profile, outline and line index", { timeout: 20_000 }, async () => {
+  // About 3 s with one test file at a time, 8 s beside the other files on a busy machine, and
+  // 18 s under coverage on a busy machine.
+  it("builds the same log profile, outline and line index", { timeout: 60_000 }, async () => {
     const log = serviceLog(30_000).split("\n");
     expect(await buildLogProfileInSlices(log, new TimeSlicer())).toEqual(buildLogProfile(log));
     const book = Array.from({ length: 30_000 }, (_, n) => (n % 7 === 0 ? `## Chapter ${n}` : n % 7 === 1 ? "" : `Line ${n} of the book.`));
@@ -457,8 +458,9 @@ describe("a PDF page that would hold the server is refused before pdf.js reads i
     await expect(files.ingest({ name: "jpeg.pdf", bytes: jpeg })).rejects.toThrow("Page 1 of this PDF stores its content in a way that cannot be checked before it is read, so it is not read.");
   });
 
-  // About 4.5 s with one test file at a time, 7 s beside the other files on a busy machine.
-  it("reads such a page with checkPages: false", { timeout: 20_000 }, async () => {
+  // About 4.5 s with one test file at a time. Beside the other files, 14 s at a load of 14, and
+  // 17.5 s under coverage.
+  it("reads such a page with checkPages: false", { timeout: 60_000 }, async () => {
     // 14,400 paints of a form with text: past the limit, and about 1.1 s of pdf.js.
     const bomb = formsInForms(2, 120);
     await expect(files.ingest({ name: "forms.pdf", bytes: bomb })).rejects.toThrow(heavy);

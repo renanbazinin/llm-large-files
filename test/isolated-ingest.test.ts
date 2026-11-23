@@ -64,6 +64,7 @@ describe("createIsolatedExtractors", () => {
     expect(isolated.stats().children).toBe(0);
   }, 60_000);
 
+  // Builds a workbook of 120,000 rows: 43.5 s under coverage on a busy machine.
   it("refuses a file that needs more memory than a child has, and the server goes on", async () => {
     const isolated = node.createIsolatedExtractors({ concurrency: 1, maxHeapMb: 24 });
     try {
@@ -78,7 +79,7 @@ describe("createIsolatedExtractors", () => {
     } finally {
       await isolated.close();
     }
-  }, 60_000);
+  }, 120_000);
 
   it("kills a child that takes too long", async () => {
     const isolated = node.createIsolatedExtractors({ concurrency: 1, timeoutMs: 30 });

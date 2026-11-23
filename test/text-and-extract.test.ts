@@ -201,8 +201,9 @@ describe("extraction", () => {
     expect(lines[4_999]).toBe("Paragraph 5000 & more.");
   });
 
-  // Builds and compresses about 20 MB of XML: under 2 s in a usual run, over 5 s on a busy machine.
-  it("refuses a DOCX that unpacks to far more than its size, before it is all unpacked", { timeout: 20_000 }, async () => {
+  // Builds and compresses about 20 MB of XML: under 2 s in a usual run, over 5 s on a busy machine,
+  // and over 20 s under coverage on a busy machine.
+  it("refuses a DOCX that unpacks to far more than its size, before it is all unpacked", { timeout: 60_000 }, async () => {
     const docx = new JSZip();
     const paragraph = "<w:p><w:r><w:t>The same words, over and over again.</w:t></w:r></w:p>";
     docx.file("word/document.xml", `<w:document><w:body>${paragraph.repeat(300_000)}</w:body></w:document>`);

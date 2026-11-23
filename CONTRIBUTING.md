@@ -24,9 +24,11 @@ npm run test:watch   # the tests again on every save
 
 `npm run coverage` runs the `unit` project with V8 coverage of `src/`, without the tests of
 `test/timing/`, and prints the share of lines, statements, functions and branches the tests run
-(`coverage/coverage-summary.json` holds them). Counting makes the tests several times slower, so it gives each test 20 s; a test that
-sets a timeout of its own keeps it, and can run past it under coverage (the `coverage` job in CI
-reports such a failure without failing). It sets no threshold yet. `@vitest/coverage-v8` asks for the exact version of `vitest`: raise both together.
+(`coverage/coverage-summary.json` holds them). Counting makes the tests several times slower, so
+it gives each test 60 s. A test that sets a timeout of its own keeps it under coverage, and fails
+past it (the `coverage` job in CI reports such a failure without failing): raise each such
+timeout to fit the test's time there ([Tests](#tests)). It sets no threshold yet.
+`@vitest/coverage-v8` asks for the exact version of `vitest`: raise both together.
 `node scripts/check-tarball.mjs` builds and packs the package, and checks the tarball as npm
 installs it ([publishing](docs/publishing.md#what-the-release-workflow-does)); it needs the network.
 
@@ -100,9 +102,11 @@ Add a test for every change in behavior. No test calls a real model:
   first test's 5 s. Leave it out of a file that mocks them as not installed
   (`test/view-pages-library.test.ts`).
 - **A slow test** gets a `timeout` of its own, with a comment that says how long it takes in a
-  usual run and on a busy machine. When a test could reach the library's own time limits on a busy
-  machine (the regex limits read `performance.now()`), stop that clock with
-  `vi.useFakeTimers({ toFake: ["performance"] })`, as `test/volume.test.ts` does.
+  usual run and on a busy machine. That timeout holds under `npm run coverage` too, where the test
+  is several times slower: when it takes more than half of it there, raise it, and say that time
+  too. When a test could reach the library's own time limits on a busy machine (the regex limits
+  read `performance.now()`), stop that clock with `vi.useFakeTimers({ toFake: ["performance"] })`,
+  as `test/volume.test.ts` does.
 - **A test that holds work to the clock** goes in a file of `test/timing/`, the `timing` project:
   `test/timing/<topic>.timing.test.ts`, a file of its subject or a new one. The other tests of
   its subject stay in their own file, and helpers both use go in a module of `test/` that both

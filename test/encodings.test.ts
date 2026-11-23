@@ -411,8 +411,9 @@ describe("text files that are not UTF-8", () => {
     expect(await defaultExtractors.csv(sjis, input("clients.csv", "csv"))).toEqual({ text: japanese.join(""), encoding: "shift_jis" });
   });
 
-  // About 4 s with one test file at a time, 7 s beside the other files on a busy machine.
-  it("decodes the rows of a file with lines in two encodings a few at a time, and pauses", { timeout: 20_000 }, () => {
+  // About 4 s with one test file at a time, 7 s beside the other files on a busy machine, and
+  // 26.5 s under coverage on a busy machine.
+  it("decodes the rows of a file with lines in two encodings a few at a time, and pauses", { timeout: 60_000 }, () => {
     const steps = (bytes: Uint8Array) => {
       const decoding = decodeNotUtf8(bytes);
       let count = 0;

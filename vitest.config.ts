@@ -32,7 +32,8 @@ export default defineConfig({
     environment: "node",
     // `npm run coverage`: the unit project, over the source (coverage/coverage-summary.json). No
     // thresholds yet: they are set from the suite of the release. The numbers are reported even when
-    // a test fails: counting makes the tests several times slower, and its script gives each 20 s.
+    // a test fails: counting makes the tests several times slower, and its script gives each 60 s. A
+    // test's own timeout is kept: one that is slow under coverage needs one that fits.
     coverage: {
       provider: "v8",
       include: ["src/**"],

@@ -96,7 +96,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage --project unit --testTimeout=20000",
+    "coverage": "vitest run --coverage --project unit --testTimeout=60000",
     "check": "npm run typecheck && npm test && npm run build",
     "prepublishOnly": "npm run check"
   },

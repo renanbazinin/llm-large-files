@@ -19,8 +19,9 @@ describe("search", () => {
     expect(last.matches.map((match) => match.line)).toEqual([399_994, 399_997, 400_000]);
   });
 
-  // About 2.5 s with one test file at a time, 3.5 s beside the other files on a busy machine.
-  it("says that the last matches of a search that stopped early are the last it found", { timeout: 20_000 }, async () => {
+  // About 2.5 s with one test file at a time, 3.5 s beside the other files on a busy machine, and
+  // over 20 s under coverage on a busy machine.
+  it("says that the last matches of a search that stopped early are the last it found", { timeout: 60_000 }, async () => {
     const text = Array.from({ length: 300_000 }, (_, index) => `line ${index} ${"ab".repeat(30)}`).join("\n");
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "slow.txt", bytes: utf8(text) });
