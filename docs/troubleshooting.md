@@ -411,9 +411,12 @@ below 2 minutes ("45 s"), in minutes from there ("2 min").
 **Cause.** One `ingest` (extracting the text, its line index and its profile) took longer than
 `ingestTimeoutMs`, 120,000 ms by default. Most often: a PDF with many pages that are slow to read;
 an extractor of your own that waits on a slow service, such as OCR of a long scan; or a server
-busy with other ingests, which each take their share of the same process. Nothing is stored.
+busy with other ingests, which each take their share of the same process. A file read from a path
+(`source: { path }`, an upload of `prepareUpload` or of the spool) gets the same message when its
+volume stops answering while the file is read. Nothing is stored.
 
-**Fix.** For a file that is slow to read, the user splits it, or saves it as plain text. For OCR or
+**Fix.** For a file read from a path, check its volume first: the file may be fine. For a file
+that is slow to read, the user splits it, or saves it as plain text. For OCR or
 another slow extractor of your own, raise `ingestTimeoutMs` (0 sets no limit), run the ingest in a
 background job ([Web app](./guides/web-app.md#long-ingests-in-the-background)), and pass
 `input.signal` on to the service it calls, so that the request stops at the limit too. Bound the

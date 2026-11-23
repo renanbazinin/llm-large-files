@@ -258,8 +258,12 @@ const documents = createDocumentHandlers(files, {
   the system held back: on a slow one, raise `uploadIdleTimeoutMs`. The same holds for the `path`
   of `prepareUpload`, and for the check of its folders with a ref. The removal of the file, once
   the ingest ends, is waited for no longer either: the upload is answered, its room is given back,
-  and the removal goes on alone. Reading the file at its turn is bounded by `ingestTimeoutMs`
-  (2 minutes): until then, the upload holds its room.
+  and the removal goes on alone. The ingest's look at the file before its turn, and its read at its
+  turn, are waited for no longer than `ingestTimeoutMs` (2 minutes by default). Past it, the look
+  is answered `500` `{ "error": "Upload failed (ETIMEDOUT)." }`. The read fails as a file that took
+  too long to read: `422`, code `"timeout"`. Until then, the upload holds its room. With
+  `ingestTimeoutMs: 0`, the look still stops at 2 minutes, but the read waits until the client
+  leaves.
 - **Saving the upload where you keep it.** When your app keeps each upload anyway, `prepareUpload`
   gives its path, and the body is written there instead, once, and kept by reference
   ([Web app](./web-app.md#save-each-upload-where-you-keep-it-prepareupload)). Such a body takes no
