@@ -964,13 +964,21 @@ What the library does with what you return:
 - A `text` file whose lines look like a log becomes `log`.
 
 An error you throw is the answer to the upload. `ingest` throws it as an `IngestError` with the
-same message (and your error as `cause`), and `createDocumentHandlers` answers 422 with its
-message, unless the error has a `status` (or `statusCode`) from 400 to 599: then it answers that
-status, with your message. A status of 413 is answered with the upload-limit message instead of
-yours. An error with a Node system `code` and `syscall` (from `fs` or a socket) is answered 500,
-`Upload failed (ENOENT).`, without its message. A value that is not an `Error`, such as a thrown
-string, is answered 500 too: `Upload failed.` Write messages a user can read, and give a status
-when the fault is on your side, such as an OCR service that is down.
+same message (and your error as `cause`), with the code its message gives
+([`ingestErrorCodeOf`](../reference/library.md#ingesterrorcodeofmessage)). `createDocumentHandlers`
+answers 422 with your message only when the message gives a code the library knows ("is protected
+by a password", say). Any other message gives code `"unreadable"`, and since 0.9.0 the answer is
+then 422 in fixed words: `This file could not be read. It may be damaged, or not of the type its
+name says.` Your message stays on the error, for your log ([what is refused](#what-is-refused)). To
+have your own words shown, throw `new IngestError(code, message)` with the code that fits
+([`Extractor`](../reference/library.md#extractor)).
+
+An error with a `status` (or `statusCode`) from 400 to 599 is answered with that status and your
+message. A status of 413 is answered with the upload-limit message instead of yours. An error with
+a Node system `code` and `syscall` (from `fs` or a socket) is answered 500, `Upload failed
+(ENOENT).`, without its message. A value that is not an `Error`, such as a thrown string, is
+answered 500 too: `Upload failed.` Write messages a user can read, and give a status when the fault
+is on your side, such as an OCR service that is down.
 
 ### Rules for a PDF extractor
 

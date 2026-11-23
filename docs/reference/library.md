@@ -329,16 +329,29 @@ Until 0.8.0 the refusals were plain `Error`s, with the same messages. The `TypeE
 a mistake of the server's code, not of the file: the upload handler of
 [`llm-large-files/node`](./node.md) checks the owner itself, and answers `500` before it reads the
 body. The store's `DocumentStoreError`, a listener of the events that threw, and the reason of an
-aborted signal are thrown as they are, never as an `IngestError`. The upload handler of
-[`llm-large-files/node`](./node.md) answers an error that carries an HTTP `status` or `statusCode`
-(400 to 599) with that status and its message, and a Node system error (`code` and `syscall`) with
-500 and the code. A `DocumentStoreError` has the status 503, and a message that names no path or
-host: since 0.9.0 a store that failed to write is answered 503 `{ "error": "The document could not
-be stored (EIO). Try again." }`, where it was a 500. An `IngestError` carries a `status` too, and is
-answered with it: 422, 413 for `"too_large"`, 409 for `"exists"`, 503 with `Retry-After` for
-`"busy"`. A thrown value that is not an `Error` is answered 500 `{ "error": "Upload failed." }`, and
-any other `Error` 422 with its message, as a file that cannot be read (see [the upload
-handler](./node.md#uploadrequest-response)). Behind an `ingest` of your own, throw a
+aborted signal are thrown as they are, never as an `IngestError`.
+
+The upload handler of [`llm-large-files/node`](./node.md) answers these errors by one rule ([how
+errors are answered](./node.md#how-errors-are-answered)):
+
+- Only an `IngestError` is answered 422. It carries its `status`: 422, 413 for `"too_large"`, 409
+  for `"exists"`, 503 with `Retry-After` for `"busy"`. Its message is the answer, except for code
+  `"unreadable"`, which gets fixed words: "This file could not be read. It may be damaged, or not
+  of the type its name says.".
+- A `DocumentStoreError` is answered 503, with a message that names no path or host: since 0.9.0 a
+  store that failed to write is answered 503 `{ "error": "The document could not be stored (EIO).
+  Try again." }`, where it was a 500.
+- An error that carries an HTTP `status` or `statusCode` (400 to 599) is answered with that status
+  and its message.
+- A Node system error (`code` and `syscall`) is answered 500 `{ "error": "Upload failed (ENOENT)." }`,
+  with its code and not its message. Since 0.9.0, a code that does not read as one (capitals,
+  digits and `_`), such as a host a driver put there, is left out: "Upload failed.".
+- Any other `Error`, and a value that is not an `Error`, is answered 500 `{ "error": "Upload
+  failed." }`, without its message. In this `ingest`, those are a `TypeError` of the call, the
+  reason of an aborted signal and the error of a listener. Before 0.9.0, any other `Error` was
+  answered 422 with its message, as a file that cannot be read (S12).
+
+Behind an `ingest` of your own, throw an `IngestError` for a file you refuse, and a
 `DocumentStoreError` for a store that failed. See
 [errors and reliability](../guides/errors-and-reliability.md).
 

@@ -633,6 +633,23 @@ describe("errors as the upload answers them (S12)", () => {
     expect(errorInfoOf(new IngestError("unreadable", "x")).message).toBe(unreadable);
   });
 
+  // pdfs.md said an extractor's Error is answered 422 with its message: only one whose message
+  // gives a known code is. An IngestError of the extractor's own chooses the code, and its words.
+  it("answers an extractor's Error with its message only when the message gives a known code", async () => {
+    let thrown: unknown = new Error("scan.pdf is protected by a password.");
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { pdf: async () => { throw thrown; } } });
+    const base = await serve(files);
+    const answer = async () => {
+      const response = await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf" }, body: "%PDF-1.4 hello" });
+      return { status: response.status, body: await response.json() };
+    };
+    expect(await answer()).toEqual({ status: 422, body: { error: "scan.pdf is protected by a password." } });
+    thrown = new Error("The OCR service could not read scan.pdf.");
+    expect(await answer()).toEqual({ status: 422, body: { error: "This file could not be read. It may be damaged, or not of the type its name says." } });
+    thrown = new IngestError("no_text", "The OCR service found no text in scan.pdf.");
+    expect(await answer()).toEqual({ status: 422, body: { error: "The OCR service found no text in scan.pdf." } });
+  });
+
   it("uploadAnswerOf: each IngestErrorCode gets its status and code", () => {
     const statuses = {
       empty: 422,

@@ -854,6 +854,7 @@ not only through a wildcard such as `*/*` or `text/*`.
    - `ingest.error`, whose `error` is `{ message, status }`, the message and status a JSON answer
      would have: `422` with the reason for a file that cannot be read ("empty.txt is empty."),
      `503` "The document could not be stored. Try again." for a store that failed (since 0.9.0),
+     `500` "Upload failed (ENOSPC)." for a Node system error, with its code when it reads as one,
      `500` "Upload failed." for any other error, what `onUploaded` threw, and so on, as in the
      [node reference](./node.md#uploadrequest-response). For a file that could not be read, it also
      has `code`, the `IngestError` code (`"empty"`, `"busy"`…; new in 0.8.0). Since 0.9.0, a store
