@@ -81,7 +81,9 @@ export type DocumentHandlerOptions = {
   /**
    * Called once an upload is stored, before it is answered: to record the document in your
    * database, say. The `201` is sent, or `ingest.finish` on the event-stream path, once it
-   * resolves. It is called even when the client went away meanwhile (`clientGone`). Return
+   * resolves, with no time limit: bound your own calls. The upload's room
+   * (`maxPendingUploadBytes`) is given back, and its body freed, before it is called. It is
+   * called even when the client went away meanwhile (`clientGone`). Return
    * `{ answer }` to add its fields to the answer: to the `201` JSON (the summary's own fields win),
    * or as `app` in `ingest.finish`. `answer` must be a plain object that JSON can hold.
    *
@@ -272,6 +274,9 @@ function wantsEvents(request: IncomingMessage): boolean {
   });
 }
 
+/** Starts the ingest of an upload, with the fields of an event stream (`upload`). */
+type StartIngest = (more?: Pick<IngestInput, "runId" | "onEvent" | "signal">) => Promise<DocumentMeta>;
+
 /**
  * What `onUploaded` came to for one upload: the fields to add to its answer, or the error to answer
  * with instead (the document then deleted).
@@ -308,20 +313,24 @@ function identityOf(error: unknown): Pick<EventError, "name" | "code"> {
  * Ingests the upload and answers with its events as Server-Sent Events. The last one is always
  * `ingest.finish` or `ingest.error`, even with a `LargeFiles` of your own whose `ingest` sends no
  * events. `uploaded` runs `onUploaded` once, before `ingest.finish` is sent; or after the stream, for
- * a document stored once the client went away.
+ * a document stored once the client went away. `start` starts the ingest (see `upload`); `release`
+ * is called once the ingest ended, before `onUploaded`.
  */
 async function streamIngest(
-  files: LargeFiles,
-  input: IngestInput,
+  start: StartIngest,
+  signal: AbortSignal,
   response: ServerResponse,
   tooLarge: string,
   uploaded: (meta: DocumentMeta) => Promise<Hooked>,
+  release: () => void,
 ): Promise<void> {
   const runId = newRunId("ing");
   const stream = eventStream<IngestEvent, DocumentMeta>(
-    (onEvent, signal) => files.ingest({ ...input, runId, onEvent, signal }),
-    { signal: input.signal },
+    (onEvent, stop) => start({ runId, onEvent, signal: stop }),
+    { signal },
   );
+  // The ingest ended: its room is given back, while `onUploaded` may still run.
+  stream.result.then(release, release);
   // The error as a JSON answer would give it: the event's own may hold a store's message.
   const answer = async (fallback: EventError): Promise<EventError> => {
     try {
@@ -641,12 +650,20 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         let held = counted ? Math.min(expectedSize(request, files.maxUploadBytes), maxPending) : 0;
         if (pending > 0 && pending + held > maxPending) throw new IngestError("busy", BUSY, { retryAfterMs: BUSY_RETRY_MS });
         pending += held;
+        /**
+         * Gives the upload's room back, once: when its ingest ended, so that an `onUploaded` that
+         * waits on a database of your own does not hold it, or when the upload failed.
+         */
+        const release = () => {
+          pending -= held;
+          held = 0;
+        };
         try {
-          const bytes = await readBody(request, files.maxUploadBytes, idleMs);
+          let body: Uint8Array | undefined = await readBody(request, files.maxUploadBytes, idleMs);
           // Counted at its size once read (an upload without a Content-Length was counted at the limit).
           if (counted) {
-            pending += bytes.byteLength - held;
-            held = bytes.byteLength;
+            pending += body.byteLength - held;
+            held = body.byteLength;
           }
           // Content-Type is a header of HTTP, not one the page encodes: it is taken as it came (S11).
           // `ingest` cleans what it keeps of either.
@@ -659,21 +676,26 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
             if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
           };
           response.once("close", onClose);
-          const input: IngestInput = {
-            name,
-            bytes,
-            ...(mimeType ? { mimeType } : {}),
-            ...caller,
-            signal: gone.signal,
+          /**
+           * Starts the upload's ingest, once. The body is then the ingest's alone: it is freed when
+           * the ingest ends, while `onUploaded` may still run. The input is built in this function,
+           * whose frame ends at once: a value in the frame of `upload`, an async function, is kept
+           * until it returns, the hook's wait included.
+           */
+          const start: StartIngest = (more) => {
+            const bytes = body!;
+            body = undefined;
+            return files.ingest({ name, bytes, ...(mimeType ? { mimeType } : {}), ...caller, signal: gone.signal, ...more });
           };
           const hook = (meta: DocumentMeta) => uploaded(meta, request, caller, gone.signal.aborted);
           try {
             if (wantsEvents(request)) {
               // `onUploaded` runs once, for the event before ingest.finish or after the stream.
               let hooking: Promise<Hooked> | undefined;
-              return await streamIngest(files, input, response, tooLarge, (meta) => (hooking ??= hook(meta)));
+              return await streamIngest(start, gone.signal, response, tooLarge, (meta) => (hooking ??= hook(meta)), release);
             }
-            const meta = await files.ingest(input);
+            const meta = await start();
+            release();
             const hooked = await hook(meta);
             if ("failure" in hooked) throw hooked.failure;
             // The summary's own fields win over the hook's.
@@ -682,7 +704,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
             response.off("close", onClose);
           }
         } finally {
-          pending -= held;
+          release();
         }
       } catch (error) {
         // A body that stopped arriving is not drained: the answer ends, and so does the connection.

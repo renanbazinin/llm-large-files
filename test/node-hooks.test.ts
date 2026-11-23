@@ -5,6 +5,8 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   askWithFiles,
@@ -272,6 +274,62 @@ describe("onUploaded", () => {
     expect((await upload(base, {}, "   \n", true)).status).toBe(200);
     expect(onUploaded).not.toHaveBeenCalled();
   });
+
+  // A hook that waits on a slow database held the upload's room until it ended: every other
+  // upload was refused 503 meanwhile. The room is the body's, and the body is no longer needed.
+  for (const events of [false, true]) {
+    it(`gives back the upload's room once it is stored, while the hook still runs (${events ? "event stream" : "JSON"})`, async () => {
+      const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 1_000 });
+      let entered!: () => void;
+      const inHook = new Promise<void>((resolve) => (entered = resolve));
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => (release = resolve));
+      let calls = 0;
+      const base = await serve(files, {
+        maxPendingUploadBytes: 1_000,
+        onUploaded: async () => {
+          // The first upload's hook waits; the others' do not.
+          if (++calls > 1) return;
+          entered();
+          await released;
+        },
+      });
+      const first = upload(base, {}, "x".repeat(800), events);
+      await inHook;
+      const second = await upload(base, {}, "y".repeat(500));
+      expect(second.status).toBe(201);
+      release();
+      expect((await first).status).toBe(events ? 200 : 201);
+    });
+
+    // The frame of the upload kept the body until the answer, while the hook ran.
+    it(`frees the upload's body once it is stored, while the hook still runs (${events ? "event stream" : "JSON"})`, async () => {
+      setFlagsFromString("--expose-gc");
+      const gc = runInNewContext("gc") as () => void;
+      const files = createLargeFiles({ store: new MemoryDocumentStore() });
+      let body: WeakRef<Uint8Array> | undefined;
+      let held: boolean | undefined;
+      const own: LargeFiles = {
+        ...files,
+        ingest: (input) => {
+          body = new WeakRef(input.bytes);
+          return files.ingest(input);
+        },
+      };
+      const base = await serve(own, {
+        onUploaded: async () => {
+          // A WeakRef keeps what it holds until the turn it was made in ends.
+          await pause(20);
+          gc();
+          await new Promise((resolve) => setImmediate(resolve));
+          gc();
+          held = body!.deref() !== undefined;
+        },
+      });
+      await (await upload(base, {}, "word ".repeat(200_000), events)).text();
+      expect(held).toBe(false);
+    });
+  }
 });
 
 describe("onRemoved", () => {

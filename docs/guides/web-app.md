@@ -247,6 +247,9 @@ const documents = createDocumentHandlers(files, {
   nothing to add nothing.
 - **When it throws**, the document is deleted, and the upload is answered with the error's status
   (400 to 599) and message, or `500` `{ "error": "Upload failed." }`.
+- **No time limit.** The answer waits for the hook as long as it runs: give your database calls a
+  timeout of their own. The upload's room (`maxPendingUploadBytes`) is given back, and its body
+  freed, before the hook is called, so a slow hook does not hold up other uploads.
 - **`clientGone`** is `true` when the browser went away before the hook ran: the file was stored
   all the same. Record it, or delete it, as your app needs.
 - **`onRemoved`** runs only for `{ "deleted": true }`. When it throws, `remove` answers its error;
