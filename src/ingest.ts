@@ -1,7 +1,6 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
-import { isAbsolute, resolve as resolvePath } from "node:path";
 import { checkMetaVersion, checkOwner, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
@@ -13,7 +12,7 @@ import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
 import { checkScope } from "./scope.js";
-import { isSha256, readRanges, readSource, sha256InSlices, statSource, type SourceRead } from "./source.js";
+import { absolutePath, isSha256, readRanges, readSource, sha256InSlices, statSource, type SourceRead } from "./source.js";
 import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
 import { measureText, prepareText, removeInvisible, sliceWhole } from "./text.js";
@@ -231,9 +230,10 @@ const MAX_REF_LENGTH = 1_024;
  * of bytes. A source of null is none, as a database gives a field that was left out.
  *
  * A relative path is made absolute here, once, against the working directory of the call
- * (`path.resolve`): every read of the file, at the call, at the turn, and in a child process of
- * an isolated reader (whose working directory is its own), reads the file named then. An
- * absolute path is kept as it is.
+ * (`absolutePath`): every read of the file, at the call, at the turn, and in a child process of an
+ * isolated reader (whose working directory is its own), reads the file named then. Neither is
+ * normalized: a ".." after a link, and a "/" at the end, are the system's to resolve, for a
+ * relative path as for an absolute one.
  */
 function sourcePathOf(input: IngestInput | IngestFromSource): string | undefined {
   const source: unknown = (input as { source?: unknown }).source;
@@ -241,7 +241,7 @@ function sourcePathOf(input: IngestInput | IngestFromSource): string | undefined
   if ((input as { bytes?: unknown }).bytes !== undefined) throw new TypeError("Give the file as bytes or as source, not both.");
   const path: unknown = typeof source === "object" ? (source as { path?: unknown }).path : undefined;
   if (typeof path !== "string" || path.length === 0 || path.includes("\0")) throw new TypeError("source.path must be the path of a file: a string that is not empty.");
-  return isAbsolute(path) ? path : resolvePath(path);
+  return absolutePath(path);
 }
 
 /**

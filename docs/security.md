@@ -904,7 +904,11 @@ server that memory is the server's heap. Choose the isolation with care:
   `maxUploadBytes + 1` bytes, so a file that grew after it was looked at is refused. A relative
   path is made absolute once, when `ingest` is called: a change of the working folder before the
   ingest's turn, or the working folder of an isolated reader's child process, does not change which
-  file is read. The library never writes, moves or deletes it.
+  file is read. It is not normalized as text: a `..` after a link, and a `/` at the end, are the
+  system's to resolve, as they are in an absolute path. So `fs.promises.realpath` of the path,
+  relative or absolute, names the file the library reads. `path.resolve` and `fs.realpathSync`
+  remove them as text first, and can name another file: do not check a path with them. The
+  library never writes, moves or deletes it.
 - **Text is cleaned.** Terminal escape sequences are removed, and so are control characters other
   than tab and line breaks, C1 (U+0080-U+009F) included, and the other characters listed in
   [Characters that show nothing](#characters-that-show-nothing). An `ESC ]` without its end on the

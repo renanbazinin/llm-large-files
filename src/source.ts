@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { lstat, open } from "node:fs/promises";
+import nodePath, { type PlatformPath } from "node:path";
 import type { TimeSlicer } from "./pause.js";
 
 /**
@@ -13,6 +14,20 @@ import type { TimeSlicer } from "./pause.js";
  * (`O_NONBLOCK`, which changes nothing for a file). What is opened is then checked to be a file.
  */
 export const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+
+/**
+ * `path` made absolute, as text: an absolute path as it is, a relative one after the working
+ * directory and a separator. Nothing in it is normalized, so a ".." after a link, and a "/" at the
+ * end, are the system's to resolve, as they are in an absolute path: both spellings of a path read
+ * the same file. (`path.resolve` would remove them as text first.) On Windows, a path relative to
+ * the working directory of a drive ("C:notes.txt") is made absolute by `path.resolve`, which alone
+ * knows that directory. `paths` and `cwd` are given by tests.
+ */
+export function absolutePath(path: string, paths: PlatformPath = nodePath, cwd: string = process.cwd()): string {
+  if (paths.isAbsolute(path)) return path;
+  if (paths.sep === "\\" && /^[A-Za-z]:/.test(path)) return paths.resolve(path);
+  return cwd.endsWith(paths.sep) ? cwd + path : cwd + paths.sep + path;
+}
 
 /** How much is read, and hashed, between two looks at the clock: 1 MB. */
 export const SLICE_BYTES = 1024 * 1024;

@@ -10,6 +10,7 @@ import { runInNewContext } from "node:vm";
 import JSZip from "jszip";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLargeFiles, IngestError, MemoryDocumentStore, type Extractor, type IngestEvent } from "../src/index.js";
+import { absolutePath } from "../src/source.js";
 import { serviceLog, utf8 } from "./fake-model.js";
 
 /**
@@ -104,6 +105,16 @@ function heldLibrary(options: { maxUploadBytes?: number } = {}) {
     },
     release,
   };
+}
+
+/** What an ingest of the file at `at` gave: the size and SHA-256 of what was read, or the code of the error. */
+async function outcome(files: ReturnType<typeof createLargeFiles>, at: string): Promise<{ bytes: number; sha256: string | undefined } | { code: unknown }> {
+  try {
+    const meta = await files.ingest({ name: "r.txt", source: { path: at } });
+    return { bytes: meta.bytes, sha256: meta.sha256 };
+  } catch (error) {
+    return { code: (error as { code?: unknown }).code };
+  }
 }
 
 /** Waits until the work of other ingests in this process has had a few turns of the event loop. */
@@ -376,6 +387,43 @@ describe("ingest from a path", () => {
     expect(paths).toEqual([path.join(directory, "r.txt")]);
   });
 
+  it("reads a '..' after a link as the system does, whether the path is relative or absolute", async () => {
+    if (process.platform === "win32") return;
+    const before = process.cwd();
+    await writeFile(path.join(directory, "r.txt"), "The near file.\n");
+    await mkdir(path.join(directory, "other", "deep"), { recursive: true });
+    await writeFile(path.join(directory, "other", "r.txt"), "The file beyond the link.\n");
+    // "link/.." is the folder above the link's target ("other"), not the folder that holds the link.
+    await symlink(path.join(directory, "other", "deep"), path.join(directory, "link"));
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    try {
+      process.chdir(directory);
+      const absolute = `${process.cwd()}${path.sep}link/../r.txt`;
+      const relative = await outcome(files, "link/../r.txt");
+      expect(relative).toEqual(await outcome(files, absolute));
+      expect(relative).toEqual({ bytes: 26, sha256: sha256(utf8("The file beyond the link.\n")) });
+      // Each spelling reached the system as the same path, with its ".." in it.
+      expect(reads.looked).toEqual([absolute, absolute]);
+    } finally {
+      process.chdir(before);
+    }
+  });
+
+  it("reads a '/' at the end of a path as the system does, whether the path is relative or absolute", async () => {
+    const before = process.cwd();
+    await writeFile(path.join(directory, "r.txt"), "A file, not a folder.\n");
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    try {
+      process.chdir(directory);
+      const relative = await outcome(files, "r.txt/");
+      expect(relative).toEqual(await outcome(files, `${process.cwd()}${path.sep}r.txt/`));
+      // A file named as a folder is no file: the server's trouble, as the system tells it.
+      if (process.platform !== "win32") expect(relative).toEqual({ code: "ENOTDIR" });
+    } finally {
+      process.chdir(before);
+    }
+  });
+
   it("reads a second name of a file (a hard link) as the file it is", async () => {
     const target = await file("a.log", "one\ntwo\n");
     const at = path.join(directory, "b.log");
@@ -409,6 +457,27 @@ describe("ingest from a path", () => {
     const both = { name: "a.log", bytes: utf8("a"), source: { path: "/tmp/a.log" } } as unknown as Parameters<typeof files.ingest>[0];
     await expect(files.ingest(both)).rejects.toThrow(new TypeError("Give the file as bytes or as source, not both."));
     await expect(files.ingest({ name: "a.log", source: { path: "" } })).rejects.toThrow(new TypeError("source.path must be the path of a file: a string that is not empty."));
+  });
+});
+
+describe("absolutePath: a relative source path made absolute, as text", () => {
+  it("puts the working directory and a separator before it, and normalizes nothing", () => {
+    expect(absolutePath("link/../r.txt", path.posix, "/srv/app")).toBe("/srv/app/link/../r.txt");
+    expect(absolutePath("r.txt/", path.posix, "/srv/app")).toBe("/srv/app/r.txt/");
+    expect(absolutePath("./r.txt", path.posix, "/")).toBe("/./r.txt");
+    expect(absolutePath("/srv/other/../r.txt/", path.posix, "/srv/app")).toBe("/srv/other/../r.txt/");
+  });
+
+  it("does the same on Windows, where a path relative to a drive's own working directory is resolved", () => {
+    expect(absolutePath("link\\..\\r.txt", path.win32, "C:\\app")).toBe("C:\\app\\link\\..\\r.txt");
+    expect(absolutePath("r.txt/", path.win32, "C:\\")).toBe("C:\\r.txt/");
+    expect(absolutePath("\\\\server\\share\\r.txt", path.win32, "C:\\app")).toBe("\\\\server\\share\\r.txt");
+    expect(absolutePath("D:\\data\\..\\r.txt", path.win32, "C:\\app")).toBe("D:\\data\\..\\r.txt");
+    // "D:r.txt" is r.txt in the working directory of drive D, which only path.resolve knows.
+    const resolved: string[] = [];
+    const win32 = { ...path.win32, resolve: (...parts: string[]) => (resolved.push(...parts), "D:\\work\\r.txt") };
+    expect(absolutePath("D:r.txt", win32, "C:\\app")).toBe("D:\\work\\r.txt");
+    expect(resolved).toEqual(["D:r.txt"]);
   });
 });
 

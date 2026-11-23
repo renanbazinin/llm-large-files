@@ -593,10 +593,15 @@ export const meta = await files.ingest({ name: "report.pdf", source: { path: "/s
   need it, or keep it and give `original: { ref }` so that its pages can be shown without a copy in
   the store.
 - A path is a path on the server that ingests it. A relative path is made absolute once, against
-  the process's working folder when `ingest` is called (`path.resolve`): every read of the file, at
-  its turn and in the child process of an isolated reader, reads the file named then, even when the
-  working folder has changed since. An absolute path is used as it is. Never build it from what a
-  client sends: the library reads any file the process can read.
+  the process's working folder when `ingest` is called: every read of the file, at its turn and in
+  the child process of an isolated reader, reads the file named then, even when the working folder
+  has changed since. The working folder and a separator are put before it, and nothing else
+  changes. An absolute path is used as it is. So a `..` after a link, and a `/` at the end, are
+  the system's to resolve, for a relative path and an absolute one alike, as
+  `fs.promises.realpath` does. (`path.resolve` and `fs.realpathSync` remove them as text first,
+  and can name another file.) On Windows, a path such as `C:notes.txt`, relative to the working
+  folder of a drive, goes through `path.resolve`. Never build it from what a client sends: the
+  library reads any file the process can read.
 
 ### `OriginalsReader`
 
