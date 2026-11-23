@@ -510,7 +510,7 @@ knows them when another copy of the package made them:
 | `DocumentScopeError` `"scope_invalid"` or `"scope_required"`: the server's mistake | 500 | What failed: "Upload failed.", "The file could not be looked up.", "The file could not be deleted." |
 | A model's error (`ModelRequestError`, or any error with a `kind`) | The status of [`errorInfoOf`](./errors-and-retries.md#errorinfooferror) (429 for `"rate_limit"`, with `Retry-After` when the provider named a wait; 502, 503, 504, 413 or 500 for the others) | `errorInfoOf`'s words ("The model was busy (HTTP 429)."), never the provider's, which can name a project or a key. |
 | Any other `Error` whose `status`, or else `statusCode`, is a whole number from 400 to 599 (`http-errors`) | That status. A `503` whose error has a `retryAfterMs` gets `Retry-After`. | Its message, or what failed when it is empty. |
-| A Node system error (a `code` and a `syscall`) | 500 | What failed, with the code: "Upload failed (ENOSPC).". |
+| A Node system error (a `code` and a `syscall`), such as a path `ingest({ source: { path } })` does not read: a link (`ELOOP`), a folder (`EISDIR`), a pipe (`EINVAL`), a file that is not there (`ENOENT`), a volume that did not answer (`ETIMEDOUT`) | 500 | What failed, with the code: "Upload failed (ENOSPC).". Never the path, which Node's own messages name. |
 | Anything else: a plain `Error`, a value that is not an `Error` | 500 | What failed: "Upload failed.". Never the error's own message, which can name paths and hosts of your server. |
 
 Until 0.9.0, `upload` answered any `Error` from `files.ingest` without a status `422` with its
