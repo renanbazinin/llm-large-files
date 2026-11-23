@@ -421,6 +421,24 @@ type IngestWork = {
 };
 
 /**
+ * The caller left (`IngestInput.signal`) while the document was written: once the writes have
+ * ended, what they wrote is removed, while it is this ingest's own (`removeOwn`), and within the time
+ * the writes were given; the caller gets its own reason. Before 0.9.0, a client that left during the
+ * write left the document behind, kept for good under `ttlMs: Infinity`.
+ */
+async function removeAbandoned(context: IngestContext, target: Target, meta: DocumentMeta, work: IngestWork, reason: unknown): Promise<never> {
+  let ended = false;
+  const removal = removeOwn(context, target, meta).catch(() => undefined).then(() => {
+    ended = true;
+  });
+  await settleWithin(removal, context.slotCapMs, () => new Error("")).catch(() => undefined);
+  // A removal that has not ended may still land: the ID stays held until it has (see `IngestWork`).
+  if (!ended) work.writes = removal;
+  context.forget(meta.id);
+  throw reason;
+}
+
+/**
  * The work of `ingest`, once the file is named: `detected` is the format its name and type say.
  * `progress` is given when someone listens to the events of the ingest. `storeFailed` is called
  * when the store fails to write the document, whatever it throws.
@@ -615,6 +633,8 @@ async function ingestFile(
   }
   // A copy of an earlier document of this ID, kept in memory, is not this one.
   if (target.id !== undefined) forget(meta.id);
+  // The caller left while the document was written: it is not left behind.
+  if (input.signal?.aborted) await removeAbandoned(context, target, meta, work, input.signal.reason);
   return meta;
 }
 
@@ -683,6 +703,8 @@ export async function ingestDocument(context: IngestContext, input: IngestInput)
       if (storeFailed || (input.signal?.aborted && error === input.signal.reason) || isStoreWriteFailure(error) || DocumentScopeError.is(error) || (listenerFailure && error === listenerFailure.error)) throw error;
       throw toIngestError(error);
     }
+    // Once more, before the document is told stored: a caller that has left by now gets its reason.
+    if (input.signal?.aborted) await removeAbandoned(context, target, meta, work, input.signal.reason);
     try {
       events.emit({ type: "ingest.finish", document: toDocumentSummary(meta) });
     } catch (error) {
