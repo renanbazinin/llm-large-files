@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { Dirent } from "node:fs";
+import { constants, type Dirent } from "node:fs";
 import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DocumentScopeError } from "./errors.js";
@@ -12,10 +12,11 @@ export const DOCUMENT_ID_PATTERN = /^doc_[a-f0-9]{32}$/;
 
 /**
  * The shape of a document ID an application may choose (`IngestInput.id`): lowercase letters,
- * digits, "_" and "-", up to 64 characters, starting with a letter or a digit. The IDs the library
- * makes have it too. New in 0.9.0.
+ * digits, "_" and "-", up to 64 characters, starting with a letter or a digit, and not a name
+ * Windows keeps for a device (`con`, `prn`, `aux`, `nul`, `com0`-`com9`, `lpt0`-`lpt9`), which
+ * cannot name a file there. The IDs the library makes have it too. New in 0.9.0.
  */
-export const APP_DOCUMENT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+export const APP_DOCUMENT_ID_PATTERN = /^(?!(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$)[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /**
  * The version of `DocumentMeta` this package writes (`metaVersion`), and the highest it reads.
@@ -153,6 +154,24 @@ const code = (error: unknown) => (error as { code?: unknown } | null)?.code;
 const missing = (error: unknown) => code(error) === "ENOENT";
 /** There is no such file or folder, or a part of its path is a file. */
 const absent = (error: unknown) => code(error) === "ENOENT" || code(error) === "ENOTDIR";
+/** The file is a link, which a read does not follow (READ_FLAGS): Linux and macOS say ELOOP, FreeBSD EMLINK. */
+const linked = (error: unknown) => code(error) === "ELOOP" || code(error) === "EMLINK";
+
+/**
+ * How a document's file is opened for reading: without following a link at its name, where the
+ * platform can (`O_NOFOLLOW`; Windows has none). Folders are checked by their real path instead.
+ */
+const READ_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+
+/** The refusal of a folder of a scope that is a link, or under one. */
+const LINKED_FOLDER = "The folder of the scope is a link, or inside one: this store follows no folder links below its directory.";
+
+/**
+ * How long a read takes a folder of a scope that passed its check as still checked, and how many
+ * such folders a store remembers. Writes, deletes and removals always check again.
+ */
+const CHECK_KEPT_MS = 1_000;
+const CHECKS_KEPT = 4_096;
 
 /**
  * Whether `value` can name a folder of a scope in a `FileDocumentStore` with `scopes`: lowercase
@@ -248,14 +267,16 @@ export type FileDocumentScopes = {
   /**
    * The folder of the store in the folder of each scope: `<directory>/<scope...>/<folder>/<id>.json`.
    * Defaults to ".llm-large-files". "" puts the files in the scope's folder itself, beside files of
-   * the application's own.
+   * the application's own. The names `<id>.json`, `.txt`, `.idx` and `.bin`, and their temporary
+   * files, are then the store's for every ID it is given: keep files of your own in a subfolder.
    */
   folder?: string;
   /**
    * Whether a write makes the folders of a scope that has none. Defaults to false: the folders of a
    * scope are the application's, and the store only makes its own `folder` in them. A write into a
    * scope whose folder is gone (the chat was deleted) is then a `DocumentScopeError` of code
-   * "scope_missing", and the folder is not made again.
+   * "scope_missing", and the folder is not made again. With true, they are made one level at a time,
+   * each checked to be a folder and not a link before the next is made in it.
    */
   createScopeFolders?: boolean;
   /**
@@ -312,8 +333,9 @@ function checkMode(name: string, value: number | undefined, fallback: number): n
 /**
  * Keeps each document as `<id>.txt` plus `<id>.json` in one directory, so files survive a
  * server restart, its line index as `<id>.idx`, and its original file as `<id>.bin` when one is
- * kept. Only IDs matching APP_DOCUMENT_ID_PATTERN (but not names Windows keeps for devices) ever
- * reach the file system.
+ * kept. Only IDs matching APP_DOCUMENT_ID_PATTERN (which leaves out names Windows keeps for
+ * devices) ever reach the file system. Those names, for every ID it is given, are the store's: keep
+ * files of your own in a subfolder. A read does not follow a link at a file name, except on Windows.
  *
  * With `scopes`, the documents of each scope are kept in a folder of their own:
  * `<directory>/<userId>/<chatId>/.llm-large-files/<id>.json`. New in 0.9.0.
@@ -331,6 +353,8 @@ export class FileDocumentStore implements DocumentStore {
   readonly #sweepConcurrency: number;
   /** The directory, with links resolved, once it was found. */
   #realDirectory: Promise<string> | undefined;
+  /** The folders of scopes that passed `#checkReal`, and when (`Date.now()`), the oldest first. */
+  readonly #checked = new Map<string, number>();
 
   constructor(private readonly directory: string, options: FileDocumentStoreOptions = {}) {
     this.now = options.now ?? (() => new Date());
@@ -386,36 +410,90 @@ export class FileDocumentStore implements DocumentStore {
 
   /**
    * Checks that `folder` is where its path says, with no link on the way below the directory, and
-   * so inside the directory. Throws its error when it is not there.
+   * so inside the directory. Throws its error when it is not there. A folder that passes is
+   * remembered for CHECK_KEPT_MS, for reads (`#find`); one that fails is forgotten.
    */
   async #checkReal(folder: string): Promise<void> {
-    const real = await realpath(folder);
-    this.#realDirectory ??= realpath(this.directory);
-    let directory: string;
     try {
-      directory = await this.#realDirectory;
+      const real = await realpath(folder);
+      this.#realDirectory ??= realpath(this.directory);
+      let directory: string;
+      try {
+        directory = await this.#realDirectory;
+      } catch (error) {
+        this.#realDirectory = undefined;
+        throw error;
+      }
+      if (real !== path.join(directory, path.relative(this.directory, folder))) throw new DocumentScopeError("scope_invalid", LINKED_FOLDER);
     } catch (error) {
-      this.#realDirectory = undefined;
+      this.#checked.delete(folder);
       throw error;
     }
-    if (real !== path.join(directory, path.relative(this.directory, folder))) {
-      throw new DocumentScopeError("scope_invalid", "The folder of the scope is a link, or inside one: this store follows no links below its directory.");
-    }
+    this.#checked.delete(folder);
+    this.#checked.set(folder, Date.now());
+    if (this.#checked.size > CHECKS_KEPT) this.#checked.delete(this.#checked.keys().next().value!);
   }
 
-  /** The folder of the documents of a call, or undefined when it is not there, and so neither are they. */
-  async #find(context: DocumentContext | undefined): Promise<Place | undefined> {
+  /** Whether `folder` passed `#checkReal` less than CHECK_KEPT_MS ago. A clock set back counts as not. */
+  #checkedRecently(folder: string): boolean {
+    const at = this.#checked.get(folder);
+    if (at === undefined) return false;
+    const age = Date.now() - at;
+    if (age >= 0 && age < CHECK_KEPT_MS) return true;
+    this.#checked.delete(folder);
+    return false;
+  }
+
+  /**
+   * Whether a read's error means that the file is not there to read: missing, or a link, which is
+   * not followed. A file that is missing makes the next call check its folder again.
+   */
+  #unreadable(place: Place, error: unknown): boolean {
+    if (absent(error)) {
+      if (place.scoped) this.#checked.delete(place.folder);
+      return true;
+    }
+    return linked(error);
+  }
+
+  /**
+   * The folder of the documents of a call, or undefined when it is not there, and so neither are
+   * they. A read (`fresh` false) takes a folder checked less than CHECK_KEPT_MS ago as it was; a
+   * delete or a sweep checks it again.
+   */
+  async #find(context: DocumentContext | undefined, fresh = false): Promise<Place | undefined> {
     if (!this.#scopes) return { folder: this.directory, shared: true, scoped: false };
     const scope = this.#scopeOf(context);
     if (scope === undefined) return this.#root();
     const folders = this.#folders(scope);
-    try {
-      await this.#checkReal(folders.documents);
-    } catch (error) {
-      if (absent(error)) return undefined;
-      throw error;
+    if (fresh || !this.#checkedRecently(folders.documents)) {
+      try {
+        await this.#checkReal(folders.documents);
+      } catch (error) {
+        if (absent(error)) return undefined;
+        throw error;
+      }
     }
     return { folder: folders.documents, shared: this.#scopes.folder === "", scoped: true };
+  }
+
+  /**
+   * Makes the folders of a scope (`createScopeFolders`) one level at a time. Each is made, or found,
+   * as a folder and not a link before the next is made in it, so nothing is made where a link
+   * points. A file where a folder should be stops it: the check that follows finds the scope missing.
+   */
+  async #makeScopeFolders(scope: DocumentScope): Promise<void> {
+    await mkdir(this.directory, { recursive: true, mode: this.#directoryMode });
+    let level = this.directory;
+    for (const segment of scope) {
+      level = path.join(level, segment);
+      await mkdir(level, { mode: this.#directoryMode }).catch((error: unknown) => {
+        if (code(error) !== "EEXIST") throw error;
+      });
+      const info = await lstat(level);
+      if (info.isSymbolicLink()) throw new DocumentScopeError("scope_invalid", LINKED_FOLDER);
+      if (!info.isDirectory()) return;
+    }
   }
 
   /** The folder of the documents of a call, made when it is not there yet. */
@@ -435,9 +513,9 @@ export class FileDocumentStore implements DocumentStore {
     } catch (error) {
       if (!absent(error)) throw error;
     }
-    // Made only when asked to: the application may have removed the folder of a chat it deleted.
-    if (scopes.createScopeFolders) await mkdir(folders.scope, { recursive: true, mode: this.#directoryMode });
     try {
+      // Made only when asked to: the application may have removed the folder of a chat it deleted.
+      if (scopes.createScopeFolders) await this.#makeScopeFolders(scope);
       await this.#checkReal(folders.scope);
       if (folders.documents !== folders.scope) {
         // Not recursive: if the scope's folder went in the meantime, it is not made again.
@@ -476,19 +554,23 @@ export class FileDocumentStore implements DocumentStore {
   async #meta(place: Place, id: string): Promise<DocumentMeta | undefined> {
     let raw: string;
     try {
-      raw = await readFile(filesOf(place.folder, id).meta, "utf8");
+      raw = await readFile(filesOf(place.folder, id).meta, { encoding: "utf8", flag: READ_FLAGS });
     } catch (error) {
-      // Only a file that is not there means that the document is not there. A read that failed for
-      // another reason is thrown, so that a busy volume is not taken for a deleted document.
-      if (absent(error)) return undefined;
+      // Only a file that is not there (or a link, not followed) means that the document is not
+      // there. A read that failed for another reason is thrown, so that a busy volume is not taken
+      // for a deleted document.
+      if (this.#unreadable(place, error)) return undefined;
       throw error;
     }
     // Metadata that cannot be parsed is an upload being written by a server of 0.3.x, or damaged: absent.
     const meta = parseMeta(raw);
     if (!meta) return undefined;
     if (expired(meta, this.now())) {
-      // Expired is missing, whether or not its files could be removed now: sweep tries again.
-      await this.#remove(place, id).catch(() => undefined);
+      // Expired is missing, whether or not its files could be removed now: sweep tries again. The
+      // folder is checked again first: a read may have taken it as checked a moment ago.
+      await (place.scoped ? this.#checkReal(place.folder) : Promise.resolve())
+        .then(() => this.#remove(place, id))
+        .catch(() => undefined);
       return undefined;
     }
     return meta;
@@ -506,9 +588,9 @@ export class FileDocumentStore implements DocumentStore {
     const meta = place && await this.#meta(place, id);
     if (!place || !meta) return undefined;
     try {
-      return { meta, text: await readFile(filesOf(place.folder, id).text, "utf8") };
+      return { meta, text: await readFile(filesOf(place.folder, id).text, { encoding: "utf8", flag: READ_FLAGS }) };
     } catch (error) {
-      if (absent(error)) return undefined;
+      if (this.#unreadable(place, error)) return undefined;
       throw error;
     }
   }
@@ -519,9 +601,9 @@ export class FileDocumentStore implements DocumentStore {
     if (!place) return undefined;
     let handle;
     try {
-      handle = await open(filesOf(place.folder, id).text, "r");
+      handle = await open(filesOf(place.folder, id).text, READ_FLAGS);
     } catch (error) {
-      if (absent(error)) return undefined;
+      if (this.#unreadable(place, error)) return undefined;
       throw error;
     }
     try {
@@ -550,9 +632,10 @@ export class FileDocumentStore implements DocumentStore {
     const place = await this.#find(context);
     if (!place) return undefined;
     try {
-      const file = await readFile(filesOf(place.folder, id).index);
+      const file = await readFile(filesOf(place.folder, id).index, { flag: READ_FLAGS });
       return new Uint8Array(file.buffer, file.byteOffset, file.byteLength);
-    } catch {
+    } catch (error) {
+      this.#unreadable(place, error);
       return undefined;
     }
   }
@@ -571,7 +654,7 @@ export class FileDocumentStore implements DocumentStore {
 
   async delete(id: string, context?: DocumentContext): Promise<boolean> {
     if (!fileId(id)) return false;
-    const place = await this.#find(context);
+    const place = await this.#find(context, true);
     return place ? this.#remove(place, id) : false;
   }
 
@@ -588,16 +671,17 @@ export class FileDocumentStore implements DocumentStore {
     // The metadata decides whether the document is still there, and removes an expired one.
     if (!place || !await this.#meta(place, id)) return undefined;
     try {
-      const file = await readFile(filesOf(place.folder, id).original);
+      const file = await readFile(filesOf(place.folder, id).original, { flag: READ_FLAGS });
       return new Uint8Array(file.buffer, file.byteOffset, file.byteLength);
     } catch (error) {
-      if (absent(error)) return undefined;
+      if (this.#unreadable(place, error)) return undefined;
       throw error;
     }
   }
 
   /**
-   * Removes expired documents and returns how many. Also removes files that belong to no
+   * Removes expired documents and returns how many: those whose metadata this sweep removed, so
+   * that two sweeps at once count each document once. Also removes files that belong to no
    * document, and temporary files, once they are older than `orphanAgeMs`. A document whose
    * metadata is not valid is removed only when that file is that old too: it may be being
    * written by a server of an older version, which does not write whole files.
@@ -625,7 +709,7 @@ export class FileDocumentStore implements DocumentStore {
     if (!scopes) return this.#sweepFolder({ folder: this.directory, shared: true, scoped: false }, now, pool);
     const scope = this.#scopeOf(context);
     if (scope !== undefined) {
-      const place = await this.#find({ scope });
+      const place = await this.#find({ scope }, true);
       return place ? this.#sweepFolder(place, now, pool) : 0;
     }
     let removed = scopes.unscoped === "root" ? await this.#sweepFolder({ folder: this.directory, shared: true, scoped: false }, now, pool) : 0;
@@ -707,7 +791,7 @@ export class FileDocumentStore implements DocumentStore {
     if (hasMeta) {
       let raw: string | undefined;
       try {
-        raw = await pool(() => readFile(path.join(place.folder, metaFile), "utf8"));
+        raw = await pool(() => readFile(path.join(place.folder, metaFile), { encoding: "utf8", flag: READ_FLAGS }));
       } catch (error) {
         // Not read is not the same as not valid: nothing of this document is touched.
         if (!missing(error)) return 0;
@@ -716,7 +800,8 @@ export class FileDocumentStore implements DocumentStore {
         const meta = parseMeta(raw);
         const known = meta !== undefined && (ours || meta.id === id);
         if (known ? expired(meta!, now) : ours && await old(metaFile)) {
-          return await pool(() => this.#remove(place, id)).then(() => 1, () => 0);
+          // 1 only when this sweep removed the metadata: another sweep at the same time may have.
+          return await pool(() => this.#remove(place, id)).then((existed) => (existed ? 1 : 0), () => 0);
         }
       }
     }
