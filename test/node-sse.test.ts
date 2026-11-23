@@ -421,6 +421,34 @@ describe("sseMessageOf", () => {
     const event = { ...base, seq: 2, type: "text", requestId: "req_1", delta: "Hi" } as AskEvent;
     expect(sseMessageOf(event)).toEqual({ event: "text", id: 2, data: event });
   });
+
+  // 0.9.0: `missing` (onMissingDocuments "drop") was left out of the fixed list of fields.
+  it("sends the documents a question answered without, in run.finish and in run.error's partial", () => {
+    const dropped = { ...result, missing: ["doc_gone"] } as AskResult;
+    const finish = JSON.parse(JSON.stringify(sseMessageOf({ ...base, seq: 7, type: "run.finish", result: dropped } as AskEvent).data));
+    expect(finish.result.missing).toEqual(["doc_gone"]);
+    const error = { message: "The model is busy.", kind: "rate_limit" as const, status: 429 };
+    const failed = JSON.parse(JSON.stringify(sseMessageOf({ ...base, seq: 3, type: "run.error", error, partial: dropped } as AskEvent).data));
+    expect(failed.partial).toEqual({ steps: dropped.steps, evidence: dropped.evidence, usage: dropped.usage, missing: ["doc_gone"] });
+    // The new fields of other events pass as they are: a notice's documentIds, ingest.finish's app.
+    const notice = { ...base, seq: 4, type: "notice", code: "documents_missing", message: "1 of the attached files is no longer available.", display: "none", documentIds: ["doc_gone"] } as AskEvent;
+    expect(sseMessageOf(notice).data).toEqual(notice);
+    const finished = { ...base, seq: 5, type: "ingest.finish", document: { id: "doc_1" }, app: { chatFileId: "f-1" } };
+    expect(sseMessageOf(finished).data).toEqual(finished);
+  });
+
+  it("reaches the browser from a question that dropped a missing document", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const doc = await files.ingest({ name: "notes.txt", bytes: new TextEncoder().encode("The meeting is on Tuesday.") });
+    const gone = "doc_0123456789abcdef0123456789abcdef";
+    const url = await serve((_request, response) => {
+      const stream = askStream({ files, model: fakeModel([says("On Tuesday.")]), documentIds: [doc.id, gone], messages: [{ role: "user", text: "When?" }], onMissingDocuments: "drop" });
+      void writeSseEvents(response, stream, { heartbeatMs: 0 });
+    });
+    const { messages } = parse(await (await fetch(url)).text());
+    expect(messages.at(-1)).toMatchObject({ event: "run.finish", data: { result: { answered: true, missing: [gone] } } });
+    expect(messages.find((message) => message.event === "notice" && (message.data as { code: string }).code === "documents_missing")?.data).toMatchObject({ documentIds: [gone] });
+  });
 });
 
 describe("createDocumentHandlers().upload with Accept: text/event-stream", () => {
