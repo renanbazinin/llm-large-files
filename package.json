@@ -96,6 +96,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "coverage": "vitest run --coverage --project unit --testTimeout=20000",
     "check": "npm run typecheck && npm test && npm run build",
     "prepublishOnly": "npm run check"
   },
@@ -118,6 +119,7 @@
   "devDependencies": {
     "@cantoo/pdf-lib": "2.11.1",
     "@types/node": "^22.12.0",
+    "@vitest/coverage-v8": "4.1.12",
     "jszip": "3.10.1",
     "typescript": "5.9.3",
     "unpdf": "1.4.0",

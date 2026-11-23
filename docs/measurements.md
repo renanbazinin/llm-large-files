@@ -7,7 +7,7 @@ has not.
 
 Each result is a measurement at one point in time, with the models named. It is not a guarantee.
 Another model, a later version of the same model, another provider or other files can give other
-results. Nothing was run again for this page but one record, which says so: each result is given
+results. Nothing was run again for this page but two records, which say so: each result is given
 as it was recorded, with the release it was recorded for. Before you rely on a number, check it on your own files
 ([Measuring your own setup](#measuring-your-own-setup)).
 
@@ -350,13 +350,48 @@ MB took over 600 MB. Since 0.4.0 every use of a document kept in memory asks the
 quotes, backslashes, tabs or many line breaks low: by 23% for a JSON-lines export and 31% for TSV.
 A read of quoted text came out at 42,514 characters against a cap of 24,000.
 
-**Memory and stalls of an ingest (main, November 2026, Node 24 on Windows, plain-text logs).**
-Peak memory above the uploaded bytes: about 175 MB for a log of 25 MB, 270 MB for 50 MB, and 470 MB
-for 95 MB. An ingest of the 95 MB log fitted in a worker thread of 256 MB. One exact search of the
-95 MB log, read by range, took about 60 to 80 MB. Eight such searches at once took about 70 to 85
-MB, and about 220 MB with `cacheBytes` at 1 GB, which keeps the decoded pieces. An ingest held the
-event loop for about 0.8 to 1.5 seconds (25 MB) and 3 to 5 seconds (95 MB). Linux was not
-measured. [Deployment](./guides/deployment.md) turns these into sizing advice.
+**Memory and stalls of an ingest (history: main before 0.6.0, November 2026, Node 24 on Windows,
+plain-text logs).** Recorded on 2026-11-20, with the docs of #12, on the code of 0.5.0 and the fixes
+after it (`main` above), before 0.6.0 made an ingest work in slices. The stalls are those of the
+ingest of 0.5.0, in one block: 0.6.0 and later have none of seconds (the record after this one, and
+the table of 0.6.0 below). Peak memory above the uploaded bytes: about 175 MB for a log of 25 MB,
+270 MB for 50 MB, and 470 MB for 95 MB. An ingest of the 95 MB log fitted in a worker thread of
+256 MB. One exact search of the 95 MB log, read by range, took about 60 to 80 MB. Eight such
+searches at once took about 70 to 85 MB, and about 220 MB with `cacheBytes` at 1 GB, which keeps the
+decoded pieces. An ingest held the event loop for about 0.8 to 1.5 seconds (25 MB) and 3 to 5
+seconds (95 MB). Linux was not measured.
+
+**Memory and stalls of an ingest, measured again (0.9.0 in development, 2026-11-23, Node 22.23 on
+Linux, plain-text logs).** Logs of 25, 50 and 95 MB made by `serviceLog` of `llm-large-files/testing`
+(about 88 ASCII characters a line), each sent to `files.ingest` over a `FileDocumentStore` in a
+temporary folder, in a fresh process with Node's default heap, on the build of 86b9bfd. A laptop
+(Intel Core i5-8250U, 4 cores and 8 threads, 8 GB) that ran other work too: the load average was 5
+to 14. Peak memory is the kernel's high-water mark of the resident set, less the resident set once
+the log was read into memory, so the uploaded bytes are not in it. A stall is the longest gap between
+two beats of a 5 ms timer, as in the table of 0.6.0 below.
+
+| Log | Peak above the uploaded bytes | Longest stall | Ingest took |
+|---|---|---|---|
+| 25 MB, 295,660 lines (5 runs) | 133 to 136 MB | 56 to 64 ms; 134 ms in one run at a load of 6 | 3.3 to 3.8 s; 6.8 s in that run |
+| 50 MB, 591,315 lines (5 runs) | 194 to 206 MB | 126 to 307 ms, at a load of 13 to 14 | 6.2 to 15.3 s |
+| 95 MB, 1,123,485 lines (5 runs) | 342 to 347 MB | 233 to 360 ms | 11.6 to 14.9 s |
+
+Over a `MemoryDocumentStore` (2 runs each), the peaks were 78 to 81 MB, 123 MB and 204 to 206 MB,
+with the stored text in them. Its longest stall for the 95 MB log was about 150 to 240 ms, the UTF-8
+decoding below. The 95 MB log also fitted in a heap of 256 MB
+(`--max-old-space-size=256`), and of 192, over a `FileDocumentStore`. The longest stalls are two
+steps that run in one block, each taking about 2 to 4 ms for each MB of text on this machine:
+
+- the decoding of the whole UTF-8 file when its reading starts (the same `TextDecoder` call alone
+  took 192 to 205 ms for the 95 MB log);
+- over a `FileDocumentStore`, the writing of the text, which encodes it to UTF-8 in one call
+  (`Buffer.from` alone took 184 to 217 ms).
+
+The other steps pause about every 12 ms (gaps of 40 to 70 ms on this busy machine). 0.6.0 decoded
+the same way and measured 31 to 34 ms for a 99 MB log (below), on Windows with Node 24. The store
+does not explain the difference, since the decoding is one block over either store: the machine
+and its load do.
+[Deployment](./guides/deployment.md) turns these into sizing advice.
 
 **Many uploads at once (0.8.2, November 2026, Node 22 on Linux, 8 cores).** 100 logs of 2 MB
 (190.7 MB, about 10% of the lines in Hebrew), read into memory first as the upload handler does,

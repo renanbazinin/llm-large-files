@@ -263,11 +263,12 @@ headers and then their bodies slowly, fill it.
 
 **Fix.** Send the file again after `Retry-After` seconds, as the browser code in
 [Web app](./guides/web-app.md#upload-from-the-browser) does. To take more at once, raise
-`maxPendingUploadBytes` and size the server for it (each upload under way takes about five to seven
-times its size while it is ingested; ingests take turns, `maxConcurrentIngests`). Put a proxy that
-reads whole bodies before passing them on in front, so that slow clients hold no room. "The server
-is reading other files right now." is the other `503`: the readers of `createIsolatedExtractors`
-are busy ([Node reference](./reference/node.md#uploadrequest-response)).
+`maxPendingUploadBytes` and size the server for it (each upload under way takes about three and a
+half to five and a half times its size while it is ingested over a `FileDocumentStore`,
+[measurements](./measurements.md#the-server); ingests take turns, `maxConcurrentIngests`). Put a
+proxy that reads whole bodies before passing them on in front, so that slow clients hold no room.
+"The server is reading other files right now." is the other `503`: the readers of
+`createIsolatedExtractors` are busy ([Node reference](./reference/node.md#uploadrequest-response)).
 
 ### `408`: "The upload stopped arriving: nothing came for 30 s. Send it again."
 

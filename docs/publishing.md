@@ -2,7 +2,7 @@
 
 For maintainers. This page covers how a version of `llm-large-files` reaches npm: the changelog
 while the version is in development, the release pull request, the tag that starts the release
-workflow, and publishing by hand when the workflow's publish step fails. Working on the code
+workflow, and publishing by hand when the workflow's publish job fails. Working on the code
 itself is in [CONTRIBUTING.md](https://github.com/renanbazinin/llm-large-files/blob/main/CONTRIBUTING.md).
 
 ## The changelog
@@ -100,15 +100,19 @@ Pushing the tag starts the release workflow.
 3. Run the checks, and look at what npm will publish:
 
    ```bash
-   npm run check          # typecheck, tests, build
-   npm pack --dry-run     # dist/, src/, docs/, CHANGELOG.md, README.md, LICENSE, package.json
+   npm run check                    # typecheck, tests, build
+   npm pack --dry-run               # dist/, src/, docs/, CHANGELOG.md, README.md, LICENSE, package.json
+   node scripts/check-tarball.mjs   # builds, packs, and checks the tarball as npm installs it
    ```
 
    `files` in package.json publishes all of `dist/`, `src/` and `docs/`. CONTRIBUTING.md,
-   `examples/` and `test/` are not published.
+   `examples/`, `scripts/` and `test/` are not published. `check-tarball.mjs` is what the release
+   workflow runs on the tarball it publishes ([below](#what-the-release-workflow-does)); it
+   installs into temporary projects from the npm registry, so it needs the network.
 
 4. Commit, push, and open a pull request titled "Release 0.6.0: what the version is about". Wait
-   for CI (Node 22, 24 and 26, on Ubuntu and Windows), then squash-merge it.
+   for CI (the tests on Node 22, 24 and 26, on Ubuntu and Windows; the tarball check on Node 22
+   and 26; the coverage report), then squash-merge it.
 
 5. Tag the merged commit and push the tag:
 
@@ -132,7 +136,9 @@ Pushing the tag starts the release workflow.
    gh run watch <run-id>
    ```
 
-   If its publish step fails, see [When the publish step fails](#when-the-publish-step-fails).
+   If its build job fails, nothing was staged: see the end of
+   [What the release workflow does](#what-the-release-workflow-does). If its publish job fails, see
+   [When the publish job fails](#when-the-publish-job-fails).
 
 7. Approve the staged version. The workflow stages it (`npm stage publish`): it is uploaded with
    its provenance, but not installable yet. Open npmjs.com → your account → **Staged Packages**,
@@ -159,21 +165,63 @@ Pushing the tag starts the release workflow.
 
 ## What the release workflow does
 
-`.github/workflows/release.yml` runs when a tag that starts with `v` is pushed. It runs on Ubuntu
-with Node 24 and no dependency cache (a poisoned cache could expose the publish token), and asks
-GitHub for `contents: read` and `id-token: write`. Its steps:
+`.github/workflows/release.yml` runs when a tag that starts with `v` is pushed. It has two jobs, on
+Ubuntu with Node 24 and no dependency cache (a poisoned cache would run its code in the job). The
+actions it uses are pinned by the commit of their release, as in `ci.yml`, which says how to update
+them.
+
+**The build job** has `contents: read` and no identity token: the tests and the dependencies run in
+a job that cannot ask npm for a token. Its steps:
 
 | Step | Fails when |
 | --- | --- |
-| `npm ci` | package-lock.json does not match package.json. |
+| `npm ci --ignore-scripts` | package-lock.json does not match package.json. No install script runs: nothing in the tree needs one (esbuild, under Vitest, finds its binary without its `postinstall`). |
 | Check the tag matches package.json | The tag is not `v` + the `version` in package.json: for example `v0.6.0` on a commit whose package.json still says 0.5.0. |
 | `npm run check` | The typecheck, a test or the build fails. |
-| Check that this job can identify itself to npm | The job has no identity token: "No identity token for this job. The workflow needs the id-token write permission." |
-| `npm stage publish --provenance --access public --loglevel verbose` | npm does not accept the job's identity for this package, or the trusted publisher does not allow staging (see below). The version is staged, not public, until a maintainer approves it. |
+| Pack | `npm pack` fails. The step prints the tarball's `npm shasum`, `npm integrity` and SHA-256: npm shows the first two for the version once it is published. |
+| Check the tarball as npm installs it | `node scripts/check-tarball.mjs` on that tarball finds a fault (below). |
+| Upload the tarball | It is kept as the artifact `package` of the run, for 7 days. |
 
-When a step before the publish fails, nothing was published. Fix the cause on `main` with a pull
-request, delete the tag (`git tag -d v0.6.0`, then `git push origin :refs/tags/v0.6.0`), and tag
-the fixed commit.
+`scripts/check-tarball.mjs` checks the tarball itself, not the checkout:
+
+- the files in it: only those of `files` in package.json, and every file that `exports`, `main`,
+  `types` and `typesVersions` name is there;
+- installed into a new project without the optional peers: `import` and `require()` of every
+  subpath of `exports`, `./testing` included, give the same module, and a PDF is refused with the
+  message that names `unpdf`;
+- `llm-large-files/node/ingest-child.js` resolves, and a text file is ingested in a child process
+  of `createIsolatedExtractors`;
+- a consumer compiles with the checkout's TypeScript under `moduleResolution` NodeNext (an ES module
+  and a CommonJS one), Bundler and Node10, with `skipLibCheck: false`;
+- installed with `unpdf`, `jszip` and `@cantoo/pdf-lib` at the versions of package-lock.json, a PDF
+  and a DOCX are read, in the process and in a child process;
+- `publint` and `@arethetypeswrong/cli` (`attw`) pass, at the versions pinned in the script. `attw`
+  ignores `cjs-resolves-to-esm` (the package is ESM, and `require()` of it works from Node 22.12)
+  and does not check `./node/ingest-child.js` (a script that child processes run, not a module to
+  import).
+
+CI's `package` job runs the same script on Node 22 and 26 for every pull request.
+
+**The publish job** runs after the build job passed. It has `contents: read` and `id-token: write`,
+and does not check out the repository or install anything: no code of the package or of its
+dependencies runs where the identity token is. Its steps:
+
+| Step | Fails when |
+| --- | --- |
+| Download the tarball | The artifact `package` of this run is missing, or its digest does not match what was uploaded. |
+| Check the tarball is the one the build job checked | Its SHA-256 is not the one the build job computed. |
+| Check this npm can stage | The npm of Node 24 is older than 11.15.0, which has no `npm stage`. |
+| Check that this job can identify itself to npm | The job has no identity token: "No identity token for this job. The workflow needs the id-token write permission." |
+| `npm stage publish ./release/llm-large-files-<version>.tgz --provenance --access public --loglevel verbose` | npm does not accept the job's identity for this package, or the trusted publisher does not allow staging (see below). The version is staged, not public, until a maintainer approves it. |
+
+`npm stage publish` takes a package spec as `npm publish` does, a tarball included (`npm help
+stage`; it shares the code of `npm publish`). Given a tarball, npm stages those bytes as they are,
+and runs no script of the package: `prepublishOnly` runs only when npm publishes a folder. So the
+version on npm is the tarball that the build job checked, byte for byte. The path starts with `./`:
+without it npm reads `release/llm-large-files-0.6.0.tgz` as a GitHub repository.
+
+When the build job fails, nothing was staged. Fix the cause on `main` with a pull request, delete
+the tag (`git tag -d v0.6.0`, then `git push origin :refs/tags/v0.6.0`), and tag the fixed commit.
 
 ### Trusted publishing
 
@@ -202,7 +250,10 @@ that built it. npm can make one only inside a supported CI job, so a version pub
 none. npm checks the trusted publisher only at publish time, and says why it refused an identity
 only in the verbose log: that is why the step runs with `--loglevel verbose`.
 
-## When the publish step fails
+## When the publish job fails
+
+The build job passed, so the tagged commit is good and the checked tarball is kept as the artifact
+`package` of the run, for 7 days. Find why npm refused in the verbose log of the publish step.
 
 **`403 Forbidden … OIDC permission denied for this action`.** npm accepted the job's identity
 (`npm verbose oidc Successfully retrieved and set token`) but the trusted publisher does not allow
@@ -221,41 +272,57 @@ npm error 404 Not Found - PUT https://registry.npmjs.org/llm-large-files - Not f
 ```
 
 npm did not accept the job's identity for this package: the trusted publisher on npmjs.com is
-missing, or does not match the values above. Every step before the publish passed, so the tagged
-commit is good. There are two ways to finish the release.
+missing, or does not match the values above. There are two ways to finish the release.
 
-**Fix trusted publishing, then run the job again.** Correct the setting on npmjs.com (this needs an
-npm account that may publish the package), then `gh run rerun <run-id> --failed`. The version is
-published with provenance. This works only while the version is not on npm yet.
+**Fix trusted publishing, then run the publish job again.** Correct the setting on npmjs.com (this
+needs an npm account that may publish the package), then `gh run rerun <run-id> --failed`. Only the
+failed job runs again: it stages the same tarball, from the artifact, with provenance. This works
+while the artifact is kept and the version is not on npm yet. After 7 days, run the whole workflow
+again (`gh run rerun <run-id>`): its build job builds and checks a new tarball of the same commit.
 
-**Publish by hand from a clean checkout of the tag:**
+**Publish by hand the tarball the build job checked:**
 
 ```bash
-git clone --depth 1 --branch v0.6.0 https://github.com/renanbazinin/llm-large-files.git release-v0.6.0
-cd release-v0.6.0
-npm ci
+gh run download <run-id> --name package --dir release-v0.6.0
+sha256sum release-v0.6.0/llm-large-files-0.6.0.tgz   # the SHA-256 the Pack step printed
 npm whoami                  # an npm account that may publish the package; run npm login if not
-npm publish --access public
+npm publish ./release-v0.6.0/llm-large-files-0.6.0.tgz --access public
 ```
 
-- Use a clean checkout, not your working copy. `files` publishes everything under `dist/`, `src/`
-  and `docs/`, so an untracked or changed file there would go to npm too. The checkout also makes
-  sure the version is exactly the tag's.
-- `prepublishOnly` runs `npm run check` first; its build deletes `dist/` and builds it again.
+- The tarball is the one the build job checked, so nothing is built again: npm runs no script of
+  the package when it publishes a tarball. Keep the `./`: npm reads `release-v0.6.0/…` as a GitHub
+  repository without it.
 - npm asks for the account's two-factor approval: it prints
   `Authenticate your account at: https://www.npmjs.com/auth/cli/…` (or asks for a one-time code).
   Open the link, on any device, and approve. npm waits only a few minutes (about five in past
   releases) and then gives up, so the person who approves must be there before you run it.
 - Leave out `--provenance`: it works only inside a supported CI job.
-- Before it publishes, npm prints `npm notice shasum:` for the package. The failed job's log has
-  the same line. When the two match, npm got the same build that CI checked; for 0.5.0 they
-  matched.
+- Before it publishes, npm prints `npm notice shasum:` for the package. The Pack step of the build
+  job printed the same `npm shasum:`. When the two match, npm got the tarball that CI checked. (For
+  0.5.0, published by hand from a checkout, the shasum matched that of the failed job.)
+
+When the artifact is gone (after 7 days), publish from a clean checkout of the tag, and check its
+tarball first:
+
+```bash
+git clone --depth 1 --branch v0.6.0 https://github.com/renanbazinin/llm-large-files.git release-v0.6.0
+cd release-v0.6.0
+npm ci --ignore-scripts
+npm run check
+npm pack
+node scripts/check-tarball.mjs llm-large-files-0.6.0.tgz
+npm publish ./llm-large-files-0.6.0.tgz --access public
+```
+
+Use a clean checkout, not your working copy. `files` publishes everything under `dist/`, `src/` and
+`docs/`, so an untracked or changed file there would go to npm too. The checkout also makes sure the
+version is exactly the tag's.
 
 ## Checking a release
 
 ```bash
 npm view llm-large-files version              # the latest version
-npm view llm-large-files@0.6.0 dist.shasum
+npm view llm-large-files@0.6.0 dist.shasum    # the npm shasum the Pack step of the build job printed
 ```
 
 After npm prints `+ llm-large-files@0.6.0`, the registry can take several minutes to list the
