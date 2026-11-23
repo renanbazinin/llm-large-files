@@ -846,7 +846,8 @@ What the library does with what you throw depends on the call:
 
 - **Reads** (`get`, `getMeta`, `getOriginal`, `readTextRange`): whatever you throw is passed on as a
   `DocumentStoreError`. Its message is "The document store could not be read (EIO). Try again.", with
-  the code in parentheses only when your error has a string `code`. Its `code` and `syscall` are
+  the code in parentheses only when your error has a `code` that reads as one (capitals, digits and
+  `_`, as `EIO`): a host a driver put in `code` is left out. Its `code` and `syscall` are
   those of your error, when they are strings, as a Node system error has them. Its `cause` is your
   error: log that one. The message names no path or host, so it can be shown to a user or a model.
   `prepare`, `askWithFiles` and `files.getMeta` throw it; a tool call answers the model with its

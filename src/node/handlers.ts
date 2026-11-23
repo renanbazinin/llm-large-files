@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { errorInfoOf, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE } from "../error-info.js";
-import { DocumentScopeError, DocumentStoreError, IngestError, type IngestErrorCode } from "../errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type IngestErrorCode } from "../errors.js";
 import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
 import { checkOwner, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles } from "../library.js";
 import { DocumentsNotFoundError, errorKindOf, ModelRequestError, type ModelErrorKind } from "../model.js";
@@ -173,11 +173,12 @@ function statusOf(error: unknown): number | undefined {
 
 /**
  * The code of a Node system error (a file or network call that failed, as `ENOSPC`). Its message
- * names server paths or hosts, so only the code is passed on.
+ * names server paths or hosts, so only the code is passed on, and only when it reads as one: a
+ * driver may put a host in `code`.
  */
 function systemErrorCode(error: unknown): string | undefined {
   const { code, syscall } = (error ?? {}) as { code?: unknown; syscall?: unknown };
-  return typeof code === "string" && typeof syscall === "string" ? code : undefined;
+  return isErrorCode(code) && typeof syscall === "string" ? code : undefined;
 }
 
 /** What the handlers answer a scope that is gone (`DocumentScopeError` "scope_missing"): the chat was deleted. */
@@ -239,7 +240,8 @@ const retryOf = (value: unknown): { retryAfterMs?: number } => (isWait(value) ? 
  * - a model's error (`ModelRequestError`): the status and words of `errorInfoOf`, never the
  *   provider's own;
  * - any other error with a `status` (or `statusCode`) from 400 to 599: that status and its message;
- * - a Node system error (a `code` and a `syscall`): 500 "Upload failed (ENOSPC).";
+ * - a Node system error (a `code` and a `syscall`): 500 "Upload failed (ENOSPC).", or "Upload
+ *   failed." when its code does not read as one (capitals, digits and "_"), as a host does;
  * - anything else: 500 "Upload failed.", without its message, which may name a host.
  *
  * It reads the errors of every copy of the package, and never throws. New in 0.9.0.

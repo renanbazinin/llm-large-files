@@ -152,6 +152,34 @@ describe("an ingest from a path that is not a file the library reads", () => {
   });
 });
 
+// A system error whose `code` is not a code: a driver's, with a host in it. The thrown error and
+// its events gave the host to the browser ("Upload failed (bucket-prod.internal.corp:443).").
+describe("an extractor of your own that fails with a host in a system error's code", () => {
+  it("is told without the code, in the error's answer, its ingest.error and the handlers' event", async () => {
+    const files = createLargeFiles({
+      store: new MemoryDocumentStore(),
+      extractors: { pdf: async () => { throw Object.assign(new Error(`connect ECONNREFUSED ${HOST}:443`), { code: `${HOST}:443`, syscall: "connect" }); } },
+    });
+    const { thrown, event } = await failed(files, { name: "scan.pdf", bytes: utf8("%PDF-1.4 hello") });
+    expect(thrown).toMatchObject({ code: `${HOST}:443`, syscall: "connect" });
+    expect(event).toEqual({ message: "The file could not be read from storage.", name: "Error" });
+    const expected: ErrorInfo = { category: "unknown", status: 500, retryable: false, message: "Something went wrong." };
+    expect(errorInfoOf(thrown)).toEqual(expected);
+    expect(errorInfoOf(event)).toEqual(expected);
+    expect(uploadAnswerOf(thrown)).toEqual({ status: 500, error: "Upload failed." });
+    const documents = createDocumentHandlers(files);
+    server = createServer((request, response) => void documents.upload(request, response));
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+    const json = await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf" }, body: "%PDF-1.4 hello" });
+    expect(json.status).toBe(500);
+    const answer = await json.text();
+    expect(JSON.parse(answer)).toEqual({ error: "Upload failed." });
+    const stream = await (await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf", Accept: "text/event-stream" }, body: "%PDF-1.4 hello" })).text();
+    expectNoPath(event, errorInfoOf(thrown), errorInfoOf(event), uploadAnswerOf(thrown), answer, stream);
+  });
+});
+
 /** A store's own subclass of DocumentStoreError, with a name of its own. */
 class BucketStoreError extends DocumentStoreError {
   constructor(cause: unknown, operation: "read" | "write") {

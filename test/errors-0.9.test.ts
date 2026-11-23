@@ -10,6 +10,7 @@ import {
   ModelRequestError,
   type AskEvent,
 } from "llm-large-files";
+import { safeErrorMessage } from "../src/errors.js";
 import { eventErrorOf } from "../src/events.js";
 import { fakeModel, says } from "./fake-model.js";
 
@@ -98,6 +99,21 @@ describe("DocumentsNotFoundError and IngestError", () => {
     await expect(asking).rejects.toBeInstanceOf(DocumentsNotFoundError);
     const failed = events.find((event) => event.type === "run.error");
     expect(failed && "error" in failed ? failed.error.message : undefined).toBe("A document is no longer available: doc_0123456789abcdef0123456789abcdef. Upload it again.");
+  });
+});
+
+// A system error whose `code` is not a code (a driver's, with a host in it) had that code in the
+// words told to the model and in its events.
+describe("a system error whose code is not a code", () => {
+  const host = "db-prod.internal:27017";
+  it("is told without its code, to the model and in events", () => {
+    const error = Object.assign(new Error(`connect ECONNREFUSED ${host}`), { code: host, syscall: "connect" });
+    expect(safeErrorMessage(error)).toBe("The file could not be read from storage. Try the call again.");
+    expect(eventErrorOf(error)).toEqual({ message: "The file could not be read from storage.", name: "Error" });
+    // A code that reads as one is told.
+    expect(safeErrorMessage(eio())).toBe("The file could not be read from storage (EIO). Try the call again.");
+    expect(eventErrorOf(eio()).message).toBe("The file could not be read from storage (EIO).");
+    expect(new DocumentStoreError(error).message).toBe("The document store could not be read. Try again.");
   });
 });
 

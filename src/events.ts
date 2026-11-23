@@ -1,7 +1,7 @@
 // What a question or an ingest does while it runs, as typed data in order. The callbacks of
 // earlier versions (onText, onActivity, onStep) still get the same strings, at the same moments.
 import type { AskResult } from "./ask.js";
-import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
 import { classifyModelError, DocumentsNotFoundError, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
@@ -393,8 +393,11 @@ function userMessageOf(error: unknown): string {
   const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; message?: unknown };
   // A model error: the provider's words stay on the error.
   if (typeof record.kind === "string" || typeof record.status === "number") return modelFailureReason(error);
-  // A system error (ENOENT, EACCES…): its message names paths of the server.
-  if (typeof record.code === "string" && typeof record.syscall === "string") return `The file could not be read from storage (${record.code}).`;
+  // A system error (ENOENT, EACCES…): its message names paths of the server. Its code is told only
+  // when it reads as one: a driver may put a host in it.
+  if (typeof record.code === "string" && typeof record.syscall === "string") {
+    return `The file could not be read from storage${isErrorCode(record.code) ? ` (${record.code})` : ""}.`;
+  }
   if (!(error instanceof Error) && !(typeof DOMException !== "undefined" && error instanceof DOMException)) return SOMETHING_WENT_WRONG;
   return typeof record.message === "string" && record.message ? record.message : SOMETHING_WENT_WRONG;
 }

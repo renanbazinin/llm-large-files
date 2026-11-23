@@ -456,7 +456,8 @@ How `message` is written:
   can name projects, hosts or keys: they stay on the error that is thrown, for your logs.
 - **A storage error** (`DocumentStoreError`) is told by its own message, which names only the
   code, and so is a `DocumentsNotFoundError`, which names the IDs. **A Node system error** (one with a `code` and a `syscall`) is told as "The file could not
-  be read from storage (ENOENT).".
+  be read from storage (ENOENT).". Since 0.9.0 its code is told only when it reads as one
+  (capitals, digits and `_`): a driver may put a host in `code`.
 - **Any other `Error`** is told by its message as it is written: the library's own refusals and
   messages ("app.log is empty."), and the reason of an abort. That includes errors your own code
   throws: an adapter, an extractor or a listener of your own. Keep secrets out of their messages,

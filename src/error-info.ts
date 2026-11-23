@@ -1,6 +1,6 @@
 // What an error means for an application: one record to choose a status, a retry and words of
 // your own by, in any language. New in 0.9.0.
-import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import { eventErrorOf, isModelStatus, isPlainData } from "./events.js";
 import { modelFailureReason } from "./map-reduce.js";
 import { classifyModelError, DocumentsNotFoundError, ModelRequestError, type ModelErrorKind } from "./model.js";
@@ -83,13 +83,10 @@ const isKind = (value: unknown): value is ModelErrorKind => typeof value === "st
 const isStatus = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 400 && value <= 599;
 const isWait = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
-/** A code that reads as one (EIO, NEWER_VERSION): a driver may put a host in `code`. */
-const isCode = (value: unknown): value is string => typeof value === "string" && /^[A-Z][A-Z0-9_]{0,31}$/.test(value);
-
 /** The code of a Node system error (one with a `code` and a `syscall`), whose message names paths or hosts. */
 function systemCode(error: object): string | undefined {
   const { code, syscall } = error as { code?: unknown; syscall?: unknown };
-  return typeof syscall === "string" && isCode(code) ? code : undefined;
+  return typeof syscall === "string" && isErrorCode(code) ? code : undefined;
 }
 
 /**
@@ -113,7 +110,7 @@ function modelKindOf(error: object): ModelErrorKind | undefined {
  */
 function codeInWords(message: unknown): string | undefined {
   const code = typeof message === "string" ? /^(?:The file could not be read from storage|Upload failed) \(([A-Z][A-Z0-9_]{0,31})\)\.$/.exec(message)?.[1] : undefined;
-  return isCode(code) ? code : undefined;
+  return isErrorCode(code) ? code : undefined;
 }
 
 /**
@@ -144,7 +141,7 @@ function ingestInfo(code: string, status: unknown, retryAfterMs: unknown, messag
 const storeInfo = (code: unknown, message: string): ErrorInfo => ({
   category: "store",
   // As the store's message does, a code is given only when it reads as one.
-  ...(isCode(code) ? { code } : {}),
+  ...(isErrorCode(code) ? { code } : {}),
   status: 503,
   retryable: true,
   retryAfterMs: STORE_RETRY_AFTER_MS,

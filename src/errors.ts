@@ -1,3 +1,10 @@
+/**
+ * Whether `value` reads as a code (EIO, ETIMEDOUT, NEWER_VERSION): capitals, digits and "_", 32 at
+ * most. A driver may put a host in the `code` of an error ("db-prod.internal:27017"): such a code is
+ * never shown.
+ */
+export const isErrorCode = (value: unknown): value is string => typeof value === "string" && /^[A-Z][A-Z0-9_]{0,31}$/.test(value);
+
 /** The code and system call of a Node system error (`EIO`, `open`), when the value is one. */
 function systemError(value: unknown): { code?: string; syscall?: string } {
   const { code, syscall } = (value ?? {}) as { code?: unknown; syscall?: unknown };
@@ -44,7 +51,7 @@ function storeMessage(operation: DocumentStoreOperation, code: string | undefine
     : operation === "sweep" ? "The document store could not be cleaned up"
     : "The document store could not be read";
   // A code is shown only when it reads as one (EIO, ETIMEDOUT): a driver may put a host in `code`.
-  return `${what}${code && /^[A-Z][A-Z0-9_]{0,31}$/.test(code) ? ` (${code})` : ""}. Try again.`;
+  return `${what}${isErrorCode(code) ? ` (${code})` : ""}. Try again.`;
 }
 
 /**
@@ -146,12 +153,13 @@ export function isStoreWriteFailure(error: unknown): boolean {
 
 /**
  * What to tell a model, or a user, about an error: its message, unless it is a system error, whose
- * message names a path or a host of the server. Of that one only the code is passed on.
+ * message names a path or a host of the server. Of that one only the code is passed on, when it
+ * reads as one (`isErrorCode`).
  */
 export function safeErrorMessage(error: unknown): string {
   if (DocumentStoreError.is(error)) return (error as Error).message;
   const { code, syscall } = systemError(error);
-  if (code && syscall) return `The file could not be read from storage (${code}). Try the call again.`;
+  if (code && syscall) return `The file could not be read from storage${isErrorCode(code) ? ` (${code})` : ""}. Try the call again.`;
   return error instanceof Error ? error.message : String(error);
 }
 
