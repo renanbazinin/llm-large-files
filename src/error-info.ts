@@ -73,10 +73,13 @@ const isKind = (value: unknown): value is ModelErrorKind => typeof value === "st
 const isStatus = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 400 && value <= 599;
 const isWait = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
 
+/** A code that reads as one (EIO, NEWER_VERSION): a driver may put a host in `code`. */
+const isCode = (value: unknown): value is string => typeof value === "string" && /^[A-Z][A-Z0-9_]{0,31}$/.test(value);
+
 /** The code of a Node system error (one with a `code` and a `syscall`), whose message names paths or hosts. */
 function systemCode(error: object): string | undefined {
   const { code, syscall } = error as { code?: unknown; syscall?: unknown };
-  return typeof code === "string" && typeof syscall === "string" && /^[A-Z][A-Z0-9_]{0,31}$/.test(code) ? code : undefined;
+  return typeof syscall === "string" && isCode(code) ? code : undefined;
 }
 
 /** The kind of a model error: its own, or the one its status gives (an error of an adapter of your own). */
@@ -104,7 +107,8 @@ function ingestInfo(code: string, status: unknown, retryAfterMs: unknown, messag
 
 const storeInfo = (code: unknown, message: string): ErrorInfo => ({
   category: "store",
-  ...(typeof code === "string" ? { code } : {}),
+  // As the store's message does, a code is given only when it reads as one.
+  ...(isCode(code) ? { code } : {}),
   status: 503,
   retryable: true,
   retryAfterMs: STORE_RETRY_AFTER_MS,

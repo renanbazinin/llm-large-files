@@ -50,6 +50,16 @@ describe("errorInfoOf", () => {
     expectSafe(write);
   });
 
+  // A driver may put a host in `code`: the store's message leaves such a code out, and so does the
+  // info's `code` now (it passed it on as it was).
+  it("store: gives the code only when it reads as one", () => {
+    const hostCode = errorInfoOf(new DocumentStoreError(Object.assign(new Error("x"), { code: HOST })));
+    expect(hostCode).toEqual({ category: "store", status: 503, retryable: true, retryAfterMs: 5_000, message: "The document store could not be read. Try again." });
+    expect(errorInfoOf(new DocumentStoreError(Object.assign(new Error("x"), { code: "ECONNREFUSED" }))).code).toBe("ECONNREFUSED");
+    expect(errorInfoOf(new DocumentStoreError(undefined, { code: "NEWER_VERSION" })).code).toBe("NEWER_VERSION");
+    expect(errorInfoOf(new DocumentStoreError(Object.assign(new Error("x"), { code: "eio" }))).code).toBeUndefined();
+  });
+
   it("missing: documents that are gone, and a chat that is gone", () => {
     expect(errorInfoOf(new DocumentsNotFoundError(["doc_1"]))).toEqual({
       category: "missing", code: "documents_missing", status: 404, retryable: false, message: "A document is no longer available: doc_1. Upload it again.",
