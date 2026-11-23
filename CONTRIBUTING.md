@@ -6,7 +6,7 @@ models, the changelog and the docs. Releasing a version to npm is in
 
 ## Set up and run the checks
 
-You need Node 20.19 or later.
+You need Node 22.12 or later.
 
 ```bash
 npm install
@@ -19,7 +19,7 @@ npm run test:watch   # the tests again on every save
 | Script | What it does |
 | --- | --- |
 | `npm run typecheck` | `tsc --noEmit` over `src/`, `test/` and `examples/`, in strict mode with `noUncheckedIndexedAccess` and no unused locals or parameters. The examples must compile too. |
-| `npm test` | `vitest run`: every test in `test/`. No test calls a real model or needs a key. |
+| `npm test` | `vitest run`: every test in `test/`, in two Vitest projects: `unit`, files in parallel, then `timing`, one file at a time ([Tests](#tests)). No test calls a real model or needs a key. |
 | `npm run build` | Deletes `dist/` and compiles `src/` into it, with declarations and source maps (tsconfig.build.json). |
 
 The examples and most tests import the package by its names (`llm-large-files`,
@@ -31,8 +31,8 @@ you run the examples, they load `dist/`: run `npm run build` first. They need No
 The dev dependencies include the optional peers `jszip`, `unpdf` and `@cantoo/pdf-lib`, so the
 DOCX, PPTX and PDF tests run.
 
-CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: Node 20, 22
-and 24, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
+CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: Node 22, 24
+and 26, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
 the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`). Each job runs `npm ci`, the typecheck, the tests, the build and `npm pack --dry-run`. Files
 use LF line endings (`.gitattributes`).
 
@@ -50,6 +50,13 @@ use LF line endings (`.gitattributes`).
   Load a peer with `await import(...)` where it is needed, and its types with `import type`, so
   that the package works without it. When it is missing, throw an error that names it, as
   `Reading PDF files needs the optional dependency "unpdf".` does. Discuss before adding a peer.
+- **The types are Node's, without the DOM.** `tsconfig.json` has `"lib": ["ES2023"]` and no
+  `"DOM"`, as a server app compiles: `fetch`, `Response`, `TextDecoder` and `AbortSignal` come from
+  `@types/node`. A type that only the DOM library declares (`TextDecoderOptions`, `HeadersInit`)
+  does not compile: name it through the value, as `ConstructorParameters<typeof TextDecoder>[1]`
+  does. `@types/node` follows the floor in `engines`: its range starts at the oldest Node supported
+  (`^22.12.0` for `>=22.12`), so the code cannot use the API of a later major. Raise both in one
+  pull request.
 - **Tool names, arguments and result fields are public API; the rest of the text the model sees
   changes answers.** Models are prompted with the tool names, arguments and
   result fields, and the loop parses the calls they make. The tool descriptions (`src/tools.ts`),
@@ -68,6 +75,10 @@ Add a test for every change in behavior. No test calls a real model:
   request. The last entry repeats. `httpError(status)` makes an error as an adapter throws it, and
   `serviceLog(lines)` makes a service log of about 90 characters a line, with an `ERROR` line every
   97 lines.
+- **The fakes are part of the package.** They live in `src/testing/` and ship as
+  `llm-large-files/testing`, for the tests of apps ([Testing](docs/guides/testing.md)), with
+  `fakeFetch` for adapters. `test/fake-model.ts` re-exports them. A change to them is a change to
+  the public API, and they import nothing but files of `src/`: no test framework.
 - **Tests of an adapter** give it a fake `fetch` (its `fetch` option) that returns a provider's
   reply made by hand, and check the requests it sent.
 - **Tests of the Node handlers** serve `createDocumentHandlers` on a local HTTP server on
@@ -82,6 +93,14 @@ Add a test for every change in behavior. No test calls a real model:
   usual run and on a busy machine. When a test could reach the library's own time limits on a busy
   machine (the regex limits read `performance.now()`), stop that clock with
   `vi.useFakeTimers({ toFake: ["performance"] })`, as `test/volume.test.ts` does.
+- **A test that holds work to the clock** goes in a file of the `timing` project: one of the files
+  listed in `TIMING` in `vitest.config.ts`, or a new file added to that list. That is a test that
+  checks an elapsed time or an event-loop gap under a bound less than about 10 times what the work
+  takes on an idle machine, or counts the pauses that work leaves for a timer. Those files run one
+  at a time, after the others, with one retry and 20 s for each test: other files running beside
+  them slowed them, and on a busy machine they failed. A wait on a timer alone (a 50 ms limit
+  checked under 2 s) stays in the `unit` project. `npx vitest run --project unit` runs the rest
+  alone.
 
 A test of the loop, from start to answer:
 

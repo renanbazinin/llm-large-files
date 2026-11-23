@@ -176,30 +176,20 @@ function pageProgress(input: ExtractInput | undefined, stage: ExtractProgress["s
 }
 
 /**
- * Loads pdf.js through `unpdf`, and refuses a version of unpdf that cannot read PDFs on this
- * version of Node (`node`, as in `process.versions.node`), with a message that says what to install:
- * - unpdf 1.9 and later load a pdf.js that needs Node 22: on Node 20, every PDF fails.
- * - pdf.js calls `Promise.try`, which Node 20 and 22 do not have (Node 24 does). unpdf adds it
- *   where it is missing, but 1.5.0 to 1.6.0 do not: there, the first PDF throws where nothing can
- *   catch it, and the whole process stops.
- * The messages give the major version of Node only: an upload can be answered with them.
+ * Loads pdf.js through `unpdf`, and refuses a version of unpdf that would stop the process on this
+ * version of Node (`node`, as in `process.versions.node`), with a message that says what to install.
+ * pdf.js calls `Promise.try`, which Node 22 does not have (Node 24 does). unpdf adds it where it is
+ * missing, but 1.5.0 to 1.6.0 do not: there, the first PDF throws where nothing can catch it, and
+ * the whole process stops. An error of unpdf while it loads pdf.js is passed on as it is.
+ * The message gives the major version of Node only: an upload can be answered with it. Its start,
+ * "The unpdf installed", is what `ingestErrorCodeOf` reads as missing_dependency.
  */
 export async function checkUnpdf(unpdf: { getResolvedPDFJS?: unknown }, node: string = process.versions.node): Promise<void> {
   if (typeof unpdf.getResolvedPDFJS !== "function") return;
-  const major = Number.parseInt(node, 10);
-  try {
-    await (unpdf.getResolvedPDFJS as () => Promise<unknown>)();
-  } catch (error) {
-    if (major >= 22) throw error;
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`The unpdf installed cannot read PDF files on Node ${major} (${reason}). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.`);
-  }
+  await (unpdf.getResolvedPDFJS as () => Promise<unknown>)();
   if (typeof (Promise as { try?: unknown }).try !== "function") {
-    const advice = major < 22
-      ? "Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later."
-      : major < 24
-        ? "Install unpdf 1.6.1 or later, or run Node 24 or later."
-        : "Install unpdf 1.6.1 or later.";
+    const major = Number.parseInt(node, 10);
+    const advice = major < 24 ? "Install unpdf 1.6.1 or later, or run Node 24 or later." : "Install unpdf 1.6.1 or later.";
     throw new Error(`The unpdf installed would stop the whole server at the first PDF file on Node ${major}, so PDF files are not read. ${advice}`);
   }
 }

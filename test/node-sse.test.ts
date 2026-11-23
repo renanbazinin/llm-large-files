@@ -454,7 +454,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     const document = (last.data as { document: object }).document;
     expect(Object.keys(document)).not.toContain("owner");
 
-    const plain = await (await upload(url, "app.log", log, false)).json();
+    const plain = (await (await upload(url, "app.log", log, false)).json()) as object;
     expect(Object.keys(document).sort()).toEqual(Object.keys(plain).sort());
   });
 
@@ -463,7 +463,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     const binary = new Uint8Array(500);
     const plain = await upload(url, "a.bin", binary, false);
     expect(plain.status).toBe(422);
-    const { error } = await plain.json();
+    const { error } = (await plain.json()) as { error: string };
 
     const response = await upload(url, "a.bin", binary);
     expect(response.status).toBe(200);
@@ -511,7 +511,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     expect(await big.json()).toEqual({ error: "The file is larger than the 1000 B upload limit." });
     const unnamed = await fetch(url, { method: "POST", headers: { Accept: "text/event-stream" }, body: "x" });
     expect(unnamed.status).toBe(400);
-    expect((await unnamed.json()).error).toMatch(/X-File-Name/);
+    expect(((await unnamed.json()) as { error: string }).error).toMatch(/X-File-Name/);
 
     const documents = createDocumentHandlers(createLargeFiles({ store: new MemoryDocumentStore() }), {
       getOwner: () => {

@@ -292,9 +292,7 @@ describe("childScript and a reader that does not start (finding 43)", () => {
 describe("ingestErrorCodeOf (findings 29, 42)", () => {
   it("gives missing_dependency for an unpdf that cannot run on this Node", async () => {
     const refusal = (unpdf: Parameters<typeof checkUnpdf>[0], version: string) => checkUnpdf(unpdf, version).then(() => new Error("not refused"), (error: unknown) => error as Error);
-    const cannotLoad = await refusal({ getResolvedPDFJS: async () => { throw new TypeError("Promise.withResolvers is not a function"); } }, "20.19.0");
-    expect(cannotLoad.message).toMatch(/^The unpdf installed cannot read PDF files on Node 20/);
-    // Node 22 has no Promise.try (Node 24 does): taken away here, to be sure of the other message.
+    // Node 22 has no Promise.try (Node 24 does): taken away here, to be sure of the message.
     const promise = Promise as unknown as { try?: unknown };
     const saved = Object.getOwnPropertyDescriptor(Promise, "try");
     delete promise.try;
@@ -305,11 +303,9 @@ describe("ingestErrorCodeOf (findings 29, 42)", () => {
       if (saved) Object.defineProperty(Promise, "try", saved);
     }
     expect(wouldStop.message).toMatch(/^The unpdf installed would stop the whole server at the first PDF file on Node 22/);
-    for (const error of [cannotLoad, wouldStop]) {
-      expect(ingestErrorCodeOf(error.message)).toBe("missing_dependency");
-      expect((toIngestError(error) as IngestError).code).toBe("missing_dependency");
-    }
-    // The reason in the message does not change the code.
+    expect(ingestErrorCodeOf(wouldStop.message)).toBe("missing_dependency");
+    expect((toIngestError(wouldStop) as IngestError).code).toBe("missing_dependency");
+    // The message that 0.6.0 to 0.8.2 gave on Node 20 keeps its code, whatever the reason in it.
     expect(ingestErrorCodeOf("The unpdf installed cannot read PDF files on Node 20 (x is empty.). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.")).toBe("missing_dependency");
   });
 

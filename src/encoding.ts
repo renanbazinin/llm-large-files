@@ -506,11 +506,13 @@ function fits(sample: Uint8Array, encoding: string, script: Script): boolean {
 }
 
 /**
- * A decoder for an older encoding. Node 20 reads windows-1252 (and its other Latin-1 labels) as
- * Latin-1 in a decode call that is not streamed, so 0x80-0x9F come out as control characters
- * ("’" as U+0092), until the decoder has been called once streamed: that call is made here.
+ * A decoder for an older encoding. Some versions of Node read windows-1252 (and its other Latin-1
+ * labels) as Latin-1 in a decode call that is not streamed, so 0x80-0x9F come out as control
+ * characters ("’" as U+0092), until the decoder has been called once streamed: that call is made
+ * here. Not only Node 20 (20.18.3 and later): Node 22.13.0 brought the same bug
+ * (nodejs/node#60888), which 22.23.5 no longer has. Keep the call while such a 22.x is supported.
  */
-function decoderFor(encoding: string, options?: TextDecoderOptions): TextDecoder {
+function decoderFor(encoding: string, options?: ConstructorParameters<typeof TextDecoder>[1]): InstanceType<typeof TextDecoder> {
   const decoder = new TextDecoder(encoding, options);
   decoder.decode(new Uint8Array(0), { stream: true });
   return decoder;

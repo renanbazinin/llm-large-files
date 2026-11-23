@@ -205,7 +205,7 @@ A large PDF goes to the model as text, and text cannot show a chart. Keep the up
 the model gets a tool, `view_pages`, that hands it the pages it asks for as a small PDF:
 
 ```bash
-npm install unpdf @cantoo/pdf-lib  # Node 24; for Node 20 and 22, see Requirements
+npm install unpdf @cantoo/pdf-lib  # Node 24; for Node 22, see Requirements
 ```
 
 ```ts
@@ -306,6 +306,7 @@ Reference, one page per module:
 - [`llm-large-files/openai`](docs/reference/openai.md): `openAiCompatible()` and its options.
 - [`llm-large-files/anthropic`](docs/reference/anthropic.md): `anthropic()` and its options.
 - [`llm-large-files/node`](docs/reference/node.md): `createDocumentHandlers`, its routes and responses, `createIsolatedExtractors`.
+- [`llm-large-files/testing`](docs/reference/testing.md): `fakeModel` and `fakeFetch`, for your tests (new in 0.9.0).
 
 [Changelog](CHANGELOG.md): what each version changed, and what to change in your code when you upgrade.
 
@@ -315,21 +316,19 @@ maintainers: [Contributing](https://github.com/renanbazinin/llm-large-files/blob
 
 ## Requirements
 
-Node.js 20.19 or newer. The package is ESM; CommonJS code can `require()` it on Node 20.19+ and
-22.12+. For DOCX, PPTX and XLSX install `jszip`, for PDF install `unpdf`, and to mark and show the
-pages of a PDF, and refuse a page built to hold the server before it is read, install
-`@cantoo/pdf-lib`. All three are optional:
+Node.js 22.12 or newer. The package is ESM, and CommonJS code can `require()` it. For DOCX, PPTX
+and XLSX install `jszip`, for PDF install `unpdf`, and to mark and show the pages of a PDF, and
+refuse a page built to hold the server before it is read, install `@cantoo/pdf-lib`. All three are
+optional:
 
 ```bash
 npm install jszip unpdf @cantoo/pdf-lib        # Node 24 and later
 npm install jszip unpdf@1 @cantoo/pdf-lib      # Node 22
-npm install jszip unpdf@1.7.0 @cantoo/pdf-lib  # Node 20
 ```
 
-On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24. On Node 20,
-unpdf 1.9 and later cannot load pdf.js, and on Node 20 and 22 the pdf.js of unpdf 1.5.0 to 1.6.0
-would stop the whole process. Such an unpdf is refused at the first PDF, with a message that says
-what to install.
+On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24. On Node 22, the
+pdf.js of unpdf 1.5.0 to 1.6.0 would stop the whole process. Such an unpdf is refused at the first
+PDF, with a message that says what to install.
 
 ## License
 

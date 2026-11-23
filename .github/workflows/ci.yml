@@ -16,7 +16,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [20, 22, 24]
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -32,19 +32,18 @@ jobs:
   unpdf-versions:
     # The tests above run with the unpdf that package-lock.json pins (1.4.0). Other versions in the
     # peer range behave otherwise on some versions of Node: unpdf 1.5.0 to 1.6.0 stopped the whole
-    # process at the first PDF on Node 20 and 22, and 1.9 and later cannot load pdf.js on Node 20.
-    # Each version must read PDFs where it can, and be refused with a message where it cannot.
+    # process at the first PDF on Node 22, which has no Promise.try. Each version must read PDFs
+    # where it can, and be refused with a message where it cannot.
     name: unpdf ${{ matrix.unpdf }} on Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { node: 20, unpdf: "1.7.0" } # the last version for Node 20
           - { node: 22, unpdf: "^1" }
           - { node: 24, unpdf: "^1" }
           - { node: 24, unpdf: "^2" } # unpdf 2 needs Node 24
-          - { node: 20, unpdf: "1.9", refused: true } # npm would pick 1.7.0 on Node 20 for "^1"
+          - { node: 26, unpdf: "^2" }
           - { node: 22, unpdf: "1.6.0", refused: true }
     steps:
       - uses: actions/checkout@v7
