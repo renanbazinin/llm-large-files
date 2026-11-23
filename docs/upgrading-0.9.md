@@ -39,16 +39,19 @@ ordinary chats, so the provider's prompt cache is not lost at the upgrade
 ## Does my code compile?
 
 Most code does. Every new option and field is optional. Every method of `DocumentStore` takes a new
-last argument, `context`, and it is optional too: a store written for 0.8, whose methods take
-none, still implements the interface. These do not compile:
+last argument, `context`, and it is optional too: a store whose methods take only the arguments of
+0.8 still implements the interface. These do not compile:
 
 | Code of yours | The error | What to write |
 |---|---|---|
 | A `switch` over `NoticeCode` with a `never` check, or a `Record<NoticeCode, …>` | Three new members: `"documents_missing"`, `"document_gone"`, `"page_looks_busy"` | Add them; a `switch` can end in a `default` instead |
 | A `switch` over `IngestErrorCode` with a `never` check, or a `Record<IngestErrorCode, …>` | A new member: `"exists"` (409) | Add it |
-| `event.error.code` used as an `IngestErrorCode` | `EventError.code` is now `IngestErrorCode \| DocumentScopeErrorCode` | Check the code first |
-| A `LargeFiles` of your own whose `ingest` parameter is inferred, and that reads `input.bytes` (TS18048) or passes `input` to a function that takes `IngestInput` (TS2345) | `ingest` takes `IngestInput \| IngestFromSource`: a file can come as a path, without bytes | Narrow `input` |
+| `event.error.code` used as an `IngestErrorCode`, or a `switch` over it with a `never` check | `EventError.code` is now `IngestErrorCode \| DocumentScopeErrorCode` | Check the code first; a `switch` needs `"exists"` and the three scope codes |
+| Code that reads `input.bytes` of the argument of `ingest` (TS18048, TS2532): a `LargeFiles` of your own whose `ingest` parameter is inferred, the calls of a spy or mock of `files.ingest`, a value typed `Parameters<LargeFiles["ingest"]>[0]`. Or that passes it to a function that takes `IngestInput` (TS2345) | `ingest` takes `IngestInput \| IngestFromSource`: a file can come as a path, without bytes | Narrow `input` |
+| A store of your own, or a subclass of `FileDocumentStore` or `MemoryDocumentStore`, whose method takes a parameter of its own after those of 0.8: `get(id, options?)`, `sweep(now?, dryRun?)` (TS2322, TS2416) | The new `context` takes that place, and the library passes it there | Put your parameter after `context`: `get(id, context?, options?)` |
 | A subclass of `DocumentStoreError` that declares its own `status`, or of `DocumentsNotFoundError` that declares its own `status` or `code` | They are `503`, and `404` and `"documents_missing"` | Leave them out |
+| A subclass of `IngestError`, `DocumentStoreError`, `DocumentsNotFoundError` or `ModelRequestError` with a static `is` that does not fit `(value: unknown) => value is …`, such as one that returns `boolean` (TS2417) | Each of them has a static `is` now | Return `value is` your class, or rename yours |
+| `fromGeminiContents` passed as a callback: `histories.map(fromGeminiContents)` (TS2345) | Its new second parameter would get the index | `histories.map((contents) => fromGeminiContents(contents))` |
 
 The fixes, for a page that words notices and the errors of uploads, and for a wrapper of the
 library:

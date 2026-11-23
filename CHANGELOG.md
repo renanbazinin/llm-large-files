@@ -50,7 +50,7 @@ worked example of a chatbot on a shared volume.
 
 ### Upgrading: what you need to change
 
-Code written for 0.8.2 compiles with 0.9.0, with these exceptions
+Code written for 0.8.2 compiles with 0.9.0, except in these cases
 ([Does my code compile?](docs/upgrading-0.9.md#does-my-code-compile)):
 
 - `NoticeCode` has three new members, `"documents_missing"`, `"document_gone"` and
@@ -59,20 +59,34 @@ Code written for 0.8.2 compiles with 0.9.0, with these exceptions
 - `EventError.code` is now `IngestErrorCode | DocumentScopeErrorCode`: the `run.error` or
   `ingest.error` of a scope error carries `"scope_missing"`, `"scope_invalid"` or
   `"scope_required"`. Code that indexes a `Record<IngestErrorCode, …>` with it, or passes it where
-  an `IngestErrorCode` is expected, must check it first.
-- `LargeFiles.ingest` takes `IngestInput | IngestFromSource`. A `LargeFiles` of your own whose
-  `ingest` parameter is inferred (`{ ...files, ingest: (input) => … }`) fails with TS18048 when it
-  reads `input.bytes`, and with TS2345 when it passes `input` to a function that takes
-  `IngestInput`. Narrow it: `if (input.bytes)`, or `"source" in input`. Annotating
-  `(input: IngestInput)` compiles too, but only suits a wrapper that is never given a path:
-  `createDocumentHandlers` gives one with `uploadSpool` or `prepareUpload`.
+  an `IngestErrorCode` is expected, must check it first. A `switch` over it with a `never` check
+  needs `"exists"` and the three scope codes.
+- `LargeFiles.ingest` takes `IngestInput | IngestFromSource`. Code that reads `input.bytes` of its
+  argument fails with TS18048 or TS2532: a `LargeFiles` of your own whose `ingest` parameter is
+  inferred (`{ ...files, ingest: (input) => … }`), the calls of a spy or mock of `files.ingest`
+  (`spy.mock.calls[0][0].bytes`), and a value typed `Parameters<LargeFiles["ingest"]>[0]`. Code
+  that passes `input` to a function that takes `IngestInput` fails with TS2345. Narrow it:
+  `if (input.bytes)`, or `"source" in input`. Annotating `(input: IngestInput)` compiles too, but
+  only suits a wrapper that is never given a path: `createDocumentHandlers` gives one with
+  `uploadSpool` or `prepareUpload`.
+- A store of your own, or a subclass of `FileDocumentStore` or `MemoryDocumentStore`, whose method
+  takes a parameter of its own after those of 0.8 (`get(id, options?)`, `sweep(now?, dryRun?)`,
+  `readTextRange(id, start, end, signal?)`) fails with TS2322 or TS2416. The new `context` takes
+  that place, and the library passes it there. Put your parameter after `context`.
 - A subclass of `DocumentStoreError` that declares its own `status`, or of
   `DocumentsNotFoundError` that declares its own `status` or `code`: these are now `503`, and `404`
   and `"documents_missing"`.
+- A subclass of `IngestError`, `DocumentStoreError`, `DocumentsNotFoundError` or
+  `ModelRequestError` whose own static `is` does not fit `(value: unknown) => value is …` (one
+  that returns `boolean`, say) fails with TS2417: each of them has a static `is` now. Make yours
+  return `value is` your class, or rename it.
+- `fromGeminiContents` passed as a callback (`histories.map(fromGeminiContents)`) fails with
+  TS2345: its new second parameter would get the index. Write
+  `histories.map((contents) => fromGeminiContents(contents))`.
 
-Every other change to the public types is an addition. Every `DocumentStore` method takes a last,
-optional `context`, and a store written for 0.8, whose methods take none, still implements the
-interface. The new exports are under **New**.
+The other changes to the public types add exports, options, fields and optional parameters. Each
+`DocumentStore` method takes a last, optional `context`: a store whose methods take only the
+arguments of 0.8 still implements the interface. The new exports are under **New**.
 
 Some behavior is different. Check each point against your app:
 
