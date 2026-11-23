@@ -1017,12 +1017,36 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       tokenLimit = Math.min(tokenLimit, Math.floor(refused.limitTokens / own) - replyTokens - Math.floor(reservedTokens / 2));
     }
     if (!canShrink) return false;
+    return shortenUntil(() => meter.current(messages).tokens <= tokenLimit);
+  };
+  /**
+   * Shortens old tool results until `fits`: those of every round but the last three, then two,
+   * then one, then all. True when anything was shortened.
+   */
+  const shortenUntil = (fits: () => boolean): boolean => {
     let changed = false;
     for (const keep of [...ROUNDS_KEPT, 0]) {
-      if (changed && meter.current(messages).tokens <= tokenLimit) break;
+      if (changed && fits()) break;
       if (shrink(keep)) changed = true;
     }
     return changed;
+  };
+  /**
+   * Before the first request of the question: when the stored rounds of earlier questions make it
+   * larger than the room it has, their results are shortened as they would be after the provider
+   * refused it (`makeRoom`), and it is sent shortened, instead of sent to be refused. The rounds
+   * are those of earlier questions: nothing of this question has been sent, and a stored round has
+   * no thinking in it, so this is done for a model whose conversation may only grow (Claude) too.
+   */
+  let firstSent = false;
+  const preflight = () => {
+    if (firstSent) return;
+    firstSent = true;
+    const fits = () => {
+      const now = meter.current(messages);
+      return now.tokens <= tokenLimit && now.bytes <= byteLimit;
+    };
+    if (!fits() && shortenUntil(fits)) step("Older tool results were shortened to make room in the request", "results_shortened");
   };
   /**
    * The window to plan the documents for again, in the models' tokens, after the first request was
@@ -1056,6 +1080,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
    * window (`Replan`). `build` makes the request from the conversation as it is then.
    */
   const send = async (adapter: ModelAdapter, build: () => ModelRequest, shown: boolean, kind: RequestKind): Promise<ModelReply> => {
+    preflight();
     for (let again = false; ; again = true) {
       const body = build();
       try {
