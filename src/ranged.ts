@@ -359,14 +359,23 @@ export async function openRangedDocument(
   if (!options.ignoreSavedIndex && store.getIndex) {
     const saved = await store.getIndex(meta.id).catch(() => undefined);
     if (saved) index = parseTextIndex(saved, meta);
+    // A saved index that fits the metadata may still not fit the text: another document's text,
+    // written under the ID apart from its metadata and its index (two servers that ingest one ID at
+    // once). Its pieces are checked as they are read, but lines of the same lengths would pass. So
+    // the text must end where the index says: one byte is read across that end. Otherwise the index
+    // is built again from the text, and compared with the metadata below.
+    if (index && index.textBytes > 0) {
+      const tail = await store.readTextRange(meta.id, index.textBytes - 1, index.textBytes + 1).catch(() => undefined);
+      if (tail?.length !== 1) index = undefined;
+    }
   }
   if (!index) {
     index = await buildIndexFromStore(store, meta.id, settings.limiter);
     if (!index) return undefined;
     // An index of another number of lines or characters than the metadata describes a text that is
     // not what was ingested: another document's, written under the ID apart from its metadata (two
-    // servers that ingest one ID at once). Missing, as a document read whole is (0.9.0: it was used,
-    // and not saved). Every version counted lines and characters as the index does.
+    // servers that ingest one ID at once). Missing, as a document read whole is (before 0.9.0 it was
+    // used, and not saved). Every version counted lines and characters as the index does.
     if (index.lineCount !== meta.lines || index.characters !== meta.characters) return undefined;
     if (store.putIndex && canSerialize(index) && (meta.textBytes === undefined || index.textBytes === meta.textBytes)) {
       await store.putIndex(meta.id, serializeTextIndex(index)).catch(() => undefined);

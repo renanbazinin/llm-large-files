@@ -144,8 +144,13 @@ describe("FileDocumentStore on a volume", () => {
     const tools = files.tools([small, large]);
     await tools.execute("read_document", { document_id: small.id, start_line: 5 });
     expect(calls).toEqual({ get: 1, readTextRange: 0 });
+    // Two reads by range: one byte across the end of the text, which must be where its saved index
+    // says (src/ranged.ts), and lines 5 to 6.
     await tools.execute("read_document", { document_id: large.id, start_line: 5, end_line: 6 });
-    expect(calls).toEqual({ get: 1, readTextRange: 1 });
+    expect(calls).toEqual({ get: 1, readTextRange: 2 });
+    // The document is kept open: a second read reads only its lines.
+    await tools.execute("read_document", { document_id: large.id, start_line: 7, end_line: 8 });
+    expect(calls).toEqual({ get: 1, readTextRange: 3 });
   });
 
   it("opens an older document that has no index, builds the index once, and saves it for the next server", async () => {

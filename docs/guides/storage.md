@@ -830,6 +830,9 @@ time ([the cache](#the-cache) has the sizes). The rules:
   again. When the index built again has another number of lines or characters than the metadata
   says, the text is not the one that was ingested, and the document reads as missing (new in 0.9.0;
   before, that text was read).
+- When a document is opened through its saved index, one byte is read across the end of the text
+  that the index gives (new in 0.9.0): a text that does not end there has its index built again, and
+  compared with the metadata as above.
 - Return fewer bytes at the end of the text, and an empty array when `start` is at or past its end.
   That happens: the index is built by reading 4 MB at a time until a read comes back short, so a
   text whose size is a multiple of 4 MB ends with a read that starts at its end.

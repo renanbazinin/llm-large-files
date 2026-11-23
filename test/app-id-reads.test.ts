@@ -94,7 +94,7 @@ class TextThenRecord implements DocumentStore {
   readonly texts = new Map<string, string>();
   readonly records = new Map<string, DocumentMeta>();
   readonly indexes = new Map<string, Uint8Array>();
-  step: (owner: string | undefined, at: "put" | "stored") => Promise<void> = async () => undefined;
+  step: (owner: string | undefined, at: "put" | "stored" | "index" | "indexed") => Promise<void> = async () => undefined;
 
   async put({ meta, text }: StoredDocument) {
     await this.step(meta.owner, "put");
@@ -120,8 +120,10 @@ class TextThenRecord implements DocumentStore {
     const text = this.texts.get(id);
     return text === undefined ? undefined : utf8(text).subarray(start, end);
   }
-  async putIndex(id: string, index: Uint8Array) {
+  async putIndex(id: string, index: Uint8Array, context?: DocumentContext) {
+    await this.step(context?.owner, "index");
     this.indexes.set(id, index.slice());
+    await this.step(context?.owner, "indexed");
   }
   async getIndex(id: string) {
     return this.indexes.get(id)?.slice();
@@ -298,6 +300,59 @@ describe("a document read by range", () => {
     const search = await one.tools([meta], { access: alice }).execute("search_document", { document_id: "up-1", query: "Bob", mode: "exact" });
     expect(JSON.stringify(search)).not.toContain("Bob wrote");
     expect(search).toMatchObject({ error: expect.stringContaining("no longer available") });
+  });
+
+  it("is missing when its text is not the one its saved index describes: the winner's index landed last, and the text is of lines of the same lengths", async () => {
+    // Bob's index, then alice's, then alice's put, then bob's put, which writes his text over
+    // alice's and fails at the record. The saved index is alice's, and fits her metadata; bob's text
+    // has her lines' byte lengths, and two lines more. Its end is not where her index says.
+    const store = new TextThenRecord();
+    const one = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const two = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const alice = { owner: "alice", scope: ["alice", "c1"] };
+    const bob = { owner: "bob", scope: ["bob", "c9"] };
+    const lines = (who: string, count: number) => Array.from({ length: count }, (_, at) => `line ${String(at).padStart(4, "0")} ${who}\n`).join("");
+    const bobIndexed = gate();
+    const aliceStored = gate();
+    store.step = async (owner, at) => {
+      if (owner === "bob" && at === "indexed") bobIndexed.open();
+      if (owner === "alice" && at === "index") await bobIndexed.promise;
+      if (owner === "alice" && at === "stored") aliceStored.open();
+      if (owner === "bob" && at === "put") await aliceStored.promise;
+    };
+    const [stored, refused] = await Promise.allSettled([
+      one.ingest({ name: "alice.log", bytes: utf8(lines("alice", 300)), id: "up-1", ...alice }),
+      two.ingest({ name: "bob.log", bytes: utf8(lines("BOBBY", 302)), id: "up-1", ...bob }),
+    ]);
+    expect(stored.status).toBe("fulfilled");
+    expect(refused).toMatchObject({ status: "rejected", reason: { code: "exists" } });
+    expect(store.records.get("up-1")).toMatchObject({ owner: "alice", lines: 300 });
+    expect(store.texts.get("up-1")).toContain("BOBBY");
+    const prepared = await one.prepare(["up-1"], base, alice);
+    expect(prepared.missing).toEqual(["up-1"]);
+    expect(JSON.stringify([...prepared.blocks.values()])).not.toContain("BOBBY");
+    const meta = (stored as PromiseFulfilledResult<DocumentMeta>).value;
+    const read = await one.tools([meta], { access: alice }).execute("read_document", { document_id: "up-1", start_line: 1, end_line: 5 });
+    expect(JSON.stringify(read)).not.toContain("BOBBY");
+    expect(read).toMatchObject({ error: expect.stringContaining("no longer available") });
+  });
+
+  it("is used through its saved index when the text ends where the index says", async () => {
+    // The same store and texts, ingested once each: the saved index is read, and the end of the
+    // text checked against it, without building the index again.
+    const store = new TextThenRecord();
+    const files = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const meta = await files.ingest({ name: "a.log", bytes: utf8(Array.from({ length: 300 }, (_, at) => `line ${at} alice\n`).join("")), id: "up-2" });
+    expect(store.indexes.has("up-2")).toBe(true);
+    let built = 0;
+    const read = store.readTextRange.bind(store);
+    store.readTextRange = async (id, start, end) => {
+      if (start === 0) built++;
+      return read(id, start, end);
+    };
+    const shown = await files.tools([meta]).execute("read_document", { document_id: "up-2", start_line: 299, end_line: 300 });
+    expect(JSON.stringify(shown)).toContain("line 299 alice");
+    expect(built).toBe(0);
   });
 
   for (const sameSize of [true, false]) {

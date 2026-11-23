@@ -654,7 +654,8 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     // that metadata describes, of its length and its number of lines: a store that writes the text
     // and the metadata apart can give one document's metadata with another's text (two servers that
     // ingest one ID at once, a file read between two writes). A document read by range is checked
-    // against its index the same way. Missing, as for a caller who may not use it.
+    // too: its index against the metadata, and the end of its text against its index
+    // (openRangedDocument). Missing, as for a caller who may not use it.
     const found = stored ? metaOf(stored.meta, id) : undefined;
     if (!stored || !found || !mayUse(found, caller, rules) || documentVersion(found) !== documentVersion(meta)) return undefined;
     if (typeof stored.text !== "string" || stored.text.length !== found.characters) return undefined;
