@@ -343,6 +343,12 @@ export type ToolCallHooks = {
    * an error that says so. `askWithFiles` makes it a "document_gone" notice. New in 0.9.0.
    */
   onDocumentGone?: (documentId: string) => void;
+  /**
+   * A look at pages (`view_pages`) waited longer than `pageLookWaitMs` for its turn
+   * (`maxConcurrentPageLooks`) and was not run. The call answers the model with an error that says
+   * the server is busy. `askWithFiles` makes it a "page_looks_busy" notice. New in 0.9.0.
+   */
+  onPagesBusy?: (documentId: string) => void;
 };
 
 /** One model request of a tool call (`ToolCallHooks.onRequest`). */

@@ -1620,6 +1620,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           gone.add(id);
           notice("document_gone", `${nameOf(id) ?? "A file"} is no longer available on the server.`, [id]);
         }),
+        onPagesBusy: (id) => tell(() => notice("page_looks_busy", `The pages of ${nameOf(id) ?? "a file"} were not looked at: the server was busy with other looks at pages.`, [id])),
       });
 
       // The calls of a turn run together, a few at a time. Looks at pages take their turns, one

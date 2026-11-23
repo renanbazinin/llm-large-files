@@ -97,7 +97,9 @@ export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_ru
  * - "documents_missing": documents of `documentIds` were missing, and the question is answered
  *   without them (`AskOptions.onMissingDocuments` "drop"; `AskResult.missing`). New in 0.9.0;
  * - "document_gone": a tool call found a document gone during the question (deleted or expired
- *   since it was planned). The model was told so in the call's result. New in 0.9.0.
+ *   since it was planned). The model was told so in the call's result. New in 0.9.0;
+ * - "page_looks_busy": a look at pages waited its turn (`maxConcurrentPageLooks`) longer than
+ *   `pageLookWaitMs`, and was not run. The model was told so in the call's result. New in 0.9.0.
  *
  * A switch over every code must handle the codes added in a later version.
  */
@@ -114,7 +116,8 @@ export type NoticeCode =
   | "no_room"
   | "blocked"
   | "documents_missing"
-  | "document_gone";
+  | "document_gone"
+  | "page_looks_busy";
 
 /**
  * Where a notice went in the callbacks of earlier versions: "activity" to `onActivity`, "step" to
@@ -267,7 +270,7 @@ export type AskEvent =
       display: NoticeDisplay;
       /**
        * The documents the notice is about: those left out ("documents_missing"), the one found gone
-       * ("document_gone"). New in 0.9.0.
+       * ("document_gone"), the one whose pages were not looked at ("page_looks_busy"). New in 0.9.0.
        */
       documentIds?: string[];
     })
