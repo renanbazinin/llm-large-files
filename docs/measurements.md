@@ -377,7 +377,8 @@ two beats of a 5 ms timer, as in the table of 0.6.0 below.
 | 95 MB, 1,123,485 lines (5 runs) | 342 to 347 MB | 233 to 360 ms | 11.6 to 14.9 s |
 
 Over a `MemoryDocumentStore` (2 runs each), the peaks were 78 to 81 MB, 123 MB and 204 to 206 MB,
-with the stored text in them. The 95 MB log also fitted in a heap of 256 MB
+with the stored text in them. Its longest stall for the 95 MB log was about 150 to 240 ms, the UTF-8
+decoding below. The 95 MB log also fitted in a heap of 256 MB
 (`--max-old-space-size=256`), and of 192, over a `FileDocumentStore`. The longest stalls are two
 steps that run in one block, each taking about 2 to 4 ms for each MB of text on this machine:
 
@@ -386,8 +387,10 @@ steps that run in one block, each taking about 2 to 4 ms for each MB of text on 
 - over a `FileDocumentStore`, the writing of the text, which encodes it to UTF-8 in one call
   (`Buffer.from` alone took 184 to 217 ms).
 
-The other steps pause about every 12 ms (gaps of 40 to 70 ms on this busy machine). The 31 to 34 ms
-of 0.6.0 for a 99 MB log (below) were measured over a `MemoryDocumentStore`, on Windows with Node 24.
+The other steps pause about every 12 ms (gaps of 40 to 70 ms on this busy machine). 0.6.0 decoded
+the same way and measured 31 to 34 ms for a 99 MB log (below), on Windows with Node 24. The store
+does not explain the difference, since the decoding is one block over either store: the machine
+and its load do.
 [Deployment](./guides/deployment.md) turns these into sizing advice.
 
 **Many uploads at once (0.8.2, November 2026, Node 22 on Linux, 8 cores).** 100 logs of 2 MB

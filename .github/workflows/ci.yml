@@ -114,8 +114,14 @@ jobs:
         continue-on-error: true
         run: npm run coverage
       - name: Coverage in the summary of the job
-        if: ${{ !cancelled() && hashFiles('coverage/coverage-summary.json') != '' }}
+        # Runs whenever the job was not cancelled. With no coverage summary at all, coverage itself
+        # is broken (a config error, a vitest and coverage-v8 mismatch, a crash): the job fails.
+        if: ${{ !cancelled() }}
         run: |
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "::error::npm run coverage wrote no coverage/coverage-summary.json"
+            exit 1
+          fi
           node -e '
             const total = require("./coverage/coverage-summary.json").total;
             console.log("| src/ | Covered | |\n|---|---|---|");

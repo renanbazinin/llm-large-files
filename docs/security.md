@@ -757,12 +757,15 @@ server that memory is the server's heap. Choose the isolation with care:
   on their documents (`viewPages: false`), or keep no PDF originals
   ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)).
 - **Stalls.** Ingest pauses for other requests about every 12 ms of its work: between the pages of
-  a PDF, as a DOCX or PPTX is unpacked, as a text file that is not UTF-8 is decoded, and in every
-  step after extraction, a line of megabytes included. In a measurement on one machine, the longest
-  stall of the event loop was 31 to 34 ms for a 99 MB log and 0.16 s for a 2,000-page PDF, against
-  1.9 to 2.0 s and 4.4 to 4.5 s with the ingest of 0.5.0
+  a PDF, as a DOCX or PPTX is unpacked, as a text file that is not UTF-8 is decoded, and in the
+  steps after extraction up to the store, a line of megabytes included. In a measurement of 0.6.0
+  on one machine, the longest stall of the event loop was 31 to 34 ms for a 99 MB log and 0.16 s for
+  a 2,000-page PDF, against 1.9 to 2.0 s and 4.4 to 4.5 s with the ingest of 0.5.0; 0.9.0 measured
+  0.23 to 0.36 s for a 95 MB log on a slower, busy machine
   ([Measurements](./measurements.md#the-server)). Some steps still hold the server, and neither the
   time limit nor a signal cuts them short:
+  - A text file in UTF-8, as it is decoded when its reading starts, and, over a
+    `FileDocumentStore`, as its text is written: about 2 to 4 ms for each MB.
   - A PDF page, for as long as pdf.js takes to read it: up to about 1.5 s for a page that passes
     the check in a small file, longer in a large file, and without limit when the page check does
     not run (without `@cantoo/pdf-lib`, on a file it cannot read or that declares more than 150,000
