@@ -4,9 +4,10 @@ import { DocumentCache, documentVersion, type Sized } from "./cache.js";
 import type { IngestEvent } from "./events.js";
 import { ingestDocument, LONGEST_TIMER_MS, type IngestContext } from "./ingest.js";
 import { Limiter } from "./limiter.js";
-import { canBeReadWhole, CARD_LINES, documentToolsInstruction, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
-import { DocumentGoneError, openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
-import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
+import { canBeReadWhole, TABLE_FORMATS } from "./plan.js";
+import { prepareDocuments, type PrepareContext } from "./prepare.js";
+import { openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
+import { SearchableDocument, type DocumentSource } from "./search.js";
 import { TimeSlicer } from "./pause.js";
 import { checkScope } from "./scope.js";
 import { isSha256, sha256InSlices } from "./source.js";
@@ -808,32 +809,8 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
     return false;
   }
 
-  /**
-   * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
-   * by now. A copy found to disagree with the store is opened again once.
-   */
-  async function block(id: string, meta: DocumentMeta, caller: Caller, whole: boolean, viewable: boolean, wholeRead: WholeRead): Promise<string | undefined> {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const document = await load(id, caller, attempt === 0 ? meta : undefined);
-      if (!document) return undefined;
-      let text: string;
-      try {
-        text = whole
-          ? renderInline(document.meta, await document.readText())
-          : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead);
-      } catch (error) {
-        // The text is gone while its metadata is still there (removed outside the library): the
-        // same as missing. It was a plain Error, which failed the whole question.
-        if (error instanceof DocumentGoneError) return undefined;
-        if (document.broken) continue;
-        // Deleted between the look-up and the read: the same as missing.
-        if (!await metaFor(id, caller)) return undefined;
-        throw error;
-      }
-      return await stillOpened(document, caller) ? text : undefined;
-    }
-    return undefined;
-  }
+  /** What planning a request (`prepareDocuments`, src/prepare.ts) needs of this library. */
+  const planning: PrepareContext = { metaFor, load, stillOpened, budgetFor, viewableMeta, rules };
 
   return {
     budget,
@@ -871,45 +848,9 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       return storeCall("sweep", () => store.sweep!(now(), storeContext(scope, undefined)));
     },
 
-    async prepare(ids, base, access) {
-      const caller = callerOf(access, rules);
-      const budget = budgetFor(access?.budget);
-      const analysis = access?.wholeDocumentAnalysis !== false;
-      const unique = [...new Set(ids)];
-      let documents: DocumentMeta[] = [];
-      const missing: string[] = [];
-      for (const id of unique) {
-        // A document of another owner or scope is reported as missing, not as forbidden, and is
-        // not read at all.
-        const meta = await metaFor(id, caller);
-        if (meta) documents.push(meta);
-        else missing.push(id);
-      }
-      // Planning needs only the metadata. The text is read for the documents sent whole, and the
-      // first lines for the others. One that is gone by then is missing, and the plan is made again.
-      for (;;) {
-        const plan = planDocuments(documents, budget, base);
-        const inline = new Set(plan.inline.map((meta) => meta.id));
-        // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
-        const viewable = access?.viewPages ? documents.filter(viewableMeta) : [];
-        const shown = new Set(viewable.map((meta) => meta.id));
-        const blocks = new Map<string, string>();
-        const gone: string[] = [];
-        for (const meta of documents) {
-          const wholeRead = !analysis ? "not_offered" : canBeReadWhole(meta, budget) ? "offered" : "too_large";
-          const text = await block(meta.id, meta, caller, inline.has(meta.id), shown.has(meta.id), wholeRead);
-          if (text === undefined) gone.push(meta.id);
-          else blocks.set(meta.id, text);
-        }
-        if (gone.length === 0) {
-          // A whole-document read is named only when the tools have it, and one of the files is
-          // small enough for it.
-          const wholeReads = analysis && plan.searchable.some((meta) => canBeReadWhole(meta, budget));
-          return { plan, blocks, instruction: documentToolsInstruction(plan.searchable, viewable, wholeReads), missing, viewable };
-        }
-        missing.push(...gone);
-        documents = documents.filter((meta) => !gone.includes(meta.id));
-      }
+    // The options go on whole: planning (src/prepare.ts) reads the ones it knows.
+    prepare(ids, base, prepareOptions) {
+      return prepareDocuments(planning, ids, base, prepareOptions);
     },
 
     tools(documents, toolOptions = {}) {
