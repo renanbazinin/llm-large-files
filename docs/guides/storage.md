@@ -299,15 +299,18 @@ const report = await strict.ingest({ name: "report.txt", bytes, owner: "user-42"
 - Across servers, the store is asked twice: before the file is read, and just before the writes.
   Two servers can still both find an ID free and write it at the same moment. The library assumes
   that two ingests of one ID on two servers at once are the same upload, sent twice: the last write
-  wins. So give each upload an ID of its own.
+  wins. Over a store that hides a record until its text is written, as the
+  [example](#example-object-storage-and-a-database) does, both usually fail with a 503 instead, and
+  nothing is stored. So give each upload an ID of its own.
 - When a write fails, the ingest removes what it wrote, but only while the document under the ID is
   its own. A document whose metadata it finds there, and that is not its own, is left. If that one
   has not expired and is of another owner or scope (another server stored it meanwhile), the ingest
   throws `"exists"`. Otherwise, as when the delete of the document a replace was to remove fails, it
   throws the store's error (503), as for any failed write.
 - The clean-up sees only metadata. The parts of a document that another server is still writing at
-  that moment (its original, its index) may be removed. One more reason to give each upload an ID of
-  its own.
+  that moment (its original, its index; with a store that hides a record until its text is written,
+  as the example does, that record and its text too) may be removed. One more reason to give each
+  upload an ID of its own.
 - A 409 tells the caller that the ID is taken, whoever has it: over a store that ignores the
   context, in any scope. So an ID that can be guessed can be probed. Use random IDs, as
   [`attach()` below](#a-layout-per-user-and-per-chat) does
@@ -893,8 +896,9 @@ What the library does with what you throw depends on the call:
   over the text of the document that is left. The library reads that document as missing when its
   text has another length or number of lines than its metadata says, but cannot tell a text of the
   same length and lines. The [example](#example-object-storage-and-a-database) claims the record
-  first. The document a replace was to remove, when that `delete` failed, is left too, and the error
-  is the 503 above.
+  first, so it never writes over the text of the document that is left; two ingests of one ID that
+  overlap then usually both fail with a 503 (its notes say why). The document a replace was to
+  remove, when that `delete` failed, is left too, and the error is the 503 above.
 - **`delete` and `sweep`**: your error comes out of `files.delete` and `files.sweep` as a
   `DocumentStoreError` of operation `"delete"` or `"sweep"`, with your error as `cause` (new in
   0.9.0: it came out as it was). The DELETE handler answers it 503 with its message.
@@ -1096,6 +1100,12 @@ export const files = createLargeFiles({
   no text. Its index and its original were written before `put`, so they can still land over the
   other's. The library checks both: an index that does not match the metadata is built again from
   the text, and an original of another size or SHA-256 reads as missing.
+- While one server's record is still marked, another server's ingest of that ID cannot see it. Its
+  insert fails, and its clean-up finds nothing with `getMeta`, so it calls `delete`, which removes
+  the marked record and its text. Both ingests then fail with a 503, even for one upload sent twice,
+  and nothing wrong is served. If the first `put` ended between that look and the `delete`, its
+  document is removed after its 201 and reads as missing. An ID of its own for each upload, as
+  `attach()` makes, avoids all of this.
 - A record left marked by a server that stopped in the middle of a `put` is not a document. `sweep`
   removes it once it has expired. A later ingest of that ID fails once with a 503, and removes it as
   it cleans up.

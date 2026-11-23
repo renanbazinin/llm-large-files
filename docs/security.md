@@ -105,7 +105,8 @@ one `getMeta` described (another ID, owner, scope or version: a wrapper that kee
 by ID, or a document replaced on another server in between), the document is missing for that call.
 So is a text of another length or number of lines than its metadata says, read whole or by range
 (new in 0.9.0): a store that writes the text and the metadata apart can give one document's
-metadata with another's text, when two servers ingest one ID at the same moment.
+metadata with another's text, when two servers ingest one ID at the same moment. A text of the same
+length and lines is not caught: give each upload an ID of its own.
 Bytes read by range and the original file carry no metadata: after they are read, the library asks
 `getMeta` again, and they are missing unless the store still describes the same document. That
 catches a document replaced while it was read. It cannot catch a store that answers `readTextRange`,

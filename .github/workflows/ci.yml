@@ -78,7 +78,7 @@ jobs:
     # ingest in a child process, a consumer compiled under NodeNext, Bundler and Node10, PDF and
     # DOCX with the peers installed, publint and attw (scripts/check-tarball.mjs). The release
     # workflow runs the same script on the tarball it publishes. On the exact floor of engines
-    # (22.12.0, the first Node that loads an ES module with require() without a flag), the newest
+    # (22.12.0, the first Node 22 that loads an ES module with require() without a flag), the newest
     # 22.x, and the newest major.
     name: Package on Node ${{ matrix.node }}
     runs-on: ubuntu-latest

@@ -45,11 +45,13 @@ DOCX, PPTX and PDF tests run.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: Node 22, 24
 and 26, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
-the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`). Each job runs
-`npm ci`, the typecheck, the tests, the build and `npm pack --dry-run`. Two more jobs run on
-Ubuntu: `package` (Node 22.12.0, the newest 22, and 26) runs `scripts/check-tarball.mjs` on the
-packed tarball, and `coverage` (Node 24) runs `npm run coverage`, which fails the job when a test
-fails or a total is under its threshold. Files use LF line endings (`.gitattributes`).
+the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`); and on Ubuntu, Node
+22.12.0 (the floor of `engines`) and 22.13.0. Each job runs `npm ci`, the typecheck, the tests, the
+build and `npm pack --dry-run`. Three more jobs run on Ubuntu: `unpdf-versions` runs the tests with
+other versions of the optional peer `unpdf`, `package` (Node 22.12.0, the newest 22, and 26) runs
+`scripts/check-tarball.mjs` on the packed tarball, and `coverage` (Node 24) runs `npm run coverage`,
+which fails the job when a test fails or a total is under its threshold. Files use LF line endings
+(`.gitattributes`).
 
 ## Rules the code keeps
 
