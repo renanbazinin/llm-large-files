@@ -75,6 +75,10 @@ Add a test for every change in behavior. No test calls a real model:
   request. The last entry repeats. `httpError(status)` makes an error as an adapter throws it, and
   `serviceLog(lines)` makes a service log of about 90 characters a line, with an `ERROR` line every
   97 lines.
+- **The fakes are part of the package.** They live in `src/testing/` and ship as
+  `llm-large-files/testing`, for the tests of apps ([Testing](docs/guides/testing.md)), with
+  `fakeFetch` for adapters. `test/fake-model.ts` re-exports them. A change to them is a change to
+  the public API, and they import nothing but files of `src/`: no test framework.
 - **Tests of an adapter** give it a fake `fetch` (its `fetch` option) that returns a provider's
   reply made by hand, and check the requests it sent.
 - **Tests of the Node handlers** serve `createDocumentHandlers` on a local HTTP server on

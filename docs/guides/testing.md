@@ -2,8 +2,8 @@
 
 This guide shows how to test code that uses llm-large-files without calling a real model: tests
 that run in milliseconds, cost nothing and give the same result every time. It is for application
-developers. The samples use [Vitest](https://vitest.dev); the helper files they build do not
-depend on it.
+developers. The samples use [Vitest](https://vitest.dev); the fakes they import from
+[`llm-large-files/testing`](../reference/testing.md) do not depend on it.
 
 ## What to fake
 
@@ -17,9 +17,8 @@ Fake the layer below the code you test, and nothing above it.
 | Your upload and answer routes | Nothing for uploads, the model for answers: a real server on a free port, called with `fetch` | [Your routes](#your-routes) |
 | Whether a real model finds the answer in a real file | Nothing: a few live tests | [Live tests, few and cheap](#live-tests-few-and-cheap) |
 
-The library's own tests work the same way, with a fake model and fake `fetch` functions. Their
-helper (`test/fake-model.ts` in the repository) is not part of the package, so the helper below is
-one you copy into your own tests.
+The library's own tests work the same way, with the same fakes. Since 0.9.0 they ship in the
+package as `llm-large-files/testing`: import them instead of copying them.
 
 ## Test documents
 
@@ -36,73 +35,12 @@ becomes a card that the model reaches through the tools, as a 50 MB log would. S
 `createLargeFiles`, or for one question with `budget` in `askWithFiles`. How the plan is made is in
 [How it works](../how-it-works.md).
 
-The helper file below has `bytes()` and `appLog(count)`, a log of `count` lines with a failed
-payment on every 50th. From 19 lines on it is over 1,000 estimated tokens. The samples use 400
-lines, which hold 8 failed payments.
-
-## A scripted model
-
-`askWithFiles` talks to a model only through a [`ModelAdapter`](../reference/ask.md#modeladapter):
-an object with an `id`, its `capabilities` and a `send` method. A fake one answers each request from
-a script and records what it was sent. Save this as `test/fake-model.ts`:
+The samples encode text with `utf8()` from `llm-large-files/testing`, and use `appLog(count)`, a
+log of `count` lines with a failed payment on every 50th, from the file below. From 19 lines on it
+is over 1,000 estimated tokens. The samples use 400 lines, which hold 8 failed payments.
 
 ```ts
-// test/fake-model.ts: a scripted model, and test documents, for code that calls askWithFiles.
-import type { GenerateText, ModelAdapter, ModelCapabilities, ModelReply, ModelRequest, SendHooks, ToolCall } from "llm-large-files";
-
-/** One entry of a script: a reply, an error to throw, or a function that picks one from the request. */
-export type Scripted =
-  | Partial<ModelReply>
-  | Error
-  | ((request: ModelRequest, call: number, hooks: SendHooks) => Partial<ModelReply> | Error | Promise<Partial<ModelReply> | Error>);
-
-export type FakeModel = ModelAdapter & {
-  /** Every request the loop sent, in order, failed ones included. */
-  readonly requests: ModelRequest[];
-};
-
-/** A reply in text. */
-export const says = (text: string, more: Partial<ModelReply> = {}): Partial<ModelReply> => ({ text, ...more });
-
-/** A reply that calls tools. */
-export const calls = (list: ToolCall[], more: Partial<ModelReply> = {}): Partial<ModelReply> => ({ calls: list, ...more });
-
-/**
- * A model that answers each request with the next entry of its script; the last entry repeats.
- * An entry that is an Error is thrown, as an adapter throws a request that failed.
- */
-export function fakeModel(
-  script: Scripted[],
-  options: Partial<ModelCapabilities> & { id?: string; generateText?: GenerateText } = {},
-): FakeModel {
-  const { id = "fake-model", generateText, ...capabilities } = options;
-  const requests: ModelRequest[] = [];
-  return {
-    id,
-    // "none": this model takes no files, so view_pages is not offered. Pass toolFiles: "inside" to test it.
-    capabilities: { toolFiles: "none", pageTokens: 500, ...capabilities },
-    requests,
-    ...(generateText ? { generateText } : {}),
-    async send(request, hooks = {}) {
-      // A copy of the list, so that what was recorded cannot change later.
-      requests.push({ ...request, messages: [...request.messages] });
-      const entry = script[Math.min(requests.length - 1, script.length - 1)]!;
-      const reply = typeof entry === "function" ? await entry(request, requests.length, hooks) : entry;
-      if (reply instanceof Error) throw reply;
-      const text = reply.text ?? "";
-      // When the loop listens for text, pass it on in two pieces, as a streaming adapter would.
-      if (text && hooks.onText) {
-        const half = Math.ceil(text.length / 2);
-        hooks.onText(text.slice(0, half));
-        if (half < text.length) hooks.onText(text.slice(half));
-      }
-      return { calls: [], ...reply, text };
-    },
-  };
-}
-
-export const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
-
+// test/documents.ts: test documents for code that calls askWithFiles.
 /** A service log of `count` lines, with a failed payment on every 50th line. */
 export function appLog(count: number): string {
   const lines: string[] = [];
@@ -114,6 +52,26 @@ export function appLog(count: number): string {
   }
   return lines.join("\n");
 }
+```
+
+`serviceLog(lines)` from `llm-large-files/testing` is another: a log with an `ERROR` line every 97
+lines, the one the library's own tests use.
+
+## A scripted model
+
+`askWithFiles` talks to a model only through a [`ModelAdapter`](../reference/ask.md#modeladapter):
+an object with an `id`, its `capabilities` and a `send` method. `fakeModel` is one that answers
+each request from a script and records what it was sent:
+
+```ts
+import { calls, fakeModel, says } from "llm-large-files/testing";
+
+// Assumes `meta`, a log ingested as in the tests below.
+const model = fakeModel([
+  calls([{ name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } }]),
+  says("8 payments failed."),
+]);
+// After the question, model.requests holds each request the loop sent, in order.
 ```
 
 What the parts do:
@@ -129,13 +87,19 @@ What the parts do:
   `text` event, once the reply is in.
 - **The options.** `id` names the model in `usage.byModel`; give two fakes different ones. A
   `generateText` function offers `analyze_whole_document`, the whole-file read in parts; without it
-  that tool is not offered. The capabilities make the fake look like a given model:
-  `contextTokens` and `maxRequestBytes` make the budget of a question fit them, `appendOnly: true`
-  makes the loop treat it as Claude (a conversation that may only grow), and `toolFiles: "inside"`
-  lets the loop offer `view_pages` for PDFs whose original is kept (see [PDFs](./pdfs.md)).
+  that tool is not offered. The capabilities make the fake look like a given model. Unless you
+  say otherwise they are `toolFiles: "inside"`, as Gemini's, so the loop offers `view_pages` for
+  PDFs whose original is kept (see [PDFs](./pdfs.md)), and `pageTokens: 500`. `toolFiles: "none"`
+  makes a model that takes no files, `contextTokens` and `maxRequestBytes` make the budget of a
+  question fit a model, and `appendOnly: true` makes the loop treat it as Claude (a conversation
+  that may only grow).
+- **The replies.** `says(text, more?)` is a reply of text, and `calls(list, more?)` a reply that
+  calls tools. `more` adds fields, such as `usage`. The `raw` of a `calls` reply is
+  `{ own: [the tool names] }`, a stand-in for the provider's own form of the turn.
 
-A fake adapter is also the starting point for one of your own: see
-[Your own adapter and loop](./own-adapter-and-loop.md).
+Every export, with its defaults, is in the [reference](../reference/testing.md). The source of
+`fakeModel` is in the package, in `src/testing/fake-model.ts`. A fake adapter is also the starting
+point for one of your own: see [Your own adapter and loop](./own-adapter-and-loop.md).
 
 ## A first test
 
@@ -145,14 +109,15 @@ Two tests: a short document that goes in whole, and a log that the model must se
 // test/ask.test.ts
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
-import { appLog, bytes, calls, fakeModel, says } from "./fake-model.js";
+import { calls, fakeModel, says, utf8 } from "llm-large-files/testing";
+import { appLog } from "./documents.js";
 
 const question = (text: string) => [{ role: "user" as const, text }];
 
 describe("questions about documents", () => {
   it("sends a short document whole, in one request without tools", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const meta = await files.ingest({ name: "notes.md", bytes: bytes("# Notes\n\nThe code word is heron.") });
+    const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     const model = fakeModel([says("Heron.", { usage: { inputTokens: 40, outputTokens: 3 } })]);
 
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("What is the code word?") });
@@ -167,7 +132,7 @@ describe("questions about documents", () => {
     // Any document over about 1,000 tokens becomes a card with tools: a small test file takes
     // the path that a real 50 MB log takes.
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
-    const meta = await files.ingest({ name: "app.log", bytes: bytes(appLog(400)) });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
     const search = { id: "call_1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
     const model = fakeModel([calls([search]), says("8 payments failed, the first on line 50 (app.log L50).")]);
 
@@ -213,13 +178,14 @@ text, a blocked prompt and an explorer model:
 // test/loop.test.ts
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
-import { appLog, bytes, calls, fakeModel, says } from "./fake-model.js";
+import { calls, fakeModel, says, utf8 } from "llm-large-files/testing";
+import { appLog } from "./documents.js";
 
 const question = (text: string) => [{ role: "user" as const, text }];
 
 async function largeLog() {
   const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
-  const meta = await files.ingest({ name: "app.log", bytes: bytes(appLog(400)) });
+  const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
   return { files, meta };
 }
 
@@ -353,11 +319,12 @@ the wording of a label or a notice is the library's.
 // test/events.test.ts
 import { expect, it } from "vitest";
 import { askStream, createLargeFiles, MemoryDocumentStore, type AskEvent } from "llm-large-files";
-import { appLog, bytes, calls, fakeModel, says } from "./fake-model.js";
+import { calls, fakeModel, says, utf8 } from "llm-large-files/testing";
+import { appLog } from "./documents.js";
 
 it("shows the search, then the answer, in order", async () => {
   const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
-  const meta = await files.ingest({ name: "app.log", bytes: bytes(appLog(400)) });
+  const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
   const search = { id: "s1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
   const model = fakeModel([calls([search]), says("8 payments failed.")]);
 
@@ -518,7 +485,8 @@ means for a user is in [Errors and reliability](./errors-and-reliability.md).
 // test/errors.test.ts
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, DocumentsNotFoundError, errorKindOf, MemoryDocumentStore, ModelRequestError, partialResultOf } from "llm-large-files";
-import { appLog, bytes, calls, fakeModel, says } from "./fake-model.js";
+import { calls, fakeModel, says, utf8 } from "llm-large-files/testing";
+import { appLog } from "./documents.js";
 
 /** Your application's own words for a question that failed: the code under test. */
 function userMessage(error: unknown): string {
@@ -540,7 +508,7 @@ const question = [{ role: "user" as const, text: "How many payments failed?" }];
 
 async function largeLog() {
   const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
-  const meta = await files.ingest({ name: "app.log", bytes: bytes(appLog(400)), owner: "alice" });
+  const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)), owner: "alice" });
   const search = { name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
   return { files, meta, search };
 }
@@ -634,40 +602,17 @@ through it, the part reads of a whole-file read included:
 | OpenAI-compatible | `openAiCompatible({ ..., fetch })` |
 | Claude | `anthropic({ ..., fetch })` |
 
-A fake `fetch` answers from a script, as the fake model does, and records each request with its
-parsed JSON body. Save this as `test/fake-fetch.ts`:
+`fakeFetch` from `llm-large-files/testing` answers from a script, as the fake model does. Each
+request gets the next reply, and the last one repeats. A reply is a `Response`, answered with a
+copy each time, or a function of the request and its number. `sent` records every request: its
+`url`, `method` and `headers`, and its `body` parsed as JSON. `sse(events)` makes a streamed reply:
+one `data:` line for each event, an object as JSON, a string such as `"[DONE]"` as it is.
 
 ```ts
-// test/fake-fetch.ts: a fetch for the real adapters that answers from a script, without the network.
-type Json = Record<string, any>;
+import { fakeFetch } from "llm-large-files/testing";
 
-/** A request as the adapter sent it. */
-export type Sent = { url: string; headers: Record<string, string>; body: Json };
-
-type Reply = Response | ((sent: Sent, call: number) => Response | Promise<Response>);
-
-/** Answers each request with the next reply of the script; the last one repeats. Records every request. */
-export function fakeFetch(replies: Reply[]) {
-  const sent: Sent[] = [];
-  const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const request: Sent = {
-      url: String(input),
-      headers: { ...(init?.headers as Record<string, string>) },
-      body: JSON.parse(String(init?.body)) as Json,
-    };
-    sent.push(request);
-    const reply = replies[Math.min(sent.length - 1, replies.length - 1)]!;
-    // A body can be read only once: each request gets a copy.
-    return typeof reply === "function" ? reply(request, sent.length) : reply.clone();
-  };
-  return { fetch: fetch as typeof globalThis.fetch, sent };
-}
-
-/** A streamed reply: Server-Sent Events, one `data:` line for each event. A string is sent as it is ("[DONE]"). */
-export const sse = (events: unknown[]): Response => new Response(
-  events.map((event) => `data: ${typeof event === "string" ? event : JSON.stringify(event)}\n\n`).join(""),
-  { headers: { "Content-Type": "text/event-stream" } },
-);
+const api = fakeFetch([Response.json({ candidates: [] })]);
+// Give api.fetch to the adapter; after the question, api.sent holds each request it made.
 ```
 
 ### Gemini on Vertex AI
@@ -680,8 +625,8 @@ credentials. The replies are in Gemini's own JSON:
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, gemini, GeminiRequestError, vertexAi } from "llm-large-files/gemini";
-import { appLog, bytes } from "./fake-model.js";
-import { fakeFetch, sse } from "./fake-fetch.js";
+import { fakeFetch, sse, utf8 } from "llm-large-files/testing";
+import { appLog } from "./documents.js";
 
 // Replies as Gemini writes them.
 const geminiText = (text: string) => ({
@@ -699,7 +644,7 @@ const question = [{ role: "user" as const, text: "How many payments failed?" }];
 
 async function largeLog() {
   const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
-  const meta = await files.ingest({ name: "app.log", bytes: bytes(appLog(400)) });
+  const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
   return { files, meta };
 }
 
@@ -723,7 +668,7 @@ describe("Gemini on Vertex AI, without the network", () => {
 
   it("streams the answer through askGemini", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
-    const meta = await files.ingest({ name: "notes.md", bytes: bytes("# Notes\n\nThe code word is heron.") });
+    const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     // A streamed Gemini reply ends with a chunk that says why it ended.
     const api = fakeFetch([sse([
       { candidates: [{ content: { role: "model", parts: [{ text: "The code word " }] } }] },
@@ -783,14 +728,14 @@ import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { openAiCompatible } from "llm-large-files/openai";
 import { anthropic } from "llm-large-files/anthropic";
-import { appLog, bytes } from "./fake-model.js";
-import { fakeFetch, sse } from "./fake-fetch.js";
+import { fakeFetch, sse, utf8 } from "llm-large-files/testing";
+import { appLog } from "./documents.js";
 
 const question = [{ role: "user" as const, text: "How many payments failed?" }];
 
 async function largeLog() {
   const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
-  const meta = await files.ingest({ name: "app.log", bytes: bytes(appLog(400)) });
+  const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
   const args = { document_id: meta.id, query: "ERROR", mode: "exact" };
   return { files, meta, args };
 }
@@ -957,7 +902,7 @@ Record in a live run, then replay in the test:
 ```ts
 import { askWithFiles } from "llm-large-files";
 import { gemini, vertexAi } from "llm-large-files/gemini";
-import { fakeFetch } from "./fake-fetch.js";
+import { fakeFetch } from "llm-large-files/testing";
 import { recordingFetch, replay } from "./record.js";
 
 // Assumes `files` and `meta` (a test document, as in largeLog()), and a real `endpoint`
@@ -1012,7 +957,7 @@ and deletes them.
 // test/expiry.test.ts
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, DocumentsNotFoundError, MemoryDocumentStore } from "llm-large-files";
-import { bytes, fakeModel, says } from "./fake-model.js";
+import { fakeModel, says, utf8 } from "llm-large-files/testing";
 
 describe("documents that expire", () => {
   it("are gone after their time to live, and swept from the store", async () => {
@@ -1020,7 +965,7 @@ describe("documents that expire", () => {
     const now = () => clock;
     // One clock for both: the library checks expiry by its clock, and the store by its own when it reads.
     const files = createLargeFiles({ store: new MemoryDocumentStore({ now }), now, ttlMs: 60 * 60_000 });
-    const meta = await files.ingest({ name: "notes.md", bytes: bytes("The code word is heron."), owner: "alice" });
+    const meta = await files.ingest({ name: "notes.md", bytes: utf8("The code word is heron."), owner: "alice" });
     expect(meta.expiresAt).toBe("2026-01-01T10:00:00.000Z");
     // Another user cannot delete it.
     expect(await files.delete(meta.id, { owner: "bob" })).toBe(false);
@@ -1147,7 +1092,8 @@ import { describe, expect, it } from "vitest";
 import { GoogleAuth } from "google-auth-library";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { gemini, vertexAi } from "llm-large-files/gemini";
-import { appLog, bytes } from "./fake-model.js";
+import { utf8 } from "llm-large-files/testing";
+import { appLog } from "./documents.js";
 
 // Skipped unless LIVE_TESTS=1 is set: the default test run never calls a model.
 describe.skipIf(process.env.LIVE_TESTS !== "1")("live: Gemini on Vertex AI", () => {
@@ -1164,7 +1110,7 @@ describe.skipIf(process.env.LIVE_TESTS !== "1")("live: Gemini on Vertex AI", () 
       },
     }));
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
-    const meta = await files.ingest({ name: "app.log", bytes: bytes(appLog(400)) });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
 
     const result = await askWithFiles({
       files, model, documentIds: [meta.id],
@@ -1189,6 +1135,8 @@ The credentials are the application default credentials, as on your servers: see
 
 ## Reference
 
+- `fakeModel`, `says`, `calls`, `httpError`, `fakeFetch`, `sse`, `utf8` and `serviceLog`:
+  [`llm-large-files/testing`](../reference/testing.md).
 - [`ModelAdapter`](../reference/ask.md#modeladapter), [`ModelRequest`](../reference/ask.md#modelrequest),
   [`AskResult`](../reference/ask.md#askresult), [`AskLimits`](../reference/ask.md#asklimits) and
   `partialResultOf`: [the tool loop and the adapter contract](../reference/ask.md).

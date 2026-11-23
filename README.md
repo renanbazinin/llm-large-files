@@ -306,6 +306,7 @@ Reference, one page per module:
 - [`llm-large-files/openai`](docs/reference/openai.md): `openAiCompatible()` and its options.
 - [`llm-large-files/anthropic`](docs/reference/anthropic.md): `anthropic()` and its options.
 - [`llm-large-files/node`](docs/reference/node.md): `createDocumentHandlers`, its routes and responses, `createIsolatedExtractors`.
+- [`llm-large-files/testing`](docs/reference/testing.md): `fakeModel` and `fakeFetch`, for your tests (new in 0.9.0).
 
 [Changelog](CHANGELOG.md): what each version changed, and what to change in your code when you upgrade.
 

@@ -242,8 +242,9 @@ One task each, with samples:
   and OCR.
 - [Your own adapter and loop](./guides/own-adapter-and-loop.md): writing or wrapping a
   `ModelAdapter`, your own loop with `prepare()` and `tools()`, `parseSseJson`, `withRetry`.
-- [Testing an integration](./guides/testing.md): tests without a real model: a scripted model, the
-  real adapters with a fake `fetch`, errors, expiry and owners, and a few cheap live tests.
+- [Testing an integration](./guides/testing.md): tests without a real model: a scripted model and
+  the real adapters with a fake `fetch` (both from `llm-large-files/testing`), errors, expiry and
+  owners, and a few cheap live tests.
 
 ## Reference by module
 
@@ -261,6 +262,7 @@ import from.
 | `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
 | `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `createIsolatedExtractors`, files read in child processes; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
+| `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents |
 
 ## Internals and measurements
 

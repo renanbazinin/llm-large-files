@@ -293,8 +293,9 @@ Versions follow [semantic versioning](https://semver.org). While the version is 
 
 These are public, and a change to them can need a change in someone's code:
 
-- Everything exported from the five entry points (`llm-large-files`, `llm-large-files/gemini`,
-  `llm-large-files/openai`, `llm-large-files/anthropic`, `llm-large-files/node`): names,
+- Everything exported from the six entry points (`llm-large-files`, `llm-large-files/gemini`,
+  `llm-large-files/openai`, `llm-large-files/anthropic`, `llm-large-files/node`,
+  `llm-large-files/testing`): names,
   signatures, options and their defaults. That includes the types an app implements:
   `ModelAdapter`, `DocumentStore` and `Extractor`. A new required member or argument breaks every
   adapter, store or extractor written for the previous version, so make new members optional.
