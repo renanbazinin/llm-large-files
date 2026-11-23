@@ -1,6 +1,7 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import { checkMetaVersion, checkOwner, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
@@ -228,6 +229,11 @@ const MAX_REF_LENGTH = 1_024;
 /**
  * The path of an ingest from a path (`IngestFromSource.source`), checked; undefined for an ingest
  * of bytes. A source of null is none, as a database gives a field that was left out.
+ *
+ * A relative path is made absolute here, once, against the working directory of the call
+ * (`path.resolve`): every read of the file, at the call, at the turn, and in a child process of
+ * an isolated reader (whose working directory is its own), reads the file named then. An
+ * absolute path is kept as it is.
  */
 function sourcePathOf(input: IngestInput | IngestFromSource): string | undefined {
   const source: unknown = (input as { source?: unknown }).source;
@@ -235,7 +241,7 @@ function sourcePathOf(input: IngestInput | IngestFromSource): string | undefined
   if ((input as { bytes?: unknown }).bytes !== undefined) throw new TypeError("Give the file as bytes or as source, not both.");
   const path: unknown = typeof source === "object" ? (source as { path?: unknown }).path : undefined;
   if (typeof path !== "string" || path.length === 0 || path.includes("\0")) throw new TypeError("source.path must be the path of a file: a string that is not empty.");
-  return path;
+  return isAbsolute(path) ? path : resolvePath(path);
 }
 
 /**
@@ -837,7 +843,9 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
     if (events.active) events.emit({ type: "ingest.start", ...startOf(input, stated?.size) });
     checkOwner(input.owner);
     const target = targetOf(input, context.rules);
-    const path = sourcePathOf(input);
+    // The path looked at, as it was made absolute then (the working directory may have changed
+    // since); checked again for an input it was not taken from, which throws here.
+    const path = quietPath ?? sourcePathOf(input);
     const ref = originalRefOf(input, context.readsRefs);
     const name = cleanFileName(input.name);
     const mimeType = cleanMimeType(input.mimeType);

@@ -2,7 +2,7 @@
 // being read, read once at its turn within the upload limit, and hashed as it is read. The reads
 // of the server are counted through a wrapper of node:fs/promises.
 import { createHash, randomBytes } from "node:crypto";
-import { appendFile, link, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { appendFile, link, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setFlagsFromString } from "node:v8";
@@ -327,6 +327,53 @@ describe("ingest from a path", () => {
     const sniff = await Promise.race([files.ingest({ name: "noname", source: { path: noname } }).catch((error: unknown) => error), new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2_000))]);
     expect(sniff).not.toBeInstanceOf(IngestError);
     expect(sniff).toMatchObject({ code: "ETIMEDOUT", syscall: "read", message: "The file to ingest did not answer within 100 ms." });
+  });
+
+  it("takes a relative path against the working directory of the call, for every read of the file", async () => {
+    const before = process.cwd();
+    const first = path.join(directory, "a");
+    const second = path.join(directory, "b");
+    await mkdir(first);
+    await mkdir(second);
+    await writeFile(path.join(first, "r.txt"), "The file of folder A.\n");
+    await writeFile(path.join(second, "r.txt"), "The file of folder B, which is longer.\n");
+    const library = heldLibrary();
+    const { done } = await library.hold();
+    try {
+      process.chdir(first);
+      let looked!: () => void;
+      const started = new Promise<void>((resolve) => (looked = resolve));
+      const ingest = library.files.ingest({ name: "r.txt", source: { path: "r.txt" }, onEvent: (event) => event.type === "ingest.start" && looked() });
+      await started;
+      // The working directory changes while the ingest waits for its turn.
+      process.chdir(second);
+      library.release();
+      await done;
+      const meta = await ingest;
+      expect(meta).toMatchObject({ bytes: 22, sha256: sha256(utf8("The file of folder A.\n")) });
+      expect(reads.looked).toContain(path.join(first, "r.txt"));
+      expect(reads.opens.map((entry) => entry.file)).toEqual([path.join(first, "r.txt")]);
+    } finally {
+      process.chdir(before);
+    }
+  });
+
+  it("gives an extractor that reads paths (readsPath) the path made absolute at the call", async () => {
+    const before = process.cwd();
+    const paths: unknown[] = [];
+    const extractor: Extractor = Object.assign(async (_bytes: Uint8Array, input: Parameters<Extractor>[1]) => {
+      paths.push(input.path);
+      return { text: "Read in a child." };
+    }, { readsPath: true as const });
+    await file("r.txt", "Read in a child.");
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extractor } });
+    try {
+      process.chdir(directory);
+      await files.ingest({ name: "r.txt", source: { path: "r.txt" } });
+    } finally {
+      process.chdir(before);
+    }
+    expect(paths).toEqual([path.join(directory, "r.txt")]);
   });
 
   it("reads a second name of a file (a hard link) as the file it is", async () => {

@@ -4,7 +4,7 @@
 import "./load-pdf-libraries.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -83,6 +83,31 @@ describe("isolated readers and paths", () => {
       const local = await createLargeFiles({ store: new MemoryDocumentStore() }).ingest({ name: "report.pdf", bytes: pdf });
       expect({ ...meta, id: "", createdAt: "", expiresAt: "" }).toEqual({ ...local, id: "", createdAt: "", expiresAt: "" });
     } finally {
+      await isolated.close();
+    }
+  }, 60_000);
+
+  it("read a relative path against the working directory of the call, not the one the child started in", async () => {
+    const before = process.cwd();
+    const first = path.join(directory, "a");
+    const second = path.join(directory, "b");
+    await mkdir(first);
+    await mkdir(second);
+    const one = numberedPdf(1);
+    const two = numberedPdf(2);
+    await writeFile(path.join(first, "r.pdf"), one);
+    await writeFile(path.join(second, "r.pdf"), two);
+    const isolated = node.createIsolatedExtractors({ concurrency: 1, childScript: spyChild });
+    try {
+      process.chdir(first);
+      const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: isolated.extractors });
+      // The child starts here, in folder A.
+      expect(await files.ingest({ name: "r.pdf", source: { path: "r.pdf" } })).toMatchObject({ pages: 1, sha256: sha256(one) });
+      process.chdir(second);
+      expect(await files.ingest({ name: "r.pdf", source: { path: "r.pdf" } })).toMatchObject({ pages: 2, bytes: two.byteLength, sha256: sha256(two) });
+      expect((await jobs()).map((job) => job.path)).toEqual([path.join(first, "r.pdf"), path.join(second, "r.pdf")]);
+    } finally {
+      process.chdir(before);
       await isolated.close();
     }
   }, 60_000);
