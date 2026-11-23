@@ -294,7 +294,7 @@ type DocumentStoreCheck = {
 |---|---|
 | `name` | What the store must do, as a sentence: the name of the test. |
 | `timeoutMs` | The time the check may take: 10 s, and 30 s for the check through the library. |
-| `run` | Runs the check. It resolves when the store passes, and rejects with an `Error` whose message starts "The store failed the check:" and says what was expected and what came back. |
+| `run` | Runs the check. It resolves when the store passes, and rejects with an `Error` whose message starts "The store failed the check:" and says what was expected and what came back. When the store throws, the message names the call and its arguments, such as `readTextRange("check-delete", 0, 4, {…})`, and the error the store threw is its `cause`. An error that `create` or `dispose` throws is named after them, and any other after the check. |
 
 How the library's own tests run them on `MemoryDocumentStore` and `FileDocumentStore`, and what to
 check by hand besides (a database that is down, writes that fail), is in

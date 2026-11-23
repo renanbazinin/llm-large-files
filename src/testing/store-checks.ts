@@ -75,9 +75,24 @@ const DAY = 24 * HOUR;
 /** A text that is hard to keep exactly: CRLF, Hebrew, an emoji, a tab, a byte-order mark inside, no break at the end. */
 const TEXT = "first line\r\nשלום עולם, a line in Hebrew\n😀 four bytes, é two\n\tindented\n﻿a mark inside\nlast line without a break";
 
+/** How the message of every failure of a check starts. */
+const FAILED = "The store failed the check: ";
+
 /** Throws the failure of a check. */
-function fail(message: string): never {
-  throw new Error(`The store failed the check: ${message}`);
+function fail(message: string, cause?: unknown): never {
+  throw new Error(`${FAILED}${message}`, cause === undefined ? undefined : { cause });
+}
+
+/** Whether `error` is the failure of a check, made by `fail`. */
+const failure = (error: unknown): error is Error => error instanceof Error && error.message.startsWith(FAILED);
+
+/** What a thrown value says, for a failure: the error's name and message. */
+const thrown = (error: unknown) => (error instanceof Error ? `${error.name}: ${error.message}` : show(error));
+
+/** "`what` threw `error`.", with one full stop. */
+function threw(what: string, error: unknown): string {
+  const text = `${what} threw ${thrown(error)}`;
+  return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
 function show(value: unknown): string {
@@ -123,13 +138,54 @@ async function thrownBy(call: () => Promise<unknown>, what: string): Promise<unk
   return fail(`${what}: expected it to throw, and it did not.`);
 }
 
-/** Runs `call`, and fails the check, saying what was called, when it throws. */
+/** Runs `call`, and fails the check, saying what was called, when it throws. A failure of a check is passed on as it is. */
 async function must<T>(call: () => Promise<T>, what: string): Promise<T> {
   try {
     return await call();
   } catch (error) {
-    return fail(`${what} threw ${error instanceof Error ? `${error.name}: ${error.message}` : show(error)}.`);
+    if (failure(error)) throw error;
+    return fail(threw(what, error), error);
   }
+}
+
+/** A call to a store as a failure names it: `getMeta("check-copy", { scope: […] })`. */
+function callOf(method: string, args: unknown[]): string {
+  const shown = args.map((arg) => {
+    if (typeof arg === "string" || typeof arg === "number") return JSON.stringify(arg);
+    if (arg instanceof Date) return arg.toISOString();
+    if (arg instanceof Uint8Array) return `${arg.length} bytes`;
+    const id = (arg as { meta?: { id?: unknown } } | null)?.meta?.id;
+    if (typeof id === "string") return `{ meta: { id: ${JSON.stringify(id)}, … }, text }`;
+    return show(arg);
+  });
+  return `${method}(${shown.join(", ")})`;
+}
+
+/**
+ * The store as the checks call it: a method that throws (or rejects) fails the check, and the
+ * failure names the call. Its methods are the store's own, so a check can still test whether one
+ * exists. The library, and checks of what a store throws, are given the store itself.
+ */
+function named(store: DocumentStore): DocumentStore {
+  return new Proxy(store, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target) as unknown;
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        const failed = (error: unknown): never => {
+          if (failure(error)) throw error;
+          return fail(threw(callOf(String(key), args), error), error);
+        };
+        let result: unknown;
+        try {
+          result = (value as (...args: unknown[]) => unknown).apply(target, args);
+        } catch (error) {
+          failed(error);
+        }
+        return Promise.resolve(result).catch(failed);
+      };
+    },
+  });
 }
 
 /** Metadata as the library writes it, for a document written to the store directly. */
@@ -145,13 +201,16 @@ function metaFor(id: string, text: string, createdAt: number, expiresAt: number,
 
 /** What a check gets: its store, a way to open another one over the same storage, and its clock. */
 type Harness = {
+  /** The store, whose calls fail the check, naming the call, when they throw (`named`). */
   store: DocumentStore;
+  /** The store itself, for the library and for checks of what it throws. */
+  raw: DocumentStore;
   environment: StoreCheckEnvironment;
   /** When the check started: the clock's time until it is moved. */
   start: number;
   /** Moves the clock of the check (and of the stores that read it). */
   setClock(time: number): void;
-  /** Another store over the same storage, as a second server. */
+  /** Another store over the same storage, as a second server, whose calls fail the check as `store`'s do. */
   open(): Promise<DocumentStore>;
   /** The context of a call in scope A or B, with an owner. */
   context(which?: "a" | "b"): DocumentContext;
@@ -201,23 +260,36 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
         scopes: Object.freeze([scopes.a, scopes.b]),
       });
       const stores: DocumentStore[] = [];
-      const open = async () => {
-        const store = await options.create(environment);
+      const create = async () => {
+        const store = await must(async () => options.create(environment), "create");
         stores.push(store);
         return store;
       };
+      // Every failure starts with FAILED: one the check did not foresee names the check.
+      const failed: unknown[] = [];
       try {
-        const store = await open();
+        const raw = await create();
         await body({
-          store, environment, start, open, scopes,
+          store: named(raw), raw, environment, start, scopes,
+          open: async () => named(await create()),
           setClock: (at) => {
             time = at;
           },
           context: (which = "a") => Object.freeze({ scope: scopes[which], owner: `owner-${which}` }),
         });
-      } finally {
-        for (const store of stores) await options.dispose?.(store, environment);
+      } catch (error) {
+        failed.push(error);
       }
+      for (const store of stores) {
+        try {
+          await options.dispose?.(store, environment);
+        } catch (error) {
+          failed.push(new Error(`${FAILED}${threw("dispose", error)}`, { cause: error }));
+        }
+      }
+      if (failed.length === 0) return;
+      const [first] = failed;
+      throw failure(first) ? first : new Error(`${FAILED}${threw(`the check "${name}"`, first)}`, { cause: first });
     },
   });
 
@@ -437,18 +509,18 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
   }));
 
   if (requiresScope) {
-    checks.push(check("refuses a call without a scope with a DocumentScopeError of code scope_required, but sweeps every scope without one", async ({ store, start }) => {
+    checks.push(check("refuses a call without a scope with a DocumentScopeError of code scope_required, but sweeps every scope without one", async ({ store, raw, start }) => {
       const document = { meta: metaFor("check-scope", TEXT, start, start + DAY), text: TEXT };
       const calls: Array<[string, () => Promise<unknown>]> = [
-        ["put without a context", () => store.put(document)],
-        ["put with an owner alone", () => store.put(document, { owner: "owner-a" })],
-        ["getMeta without a context", () => store.getMeta("check-scope")],
-        ["get with an empty context", () => store.get("check-scope", {})],
-        ["delete without a context", () => store.delete("check-scope")],
+        ["put without a context", () => raw.put(document)],
+        ["put with an owner alone", () => raw.put(document, { owner: "owner-a" })],
+        ["getMeta without a context", () => raw.getMeta("check-scope")],
+        ["get with an empty context", () => raw.get("check-scope", {})],
+        ["delete without a context", () => raw.delete("check-scope")],
       ];
       for (const [label, call] of calls) {
         const error = await thrownBy(call, label);
-        if (!DocumentScopeError.is(error) || error.code !== "scope_required") fail(`${label} threw ${show(error instanceof Error ? `${error.name}: ${error.message}` : error)}, not a DocumentScopeError of code "scope_required".`);
+        if (!DocumentScopeError.is(error) || error.code !== "scope_required") fail(`${label} threw ${thrown(error)}, not a DocumentScopeError of code "scope_required".`);
       }
       if (store.sweep && !skip.has("sweep")) {
         await must(() => store.sweep!(new Date(start)), "sweep without a context");
@@ -514,7 +586,7 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
     }));
   }
 
-  checks.push(check("the library over it, reading by range, gives what it gives over MemoryDocumentStore", async ({ store, environment, context }) => {
+  checks.push(check("the library over it, reading by range, gives what it gives over MemoryDocumentStore", async ({ raw, environment, context }) => {
     const keepOriginals = skip.has("originals") ? [] : ["log" as const];
     const libraryOver = (over: DocumentStore): LargeFiles => createLargeFiles({ store: over, now: environment.now, wholeDocumentBytes: 0, budget: { inlineTokens: 1_000 }, keepOriginals });
     const { scope, owner } = context() as { scope: DocumentScope; owner: string };
@@ -537,7 +609,7 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
       return results;
     };
     const expected = await transcript(libraryOver(new MemoryDocumentStore({ now: environment.now })));
-    const actual = await must(() => transcript(libraryOver(store)), "an ingest, a search and a delete through the library");
+    const actual = await must(() => transcript(libraryOver(raw)), "an ingest, a search and a delete through the library");
     expected.forEach((value, index) => same(actual[index], value, `step ${index + 1} of the ingest, search and delete through the library`));
   }, 30_000));
 
