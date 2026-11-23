@@ -214,3 +214,23 @@ describe("headers of more than one row", () => {
     expect(csv.groups[0]!.values).toEqual({ "sum:Amount": 3 });
   });
 });
+
+describe("header_rows given with a title row", () => {
+  it("counts the header rows below the title", async () => {
+    const text = ["## Sheet 1: דוח", "Row 1: | דוח מכירות 2026 |", "Row 2: | אזור | ינואר |  | פברואר |  |", "Row 3: |  | יחידות | הכנסות | יחידות | הכנסות |", "Row 4: | צפון | 1 | 10 | 2 | 20 |", "Row 5: | דרום | 3 | 30 | 4 | 40 |"].join("\n");
+    for (const headerRows of [undefined, 2]) {
+      const result = await aggregateTable(doc("xlsx", text), { metrics: ["sum:פברואר / הכנסות"], ...(headerRows !== undefined ? { headerRows } : {}) });
+      expect(result.title).toBe("דוח מכירות 2026");
+      expect(result.groups[0]!.values).toEqual({ "sum:פברואר / הכנסות": 60 });
+    }
+    const one = await aggregateTable(doc("xlsx", text), { metrics: ["count"], headerRows: 1 });
+    expect(one.columns[0]).toBe("אזור");
+  });
+});
+
+describe("a lower header name of several columns", () => {
+  it("says which columns it names", async () => {
+    const text = ["## Sheet 1: S", "Row 1: | אזור | ינואר |  | פברואר |  |", "Row 2: |  | יחידות | הכנסות | יחידות | הכנסות |", "Row 3: | צפון | 1 | 10 | 2 | 20 |"].join("\n");
+    await expect(aggregateTable(doc("xlsx", text), { metrics: ["sum:הכנסות"] })).rejects.toThrow('"הכנסות" names 2 columns of this table: "ינואר / הכנסות", "פברואר / הכנסות". Name one of them in full.');
+  });
+});

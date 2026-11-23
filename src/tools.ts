@@ -125,7 +125,7 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
         },
         order_by: { type: "string", enum: ["metric", "key"], description: "\"metric\" (the default): the largest value of the first metric first; \"key\": by the values grouped by, in order (dates and months in time order)." },
         limit: { type: "integer", description: `Groups to show, up to ${MAX_SHOWN_GROUPS} (default 50).` },
-        header_rows: { type: "integer", description: "How many rows at the top of the table are its header, 0 to 5, when the result's columns show it was read wrong. Found by itself: a title row is skipped, and a header of two or three rows is joined (\"Q1 / January\")." },
+        header_rows: { type: "integer", description: "Leave it out: the header is found by itself (a title row above it is skipped, and a header of two or three rows is joined, as \"Q1 / January\"). Only when a result's columns show the header was read wrong: how many rows it has, 0 to 5, below a title row." },
       },
       required: ["document_id"],
     },

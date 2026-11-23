@@ -238,6 +238,9 @@ function columnOf(header: string[], given: string, letters: boolean): ColumnRef 
   if (index === -1) {
     const lower = header.flatMap((column, at) => (valueKey(column.split(" / ").at(-1) ?? "") === wanted ? [at] : []));
     if (lower.length === 1) index = lower[0]!;
+    else if (lower.length > 1) {
+      throw new Error(`${JSON.stringify(sliceWhole(name, 80))} names ${lower.length} columns of this table: ${lower.map((at) => JSON.stringify(header[at])).join(", ")}. Name one of them in full.`);
+    }
   }
   if (index === -1 && letters && /^[A-Z]{1,3}$/i.test(name)) {
     let number = 0;
@@ -383,7 +386,7 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
    *   to 3 (a header of two rows: "Q1" over "January | February"); a first row with numbers means
    *   no header. The header rows are joined column by column with " / ", a header cell left empty
    *   by a merged cell taking the one to its left.
-   * `header_rows` says it outright.
+   * `header_rows` says how many rows the header has, below a title row if there is one.
    */
   const decideHeader = () => {
     let start = 0;
@@ -430,8 +433,9 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
     if (!header) {
       pending.push({ row, line });
       // The header is known once a row of data is seen, or enough rows are held to say there is none.
-      if ((kind !== "csv" && hasNumber(row, pending.length === 1)) || kind === "csv" || pending.length >= 20 || request.headerRows !== undefined) {
-        if (kind === "csv" && pending.length < 2 && request.headerRows === undefined) return;
+      // A title row is told by the row after it, so at least two rows are held, also when header_rows is given.
+      if ((kind !== "csv" && hasNumber(row, pending.length === 1)) || kind === "csv" || pending.length >= 20) {
+        if (pending.length < 2 && (kind === "csv" || request.headerRows !== undefined)) return;
         decideHeader();
       }
       return;
