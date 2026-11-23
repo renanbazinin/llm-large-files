@@ -791,7 +791,7 @@ of this unless you write it.
   by the short stand-ins of [`stubResult`](./ask.md#stubresultcall-result-hadfiles), with
   `"dropped": true`; when and how is in [How it works](../how-it-works.md), and nothing is replaced
   during a question when any model of the question is append-only (Claude). Since 0.9.0 the
-  results of stored rounds are replaced before the first request when they make it too large,
+  results of stored rounds are replaced before the first request when they make it too large in tokens,
   for every model, and a result is never replaced by a stand-in as large as itself. A pointer whose result was replaced
   becomes
   `{ "document": "app.log", "dropped": true, "note": "Not run then: it repeated an earlier call whose result was later dropped from the conversation to make room. Call it again if you need it." }`.

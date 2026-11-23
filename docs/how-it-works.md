@@ -713,8 +713,9 @@ provider has answered, by the provider's own count ([Token estimates](#token-est
   answering model or the explorer, may only grow its conversation (`capabilities.appendOnly`:
   Claude), nothing is replaced during the question, for either model.
 - **Before the first request** (new in 0.9.0), when the stored rounds of earlier questions make it
-  larger than the room it has, their results are replaced the same way, as far as needed, before
-  it is sent. Nothing of the question was sent yet, and a stored round has no thinking in it, so
+  larger than the room it has in tokens, their results are replaced the same way, as far as
+  needed, before it is sent. Only the estimate of its tokens is checked, as after a refused
+  request: a request is not shortened for its bytes alone. Nothing of the question was sent yet, and a stored round has no thinking in it, so
   this is done for an append-only model too. The request is what an overflow would have had sent
   again ([below](#a-request-too-large-for-the-model)), without the refused request before it.
 - **No room left.** Calls that still cannot each get 1,500 characters (or their cap, when it is

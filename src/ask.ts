@@ -262,14 +262,21 @@ function checkMissingPolicy(given: unknown): void {
   throw new TypeError(`onMissingDocuments must be "throw", "drop" or a function, and is ${shownValue(given)}.`);
 }
 
+/** An object made as `{}` or `Object.create(null)` is: not a Map, an array or an instance of a class. */
+const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (value === null || typeof value !== "object") return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+};
+
 /** What a function of `onMissingDocuments` returned, checked. */
 function checkedAction(action: unknown): MissingDocumentsAction {
   if (action === "throw" || action === "drop") return action;
-  if (action !== null && typeof action === "object") {
+  // Only the keys of an action: a key it does not have is a mistake, not something to ignore.
+  if (action !== null && typeof action === "object" && Object.keys(action).every((key) => key === "retry" || key === "replace")) {
     const { retry, replace } = action as { retry?: unknown; replace?: unknown };
     if (retry === true && replace === undefined) return { retry: true };
-    if (retry === undefined && replace !== null && typeof replace === "object" && !Array.isArray(replace)
-      && Object.values(replace).every((id) => typeof id === "string" && id.length > 0)) {
+    if (retry === undefined && isPlainObject(replace) && Object.values(replace).every((id) => typeof id === "string" && id.length > 0)) {
       return { replace: { ...(replace as Record<string, string>) } };
     }
   }
@@ -315,6 +322,9 @@ async function planDocumentsOf(options: AskOptions, ids: string[], prepare: (ids
   if (second.missing.length > 0) throw new DocumentsNotFoundError(second.missing);
   return { prepared: second, documentIds: again, dropped: [] };
 }
+
+/** The step of a question whose older tool results were shortened to make room. */
+const RESULTS_SHORTENED = "Older tool results were shortened to make room in the request";
 
 const DEFAULT_TOOL_TURNS = 12;
 const DEFAULT_CALLS_PER_TURN = 8;
@@ -818,8 +828,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   // The size of what stays in every request: the text as asked, the documents, the tool guide.
   const whole = new Set(prepared.plan.inline.map((meta) => meta.id));
   meter.fixed = {
-    tokens: asText.tokens + prepared.plan.inlineTokens + estimateTokens(prepared.instruction) + estimateTokens(missingLine),
-    bytes: asText.bytes + prepared.plan.inlineBytes + jsonBytes(prepared.instruction) + jsonBytes(missingLine),
+    tokens: asText.tokens + prepared.plan.inlineTokens + estimateTokens(prepared.instruction) + (missingLine ? estimateTokens(missingLine) : 0),
+    bytes: asText.bytes + prepared.plan.inlineBytes + jsonBytes(prepared.instruction) + (missingLine ? jsonBytes(missingLine) : 0),
   };
   for (const [id, block] of prepared.blocks) {
     if (whole.has(id)) continue;
@@ -1149,20 +1159,19 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   };
   /**
    * Before the first request of the question: when the stored rounds of earlier questions make it
-   * larger than the room it has, their results are shortened as they would be after the provider
-   * refused it (`makeRoom`), and it is sent shortened, instead of sent to be refused. The rounds
-   * are those of earlier questions: nothing of this question has been sent, and a stored round has
-   * no thinking in it, so this is done for a model whose conversation may only grow (Claude) too.
+   * larger than the room it has in tokens, their results are shortened as they would be after the
+   * provider refused it (`makeRoom`, which counts tokens too), and it is sent shortened, instead of
+   * sent to be refused. The rounds are those of earlier questions: nothing of this question has
+   * been sent, and a stored round has no thinking in it, so this is done for a model whose
+   * conversation may only grow (Claude) too. A question planned again shortens them again, and
+   * does not say so twice: its first try's steps already do.
    */
   let firstSent = false;
   const preflight = () => {
     if (firstSent) return;
     firstSent = true;
-    const fits = () => {
-      const now = meter.current(messages);
-      return now.tokens <= tokenLimit && now.bytes <= byteLimit;
-    };
-    if (!fits() && shortenUntil(fits)) step("Older tool results were shortened to make room in the request", "results_shortened");
+    const fits = () => meter.current(messages).tokens <= tokenLimit;
+    if (!fits() && shortenUntil(fits) && !carried?.steps.includes(RESULTS_SHORTENED)) step(RESULTS_SHORTENED, "results_shortened");
   };
   /**
    * The window to plan the documents for again, in the models' tokens, after the first request was
@@ -1458,7 +1467,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         }
       }
       if (dropped) {
-        step("Older tool results were shortened to make room in the request", "results_shortened");
+        step(RESULTS_SHORTENED, "results_shortened");
         // A result that was shortened is no longer shown in full: a call that pointed to it is run after all.
         for (const plan of planned) {
           if (!plan.earlier) continue;

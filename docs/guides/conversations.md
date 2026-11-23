@@ -270,8 +270,9 @@ its own in some ways, and not in others.
   but the last three tool rounds are replaced by short stand-ins, then all but the last two, then
   all but the last one. Stored rounds of earlier questions are the oldest, so they go first.
   Since 0.9.0 this is done before the first request too, when the stored rounds make it larger
-  than its room: the first request goes out shortened, instead of being refused by the provider
-  and sent again. A
+  than its room in tokens (the loop's estimate, which the recovery from a refused request uses
+  too; a request is not shortened for its bytes alone): the first request goes out shortened,
+  instead of being refused by the provider and sent again. A
   stand-in keeps the document and the lines or pages that were shown, and tells the model to read
   them again if it needs them:
 

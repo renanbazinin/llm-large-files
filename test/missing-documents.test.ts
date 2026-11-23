@@ -173,6 +173,32 @@ describe("onMissingDocuments", () => {
     await expect(ask({ onMissingDocuments: () => "skip" as never })).rejects.toThrow('onMissingDocuments returned "skip": it must return "throw", "drop", { retry: true } or { replace: { [oldId]: newId } }.');
   });
 
+  it("refuses a replace that is not a plain object, and keys an action does not have", async () => {
+    // 0.9.0 before its checks took a Map as a replace with nothing in it, and failed the question
+    // with DocumentsNotFoundError, and took { retry: true } with keys of any other name.
+    const { files, note, old } = await documents();
+    const model = fakeModel([says("never")]);
+    const ask = (action: unknown) => askWithFiles({ files, model, documentIds: [note.id, old.id], messages: question("?"), onMissingDocuments: () => action as never });
+    class Replacements {}
+    const bad: unknown[] = [
+      { replace: new Map([[old.id, note.id]]) },
+      { replace: Object.assign(Object.create({ inherited: true }) as object, { [old.id]: note.id }) },
+      { replace: Object.assign(new Replacements(), { [old.id]: note.id }) },
+      { replace: { [old.id]: "" } },
+      { retry: true, extra: 1 },
+      { replace: { [old.id]: note.id }, why: "renamed" },
+    ];
+    for (const [index, value] of bad.entries()) {
+      const error = await ask(value).catch((caught: unknown) => caught);
+      expect(error, String(index)).toBeInstanceOf(TypeError);
+      expect((error as Error).message).toMatch(/^onMissingDocuments returned /);
+    }
+    expect(model.requests).toHaveLength(0);
+    // A replace made with no prototype is a plain object too.
+    const bare = Object.assign(Object.create(null) as Record<string, string>, { [old.id]: note.id });
+    expect((await ask({ replace: bare })).answered).toBe(true);
+  });
+
   it("is not asked again when the question is planned again for a smaller window", async () => {
     const { files, note, old } = await documents();
     let asked = 0;

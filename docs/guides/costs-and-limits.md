@@ -688,7 +688,8 @@ What the library changes:
 - Within a question, when room runs short, older tool results are replaced by short stand-ins. The
   request changes from the first round replaced. A model whose conversation may only grow (Claude)
   has nothing of the question replaced. Since 0.9.0 the stored rounds of earlier questions are
-  replaced before the first request when they make it larger than its room, for every model: the
+  replaced before the first request when they make it larger than its room in tokens (by the
+  library's estimate, as after a refused request; not for its bytes alone), for every model: the
   request changes from the first stored round replaced, as it did in 0.8 after the provider refused
   the request, but without the refused request.
 - The tool rounds of an earlier question are not sent as they were in their own question, for two

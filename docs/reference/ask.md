@@ -110,12 +110,14 @@ allowance as the window, and its steps say so.
 [How it works](../how-it-works.md#a-request-too-large-for-the-model) explains each step.
 
 New in 0.9.0: the first request of a question is not sent to be refused. When the stored rounds of
-earlier questions make it larger than the room it has, by the loop's own estimate (the window less
-half of `reservedTokens`, or the request's bytes), their results are shortened first, in the same
-steps, until it fits. The request is then what 0.8.2 sent again after the provider refused it,
-without the refused request before it. This is done for an `appendOnly` model too: a stored round has no
+earlier questions make it larger than the room it has in tokens, by the loop's own estimate (the
+window less half of `reservedTokens`), their results are shortened first, in the same steps, until
+it fits. The request is then what 0.8.2 sent again after the provider refused it, without the
+refused request before it. Only tokens are counted here, as in that recovery: a request is not
+shortened for its bytes alone. This is done for an `appendOnly` model too: a stored round has no
 thinking in it, and nothing of the question was sent yet. Before, such a question failed on Claude.
-`steps` says "Older tool results were shortened to make room in the request".
+`steps` says "Older tool results were shortened to make room in the request", once: a question
+planned again shortens them again without saying so twice.
 
 **Returns** an [`AskResult`](#askresult).
 
@@ -446,8 +448,10 @@ type MissingDocumentsAction = "throw" | "drop" | { retry: true } | { replace: Re
 
 New in 0.9.0. What a function of `onMissingDocuments` returns: see
 [missing documents](#missing-documents). Anything else is a `TypeError`: "onMissingDocuments returned
-…: it must return "throw", "drop", { retry: true } or { replace: { [oldId]: newId } }." The new IDs
-of a replace are strings that are not empty.
+…: it must return "throw", "drop", { retry: true } or { replace: { [oldId]: newId } }." The map of
+a replace is a plain object (made as `{}`, or with `Object.create(null)`), not a `Map` or an
+instance of a class, and its new IDs are strings that are not empty. An action with a key of
+another name, such as `{ retry: true, why: "…" }`, is a `TypeError` too.
 
 ### `MissingDocumentsContext`
 

@@ -2,11 +2,15 @@
 // response, as the stored rounds are, not as media at a token for each 256 characters. In probe-i1
 // a follow-up with its rounds in `contents` was estimated about 15,000 tokens short, and the files
 // were planned for room the request did not have.
+import "./load-pdf-libraries.js";
 import { describe, expect, it } from "vitest";
-import { askWithFiles, createLargeFiles, MemoryDocumentStore, type AskEvent, type ChatMessage } from "llm-large-files";
+import { askWithFiles, createLargeFiles, MemoryDocumentStore, type AskEvent, type ChatMessage, type LargeFiles } from "llm-large-files";
 import { fromGeminiContents, gemini, geminiApi, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
-import { fakeFetch, serviceLog, utf8 } from "llm-large-files/testing";
+import { calls, fakeFetch, fakeModel, says, serviceLog, utf8 } from "llm-large-files/testing";
+import { numberedPdf } from "./pdf-fixtures.js";
 
+/** 0.8.2's `maxFileBytes` for the first look of `roomForPages()` (below). */
+const ROOM_082 = 6_742_642;
 const say = (text: string) => Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text }] } }] });
 
 describe("a function part of Gemini's own form", () => {
@@ -36,5 +40,42 @@ describe("a function part of Gemini's own form", () => {
   it("with a file in it is still sized as media", () => {
     const part = { functionResponse: { name: "own_tool", response: { ok: true }, parts: [{ inlineData: { mimeType: "image/png", data: "iVBOR" } }] } };
     expect(fromGeminiContents([{ role: "user", parts: [part] }])).toEqual([{ role: "user", parts: [{ native: part }] }]);
+  });
+});
+
+/**
+ * The bytes a question's first request is estimated at, as `view_pages` sees them: with a model
+ * that does not measure its requests (no `requestBytes`), a look may fill
+ * (maxRequestBytes - what is kept free - the estimate) * 3/4 bytes (`maxFileBytes`).
+ */
+async function roomForPages(before: ChatMessage[] = []): Promise<number | undefined> {
+  const store = new MemoryDocumentStore();
+  const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+  const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(3) });
+  const seen: Array<number | undefined> = [];
+  const spy: LargeFiles = {
+    ...files,
+    tools: (documents, options) => {
+      const set = files.tools(documents, options);
+      return {
+        ...set,
+        executeWithFiles: (name, args, limits, hooks) => {
+          seen.push(limits?.maxFileBytes);
+          return set.executeWithFiles(name, args, limits, hooks);
+        },
+      };
+    },
+  };
+  const model = fakeModel([calls([{ name: "view_pages", args: { document_id: meta.id, from_page: 2 } }]), says("Page 2.")]);
+  await askWithFiles({ files: spy, model, documentIds: [meta.id], messages: [...before, { role: "user", text: "What is on page 2?" }] });
+  expect(seen).toHaveLength(1);
+  return seen[0];
+}
+
+describe("the bytes of a request", () => {
+  it("of a question with nothing missing are those of 0.8.2", async () => {
+    // 0.9.0 before its checks counted 2 bytes more in every question: the two quotes of an empty
+    // line for documents left out. The number is what 0.8.2's sizing gives this question.
+    expect(await roomForPages()).toBe(ROOM_082);
   });
 });
