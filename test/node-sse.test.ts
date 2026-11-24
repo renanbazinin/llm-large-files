@@ -437,6 +437,20 @@ describe("sseMessageOf", () => {
     expect(sseMessageOf(finished).data).toEqual(finished);
   });
 
+  // 0.10.0: how the answer ended and what its citations came to reach the browser; the state the
+  // server keeps with the conversation does not.
+  it("sends finish and citations in run.finish, and leaves out placement and userTurn", () => {
+    const citations = { checked: 2, supported: 1, unchecked: 0, unsupported: [{ document: "a.log", line: 9 }] };
+    const placement = { version: 1, head: "h", inline: ["doc_1"], cards: [], tools: [], stubbedThrough: 0 };
+    const userTurn = { role: "user", text: "Why?", documentIds: ["doc_1"], notes: ["A note."] };
+    const ended = { ...result, finish: "filtered", citations, placement, userTurn } as unknown as AskResult;
+    const sent = JSON.parse(JSON.stringify(sseMessageOf({ ...base, seq: 7, type: "run.finish", result: ended } as AskEvent).data));
+    expect(sent.result).toMatchObject({ finish: "filtered", citations });
+    expect(Object.keys(sent.result).sort()).toEqual(["answered", "citations", "evidence", "finish", "finishReason", "steps", "text", "turns", "usage"]);
+    expect(JSON.stringify(sent)).not.toContain("documentIds");
+    expect(JSON.stringify(sent)).not.toContain("stubbedThrough");
+  });
+
   it("reaches the browser from a question that dropped a missing document", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     const doc = await files.ingest({ name: "notes.txt", bytes: new TextEncoder().encode("The meeting is on Tuesday.") });

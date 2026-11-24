@@ -1,7 +1,7 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
-import { checkMetaVersion, checkOwner, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules } from "./access.js";
+import { checkMetaVersion, checkOwner, formatDuration, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
@@ -368,13 +368,6 @@ class IngestSlot {
     abandoned.then(this.free, this.free);
     this.limit();
   }
-}
-
-/** A time limit in the words of a message: "500 ms", "45 s", "2 min". */
-function formatDuration(ms: number): string {
-  if (ms < 1_000) return `${Math.max(1, Math.round(ms))} ms`;
-  if (ms < 120_000) return `${Number((ms / 1_000).toFixed(1))} s`;
-  return `${Number((ms / 60_000).toFixed(1))} min`;
 }
 
 /**

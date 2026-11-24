@@ -2,6 +2,7 @@ export { createDocumentHandlers, uploadAnswerOf } from "./handlers.js";
 export type {
   DocumentHandlerOptions,
   DocumentHandlers,
+  DocumentHandlerStats,
   PreparedUpload,
   PrepareUploadInfo,
   RemovedContext,

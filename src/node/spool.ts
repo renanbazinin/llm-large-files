@@ -3,13 +3,15 @@
 // document is stored), or a temporary file of the spool (`uploadSpool`), removed once the ingest
 // ends. Either way each piece of the body is counted against the upload limit (413) and waited for
 // no longer than the idle time (408), and so is each call to the disk (500 "ETIMEDOUT"; a removal
-// past it is left to end alone, and the upload answered all the same). A file is always made new:
-// opened with "wx", so that a file or a link already at its name is never written through. New in
-// 0.9.0; the reading into memory moved here from handlers.ts.
+// past it is left to end alone, and the upload answered all the same; since 0.10.0 it counts as a
+// stuck call of the process until it ends). A file is always made new: opened with "wx", so that a
+// file or a link already at its name is never written through. New in 0.9.0; the reading into
+// memory moved here from handlers.ts.
 import { randomUUID } from "node:crypto";
 import { open, realpath, rm, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import path from "node:path";
+import { watchStuck } from "../access.js";
 import { IngestError } from "../errors.js";
 
 export class HttpError extends Error {
@@ -73,8 +75,12 @@ class DiskTimeout extends Error {
   }
 }
 
-/** `call`, a call to the disk, or a `DiskTimeout` once `idleMs` pass without it (0 for no limit). */
-const inTime = <T>(call: Promise<T>, idleMs: number, syscall: string): Promise<T> => (timed(idleMs) ? within(call, idleMs, () => new DiskTimeout(syscall)) : call);
+/**
+ * `call`, a call to the disk, or a `DiskTimeout` once `idleMs` pass without it (0 for no limit).
+ * Past `idleMs`, the call counts as stuck in the process until it ends, as a store call past its
+ * time limit does (`LargeFilesStats.stuckStoreCalls`, 0.10.0): it holds a thread of the pool.
+ */
+const inTime = <T>(call: Promise<T>, idleMs: number, syscall: string): Promise<T> => (timed(idleMs) ? within(watchStuck(call, idleMs), idleMs, () => new DiskTimeout(syscall)) : call);
 
 /**
  * Waits for `call`, a call to the disk whose end nobody needs (a removal), no longer than `idleMs`
@@ -333,23 +339,30 @@ export type Held = {
 
 /**
  * Bytes of uploads held at once, under `limit`: `maxPendingUploadBytes` for the bodies held in
- * memory, `maxSpooledUploadBytes` for the files of the spool. `Infinity` counts nothing.
+ * memory, `maxSpooledUploadBytes` for the files of the spool. `Infinity` refuses nothing, and since
+ * 0.10.0 still counts, for `handlers.stats()`.
  */
 export class Room {
   #used = 0;
 
   constructor(readonly limit: number) {}
 
+  /** The bytes held now (`handlers.stats()`). */
+  get used(): number {
+    return this.#used;
+  }
+
   /**
-   * Room for an upload of `bytes` (at most the limit itself, so that the count stays a number with
-   * an upload limit of Infinity), taken before its body is read. One that would bring the room
-   * past its limit while another upload holds some is refused: an `IngestError` "busy", answered
-   * 503 with a wait. One upload alone is always taken.
+   * Room for an upload of `bytes` (at most the limit itself), taken before its body is read. One
+   * that would bring the room past its limit while another upload holds some is refused: an
+   * `IngestError` "busy", answered 503 with a wait. One upload alone is always taken. With no limit,
+   * an upload of no known size (the upload limit is Infinity too) counts 0 until it is read, so that
+   * the count stays a number.
    */
   take(bytes: number): Held {
-    if (this.limit === Number.POSITIVE_INFINITY) return { resize: () => undefined, release: () => undefined };
     let held = Math.min(bytes, this.limit);
-    if (this.#used > 0 && this.#used + held > this.limit) throw new IngestError("busy", BUSY, { retryAfterMs: BUSY_RETRY_MS });
+    if (!Number.isFinite(held)) held = 0;
+    if (this.limit !== Number.POSITIVE_INFINITY && this.#used > 0 && this.#used + held > this.limit) throw new IngestError("busy", BUSY, { retryAfterMs: BUSY_RETRY_MS });
     this.#used += held;
     return {
       resize: (size) => {

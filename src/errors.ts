@@ -69,7 +69,9 @@ function storeMessage(operation: DocumentStoreOperation, code: string | undefine
 export class DocumentStoreError extends Error {
   /**
    * The code of the system error behind it (`EIO`, `EMFILE`, `ETIMEDOUT`), when there is one, or
-   * the code it was made with: "NEWER_VERSION".
+   * the code it was made with: "NEWER_VERSION"; since 0.10.0, "ETIMEDOUT" for a store call that did
+   * not end within `storeTimeoutMs`, and "STORE_STUCK" for one refused at once because too many
+   * calls of the process are stuck (`maxStuckStoreCalls`).
    */
   readonly code?: string;
   /** The system call that failed (`open`, `read`), when there is one. */

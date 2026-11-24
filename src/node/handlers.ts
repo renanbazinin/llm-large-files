@@ -165,7 +165,9 @@ export type DocumentHandlerOptions = {
    *
    * When it throws, or returns an `answer` that is not such an object, the document is deleted
    * (best effort) and the upload is answered as for an error of `ingest`: with the error's status
-   * (400 to 599) and message, or a 500 `{"error":"Upload failed."}`. New in 0.9.0.
+   * (400 to 599) and message, or a 500 `{"error":"Upload failed."}`. The delete is waited for within
+   * the library's `storeTimeoutMs` (since 0.10.0): past it, it goes on alone, and the upload is
+   * answered all the same. New in 0.9.0.
    */
   onUploaded?: (document: DocumentMeta, context: UploadedContext) => UploadedResult | Promise<UploadedResult>;
   /**
@@ -224,10 +226,11 @@ export type DocumentHandlerOptions = {
    * closed and its room given back: a client that sends its headers and then nothing, or stalls,
    * holds its room no longer. Since 0.9.0 it also bounds each call to the disk for a body written
    * to a file (the check of its folders for a link, its opening, each write, its closing): a volume
-   * that stops answering fails the upload with a 500 "Upload failed (ETIMEDOUT).", and its room is
-   * given back. The removal of the file is waited for no longer either: past it, the removal goes
-   * on alone, and the upload is answered all the same. 0 or `Infinity` for no limit. Defaults to
-   * 30,000. New in 0.8.2.
+   * that stops answering fails the upload with "Upload failed (ETIMEDOUT).", a 503 with
+   * `Retry-After` since 0.10.0 (a 500 before), and its room is given back; the call then counts as
+   * stuck (`LargeFilesStats.stuckStoreCalls`) until it ends. The removal of the file is waited for
+   * no longer either: past it, the removal goes on alone, and the upload is answered all the same.
+   * 0 or `Infinity` for no limit. Defaults to 30,000. New in 0.8.2.
    */
   uploadIdleTimeoutMs?: number;
 };
@@ -257,8 +260,24 @@ export type DocumentHandlers = {
   upload(request: IncomingMessage, response: ServerResponse): Promise<void>;
   /** GET: the document's summary, or 404. With `getScope`, only a document of the request's scope. */
   get(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
-  /** DELETE: removes the document, then calls `onRemoved`. Responds `{ deleted: boolean }`. */
+  /**
+   * DELETE: removes the document, then calls `onRemoved`. Responds `{ deleted: boolean }`. A store
+   * that does not answer within the library's `storeTimeoutMs`, or too many stuck calls, is a 503
+   * with `Retry-After` (0.10.0).
+   */
   remove(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
+  /** Counters of the uploads these handlers hold, for metrics and alerts: read without waiting. New in 0.10.0. */
+  stats(): DocumentHandlerStats;
+};
+
+/** What `handlers.stats()` counts. New in 0.10.0. */
+export type DocumentHandlerStats = {
+  /** Bytes of the bodies of uploads held in memory now (counted against `maxPendingUploadBytes`). */
+  memoryBytes: number;
+  /** Bytes of the files of the spool now (counted against `maxSpooledUploadBytes`). */
+  spooledBytes: number;
+  /** Uploads these handlers are answering now: from the request to the answer, `onUploaded` included. */
+  uploadsInFlight: number;
 };
 
 /** A whole HTTP status of an error, from 400 to 599. */
@@ -697,6 +716,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
   /** The files of the spool, from the writing of each to its removal (`maxSpooledUploadBytes`). */
   const spoolRoom = new Room(roomLimit("maxSpooledUploadBytes", options.maxSpooledUploadBytes, 10 * files.maxUploadBytes));
   const fileMode = fileModeOf(options.uploadFileMode);
+  /** Uploads being answered now (`stats`). */
+  let uploadsInFlight = 0;
 
   /**
    * Whether the body of an upload goes to a file of the spool: with `uploadSpool`, one over
@@ -763,115 +784,11 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
 
   return {
     async upload(request, response) {
+      uploadsInFlight++;
       try {
-        const url = new URL(request.url ?? "/", "http://localhost");
-        const name = header(request, "x-file-name").trim() || url.searchParams.get("name")?.trim() || "";
-        if (!name) throw new HttpError(400, "Name the file with an X-File-Name header or a ?name= query parameter.");
-        // Who is asking comes first: a refused upload is not read into memory.
-        const caller = await callerOf(request, "Upload failed", true);
-        // Too large is said first, before any wait for room.
-        const declared = Number(request.headers["content-length"]);
-        const parsed = parsedBody(request);
-        if ((Number.isFinite(declared) && declared > files.maxUploadBytes) || (parsed !== undefined && parsed.byteLength > files.maxUploadBytes)) {
-          throw new HttpError(413, "");
-        }
-        const prepared = options.prepareUpload ? preparedOf(await options.prepareUpload(request, { name: cleanFileName(name), ...caller })) : {};
-        // A file `fileOriginals` would not read back by its ref is refused before anything is written.
-        if (prepared.path !== undefined && prepared.original !== undefined) await checkRefFolders(prepared.path, prepared.original.ref, idleMs);
-        // Where the body is while it is ingested: in the application's file (`prepareUpload`), in a
-        // file of the spool, or in memory. Room is taken for it before it is read, so that a refused
-        // upload is not read: in the spool, or in memory. The application's file takes none: it is
-        // on the application's disk, and stays.
-        const spooled = prepared.path === undefined && spools(declared, parsed);
-        const held: Held | undefined = prepared.path !== undefined ? undefined : (spooled ? spoolRoom : memoryRoom).take(expectedSize(request, files.maxUploadBytes));
-        /** Gives the upload's room back, once: when its ingest ended, so that an `onUploaded` that waits on a database of yours does not hold it, or when the upload failed. */
-        const release = () => held?.release();
-        let file: BodyFile | undefined;
-        try {
-          let body: Uint8Array | undefined;
-          if (prepared.path !== undefined || spooled) {
-            const at = prepared.path ?? spoolFileIn(spool!.directory);
-            const size = await writeBody(request, at, { limit: files.maxUploadBytes, idleMs, mode: prepared.path !== undefined ? fileMode : 0o600 });
-            file = new BodyFile(at, prepared.path !== undefined, idleMs);
-            held?.resize(size);
-          } else {
-            body = await readBody(request, files.maxUploadBytes, idleMs);
-            // Counted at its size once read (an upload without a Content-Length was counted at the limit).
-            held?.resize(body.byteLength);
-          }
-          // Content-Type is a header of HTTP, not one the page encodes: it is taken as it came (S11).
-          // `ingest` cleans what it keeps of either.
-          const contentType = rawHeader(request, "content-type");
-          const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
-          // A client that goes away before the answer stops the reading of its file: nobody would
-          // get the document, and the server has other work.
-          const gone = new AbortController();
-          const onClose = () => {
-            if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
-          };
-          response.once("close", onClose);
-          // One that left already is told no more: while the last piece of its body was written,
-          // or its file closed (where a network volume writes what it held back), or before a body
-          // a framework read was taken.
-          if (response.destroyed || request.socket?.destroyed) onClose();
-          const chosen = { ...(prepared.id !== undefined ? { id: prepared.id } : {}), ...(prepared.original !== undefined ? { original: prepared.original } : {}) };
-          /**
-           * Starts the upload's ingest, once. A body in memory is then the ingest's alone: it is
-           * freed when the ingest ends, while `onUploaded` may still run. The input is built in
-           * this function, whose frame ends at once: a value in the frame of `upload`, an async
-           * function, is kept until it returns, the hook's wait included. A body in a file is
-           * ingested from its path: the file of the spool is removed when the ingest ends, and the
-           * application's file when the ingest fails.
-           */
-          const start: StartIngest = (more) => {
-            const input = { name, ...(mimeType ? { mimeType } : {}), ...chosen, ...caller, signal: gone.signal, ...more };
-            if (file) return file.settle(files.ingest({ ...input, source: { path: file.path } }));
-            const bytes = body!;
-            body = undefined;
-            return files.ingest({ ...input, bytes });
-          };
-          // The path is told only for the application's own file: the spool's is gone by then.
-          const saved = file?.kept ? file.path : undefined;
-          const hook = async (meta: DocumentMeta): Promise<Hooked> => {
-            const hooked = await uploaded(meta, request, caller, gone.signal.aborted, saved);
-            // The document is deleted: the file saved for it goes too.
-            if ("failure" in hooked) await file?.remove();
-            return hooked;
-          };
-          try {
-            if (wantsEvents(request)) {
-              // `onUploaded` runs once, for the event before ingest.finish or after the stream.
-              let hooking: Promise<Hooked> | undefined;
-              return await streamIngest(start, gone.signal, response, tooLarge, (meta) => (hooking ??= hook(meta)), release);
-            }
-            const meta = await start();
-            release();
-            const hooked = await hook(meta);
-            if ("failure" in hooked) throw hooked.failure;
-            // The summary's own fields win over the hook's.
-            send(response, 201, { ...hooked.answer, ...toDocumentSummary(meta) });
-          } finally {
-            response.off("close", onClose);
-          }
-        } finally {
-          release();
-          // Whatever happened: the spool's file is gone, and so is the application's unless its document is stored.
-          await file?.end();
-        }
-      } catch (error) {
-        // A body that stopped arriving is not drained: the answer ends, and so does the connection.
-        if (error instanceof HttpError && error.close) {
-          if (!response.headersSent) response.setHeader("Connection", "close");
-          send(response, error.status, { error: error.message });
-          if (response.writableFinished) request.destroy();
-          else response.once("finish", () => request.destroy());
-          return;
-        }
-        // Answered before the body was read to its end (too large, no name): the rest is drained.
-        fail(response, error, "Upload failed", tooLarge, request);
-        // An event stream that failed after its headers were sent cannot answer with a status. (An
-        // answer to a body still being drained is ended by `drain`.)
-        if (response.headersSent && !response.writableEnded && request.complete) response.end();
+        await answerUpload(request, response);
+      } finally {
+        uploadsInFlight--;
       }
     },
 
@@ -896,7 +813,125 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         fail(response, error, "The file could not be deleted", tooLarge);
       }
     },
+
+    stats() {
+      return { memoryBytes: memoryRoom.used, spooledBytes: spoolRoom.used, uploadsInFlight };
+    },
   };
+
+  /** Answers one upload (`upload`): never rejects. */
+  async function answerUpload(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    try {
+      const url = new URL(request.url ?? "/", "http://localhost");
+      const name = header(request, "x-file-name").trim() || url.searchParams.get("name")?.trim() || "";
+      if (!name) throw new HttpError(400, "Name the file with an X-File-Name header or a ?name= query parameter.");
+      // Who is asking comes first: a refused upload is not read into memory.
+      const caller = await callerOf(request, "Upload failed", true);
+      // Too large is said first, before any wait for room.
+      const declared = Number(request.headers["content-length"]);
+      const parsed = parsedBody(request);
+      if ((Number.isFinite(declared) && declared > files.maxUploadBytes) || (parsed !== undefined && parsed.byteLength > files.maxUploadBytes)) {
+        throw new HttpError(413, "");
+      }
+      const prepared = options.prepareUpload ? preparedOf(await options.prepareUpload(request, { name: cleanFileName(name), ...caller })) : {};
+      // A file `fileOriginals` would not read back by its ref is refused before anything is written.
+      if (prepared.path !== undefined && prepared.original !== undefined) await checkRefFolders(prepared.path, prepared.original.ref, idleMs);
+      // Where the body is while it is ingested: in the application's file (`prepareUpload`), in a
+      // file of the spool, or in memory. Room is taken for it before it is read, so that a refused
+      // upload is not read: in the spool, or in memory. The application's file takes none: it is
+      // on the application's disk, and stays.
+      const spooled = prepared.path === undefined && spools(declared, parsed);
+      const held: Held | undefined = prepared.path !== undefined ? undefined : (spooled ? spoolRoom : memoryRoom).take(expectedSize(request, files.maxUploadBytes));
+      /** Gives the upload's room back, once: when its ingest ended, so that an `onUploaded` that waits on a database of yours does not hold it, or when the upload failed. */
+      const release = () => held?.release();
+      let file: BodyFile | undefined;
+      try {
+        let body: Uint8Array | undefined;
+        if (prepared.path !== undefined || spooled) {
+          const at = prepared.path ?? spoolFileIn(spool!.directory);
+          const size = await writeBody(request, at, { limit: files.maxUploadBytes, idleMs, mode: prepared.path !== undefined ? fileMode : 0o600 });
+          file = new BodyFile(at, prepared.path !== undefined, idleMs);
+          held?.resize(size);
+        } else {
+          body = await readBody(request, files.maxUploadBytes, idleMs);
+          // Counted at its size once read (an upload without a Content-Length was counted at the limit).
+          held?.resize(body.byteLength);
+        }
+        // Content-Type is a header of HTTP, not one the page encodes: it is taken as it came (S11).
+        // `ingest` cleans what it keeps of either.
+        const contentType = rawHeader(request, "content-type");
+        const mimeType = header(request, "x-file-type") || (contentType && !contentType.startsWith("application/octet-stream") ? contentType : "");
+        // A client that goes away before the answer stops the reading of its file: nobody would
+        // get the document, and the server has other work.
+        const gone = new AbortController();
+        const onClose = () => {
+          if (!response.writableFinished) gone.abort(new Error("The upload was cancelled: the client closed the connection."));
+        };
+        response.once("close", onClose);
+        // One that left already is told no more: while the last piece of its body was written,
+        // or its file closed (where a network volume writes what it held back), or before a body
+        // a framework read was taken.
+        if (response.destroyed || request.socket?.destroyed) onClose();
+        const chosen = { ...(prepared.id !== undefined ? { id: prepared.id } : {}), ...(prepared.original !== undefined ? { original: prepared.original } : {}) };
+        /**
+         * Starts the upload's ingest, once. A body in memory is then the ingest's alone: it is
+         * freed when the ingest ends, while `onUploaded` may still run. The input is built in
+         * this function, whose frame ends at once: a value in the frame of `upload`, an async
+         * function, is kept until it returns, the hook's wait included. A body in a file is
+         * ingested from its path: the file of the spool is removed when the ingest ends, and the
+         * application's file when the ingest fails.
+         */
+        const start: StartIngest = (more) => {
+          const input = { name, ...(mimeType ? { mimeType } : {}), ...chosen, ...caller, signal: gone.signal, ...more };
+          if (file) return file.settle(files.ingest({ ...input, source: { path: file.path } }));
+          const bytes = body!;
+          body = undefined;
+          return files.ingest({ ...input, bytes });
+        };
+        // The path is told only for the application's own file: the spool's is gone by then.
+        const saved = file?.kept ? file.path : undefined;
+        const hook = async (meta: DocumentMeta): Promise<Hooked> => {
+          const hooked = await uploaded(meta, request, caller, gone.signal.aborted, saved);
+          // The document is deleted: the file saved for it goes too.
+          if ("failure" in hooked) await file?.remove();
+          return hooked;
+        };
+        try {
+          if (wantsEvents(request)) {
+            // `onUploaded` runs once, for the event before ingest.finish or after the stream.
+            let hooking: Promise<Hooked> | undefined;
+            return await streamIngest(start, gone.signal, response, tooLarge, (meta) => (hooking ??= hook(meta)), release);
+          }
+          const meta = await start();
+          release();
+          const hooked = await hook(meta);
+          if ("failure" in hooked) throw hooked.failure;
+          // The summary's own fields win over the hook's.
+          send(response, 201, { ...hooked.answer, ...toDocumentSummary(meta) });
+        } finally {
+          response.off("close", onClose);
+        }
+      } finally {
+        release();
+        // Whatever happened: the spool's file is gone, and so is the application's unless its document is stored.
+        await file?.end();
+      }
+    } catch (error) {
+      // A body that stopped arriving is not drained: the answer ends, and so does the connection.
+      if (error instanceof HttpError && error.close) {
+        if (!response.headersSent) response.setHeader("Connection", "close");
+        send(response, error.status, { error: error.message });
+        if (response.writableFinished) request.destroy();
+        else response.once("finish", () => request.destroy());
+        return;
+      }
+      // Answered before the body was read to its end (too large, no name): the rest is drained.
+      fail(response, error, "Upload failed", tooLarge, request);
+      // An event stream that failed after its headers were sent cannot answer with a status. (An
+      // answer to a body still being drained is ended by `drain`.)
+      if (response.headersSent && !response.writableEnded && request.complete) response.end();
+    }
+  }
 }
 
 /** The owner and the scope of a request, as `getOwner` and `getScope` gave them, checked. */
