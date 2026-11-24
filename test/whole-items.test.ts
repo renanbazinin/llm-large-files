@@ -96,18 +96,17 @@ describe("a read that lists items", () => {
     expect(price.inputTokens).toBeLessThan(wholeReadCost(meta, files.budget, 1).inputTokens);
   });
 
-  it("does not count an item whose quote is not on its line, or whose line is not in its part", async () => {
+  it("does not count an item whose quote is on no line of its part, or on several but not its own", async () => {
     const { files, meta } = await library();
     const sent: Sent[] = [];
     let planted = 0;
-    const generate = lister(sent, (items, prompt) => {
-      const lines = partLines(prompt);
+    const generate = lister(sent, (items) => {
       const extra = planted < 1
         ? [
-          // A quote of another line of the part: not on its line.
-          JSON.stringify({ line: items[0]!.line, label: "penalty", value: "99", quote: lines.find(([, text]) => !text.includes("קנס"))![1].slice(4, 30) }),
-          // A line outside the part.
-          JSON.stringify({ line: lines.at(-1)![0] + 500, label: "penalty", value: "1", quote: "קנס" }),
+          // A quote that is not in the file.
+          JSON.stringify({ line: items[0]!.line, label: "penalty", value: "99", quote: "קנס בסך 99,999 ש\"ח" }),
+          // A quote of many lines of the part, but not of the line it names, nor of a line in the part.
+          JSON.stringify({ line: items[0]!.line + 500, label: "penalty", value: "1", quote: "וימסור דוח על הביקור" }),
           // No quote at all.
           JSON.stringify({ line: items[0]!.line, label: "penalty", value: "7" }),
         ]
@@ -118,7 +117,32 @@ describe("a read that lists items", () => {
     const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: TASK, output: "items", labels: ["penalty"] });
     expect(planted).toBe(3);
     expect(result).toMatchObject({ total_items: 37, unverified_items: 3 });
-    expect(result.note).toBe("3 listed items are not counted: their line is not in the part that listed them, or their quote is not on that line.");
+    expect(result.note).toBe("3 listed items are not counted: their quote is not on the line they name, nor on just one other line of the part.");
+  });
+
+  it("moves an item to the one line of its part that has its quote, as when a clause's number is taken for its line", async () => {
+    const { files, meta, penaltyLines } = await library();
+    // The lines of the contract start with their clause's number ("7| 5. …"), two below its line:
+    // the model names the clause, not the line.
+    const generate = lister([], (items, prompt) => items.map((item) => JSON.stringify({ ...item, line: item.line - 2 })).join("\n") + (prompt.includes("<part>\n1| ") ? `\n${JSON.stringify({ line: 3, label: "penalty", value: "1", quote: "ישלם הספק למזמין" })}` : ""));
+    const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: TASK, output: "items", labels: ["penalty"] });
+    expect(result).toMatchObject({ total_items: 37, unverified_items: 1 });
+    expect((result.items as Array<{ line: number }>).map((item) => item.line)).toEqual(penaltyLines);
+  });
+
+  it("reads a value whose quote mark and letter were both escaped (ש\\\"\\ח), as Flash-Lite writes them", async () => {
+    const { files, meta } = await library();
+    const generate = lister([], (items) => items.map((item) => JSON.stringify({ ...item, value: `${item.value} ש"ח` }).replace('ש\\"ח"', 'ש\\"\\ח"')).join("\n"));
+    const sent: string[] = [];
+    const watching: GenerateText = async (request) => {
+      const text = await generate(request);
+      sent.push(text);
+      return text;
+    };
+    const result = await files.tools([meta], { generate: watching }).execute("analyze_whole_document", { document_id: meta.id, task: TASK, output: "items", labels: ["penalty"] });
+    expect(sent.join("\n")).toContain('ש\\"\\ח"');
+    expect(result).toMatchObject({ total_items: 37, unverified_items: 0 });
+    expect((result.items as Array<{ value: string }>)[0]!.value).toBe('1,250 ש"ח');
   });
 
   it("reads replies leniently, and counts an item listed twice once", async () => {
@@ -236,5 +260,8 @@ describe("parseItemLines", () => {
     expect(parseItemLines("**NOTHING RELEVANT**")).toEqual({ objects: [], skipped: 0 });
     expect(parseItemLines("")).toEqual({ objects: [], skipped: 0 });
     expect(parseItemLines("[1, 2]")).toEqual({ objects: [], skipped: 2 });
+    // A backslash before a letter starts no JSON escape: it is taken out. One cut in its middle is still skipped.
+    expect(parseItemLines('{"line": 3, "value": "5,000 ש\\"\\ח", "quote": "a\\u05d0"}')).toEqual({ objects: [{ line: 3, value: '5,000 ש"ח', quote: "a\u05d0" }], skipped: 0 });
+    expect(parseItemLines('{"line": 3, "quote": "\\u05')).toEqual({ objects: [], skipped: 1 });
   });
 });

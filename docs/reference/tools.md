@@ -671,12 +671,16 @@ merges them, and there is no answer of the read: one request a part.
 - A reply is read leniently: a line may start with a list mark (`- `, `1. `) and end with a comma,
   code fences are passed over, and a JSON array of the objects is read too. A line that is not a
   JSON object is skipped. A reply that says `NOTHING RELEVANT` has no item.
-- An item counts when its `line` is a line of the part that listed it and its `quote` is on that
-  line. They are compared composed (NFC) and folded as exact search folds text (case, quotes,
-  dashes, spaces), without Hebrew points, with final letters as plain ones (כסף is found in כספים),
-  and with runs of blanks as one space. A line number copied with the quote (`12| `) and the quote
-  marks around it are left out, and a quote cut with `…` must have each of its pieces on the line,
-  in order. Any other item counts in `unverified_items`, not in `total_items`.
+- An item counts when its `quote` is on the line it names, within the part that listed it. They
+  are compared composed (NFC) and folded as exact search folds text (case, quotes, dashes, spaces),
+  without Hebrew points, with final letters as plain ones (כסף is found in כספים), and with runs of
+  blanks as one space. A line number copied with the quote (`12| `) and the quote marks around it
+  are left out, and a quote cut with `…` must have each of its pieces on the line, in order.
+- An item whose quote is not on the line it names, but on exactly one line of its part, is given
+  that line: in a file whose lines start with numbers ("7| 5. …", clause 5 on line 7), a model may
+  name the number in the text. Any other item counts in `unverified_items`, not in `total_items`.
+- A backslash that starts no JSON escape (`ש\"\ח`, as Gemini Flash-Lite escapes a Hebrew letter) is
+  taken out before a line is read again.
 - The same item listed twice (the same line, label and value) counts once.
 - A label is matched to `labels` as quotes are compared, and given as the call spelled it. A label
   that is not one of them is kept as the model wrote it.
@@ -694,11 +698,11 @@ merges them, and there is no answer of the read: one request a part.
 | `counts_by_label` | object, optional | The items by label, when they have labels: `{ "penalty": 37 }`. An item with no label among labelled ones counts under `"unlabeled"`. |
 | `items` | array | The first 50 items, in the order of the file, each `{ line, label?, value?, quote }`. The value and the quote are as the model wrote them, up to 200 and 300 characters. |
 | `more_items` | number, optional | The items past the first 50. |
-| `unverified_items` | number | Items a part listed that are not counted: a line outside the part, or a quote not on its line. |
+| `unverified_items` | number | Items a part listed that are not counted: a quote on no line of the part, or on several but not on the line the item names. |
 | `parts_read` | number | The parts the file was read in, those that could not be read included; a halved part counts as its halves. |
 | `parts_failed` | number, optional | Parts that could not be read: their items are missing. |
 | `parts_cut_short` | number, optional | Parts whose list was still cut at the output limit. |
-| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK"; "The first 50 items are shown; total_items counts them all."; "N listed items are not counted: their line is not in the part that listed them, or their quote is not on that line."; "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
+| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK"; "The first 50 items are shown; total_items counts them all."; "N listed items are not counted: their quote is not on the line they name, nor on just one other line of the part."; "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
 
 ```json
 {

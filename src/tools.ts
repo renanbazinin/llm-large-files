@@ -213,7 +213,7 @@ function itemsResult(file: string, task: string, read: WholeItemsResult): ToolRe
   const notes = [
     ...(read.items.length === 0 ? [`No part of ${file} listed an item for: ${task}`] : []),
     ...(more > 0 ? [`The first ${shown.length} items are shown; total_items counts them all.`] : []),
-    ...(read.unverified > 0 ? [`${read.unverified} listed ${plural(read.unverified, "item")} ${read.unverified === 1 ? "is" : "are"} not counted: ${read.unverified === 1 ? "its" : "their"} line is not in the part that listed ${read.unverified === 1 ? "it" : "them"}, or ${read.unverified === 1 ? "its" : "their"} quote is not on that line.`] : []),
+    ...(read.unverified > 0 ? [`${read.unverified} listed ${plural(read.unverified, "item")} ${read.unverified === 1 ? "is" : "are"} not counted: ${read.unverified === 1 ? "its" : "their"} quote is not on the line ${read.unverified === 1 ? "it names" : "they name"}, nor on just one other line of the part.`] : []),
     ...(read.failedParts > 0 ? [`${read.failedParts} ${plural(read.failedParts, "part")} could not be read (${read.firstFailure ?? "see the notes"}), so items may be missing: tell the user the count may be incomplete.`] : []),
     ...(read.truncatedParts > 0 ? [`${read.truncatedParts} ${plural(read.truncatedParts, "part")} listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete.`] : []),
   ];

@@ -28,10 +28,10 @@ const FINAL_SYSTEM = "You write a complete answer from notes taken across every 
  */
 export const REQUEST_FRAME_TOKENS = 200;
 /**
- * The same for a part read that lists items (`output: "items"`): its fixed words take 267 tokens
+ * The same for a part read that lists items (`output: "items"`): its fixed words take 308 tokens
  * with two labels; the rest is room for a task of a few lines and more labels.
  */
-export const ITEMS_FRAME_TOKENS = 350;
+export const ITEMS_FRAME_TOKENS = 400;
 /** The tokens of the "### Lines a-b" heading of a part's notes, and of the blank line that joins notes. */
 export const NOTE_HEADING_TOKENS = 25;
 /** The most labels a read that lists items takes (`labels`), and the most characters of each. New in 0.10.0. */
@@ -421,11 +421,11 @@ const itemsPrompt = (name: string, from: number, to: number, text: string, where
   labels
     ? '{"line": 123, "label": "<label>", "value": "<value>", "quote": "<the words of line 123 that state the item>"}'
     : '{"line": 123, "value": "<value>", "quote": "<the words of line 123 that state the item>"}',
-  `- line: the number of the line that states the item, from ${from} to ${to}.`,
+  `- line: the number before "| " at the start of the line that states the item, from ${from} to ${to}; not a number written in its text.`,
   ...(labels ? [`- label: one of ${labels.map((label) => JSON.stringify(label)).join(", ")}.`] : []),
   "- value: the amount, date, name or other figure the item gives, as written. Leave it out when it gives none.",
-  "- quote: the words of that line that state the item, copied exactly, at most 200 characters.",
-  `List each item once, on the line that states it. If this part has no such item, reply exactly: ${NOTHING}`,
+  "- quote: words of that line that state the item, copied exactly, enough to tell the line from the others, at most 200 characters.",
+  `Write every letter as it is in the file, not as a \\u escape. List each item once, on the line that states it. If this part has no such item, reply exactly: ${NOTHING}`,
 ].join("\n");
 
 /**
@@ -678,10 +678,29 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
+ * A JSON text with each backslash that starts no JSON escape taken out: `ש\"\ח` (a quote mark
+ * escaped, then a Hebrew letter escaped, as Gemini Flash-Lite wrote "ש"ח" in a value), or a `\u`
+ * without four hex digits.
+ */
+const withoutBadEscapes = (text: string): string => text.replace(/\\(\\|["/bfnrt]|u[0-9a-fA-F]{4})|\\/g, (whole, escape: string | undefined) => (escape === undefined ? "" : whole));
+
+/** `JSON.parse`, and once more with the bad escapes of `withoutBadEscapes` taken out when it fails. */
+function parseLeniently(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const repaired = withoutBadEscapes(text);
+    if (repaired === text) throw error;
+    return JSON.parse(repaired);
+  }
+}
+
+/**
  * The JSON objects of the reply of a part read that lists items, read leniently: one a line, a line
- * may start with a list mark ("- ", "1. ") and end in a comma, code fences are passed over, and a
- * JSON array of them is read too. A line that is not a JSON object is skipped, and counted. A reply
- * that says the part has nothing relevant has no item. New in 0.10.0.
+ * may start with a list mark ("- ", "1. ") and end in a comma, code fences are passed over, a JSON
+ * array of them is read too, and a backslash that starts no JSON escape is taken out. A line that is
+ * not a JSON object is skipped, and counted. A reply that says the part has nothing relevant has no
+ * item. New in 0.10.0.
  */
 export function parseItemLines(reply: string): { objects: Array<Record<string, unknown>>; skipped: number } {
   const text = reply.trim();
@@ -690,7 +709,7 @@ export function parseItemLines(reply: string): { objects: Array<Record<string, u
   const joined = lines.join("\n");
   if (joined.startsWith("[")) {
     try {
-      const parsed: unknown = JSON.parse(joined);
+      const parsed: unknown = parseLeniently(joined);
       if (Array.isArray(parsed)) return { objects: parsed.filter(isObject), skipped: parsed.filter((value) => !isObject(value)).length };
     } catch {
       // Not one array: read line by line.
@@ -704,7 +723,7 @@ export function parseItemLines(reply: string): { objects: Array<Record<string, u
     const open = line.indexOf("{");
     const close = line.lastIndexOf("}");
     try {
-      const value: unknown = open === -1 || close < open ? undefined : JSON.parse(line.slice(open, close + 1));
+      const value: unknown = open === -1 || close < open ? undefined : parseLeniently(line.slice(open, close + 1));
       if (isObject(value)) objects.push(value);
       else skipped++;
     } catch {
@@ -753,15 +772,22 @@ function itemText(value: unknown, most: number): string | undefined {
 }
 
 /**
- * An item a part listed, checked: its line within the part (`from` and the part's `lines`), and its
- * quote on that line. Undefined for one that is not: it is counted as unverified. A label is
- * matched to the read's labels in `quoteForm`, and given as the read spelled it.
+ * An item a part listed, checked: its quote on its line, within the part (`from` and the part's
+ * `lines`). An item whose quote is not on the line it names, but on exactly one line of the part, is
+ * given that line: Gemini Flash-Lite named clause 5 on line 7 ("7| 5. …") as line 5. Undefined
+ * for one whose quote is on no line of the part, or on several but not its own: it is counted as
+ * unverified. A label is matched to the read's labels in `quoteForm`, and given as the read spelled it.
  */
 function checkedItem(object: Record<string, unknown>, from: number, lines: readonly string[], labels: readonly string[] | undefined): WholeItem | undefined {
-  const number = typeof object.line === "number" ? object.line : typeof object.line === "string" && object.line.trim() ? Number(object.line) : Number.NaN;
-  if (!Number.isInteger(number) || number < from || number >= from + lines.length) return undefined;
+  const named = typeof object.line === "number" ? object.line : typeof object.line === "string" && object.line.trim() ? Number(object.line) : Number.NaN;
   const quote = itemText(object.quote, 300);
-  if (quote === undefined || !quoteOnLine(quote, lines[number - from]!)) return undefined;
+  if (quote === undefined) return undefined;
+  let number = named;
+  if (!Number.isInteger(named) || named < from || named >= from + lines.length || !quoteOnLine(quote, lines[named - from]!)) {
+    const found = lines.flatMap((text, index) => (quoteOnLine(quote, text) ? [from + index] : []));
+    if (found.length !== 1) return undefined;
+    number = found[0]!;
+  }
   const given = itemText(object.label, MAX_LABEL_CHARACTERS);
   const label = given === undefined ? undefined : labels?.find((known) => quoteForm(known) === quoteForm(given)) ?? given;
   const value = itemText(object.value, 200);

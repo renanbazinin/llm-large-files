@@ -79,11 +79,11 @@ describe("a part read", () => {
       "Task: List every slow request.",
       "List each item of this part that the task asks for, as one JSON object on a line of its own, and nothing else:",
       '{"line": 123, "label": "<label>", "value": "<value>", "quote": "<the words of line 123 that state the item>"}',
-      expect.stringMatching(/^- line: the number of the line that states the item, from \d+ to \d+\.$/),
+      expect.stringMatching(/^- line: the number before "\| " at the start of the line that states the item, from \d+ to \d+; not a number written in its text\.$/),
       '- label: one of "slow".',
       "- value: the amount, date, name or other figure the item gives, as written. Leave it out when it gives none.",
-      "- quote: the words of that line that state the item, copied exactly, at most 200 characters.",
-      "List each item once, on the line that states it. If this part has no such item, reply exactly: NOTHING RELEVANT",
+      "- quote: words of that line that state the item, copied exactly, enough to tell the line from the others, at most 200 characters.",
+      "Write every letter as it is in the file, not as a \\u escape. List each item once, on the line that states it. If this part has no such item, reply exactly: NOTHING RELEVANT",
     ]);
   });
 });
