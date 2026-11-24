@@ -245,8 +245,10 @@ What the checks cover:
 
 Each check makes its own store with `create`, over storage of its own (`environment.storage`), and
 gives every store it made to `dispose` at the end. The checks pass a scope (and an owner) on most
-calls. New checks are added only in minor versions, so a patch release never fails a store that
-passed.
+calls. A check a patch release adds runs only for a method the store did not have before (0.10.2:
+`list` and `patchMeta`, checked only when the store has them, and for a subclass of a built-in store
+with its own `put`, `get`, `getMeta` or `delete` only when it has its own), so a patch release never
+fails a store that passed.
 
 ### `DocumentStoreChecksOptions`
 

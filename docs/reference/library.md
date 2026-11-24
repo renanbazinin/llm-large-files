@@ -8,7 +8,7 @@ an application or write a store, an extractor or a loop of their own.
 ```ts
 import {
   createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_MAX_TEXT_BYTES,
-  DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, isDocumentId, toDocumentSummary, IngestError, ingestErrorCodeOf,
+  DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, MAX_APP_DATA_BYTES, isDocumentId, toDocumentSummary, IngestError, ingestErrorCodeOf,
   DEFAULT_BUDGET, resolveBudget,
   MemoryDocumentStore, FileDocumentStore, isSafeScopeSegment, hashedScopeSegment,
   DOCUMENT_ID_PATTERN, APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION,
@@ -24,6 +24,7 @@ import type {
   ExtractedText, DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent,
   ProgressListener, ToolCallHooks, ToolRequestHandle, ToolRequestStart, ToolRequestEnd, IngestEvent, IngestErrorCode,
   DocumentStoreOperation, DocumentScopeErrorCode,
+  AppData, JsonValue, MetaPatch, // new in 0.10.2
 } from "llm-large-files";
 ```
 
@@ -693,8 +694,8 @@ What `files.stats()` gives. New in 0.10.0.
 | `ingests` | `{ active: number; waiting: number }` | Ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). |
 | `scans` | `{ active: number; waiting: number }` | Scans of whole documents read by range, and those waiting their turn (`maxConcurrentScans`). |
 | `pageLooks` | `{ active: number; waiting: number }` | Looks at pages, and those waiting their turn (`maxConcurrentPageLooks`). |
-| `cache` | `{ bytes: number; entries: number; maxBytes: number }` | What is kept in memory: its bytes, by their own estimate; how many entries, the documents and the decoded pieces of documents read by range; and the most bytes they may take (`cacheBytes`). |
-| `stuckStoreCalls` | `number` | Calls of this process that ran past their time limit and have not settled: the store calls of every library (past `storeTimeoutMs`, or for `ingest` past `ingestTimeoutMs`), and the upload handlers' calls to the disk (past `uploadIdleTimeoutMs`). The same for every library of the process. |
+| `cache` | `{ bytes: number; entries: number; maxBytes: number }` | What is kept in memory: its bytes, by their own estimate; how many entries, the documents and the decoded pieces of documents read by range; and `cacheBytes`, the most bytes those entries may take. Since 0.10.2, `bytes` also counts the last document larger than `cacheBytes`, kept apart on top of it (P4), which `entries` does not: `bytes` can be above `maxBytes`. |
+| `stuckStoreCalls` | `number` | Calls of this process that ran past their time limit and have not settled: the store calls of every library (past `storeTimeoutMs`, or for `ingest` past `ingestTimeoutMs`), the upload handlers' calls to the disk (past `uploadIdleTimeoutMs`), and since 0.10.2 an ingest's own reads of a path upload (its `lstat` and format reads, and the read of the file when `ingestTimeoutMs` is a time limit). The same for every library of the process. |
 | `maxStuckStoreCalls` | `number` | This library's limit on them (`maxStuckStoreCalls`): at it, its store calls fail at once with `"STORE_STUCK"`. |
 
 ### `IngestInput`
@@ -766,7 +767,9 @@ export const meta = await files.ingest({ name: "report.pdf", source: { path: "/s
   (`ingestTimeoutMs`) begins at its turn, but this look, and the reads for its format (below), are
   not waited for past it either (2 minutes when it is 0): a volume that does not answer fails the
   ingest with an error of code `"ETIMEDOUT"` and `syscall` `"lstat"` or `"read"`, which names no
-  path. A caller that aborts `signal` meanwhile gets its own reason at once.
+  path. A caller that aborts `signal` meanwhile gets its own reason at once. Since 0.10.2 such a
+  look, and the read of the file when `ingestTimeoutMs` is a time limit, counts toward
+  `stats().stuckStoreCalls` past that time, until it ends, as a store call does.
 - **Its format**: from its name and type, as for bytes. When they say nothing (no extension,
   `application/octet-stream`), from its first KB, and for a ZIP from its first 64 KB and its last
   MB, read for that alone: a DOCX without its extension is still a DOCX.
@@ -781,7 +784,8 @@ export const meta = await files.ingest({ name: "report.pdf", source: { path: "/s
 - **An extractor that reads paths** (`Extractor.readsPath`, as those of
   [`createIsolatedExtractors`](./node.md#createisolatedextractorsoptions) do) reads the file itself,
   and the server reads none of it. When the store keeps a copy, the server reads it all the same,
-  and the extractor gets the bytes.
+  and the extractor gets the bytes. With `dedupe` (0.10.2), the server reads it once more to hash
+  it before the extractor runs, a slice at a time, keeping none of it.
 - **The library never writes, moves or deletes the file.** Remove it yourself when you no longer
   need it, or keep it and give `original: { ref }` so that its pages can be shown without a copy in
   the store.
@@ -1332,7 +1336,7 @@ A store that wraps another one, or a subclass that overrides a method, passes th
 | `readTextRange(id, start, end)` | no | Bytes `start` (inclusive) to `end` (exclusive) of the text exactly as given to `put`, as UTF-8: the line index is built from those bytes. Return fewer bytes at the end of the text, and `undefined` when the document is gone. Called only after `getMeta` found the document. Without it, every document is loaded whole. |
 | `putIndex(id, index)` | no | Keep the line index of a document (a few bytes a line). Called at ingest before `put`, and when a document ingested without an index is first read by range (an error then is ignored). Without it, the index is built from the text each time a large document is opened. |
 | `getIndex(id)` | no | The index kept by `putIndex`, or `undefined`. A damaged one is noticed and built again. An error is taken as no index. |
-| `list()` | no | The metadata of the documents of `context.scope` (of no scope when it has none), in any order, without the expired ones; a store that keeps no scopes apart may give every document, and the library keeps to the caller's. Called by [`files.list`](#fileslistaccess) and by `ingest({ dedupe: true })`. Without it, both are a `TypeError`. A store of many documents should answer from an index (a query on the scope), not by reading each one. New in 0.10.2. |
+| `list()` | no | The metadata of the documents of `context.scope` (of no scope when it has none), in any order; it may leave out the expired ones or give them (the library leaves them out); a store that keeps no scopes apart may give every document, and the library keeps to the caller's. Called by [`files.list`](#fileslistaccess) and by `ingest({ dedupe: true })`. Without it, both are a `TypeError`. A store of many documents should answer from an index (a query on the scope), not by reading each one. New in 0.10.2. |
 | `patchMeta(id, patch)` | no | Change the fields of `patch` in the metadata of the document `id` whose `createdAt` is `patch.createdAt`, and nothing else: `expiresAt` becomes the later of the stored one and `patch.expiresAt`; `appData` is replaced, or removed when `null`; fields left out are not touched. Return the metadata as it is after the change, or `undefined`, writing nothing, when no such document is there: unknown, deleted, expired, or another one stored under the ID since (another `createdAt`). Apply the fields to what is stored when you write, not to a copy read before, so that a `touch` and an `update` at once both stay: a database does it in one conditional update. Called by [`files.touch`](#filestouchid-access), [`files.update`](#filesupdateid-changes-access) and `ingest({ dedupe: true })`. Without it, `touch` and `update` are a `TypeError`. New in 0.10.2. |
 
 Errors:
@@ -1431,8 +1435,15 @@ declare class MemoryDocumentStore implements DocumentStore {
   sweep(now?: Date, context?: DocumentContext): Promise<number>;
   putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void>;
   getOriginal(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  list(context?: DocumentContext): Promise<DocumentMeta[]>; // new in 0.10.2
+  patchMeta(id: string, patch: MetaPatch, context?: DocumentContext): Promise<DocumentMeta | undefined>; // new in 0.10.2
 }
 ```
+
+Since 0.10.2, a subclass that has its own `put`, `get`, `getMeta` or `delete` (a key prefix,
+encryption) and no `list` or `patchMeta` of its own is used as if it had neither: the built-in
+ones would go past its own. Give it its own to use `files.list`, `files.touch`, `files.update` and
+`dedupe`. The same holds for `FileDocumentStore`.
 
 Keeps documents, and kept originals, in the memory of the process: for tests, scripts and
 one-process demos. They are lost on restart and not shared between processes. It has no
@@ -1471,6 +1482,8 @@ declare class FileDocumentStore implements DocumentStore {
   readTextRange(id: string, start: number, end: number, context?: DocumentContext): Promise<Uint8Array | undefined>;
   putIndex(id: string, index: Uint8Array, context?: DocumentContext): Promise<void>;
   getIndex(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  list(context?: DocumentContext): Promise<DocumentMeta[]>; // new in 0.10.2
+  patchMeta(id: string, patch: MetaPatch, context?: DocumentContext): Promise<DocumentMeta | undefined>; // new in 0.10.2
 }
 ```
 

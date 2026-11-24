@@ -223,8 +223,9 @@ export interface DocumentStore {
   getIndex?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
   /**
    * The metadata of the documents of the scope of `context`, in any order: those stored without a
-   * scope when it has none. A store that keeps no scopes apart gives every document it has. Leave
-   * out the expired ones. Optional: `files.list()` needs it. A store of many documents should answer
+   * scope when it has none. A store that keeps no scopes apart gives every document it has. It may
+   * leave out the expired ones, or give them: the library leaves them out. Optional:
+   * `files.list()` and `ingest({ dedupe })` need it. A store of many documents should answer
    * from an index (a database query on the scope), not by reading each one. New in 0.10.2.
    */
   list?(context?: DocumentContext): Promise<DocumentMeta[]>;

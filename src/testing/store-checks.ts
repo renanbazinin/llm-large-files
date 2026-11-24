@@ -4,6 +4,7 @@
 // (node:test), as the documentation of documentStoreChecks shows.
 import { DocumentScopeError } from "../errors.js";
 import { createLargeFiles, type LargeFiles } from "../library.js";
+import { usableStoreMethod } from "../stores.js";
 import { MemoryDocumentStore } from "../stores.js";
 import type { DocumentContext, DocumentMeta, DocumentScope, DocumentStore } from "../types.js";
 import { serviceLog, utf8 } from "./fake-model.js";
@@ -54,7 +55,9 @@ export type DocumentStoreChecksOptions = {
    * (`readTextRange`), "index" (`putIndex`, `getIndex`), "sweep", or "shared" for a store whose
    * storage two stores cannot share (`MemoryDocumentStore`). A check of a part the store lacks, and
    * that is not skipped, fails and says so. Since 0.10.2, "list" (`list`) and "meta" (`patchMeta`):
-   * those are checked only when the store has them, so a store written for 0.10.1 passes as before.
+   * those are checked only when the store has them, so a store written for 0.10.1 passes as before
+   * (a subclass of a built-in store with its own put, get, getMeta or delete is checked only for
+   * a list or patchMeta of its own, as the library uses only those).
    */
   skip?: readonly StoreCheckPart[];
 };
@@ -497,21 +500,22 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
   }
 
   if (!skip.has("list")) {
-    checks.push(check("lists the documents of a scope, without the expired and the deleted, as copies (when it has list)", async ({ store, start, setClock, context }) => {
-      if (typeof store.list !== "function") return;
+    checks.push(check("lists the documents of a scope, without the deleted, as copies (when it has list)", async ({ store, raw, start, context }) => {
+      // A store whose list the library would not use (a subclass of a built-in store with its own
+      // put, get, getMeta or delete, which inherits the built-in list) is not checked either.
+      if (!usableStoreMethod(raw, "list")) return;
       const put = (id: string, expiresAt: number, which: "a" | "b" = "a") => must(() => store.put({ meta: metaFor(id, TEXT, start, expiresAt, { scope: [...scopes[which]], owner: `owner-${which}` }), text: TEXT }, context(which)), "put");
       await put("check-list-1", start + DAY);
       await put("check-list-2", start + 2 * DAY);
       await put("check-list-gone", start + DAY);
-      await put("check-list-soon", start + 60_000);
       await put("check-list-other", start + DAY, "b");
       await must(() => store.delete("check-list-gone", context()), "delete");
-      setClock(start + 120_000);
+      // An expired document may be listed or not, by the store's clock: the library leaves it out.
       const listed = await must(() => store.list!(context()), "list");
       if (!Array.isArray(listed)) fail("list must give an array of metadata.");
       const ids = listed.map((meta) => meta.id).sort();
       for (const id of ["check-list-1", "check-list-2"]) if (!ids.includes(id)) fail(`list left out ${id}, a document of the scope.`);
-      for (const id of ["check-list-gone", "check-list-soon"]) if (ids.includes(id)) fail(`list gave ${id}, ${id.endsWith("gone") ? "deleted" : "expired"}.`);
+      if (ids.includes("check-list-gone")) fail("list gave check-list-gone, deleted.");
       if (isolates && ids.includes("check-list-other")) fail("list gave a document of another scope: a store that keeps scopes apart (isolatesScopes) lists one scope.");
       const first = listed.find((meta) => meta.id === "check-list-1")!;
       same(first, metaFor("check-list-1", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a" }), "the metadata list gave");
@@ -521,8 +525,8 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
   }
 
   if (!skip.has("meta")) {
-    checks.push(check("changes the fields of patchMeta alone, of the document of that createdAt only (when it has patchMeta)", async ({ store, start, context }) => {
-      if (typeof store.patchMeta !== "function") return;
+    checks.push(check("changes the fields of patchMeta alone, of the document of that createdAt only (when it has patchMeta)", async ({ store, raw, start, context }) => {
+      if (!usableStoreMethod(raw, "patchMeta")) return;
       const meta = metaFor("check-meta", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a", appData: { row: "1" } });
       await must(() => store.put({ meta, text: TEXT }, context()), "put");
       const later = new Date(start + 3 * DAY).toISOString();
@@ -543,8 +547,8 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
       same(await store.getMeta("check-meta", context()), undefined, "getMeta(id) after patchMeta of a deleted document");
     }));
 
-    checks.push(check("keeps both of two patchMeta calls made at once (when it has patchMeta)", async ({ store, start, context }) => {
-      if (typeof store.patchMeta !== "function") return;
+    checks.push(check("keeps both of two patchMeta calls made at once (when it has patchMeta)", async ({ store, raw, start, context }) => {
+      if (!usableStoreMethod(raw, "patchMeta")) return;
       const meta = metaFor("check-meta-both", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a" });
       await must(() => store.put({ meta, text: TEXT }, context()), "put");
       const later = new Date(start + 2 * DAY).toISOString();

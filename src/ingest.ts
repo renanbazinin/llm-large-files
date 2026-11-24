@@ -14,7 +14,7 @@ import { formatBytes } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
 import { checkScope } from "./scope.js";
 import { absolutePath, isSha256, readRanges, readSource, sha256InSlices, statSource, type SourceRead } from "./source.js";
-import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
+import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION, usableStoreMethod } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
 import { measureText, prepareText, removeInvisible, sliceWhole } from "./text.js";
 import type { AppData, DocumentContext, DocumentFormat, DocumentMeta, DocumentScope, DocumentStore, DocumentSummary, ExtractedText, ExtractProgress, Extractor } from "./types.js";
@@ -143,7 +143,8 @@ async function claim(context: IngestContext, target: Target & { id: string }, na
 async function sameDocument(context: IngestContext, target: Target, sha256: string): Promise<DocumentMeta | undefined> {
   const { store, now, ttlMs, maxStuck, slotCapMs } = context;
   const call = <T>(operation: "read" | "write", run: () => Promise<T>) => watchStuck(storeCall(operation, run, { maxStuck }), slotCapMs);
-  const listed: unknown = await call("read", () => store.list!(target.context));
+  const list = usableStoreMethod(store, "list")!;
+  const listed: unknown = await call("read", () => list.call(store, target.context));
   const at = now().getTime();
   const candidates: DocumentMeta[] = [];
   for (const item of Array.isArray(listed) ? listed : []) {
@@ -161,9 +162,10 @@ async function sameDocument(context: IngestContext, target: Target, sha256: stri
       ? await call("read", () => store.readTextRange!(meta.id, 0, 1, target.context)) !== undefined
       : await call("read", () => store.get(meta.id, target.context)) !== undefined;
     if (!there) continue;
-    if (typeof store.patchMeta !== "function") return meta;
+    const patchMeta = usableStoreMethod(store, "patchMeta");
+    if (!patchMeta) return meta;
     // The document of that `createdAt` only: one deleted and stored again under the ID is not it.
-    const touched = metaOf(await call("write", () => store.patchMeta!(meta.id, { createdAt: meta.createdAt, expiresAt: expiryAfter(now(), ttlMs) }, target.context)), meta.id);
+    const touched = metaOf(await call("write", () => patchMeta.call(store, meta.id, { createdAt: meta.createdAt, expiresAt: expiryAfter(now(), ttlMs) }, target.context)), meta.id);
     if (touched && touched.createdAt === meta.createdAt) return touched;
   }
   return undefined;
@@ -739,7 +741,20 @@ async function ingestFile(
         early = { bytes: checkedSize(name, got.size, maxUploadBytes), sha256: got.sha256 };
         sha256 = got.sha256;
       }
-      const same = await sameDocument(context, target, sha256);
+      // Within the time the ingest gives its store calls, and the caller's signal: a store that does
+      // not answer fails the ingest, which keeps its turn until the calls end (`IngestWork`).
+      const looking = sameDocument(context, target, sha256);
+      work.abandoned = looking;
+      let same: DocumentMeta | undefined;
+      try {
+        same = await settleWithin(untilAborted(looking, signal), slotCapMs, () => storeTimeout(name, slotCapMs, "read"));
+      } catch (error) {
+        // The ingest's time ran out while the store did not answer: the store's trouble (503), not
+        // a file that takes too long to read (422).
+        if (timedOut(error)) throw storeTimeout(name, ingestTimeoutMs, "read");
+        throw error;
+      }
+      work.abandoned = undefined;
       if (same) {
         work.reused = true;
         return jsonCopy(same);
@@ -988,7 +1003,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
     if (events.active) events.emit({ type: "ingest.start", ...startOf(input, stated?.size) });
     checkOwner(input.owner);
     const target = targetOf(input, context.rules);
-    if (target.dedupe && typeof context.store.list !== "function") throw new TypeError("dedupe needs a store with list(): MemoryDocumentStore and FileDocumentStore have it.");
+    if (target.dedupe && !usableStoreMethod(context.store, "list")) throw new TypeError("dedupe needs a store with list(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one that has its own put, get, getMeta or delete needs its own list).");
     // The path looked at, as it was made absolute then (the working directory may have changed
     // since); checked again for an input it was not taken from, which throws here.
     const path = quietPath ?? sourcePathOf(input);

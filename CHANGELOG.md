@@ -47,7 +47,13 @@ same as 0.10.1's.
 ### Upgrading: what you need to change
 
 Nothing. Code written for 0.10.1 compiles as it is: the new store methods, library members and
-options are optional, and the requests are byte for byte those of 0.10.1.
+options are optional, and the requests are byte for byte those of 0.10.1. (A store or a
+`LargeFiles` of your own that already has a member named `list`, `patchMeta`, `touch` or `update`
+with another signature no longer matches the interface: rename it.)
+
+- A subclass of `MemoryDocumentStore` or `FileDocumentStore` with its own `put`, `get`, `getMeta` or
+  `delete` is used as if it had no `list` and no `patchMeta` until it has its own: the built-in ones
+  would go past its own reads and writes. Its conformance checks pass as before.
 
 - A store of your own that keeps a fixed list of metadata fields drops `appData`, the new field of
   `DocumentMeta`: keep `meta` whole, as the storage guide says

@@ -778,8 +778,10 @@ export class FileDocumentStore implements DocumentStore {
         const meta = parseMeta(raw);
         return meta && meta.id === id && !expired(meta, now) ? meta : undefined;
       } catch (error) {
-        // Gone since the listing, or a link: not listed. Any other failure is the volume's.
-        if (this.#unreadable(place, error)) return undefined;
+        // Gone since the listing, or a link: not listed. In a folder the application shares, a
+        // file of a name the library does not make that cannot be read is the application's, and
+        // is skipped, as sweep leaves it. Any other failure is the volume's.
+        if (this.#unreadable(place, error) || (place.shared && !DOCUMENT_ID_PATTERN.test(id))) return undefined;
         throw error;
       } finally {
         release();
@@ -801,7 +803,8 @@ export class FileDocumentStore implements DocumentStore {
    */
   async patchMeta(id: string, patch: MetaPatch, context?: DocumentContext): Promise<DocumentMeta | undefined> {
     if (!fileId(id)) return undefined;
-    const place = await this.#find(context);
+    // A write, and maybe a removal: the folder of the scope is checked again, as for delete.
+    const place = await this.#find(context, true);
     if (!place) return undefined;
     const files = filesOf(place.folder, id);
     return this.#inTurn(files.meta, async () => {
@@ -997,4 +1000,27 @@ export class FileDocumentStore implements DocumentStore {
     }
     return 0;
   }
+}
+
+/** The methods of a store that tell how it reads and writes a document: a subclass that changes one changes them all. */
+const CORE_METHODS = ["put", "get", "getMeta", "delete"] as const;
+
+/**
+ * The store's `list` or `patchMeta`, when the library may use it (0.10.2). A subclass of
+ * `MemoryDocumentStore` or `FileDocumentStore` written for 0.10.1 that changes how documents are
+ * read or written (its own `put`, `get`, `getMeta` or `delete`: a key prefix, encryption) inherits
+ * the built-in `list` and `patchMeta`, which would go past those changes: they are not used for it,
+ * as if it had none, until it has its own. Any other store's method is used as it is.
+ */
+export function usableStoreMethod<K extends "list" | "patchMeta">(store: DocumentStore, name: K): DocumentStore[K] | undefined {
+  const method = store[name];
+  if (typeof method !== "function") return undefined;
+  for (const Base of [MemoryDocumentStore, FileDocumentStore] as const) {
+    if (!(store instanceof Base)) continue;
+    const own = Base.prototype as unknown as DocumentStore;
+    // The subclass's own: used.
+    if (method !== own[name]) return method;
+    return CORE_METHODS.some((core) => store[core] !== own[core]) ? undefined : method;
+  }
+  return method;
 }

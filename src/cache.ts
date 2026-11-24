@@ -87,25 +87,18 @@ export class DocumentCache<T extends Sized> {
     if (this.maxEntries < 1) return;
     if (bytes > this.maxBytes) {
       // A document (not a piece), with a cache that keeps any: the last one is kept apart.
-      if (owner === undefined && this.maxBytes > 0) this.keepOversize(id, version, value, bytes);
+      if (owner === undefined && this.maxBytes > 0) {
+        this.keepOversize(id, version, value, bytes);
+        // The one kept apart is the most recently used: the others go first.
+        this.withinEntries(false);
+      }
       return;
     }
     this.entries.set(id, { version, value, bytes, ...(owner !== undefined ? { owner } : {}) });
     this.total += bytes;
     if (owner === undefined) this.documents++;
-    // One document too many: the one used longest ago goes, with what belongs to it.
-    while (this.documents > this.maxEntries) {
-      let oldest: string | undefined;
-      for (const [key, entry] of this.entries) {
-        if (entry.owner === undefined) {
-          oldest = key;
-          break;
-        }
-      }
-      if (oldest === undefined) break;
-      this.delete(oldest);
-      for (const [key, entry] of [...this.entries]) if (entry.owner === oldest) this.delete(key);
-    }
+    // This document is the most recently used: the one kept apart goes before it.
+    this.withinEntries(owner === undefined);
     // Too much memory: the entries used longest ago go, whatever they are.
     for (const [oldest] of this.entries) {
       if (this.total <= this.maxBytes) break;
@@ -133,6 +126,30 @@ export class DocumentCache<T extends Sized> {
     for (const key of [...this.entries.keys()]) if (test(key)) this.delete(key);
   }
 
+  /**
+   * Within `maxEntries` documents, the one kept apart counted (`cacheSize`): one too many, the one
+   * kept apart goes first when `apartFirst` (a document was just kept, and is used more recently),
+   * then the one used longest ago, with what belongs to it, and with none left the one kept apart.
+   */
+  private withinEntries(apartFirst: boolean): void {
+    if (apartFirst && this.oversize && this.documents + 1 > this.maxEntries) this.dropOversize();
+    while (this.documents + (this.oversize ? 1 : 0) > this.maxEntries) {
+      let oldest: string | undefined;
+      for (const [key, entry] of this.entries) {
+        if (entry.owner === undefined) {
+          oldest = key;
+          break;
+        }
+      }
+      if (oldest === undefined) {
+        this.dropOversize();
+        break;
+      }
+      this.delete(oldest);
+      for (const [key, entry] of [...this.entries]) if (entry.owner === oldest) this.delete(key);
+    }
+  }
+
   /** The last oversize document, when it is this one: its time is counted again from now. */
   private lastOversize(id: string, version: string): T | undefined {
     const kept = this.oversize;
@@ -141,16 +158,30 @@ export class DocumentCache<T extends Sized> {
       this.dropOversize();
       return undefined;
     }
-    kept.timer.refresh();
+    kept.timer = this.oversizeTimer(kept.timer);
     return kept.value;
   }
 
   private keepOversize(id: string, version: string, value: T, bytes: number): void {
     this.dropOversize();
-    // A timer that does not keep the process alive: an idle server lets the document go.
-    const timer = setTimeout(() => this.dropOversize(), OVERSIZE_KEEP_MS);
-    timer.unref?.();
-    this.oversize = { id, version, value, bytes, timer };
+    this.oversize = { id, version, value, bytes, timer: this.oversizeTimer() };
+  }
+
+  /**
+   * The timer that lets the document kept apart go: `timer` counted again from now, or a new one.
+   * It does not keep the process alive, and it holds the cache weakly: a library let go of with a
+   * document kept apart is collected at once, not a minute later with everything it kept.
+   */
+  private oversizeTimer(timer?: ReturnType<typeof setTimeout>): ReturnType<typeof setTimeout> {
+    if (timer && typeof timer.refresh === "function") {
+      timer.refresh();
+      return timer;
+    }
+    if (timer) clearTimeout(timer);
+    const cache = new WeakRef(this);
+    const next = setTimeout(() => cache.deref()?.dropOversize(), OVERSIZE_KEEP_MS);
+    next.unref?.();
+    return next;
   }
 
   private dropOversize(): void {

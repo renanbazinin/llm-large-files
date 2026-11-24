@@ -567,8 +567,8 @@ setInterval(() => {
 
 - At ingest, `expiresAt` is set to `createdAt` plus `ttlMs`. Since 0.10.2,
   [`files.touch(id, access)`](../reference/library.md#filestouchid-access) counts it again from now,
-  so that a file a chat still uses stays (see [Expiry from the last use](#expiry-from-the-last-use)).
-  Nothing else changes it.
+  so that a file a chat still uses stays (see [Expiry from the last use](#expiry-from-the-last-use)),
+  and so does `ingest({ dedupe: true })` for the document it gives back. Nothing else changes it.
 - From that instant the document counts as missing everywhere: `getMeta` and `getOriginal` give
   undefined, `prepare` lists it in `missing`, and a question throws `DocumentsNotFoundError`. The
   library checks `expiresAt` with its own clock before every use, whether or not the store has
@@ -769,9 +769,10 @@ export function ingestSaved(userId: string, chatId: string, uploadId: string, na
   byte past it. What it throws becomes a `DocumentStoreError` (operation `"read"`) with its error as
   `cause` ([`OriginalsReader`](../reference/library.md#originalsreader)).
 - **The same file twice.** Every document of 0.9.0 has `meta.sha256`, the SHA-256 of the upload,
-  for bytes and for paths. The library does not look for another document of the same file: to
-  give a user the document of a file already in the chat, compare it with the `sha256` your
-  session record keeps for the chat's documents. Never across owners.
+  for bytes and for paths. Since 0.10.2, `ingest({ dedupe: true })` gives back the document of the
+  same owner and scope with the same SHA-256 ([below](#a-chats-files-its-own-data-and-the-same-file-twice)).
+  Or compare it yourself with the `sha256` your session record keeps for the chat's documents. Never
+  across owners.
 
 ## Writing a store of your own
 
@@ -1261,7 +1262,7 @@ just those lines.
 
 | Option | Default | What it does |
 |---|---|---|
-| `cacheBytes` | `DEFAULT_CACHE_BYTES`: 256 MB | The most memory the kept documents may take, decoded pieces of large documents included. The least recently used go first. A document larger than this is read again for each call. `0` keeps none. |
+| `cacheBytes` | `DEFAULT_CACHE_BYTES`: 256 MB | The most memory the kept documents may take, decoded pieces of large documents included. The least recently used go first. A document larger than this is not kept with them: since 0.10.2 the last one is kept apart, on top of this, for a minute after its last use (before, it was read again for each call). `0` keeps none. |
 | `cacheSize` | No cap | Also caps the number of documents kept. The pieces of a document read by range do not count. |
 | `wholeDocumentBytes` | `DEFAULT_WHOLE_DOCUMENT_BYTES`: 2 MB | A document whose text is at most this many bytes is loaded whole. A larger one is read by range, when the store has `readTextRange`. `Infinity` loads every document whole; `0` reads every one by range. |
 | `scanChunkBytes` | 1 MB | Reading by range: about this many bytes of text are read and searched at a time. |

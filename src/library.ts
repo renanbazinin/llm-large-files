@@ -16,7 +16,7 @@ import { SearchableDocument, type DocumentSource } from "./search.js";
 import { TimeSlicer } from "./pause.js";
 import { checkScope } from "./scope.js";
 import { isSha256, sha256InSlices } from "./source.js";
-import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
+import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION, usableStoreMethod } from "./stores.js";
 import { wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
 import { createDocumentTools, type PageLookTurns } from "./tools.js";
@@ -519,13 +519,16 @@ export type LargeFilesStats = {
   pageLooks: { active: number; waiting: number };
   /**
    * What is kept in memory: its bytes, how many entries (documents, and pieces of documents read by
-   * range), and the most bytes they may take (`cacheBytes`).
+   * range), and the most bytes those entries may take (`cacheBytes`). Since 0.10.2 `bytes` also
+   * counts the last document larger than `cacheBytes`, kept apart on top of it, which `entries`
+   * does not.
    */
   cache: { bytes: number; entries: number; maxBytes: number };
   /**
    * Calls of this process that ran past their time limit and have not settled: the store calls of
-   * every library (past `storeTimeoutMs`, or for `ingest` past `ingestTimeoutMs`), and the calls to
-   * the disk of the upload handlers (`uploadIdleTimeoutMs`).
+   * every library (past `storeTimeoutMs`, or for `ingest` past `ingestTimeoutMs`), the calls to
+   * the disk of the upload handlers (`uploadIdleTimeoutMs`), and since 0.10.2 an ingest's own
+   * reads of a path upload.
    */
   stuckStoreCalls: number;
   /** This library's limit on them (`maxStuckStoreCalls`). */
@@ -823,10 +826,11 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
    * `operation` names the method in the TypeError of a store without `patchMeta`.
    */
   async function changeMeta(id: string, caller: Caller, operation: string, change: Omit<MetaPatch, "createdAt">): Promise<DocumentMeta | undefined> {
-    if (typeof store.patchMeta !== "function") throw new TypeError(`files.${operation} needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it.`);
+    const patchMeta = usableStoreMethod(store, "patchMeta");
+    if (!patchMeta) throw new TypeError(`files.${operation} needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one that has its own put, get, getMeta or delete needs its own patchMeta).`);
     const meta = await metaFor(id, caller);
     if (!meta) return undefined;
-    const changed = metaOf(await timed("write", () => store.patchMeta!(id, { ...change, createdAt: meta.createdAt }, caller.context), caller.signal), id);
+    const changed = metaOf(await timed("write", () => patchMeta.call(store, id, { ...change, createdAt: meta.createdAt }, caller.context), caller.signal), id);
     // The store changed the document of that `createdAt`, or none: one of another is not given back.
     return changed && changed.createdAt === meta.createdAt ? wholeName(changed) : undefined;
   }
@@ -1121,8 +1125,9 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
 
     async list(access) {
       const caller = callerOf(access, rules);
-      if (typeof store.list !== "function") throw new TypeError("files.list needs a store with list(): MemoryDocumentStore and FileDocumentStore have it.");
-      const found: unknown = await reading(() => store.list!(caller.context), caller.signal);
+      const list = usableStoreMethod(store, "list");
+      if (!list) throw new TypeError("files.list needs a store with list(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one that has its own put, get, getMeta or delete needs its own list).");
+      const found: unknown = await reading(() => list.call(store, caller.context), caller.signal);
       const at = now().getTime();
       const listed: DocumentMeta[] = [];
       for (const item of Array.isArray(found) ? found : []) {
@@ -1155,7 +1160,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       const caller = callerOf(access, rules);
       if (appData === undefined) {
         // Nothing to change: the document as it is, when the store could change it.
-        if (typeof store.patchMeta !== "function") throw new TypeError("files.update needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it.");
+        if (!usableStoreMethod(store, "patchMeta")) throw new TypeError("files.update needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one that has its own put, get, getMeta or delete needs its own patchMeta).");
         return metaFor(id, caller);
       }
       return changeMeta(id, caller, "update", { appData });

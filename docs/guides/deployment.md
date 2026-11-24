@@ -22,7 +22,7 @@ rebuild from the store.
 | Searches of large files waiting their turn | A queue in each `LargeFiles` (`maxConcurrentScans`) | No | Empty |
 | Ingests waiting their turn | A queue in each `LargeFiles` (`maxConcurrentIngests`, new in 0.8.2) | No | Empty: the uploads in it get no answer, and must be sent again |
 | Uploads being received | A count in each set of `createDocumentHandlers` (`maxPendingUploadBytes`, new in 0.8.2) | No | Empty |
-| Store calls past their time limit that have not ended | A count in each process (`files.stats().stuckStoreCalls`, new in 0.10.0) | No | Zero |
+| Store calls past their time limit that have not ended, and since 0.10.2 an ingest's own reads of a path upload | A count in each process (`files.stats().stuckStoreCalls`, new in 0.10.0) | No | Zero |
 | The output limit a thinking model needs for whole-file part reads | Each process, by URL and model | No | Learned again, at the cost of one request |
 | The name of the output limit an OpenAI-compatible server takes | Each `openAiCompatible()` adapter | No | Learned again, at the cost of one refused request |
 
@@ -185,8 +185,8 @@ http.createServer((request, response) => {
 
 | What takes memory | How much | What bounds it |
 |---|---|---|
-| Documents kept ready to search | Up to `cacheBytes`, 256 MB by default | `cacheBytes`; `cacheSize` also caps their number |
-| A document loaded whole: text up to `wholeDocumentBytes` (2 MB), or any size when the store has no `readTextRange` | Its text and a lowercased copy: 2 bytes a character for ASCII text, 4 for any other | Counted in `cacheBytes`. One larger than `cacheBytes` is loaded again for each call and not kept |
+| Documents kept ready to search | Up to `cacheBytes`, 256 MB by default, and since 0.10.2 the last document larger than that, kept apart for a minute after its last use | `cacheBytes`; `cacheSize` also caps their number, the one kept apart counted |
+| A document loaded whole: text up to `wholeDocumentBytes` (2 MB), or any size when the store has no `readTextRange` | Its text and a lowercased copy: 2 bytes a character for ASCII text, 4 for any other | Counted in `cacheBytes`. One larger than `cacheBytes` is not kept with the others: since 0.10.2 the last one is kept apart, on top of `cacheBytes`, for a minute after its last use (before, it was loaded again for each call) |
 | A document read by range | Its line index: about 8 bytes a line (8.2 MB for a log of a million lines) | Counted in `cacheBytes` |
 | Searches of documents read by range | Tens of MB each at their peak (60 to 80 MB for a search of a log of 95 MB on Windows; 49 MB above the process for one of 100 MB on Linux, [measurements](../measurements.md#the-server)): `scanChunkBytes` (1 MB) of text read, decoded and lowercased, the next piece read ahead, and what the pieces leave until the next collection | `maxConcurrentScans` (4) per `LargeFiles`. The others wait, and those waiting for the same file share one pass over it |
 | Decoded pieces of a document read by range | Up to its whole decoded text | Kept within `cacheBytes`, and only for a document whose decoded text takes at most a quarter of it |

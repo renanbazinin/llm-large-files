@@ -1,7 +1,7 @@
 // Storage for an application's own panels (0.10.2): `files.list`, `files.touch` (expiry from the
 // last use, H5), and the application's own data on a document (`appData`, `files.update`), over the
 // memory and file stores, with `list` and `patchMeta` on the store.
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,8 +13,11 @@ import {
   MAX_APP_DATA_BYTES,
   MemoryDocumentStore,
   toDocumentSummary,
+  type DocumentContext,
+  type DocumentMeta,
   type DocumentStore,
 } from "llm-large-files";
+import { DocumentCache } from "../src/cache.js";
 import { calls, fakeModel, says, utf8 } from "./fake-model.js";
 
 const HOUR = 60 * 60 * 1000;
@@ -294,6 +297,103 @@ describe("the review of 0.10.2", () => {
     const later = new FileDocumentStore(directory!, { now: time.now, orphanAgeMs: 1_000, scopes: { depth: 2, createScopeFolders: true, unscoped: "root" } });
     expect(await later.sweep(time.now())).toBe(1);
     expect((await readdir(directory!)).filter((name) => name.startsWith(meta.id))).toEqual([]);
+  });
+});
+
+describe("the second review of 0.10.2", () => {
+  it("does not use the built-in list or patchMeta of a subclass that reads or writes in its own way", async () => {
+    // A store of 0.10.1: a subclass that keeps a field of its own in the metadata.
+    class Labelled extends MemoryDocumentStore {
+      override async getMeta(id: string, context?: DocumentContext) {
+        const meta = await super.getMeta(id, context);
+        return meta && { ...meta, name: `[x] ${meta.name}` };
+      }
+    }
+    const files = createLargeFiles({ store: new Labelled() });
+    const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
+    await expect(files.list!()).rejects.toThrow("files.list needs a store with list()");
+    await expect(files.touch!(meta.id)).rejects.toThrow("needs a store with patchMeta()");
+    await expect(files.ingest({ name: "a.txt", bytes: utf8("alpha"), dedupe: true })).rejects.toThrow("dedupe needs a store with list()");
+    // With a list of its own, it is used; a subclass that changes nothing keeps the built-in ones.
+    class Listing extends Labelled {
+      override async list(context?: DocumentContext) {
+        return (await super.list(context)).map((item) => ({ ...item, name: `[x] ${item.name}` }));
+      }
+    }
+    const listing = createLargeFiles({ store: new Listing() });
+    await listing.ingest({ name: "b.txt", bytes: utf8("beta") });
+    expect((await listing.list!()).map((item) => item.name)).toEqual(["[x] b.txt"]);
+    class Plain extends MemoryDocumentStore {}
+    const plain = createLargeFiles({ store: new Plain() });
+    await plain.ingest({ name: "c.txt", bytes: utf8("gamma") });
+    expect((await plain.list!()).map((item) => item.name)).toEqual(["c.txt"]);
+  });
+
+  it("dedupe fails in the ingest's time, and stops for the caller, when the store's list does not answer", async () => {
+    const memory = new MemoryDocumentStore();
+    const hung = new Promise<never>(() => undefined);
+    const store: DocumentStore = {
+      put: (d, c) => memory.put(d, c), get: (id, c) => memory.get(id, c), getMeta: (id, c) => memory.getMeta(id, c), delete: (id, c) => memory.delete(id, c),
+      list: () => hung,
+    };
+    const files = createLargeFiles({ store, ingestTimeoutMs: 200, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const timedOut = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), dedupe: true }).catch((error: unknown) => error);
+    expect(timedOut).toMatchObject({ name: "DocumentStoreError", code: "ETIMEDOUT" });
+    const left = new AbortController();
+    const slow = createLargeFiles({ store, ingestTimeoutMs: 60_000, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const ingest = slow.ingest({ name: "a.txt", bytes: utf8("alpha"), dedupe: true, signal: left.signal });
+    setTimeout(() => left.abort(new Error("Left.")), 50);
+    await expect(ingest).rejects.toThrow("Left.");
+  });
+
+  it.skipIf(process.platform === "win32")("checks the folder of a scope again before patchMeta writes, as delete does", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "llf-0102-outside-"));
+    try {
+      const store = new FileDocumentStore(directory, { scopes: { depth: 1, createScopeFolders: true } });
+      const files = createLargeFiles({ store });
+      const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), scope: ["u1"] });
+      // Within the second a read keeps its check, the folder becomes a link to a folder outside.
+      const folder = path.join(directory, "u1", ".llm-large-files");
+      for (const name of await readdir(folder)) await rename(path.join(folder, name), path.join(outside, name));
+      await rm(folder, { recursive: true });
+      await symlink(outside, folder);
+      await expect(store.patchMeta!(meta.id, { createdAt: meta.createdAt, appData: { a: 1 } }, { scope: ["u1"] })).rejects.toThrow(/link/);
+      expect(JSON.parse(await readFile(path.join(outside, `${meta.id}.json`), "utf8")).appData).toBeUndefined();
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("counts the document kept apart toward cacheSize, the one used longest ago going first", async () => {
+    const meta = (id: string) => ({ id }) as DocumentMeta;
+    const item = (memoryBytes: number) => ({ memoryBytes, meta: meta("x") });
+    const cache = new DocumentCache<ReturnType<typeof item>>(100, 1);
+    const small = item(10);
+    const big = item(500);
+    cache.set("small", "v", small);
+    cache.set("big", "v", big);
+    // The one kept apart is the latest: the small one goes.
+    expect(cache.get("small", "v")).toBeUndefined();
+    expect(cache.get("big", "v")).toBe(big);
+    cache.set("small", "v", small);
+    // The small one is the latest now: the one kept apart goes.
+    expect(cache.get("big", "v")).toBeUndefined();
+    expect(cache.get("small", "v")).toBe(small);
+  });
+
+  it.skipIf(process.platform === "win32")("lists past an application's file it cannot read, in a folder it shares", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
+    const files = createLargeFiles({ store: new FileDocumentStore(directory) });
+    const kept = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
+    const secret = path.join(directory, "secret.json");
+    await writeFile(secret, "{}");
+    await chmod(secret, 0o000);
+    try {
+      expect((await files.list!()).map((meta) => meta.id)).toEqual([kept.id]);
+    } finally {
+      await chmod(secret, 0o600);
+    }
   });
 });
 
