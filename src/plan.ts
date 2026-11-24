@@ -33,6 +33,12 @@ export type PlanOptions = {
    * `budget.inlineTokens`), a pinned one included. Without it, as in 0.9, the cards are not counted.
    */
   cardSizes?: ReadonlyMap<string, Size>;
+  /**
+   * The size of the text of documents sent whole as it was read and rendered (with 200 bytes for
+   * its frame): a document is counted at the larger of this and its estimate (`inlineSize`).
+   * `prepare` gives it for numbered text, which the estimate from metadata can count short.
+   */
+  measured?: ReadonlyMap<string, Size>;
 };
 
 type Size = { tokens: number; bytes: number };
@@ -66,8 +72,9 @@ export function planDocuments(
   // With the cards counted: what the documents take of the request. A document not placed yet
   // counts at the smaller of its text and its card, and a card of an earlier question at its card.
   const used = { ...NO_SIZE };
+  const sizeOf = (meta: DocumentMeta) => inlineSize(meta, numbered, options.measured?.get(meta.id));
   const lower = (meta: DocumentMeta) => {
-    const size = inlineSize(meta, numbered);
+    const size = sizeOf(meta);
     const card = cardSizes?.get(meta.id) ?? NO_SIZE;
     return { tokens: Math.min(size.tokens, card.tokens), bytes: Math.min(size.bytes, card.bytes) };
   };
@@ -79,7 +86,7 @@ export function planDocuments(
     }
   }
   const place = (meta: DocumentMeta) => {
-    const size = inlineSize(meta, numbered);
+    const size = sizeOf(meta);
     if (!cardSizes) {
       if (tokens + size.tokens <= tokenRoom && bytes + size.bytes <= byteRoom) {
         inline.add(meta.id);
@@ -120,11 +127,17 @@ export function planDocuments(
 /**
  * What a document sent whole takes of the request, as planning counts it: its tokens, and its
  * bytes with 200 for its frame. `numbered` counts its line numbers too (`numberedSize`), rounded up.
+ * `measured` is the size of its text as rendered, when it is known: the larger of the two counts.
  */
-export function inlineSize(meta: DocumentMeta, numbered: boolean): Size {
-  if (!numbered) return { tokens: meta.estimatedTokens, bytes: (meta.jsonBytes ?? Math.ceil(meta.textBytes * 1.08)) + 200 };
-  const size = numberedSize(meta);
-  return { tokens: Math.ceil(size.tokens), bytes: Math.ceil(size.bytes) + 200 };
+export function inlineSize(meta: DocumentMeta, numbered: boolean, measured?: Size): Size {
+  let size: Size;
+  if (numbered) {
+    const counted = numberedSize(meta);
+    size = { tokens: Math.ceil(counted.tokens), bytes: Math.ceil(counted.bytes) + 200 };
+  } else {
+    size = { tokens: meta.estimatedTokens, bytes: (meta.jsonBytes ?? Math.ceil(meta.textBytes * 1.08)) + 200 };
+  }
+  return measured ? { tokens: Math.max(size.tokens, measured.tokens), bytes: Math.max(size.bytes, measured.bytes) } : size;
 }
 
 /** The digits of the numbers 1 to `count`, written out: what the line numbers of a text take. */
@@ -139,7 +152,10 @@ function digitsUpTo(count: number): number {
  * `numberInline` sends it, from its metadata alone: about 1.2 tokens a digit and one for the bar,
  * and half a token more for each line's estimate, which is rounded up; in bytes, the digits and
  * four more a line. About 8% to 16% more tokens than the text alone: 15.5% for a CSV of short
- * rows, 9.4% for a service log, 8.4% for Hebrew prose. New in 0.10.0.
+ * rows, 9.4% for a service log, 8.4% for Hebrew prose. It can count short: a line that starts with
+ * 16 spaces costs about 2 tokens more with its number (the bar, the space, and a token for the run
+ * of 17 spaces). So `prepare` measures the numbered text it reads, and plans again when it is
+ * larger (`PlanOptions.measured`). New in 0.10.0.
  */
 export function numberedSize(meta: Pick<DocumentMeta, "estimatedTokens" | "lines" | "textBytes" | "jsonBytes">): { tokens: number; bytes: number } {
   const lines = Math.max(1, meta.lines);

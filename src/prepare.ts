@@ -55,8 +55,11 @@ type Size = { tokens: number; bytes: number };
 /** How the text of a document sent whole is given (`numberInline`, `inlineTables`). */
 type Shape = { numbered: boolean; tables: boolean };
 
-/** The prompt text of a document, and, for one sent whole, whether the tools can count its tables. */
-type Rendered = { text: string; toolable: boolean };
+/**
+ * The prompt text of a document, and, for one sent whole, whether the tools can count its tables,
+ * and the size of its numbered text with 200 bytes for its frame (`numberInline`).
+ */
+type Rendered = { text: string; toolable: boolean; size?: Size };
 
 /**
  * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
@@ -70,9 +73,11 @@ async function block(context: PrepareContext, id: string, meta: DocumentMeta, ca
     try {
       if (whole) {
         const text = await document.readText();
+        const numbered = shape.numbered ? numberedText(text) : undefined;
         rendered = {
-          text: renderInline(document.meta, shape.numbered ? numberedText(text) : text),
+          text: renderInline(document.meta, numbered ?? text),
           toolable: shape.tables && isToolable(document.meta.format, text),
+          ...(numbered !== undefined ? { size: { tokens: estimateTokens(numbered), bytes: jsonBytes(numbered) + 200 } } : {}),
         };
       } else {
         rendered = { text: renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead), toolable: false };
@@ -200,9 +205,11 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     tokens: budget.contextTokens - budget.reservedTokens - base.tokens - (reserve?.tokens ?? 0),
     bytes: budget.maxRequestBytes - REQUEST_BYTES_MARGIN - base.bytes - (reserve?.bytes ?? 0),
   };
+  // With `numberInline`, the size of the numbered text of each document read whole so far.
+  const measured = new Map<string, Size>();
   /** How far a plan is over the room it has: 0 when it fits. */
   const excessOf = (planned: Planned): number => {
-    const whole = sum(planned.plan.inline.map((meta) => inlineSize(meta, shape.numbered)));
+    const whole = { tokens: planned.plan.inlineTokens, bytes: planned.plan.inlineBytes };
     const total = reserve
       ? sum([whole, sizeOf(planned.guide!), sizeOf(renderListing([...planned.listing!.values()])), ...planned.plan.searchable.map((meta) => sizeOf(planned.blocks.get(meta.id)!))])
       : whole;
@@ -235,6 +242,7 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
       numbered: shape.numbered,
       ...(given ? { pinned: given.inline, cards: given.cards } : {}),
       ...(cardSizes ? { cardSizes } : {}),
+      ...(measured.size > 0 ? { measured } : {}),
     });
     const inline = new Set(plan.inline.map((meta) => meta.id));
     const viewable = viewableOf();
@@ -251,6 +259,7 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
       }
       blocks.set(meta.id, rendered.text);
       if (whole && rendered.toolable) toolableIds.add(meta.id);
+      if (whole && rendered.size) measured.set(meta.id, rendered.size);
     }
     if (gone.length > 0) {
       missing.push(...gone);
@@ -265,8 +274,10 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     // The tools declared: those of earlier questions of the chat, and those this one needs.
     const tools = toolsInOrder([...given?.tools ?? [], ...questionTools({ searchable: plan.searchable, ...(toolable ? { toolable } : {}), viewable }, wholeReads)]);
     const guide = toolGuide(tools, { fullTables: shape.tables, numberedInline: shape.numbered && plan.inline.length > 0 });
+    // The numbered text is counted as it was measured, where that is larger than its estimate.
+    const counted = shape.numbered ? sum(plan.inline.map((meta) => inlineSize(meta, true, measured.get(meta.id)))) : undefined;
     const planned: Planned = {
-      plan,
+      plan: counted ? { ...plan, inlineTokens: counted.tokens, inlineBytes: counted.bytes } : plan,
       blocks,
       instruction: documentToolsInstruction(plan.searchable, viewable, wholeReads),
       viewable,
@@ -278,8 +289,9 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     // Without `reserve` and `numberInline`, the plan of 0.9: the cards, the header and the guide
     // are the caller's to count.
     if (!reserve && !shape.numbered) return finish(planned);
-    // A plan that does not fit is made again with what it was found to need; a plan made again
-    // that is no nearer to fitting is not used, and the nearest is.
+    // A plan that does not fit is made again with what it was found to need: the numbered text
+    // as measured, and with `reserve` the cards, the header and the guide. A plan made again that
+    // is no nearer to fitting is not used, and the nearest is.
     const excess = excessOf(planned);
     if (excess === 0) return finish(planned);
     if (best && excess >= best.excess) return finish(best.planned);

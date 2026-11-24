@@ -913,7 +913,9 @@ The options of [`files.prepare`](#filesprepareids-base-options). Without the fou
 `numberInline` counts a document as `estimatedTokens` + 1.2 tokens a digit of its line numbers + 1.5
 tokens a line, and its bytes as its JSON bytes + the digits + 4 a line: the formula of
 `estimateParts`. That is 15.5% more tokens for a CSV of 3,000 short rows, 9.4% for a service log,
-and 8.4% for Hebrew prose, and a little more than the estimate of the numbered text itself.
+and 8.4% for Hebrew prose. It can count short: a line that starts with 16 spaces costs about 2
+tokens more with its number. So `prepare` also measures the numbered text of each document it
+sends whole, and plans again when that is larger: such a document is counted at its measured size.
 
 Planning stored rounds at their stand-in size, as `askWithFiles` does since 0.10.0, is the caller's
 part: pass a `base` that counts the tool rounds of earlier questions as their stand-ins

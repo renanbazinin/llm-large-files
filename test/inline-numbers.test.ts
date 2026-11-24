@@ -107,7 +107,35 @@ describe("numbered files sent whole (numberInline)", () => {
     expect(sent.plan.inlineTokens).toBe(numbered);
   });
 
-  it("counts about 8% to 16% more, and no less than the numbered block is", async () => {
+  it("plans a file whose lines start with 16 spaces by the numbered text it reads, which the estimate counts short", async () => {
+    // Code four levels deep: with its number, each line's run of spaces is 17 long, and costs a
+    // token more than the estimate from metadata counts.
+    const text = Array.from({ length: 4_000 }, (_, i) => `                return value_${i}`).join("\n");
+    const { store, files: probe } = await library();
+    const meta = await probe.ingest({ name: "code.py", bytes: utf8(text) });
+    const formula = Math.ceil(numberedSize(meta).tokens);
+    const block = numberedText(await stored(store, meta));
+    const actual = estimateTokens(block);
+    expect(actual).toBeGreaterThan(formula + 1_000);
+    // Room for the estimate, not for the numbered text: it was sent whole, 1,400 tokens over.
+    const { files: edge } = await library({ inlineTokens: formula });
+    const short = await edge.ingest({ name: "code.py", bytes: utf8(text) });
+    const planned = await edge.prepare([short.id], base, { numberInline: true });
+    expect(planned.plan.inline).toEqual([]);
+    expect(planned.blocks.get(short.id)).toContain("--- Large attached file: code.py ---");
+    // Unnumbered, it fits as before.
+    expect((await edge.prepare([short.id], base)).plan.inline).toHaveLength(1);
+    // With room for the numbered text, it is sent whole, counted at that size.
+    const { files: roomy } = await library({ inlineTokens: actual });
+    const sent = await roomy.ingest({ name: "code.py", bytes: utf8(text) });
+    const whole = await roomy.prepare([sent.id], base, { numberInline: true });
+    expect(whole.plan.inline).toHaveLength(1);
+    expect(whole.plan.inlineTokens).toBe(actual);
+    expect(whole.plan.inlineBytes).toBe(Math.max(Math.ceil(numberedSize(sent).bytes), Buffer.byteLength(JSON.stringify(block))) + 200);
+    expect(whole.blocks.get(sent.id)).toBe(renderInline(sent, block));
+  });
+
+  it("counts about 8% to 16% more, and on logs, tables and prose no less than the numbered text", async () => {
     const { store, files } = await library();
     const shares: Record<string, number> = {};
     for (const [name, text] of [["invoices.csv", invoices()], ["app.log", serviceLog(8_000)], ["policy.md", prose()]] as const) {
