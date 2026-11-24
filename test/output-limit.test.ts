@@ -18,12 +18,14 @@ describe("completeWithinLimit since 0.10.0", () => {
       sent = true;
       return { text: "second", cutOff: false, thoughts: 0 };
     }, { signal: controller.signal });
-    setTimeout(() => controller.abort(reason), 20);
-    // The first request is still on its way when the second has ended.
-    const outcome = await Promise.race([
-      second.then(() => "resolved", (error: unknown) => (error === reason ? "aborted" : `rejected: ${String(error)}`)),
-      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 1_000)),
-    ]);
+    let outcome = "still waiting";
+    void second.then(() => (outcome = "resolved"), (error: unknown) => (outcome = error === reason ? "aborted" : `rejected: ${String(error)}`));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(outcome).toBe("still waiting");
+    controller.abort(reason);
+    // Ended at once: before the next turn of the event loop, and so before any timer could fire. A
+    // wait that only looked at the signal now and then would still be waiting here.
+    await new Promise((resolve) => setImmediate(resolve));
     expect(outcome).toBe("aborted");
     expect(sent).toBe(false);
     release();

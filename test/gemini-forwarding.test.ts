@@ -3,7 +3,7 @@
 // contents keep their signed turns when the tool model takes them back.
 import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore, type AskOptions, type PlacementState } from "llm-large-files";
-import { askGemini, geminiApi, geminiToolTurns, vertexAi, type GeminiContent } from "llm-large-files/gemini";
+import { askGemini, gemini, geminiApi, geminiToolTurns, vertexAi, type GeminiContent } from "llm-large-files/gemini";
 import { LOOP_SENDS_NATIVE } from "../src/gemini/chat.js";
 import { fakeFetch, utf8 } from "llm-large-files/testing";
 
@@ -16,6 +16,19 @@ vi.mock("../src/ask.js", async (importOriginal) => {
     askWithFiles: (options: AskOptions) => {
       given.push(options as unknown as Record<string, unknown>);
       return actual.askWithFiles(options);
+    },
+  };
+});
+
+/** The options each part reader of `gemini()` was made with: createGeminiGenerateText itself still runs. */
+const readers = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+vi.mock("../src/gemini/generate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/gemini/generate.js")>();
+  return {
+    ...actual,
+    createGeminiGenerateText: (options: Parameters<typeof actual.createGeminiGenerateText>[0]) => {
+      readers.push(options as unknown as Record<string, unknown>);
+      return actual.createGeminiGenerateText(options);
     },
   };
 });
@@ -82,5 +95,22 @@ describe("askGemini's options since 0.10.0", () => {
     expect(roundOf()).toBeUndefined();
     await askGemini({ files, endpoint: geminiApi({ apiKey: "k", model: "gemini-test" }), fetch: fakeFetch([say("Yes.")]).fetch, documentIds: [meta.id], contents, nativeRounds: false });
     expect(roundOf()).toBeUndefined();
+  });
+});
+
+describe("the part-read time limit of gemini() and askGemini, since 0.10.0", () => {
+  it("goes to the part reader as it is given, 0 included, and is left to its default when not given", async () => {
+    readers.length = 0;
+    gemini(geminiApi({ apiKey: "k", model: "gemini-test" }), { timeoutMs: 0 });
+    gemini(geminiApi({ apiKey: "k", model: "gemini-test" }), { timeoutMs: 50 });
+    gemini(geminiApi({ apiKey: "k", model: "gemini-test" }));
+    expect(readers.map((options) => options.timeoutMs)).toEqual([0, 50, undefined]);
+    expect(readers[2]).not.toHaveProperty("timeoutMs");
+
+    // askGemini gives it to both models: the answering one and the explorer.
+    const { files, meta } = await notes();
+    readers.length = 0;
+    await askGemini({ files, endpoint: geminiApi({ apiKey: "k", model: "gemini-test", explorerModel: "gemini-explorer" }), fetch: fakeFetch([say("Heron.")]).fetch, documentIds: [meta.id], messages: [{ role: "user", text: "The code word?" }], timeoutMs: 0 });
+    expect(readers.map((options) => [String(options.url).includes("gemini-explorer"), options.timeoutMs])).toEqual([[false, 0], [true, 0]]);
   });
 });
