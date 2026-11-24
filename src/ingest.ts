@@ -9,6 +9,7 @@ import { detectFormat, extractorFor, extractText, isZip, namedFormat, sniffParts
 import type { IngestFromSource, IngestInput } from "./library.js";
 import type { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
+import { headingsOf, pdfOutline, type PdfHeading } from "./pdf-outline.js";
 import { formatBytes } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
 import { checkScope } from "./scope.js";
@@ -611,6 +612,8 @@ async function ingestFile(
   };
   let pages: number | undefined;
   let reading: ReturnType<typeof readingOf>;
+  /** A PDF's headings from the size of its type, as its extractor found them (0.10.0). */
+  let headings: PdfHeading[] | undefined;
   let text: string;
   let wrapped: number;
   let lines: string[];
@@ -672,10 +675,10 @@ async function ingestFile(
       // A character is at least one byte: a text this long is too large whatever it holds.
       if (extracted.text.length > maxTextBytes) throw tooMuchText(name, maxTextBytes);
       await slicer.pauseNow();
-      return { pages: extracted.pages, reading: readingOf(extracted), file: fileOf(extracted), ...await prepareText(extracted.text, slicer, progress && ((done, total) => progress.report("prepare", done, total, "characters"))) };
+      return { pages: extracted.pages, reading: readingOf(extracted), file: fileOf(extracted), headings: format === "pdf" ? headingsOf(extracted) : undefined, ...await prepareText(extracted.text, slicer, progress && ((done, total) => progress.report("prepare", done, total, "characters"))) };
     };
     const done = await read();
-    ({ pages, reading, text, wrapped, lines } = done);
+    ({ pages, reading, text, wrapped, lines, headings } = done);
     progress?.end();
     // Bytes given are hashed once the extractor is done with them, a slice at a time: the extractor
     // is called at once at the ingest's turn, as before 0.9.0, so the ingests of one turn reach it
@@ -700,6 +703,8 @@ async function ingestFile(
     measured = await measureText(text, slicer);
     if (measured.utf8 > maxTextBytes) throw tooMuchText(name, maxTextBytes);
     outline = await buildOutlineInSlices(lines, format, slicer);
+    // A PDF whose text gives fewer than 3 headings gets those of its type sizes, when there are more (0.10.0).
+    if (format === "pdf") outline = await pdfOutline(outline, lines, headings, slicer);
     logProfile = format === "log" ? await buildLogProfileInSlices(lines, slicer) : undefined;
     quality = await measureQuality(lines, format, slicer);
     // The line index, so that the text can be read by range: a few bytes a line, built from the

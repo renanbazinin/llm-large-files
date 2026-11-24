@@ -250,3 +250,92 @@ export function heavyPdf(count = 450, size = 1_200, referred = false): Uint8Arra
     ...Array.from({ length: count }, () => numbers),
   ]);
 }
+
+/**
+ * A line of `pdfWithSizedLines`: text in a size of its own (in points), or the cells of a table row,
+ * each at a column of its own (72, 202, 332… from the left).
+ */
+export type SizedLine = { text: string; size: number } | { cells: string[]; size: number };
+
+/**
+ * A font for `pdfWithSizedLines`: Helvetica, with codes 0x80 to 0x9A for the Hebrew letters א to ת
+ * (final forms included), which its ToUnicode map gives back to pdf.js.
+ */
+const SIZED_FONT = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /ToUnicode 4 0 R >>";
+const SIZED_FONT_MAP = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def /CMapName /Adobe-Identity-UCS def /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange 2 beginbfrange <20> <7E> <0020> <80> <9A> <05D0> endbfrange endcmap CMapName currentdict /CMapResource defineresource pop end end";
+
+/** Text as a PDF string of `SIZED_FONT`, in visual order: a line with Hebrew letters runs right to left, its numbers left to right. */
+function sizedString(text: string): string {
+  const hebrew = /[א-ת]/.test(text);
+  const visual = hebrew ? [...text].reverse().join("").replace(/\d+/g, (digits) => [...digits].reverse().join("")) : text;
+  return [...visual].map((character) => {
+    const code = character.codePointAt(0)!;
+    if (code >= 0x5d0 && code <= 0x5ea) return `\\${(0x80 + code - 0x5d0).toString(8)}`;
+    return character === "(" || character === ")" || character === "\\" ? `\\${character}` : character;
+  }).join("");
+}
+
+/**
+ * A PDF of pages of lines, each line in its own size, from the top of the page down. A line with
+ * Hebrew letters is set from the right margin, in visual order, as PDF writers store it, and pdf.js
+ * reads it back in reading order. The text uses one font (`SIZED_FONT`): only the sizes differ.
+ */
+export function pdfWithSizedLines(pages: SizedLine[][]): Uint8Array {
+  // 1 catalog, 2 page tree, 3 font, 4 its ToUnicode map, then a page and its content for each page.
+  const objects: Array<string | Uint8Array> = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${pages.map((_, index) => `${5 + index * 2} 0 R`).join(" ")}] /Count ${pages.length} /MediaBox [0 0 612 792] >>`,
+    SIZED_FONT,
+    pdfStream("", SIZED_FONT_MAP),
+  ];
+  pages.forEach((lines, index) => {
+    let y = 760;
+    const content = lines.map((line) => {
+      y -= line.size * 1.5;
+      const cells = "cells" in line ? line.cells : [line.text];
+      return cells.map((cell, column) => {
+        const x = "cells" in line ? 72 + column * 130 : /[א-ת]/.test(cell) ? Math.max(72, 540 - cell.length * line.size * 0.5) : 72;
+        return `BT /F1 ${line.size} Tf ${x.toFixed(1)} ${y.toFixed(1)} Td (${sizedString(cell)}) Tj ET`;
+      }).join("\n");
+    }).join("\n");
+    objects.push(`<< /Type /Page /Parent 2 0 R /Contents ${6 + index * 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`);
+    objects.push(pdfStream("", content));
+  });
+  return pdfFromObjects(objects);
+}
+
+const sizedBody = (text: string): SizedLine => ({ text, size: 11 });
+
+/**
+ * An unnumbered Hebrew lease of 3 pages: a running header and footer set larger than the body, a
+ * title, sections and subsections told apart only by their size, a number set large, and a heading
+ * on two lines. Its outline from sizes has 8 headings (pdf-outline.test.ts).
+ */
+export function hebrewLease(): Uint8Array {
+  const page = (number: number, lines: SizedLine[]): SizedLine[] => [{ text: "חברת אלפא ניהול נכסים", size: 14 }, ...lines, { text: `עמוד ${number} מתוך 3`, size: 13 }];
+  return pdfWithSizedLines([
+    page(1, [
+      { text: "חוזה שכירות בלתי מוגנת", size: 20 },
+      sizedBody("החוזה נערך ונחתם בעיר תל אביב בין הצדדים"), sizedBody("המפורטים להלן ובהתאם לתנאים הכתובים בו"),
+      { text: "הצדדים לחוזה", size: 15 },
+      sizedBody("המשכיר הוא בעל הזכויות בדירה ברחוב הרצל"), sizedBody("השוכר מעוניין לשכור את הדירה למגורים בלבד"),
+      { text: "פרטי השוכר", size: 13 },
+      sizedBody("השוכר הציג תעודה מזהה ואישור על הכנסה קבועה"), sizedBody("השוכר מצהיר כי ראה את הדירה ומצא אותה מתאימה"),
+    ]),
+    page(2, [
+      { text: "תקופת השכירות", size: 15 },
+      sizedBody("תקופת השכירות היא שנים עשר חודשים מיום המסירה"), sizedBody("השוכר רשאי להאריך את התקופה בהודעה מראש"),
+      { text: "דמי השכירות", size: 15 },
+      { text: "4,500", size: 15 },
+      sizedBody("דמי השכירות ישולמו בראשון לכל חודש בהעברה"), sizedBody("איחור בתשלום יחייב את השוכר בריבית פיגורים"),
+      { text: "התחייבויות", size: 15 }, { text: "השוכר והמשכיר", size: 15 },
+      sizedBody("השוכר ישמור על הדירה ויחזיר אותה במצב תקין"), sizedBody("המשכיר יתקן כל פגם שאינו נובע משימוש סביר"),
+    ]),
+    page(3, [
+      { text: "סיום החוזה", size: 15 },
+      sizedBody("כל צד רשאי לסיים את החוזה בהודעה של שישים יום"), sizedBody("בסיום החוזה יחזיר השוכר את המפתחות למשכיר"),
+      { text: "שונות", size: 13 },
+      sizedBody("כל שינוי בחוזה ייעשה בכתב ובחתימת שני הצדדים"), sizedBody("כתובות הצדדים הן כמפורט במבוא לחוזה זה"),
+    ]),
+  ]);
+}
