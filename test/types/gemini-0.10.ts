@@ -49,9 +49,12 @@ export async function asked(): Promise<void> {
   await askGemini({ files, endpoint, documentIds: [], model: gemini(endpoint) });
 }
 
-// Every option of askWithFiles but the models is an option of askGemini.
+// Every option of askWithFiles but the models is an option of askGemini: no key is missing, and
+// each takes what askWithFiles takes (an option narrowed in askGemini fails here).
 type Shared = Exclude<keyof AskOptions, "model" | "explorer">;
-export const shared: Shared[] = [] satisfies Array<keyof AskGeminiOptions>;
+type Missing = Exclude<Shared, keyof AskGeminiOptions>;
+export const noneMissing: [Missing] extends [never] ? true : false = true;
+export const sameTypes = (options: Omit<AskOptions, "model" | "explorer">): Partial<AskGeminiOptions> => options;
 
 // A project with a token, as 0.9 wrote it: a string, or a function of no arguments.
 vertexAi({ project: "p", model: "m", accessToken: "t" });
