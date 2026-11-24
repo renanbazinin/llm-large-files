@@ -18,15 +18,15 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 244578,
+   "inputTokens": 244612,
    "cachedInputTokens": 118726,
-   "outputTokens": 72,
+   "outputTokens": 92,
    "thoughtTokens": 0,
-   "ms": 3054,
+   "ms": 3127,
    "ceilingReached": false,
    "citations": {
-    "checked": 0,
-    "supported": 0,
+    "checked": 3,
+    "supported": 3,
     "unchecked": 0,
     "unsupported": []
    },
@@ -43,7 +43,7 @@
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
      "estimatedInputTokens": 134211,
-     "ms": 1982,
+     "ms": 1997,
      "outcome": "ok",
      "usage": {
       "inputTokens": 122208,
@@ -61,13 +61,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 134349,
-     "ms": 973,
+     "estimatedInputTokens": 134383,
+     "ms": 998,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 122370,
+      "inputTokens": 122404,
       "cachedInputTokens": 118726,
-      "outputTokens": 19,
+      "outputTokens": 39,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -75,7 +75,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "There are **15** invoices that belong to the customer 'לקוח 17'."
+   "answer": "There are 15 invoices belonging to the customer 'לקוח 17' (חשבוניות.csv L18, L229, L440, etc.)."
   }
  ],
  "passed": true

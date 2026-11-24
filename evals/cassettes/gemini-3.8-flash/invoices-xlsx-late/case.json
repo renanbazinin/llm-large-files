@@ -22,11 +22,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 307857,
+   "inputTokens": 307892,
    "cachedInputTokens": 151747,
-   "outputTokens": 274,
-   "thoughtTokens": 154,
-   "ms": 9847,
+   "outputTokens": 206,
+   "thoughtTokens": 106,
+   "ms": 8481,
    "ceilingReached": false,
    "citations": {
     "checked": 3,
@@ -47,13 +47,13 @@
      "model": "gemini-3.8-flash",
      "turn": 1,
      "estimatedInputTokens": 165103,
-     "ms": 6213,
+     "ms": 4845,
      "outcome": "ok",
      "usage": {
       "inputTokens": 153812,
       "cachedInputTokens": 0,
-      "outputTokens": 116,
-      "thoughtTokens": 61
+      "outputTokens": 115,
+      "thoughtTokens": 60
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -65,21 +65,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 165250,
-     "ms": 3479,
+     "estimatedInputTokens": 165286,
+     "ms": 3506,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 154045,
+      "inputTokens": 154080,
       "cachedInputTokens": 151747,
-      "outputTokens": 158,
-      "thoughtTokens": 93
+      "outputTokens": 91,
+      "thoughtTokens": 46
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "בגיליון ישנן **750** חשבוניות בסטטוס \"באיחור\" (מתוך 3,000 חשבוניות בסך הכל) (חשבוניות 2026.xlsx L6, L10, L3002)."
+   "answer": "בגיליון יש **750** חשבוניות בסטטוס \"באיחור\" (חשבוניות 2026.xlsx L6, L10, L14)."
   }
  ],
  "passed": true

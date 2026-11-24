@@ -21,21 +21,20 @@
     }
    ],
    "passed": true,
-   "requests": 3,
-   "inputTokens": 367311,
-   "cachedInputTokens": 240510,
-   "outputTokens": 263,
-   "thoughtTokens": 105,
-   "ms": 10771,
+   "requests": 2,
+   "inputTokens": 244667,
+   "cachedInputTokens": 120150,
+   "outputTokens": 186,
+   "thoughtTokens": 91,
+   "ms": 7537,
    "ceilingReached": false,
    "citations": {
-    "checked": 1,
-    "supported": 1,
+    "checked": 3,
+    "supported": 3,
     "unchecked": 0,
     "unsupported": []
    },
    "tools": [
-    "aggregate_table",
     "aggregate_table"
    ],
    "reads": 0,
@@ -48,13 +47,13 @@
      "model": "gemini-3.8-flash",
      "turn": 1,
      "estimatedInputTokens": 134216,
-     "ms": 4036,
+     "ms": 4424,
      "outcome": "ok",
      "usage": {
       "inputTokens": 122214,
       "cachedInputTokens": 0,
-      "outputTokens": 98,
-      "thoughtTokens": 45
+      "outputTokens": 102,
+      "thoughtTokens": 49
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -66,40 +65,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 134350,
-     "ms": 3168,
+     "estimatedInputTokens": 134380,
+     "ms": 2833,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 122419,
+      "inputTokens": 122453,
       "cachedInputTokens": 120150,
-      "outputTokens": 51,
-      "thoughtTokens": 14
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_3",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.8-flash",
-     "turn": 3,
-     "estimatedInputTokens": 134564,
-     "ms": 3403,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 122678,
-      "cachedInputTokens": 120360,
-      "outputTokens": 114,
-      "thoughtTokens": 46
+      "outputTokens": 84,
+      "thoughtTokens": 42
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "בקובץ ישנן **750** חשבוניות בסטטוס **\"באיחור\"** (מתוך 3,000 חשבוניות בסך הכול; לדוגמה שורות 4, 8, 12 וכו' ב-חשבוניות.csv)."
+   "answer": "בקובץ יש **750** חשבוניות בסטטוס \"באיחור\" (למשל: חשבוניות.csv L4, L8, L12)."
   }
  ],
  "passed": true

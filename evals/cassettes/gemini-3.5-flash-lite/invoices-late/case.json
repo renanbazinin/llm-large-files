@@ -22,11 +22,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 244588,
+   "inputTokens": 244618,
    "cachedInputTokens": 118726,
-   "outputTokens": 84,
+   "outputTokens": 85,
    "thoughtTokens": 0,
-   "ms": 3128,
+   "ms": 3157,
    "ceilingReached": false,
    "citations": {
     "checked": 1,
@@ -47,7 +47,7 @@
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
      "estimatedInputTokens": 134216,
-     "ms": 1966,
+     "ms": 1910,
      "outcome": "ok",
      "usage": {
       "inputTokens": 122214,
@@ -65,13 +65,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 134350,
-     "ms": 985,
+     "estimatedInputTokens": 134380,
+     "ms": 1095,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 122374,
+      "inputTokens": 122404,
       "cachedInputTokens": 118726,
-      "outputTokens": 31,
+      "outputTokens": 32,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -79,7 +79,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "בקובץ יש **750** חשבוניות בסטטוס 'באיחור' (חשבוניות.csv L4)."
+   "answer": "ישנן **750** חשבוניות בסטטוס 'באיחור' בקובץ (חשבוניות.csv L4)."
   }
  ],
  "passed": true

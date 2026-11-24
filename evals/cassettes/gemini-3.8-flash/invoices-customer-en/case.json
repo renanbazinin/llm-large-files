@@ -18,15 +18,15 @@
    ],
    "passed": true,
    "requests": 3,
-   "inputTokens": 368091,
-   "cachedInputTokens": 240508,
-   "outputTokens": 582,
-   "thoughtTokens": 440,
-   "ms": 14013,
+   "inputTokens": 367953,
+   "cachedInputTokens": 240552,
+   "outputTokens": 360,
+   "thoughtTokens": 159,
+   "ms": 9572,
    "ceilingReached": false,
    "citations": {
-    "checked": 4,
-    "supported": 4,
+    "checked": 15,
+    "supported": 15,
     "unchecked": 0,
     "unsupported": []
    },
@@ -44,13 +44,13 @@
      "model": "gemini-3.8-flash",
      "turn": 1,
      "estimatedInputTokens": 134211,
-     "ms": 5795,
+     "ms": 4142,
      "outcome": "ok",
      "usage": {
       "inputTokens": 122208,
       "cachedInputTokens": 0,
-      "outputTokens": 106,
-      "thoughtTokens": 53
+      "outputTokens": 116,
+      "thoughtTokens": 63
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -62,14 +62,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 134349,
-     "ms": 4630,
+     "estimatedInputTokens": 134383,
+     "ms": 2098,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 122423,
+      "inputTokens": 122467,
       "cachedInputTokens": 120144,
-      "outputTokens": 291,
-      "thoughtTokens": 252
+      "outputTokens": 65,
+      "thoughtTokens": 26
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -81,21 +81,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 3,
-     "estimatedInputTokens": 135123,
-     "ms": 3497,
+     "estimatedInputTokens": 135157,
+     "ms": 3212,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 123460,
-      "cachedInputTokens": 120364,
-      "outputTokens": 185,
-      "thoughtTokens": 135
+      "inputTokens": 123278,
+      "cachedInputTokens": 120408,
+      "outputTokens": 179,
+      "thoughtTokens": 70
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "There are **15** invoices belonging to the customer **'לקוח 17'** (e.g., חשבוניות.csv L18, L229, L440, L2972)."
+   "answer": "There are **15** invoices that belong to the customer **לקוח 17** (חשבוניות.csv L18, L229, L440, L651, L862, L1073, L1284, L1495, L1706, L1917, L2128, L2339, L2550, L2761, L2972)."
   }
  ],
  "passed": true

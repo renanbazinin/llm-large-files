@@ -18,15 +18,15 @@
    ],
    "passed": true,
    "requests": 3,
-   "inputTokens": 12042,
-   "cachedInputTokens": 0,
-   "outputTokens": 126,
+   "inputTokens": 12092,
+   "cachedInputTokens": 2015,
+   "outputTokens": 138,
    "thoughtTokens": 0,
-   "ms": 2063,
+   "ms": 2279,
    "ceilingReached": false,
    "citations": {
-    "checked": 0,
-    "supported": 0,
+    "checked": 1,
+    "supported": 1,
     "unchecked": 0,
     "unsupported": []
    },
@@ -44,12 +44,12 @@
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
      "estimatedInputTokens": 5723,
-     "ms": 817,
+     "ms": 918,
      "outcome": "ok",
      "usage": {
       "inputTokens": 3847,
       "cachedInputTokens": 0,
-      "outputTokens": 38,
+      "outputTokens": 41,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -62,11 +62,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 5846,
-     "ms": 584,
+     "estimatedInputTokens": 5853,
+     "ms": 604,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3979,
+      "inputTokens": 3985,
       "cachedInputTokens": 0,
       "outputTokens": 42,
       "thoughtTokens": 0
@@ -81,13 +81,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 3,
-     "estimatedInputTokens": 6052,
-     "ms": 635,
+     "estimatedInputTokens": 6096,
+     "ms": 690,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4216,
-      "cachedInputTokens": 0,
-      "outputTokens": 46,
+      "inputTokens": 4260,
+      "cachedInputTokens": 2015,
+      "outputTokens": 55,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -95,7 +95,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "סך תקציב רבעון 2 של כל המחלקות יחד הוא **15,508 אלפי ש\"ח** (15,508,000 ש\"ח)."
+   "answer": "The total Q2 budget of all departments together is **15,508** thousand NIS (15,508,000 NIS) (תקציב מחלקות 2026.xlsx L6-L53)."
   }
  ],
  "passed": true

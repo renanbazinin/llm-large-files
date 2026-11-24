@@ -22,16 +22,16 @@
    ],
    "passed": true,
    "requests": 3,
-   "inputTokens": 101135,
-   "cachedInputTokens": 62515,
-   "outputTokens": 1110,
-   "thoughtTokens": 943,
-   "ms": 14179,
+   "inputTokens": 101196,
+   "cachedInputTokens": 62543,
+   "outputTokens": 912,
+   "thoughtTokens": 734,
+   "ms": 13470,
    "ceilingReached": false,
    "citations": {
-    "checked": 2,
-    "supported": 2,
-    "unchecked": 2,
+    "checked": 6,
+    "supported": 6,
+    "unchecked": 0,
     "unsupported": []
    },
    "tools": [
@@ -48,13 +48,13 @@
      "model": "gemini-3.8-flash",
      "turn": 1,
      "estimatedInputTokens": 38208,
-     "ms": 3348,
+     "ms": 2707,
      "outcome": "ok",
      "usage": {
       "inputTokens": 33207,
       "cachedInputTokens": 0,
-      "outputTokens": 109,
-      "thoughtTokens": 56
+      "outputTokens": 100,
+      "thoughtTokens": 47
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -66,14 +66,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 38350,
-     "ms": 2450,
+     "estimatedInputTokens": 38387,
+     "ms": 2676,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 33423,
+      "inputTokens": 33451,
       "cachedInputTokens": 31146,
-      "outputTokens": 51,
-      "thoughtTokens": 17
+      "outputTokens": 56,
+      "thoughtTokens": 22
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -85,21 +85,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 3,
-     "estimatedInputTokens": 39302,
-     "ms": 8323,
+     "estimatedInputTokens": 39339,
+     "ms": 8027,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 34505,
-      "cachedInputTokens": 31369,
-      "outputTokens": 950,
-      "thoughtTokens": 870
+      "inputTokens": 34538,
+      "cachedInputTokens": 31397,
+      "outputTokens": 756,
+      "thoughtTokens": 665
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "Based on the data in `sales-2026.xlsx`:\n\n* **Total Revenue:** $32,133\n* **Number of Rows:** 22 (first occurrence at Row 53 / sales-2026.xlsx L55 through Row 1166 / sales-2026.xlsx L1168)"
+   "answer": "For the **East** region in `sales-2026.xlsx`:\n\n* **Total Revenue:** **$32,133** (sales-2026.xlsx L55, L108, L161)\n* **Number of Rows:** **22** rows (sales-2026.xlsx L55, L108, L1168)"
   }
  ],
  "passed": true

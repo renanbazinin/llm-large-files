@@ -7,8 +7,8 @@
    "content-type": "application/json",
    "x-goog-api-key": "<redacted>"
   },
-  "hash": "3f04224e8059e004",
-  "bytes": 10881,
+  "hash": "aad039e481f98bc4",
+  "bytes": 10886,
   "outline": {
    "contents": [
     {
@@ -18,7 +18,7 @@
        "text": "3301 chars #256dd039"
       },
       {
-       "text": "45 chars #6f91a3f8"
+       "text": "56 chars #e71ad872"
       }
      ]
     },
@@ -28,10 +28,10 @@
       {
        "functionCall": {
         "name": "aggregate_table",
-        "args": "{4 keys} #c7544bce",
-        "id": "25 chars #9b9d9383"
+        "args": "{3 keys} #e7c8fbcf",
+        "id": "call_7346621425021675688"
        },
-       "thoughtSignature": "204 chars #7b4580a5"
+       "thoughtSignature": "204 chars #ae01a315"
       },
       {
        "text": ""
@@ -44,8 +44,8 @@
       {
        "functionResponse": {
         "name": "aggregate_table",
-        "id": "25 chars #9b9d9383",
-        "response": "{2 keys} #0d39473e"
+        "id": "call_7346621425021675688",
+        "response": "{2 keys} #c611aca9"
        }
       }
      ]
@@ -105,8 +105,8 @@
    "content-type": "text/event-stream"
   },
   "chunks": [
-   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"aggregate_table\",\"args\": {\"document_id\": \"budget-1\",\"filters\": [{\"column\": \"רבעון 1 / ביצוע\",\"value\": \"רבעון 1 / תקציב\",\"op\": \"\\u003e\"}],\"header_rows\": 2,\"metrics\": [\"count\"]},\"id\": \"call_3106286194900124361\"},\"thoughtSignature\": \"EpYBCpMBAWkUfRM0I9C3u7s6qk0EdRDcx4w3pELN4SmVg+/s5rR/cRrLsYVtlUqZx9QXvnzNjocBNTqYcMDstxRrbUB3ESbzCZ3Vn/q+7V1NhyQS7SRCirnwip1TMYpxmWC0TSoO5LRpXaQUWCf5ceHZS+YkYKjw/SpuWEk7LQ2zoO4BymPJw9sVQc+pQDCoiLaV7GSH2AWb\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3982,\"candidatesTokenCount\": 68,\"totalTokenCount\": 4050,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3982}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"vHQFa_2iC4KekdUPyoTj-Ac\"}\r\n\r\n",
-   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3982,\"candidatesTokenCount\": 68,\"totalTokenCount\": 4050,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3982}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"vHQFa_2iC4KekdUPyoTj-Ac\"}\r\n\r\n"
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"aggregate_table\",\"args\": {\"metrics\": [\"sum:רבעון 2 / תקציב\"],\"document_id\": \"budget-1\",\"header_rows\": 2},\"id\": \"call_4611058789040972883\"},\"thoughtSignature\": \"EpYBCpMBAWkUfRP/1znvO57G/9pq3riGTgZSzE8SVgQDfHvLh5Z0bhHD6dzNI1RnZLFTFFlusNf9LvJuexOlFO5SOaLZAjiOFFZundMassgZeXZQ6WRCEGtE1k3kWQ4SxKDTJ+TE553Y6ltb46OVMxQcsg08gy+WbhdczVkOlzwo1FWJaSNl7ztgD1N76/vqVJeuFcLSxmig\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3985,\"candidatesTokenCount\": 42,\"totalTokenCount\": 4027,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3985}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"xoEFa9XzEPGJ28oPgYKO-As\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3985,\"candidatesTokenCount\": 42,\"totalTokenCount\": 4027,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3985}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"xoEFa9XzEPGJ28oPgYKO-As\"}\r\n\r\n"
   ]
  }
 }

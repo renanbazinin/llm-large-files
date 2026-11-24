@@ -22,15 +22,15 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 244658,
+   "inputTokens": 244717,
    "cachedInputTokens": 120150,
-   "outputTokens": 417,
-   "thoughtTokens": 289,
-   "ms": 8144,
+   "outputTokens": 553,
+   "thoughtTokens": 426,
+   "ms": 10095,
    "ceilingReached": false,
    "citations": {
-    "checked": 1,
-    "supported": 1,
+    "checked": 3,
+    "supported": 3,
     "unchecked": 0,
     "unsupported": []
    },
@@ -47,13 +47,13 @@
      "model": "gemini-3.8-flash",
      "turn": 1,
      "estimatedInputTokens": 134217,
-     "ms": 3855,
+     "ms": 4186,
      "outcome": "ok",
      "usage": {
       "inputTokens": 122214,
       "cachedInputTokens": 0,
-      "outputTokens": 107,
-      "thoughtTokens": 48
+      "outputTokens": 136,
+      "thoughtTokens": 77
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -65,21 +65,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 134373,
-     "ms": 4185,
+     "estimatedInputTokens": 134402,
+     "ms": 5811,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 122444,
+      "inputTokens": 122503,
       "cachedInputTokens": 120150,
-      "outputTokens": 310,
-      "thoughtTokens": 241
+      "outputTokens": 417,
+      "thoughtTokens": 349
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "הסכום הכולל של החשבוניות בסטטוס **\"בוטל\"** הוא **18,775,396.6** ₪ (מתוך 750 חשבוניות מבוטלות) (חשבוניות.csv L3-L2999)."
+   "answer": "הסכום הכולל של החשבוניות בסטטוס **\"בוטל\"** הוא **18,775,396.6** (מתוך 750 חשבוניות מבוטלות) (חשבוניות.csv L3, L7, L11)."
   }
  ],
  "passed": true

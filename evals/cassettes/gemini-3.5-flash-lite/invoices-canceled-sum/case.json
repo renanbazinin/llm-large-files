@@ -22,11 +22,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 244606,
+   "inputTokens": 244636,
    "cachedInputTokens": 118726,
-   "outputTokens": 107,
+   "outputTokens": 106,
    "thoughtTokens": 0,
-   "ms": 3063,
+   "ms": 2991,
    "ceilingReached": false,
    "citations": {
     "checked": 0,
@@ -47,7 +47,7 @@
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
      "estimatedInputTokens": 134217,
-     "ms": 1887,
+     "ms": 1803,
      "outcome": "ok",
      "usage": {
       "inputTokens": 122214,
@@ -65,13 +65,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 134371,
-     "ms": 1066,
+     "estimatedInputTokens": 134400,
+     "ms": 1039,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 122392,
+      "inputTokens": 122422,
       "cachedInputTokens": 118726,
-      "outputTokens": 52,
+      "outputTokens": 51,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -79,7 +79,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "הסכום הכולל של החשבוניות בסטטוס 'בוטל' הוא **18,775,396.6** ₪ (מתוך 750 חשבוניות שבוטלו)."
+   "answer": "הסכום הכולל של החשבוניות בסטטוס 'בוטל' הוא **18,775,396.6** (מתוך 750 חשבוניות בסטטוס זה)."
   }
  ],
  "passed": true
