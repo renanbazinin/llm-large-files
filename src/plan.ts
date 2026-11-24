@@ -1,7 +1,7 @@
 import { pageList } from "./quality.js";
 import { numberLines } from "./search.js";
 import { plural, sliceWhole, wellFormed } from "./text.js";
-import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, OutlineEntry, ToolName } from "./types.js";
+import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, OutlineEntry, PreparedContext, ToolName } from "./types.js";
 
 /** Formats whose documents may hold a table that `aggregate_table` reads. */
 export const TABLE_FORMATS: ReadonlySet<DocumentFormat> = new Set<DocumentFormat>(["csv", "xlsx", "docx", "pptx", "pdf", "html", "markdown"]);
@@ -457,11 +457,26 @@ export const INLINE_TABLES_LINE = "Files shown in full can still be counted exac
 export const CITATION_EXAMPLE_NAME = "report.docx";
 
 /**
- * The line of the system text of a question without tools whose files sent whole have their
- * lines numbered (`numberInline`). Its file name is always `CITATION_EXAMPLE_NAME`, so that the
- * line is the same in every question. New in 0.10.0.
+ * The line of the system text that asks to cite the numbered lines of the files sent whole
+ * (`numberInline`) when no other line asks for citations: in a question that searches no file,
+ * with or without tools. Its file name is always `CITATION_EXAMPLE_NAME`, so that the line is the
+ * same in every question. New in 0.10.0.
  */
 export const INLINE_CITATION_LINE = `Cite line numbers like (${CITATION_EXAMPLE_NAME} L12).`;
+
+/**
+ * The fixed lines a loop that sends `instruction` adds after it, for the files sent whole (P1):
+ * `INLINE_TABLES_LINE` when the tools can count their tables (`toolable`), and
+ * `INLINE_CITATION_LINE` when their lines are numbered and no file is searched, since only the
+ * guide to searched files asks for citations: a question without tools, one over tables shown in
+ * full, one whose PDF pages can be looked at. `""` when there is neither. New in 0.10.0.
+ */
+export function inlineInstruction(prepared: Pick<PreparedContext, "plan" | "toolable">, numbered: boolean): string {
+  const lines: string[] = [];
+  if ((prepared.toolable?.length ?? 0) > 0) lines.push(INLINE_TABLES_LINE);
+  if (numbered && prepared.plan.inline.length > 0 && prepared.plan.searchable.length === 0) lines.push(INLINE_CITATION_LINE);
+  return lines.join("\n");
+}
 
 /**
  * What `toolGuide` says of `analyze_whole_document`'s list of items (`output: "items"`). New in
@@ -478,13 +493,13 @@ const TURNS_LINE = "You have a limited number of tool turns, and you are told wh
  * it changes only when `tools` does. The header lines of the blocks (`listingLine`) say which file
  * is shown in full and which is searched. `tools` are the tools declared, in any order.
  * `fullTables` adds `INLINE_TABLES_LINE` when aggregate_table is among them: the files sent whole
- * may have tables the tools count. `numberedInline` is for a question without tools whose files
- * sent whole have numbered lines: the guide is then `INLINE_CITATION_LINE`. Empty when there is
- * nothing to say. New in 0.10.0.
+ * may have tables the tools count. `numberedInline` says that the files sent whole have numbered
+ * lines: without a text tool, whose lines ask for citations, the guide ends with
+ * `INLINE_CITATION_LINE` (it is that line alone without tools). Empty when there is nothing to say.
+ * New in 0.10.0.
  */
 export function toolGuide(tools: readonly ToolName[], context: { fullTables?: boolean; numberedInline?: boolean } = {}): string {
   const has = new Set(tools);
-  if (has.size === 0) return context.numberedInline ? INLINE_CITATION_LINE : "";
   const guide: string[] = [];
   const textTools = TOOL_ORDER.some((name) => name !== "view_pages" && has.has(name));
   const fullTables = context.fullTables === true && has.has("aggregate_table");
@@ -511,6 +526,7 @@ export function toolGuide(tools: readonly ToolName[], context: { fullTables?: bo
       ...VIEW_LINES,
     );
   }
+  if (!textTools && context.numberedInline) guide.push(INLINE_CITATION_LINE);
   return guide.join("\n");
 }
 

@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { serviceLog, utf8 } from "llm-large-files/testing";
-import { hasPipeRows, INLINE_TABLES_LINE, isToolable, questionTools, toolGuide } from "../src/plan.js";
+import { hasPipeRows, INLINE_CITATION_LINE, INLINE_TABLES_LINE, inlineInstruction, isToolable, questionTools, toolGuide } from "../src/plan.js";
 import { p, word, zip } from "./word-fixtures.js";
 
 const base = { tokens: 0, bytes: 0 };
@@ -91,6 +91,28 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
     expect(prepared.toolable).toEqual([]);
     // The CSV is searched: the tools of 0.9 for it.
     expect(prepared.placement?.tools).toEqual(["search_document", "read_document", "get_document_overview", "aggregate_table", "analyze_whole_document"]);
+  });
+
+  it("asks for citations of the numbered lines of a table shown in full when no file is searched", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 5_000 } });
+    const csv = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices().split("\n").slice(0, 21).join("\n")) });
+    const prepared = await files.prepare([csv.id], base, { inlineTables: "tools", numberInline: true });
+    expect(prepared.toolable?.map((document) => document.id)).toEqual([csv.id]);
+    // The instruction of 0.9 asks for citations only in its guide to searched files: it is empty.
+    expect(prepared.instruction).toBe("");
+    expect(inlineInstruction(prepared, true)).toBe(`${INLINE_TABLES_LINE}\n${INLINE_CITATION_LINE}`);
+    // The guide that stays the same asks for them too.
+    expect(prepared.guide).toContain("Cite line numbers like (app.log L1203).");
+    // Not numbered, the table line alone; without tools, the citation line alone.
+    expect(inlineInstruction(await files.prepare([csv.id], base, { inlineTables: "tools" }), false)).toBe(INLINE_TABLES_LINE);
+    expect(inlineInstruction(await files.prepare([csv.id], base, { numberInline: true }), true)).toBe(INLINE_CITATION_LINE);
+    expect(inlineInstruction(await files.prepare([csv.id], base), false)).toBe("");
+    // With a file searched, the instruction asks for citations: no line for that.
+    const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
+    const searched = await files.prepare([csv.id, log.id], base, { inlineTables: "tools", numberInline: true });
+    expect(searched.plan.searchable.map((document) => document.id)).toEqual([log.id]);
+    expect(searched.instruction).toContain("Cite line numbers like (app.log L1203).");
+    expect(inlineInstruction(searched, true)).toBe(INLINE_TABLES_LINE);
   });
 
   it("counts rows by the rule aggregate_table reads them with", () => {

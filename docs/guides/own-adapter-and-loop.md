@@ -729,8 +729,10 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    - `numberInline: true` numbers the lines of each file sent whole as the tools number them
      (`12| `), so that the model can cite its lines as it cites those of a searched file. The file is
      planned by its numbered size, about 8% to 16% more tokens, so a file at the edge of
-     `inlineTokens` may become a card. With no tools in the question, add
-     `Cite line numbers like (report.docx L12).` to the system text: `guide` is that line then.
+     `inlineTokens` may become a card. `instruction` asks for citations only when a file is
+     searched. When none is (no tools, a table shown in full, a PDF whose pages can be looked at),
+     add `Cite line numbers like (report.docx L12).` to the system text after it. `guide` ends with
+     that line when no text tool is declared.
    - `inlineTables: "tools"` lists in `toolable` the files sent whole whose tables the tools can
      count: a CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with at least 3
      `| cell |` rows. Give them to `tools` with the searched files, so that a count over a table

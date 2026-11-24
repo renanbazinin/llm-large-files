@@ -8,7 +8,7 @@ import { createLargeFiles, estimateTokens, MemoryDocumentStore, resolveBudget, t
 import { serviceLog, utf8 } from "llm-large-files/testing";
 import { emptyPlacement, placementHead } from "../src/placement.js";
 import { prepareDocuments, type PrepareContext } from "../src/prepare.js";
-import { INLINE_CITATION_LINE, INLINE_TABLES_LINE, LISTING_TITLE, listingLine, renderListing, toolGuide } from "../src/plan.js";
+import { INLINE_CITATION_LINE, INLINE_TABLES_LINE, inlineInstruction, LISTING_TITLE, listingLine, renderListing, toolGuide } from "../src/plan.js";
 
 const base = { tokens: 0, bytes: 0 };
 const HEAD = placementHead("first question");
@@ -99,6 +99,14 @@ describe("the guide that stays the same (prepared.guide)", () => {
     expect(prepared.listing?.get(pdf.id)).toBe(`- "דוח.pdf" (document_id ${pdf.id}, ${pdf.pages} ${pdf.pages === 1 ? "page" : "pages"}): shown in full below`);
     // Without viewPages, no pages in the header.
     expect((await files.prepare([pdf.id], base)).listing?.get(pdf.id)).toBe(`- "דוח.pdf" (document_id ${pdf.id}): shown in full below`);
+    expect(prepared.guide).not.toContain(INLINE_CITATION_LINE);
+    // Its text sent whole with numbered lines: the guide asks for citations of them, as no line on
+    // a text tool does. And so does the line added to the instruction of 0.9.
+    const numbered = await files.prepare([pdf.id], base, { viewPages: true, numberInline: true });
+    expect(numbered.guide!.split("\n").at(-1)).toBe(INLINE_CITATION_LINE);
+    expect(numbered.guide).toBe(`${prepared.guide}\n${INLINE_CITATION_LINE}`);
+    expect(numbered.instruction).not.toContain("Cite");
+    expect(inlineInstruction(numbered, true)).toBe(INLINE_CITATION_LINE);
   });
 });
 
