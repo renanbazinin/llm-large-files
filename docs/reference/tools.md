@@ -601,22 +601,22 @@ The description the model sees:
 The description the model sees:
 
 > Read an entire large file in parts and answer a task that needs all of it, such as a full
-> summary, a timeline, or items that must be judged by meaning. With output "items", each part
-> lists the items the task asks for, each with its line and a quote checked against the file, and
-> the result counts them: use it to count or list items that must be judged by meaning, such as
-> the clauses of a kind. To count or list lines that contain a word, an ID or a pattern, use
-> search_document in exact or regex mode instead: its count is exact, and this can miss items.
-> Slow and costly: prefer search_document and read_document for specific questions.
+> summary, a timeline, or items that must be judged by meaning. To count or list lines that
+> contain a word, an ID or a pattern, use search_document in exact or regex mode instead: its
+> count is exact, and this can miss items. Slow and costly: prefer search_document and
+> read_document for specific questions.
 
 | Argument | Type | Required | Meaning |
 |---|---|---|---|
 | `document_id` | string | yes | The document. |
 | `task` | string | yes | What to find or produce from the whole file, stated completely. Not blank (`task is required.`). |
-| `output` | `"answer"` \| `"items"` | no | `"answer"`, the default: one answer written from the notes of every part. `"items"`: the list of the items the task asks for, with their count ([below](#items-output-items)). Any other value is `"answer"`. New in 0.10.0. |
+| `output` | `"answer"` \| `"items"` | no | `"answer"`, the default: one answer written from the notes of every part. `"items"`: each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label ([below](#items-output-items)). Any other value is `"answer"`. New in 0.10.0. |
 | `labels` | string[] | no | With `output: "items"`: the kinds of item to label each one with, such as `["penalty", "deadline"]`. Up to 12, each up to 40 characters; one string is read as a list of one. Ignored for `"answer"`. New in 0.10.0. |
 
-0.10.0 added the sentence on `output: "items"` and the two arguments: a chat where the tool is
-declared misses the provider's prompt cache once after the upgrade.
+0.10.0 added the two arguments, and kept the description of 0.9.0 word for word: a chat where the
+tool is declared misses the provider's prompt cache once after the upgrade. Said in the
+description, the sentence on items made Gemini Flash-Lite choose this read for a full summary in 3
+of 10 runs, against 7 of 8 with 0.9.0's words, so it is in the description of `output` alone.
 
 The file is split into parts of up to `mapChunkTokens` tokens (and 80% of `maxRequestBytes`), 4 are
 read at a time with the `generate` function of the tool set, their notes are merged, and one answer
@@ -1081,7 +1081,7 @@ type ToolSet = {
 | Member | What it does |
 |---|---|
 | `declarations` | The tools to declare to the model, in this order: `search_document`, `read_document`, `get_document_overview`, `aggregate_table`, `analyze_whole_document`, `view_pages`, those that are [offered](#which-tools-are-offered), or (since 0.10.0) exactly those `ToolOptions.declare` names, in the same order. |
-| `has(name)` | `true` for each declared tool. Also `true` for `analyze_whole_document` when `generate` was given and the text tools are declared, even if it is not declared because no document is small enough: a call then gets the reason. Use it to tell the calls of this tool set from others. |
+| `has(name)` | `true` for each declared tool. Also `true` for `analyze_whole_document` when `generate` was given and the text tools are declared, even if it is not declared because no document is small enough: a call then gets the reason. With `ToolOptions.declare` (since 0.10.0), `true` for the declared tools alone. Use it to tell the calls of this tool set from others. |
 | `execute(name, args)` | Runs a call and returns its JSON result, within the tool's own cap. Failures come back as `{ error }`, as listed above. `view_pages` answers with an error here: it returns a file. |
 | `executeWithFiles(name, args, limits?, hooks?)` | Runs any call with [`ToolCallLimits`](#toolcalllimits), and returns the result with the files it produced (`files` is empty for every tool but `view_pages`). Use it in a loop that can send files to the model. `hooks` ([`ToolCallHooks`](./library.md#toolcallhooks), new in 0.7.0) are listeners for this call alone: the progress of a whole-file read, in place of `ToolOptions.onProgress`, and each of its model requests with their retries; a document found gone, and a look told the server is busy (0.9.0); and its own `signal` (0.10.0, [above](#rules-for-every-tool)). |
 | `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters; since 0.8.0 followed by ` in lines 1941-end` with `from_line` or `to_line`, and by `, counted by hour` with `group_by` or `, the last ones` with `order: "last"` in exact and regex mode), `Read app.log lines 1200-1260` (`-1260` only when the call gave an `end_line` not below `start_line`, read as the tool reads it: since 0.10.0 an `end_line` sent as text, `"250"`, shows too, and one past the 600 lines a read shows reads as its last line), `Read all of contract.docx for “every penalty”, as a list of items` (with `output: "items"`, since 0.10.0), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A cut never splits an emoji. A file not yet known is "the file"; an unknown tool is its name, as it came (`askWithFiles` labels it `Call “NAME”` instead). The line quotes the model's words as they are: show it as plain text, or clean it as `askWithFiles` does its steps. In `askWithFiles`, this line, made one line of plain text, is the `label` of the call's `tool.start` event, the line `onActivity` gets with "…", and the start of its step. |
@@ -1296,7 +1296,7 @@ by group and paging; searching the bare form of a word) and the closing requests
 ([`FINAL_ANSWER_REQUEST`](./ask.md#final_answer_request) and the two others), so the cache misses
 once after upgrading to it too, the same way.
 
-0.10.0 changes the description and the arguments of `analyze_whole_document` (`output` and
-`labels`), so a chat where it is declared misses the cache once after the upgrade. The prompts of
+0.10.0 changes the arguments of `analyze_whole_document` (`output` and `labels`; its description
+is 0.9.0's), so a chat where it is declared misses the cache once after the upgrade. The prompts of
 its part reads, merges and answer changed too: they reach the model that reads the parts, not the
 chat.

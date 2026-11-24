@@ -93,13 +93,15 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
   },
   analyze: {
     name: TOOL_NAMES.analyze,
-    description: "Read an entire large file in parts and answer a task that needs all of it, such as a full summary, a timeline, or items that must be judged by meaning. With output \"items\", each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them: use it to count or list items that must be judged by meaning, such as the clauses of a kind. To count or list lines that contain a word, an ID or a pattern, use search_document in exact or regex mode instead: its count is exact, and this can miss items. Slow and costly: prefer search_document and read_document for specific questions.",
+    // 0.9.0's words, kept: with a sentence on items here, Gemini Flash-Lite stopped choosing the
+    // read for a full summary. What items do is said in the description of `output` alone.
+    description: "Read an entire large file in parts and answer a task that needs all of it, such as a full summary, a timeline, or items that must be judged by meaning. To count or list lines that contain a word, an ID or a pattern, use search_document in exact or regex mode instead: its count is exact, and this can miss items. Slow and costly: prefer search_document and read_document for specific questions.",
     parameters: {
       type: "object",
       properties: {
         document_id: documentId,
         task: { type: "string", description: "What to find or produce from the whole file, stated completely." },
-        output: { type: "string", enum: ["answer", "items"], description: "\"answer\" (the default): one answer written from the notes of every part. \"items\": the list of the items the task asks for, with their count, by label." },
+        output: { type: "string", enum: ["answer", "items"], description: "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind." },
         labels: { type: "array", items: { type: "string" }, description: `output "items" only: the kinds of item to label each one with, such as ["penalty", "deadline"]. Up to ${MAX_ITEM_LABELS}, each up to ${MAX_LABEL_CHARACTERS} characters.` },
       },
       required: ["document_id", "task"],
