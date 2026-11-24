@@ -5,6 +5,7 @@
  * text the first time an older document without one is opened, and saved for next time.
  */
 import { holderOf } from "./cache.js";
+import { DocumentStoreError } from "./errors.js";
 import type { Limiter } from "./limiter.js";
 import { pagesOfLines, pause, type DocumentSource, type ScanFeed, type TextChunk } from "./search.js";
 import { canSerialize, parseTextIndex, positionOf, serializeTextIndex, TextIndexBuilder, type TextIndex } from "./text-index.js";
@@ -344,10 +345,22 @@ export async function buildIndexFromStore(store: RangeStore, id: string, limiter
 }
 
 /**
+ * A read of the saved index, or of the end of the text, that failed: no saved index, so that it is
+ * built again from the text. Unless the store did not answer in time ("ETIMEDOUT"), or was not
+ * called because too many calls are stuck ("STORE_STUCK"): reading the whole text from that store
+ * would take longer still, and leave more calls stuck. That error is thrown (0.10.0).
+ */
+function noSavedIndex(error: unknown): undefined {
+  if (DocumentStoreError.is(error) && (error.code === "ETIMEDOUT" || error.code === "STORE_STUCK")) throw error;
+  return undefined;
+}
+
+/**
  * Opens a document to be read by range. Uses the saved index when there is one that fits the
  * document; otherwise builds it from the text and saves it (best effort: a store that cannot
  * write, or another server writing the same index, changes nothing). Undefined when the text is gone.
- * `key` is what its pieces are kept under (see `RangedDocument.key`).
+ * `key` is what its pieces are kept under (see `RangedDocument.key`). A store that does not answer
+ * in time is thrown, not taken for one without an index (`noSavedIndex`, 0.10.0).
  */
 export async function openRangedDocument(
   store: RangeStore,
@@ -357,7 +370,7 @@ export async function openRangedDocument(
 ): Promise<RangedDocument | undefined> {
   let index: TextIndex | undefined;
   if (!options.ignoreSavedIndex && store.getIndex) {
-    const saved = await store.getIndex(meta.id).catch(() => undefined);
+    const saved = await store.getIndex(meta.id).catch(noSavedIndex);
     if (saved) index = parseTextIndex(saved, meta);
     // A saved index that fits the metadata may still not fit the text: another document's text,
     // written under the ID apart from its metadata and its index (two servers that ingest one ID at
@@ -365,7 +378,7 @@ export async function openRangedDocument(
     // the text must end where the index says: one byte is read across that end. Otherwise the index
     // is built again from the text, and compared with the metadata below.
     if (index && index.textBytes > 0) {
-      const tail = await store.readTextRange(meta.id, index.textBytes - 1, index.textBytes + 1).catch(() => undefined);
+      const tail = await store.readTextRange(meta.id, index.textBytes - 1, index.textBytes + 1).catch(noSavedIndex);
       if (tail?.length !== 1) index = undefined;
     }
   }

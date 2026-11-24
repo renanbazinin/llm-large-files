@@ -70,11 +70,27 @@ class Hanging implements DocumentStore {
   }
 }
 
-/** A file store whose ranged reads do not answer while `hung` is set. */
+/**
+ * A file store whose ranged reads do not answer while `hung` is set, nor its saved indexes while
+ * `indexHung` is. It counts the ranged reads, the looks at a saved index and the indexes written.
+ */
 class HangingFiles extends FileDocumentStore {
   hung = false;
+  indexHung = false;
+  ranges = 0;
+  indexLooks = 0;
+  indexWrites = 0;
   override readTextRange(id: string, start: number, end: number, context?: DocumentContext) {
+    this.ranges++;
     return this.hung ? hang(() => super.readTextRange(id, start, end, context)) : super.readTextRange(id, start, end, context);
+  }
+  override getIndex(id: string, context?: DocumentContext) {
+    this.indexLooks++;
+    return this.indexHung ? hang(() => super.getIndex(id, context)) : super.getIndex(id, context);
+  }
+  override putIndex(id: string, index: Uint8Array, context?: DocumentContext) {
+    this.indexWrites++;
+    return super.putIndex(id, index, context);
   }
 }
 
@@ -138,6 +154,35 @@ describe("store calls with a time limit (storeTimeoutMs)", () => {
     // A tool set of 0.10.0's package T ends the question on it; this one answers with the error.
     const result = "value" in (outcome as object) ? (outcome as { value: unknown }).value : (outcome as { error: unknown }).error;
     expect(JSON.stringify(result)).toContain("ETIMEDOUT");
+  });
+
+  // A saved index that did not answer in time was taken for none: the opening read the whole text
+  // to build it again, and wrote it, on the store that was not answering. On a store where every
+  // read hangs, one tool call waited twice the limit and left two calls stuck: the default limit.
+  it("ends a ranged opening whose saved index does not answer after one limit, with one call stuck, and does not build the index again", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "llf-timeouts-"));
+    directories.push(directory);
+    const store = new HangingFiles(directory);
+    const files = createLargeFiles({ store, wholeDocumentBytes: 0, storeTimeoutMs: 1_000, maxStuckStoreCalls: Number.POSITIVE_INFINITY, budget: { inlineTokens: 10 } });
+    const meta = await files.ingest({ name: "app.log", bytes: bytes(serviceLog(2_000)) });
+    store.indexHung = true;
+    store.ranges = 0;
+    store.indexWrites = 0;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let result: unknown;
+    const reading = files.tools([meta]).execute("read_document", { document_id: meta.id, start_line: 5, end_line: 9 }).then((value) => (result = value), (error: unknown) => (result = error));
+    // The look-up reads the disk: the clock moves once the saved index is asked for.
+    for (let turn = 0; turn < 10_000 && store.indexLooks === 0; turn++) await new Promise((resolve) => setImmediate(resolve));
+    expect(store.indexLooks).toBe(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(result).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    await reading;
+    // A tool set of 0.10.0's package T ends the question on it; this one answers with the error.
+    expect(JSON.stringify(result)).toContain("ETIMEDOUT");
+    expect(files.stats().stuckStoreCalls).toBe(1);
+    expect(store.ranges).toBe(0);
+    expect(store.indexWrites).toBe(0);
   });
 
   it("gives up after 30 s by default, and never with 0", async () => {

@@ -938,6 +938,9 @@ tool call ends with `run.error`. Before, a call that never settled held the ques
 - **A caller's signal ends only its own wait** (`AccessOptions.signal`, `askWithFiles`' `signal`).
   One opening of a document serves every caller of its scope, so a call that others wait on goes on
   when one of them leaves.
+- **A saved index that does not answer in time is not built again.** The opening of a document
+  read by range fails with `"ETIMEDOUT"`, as any call does; it does not read the whole text from the
+  same store to build the index, as it does for an index that is missing or broken.
 - **`delete` runs one at a time** in a library: a delete waits for the one before it to settle, for
   at most `storeTimeoutMs`.
 - **`ingest`** keeps its own limits: its writes, and its look-ups of an application's ID, end within
