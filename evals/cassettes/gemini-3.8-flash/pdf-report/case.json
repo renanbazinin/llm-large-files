@@ -16,7 +16,7 @@
      "status": "pass"
     },
     {
-     "fact": "says רבעון 2 or הרבעון השני or Q2",
+     "fact": "says רבעון 2 for Center",
      "status": "pass"
     },
     {
@@ -55,7 +55,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "על פי דוח ההכנסות:\n\n* **הכנסות אזור צפון ברבעון 2:** 135 מיליון ש\"ח.\n* **הרבעון שבו חסר נתון לאזור מרכז:** רבעון 2."
   }
  ],
  "passed": true

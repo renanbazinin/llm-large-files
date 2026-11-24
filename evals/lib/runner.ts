@@ -7,7 +7,7 @@ import { askWithFiles, type AskResult, type ChatMessage, type CitationCheck } fr
 import { gemini, geminiApi } from "../../src/gemini/index.js";
 import { SYSTEM, type CaseKind, type EvalCase } from "../cases.js";
 import type { EvalLibrary } from "../fixtures.js";
-import { checkFact, citationsOf, type FactContext, type FactResult } from "./facts.js";
+import { checkFact, citationsOf, describeFact, type FactContext, type FactResult } from "./facts.js";
 import { recordingFetch, replayFetch, runRecorder, type RequestRecord } from "./record.js";
 
 export type RunMode = "record" | "replay" | "live";
@@ -40,6 +40,8 @@ export type QuestionRun = {
   log: RequestRecord[];
   /** The start of the answer, kept when a fact failed: what the report says the answer was. */
   excerpt?: string;
+  /** The answer, so its facts can be checked again once a fact is fixed (the files are synthetic). */
+  answer?: string;
 };
 
 /** One run of a case. */
@@ -70,6 +72,12 @@ export type RunCaseOptions = {
   cassettes: string;
   /** For record and live. A replay sends no key. */
   apiKey?: string;
+  /**
+   * Replay only: when every request matched, write the replay's facts and answers to the case's
+   * case.json, in place of the recorded ones (`npm run eval:recheck`, after a fact changed). The
+   * requests and the recorded times stay.
+   */
+  rewriteFacts?: boolean;
   /** The fetch that reaches the provider, for record and live. Defaults to the global one. */
   fetch?: typeof fetch;
   /** Which run of the case this is, from 1. */
@@ -190,6 +198,7 @@ export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
       wholeReads: tools.filter((tool) => tool === "analyze_whole_document").length,
       log,
       ...(passed ? {} : { excerpt: result.text.trim().slice(0, 400) }),
+      answer: result.text,
     });
   }
 
@@ -202,14 +211,41 @@ export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
     writeFileSync(caseFile, `${JSON.stringify(kept, null, 1)}\n`);
   }
   if (mode === "replay" && recorded && replay) {
-    run.replayProblems = compare(recorded, run, replay);
     // Latency is the recording's: a replay takes no time.
-    for (const question of run.questions) question.ms = recorded.questions[question.turn - 1]?.ms ?? 0;
+    for (const question of run.questions) {
+      const before = recorded.questions[question.turn - 1];
+      question.ms = before?.ms ?? 0;
+      if (before) question.log = before.log;
+    }
+    if (options.rewriteFacts && !replay.misses.length && !replay.unused().length) {
+      const kept: CaseFile = { ...recorded, questions: run.questions, passed: run.passed };
+      writeFileSync(caseFile, `${JSON.stringify(kept, null, 1)}\n`);
+      recorded = kept;
+    }
+    run.replayProblems = compare(recorded, run, replay);
   }
   return run;
 }
 
-/** What differs between a replay and its recording: a request that missed, recordings left over, a fact that held and no longer does. */
+/** Checks the facts of a run again on its answers, with the facts of `evalCase` as they are now. A cited-line fact keeps its status: its evidence is not kept. */
+export function recheckRun(run: CaseRun, evalCase: EvalCase, context: Omit<FactContext, "evidence">): CaseRun {
+  const questions = run.questions.map((question) => {
+    const turn = evalCase.turns[question.turn - 1];
+    if (!turn || question.answer === undefined || question.error) return question;
+    const facts = turn.facts.map((fact): FactResult => {
+      if ("mustCite" in fact) return question.facts.find((kept) => kept.fact === describeFact(fact)) ?? { fact: describeFact(fact), status: "not checked yet" };
+      return checkFact(fact, question.answer!, { ...context, evidence: [] });
+    });
+    const passed = facts.every((fact) => fact.status !== "fail");
+    return { ...question, facts, passed, ...(passed ? {} : { excerpt: question.answer.trim().slice(0, 400) }) };
+  });
+  return { ...run, questions, passed: questions.length > 0 && questions.every((question) => question.passed) };
+}
+
+/**
+ * What differs between a replay and its recording: a request that missed, recordings left over, a
+ * fact that held and no longer does, and facts that changed since the recording.
+ */
 function compare(recorded: CaseFile, run: CaseRun, replay: ReturnType<typeof replayFetch>): string[] {
   const problems: string[] = [];
   if (replay.misses[0]) problems.push(replay.misses[0].message);
@@ -222,6 +258,11 @@ function compare(recorded: CaseFile, run: CaseRun, replay: ReturnType<typeof rep
       continue;
     }
     if (before.error === undefined && now.error !== undefined && !replay.misses.length) problems.push(`question ${index + 1} ended with an error it did not have when recorded: ${now.error}`);
+    const words = (facts: FactResult[]) => facts.map((fact) => fact.fact).join("\n");
+    if (now.error === undefined && before.error === undefined && words(before.facts) !== words(now.facts)) {
+      problems.push(`facts changed: question ${index + 1} of case "${run.model}/${run.case}" has other facts than when it was recorded. Check them on the recorded answers with npm run eval:recheck (see CONTRIBUTING.md).`);
+      continue;
+    }
     for (const [at, fact] of before.facts.entries()) {
       if (fact.status === "pass" && now.facts[at]?.status === "fail") problems.push(`question ${index + 1}: the fact "${fact.fact}" held when recorded and does not now (${now.facts[at]!.detail ?? ""})`);
     }

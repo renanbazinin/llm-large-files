@@ -12,7 +12,7 @@
    "answered": true,
    "facts": [
     {
-     "fact": "number 2",
+     "fact": "says slide 2",
      "status": "pass"
     },
     {
@@ -55,7 +55,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "על פי המצגת:\n\n* **שקף:** הטבלה מופיעה ב**שקף 2** (\"עמידה ביעדי מכירות לפי אזור\").\n* **יעד אזור הצפון:** **1,200 אלפי ש\"ח** (1.2 מיליון ש\"ח)."
   }
  ],
  "passed": true

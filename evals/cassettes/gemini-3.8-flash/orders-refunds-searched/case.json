@@ -92,7 +92,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "Based on `orders.csv`:\n\n* **Refunded Orders Count:** **500**\n* **Total Refunded Amount:** **$127,550.00**"
   }
  ],
  "passed": true

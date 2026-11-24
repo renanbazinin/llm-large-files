@@ -54,7 +54,8 @@
      "toolCalls": 0
     }
    ],
-   "excerpt": "Based on the attached `orders.csv` file (which contains orders 40000 through 42999, totaling 3,000 orders):\n\n* **Number of refunded orders:** 750\n* **Total amount refunded:** $191,325.00"
+   "excerpt": "Based on the attached `orders.csv` file (which contains orders 40000 through 42999, totaling 3,000 orders):\n\n* **Number of refunded orders:** 750\n* **Total amount refunded:** $191,325.00",
+   "answer": "Based on the attached `orders.csv` file (which contains orders 40000 through 42999, totaling 3,000 orders):\n\n* **Number of refunded orders:** 750\n* **Total amount refunded:** $191,325.00"
   }
  ],
  "passed": false

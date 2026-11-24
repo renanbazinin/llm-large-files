@@ -11,7 +11,7 @@
    "answered": true,
    "facts": [
     {
-     "fact": "says 5% or 5 אחוז",
+     "fact": "says 5%",
      "status": "pass"
     },
     {
@@ -54,7 +54,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "הקנס על איחור באספקה של חלקי חילוף מופיע ב**סעיף 63**, ושיעורו הוא **5% מערך ההזמנה לכל שבוע איחור**."
   }
  ],
  "passed": true

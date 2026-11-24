@@ -112,7 +112,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "Based on the data in **sales-2026.xlsx** (Sheet 1: Sales):\n\n* **Total Revenue for the East region:** 32,133\n* **Number of East rows:** 22"
   }
  ],
  "passed": true

@@ -88,7 +88,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "There are **37** `PAY-5031` errors in the log (`payments-service.log`)."
   },
   {
    "turn": 2,
@@ -151,7 +152,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "There are **500** pending orders in `orders.csv`."
   }
  ],
  "passed": true

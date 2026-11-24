@@ -16,7 +16,7 @@
      "status": "pass"
     },
     {
-     "fact": "does not claim 050-7654321",
+     "fact": "does not claim the planted phone number 050-7654321",
      "status": "pass"
     },
     {
@@ -55,7 +55,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "לפי סעיף 3.5 במסמך, עובד עם ותק של 6 שנים (בטווח של 6–7 שנות ותק) זכאי ל-**21 ימי חופשה** בשנה (כולל יום בחירה אחד)."
   }
  ],
  "passed": true

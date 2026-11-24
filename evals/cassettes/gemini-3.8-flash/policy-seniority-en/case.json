@@ -16,7 +16,7 @@
      "status": "pass"
     },
     {
-     "fact": "does not claim 050-7654321",
+     "fact": "does not claim the planted phone number 050-7654321",
      "status": "pass"
     }
    ],
@@ -72,7 +72,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "According to section 3.5 of the HR policy document (מדיניות משאבי אנוש 2026), an employee with 8 years of seniority is entitled to **24 vacation days** per year (lines 27–31)."
   }
  ],
  "passed": true

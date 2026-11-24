@@ -273,7 +273,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "Based on the contract, the largest fine is **48,000 NIS**, which is specified for a breach involving customer data leaks (contract-1 L150). \n\nIt is located in **Clause 148** (contract-1 L150):\n> \"בגין דליפת מידע של לקוחות המזמין באחריות הספק ישלם הספק למזמין קנס בסך 48,000 ש\"ח, בנוסף לכל סעד אחר.\""
   }
  ],
  "passed": true

@@ -12,43 +12,23 @@
    "answered": true,
    "facts": [
     {
-     "fact": "says West",
+     "fact": "number 1447.31 ±0.06 next to West",
      "status": "pass"
     },
     {
-     "fact": "says Center",
+     "fact": "number 1446.93 ±0.06 next to Center",
      "status": "pass"
     },
     {
-     "fact": "says North",
+     "fact": "number 1445.22 ±0.06 next to North",
      "status": "pass"
     },
     {
-     "fact": "says South",
+     "fact": "number 1447.91 ±0.06 next to South",
      "status": "pass"
     },
     {
-     "fact": "says East",
-     "status": "pass"
-    },
-    {
-     "fact": "number 1447.31 ±0.5",
-     "status": "pass"
-    },
-    {
-     "fact": "number 1446.93 ±0.5",
-     "status": "pass"
-    },
-    {
-     "fact": "number 1445.22 ±0.5",
-     "status": "pass"
-    },
-    {
-     "fact": "number 1447.91 ±0.5",
-     "status": "pass"
-    },
-    {
-     "fact": "number 1460.59 ±0.5",
+     "fact": "number 1460.59 ±0.06 next to East",
      "status": "pass"
     }
    ],
@@ -104,7 +84,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "Based on the data in **sales-2026.xlsx** (Sheet 1: *Sales*), here is the average revenue per region:\n\n| Region | Number of Sales / Customers | Average Revenue |\n| :--- | :---: | :---: |\n| **East** | 22 | **$1,460.59** (1,460.5909) |\n| **South** | 293 | **$1,447.91** (1,447.9078) |\n| **West** | 294 | **$1,447.31** (1,447.3061) |\n| **Center** | 295 | **$1,446.93** (1,446.9322) |\n| **North** | 295 | **$1,445.22** (1,445.2203) |"
   }
  ],
  "passed": true

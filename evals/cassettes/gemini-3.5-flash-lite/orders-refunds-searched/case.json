@@ -72,7 +72,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "There are **500** refunded orders, and their total amount is **127,550.00**."
   }
  ],
  "passed": true

@@ -1,4 +1,5 @@
-// npm run eval:replay | eval:record | eval:live [-- options]: runs evals/run.ts under Vitest with
+// npm run eval:replay | eval:record | eval:live | eval:recheck [-- options], or
+// node evals/cli.mjs report --results file.json: runs evals/run.ts under Vitest with
 // vitest.evals.config.ts, the options turned into the variables run.ts reads.
 //
 //   --k 3                      runs of each case (live)
@@ -6,6 +7,7 @@
 //   --cases id,id              only these cases
 //   --results file.json        add the runs to this results file, and write its report beside it
 //   --title "..."              the report's title
+//   --notes notes.md           Markdown put under the report's title
 //   --max-input-tokens N       the input tokens the run may use
 //   --question-input-tokens N  a question that uses more is stopped
 //   --concurrency N            cases run at once
@@ -29,8 +31,8 @@ const OPTIONS = {
 };
 
 const [mode, ...rest] = process.argv.slice(2);
-if (!["replay", "record", "live", "report"].includes(mode ?? "")) {
-  console.error("Usage: node evals/cli.mjs replay|record|live|report [--k 3] [--models a,b] [--cases id,id] [--results file.json]");
+if (!["replay", "record", "live", "recheck", "report"].includes(mode ?? "")) {
+  console.error(`Usage: node evals/cli.mjs replay|record|live|recheck|report [options]. The options are: ${Object.keys(OPTIONS).join(", ")}.`);
   process.exit(2);
 }
 const env = { ...process.env, EVAL_MODE: mode };

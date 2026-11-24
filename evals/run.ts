@@ -1,5 +1,5 @@
-// The evals, run by Vitest with vitest.evals.config.ts (npm run eval:replay, eval:record, eval:live;
-// evals/cli.mjs sets these variables from its options):
+// The evals, run by Vitest with vitest.evals.config.ts (npm run eval:replay, eval:record, eval:live,
+// eval:recheck; evals/cli.mjs sets these variables from its options):
 //
 //   EVAL_MODE        "replay" (the default): every case from evals/cassettes, without the network
 //                    or a key. A request that changed fails with "prompt changed: re-record", and
@@ -7,14 +7,18 @@
 //                    "record": each case once against the Gemini API, written to its cassette.
 //                    "live": each case EVAL_K times (3 by default) against the Gemini API: a case
 //                    passes only when every run passes (pass^k).
+//                    "recheck": a replay that writes each case's facts, checked again on the
+//                    recorded answers, to its case.json: after a fact changed, with no request
+//                    changed. It needs no key.
 //                    "report": no run; the report of EVAL_RESULTS written again (with EVAL_TITLE and
 //                    EVAL_NOTES_FILE, a Markdown file put under the title, when given).
 //   EVAL_K           Runs of each case in live mode.
 //   EVAL_MODELS      Comma-separated Gemini models. Defaults to gemini-3.5-flash-lite and
-//                    gemini-3.8-flash; in a replay, to every model with cassettes.
+//                    gemini-3.8-flash; in a replay or a recheck, to every model with cassettes.
 //   EVAL_CASES       Comma-separated case IDs: only those.
 //   EVAL_RESULTS     A JSON file the runs are added to, with its report next to it (.md). Defaults to
-//                    evals/results/<mode>.json, started afresh; a replay writes none unless given one.
+//                    evals/results/<mode>.json for record and live, started afresh; a replay or a
+//                    recheck writes none unless given one.
 //   EVAL_TITLE       The title of the report.
 //   EVAL_MAX_INPUT_TOKENS       The input tokens this run may use: no question starts past them.
 //   EVAL_QUESTION_INPUT_TOKENS  A question that uses more is stopped. Defaults to 1,500,000.
@@ -33,15 +37,17 @@ const CASSETTES = path.join(HERE, "cassettes");
 const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
 
 const env = process.env;
-const mode = (env.EVAL_MODE || "replay") as RunMode | "report";
-if (!["replay", "record", "live", "report"].includes(mode)) throw new Error(`EVAL_MODE must be replay, record, live or report, and is "${mode}".`);
+const mode = (env.EVAL_MODE || "replay") as RunMode | "report" | "recheck";
+if (!["replay", "record", "live", "report", "recheck"].includes(mode)) throw new Error(`EVAL_MODE must be replay, record, live, recheck or report, and is "${mode}".`);
+/** A recheck is a replay that writes the facts it checked. */
+const runMode: RunMode = mode === "recheck" ? "replay" : (mode as RunMode);
 const apiKey = env.GEMINI_API_KEY;
 if ((mode === "record" || mode === "live") && !apiKey) throw new Error(`The ${mode} mode calls the Gemini API: set GEMINI_API_KEY.`);
 const k = mode === "live" ? Math.max(1, Number(env.EVAL_K) || 3) : 1;
 const list = (value: string | undefined) => (value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
 const recordedModels = existsSync(CASSETTES) ? readdirSync(CASSETTES, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort() : [];
-const models = mode === "report" ? [] : list(env.EVAL_MODELS).length ? list(env.EVAL_MODELS) : mode === "replay" ? recordedModels : MODELS;
-const resultsFile = env.EVAL_RESULTS ? path.resolve(env.EVAL_RESULTS) : mode === "replay" ? undefined : path.join(HERE, "results", `${mode}.json`);
+const models = mode === "report" ? [] : list(env.EVAL_MODELS).length ? list(env.EVAL_MODELS) : runMode === "replay" ? recordedModels : MODELS;
+const resultsFile = env.EVAL_RESULTS ? path.resolve(env.EVAL_RESULTS) : runMode === "replay" ? undefined : path.join(HERE, "results", `${mode}.json`);
 const cap = env.EVAL_MAX_INPUT_TOKENS ? { spent: 0, max: Number(env.EVAL_MAX_INPUT_TOKENS) } : undefined;
 const questionInputTokens = env.EVAL_QUESTION_INPUT_TOKENS ? Number(env.EVAL_QUESTION_INPUT_TOKENS) : undefined;
 
@@ -80,12 +86,13 @@ for (const model of models) {
         const before = earlier?.runs.filter((run) => run.model === model && run.case === evalCase.id).length ?? 0;
         for (let index = 1; index <= k; index++) {
           const run = await runCase({
-            mode: mode as RunMode, evalCase, model, library, cassettes: CASSETTES, run: before + index,
+            mode: runMode, evalCase, model, library, cassettes: CASSETTES, run: before + index,
             ...(apiKey ? { apiKey } : {}), ...(cap ? { cap } : {}), ...(questionInputTokens ? { questionInputTokens } : {}),
+            ...(mode === "recheck" ? { rewriteFacts: true } : {}),
           });
           runs.push(run);
           // Written straight to the output: Vitest keeps a passing test's console to itself.
-          if (mode !== "replay") process.stdout.write(`${line(run)}\n`);
+          if (runMode !== "replay") process.stdout.write(`${line(run)}\n`);
           if (run.replayProblems?.length) throw new Error(run.replayProblems.join("\n"));
         }
       });
@@ -95,7 +102,7 @@ for (const model of models) {
 
 afterAll(() => {
   const order = allCases.map((one) => one.id);
-  if (mode === "replay") {
+  if (runMode === "replay") {
     const summaries = summarize(runs, order);
     const failing = runs.filter((run) => run.replayProblems?.length);
     if (env.GITHUB_STEP_SUMMARY) {

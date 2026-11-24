@@ -76,7 +76,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "סך ההכנסות של אזור East הוא **32,133**, ויש בו **22** שורות."
   }
  ],
  "passed": true

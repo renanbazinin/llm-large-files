@@ -53,7 +53,8 @@
      "toolCalls": 0
     }
    ],
-   "excerpt": "Based on the orders file, here are the details for **order 41877**:\n\n* **Status:** pending\n* **Amount:** $80.90"
+   "excerpt": "Based on the orders file, here are the details for **order 41877**:\n\n* **Status:** pending\n* **Amount:** $80.90",
+   "answer": "Based on the orders file, here are the details for **order 41877**:\n\n* **Status:** pending\n* **Amount:** $80.90"
   }
  ],
  "passed": false

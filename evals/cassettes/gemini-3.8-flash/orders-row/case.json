@@ -51,7 +51,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "Based on the file, the details for order **41877** are:\n\n* **Status:** pending\n* **Amount:** $93.70 (or 93.70)"
   }
  ],
  "passed": true

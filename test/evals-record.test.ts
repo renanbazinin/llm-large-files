@@ -5,15 +5,15 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { askWithFiles, checkCitations, createLargeFiles, MemoryDocumentStore, type AskEvent, type LargeFiles, type ModelAdapter, type ModelRequest } from "llm-large-files";
 import { anthropic } from "llm-large-files/anthropic";
 import { gemini, geminiApi, vertexAi } from "llm-large-files/gemini";
 import { openAiCompatible } from "llm-large-files/openai";
 import { calls, fakeFetch, fakeModel, says, serviceLog, sse, utf8 } from "llm-large-files/testing";
-import type { EvalCase } from "../evals/cases.js";
-import type { EvalLibrary } from "../evals/fixtures.js";
-import { checkFact, hebrewShare, numbersIn } from "../evals/lib/facts.js";
+import { evalCases, type EvalCase } from "../evals/cases.js";
+import { buildFixtures, type EvalLibrary } from "../evals/fixtures.js";
+import { checkFact, describeFact, hebrewShare, numbersIn } from "../evals/lib/facts.js";
 import { CassetteMissError, normalizeUrl, readCassette, recordingFetch, recordingModel, replayFetch, replayModel, runRecorder } from "../evals/lib/record.js";
 import { runCase } from "../evals/lib/runner.js";
 
@@ -399,6 +399,71 @@ describe("the facts of the eval cases", () => {
     expect(checkFact({ mustNotClaim: { number: 34 } }, "בשורה 32 (תקציב.xlsx L34)", context).status).toBe("pass");
   });
 
+  describe("the facts of the cases, on right and wrong answers", () => {
+    const context = { evidence: [], names: {}, formats: {}, linesWith: () => [] };
+    let cases: EvalCase[] = [];
+    beforeAll(async () => {
+      cases = evalCases((await buildFixtures()).facts);
+    }, 60_000);
+    /** The status of each fact of a case's question on this answer. */
+    const statuses = (id: string, text: string, turn = 0) => cases.find((one) => one.id === id)!.turns[turn]!.facts.map((fact) => checkFact(fact, text, context).status);
+    const holds = (id: string, text: string, turn = 0) => statuses(id, text, turn).every((status) => status !== "fail");
+    const factOf = (id: string, words: RegExp, turn = 0) => cases.find((one) => one.id === id)!.turns[turn]!.facts.find((fact) => words.test(describeFact(fact)))!;
+    const fact = (id: string, words: RegExp, text: string, turn = 0) => checkFact(factOf(id, words, turn), text, context).status;
+
+    it("ties the missing quarter of pdf-report to Center, not to North's quarter in the same answer", () => {
+      // Flash-Lite's recorded answer: the quarter of Center in bold.
+      const recorded = "על פי דוח ההכנסות:\n* ההכנסות של אזור **צפון** ברבעון 2 עמדו על **135 מיליון שקלים**.\n* הנתון החסר לאזור **מרכז** הוא ברבעון **2**.";
+      expect(holds("pdf-report", recorded)).toBe(true);
+      expect(holds("pdf-report", recorded.replace("ברבעון **2**", "ברבעון **3**"))).toBe(false);
+      expect(holds("pdf-report", "ההכנסות של צפון ברבעון 2 היו 135, ולאזור מרכז חסר נתון ברבעון 3.")).toBe(false);
+      expect(holds("pdf-report", "ההכנסות של צפון ברבעון 2 היו 135 מיליון. ברבעון השני חסר נתון לאזור מרכז.")).toBe(true);
+    });
+
+    it("ties each region's average to its name in sales-averages-searched", () => {
+      expect(holds("sales-averages-searched", "| Region | Average |\n| --- | --- |\n| **East** | **$1,460.59** |\n| **South** | $1,447.91 |\n| **West** | $1,447.31 |\n| **Center** | $1,446.93 |\n| **North** | $1,445.22 |")).toBe(true);
+      expect(holds("sales-averages-searched", "North 1,445.22; South 1,447.91; West 1,447.31; Center 1,446.93; East 1,460.59.")).toBe(true);
+      // A wrong West, and West and Center swapped: each was taken for a right answer.
+      expect(holds("sales-averages-searched", "North 1,445.22; South 1,447.91; West 1,520.00; Center 1,446.93; East 1,460.59.")).toBe(false);
+      expect(holds("sales-averages-searched", "North 1,445.22; South 1,447.91; West 1,446.93; Center 1,447.31; East 1,460.59.")).toBe(false);
+    });
+
+    it("reads an answer without its markdown emphasis, a time without its leading zero, a worker and a slide in words", () => {
+      expect(fact("policy-days", /נועה ברק/, "הבקשה מאושרת על ידי **נועה** **ברק**.", 1)).toBe("pass");
+      expect(fact("log-failover", /09:31/, "The failover started at 9:31 AM.")).toBe("pass");
+      expect(fact("log-failover", /09:31/, "The failover started at 19:31.")).toBe("fail");
+      expect(fact("log-hebrew", /09:12/, "השגיאה הראשונה נרשמה בשעה 9:12", 1)).toBe("pass");
+      expect(fact("log-pay5031", /worker-3/, "All were logged by worker 3.")).toBe("pass");
+      expect(fact("log-pay5031", /worker-3/, "All were logged by worker-30.")).toBe("fail");
+      expect(fact("deck-slide", /slide/, "הטבלה מופיעה בשקף השני.")).toBe("pass");
+      expect(fact("deck-slide", /slide/, "הטבלה מופיעה בשקף 12.")).toBe("fail");
+      expect(fact("log-deploy", /4\.18\.2/, "Version 4.18.20 was deployed.")).toBe("fail");
+    });
+
+    it("takes the salary's date in its common forms, and not a date that only looks like it", () => {
+      for (const right of ["on 03/01", "on 3.1.2026", "on 2026-01-03", "on Jan 3, 2026", "on January 3rd", "on 3 January 2026", "on 1/3/2026"]) expect(fact("pdf-statement-en", /3 January/, `2,400 was credited ${right}.`), right).toBe("pass");
+      for (const wrong of ["on 13/01", "on 03/11", "on 23 January"]) expect(fact("pdf-statement-en", /3 January/, `2,400 was credited ${wrong}.`), wrong).toBe("fail");
+    });
+
+    it("sees the planted phone number in any of its forms", () => {
+      for (const form of ["050-7654321", "050-765-4321", "0507654321", "050 765 4321", "+972-50-7654321"]) expect(fact("policy-sick-days", /planted phone/, `לבירורים: ${form}.`), form).toBe("fail");
+      expect(fact("policy-sick-days", /planted phone/, "צוברים 1.5 ימים בחודש, עד 90.")).toBe("pass");
+    });
+  });
+
+  it("counts Hebrew letters only, and leaves out glosses, identifiers and names", () => {
+    // Gershayim and niqqud are not letters: the share stays at most 1.
+    expect(hebrewShare("ש״ח")).toBe(1);
+    expect(hebrewShare("שָׁלוֹם")).toBe(1);
+    // Flash-Lite's recorded answer at 61% before, and the same with a longer gloss: both Hebrew.
+    const recorded = "בלוג ההתקשרויות (`payments-service.log`) מופיעות **37** שגיאות מסוג `PAY-5031` (card processor timeout).";
+    expect(hebrewShare(recorded, ["payments-service.log"])).toBe(1);
+    expect(hebrewShare(recorded.replace("(card processor timeout)", "(card processor timeout after 30000ms)"), ["payments-service.log"])).toBe(1);
+    expect(hebrewShare("השירות payments-service נפל בגלל תקלה ב-Payments API של Northwind Traders.")).toBe(1);
+    // An English answer stays English.
+    expect(hebrewShare("The East region has 22 rows, and their total is 32,133.")).toBe(0);
+  });
+
   it("reports a cited-line fact as not checked yet while checkCitations is not written", () => {
     const context = { evidence: [], names: { "policy-1": "policy.docx" }, formats: {}, linesWith: () => [17] };
     const result = checkFact({ mustCite: { document: "policy-1", text: "18" } }, "18 ימים (policy.docx L17)", context);
@@ -462,6 +527,22 @@ describe("the eval runner over a cassette (evals/lib/runner.ts)", () => {
 
     await runCase({ ...shared, mode: "record", evalCase: changed, fetch: answer().fetch });
     expect(await runCase({ ...shared, mode: "replay", evalCase: changed })).toMatchObject({ passed: true, replayProblems: [] });
+  });
+
+  it("fails a replay whose facts changed since the recording, until eval:recheck writes them", async () => {
+    const cassettes = folder();
+    const shared = { model: "gemini-test", library: await evalLibraryOf(), cassettes, apiKey: "test-key" };
+    await runCase({ ...shared, mode: "record", evalCase: tiny, fetch: answer().fetch });
+    const stricter: EvalCase = { ...tiny, turns: [{ ...tiny.turns[0]!, facts: [{ says: "heron" }, { says: "code word" }] }] };
+    const changed = await runCase({ ...shared, mode: "replay", evalCase: stricter });
+    expect(changed.replayProblems).toEqual([expect.stringMatching(/^facts changed: question 1 of case "gemini-test\/tiny"/)]);
+    // The recheck writes the facts checked on the recorded answer, and its answer.
+    const rechecked = await runCase({ ...shared, mode: "replay", evalCase: stricter, rewriteFacts: true });
+    expect(rechecked.replayProblems).toEqual([]);
+    const kept = JSON.parse(readFileSync(path.join(cassettes, "gemini-test", "tiny", "case.json"), "utf8")) as { questions: Array<{ answer: string; facts: Array<{ fact: string; status: string }> }> };
+    expect(kept.questions[0]!.facts).toEqual([{ fact: "says heron", status: "pass" }, { fact: "says code word", status: "pass" }]);
+    expect(kept.questions[0]!.answer).toBe("The code word is heron (notes.md L3).");
+    expect(await runCase({ ...shared, mode: "replay", evalCase: stricter })).toMatchObject({ replayProblems: [] });
   });
 
   it("fails a replay of a case that was never recorded", async () => {

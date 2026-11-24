@@ -73,14 +73,15 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "Based on the log file `payments-service.log`:\n\n* **Failover started:** `2026-11-12T09:31:10.000Z` (L21880: `WARN [db-monitor] database failover started: primary db-1 unreachable`)\n* **Failover completed:** `2026-11-12T09:34:52.000Z` (L22768: `INFO [db-monitor] database failover completed: db-2 is now primary`)"
   },
   {
    "turn": 2,
    "answered": true,
    "facts": [
     {
-     "fact": "says /warm-?\\s?up/i",
+     "fact": "says warm-up",
      "status": "pass"
     },
     {
@@ -140,7 +141,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "Right after the database failover completed at `2026-11-12T09:34:52.000Z` (payments-service.log L22768), the cache warm-up finished (taking 41 seconds total after the failover) at `09:34:52.250Z` (payments-service.log L22769), and regular payment API requests resumed normally across workers."
   }
  ],
  "passed": true

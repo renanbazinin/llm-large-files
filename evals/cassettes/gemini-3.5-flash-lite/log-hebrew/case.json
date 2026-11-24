@@ -117,7 +117,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "שגיאות PAY-5031 מופיעות בלוג **37 פעמים**, וכולן נרשמו ב-**worker-3** (לדוגמה בשורות 17280 ו-25680)."
   },
   {
    "turn": 2,
@@ -163,7 +164,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "השגיאה הראשונה מסוג PAY-5031 נרשמה ב-**2026-11-12T09:12:00.000Z** (בשורה 17280 בלוג):\n\n```text\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960\n```"
   }
  ],
  "passed": true

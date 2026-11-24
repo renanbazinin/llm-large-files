@@ -51,7 +51,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "Based on the data in `orders.csv`:\n\n* **Number of refunded orders:** **500**\n* **Total refunded amount:** **$127,550.00**"
   }
  ],
  "passed": true

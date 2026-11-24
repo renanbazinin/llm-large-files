@@ -47,7 +47,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "The total Q2 budget for all departments combined is **15,508** thousand NIS (or **15,508,000 NIS**)."
   }
  ],
  "passed": true

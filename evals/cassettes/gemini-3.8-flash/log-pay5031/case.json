@@ -92,7 +92,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "There are **37** `PAY-5031` errors in the log, and all of them were logged by **`worker-3`** (spanning lines L17280 to L25680)."
   }
  ],
  "passed": true

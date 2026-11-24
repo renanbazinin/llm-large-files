@@ -16,7 +16,7 @@
      "status": "pass"
     },
     {
-     "fact": "says 03/01 or /0?3\\/0?1|1\\/3|January 3|3 January/i",
+     "fact": "says 03/01 (3 January)",
      "status": "pass"
     }
    ],
@@ -51,7 +51,8 @@
      "finishReason": "STOP",
      "toolCalls": 0
     }
-   ]
+   ],
+   "answer": "According to the account statement, the salary credited to the account was **2,400.00** ₪ on **03/01**."
   }
  ],
  "passed": true
