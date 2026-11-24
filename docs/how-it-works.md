@@ -255,7 +255,9 @@ Since 0.10.0 `askWithFiles` numbers the lines between the frame lines as `read_d
 them, from `1| `, so that an answer can cite a file sent whole as it cites a searched one
 ([below](#numbered-lines-and-tables-sent-whole)). With `numberInline: false`, and in
 `files.prepare()` unless it is asked for, the text goes as it is, as in 0.9. The frame lines are the
-same either way.
+same either way, but for a table that the tools count (`inlineTables: "tools"`): its first frame
+line gives its document_id, `(csv, 3,001 lines; document_id doc_…; it ends only at the line with
+mark …)`, since the tools take it and a file sent whole has no card.
 
 A file too large to send whole is replaced by its card, a few kilobytes. This is the card of a
 3,000-line log, with its first lines shortened here:
@@ -417,8 +419,9 @@ New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do,
   question, so the line does not change the start of the requests from one question to the next.
 - **Tables that the tools still count** (`inlineTables: "tools"`, the default). A file sent whole
   whose rows `aggregate_table` reads gets the tools: a CSV or an XLSX workbook always, and a DOCX,
-  PPTX, PDF, HTML or Markdown file when its text has at least 3 `| cell |` rows (a line that starts
-  and ends with `|`, not a `| --- |` separator). Before 0.10.0 such a file had no tools, so the
+  PPTX, PDF, HTML or Markdown file when its text has a table of at least 3 `| cell |` rows (a run
+  of lines that start and end with `|`, as `aggregate_table` reads a table, a `| --- |` separator
+  not counted). Before 0.10.0 such a file had no tools, so the
   model counted its rows by eye: of 3,000 invoices sent whole, 750 late, Gemini Flash-Lite counted
   749 in one run of three, and added up the amounts of the 750 canceled ones wrong by millions in
   all three (the 0.9.0 baseline of the evals). The question declares `search_document`,
@@ -427,9 +430,13 @@ New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do,
   searched file has it declared), and the system text gets the line "Files shown in full can still
   be counted exactly: use aggregate_table for counts, sums and groups over their tables, and
   search_document exact for matching lines. In a spreadsheet, give the Row number when asked which
-  row." The question then runs the [tool loop](#the-loop-askwithfiles): one that needs no count is
-  answered in its first request, as before, with the tools declared; a count takes a request that
-  calls `aggregate_table` and one that answers from its result.
+  row." Its frame line gives its document_id for the tools. The question then runs the
+  [tool loop](#the-loop-askwithfiles): one that needs no count is answered in its first request, as
+  before, with the tools declared; a count takes a request that calls `aggregate_table` and one that
+  answers from its result. When the tools are there only for such tables, two things stay as the one
+  request of 0.9: when not one tool turn fits the `limits`, the question is that request, without
+  the tools; and a reply with no call that a filter or OTHER ended with no text, or that was cut
+  before any text, ends the question, with no closing request that would send the tables again.
 
 When no file is searched, the answering model runs that loop itself, even when the question has an
 explorer ([An explorer model](#an-explorer-model)). The [evidence](#usage-and-evidence) lists each

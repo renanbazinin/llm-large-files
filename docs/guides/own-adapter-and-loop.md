@@ -734,9 +734,10 @@ refusing a whole-file read that would pass a ceiling of the question before it s
      add `Cite line numbers like (report.docx L12).` to the system text after it. `guide` ends with
      that line when no text tool is declared.
    - `inlineTables: "tools"` lists in `toolable` the files sent whole whose tables the tools can
-     count: a CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with at least 3
-     `| cell |` rows. Give them to `tools` with the searched files, so that a count over a table
-     shown in full is exact (`aggregate_table`), not done by eye.
+     count: a CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with a table of at
+     least 3 `| cell |` rows. Give them to `tools` with the searched files, so that a count over a
+     table shown in full is exact (`aggregate_table`), not done by eye. The block of each gives its
+     document_id in its first frame line, since the tools take it and it has no card.
 2. **No tools needed?** When `plan.searchable` and `viewable` are both empty, every document is in
    the prompt: send one request without tools.
 3. **Tools.** `files.tools(prepared.plan.searchable, options)` gives a `ToolSet`. The options that

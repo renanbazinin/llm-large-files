@@ -86,7 +86,10 @@ What it does, in order:
    that are missing are settled by `onMissingDocuments` before any model request: by default the
    question throws `DocumentsNotFoundError` ([missing documents](#missing-documents)).
 3. **Sends one request without tools** to `model` when every document went in whole, no PDF can be
-   looked at, and no table sent whole gets the tools (`inlineTables`), and returns its reply.
+   looked at, and no table sent whole gets the tools (`inlineTables`), and returns its reply. So
+   it does when the tools are there only for tables sent whole and not one tool turn fits
+   (`limits.toolTurns: 1`, `limits.requests: 1`, or a ceiling with room for one request): the
+   request of `"text"`, with no notice (since 0.10.0).
 4. **Otherwise runs tool rounds.** The model that explores (`explorer`, or `model` without one)
    gets the tools; `model` does when no file is searched and the tools are there for tables sent
    whole (since 0.10.0). Of each turn's calls, the loop runs at most `limits.callsPerTurn`, up to
@@ -105,7 +108,9 @@ What it does, in order:
    in text, from what is above." Not after a refusal (`blockReason`), a reply `"filtered"` or
    `"other"`, or one `"cut"` with nothing in it; not once `limits.requests` or the ceiling of input
    tokens is reached; and not when the question already made its two second tries (see
-   [`ModelReply`](#modelreply)). New in 0.6.0.
+   [`ModelReply`](#modelreply)). New in 0.6.0. When the tools are there only for tables sent whole,
+   a turn with no call whose reply is `"filtered"` or `"other"` with no text, or `"cut"` before any
+   text, ends the question without this request, as the request of step 3 would end (since 0.10.0).
 6. **Says how the answer ended.** `result.finish` is the `finish` of the reply whose text is the
    answer, or of the last reply when none answered. A `"filtered"` answer has an `answer_filtered`
    notice, a `"cut"` one an `answer_cut` notice, before `run.finish`; `filteredAnswer: "drop"`
@@ -288,7 +293,7 @@ The options of `askWithFiles`.
 | `budget` | `Partial<`[`Budget`](./library.md#budget)`>` | the library's | Budget fields for this question, in place of the library's. Fields given nowhere follow the context window. The budget is then fitted to the models either way: `result.budget` shows it. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`. It changes nothing for a library that keeps no originals. |
-| `inlineTables` | `"tools" \| "text"` | `"tools"` | `"tools"`: a table sent whole can still be counted and searched. A CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with at least 3 `\| cell \|` rows, gets `search_document`, `read_document` and `aggregate_table` (not `get_document_overview`, not `analyze_whole_document`), and the system text a line that says to count with them. The question then runs the tool loop: one that needs no count is answered in its first request, a count takes about 3. When no file is searched, `model` runs that loop itself and `explorer` gets no request. `"text"`: it is sent whole without tools, as in 0.9. Another value is a `TypeError` before any request. See [the cost of tables sent whole](../guides/costs-and-limits.md#tables-sent-whole). New in 0.10.0. |
+| `inlineTables` | `"tools" \| "text"` | `"tools"` | `"tools"`: a table sent whole can still be counted and searched. A CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with a table of at least 3 `\| cell \|` rows, gets `search_document`, `read_document` and `aggregate_table` (not `get_document_overview`, not `analyze_whole_document`), its frame line its `document_id` for them, and the system text a line that says to count with them. The question then runs the tool loop: one that needs no count is answered in its first request, a count takes about 3. When not one tool turn fits the `limits`, it is the one request of `"text"`. When no file is searched, `model` runs that loop itself and `explorer` gets no request. `"text"`: it is sent whole without tools, as in 0.9. Another value is a `TypeError` before any request. See [the cost of tables sent whole](../guides/costs-and-limits.md#tables-sent-whole). New in 0.10.0. |
 | `numberInline` | `boolean` | `true` | Number the lines of the files sent whole, as the tools number them (`12\| `), so that the answer can cite them and `result.citations` can check it. Each such file is planned at its numbered size, 8% to 16% more tokens, so a file at the edge of `inlineTokens` may become a card. When no file is searched, the system text gets the line `Cite line numbers like (report.docx L12).` `false` sends them as in 0.9; with `inlineTables: "text"` too, the requests are those of 0.9, byte for byte. Another value is a `TypeError` before any request. New in 0.10.0. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. With it, `streamText` defaults to `true`, and the adapter streams when it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
 | `streamText` | `boolean` | `true` with `onText`, and in [`askStream`](#askstreamoptions); `false` otherwise | Whether to ask the model for the answer as it is written: the loop then passes `onText` to the adapter's `send` ([`SendHooks`](#sendhooks)), and an adapter that can stream does. A reply that fails after its first piece of text is not sent again: that text was shown. With `false`, the text of each reply comes once the reply is in, to `onText` and as `text` events, and a reply that fails can be sent again. A listener of the events alone (`onEvent` without `onText`) does not change how the model is asked. New in 0.7.0. |
@@ -1194,11 +1199,13 @@ type Evidence = {
 ```
 
 What one tool call showed the model of one document: `result.evidence` holds one for each call
-that showed something.
+that showed something. Since 0.10.0 `askWithFiles` lists before them one entry for each file sent
+whole, in the order of its block: `{ tool: "inline", documentId, document, lines: [[1, n]], whole:
+true }`, with no `callId`, since no tool call showed it.
 
 | Field | What it holds |
 |---|---|
-| `tool` | The tool that was called: `"search_document"`, `"read_document"`, `"get_document_overview"`, `"analyze_whole_document"`, `"view_pages"`. |
+| `tool` | The tool that was called: `"search_document"`, `"read_document"`, `"get_document_overview"`, `"analyze_whole_document"`, `"view_pages"`. Or `"inline"`: a file sent whole, every line of which was in the prompt (since 0.10.0). |
 | `documentId` | The document's ID. |
 | `document` | The file's name, when the result gave it. |
 | `lines` | The lines the model was shown, merged and in order. A read: its lines. A search: its passages, or each matching line with the lines of context around it, the last matching line of the file included when the search showed it. An overview: the first 30 and the last 20 lines (all of them in a file of 30 lines or fewer). |
@@ -1206,8 +1213,8 @@ that showed something.
 | `query` | What was searched for, or the task of a whole-file read. |
 | `mode` | `"keywords"`, `"exact"` or `"regex"`, for a search. |
 | `totalMatchingLines` | For an exact or regex search: how many lines match in the whole file, often more than were shown. |
-| `whole` | True for a whole-file read: other model requests read every line, and the model saw their answer. It has no `lines`. |
-| `callId` | The tool call it came from, as its events name it (`"call_3"`): the `callId` of its `tool.start` and `tool.end`, whose `evidence` is this entry. `askWithFiles` always sets it; [`evidenceOf`](#evidenceofcall-result) does not. New in 0.7.0. |
+| `whole` | True for a whole-file read: other model requests read every line, and the model saw their answer. It has no `lines`. True too for a file sent whole (`tool: "inline"`), whose `lines` are all of its lines, `[[1, n]]`. |
+| `callId` | The tool call it came from, as its events name it (`"call_3"`): the `callId` of its `tool.start` and `tool.end`, whose `evidence` is this entry. `askWithFiles` sets it on every entry but those of the files sent whole (`tool: "inline"`), which no tool call showed: code that matches evidence to `tool.end` skips entries without it. [`evidenceOf`](#evidenceofcall-result) does not set it. New in 0.7.0. |
 
 ```ts
 import { mergeRanges, type AskResult, type NumberRange } from "llm-large-files";

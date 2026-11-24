@@ -716,9 +716,17 @@ that counts and sums over it are exact, not made by eye. What a question costs t
   becomes about three of 131,000 tokens each: about 400,000 input tokens by the library's estimate.
   Requests two and three start as the first did, so a provider whose cache matches that start
   (Gemini's implicit cache on Vertex AI) bills most of them at the cached price.
-- **With an explorer**, a question in which no file is searched is run by the answering model
-  alone: the explorer would send every file sent whole again, to a model that does not share the
-  other's cache.
+- **With an explorer**, a question in which no file is searched and a table sent whole gets the
+  tools is run by the answering model alone: the explorer would send every file sent whole again,
+  to a model that does not share the other's cache.
+- **At most**, a model that goes on calling tools uses the question's ceiling: by default about
+  `toolTurns` times its first request (`DEFAULT_INPUT_TOKENS`, 1,000,000, at least). For the CSV of
+  3,000 invoices that is 11 requests of about 134,000 tokens, about 1.5M input tokens, where
+  `"text"` makes one request of 133,000. `limits.inputTokens` or `limits.toolTurns` bound it.
+- **Limits sized for 0.9.** A count needs room for about three requests with the table. A ceiling
+  (`limits.inputTokens`) or `limits.requests` sized for 0.9's one request leaves no tool turn, and
+  so does `limits.toolTurns: 1`: such a question is then the one request of `"text"`, without the
+  tools, and its counts are made by eye again.
 
 To keep the cost of 0.9 for such questions, at the price of counts made by eye, pass
 `inlineTables: "text"`. A lower `inlineTokens` sends the table as a card instead: its requests are
