@@ -276,29 +276,32 @@ export function numberedText(text: string): string {
 const SEPARATOR_ROW = /^\|(?:\s*:?-{3,}:?\s*\|)+\s*$/;
 
 /**
- * Whether a text has at least `rows` rows of a `| cell | cell |` table, by the rule
- * `aggregate_table` reads them with: a line that starts and ends with "|", not counting the
- * separator rows of Markdown. It stops at the row that makes the count.
+ * Whether a text has a `| cell | cell |` table of at least `rows` rows, by the rule
+ * `aggregate_table` reads tables with: a run of lines that start and end with "|", which any other
+ * line ends, not counting the separator rows of Markdown. Rows of different tables are not added up:
+ * three one-cell lines in three paragraphs are three tables of one row. It stops at the row that
+ * makes the count.
  */
 export function hasPipeRows(text: string, rows = 3): boolean {
   let count = 0;
   for (let start = 0; start < text.length;) {
     const end = text.indexOf("\n", start);
     const line = text.slice(start, end === -1 ? text.length : end).trim();
-    if (line.length > 1 && line.startsWith("|") && line.endsWith("|") && !SEPARATOR_ROW.test(line) && ++count >= rows) return true;
+    if (!(line.length > 1 && line.startsWith("|") && line.endsWith("|"))) count = 0;
+    else if (!SEPARATOR_ROW.test(line) && ++count >= rows) return true;
     if (end === -1) break;
     start = end + 1;
   }
   return false;
 }
 
-/** How many `| cell |` rows make a document sent whole one whose tables the tools count (`toolable`). */
+/** How many `| cell |` rows of one table make a document sent whole one whose tables the tools count (`toolable`). */
 export const TOOLABLE_PIPE_ROWS = 3;
 
 /**
  * Whether the tools can count the tables of a document sent whole (`PrepareOptions.inlineTables:
  * "tools"`): a CSV or a workbook always; a document of another format that `aggregate_table` reads
- * when its text has at least `TOOLABLE_PIPE_ROWS` rows of a `| cell |` table. New in 0.10.0.
+ * when its text has a `| cell |` table of at least `TOOLABLE_PIPE_ROWS` rows. New in 0.10.0.
  */
 export function isToolable(format: DocumentFormat, text: string): boolean {
   if (format === "csv" || format === "xlsx") return true;

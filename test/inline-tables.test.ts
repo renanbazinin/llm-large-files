@@ -122,6 +122,11 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
     expect(hasPipeRows("| a\nb |\n|\n| c | d |")).toBe(false);
     expect(hasPipeRows("text | with | pipes\n| x |\n| y |")).toBe(false);
     expect(hasPipeRows("| a |\n| b |", 2)).toBe(true);
+    // Rows of one table, as aggregate_table reads one: any other line, a blank one too, ends it.
+    expect(hasPipeRows("# Notes\n\n| one |\n\ntext\n\n| two |\n\nmore\n\n| three |\n")).toBe(false);
+    expect(hasPipeRows("| a | b |\n| 1 | 2 |\n\n| 3 | 4 |")).toBe(false);
+    expect(hasPipeRows("| x |\ntext\n| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\nmore")).toBe(true);
+    expect(isToolable("markdown", "| one |\n\n| two |\n\n| three |")).toBe(false);
     expect(isToolable("csv", "")).toBe(true);
     expect(isToolable("xlsx", "")).toBe(true);
     expect(isToolable("docx", "| a |\n| b |\n| c |")).toBe(true);
