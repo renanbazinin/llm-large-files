@@ -89,7 +89,7 @@ const ask = (question: string, documentIds: string[], facts: Fact[]): EvalTurn =
 
 /** The cases, with the facts of `facts`. */
 export function evalCases(facts: EvalFacts): EvalCase[] {
-  const { policy, contract, budget, invoices, deck, sales, orders, log, diary, report, statement, cleaning, november: november2026 } = facts;
+  const { policy, contract, budget, invoices, deck, sales, orders, log, diary, report, statement, cleaning, november: november2026, invoicesWorkbook } = facts;
   const POLICY = ["policy-1"];
   // Each region's average next to its name, to within 0.06 (rounded to one decimal at most): West's
   // and Center's are 0.38 apart, so a looser check would take one for the other.
@@ -290,5 +290,18 @@ export function evalCases(facts: EvalFacts): EvalCase[] {
       ask("How many PAY-5031 errors are in the log?", ["log-1", "orders-1"], [number(log.pay5031.count)]),
       ask("And how many orders in orders.csv are pending?", ["log-1", "orders-1"], [number(orders.pending)]),
     ], { budget: SEARCHED }),
+
+    // Tables sent whole with tools (0.10.0, P1): a count over probe4's invoices saved as a workbook
+    // of 3,000 rows, which goes through aggregate_table like the CSV's; and questions over a table
+    // sent whole that need no count and no search, which must stay at one request.
+    chat("invoices-xlsx-late", "he", ["count", "inline-table"], [
+      ask("כמה חשבוניות בסטטוס 'באיחור' יש בגיליון?", ["invoices-xlsx-1"], [number(invoicesWorkbook.late)]),
+    ]),
+    chat("invoices-columns", "he", ["lookup", "inline-table"], [
+      ask("אילו עמודות יש בקובץ החשבוניות?", ["invoices-1"], ["מספר", "לקוח", "סכום", "סטטוס", "תאריך"].map((column) => saysAs(column, column))),
+    ]),
+    chat("budget-units", "he", ["lookup", "inline-table"], [
+      ask("מה הכותרת של גיליון התקציב, ובאילו יחידות מוצגים בו הסכומים?", ["budget-1"], [saysAs("thousands of shekels", /אלפי ש(?:"|״|קל)|thousands of (?:shekels|NIS|ILS)/i)]),
+    ]),
   ];
 }

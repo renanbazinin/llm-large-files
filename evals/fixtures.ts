@@ -335,6 +335,25 @@ function invoices() {
   return { bytes: windows1255(rows.join("\r\n")), facts: { late, lateSum: round(lateSum), canceledSum: round(canceled), customer17, invoice1234 } };
 }
 
+// New in 0.10.0 (P1): the same 3,000 invoices saved as an Excel workbook, small enough to be sent
+// whole, so that a count over a workbook sent whole goes through aggregate_table too.
+
+async function invoicesWorkbook() {
+  const statuses = ["שולם", "באיחור", "בוטל", "פתוח"];
+  const header = ["מספר", "לקוח", "סכום", "סטטוס", "תאריך"];
+  const rows = [`<row r="1">${header.map((text, column) => inline(`${"ABCDE"[column]}1`, text)).join("")}</row>`];
+  let late = 0;
+  for (let i = 1; i <= 3000; i++) {
+    const r = i + 1;
+    const status = statuses[(i * 7) % 4]!;
+    if (status === "באיחור") late++;
+    const amount = Number(`${(i * 7919) % 50000}.${i % 100}`);
+    const date = `2026-${String((i % 12) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`;
+    rows.push(`<row r="${r}">${number(`A${r}`, i)}${inline(`B${r}`, `לקוח ${i % 211}`)}${number(`C${r}`, amount)}${inline(`D${r}`, status)}${inline(`E${r}`, date)}</row>`);
+  }
+  return { bytes: await workbook("חשבוניות", rows.join("")), facts: { late } };
+}
+
 // PowerPoint: a Hebrew quarterly review with a table whose title spans its columns.
 
 const P = 'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
@@ -570,7 +589,7 @@ export type EvalFacts = Awaited<ReturnType<typeof buildFixtures>>["facts"];
 
 /** The files of the evals, and their facts. */
 export async function buildFixtures() {
-  const [policyBytes, contractFile, budgetFile, salesFile, deckFile] = await Promise.all([policy(), contract(), budget(), sales(), deck()]);
+  const [policyBytes, contractFile, budgetFile, salesFile, deckFile, invoicesWorkbookFile] = await Promise.all([policy(), contract(), budget(), sales(), deck(), invoicesWorkbook()]);
   const ordersFile = orders();
   const invoicesFile = invoices();
   const logFile = serviceLog();
@@ -592,6 +611,8 @@ export async function buildFixtures() {
     { id: "diary-2", name: "יומן משמרות נובמבר 2026.md", bytes: plantedFile.bytes },
     { id: "report-1", name: "דוח הכנסות.pdf", bytes: pdf("word-hebrew.pdf") },
     { id: "statement-1", name: "דף חשבון ינואר.pdf", bytes: pdf("chrome-hebrew-statement.pdf") },
+    // New in 0.10.0 (P1), for counts over a workbook sent whole.
+    { id: "invoices-xlsx-1", name: "חשבוניות 2026.xlsx", bytes: invoicesWorkbookFile.bytes },
     // Ingested, then deleted: a file the chat still lists.
     { id: "old-policy-1", name: "נוהל חופשות 2019.md", bytes: utf8("# נוהל חופשות 2019\n\nכל עובד במשרה מלאה זכאי ל-12 ימי חופשה בשנה.\n") },
   ];
@@ -611,6 +632,7 @@ export async function buildFixtures() {
       november: plantedFile.facts,
       report: { northQ2: 135, centerMissing: "רבעון 2" },
       statement: { closing: 4167.9, electricity: 118, salary: 2400, salaryDate: "03/01" },
+      invoicesWorkbook: invoicesWorkbookFile.facts,
     },
   };
 }
