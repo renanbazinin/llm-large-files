@@ -305,26 +305,63 @@ export async function partsOf(source: DocumentSource, budget: Budget, signal?: A
   return parts;
 }
 
-async function pool<T>(count: number, concurrency: number, run: (index: number) => Promise<T>, signal?: AbortSignal): Promise<T[]> {
+/**
+ * Runs `run` for each index, `concurrency` at a time. The first run that throws ends the pool with
+ * its error, and aborts `stop` with it: the runs under way end at their next look at a signal joined
+ * with it, and no run starts after it. Without that, they went on sending model requests for a read
+ * that had already failed (since 0.10.0 a store that gave up ends a read from any of its parts).
+ */
+async function pool<T>(count: number, concurrency: number, run: (index: number) => Promise<T>, signal: AbortSignal | undefined, stop?: AbortController): Promise<T[]> {
   const results: T[] = new Array(count);
   let next = 0;
   const worker = async () => {
     while (next < count) {
       signal?.throwIfAborted();
       const index = next++;
-      results[index] = await run(index);
+      try {
+        results[index] = await run(index);
+      } catch (error) {
+        stop?.abort(error);
+        throw error;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, count) }, worker));
   return results;
 }
 
-/** A whole-document read that was refused before any model call: the document has too many parts. */
+/**
+ * The signal a whole-file read sends its requests with: the caller's, joined with one of its own,
+ * which the read aborts when one of its parts ends it with an error (`pool`).
+ */
+function readSignal(signal: AbortSignal | undefined): { stop: AbortController; signal: AbortSignal } {
+  const stop = new AbortController();
+  return { stop, signal: signal ? AbortSignal.any([signal, stop.signal]) : stop.signal };
+}
+
+/**
+ * A whole-document read that was refused before any model call: the document has more parts than
+ * `maxMapChunks`, or (since 0.10.0) than the model requests the read may make (`maxRequests`).
+ */
 export class TooManyPartsError extends Error {
-  constructor(name: string, readonly parts: number, readonly limit: number) {
-    super(`Reading all of ${name} needs ${parts} model calls, over the limit of ${limit}. Use search_document to narrow the question first.`);
+  constructor(name: string, readonly parts: number, readonly limit: number, of: "parts" | "requests" = "parts") {
+    super(of === "requests"
+      ? `Reading all of ${name} takes ${parts} model requests, one for each part, and ${limit} ${limit === 1 ? "is" : "are"} left for it in this question. Use search_document and read_document.`
+      : `Reading all of ${name} needs ${parts} model calls, over the limit of ${limit}. Use search_document to narrow the question first.`);
     this.name = "TooManyPartsError";
   }
+}
+
+/**
+ * The parts of a whole-file read, refused before any model request when they are more than
+ * `maxMapChunks`, or (since 0.10.0) more than `maxRequests`: every part is one request, so a read
+ * given fewer could not keep to them. Merges and halvings are kept within `maxRequests` as the read goes.
+ */
+async function partsToRead(document: DocumentSource, budget: Budget, maxRequests: number | undefined, signal: AbortSignal): Promise<Parts> {
+  const parts = await partsOf(document, budget, signal);
+  if (parts.length > budget.maxMapChunks) throw new TooManyPartsError(document.meta.name, parts.length, budget.maxMapChunks);
+  if (maxRequests !== undefined && parts.length > maxRequests) throw new TooManyPartsError(document.meta.name, parts.length, Math.max(0, Math.trunc(maxRequests)), "requests");
+  return parts;
 }
 
 /** Two reports of usage as one. */
@@ -392,7 +429,8 @@ type WholeReadOptions = {
   /**
    * The most model requests this read may make, when the question has a ceiling. A part read as two
    * halves takes more than planned: it is halved only while this allows it. Since 0.10.0 the
-   * merges of notes stop when the next round would pass it (N12).
+   * merges of notes stop when the next round would pass it (N12), and a read with more parts than
+   * this is refused before any request (`TooManyPartsError`): each part is one request.
    */
   maxRequests?: number;
 };
@@ -460,12 +498,12 @@ export function estimateMerges(parts: number, noteTokens: number, mapChunkTokens
  * counts its requests: a round of merges that would pass it is not made (N12).
  */
 export async function analyzeWholeDocument(options: WholeReadOptions): Promise<WholeDocumentResult> {
-  const { document, task, generate, budget, onProgress, onRequest, signal, retry } = options;
+  const { document, task, generate, budget, onProgress, onRequest, retry } = options;
+  const { stop, signal } = readSignal(options.signal);
   /** What `ask` tells of a request of this read, when anyone listens. */
   const told = (purpose: ToolRequestStart["purpose"], detail: string): Told | undefined => (onRequest ? { onRequest, start: { purpose, detail } } : undefined);
   const name = document.meta.name;
-  const parts = await partsOf(document, budget, signal);
-  if (parts.length > budget.maxMapChunks) throw new TooManyPartsError(name, parts.length, budget.maxMapChunks);
+  const parts = await partsToRead(document, budget, options.maxRequests, signal);
 
   const limit = options.maxRequests ?? Number.POSITIVE_INFINITY;
   /** The model requests sent so far, retries aside: a request that failed is counted too. */
@@ -544,7 +582,7 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
     done++;
     onProgress?.({ kind: "map", message: `Reading ${name}: part ${done} of ${parts.length}`, done, total: parts.length });
     return read;
-  }, signal)).flat();
+  }, signal, stop)).flat();
 
   // Nothing was read at all: an answer written from here would be invented. When not one part
   // could even be read from the store, no model request was made: that is the store's failure,
@@ -624,7 +662,7 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
       combined++;
       onProgress?.({ kind: "reduce", message: `Combining notes on ${name} (round ${round}): ${combined} of ${batches.length}`, done: combined, total: batches.length });
       return text;
-    }, signal);
+    }, signal, stop);
     covers = batches.map((batch) => batch.reduce((sum, at) => sum + covers[at]!, 0));
     layer = merged;
     // Notes that would not merge will not merge in another round either: the answer is written from what there is.
@@ -804,12 +842,12 @@ function checkedItem(object: Record<string, unknown>, from: number, lines: reado
  * `maxMapChunks` requests). A part the model refuses as too large is halved the same way.
  */
 export async function listWholeDocumentItems(options: WholeReadOptions & { labels?: readonly string[] }): Promise<WholeItemsResult> {
-  const { document, task, generate, budget, onProgress, onRequest, signal, retry } = options;
+  const { document, task, generate, budget, onProgress, onRequest, retry } = options;
+  const { stop, signal } = readSignal(options.signal);
   const labels = options.labels?.length ? options.labels : undefined;
   const told = (purpose: ToolRequestStart["purpose"], detail: string): Told | undefined => (onRequest ? { onRequest, start: { purpose, detail } } : undefined);
   const name = document.meta.name;
-  const parts = await partsOf(document, budget, signal);
-  if (parts.length > budget.maxMapChunks) throw new TooManyPartsError(name, parts.length, budget.maxMapChunks);
+  const parts = await partsToRead(document, budget, options.maxRequests, signal);
 
   /** The requests left for halves, past one a part. Taken when a part is halved, before its halves are read. */
   let spare = Math.max(0, (options.maxRequests ?? parts.length + budget.maxMapChunks) - parts.length);
@@ -889,7 +927,7 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
     await readPart(from, to, where, 0, where);
     done++;
     onProgress?.({ kind: "map", message: `Reading ${name}: part ${done} of ${parts.length}`, done, total: parts.length });
-  }, signal);
+  }, signal, stop);
 
   // Nothing was read: there is no list. When no part could even be read from the store, no model
   // request was made: that is the store's failure.

@@ -15,7 +15,7 @@ afterEach(() => held.splice(0).forEach((release) => release()));
 
 const storeError = (code: string) => new DocumentStoreError(Object.assign(new Error(`The store said ${code}.`), { code }), { code });
 
-/** A memory store that also reads by range; its ranged reads throw `failure` when it is set, or hang while `hung`. */
+/** A memory store that also reads by range; its ranged reads throw what `failure` returns, when it returns something, or hang while `hung`. */
 class Ranged implements DocumentStore {
   failure?: () => unknown;
   hung = false;
@@ -33,7 +33,8 @@ class Ranged implements DocumentStore {
     return this.#inner.delete(id, context);
   }
   async readTextRange(id: string, start: number, end: number, context?: DocumentContext): Promise<Uint8Array | undefined> {
-    if (this.failure) throw this.failure();
+    const failure = this.failure?.();
+    if (failure) throw failure;
     if (this.hung) await new Promise<void>((resolve) => held.push(resolve));
     const document = await this.#inner.get(id, context);
     return document && utf8(document.text).subarray(start, end);
@@ -85,6 +86,41 @@ describe("a store timeout inside a tool call", () => {
     expect(tools.wholeReadsLeft?.(meta.id)).toBe(1);
     store.failure = undefined;
     expect((await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." })).parts_read).toBeGreaterThan(0);
+  });
+
+  it("stops the other parts of a whole-file read: no model request is sent after execute throws", async () => {
+    for (const output of ["answer", "items"]) {
+      const { store, meta, files } = await opened();
+      let requests = 0;
+      let afterwards = 0;
+      let thrown = false;
+      // The store gives up on the ranged read after the third part's request: other parts are under way then.
+      let armed = false;
+      store.failure = () => {
+        if (!armed) return undefined;
+        armed = false;
+        return storeError("ETIMEDOUT");
+      };
+      const generate: GenerateText = async () => {
+        requests++;
+        if (thrown) afterwards++;
+        if (requests === 3) armed = true;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return output === "items" ? "NOTHING RELEVANT" : "A note (L1).";
+      };
+      // 14 parts, read four at a time.
+      const tools = files.tools([meta], { generate, budget: { mapChunkTokens: 4_000 } });
+      const error = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Summarize.", output }).then(() => undefined, (failed: unknown) => failed);
+      thrown = true;
+      expect(error).toMatchObject({ code: "ETIMEDOUT" });
+      const before = requests;
+      expect(before).toBeGreaterThanOrEqual(3);
+      expect(before).toBeLessThan(10);
+      // 0.10.0 before this fix: the other three workers read every part left, 20 requests and more.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(afterwards).toBe(0);
+      expect(requests).toBe(before);
+    }
   });
 
   it("keeps any other store error as an error result the model reads", async () => {

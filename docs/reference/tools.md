@@ -144,7 +144,8 @@ time: a [`DocumentStoreError`](./library.md#documentstoreerror) of code `"ETIMED
 past `storeTimeoutMs`, or a system error of that code), or of code `"STORE_STUCK"` (refused at once
 because too many store calls of the process are stuck). `execute` and `executeWithFiles` throw it,
 from any tool and from any part of a whole-file read, which would otherwise count as a part that
-could not be read. In `askWithFiles` the question then ends with a `run.error`, which
+could not be read. The other parts of that read stop then: their requests under way are aborted
+through the signal they were sent with, and no part is sent after it. In `askWithFiles` the question then ends with a `run.error`, which
 [errorInfoOf(error)](./errors-and-retries.md#errorinfooferror) reads as a 503 to try again, and the model is sent no
 new text. Until 0.10.0 the model read "The document store could not be read (ETIMEDOUT). Try
 again." and went on, with a store that was not answering. Any other store error is still an error
@@ -627,7 +628,9 @@ read send their notes first, between `<notes>` and `</notes>`, and the task last
 one document with other tasks send the same start in each part's request, up to the end of the
 part, for a provider's prompt cache. Until 0.10.0 the task came first, before the part.
 
-Given `maxRequests`, a read counts its requests (since 0.10.0). A round of merges that would leave
+Given `maxRequests`, a read counts its requests (since 0.10.0). Each part is one request, so a read
+with more parts than `maxRequests` is refused before any request is sent (see the errors below). A
+round of merges that would leave
 no request for the answer is not made: the answer is then written from the notes that fit one
 request (`mapChunkTokens`), in the order of the file, and the result says how many parts' notes it
 left out (`notes_left_out`). When not even the answer has a request left, the notes are the answer
@@ -729,6 +732,7 @@ Errors:
 | `NAME is shown in full above: answer from it, and use search_document or aggregate_table for exact counts.` | The document is one of `ToolOptions.inline`: its text is in the prompt. Nothing is sent. New in 0.10.0. | no |
 | `labels takes up to 12 labels, each up to 40 characters.` | `output: "items"` with more labels, or a longer one. New in 0.10.0. | no |
 | `Reading all of NAME needs N model calls, over the limit of M. Use search_document to narrow the question first.` | The read counted more parts than `maxMapChunks`. Nothing was sent. | no |
+| `Reading all of NAME takes N model requests, one for each part, and M are left for it in this question. Use search_document and read_document.` | The read counted more parts than [`ToolCallLimits.maxRequests`](#toolcalllimits) ("1 is left" for one). Nothing was sent. New in 0.10.0: before, the read sent every part whatever its limit. | no |
 | `Could not read any part of NAME: REASON` | Every part failed at the model. | yes |
 | The store's error | No part could be read from the store. Nothing was sent. A store timeout is thrown instead ([Store timeouts](#rules-for-every-tool)). | no |
 
@@ -1144,7 +1148,7 @@ type ToolCallLimits = {
 | `maxFileBytes` | number | 3/8 of (`maxRequestBytes` − 262,144): 3,651,696 bytes with the default budget | `view_pages`: the most bytes its file may have. Pages are left off the end until the cut fits. Below 1,024 the call fails. Give the room left in your request, times 3/4 when you send files as base64. |
 | `maxPages` | number | [`MAX_VIEW_PAGES`](#max_view_pages) (5) | `view_pages`: the most pages this call may show, never more than 5. Below 1 the call fails. Lower it as the pages already shown use up your token budget. |
 | `maxResultCharacters` | number | The tool's own cap ([`resultCharacters`](#toolset)) | The most characters of the JSON result, when that is less than the tool's cap: the room left in the request. The result is cut to it and says where to go on. Never below 600. `view_pages` ignores it. |
-| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. New in 0.6.0. |
+| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a read with more parts than this is refused before any request, a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. New in 0.6.0. |
 | `maxWaitMs` | number | The library's `pageLookWaitMs` (30,000) | `view_pages`: the most milliseconds the look waits for its turn, when that is less than `pageLookWaitMs`. 0: it runs only when a turn is free now, and is told the server is busy if not. New in 0.9.0. |
 
 In `askWithFiles`, `maxFileBytes` is what is left of `maxRequestBytes` after the request so far

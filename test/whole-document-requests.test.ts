@@ -77,6 +77,30 @@ describe("a whole-file read with maxRequests", () => {
     expect(String(result.answer)).toMatch(/^### Lines 1-\d+\nNotes \(L1\)/);
   });
 
+  it("is refused before any request when it has more parts than maxRequests, in either output", async () => {
+    for (const output of ["answer", "items"]) {
+      const { files, meta } = await probe();
+      let requests = 0;
+      const generate: GenerateText = async () => {
+        requests++;
+        return "NOTHING RELEVANT";
+      };
+      const tools = files.tools([meta], { generate, maxWholeDocumentReads: 5 });
+      // 27 parts and 26 requests: 0.10.0 before this fix read all 27 parts, and items mode did even with 0.
+      for (const maxRequests of [26, 5, 0]) {
+        const { result } = await tools.executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "list every failure", output }, { maxRequests });
+        expect(result).toEqual({ error: `Reading all of big.log takes 27 model requests, one for each part, and ${maxRequests} ${maxRequests === 1 ? "is" : "are"} left for it in this question. Use search_document and read_document.` });
+      }
+      expect(requests).toBe(0);
+      // No request was sent: that was no read.
+      expect(tools.wholeReadsLeft?.(meta.id)).toBe(5);
+      // As many requests as parts: the parts are read, and nothing more.
+      const { result } = await tools.executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "list every failure", output }, { maxRequests: 27 });
+      expect(result.parts_read).toBe(27);
+      expect(requests).toBe(27);
+    }
+  });
+
   it("prices its merges before it halves a part the model finds too large", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 1_500, inlineTokens: 10 } });
     const meta = await files.ingest({ name: "small.log", bytes: utf8(serviceLog(160)) });

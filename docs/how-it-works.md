@@ -575,7 +575,8 @@ the part reader (`generateText`) of the model that explores.
 1. **Split** on line boundaries into parts that fit both `mapChunkTokens` and 80% of
    `maxRequestBytes`, counting the line-number prefix of every line. A file of more than
    `maxMapChunks` parts (30) is refused before any request: "Reading all of app.log needs 41 model
-   calls, over the limit of 30. Use search_document to narrow the question first." Such a file is
+   calls, over the limit of 30. Use search_document to narrow the question first." So is one with
+   more parts than the requests the read may make (`maxRequests`, since 0.10.0). Such a file is
    most often not offered the read at all: its card, the tool guide and the overview say so
    ([The plan](#how-the-plan-is-made)).
 2. **Map.** Read the parts four at a time. Each part either takes notes with line citations
@@ -596,7 +597,8 @@ the part reader (`generateText`) of the model that explores.
      the whole read. When no part could be read, the read fails with the reason and is not tried
      again in the question. When none could even be read from the store, no model request was
      made, and the store's error is the result. A store that does not answer in time ends the
-     question instead (since 0.10.0): the part is not counted as one that could not be read.
+     question instead (since 0.10.0): the part is not counted as one that could not be read, and
+     the other parts stop, with no request sent after it.
    - The reason of a model request that failed is told by its kind, its HTTP status, the code of a
      connection that failed or a timeout, never by the error's words, which can name a host or a
      key: `Could not read any part of app.log: The model refused the key or token it was sent (HTTP 401).`
