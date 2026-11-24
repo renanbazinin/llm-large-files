@@ -74,9 +74,11 @@ async function block(context: PrepareContext, id: string, meta: DocumentMeta, ca
       if (whole) {
         const text = await document.readText();
         const numbered = shape.numbered ? numberedText(text) : undefined;
+        // A table the tools count has its document_id in its frame: the tools take it.
+        const toolable = shape.tables && isToolable(document.meta.format, text);
         rendered = {
-          text: renderInline(document.meta, numbered ?? text),
-          toolable: shape.tables && isToolable(document.meta.format, text),
+          text: renderInline(document.meta, numbered ?? text, toolable),
+          toolable,
           ...(numbered !== undefined ? { size: { tokens: estimateTokens(numbered), bytes: jsonBytes(numbered) + 200 } } : {}),
         };
       } else {

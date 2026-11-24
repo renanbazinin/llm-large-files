@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { serviceLog, utf8 } from "llm-large-files/testing";
-import { hasPipeRows, INLINE_CITATION_LINE, INLINE_TABLES_LINE, inlineInstruction, isToolable, questionTools, toolGuide } from "../src/plan.js";
+import { hasPipeRows, INLINE_CITATION_LINE, INLINE_TABLES_LINE, inlineInstruction, isToolable, questionTools, renderInline, toolGuide } from "../src/plan.js";
 import { p, word, zip } from "./word-fixtures.js";
 
 const base = { tokens: 0, bytes: 0 };
@@ -52,10 +52,26 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
     expect(prepared.guide).toContain("use aggregate_table");
     expect(prepared.guide).not.toContain("analyze_whole_document");
     expect(prepared.guide).not.toContain("get_document_overview");
-    // The blocks and the instruction stay those of "text".
+    // The instruction stays that of "text". The block too, but for its document_id in the frame
+    // line: the tools take it, and a file sent whole has no card that gives it.
     const text = await files.prepare([meta.id], base);
     expect(prepared.instruction).toBe("");
-    expect([...prepared.blocks]).toEqual([...text.blocks]);
+    const block = prepared.blocks.get(meta.id)!;
+    const frame = block.slice(0, block.indexOf("\n"));
+    expect(frame).toMatch(/^--- Attached file \[mark [0-9a-f]{8}\]: "חשבוניות\.csv" \(csv, 3,001 lines; document_id doc_[0-9a-f]+; it ends only at the line with mark [0-9a-f]{8}\) ---$/);
+    expect(frame).toContain(`; document_id ${meta.id};`);
+    expect(block).toBe(text.blocks.get(meta.id)!.replace(" lines; it ends", ` lines; document_id ${meta.id}; it ends`));
+    expect(block).toBe(renderInline(meta, (await files.prepare([meta.id], base, { inlineTables: "text" })).blocks.get(meta.id)!.split("\n").slice(1, -1).join("\n"), true));
+  });
+
+  it("puts no document_id in the frame of a file sent whole whose tables the tools do not count", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const note = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\n| one |\n\ntext\n\n| two |\n\nmore\n\n| three |\n") });
+    const tools = await files.prepare([note.id], base, { inlineTables: "tools", numberInline: true });
+    const text = await files.prepare([note.id], base, { numberInline: true });
+    expect(tools.toolable).toEqual([]);
+    expect(tools.blocks.get(note.id)).toBe(text.blocks.get(note.id));
+    expect(tools.blocks.get(note.id)).not.toContain(note.id);
   });
 
   it("gives no toolable list for \"text\", the default", async () => {

@@ -11,6 +11,7 @@ import {
   MemoryDocumentStore,
   type AskOptions,
   type LargeFiles,
+  type ModelReply,
   type ModelRequest,
   type ModelToolRound,
   type ToolResult,
@@ -214,6 +215,34 @@ describe("tables sent whole get the tools that count them (inlineTables)", () =>
     expect(plain.sent[0]!.body.tools).toBeUndefined();
     expect(plain.sent[0]!.body.systemInstruction).toBeUndefined();
     expect(plain.sent[0]!.body.contents[0].parts[0].text).toContain("\nמספר,לקוח,סכום,סטטוס,תאריך\n");
+  });
+
+  it("gives the document_id of each table that gets the tools in its frame line: a model that reads only the request counts with it", async () => {
+    const store = new MemoryDocumentStore();
+    const files = createLargeFiles({ store });
+    const csv = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices()) });
+    const note = await files.ingest({ name: "notes.md", bytes: utf8(NOTE) });
+    // The model knows no ID but what the request says: it takes the CSV's from its frame line.
+    const fromFrame = (request: ModelRequest): Partial<ModelReply> => {
+      const found = /"חשבוניות\.csv" \(csv, [^)]*; document_id ([^;\s]+); it ends only/.exec(textOf(request));
+      if (!found) return says("The file has no document_id.");
+      return calls([{ id: "c1", name: "aggregate_table", args: { document_id: found[1], metrics: ["count"], filters: [{ column: "סטטוס", op: "=", value: "באיחור" }] } }]);
+    };
+    const model = fakeModel([fromFrame, says("750 חשבוניות באיחור (חשבוניות.csv L4).")]);
+    const result = await askWithFiles({ files, model, documentIds: [csv.id, note.id], messages: [question("כמה חשבוניות באיחור?")] });
+    expect(model.requests).toHaveLength(2);
+    expect(resultsOf(model.requests[1]!)[0]).toMatchObject({ rows_matched: 750 });
+    expect(result.citations?.supported).toBe(1);
+    // In the frame of the table only: the note sent whole gets no tools, and no ID.
+    const sent = textOf(model.requests[0]!);
+    expect(sent).toContain(renderInline(csv, numberedText((await store.get(csv.id))!.text), true));
+    expect(sent).toContain(renderInline(note, numberedText((await store.get(note.id))!.text)));
+    expect(JSON.stringify(model.requests[0])).not.toContain(note.id);
+    // "text": the frame of 0.9, with no ID in the request.
+    const plain = fakeModel([fromFrame]);
+    await askWithFiles({ files, model: plain, documentIds: [csv.id], messages: [question("כמה חשבוניות באיחור?")], inlineTables: "text" });
+    expect(JSON.stringify(plain.requests[0])).not.toContain(csv.id);
+    expect(plain.requests[0]!.tools).toBeUndefined();
   });
 
   it("refuses an inlineTables or numberInline it cannot be, before any request", async () => {

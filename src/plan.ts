@@ -255,11 +255,15 @@ export function frameMark(id: string): string {
  * "--- End attached file: report.txt ---", in whatever letters, cannot end it early and start a
  * fake one. The uploader chooses the name with the text, so the mark comes before the name, the
  * name is quoted, and the last line holds the mark alone: a name cannot name a mark of its own.
+ *
+ * `withId` puts the document_id in the first line, for a file the tools read too (a table whose
+ * rows they count, `PrepareOptions.inlineTables: "tools"`): the tools take it, and a file sent whole
+ * has no card to give it. New in 0.10.0; without it, the frame of 0.9.
  */
-export function renderInline(meta: DocumentMeta, text: string): string {
+export function renderInline(meta: DocumentMeta, text: string, withId = false): string {
   const mark = frameMark(meta.id);
   const note = readingNote(meta, true);
-  return `--- Attached file [mark ${mark}]: ${JSON.stringify(meta.name)} (${meta.format}, ${meta.lines.toLocaleString("en-US")} ${plural(meta.lines, "line")}${note ? `, ${note}` : ""}; it ends only at the line with mark ${mark}) ---\n${text}\n--- End attached file [mark ${mark}] ---`;
+  return `--- Attached file [mark ${mark}]: ${JSON.stringify(meta.name)} (${meta.format}, ${meta.lines.toLocaleString("en-US")} ${plural(meta.lines, "line")}${note ? `, ${note}` : ""}${withId ? `; document_id ${meta.id}` : ""}; it ends only at the line with mark ${mark}) ---\n${text}\n--- End attached file [mark ${mark}] ---`;
 }
 
 /**
