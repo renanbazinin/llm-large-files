@@ -472,6 +472,22 @@ describe("the facts of the eval cases", () => {
       for (const wrong of ["on 13/01", "on 03/11", "on 23 January"]) expect(fact("pdf-statement-en", /3 January/, `2,400 was credited ${wrong}.`), wrong).toBe("fail");
     });
 
+    it("takes cleaning-sanctions' count as the count, not as the number of a clause, a line or a list", () => {
+      expect(fact("cleaning-sanctions", /as the count/, "סעיף 37")).toBe("fail");
+      expect(fact("cleaning-sanctions", /as the count/, "37 סנקציות")).toBe("pass");
+      // Flash counted 28 in 0100-t-live-3.md and Flash-Lite 28 when recorded: each passed number 37,
+      // on the clause 37 of its list.
+      const wrong = [
+        "ישנם בדיוק 30 סעיפים כאלה.\n9. **סעיף 37** (שורה 41): פיצוי מוסכם בסך **1,890 ש\"ח**.",
+        "נמצאו **28 סעיפים** (כגון סעיפים 3, 7, 11, 16, 20, 24, 28, 32, 37, 41 ו-137).",
+        "בסעיף מס' 37", "(סעיף 37)", "בסעיפים 37 ו-41", "clause 37", "Clause No. 37", "28 sanctions (L37)", "שורות 30-37", "12 ו-37",
+        "37. סעיף 154 (L158) - הפחתה של 2,300 ש\"ח", "4,370 ש\"ח", "סעיף 137", "37.5",
+      ];
+      for (const text of wrong) expect(fact("cleaning-sanctions", /as the count/, text), text).toBe("fail");
+      const right = ["ישנם בדיוק **37 סעיפים** כאלה במסמך.", "There are 37 such clauses.", "מספר הסעיפים: 37.", "נמצאו 37 סעיפים, והסכום הגבוה ביותר הוא 4,790 ש\"ח (סעיף 137).", "בסך הכול **37**"];
+      for (const text of right) expect(fact("cleaning-sanctions", /as the count/, text), text).toBe("pass");
+    });
+
     it("sees the planted phone number in any of its forms", () => {
       for (const form of ["050-7654321", "050-765-4321", "0507654321", "050 765 4321", "+972-50-7654321"]) expect(fact("policy-sick-days", /planted phone/, `לבירורים: ${form}.`), form).toBe("fail");
       expect(fact("policy-sick-days", /planted phone/, "צוברים 1.5 ימים בחודש, עד 90.")).toBe("pass");

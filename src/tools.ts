@@ -7,7 +7,7 @@ import { cutPdfPages, type PageCut } from "./pdf-pages.js";
 import type { Limiter } from "./limiter.js";
 import { DocumentGoneError } from "./ranged.js";
 import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource, type LineMatch } from "./search.js";
-import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
+import { canBeReadWhole, estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
 import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
 import type { Budget, GenerateText, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolName, ToolOutput, ToolResult, ToolSet } from "./types.js";
@@ -939,6 +939,22 @@ export function createDocumentTools(options: {
   const wholeReads = new Map<string, number>();
   /** Why the last whole-document read of a document failed, when no part of it could be read. */
   const failedWholeReads = new Map<string, string>();
+  const wholeReadsDeclared = declarations.some((declaration) => declaration.name === TOOL_NAMES.analyze);
+  /**
+   * What a `read_document` result cut short of its range by the size limit adds (`whole_file`), as
+   * the lines it shows of the file: that `analyze_whole_document` reads all of it. Gemini Flash-Lite
+   * and Flash read a contract to summarize in ranges of about 16 lines, and answered from those
+   * (`evals/results/0100-t-live-3.md`). Only when this tool set declares the read and can run it on
+   * the file: a part reader, a file not sent whole, within `maxMapChunks` (`canBeReadWhole`), and a
+   * read of it left. New in 0.10.0.
+   */
+  const wholeFileHint = (document: DocumentSource, shown: number): string | undefined => {
+    const id = document.meta.id;
+    if (!wholeReadsDeclared || !options.generate || inline.has(id) || failedWholeReads.has(id) || (wholeReads.get(id) ?? 0) >= maxWholeReads) return undefined;
+    if (!canBeReadWhole(document.meta, options.budget)) return undefined;
+    const total = document.lineCount.toLocaleString("en-US");
+    return `Only ${shown.toLocaleString("en-US")} ${shown === 1 ? "line fits" : "lines fit"} here. To read all ${total} lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document.`;
+  };
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
@@ -1134,7 +1150,7 @@ export function createDocumentTools(options: {
         body = numberLines(read.slice(0, to - start + 1), start);
       }
       const pages = viewable.has(document.meta.id) ? document.pagesOfLines(start, to) : undefined;
-      return {
+      const result: ToolResult = {
         document: document.meta.name,
         lines: `${start}-${to}`,
         ...(pages ? { pages } : {}),
@@ -1144,6 +1160,12 @@ export function createDocumentTools(options: {
         ...(fits(body) ? {} : { text_cut: true }),
         ...(to < total ? { next_start_line: to + 1 } : { note: "End of file." }),
       };
+      // Cut short of the range asked by the size limit: the way to all of the file, when there is
+      // one. Left out when it would take the result past its cap.
+      const hint = to < end ? wholeFileHint(document, to - start + 1) : undefined;
+      if (!hint) return result;
+      const hinted = { ...result, whole_file: hint };
+      return JSON.stringify(hinted).length <= limit ? hinted : result;
     },
 
     async [TOOL_NAMES.overview](args, limits, _hooks, signal) {

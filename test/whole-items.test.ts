@@ -137,6 +137,18 @@ describe("a read that lists items", () => {
     expect((result.items as Array<{ line: number }>).map((item) => item.line)).toEqual(penaltyLines);
   });
 
+  it("gives an item named by its clause's number, its quote copied with a letter wrong, the one line near it that starts with that number", async () => {
+    const { files, meta, penaltyLines } = await library();
+    // As Gemini Flash-Lite listed the part of lines 1-47 of the eval's contract (0.10.0's live
+    // measures): clause 5 for line 7 ("7| 5. …"), and ישלם copied as שילם. The quote is on no line,
+    // and not near line 5, which holds clause 3.
+    const generate = lister([], (items) => items.map((item) => JSON.stringify({ ...item, line: item.line - 2, quote: `שילם הספק למזמין קנס בסך ${item.value} ש"ח לכל מקרה` })).join("\n"));
+    const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: TASK, output: "items", labels: ["penalty"] });
+    // 0.10.0 before this fix: 0 counted, 37 unverified.
+    expect(result).toMatchObject({ total_items: 37, unverified_items: 0 });
+    expect((result.items as Array<{ line: number }>).map((item) => item.line)).toEqual(penaltyLines);
+  });
+
   it("reads a value whose quote mark and letter were both escaped (ש\\\"\\ח), as Flash-Lite writes them", async () => {
     const { files, meta } = await library();
     const generate = lister([], (items) => items.map((item) => JSON.stringify({ ...item, value: `${item.value} ש"ח` }).replace('ש\\"ח"', 'ש\\"\\ח"')).join("\n"));
@@ -442,6 +454,49 @@ describe("quoteNearLine", () => {
     expect(result).toMatchObject({ total_items: 2, unverified_items: 1 });
     expect((result.items as Array<{ line: number }>).map((item) => item.line)).toEqual([2, 3]);
   });
+  it("does not give an item a line by its number when two lines of the part start with it and are near its quote", async () => {
+    // A file whose numbering starts again in each chapter: clause 5 of each sets the same offset.
+    const chapters = (second: string) => [
+      "הסכם שירותי ניקיון",
+      "פרק א",
+      offset.replace(/^3\./, "5."),
+      "6. הספק יבצע ניקיון יומי של המשרדים.",
+      "7. הספק יבצע ניקיון יומי של המטבח.",
+      "פרק ב",
+      `${second} המזמין רשאי לקזז 810 ש"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה באגף ב.`,
+    ].join("\n");
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    // Named for clause 5, on line 5, which holds clause 7, with לקזז copied as מקוזז.
+    const generate: GenerateText = async () => JSON.stringify({ line: 5, value: "810", quote: "מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה" });
+    const read = async (text: string) => {
+      const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(text) });
+      return files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "sanctions", output: "items" });
+    };
+    // One line starts with 5: the item is given it.
+    const one = await read(chapters("8."));
+    expect(one).toMatchObject({ total_items: 1, unverified_items: 0 });
+    expect((one.items as Array<{ line: number }>).map((item) => item.line)).toEqual([3]);
+    // Lines 3 and 7 both start with 5 and are near the quote: either may be the item's, so neither is taken.
+    expect(await read(chapters("5."))).toMatchObject({ total_items: 0, unverified_items: 1 });
+    // Nor a line that starts with a longer number, 50 or 5.1.
+    for (const longer of ["50.", "5.1"]) {
+      const kept = await read(chapters(longer));
+      expect((kept.items as Array<{ line: number }>).map((item) => item.line), longer).toEqual([3]);
+    }
+  });
+
+  it("counts an item whose quote had a \\u escape with three hex digits, on its line", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", "4. בגין הפרת הוראות הבטיחות באתר ינוכו 1,200 ש\"ח מהתמורה החודשית של הספק."].join("\n")) });
+    // ט written as \u05d, as Gemini Flash-Lite wrote it: the escape is bad JSON.
+    const generate: GenerateText = async () => '{"line": 2, "value": "1,200", "quote": "בגין הפרת הוראות הב\\u05dיחות באתר ינוכו 1,200 ש\\"ח"}';
+    const reply = String(await generate({ system: "", prompt: "", maxOutputTokens: 100 }));
+    expect(() => JSON.parse(reply)).toThrow();
+    const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "sanctions", output: "items" });
+    // 0.10.0 before this fix: "u05d" was left in the quote, whose number 05 is not the line's.
+    expect(result).toMatchObject({ total_items: 1, unverified_items: 0 });
+    expect((result.items as Array<{ line: number; quote: string }>)[0]).toMatchObject({ line: 2, quote: "בגין הפרת הוראות הביחות באתר ינוכו 1,200 ש\"ח" });
+  });
 });
 
 describe("parseItemLines", () => {
@@ -455,6 +510,11 @@ describe("parseItemLines", () => {
     // A backslash before a letter starts no JSON escape: it is taken out. One cut in its middle is still skipped.
     expect(parseItemLines('{"line": 3, "value": "5,000 ש\\"\\ח", "quote": "a\\u05d0"}')).toEqual({ objects: [{ line: 3, value: '5,000 ש"ח', quote: "a\u05d0" }], skipped: 0 });
     expect(parseItemLines('{"line": 3, "quote": "\\u05')).toEqual({ objects: [], skipped: 1 });
+    // A \u with fewer than four hex digits is taken out with the digits it has: Flash-Lite wrote ט as \u05d.
+    expect(parseItemLines('{"line": 3, "quote": "הוראות הב\\u05dיחות באתר"}')).toEqual({ objects: [{ line: 3, quote: "הוראות הביחות באתר" }], skipped: 0 });
+    expect(parseItemLines('{"line": 3, "quote": "a\\u05 b\\u0 c\\u d"}')).toEqual({ objects: [{ line: 3, quote: "a b c d" }], skipped: 0 });
+    // Four hex digits are an escape, and an escaped backslash before a "u" is a backslash.
+    expect(parseItemLines('{"line": 3, "quote": "\\u05d8 \\\\u05d"}')).toEqual({ objects: [{ line: 3, quote: "\u05d8 \\u05d" }], skipped: 0 });
   });
 
   it("reads two objects on one line, a list wrapped in an object, and items after NOTHING RELEVANT", () => {

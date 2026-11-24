@@ -529,7 +529,7 @@ const itemsPrompt = (name: string, from: number, to: number, text: string, headi
   `- line: the number before "| " at the start of the line that states the item, from ${from} to ${to}; not a number written in its text.`,
   ...(labels ? [`- label: one of ${labels.map((label) => JSON.stringify(label)).join(", ")}.`] : []),
   "- value: the amount, date, name or other figure the item gives, as written. Leave it out when it gives none.",
-  "- quote: the few words of that line that state the item, copied exactly, enough to tell the line from the others, at most 80 characters.",
+  "- quote: five to twelve words of that line that state the item, copied exactly, letter by letter, enough to tell the line from the others, at most 80 characters.",
   `Write every letter as it is in the file, not as a \\u escape. List each item once, on the line that states it. If this part has no such item, reply exactly: ${NOTHING}`,
 ].join("\n");
 
@@ -786,10 +786,11 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 
 /**
  * A JSON text with each backslash that starts no JSON escape taken out: `ש\"\ח` (a quote mark
- * escaped, then a Hebrew letter escaped, as Gemini Flash-Lite wrote "ש"ח" in a value), or a `\u`
- * without four hex digits.
+ * escaped, then a Hebrew letter escaped, as Gemini Flash-Lite wrote "ש"ח" in a value). A `\u`
+ * without four hex digits is taken out with the hex digits it has: Flash-Lite wrote ט as `\u05d`,
+ * whose "u05d" left in a quote kept it off its line (0.10.0's live measures).
  */
-const withoutBadEscapes = (text: string): string => text.replace(/\\(\\|["/bfnrt]|u[0-9a-fA-F]{4})|\\/g, (whole, escape: string | undefined) => (escape === undefined ? "" : whole));
+const withoutBadEscapes = (text: string): string => text.replace(/\\(\\|["/bfnrt]|u[0-9a-fA-F]{4})|\\u[0-9a-fA-F]{0,3}|\\/g, (whole, escape: string | undefined) => (escape === undefined ? "" : whole));
 
 /** `JSON.parse`, and once more with the bad escapes of `withoutBadEscapes` taken out when it fails. */
 function parseLeniently(text: string): unknown {
@@ -1095,11 +1096,23 @@ function itemText(value: unknown, most: number): string | undefined {
 }
 
 /**
+ * Whether a line in `quoteForm` starts with the number `named`, after any marks before it ("5. …",
+ * "(5) …", "## 5. …"): a whole number, not the start of a longer one ("50. …", "5,000 …", "5.1 …").
+ */
+function startsWithNumber(form: string, named: number): boolean {
+  const lead = /^[^\p{L}\p{N}]*(\d+)(?![\d]|[.,]\d)/u.exec(form);
+  return lead !== null && Number(lead[1]) === named;
+}
+
+/**
  * An item a part listed, checked: its quote on its line, within the part (`from` and the part's
  * `lines`). An item whose quote is not on the line it names, but on exactly one line of the part, is
  * given that line: Gemini Flash-Lite named clause 5 on line 7 ("7| 5. …") as line 5. One whose quote
  * is on no line of the part, but near the line it names (`quoteNearLine`: a few letters copied
- * wrong, the same numbers), keeps that line. Undefined for any other: it is counted as unverified.
+ * wrong, the same numbers), keeps that line. One whose quote is on no line of the part, nor near the
+ * line it names, is given the line of the part near its quote that starts with the number it named,
+ * when exactly one line is both: Flash-Lite named clause 5 for line 7 and copied ישלם as שילם (0.10.0's
+ * live measures). Undefined for any other: it is counted as unverified.
  * A label is matched to the read's labels in `quoteForm`, and given as the read spelled it.
  * `formOf` gives a line of the part, by its index, in `quoteForm`: made once for the part, as an
  * item that is not on its line is looked for on every line of it.
@@ -1113,9 +1126,14 @@ function checkedItem(object: Record<string, unknown>, from: number, lines: reado
   let number = named;
   if (!inPart || !piecesOnLine(wanted, formOf(named - from))) {
     const found = lines.flatMap((_, index) => (piecesOnLine(wanted, formOf(index)) ? [from + index] : []));
-    const near = found.length === 0 && inPart && piecesNearLine(wanted, formOf(named - from));
-    if (found.length !== 1 && !near) return undefined;
-    number = near ? named : found[0]!;
+    if (found.length > 1) return undefined;
+    if (found.length === 1) number = found[0]!;
+    else if (!inPart || !piecesNearLine(wanted, formOf(named - from))) {
+      // Near is looked at only on the lines that start with the number named: a few of the part.
+      const numbered = Number.isInteger(named) ? lines.flatMap((_, index) => (startsWithNumber(formOf(index), named) && piecesNearLine(wanted, formOf(index)) ? [from + index] : [])) : [];
+      if (numbered.length !== 1) return undefined;
+      number = numbered[0]!;
+    }
   }
   const given = itemText(object.label, MAX_LABEL_CHARACTERS);
   const label = given === undefined ? undefined : labels?.find((known) => quoteForm(known) === quoteForm(given)) ?? given;

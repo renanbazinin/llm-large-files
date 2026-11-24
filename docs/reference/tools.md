@@ -555,6 +555,19 @@ shortened (to 70% of its length, step by step) until it fits, and `next_start_li
 go on. When one line alone is longer than that, its text is cut to half of that room and
 `text_cut` is `true`.
 
+A read cut short of its range that way also says, in `whole_file`, that the whole file can be
+read with `analyze_whole_document`, when all of these hold (new in 0.10.0):
+
+- the tool set declares `analyze_whole_document` and has a part reader (`generate`);
+- the file can be read whole: it is not sent whole in the prompt (`ToolOptions.inline`), its
+  estimated parts are within `maxMapChunks`, and a whole read of it is left
+  (`maxWholeDocumentReads`, and no earlier read of it that could read no part);
+- the result, with it, stays within its cap.
+
+A read that shows every line asked for, and one shortened only to 600 lines, have no `whole_file`.
+Gemini 3.5 Flash-Lite and 3.8 Flash read a contract they were asked to summarize in ranges of about
+16 lines, and answered from those, when a whole read would have given all of it.
+
 | Field | Type | Meaning |
 |---|---|---|
 | `document` | string | The file name. |
@@ -565,6 +578,7 @@ go on. When one line alone is longer than that, its text is cut to half of that 
 | `text_cut` | `true`, optional | The one line shown was cut: its end is missing. |
 | `next_start_line` | number, optional | The first line not shown, when the file goes on. |
 | `note` | `"End of file."`, optional | Instead of `next_start_line`, when the last line shown is the file's last. |
+| `whole_file` | string, optional | "Only N lines fit here. To read all M lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document." ("Only 1 line fits here" for one), on a read cut short of its range by the size limit when the file can be read whole (see above). New in 0.10.0. |
 
 ```json
 { "document": "app.log", "lines": "1200-1399", "total_lines": 5000, "text": "1200| ...\n1201| ...", "next_start_line": 1400 }
@@ -680,10 +694,12 @@ that number is (since 0.10.0; before, a number of 2 or more let it try again).
 
 New in 0.10.0. Each part replies with one JSON object for each item it finds, on a line of its own:
 `{"line": 123, "label": "penalty", "value": "5%", "quote": "a fine of 5% of the order"}`, the label
-only when the call gave `labels`. The rules ask for a quote of the few words that state the item,
-at most 80 characters: the longer quotes asked for at first (200 characters) made Gemini
-Flash-Lite cut its list at the output limit more often, and copy more words wrong. Code reads the replies, checks the items and counts them. No model
-merges them, and there is no answer of the read: one request a part.
+only when the call gave `labels`. The rules ask for a quote of five to twelve words of the line
+that state the item, copied exactly, letter by letter, at most 80 characters: the longer quotes
+asked for at first (200 characters) made Gemini Flash-Lite cut its list at the output limit more
+often, and copy more words wrong; asked for "the few words" of the line, it gave some quotes of 14
+characters, too short for the near check below. Code reads the replies, checks the items and
+counts them. No model merges them, and there is no answer of the read: one request a part.
 
 - A reply is read leniently: a line may start with a list mark (`- `, `1. `) and end with a comma,
   or hold several objects (`{…} {…}`), code fences are passed over, and a JSON array of the objects
@@ -711,9 +727,15 @@ merges them, and there is no answer of the read: one request a part.
   quote that are on it in 1 to 4 places: a piece none of whose words is so counts as wrong in all
   its letters, and a quote none of whose words is so is not near it. Measured along all of a line
   of 118,759 characters, one quote took 688 ms, and one cut with "…" into 41 short pieces 677 ms.
+- An item whose quote is on no line of its part, nor near the line it names, is given the line of
+  its part that is near its quote and starts with the number it names ("7| 5. …" for 5), when
+  exactly one line is both: Gemini Flash-Lite named the clause for the line and copied a letter of
+  the quote wrong (שילם for ישלם). When two lines start with that number and are near the quote,
+  as in a file whose numbering starts again, it is not counted. New in 0.10.0.
 - Any other item counts in `unverified_items`, not in `total_items`.
 - A backslash that starts no JSON escape (`ש\"\ח`, as Gemini Flash-Lite escapes a Hebrew letter) is
-  taken out before a line is read again.
+  taken out before a line is read again, and a `\u` with fewer than four hex digits is taken out
+  with the digits it has (Flash-Lite wrote ט as `\u05d`, which left "u05d" in the quote).
 - The same item listed twice (the same line, label and value) counts once.
 - A label is matched to `labels` as quotes are compared, and given as the call spelled it. A label
   that is not one of them is kept as the model wrote it.
