@@ -21,6 +21,7 @@ import { askGemini, geminiApi } from "llm-large-files/gemini";
 import { calls, fakeFetch, fakeModel, says, serviceLog, utf8 } from "llm-large-files/testing";
 import { FINAL_ANSWER_WITH_FILES } from "../src/ask.js";
 import { INLINE_CITATION_LINE, INLINE_TABLES_LINE, numberedSize, numberedText, renderInline } from "../src/plan.js";
+import { estimateTokens } from "../src/text.js";
 import { p, word, zip } from "./word-fixtures.js";
 
 /** probe4's CSV: 3,000 invoices in Hebrew, 750 of them late ("באיחור"). */
@@ -319,6 +320,39 @@ describe("tables sent whole get the tools that count them (inlineTables)", () =>
     // With room for a tool turn, the tools.
     const roomy = await run({ limits: { requests: 2 } });
     expect(roomy.model.requests[0]!.tools?.map((tool) => tool.name)).toEqual(["search_document", "read_document", "aggregate_table"]);
+  });
+
+  it("counts the line that says to count with the tools, and the declarations, in each request's estimate", async () => {
+    const files = await library();
+    const meta = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices(40)) });
+    const estimateOf = async (shape: Pick<AskOptions, "inlineTables">) => {
+      const events: AskEvent[] = [];
+      const model = fakeModel([says("Five columns.")]);
+      await askWithFiles({ files, model, documentIds: [meta.id], messages: [question("Which columns?")], onEvent: (event) => events.push(event), ...shape });
+      const [start] = events.flatMap((event) => (event.type === "request.start" ? [event] : []));
+      return { estimated: start!.estimatedInputTokens!, request: model.requests[0]! };
+    };
+    const tools = await estimateOf({});
+    const text = await estimateOf({ inlineTables: "text" });
+    expect(tools.request.system).toBe(`${INLINE_TABLES_LINE}\n${INLINE_CITATION_LINE}`);
+    expect(text.request.system).toBe(INLINE_CITATION_LINE);
+    expect(tools.estimated - text.estimated).toBe(estimateTokens(JSON.stringify(tools.request.tools)) + estimateTokens(tools.request.system) - estimateTokens(text.request.system));
+  });
+
+  it("names a table sent whole that is deleted during the question in the document_gone notice", async () => {
+    const files = await library();
+    const meta = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices(40)) });
+    const events: AskEvent[] = [];
+    const model = fakeModel([
+      async () => {
+        await files.delete(meta.id);
+        return calls([{ id: "c1", name: "aggregate_table", args: { document_id: meta.id, metrics: ["count"] } }]);
+      },
+      says("The file is no longer available."),
+    ]);
+    await askWithFiles({ files, model, documentIds: [meta.id], messages: [question("כמה שורות?")], onEvent: (event) => events.push(event) });
+    const notices = events.filter((event) => event.type === "notice" && event.code === "document_gone");
+    expect(notices).toEqual([expect.objectContaining({ message: "חשבוניות.csv is no longer available on the server.", documentIds: [meta.id] })]);
   });
 
   it("refuses an inlineTables or numberInline it cannot be, before any request", async () => {
