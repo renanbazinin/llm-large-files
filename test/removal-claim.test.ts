@@ -119,10 +119,39 @@ describe("FileDocumentStore claims a removal before it counts it", () => {
     expect(left[0]).toMatch(new RegExp(`^${meta.id}\\.json\\.[a-f0-9]{8}\\.tmp$`));
     expect(await files.getMeta(meta.id)).toBeUndefined();
     expect(await files.delete(meta.id)).toBe(false);
-    // A temporary file: removed by a sweep once it is orphanAgeMs old, and not counted.
-    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
-    await utimes(path.join(directory, left[0]!), old, old);
+    // A temporary file: removed by a sweep once it is orphanAgeMs old, and not counted. (Its age is
+    // read from its change time too, which utimes cannot set back: the sweep's clock is moved on.)
     expect(await store.sweep(new Date())).toBe(0);
+    expect(await readdir(directory)).toHaveLength(1);
+    expect(await store.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000))).toBe(0);
     expect(await readdir(directory)).toEqual([]);
+  });
+
+  it("leaves the claim of a delete under way to that delete, when a sweep on another server lists the folder meanwhile", async () => {
+    const directory = await folder();
+    const store = new FileDocumentStore(directory);
+    await store.put({ meta: metaOf("a", Date.now() + DAY), text: "alpha" });
+    // Written two hours ago, as its times say: a sweep takes such files for old. The rename keeps
+    // that time, so a claim told its age only by it was removed as an old temporary file, and the
+    // delete, which no longer found it, said false for a document it had removed.
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    for (const entry of await readdir(directory)) await utimes(path.join(directory, entry), old, old);
+    // utimes sets the change time as well: it is let age past the margin below, so that only the
+    // rename's change counts.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const other = new FileDocumentStore(directory);
+    let swept: number | undefined;
+    replace("unlink", (real) => async function (this: unknown, ...args: unknown[]) {
+      if (swept === undefined && /\.json\.[a-f0-9]{8}\.tmp$/.test(String(args[0]))) {
+        // Between the rename of the metadata and the removal of the claim. The other server's clock
+        // reads orphanAgeMs (an hour) later, less a margin: the rename of a moment ago is younger.
+        swept = await other.sweep(new Date(Date.now() + 60 * 60 * 1000 - 250));
+      }
+      return real.apply(this, args);
+    });
+    expect(await store.delete("a")).toBe(true);
+    expect(swept).toBe(0);
+    expect(await readdir(directory)).toEqual([]);
+    expect(await store.getMeta("a")).toBeUndefined();
   });
 });

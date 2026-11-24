@@ -1469,7 +1469,9 @@ documents of each scope are in a folder of their own:
   `sweep`, and `delete` still returns `true`: the document is gone once its metadata is. Since
   0.10.0 the metadata is first renamed to a name of the call's own (`<id>.json.<8 hex>.tmp`), and
   that name is then removed: of two deletes of one document at once, on one server or two, only
-  one returns `true`, on Windows too.
+  one returns `true`, on Windows too. The rename keeps the time the metadata was written, so
+  `sweep` reads the age of such a name from its last change (ctime), which the rename sets: a sweep
+  on another server meanwhile leaves it to the delete.
 - `sweep(now?)` removes expired documents and returns how many, counting a document whose metadata
   is not valid and is older than `orphanAgeMs`. It counts only the documents whose metadata it
   removed itself, as `delete` does: of two sweeps at once, on one server or two, each document is

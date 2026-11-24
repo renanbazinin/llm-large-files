@@ -130,7 +130,8 @@ With `scopes` (new in 0.9.0), the files of each scope are in a folder of their o
   file at the same moment can both succeed. `delete` does the same. It also removes files that
   belong to no document (an upload that failed, a server that stopped while writing) and temporary files, once
   they are `orphanAgeMs` old, one hour by default: a younger one may be an upload in progress on
-  another server. In a folder that may hold files of yours too (`directory` without `scopes`), it
+  another server. A temporary name of a document's metadata is also young for `orphanAgeMs` after
+  it was renamed (its ctime): it may be a delete's, under way on another server. In a folder that may hold files of yours too (`directory` without `scopes`), it
   removes such a file only when its name is an ID the library makes, or a temporary file:
   `notes.txt` may be yours, not the text of a document `notes`. A document whose metadata could not
   be read at all is left alone, whatever its age. One that cannot be removed is left for the next

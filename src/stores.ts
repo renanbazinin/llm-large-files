@@ -692,7 +692,10 @@ export class FileDocumentStore implements DocumentStore {
    * call's unlink finds it. The rename is tried again while Windows refuses it for a moment
    * (EPERM, EBUSY, EACCES: a reader or a scanner has the file open), as a write's is. A name of
    * this call's own that cannot be removed now (it is renamed already: the document is gone) is
-   * left for `sweep`, which removes temporary files once they are old, and the removal counts.
+   * left for `sweep`, which removes temporary files once they are old, and the removal counts. The
+   * rename keeps the time the metadata was written, so the sweep reads the age of such a name from
+   * its last change (ctime), which the rename sets: a sweep on another server between the rename
+   * and the unlink leaves it.
    */
   async #remove(place: Place, id: string): Promise<boolean> {
     const files = filesOf(place.folder, id);
@@ -837,14 +840,20 @@ export class FileDocumentStore implements DocumentStore {
 
   /** Sweeps the files of one ID in a folder: 1 when it removed an expired or broken document. */
   async #sweepDocument(place: Place, id: string, names: string[], now: Date, pool: Pool): Promise<number> {
+    const metaFile = `${id}.json`;
     const old = async (entry: string) => {
       const info = await pool(() => stat(path.join(place.folder, entry))).catch(() => undefined);
-      return info !== undefined && now.getTime() - info.mtimeMs >= this.orphanAgeMs;
+      if (info === undefined) return false;
+      // A temporary name of the metadata may be the claim of a delete under way (`#remove`): the
+      // metadata renamed, with the time it was written. Its age is from the rename, which sets the
+      // time of its last change (ctime, on Linux, NFS and NTFS): a claim of a live document is
+      // never taken for an old file, which would leave the delete without it (0.10.0).
+      const since = entry.startsWith(`${metaFile}.`) && entry.endsWith(".tmp") ? Math.max(info.mtimeMs, info.ctimeMs) : info.mtimeMs;
+      return now.getTime() - since >= this.orphanAgeMs;
     };
     // In a folder of the store's own, every file named like a document's is the store's. In one the
     // application shares, a file of an application's ID is, only when its metadata names it.
     const ours = !place.shared || DOCUMENT_ID_PATTERN.test(id);
-    const metaFile = `${id}.json`;
     const hasMeta = names.includes(metaFile);
     if (hasMeta) {
       let raw: string | undefined;
