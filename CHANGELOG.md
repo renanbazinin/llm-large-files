@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.9.0 — not released yet
+## 0.9.0 — 2026-11-24
 
 One server process for every user and chat. Every store call carries the scope and the owner of
 the call, `FileDocumentStore` keeps the files of each chat in a folder of its own, documents can
