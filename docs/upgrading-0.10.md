@@ -45,7 +45,7 @@ These do not compile:
 |---|---|---|
 | A `switch` over `NoticeCode` with a `never` check, or a `Record<NoticeCode, …>` | Two new members: `"answer_filtered"`, `"answer_cut"` | Add them; a `switch` can end in a `default` instead |
 | The same over `ToolOutcome` | A new member: `"redacted"` | Add it |
-| The same over `ModelReply["finish"]`, `AskResult["finish"]` or the `finish` of a `request.end` event | A new member: `"other"` | Add it |
+| The same over `ModelReply["finish"]` or the `finish` of a `request.end` event | A new member: `"other"`, which the new `AskResult.finish` has too | Add it |
 | Code that reads `owner`, `scope`, `sha256`, `original` or `metaVersion` of a document in the plan of `run.finish` or `run.error` (`EventResult.plan`) (TS2339) | Its metas are `Omit<DocumentMeta, …>` of those fields, and `eventResults: true` leaves them out at run time too | Read them from `AskResult.plan` |
 | A mock typed `ReturnType<typeof createLargeFiles>`, or a variable whose type was inferred from `createLargeFiles` and that you later give a `LargeFiles` of your own (TS2322) | `createLargeFiles` returns `CreatedLargeFiles`, whose `stats()` and `toolsFor()` are required | Type it `LargeFiles` |
 | A `DocumentHandlers` made by hand, such as a mock (TS2741) | `DocumentHandlers` has a required `stats()` | Add `stats`, or type the mock as the part you use |

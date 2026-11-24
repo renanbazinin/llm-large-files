@@ -53,9 +53,9 @@ Code written for 0.9.0 compiles with 0.10.0, except in these cases
 ([Does my code compile?](docs/upgrading-0.10.md#does-my-code-compile)):
 
 - `NoticeCode` has two new members, `"answer_filtered"` and `"answer_cut"`; `ToolOutcome` one,
-  `"redacted"`; and `ModelReply.finish` one, `"other"` (also in the new `AskResult.finish` and in
-  the `finish` of a `request.end` event). An exhaustive `switch` over any of them, or a `Record`
-  keyed by it, needs them.
+  `"redacted"`; and `ModelReply.finish` one, `"other"`, which the `finish` of a `request.end` event
+  has too. An exhaustive `switch` over any of them, or a `Record` keyed by it, needs them. The new
+  `AskResult.finish` has the same members.
 - The plan of `run.finish` and `run.error` (`EventResult.plan`) holds
   `Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">`, and the result
   of `eventResults: true` leaves those fields out at run time too. Code that reads them there fails
