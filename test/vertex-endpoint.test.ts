@@ -2,7 +2,7 @@
 // express mode with an API key, and one more try with a new token after a 401 (NEW-vertex-endpoint-
 // options); and which endpoints take the rounds of earlier questions in Gemini's own form.
 import { describe, expect, it } from "vitest";
-import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
+import { createLargeFiles, errorInfoOf, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, createGeminiGenerateText, gemini, geminiApi, vertexAi, type GeminiEndpoint } from "llm-large-files/gemini";
 import { fakeFetch, serviceLog, utf8, type FakeReply } from "llm-large-files/testing";
 
@@ -97,6 +97,26 @@ describe("a Vertex AI token refused with HTTP 401, since 0.10.0", () => {
     await expect(gemini(vertexAi({ project: "p", model: "gemini-test", accessToken: source.accessToken }), { fetch: api.fetch }).send(request)).rejects.toMatchObject({ status: 401, kind: "auth" });
     expect(api.sent).toHaveLength(2);
     expect(source.asked).toEqual([false, true]);
+  });
+
+  it("is still the error, with why no new token came as its cause, when the refresh throws", async () => {
+    const lapsed = new Error("invalid_grant: token has been expired or revoked");
+    const asked: boolean[] = [];
+    const accessToken = async ({ refresh }: { refresh: boolean }) => {
+      asked.push(refresh);
+      if (refresh) throw lapsed;
+      return "old";
+    };
+    const api = fakeFetch([refused()]);
+    const error = await gemini(vertexAi({ project: "p", model: "gemini-test", accessToken }), { fetch: api.fetch }).send(request).then(() => undefined, (failed: unknown) => failed);
+    expect(error).toMatchObject({ name: "GeminiRequestError", status: 401, kind: "auth", message: "Request had invalid authentication credentials.", cause: lapsed });
+    expect(errorInfoOf(error)).toMatchObject({ category: "model", code: "auth" });
+    expect(api.sent).toHaveLength(1);
+    expect(asked).toEqual([false, true]);
+
+    // The same in a part read.
+    const read = createGeminiGenerateText({ url: "https://aiplatform.googleapis.com/v1/projects/p/locations/global/publishers/google/models/refresh-throws:generateContent", headers: vertexAi({ project: "p", model: "m", accessToken }).headers, refreshable: true, fetchImpl: fakeFetch([refused()]).fetch });
+    await expect(read({ system: "s", prompt: "p", maxOutputTokens: 100 })).rejects.toMatchObject({ name: "GeminiRequestError", status: 401, kind: "auth", cause: lapsed });
   });
 
   it("gets no second try for a token given as a string, an API key, or headers of your own", async () => {

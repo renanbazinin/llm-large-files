@@ -131,7 +131,9 @@ not their thought signatures, until a live check shows that it takes them.
 It makes no request and does not call `accessToken`. An error that the token function throws comes
 out of the request that needed the token, as it was thrown: it is not a `GeminiRequestError`. It
 has no status, so a chat request is not sent again: `askGemini`, or `askWithFiles` with `gemini()`,
-throws it. A part read is tried once more, and then counts as unread.
+throws it. A part read is tried once more, and then counts as unread. One exception: when the
+function throws as it is called with `{ refresh: true }` after a 401, the request's error is that
+401 (a `GeminiRequestError` of kind `"auth"`), with what the function threw as its `cause`.
 
 ```ts
 import { GoogleAuth } from "google-auth-library";

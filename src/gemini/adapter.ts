@@ -359,19 +359,28 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
           throw lost(error);
         }
       };
+      /** The error of a response that is not OK, from its body. */
+      const failureOf = async (response: Response, cause?: unknown): Promise<GeminiRequestError> => {
+        const data = await response.json().catch(() => null);
+        return geminiFailure(response.status, data, retryAfterMs(response.headers, errorBodyOf(data)), `Gemini returned HTTP ${response.status}.`, cause);
+      };
       try {
         let response = await post(headers);
         // A token that was refused may be one a cache kept past its time: one more try, with
         // headers asked for anew. A second 401 is the error.
         if (response.status === 401 && refreshable) {
+          let fresh: Record<string, string>;
+          try {
+            fresh = await resolveHeaders(endpoint, { refresh: true });
+          } catch (error) {
+            // No new token came: the refusal is the error, and why none came is its cause.
+            throw await failureOf(response, error);
+          }
           discard(response);
-          response = await post(await resolveHeaders(endpoint, { refresh: true }));
+          response = await post(fresh);
         }
         // The headers are no piece of the reply: a server may send them at once and then think.
-        if (!response.ok) {
-          const data = await response.json().catch(() => null);
-          throw geminiFailure(response.status, data, retryAfterMs(response.headers, errorBodyOf(data)), `Gemini returned HTTP ${response.status}.`);
-        }
+        if (!response.ok) throw await failureOf(response);
         return await readReply(response, stream, hooks, watch, lost);
       } finally {
         watch.stop();

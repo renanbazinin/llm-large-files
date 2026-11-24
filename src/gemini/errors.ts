@@ -73,11 +73,13 @@ export function statusOfError(error: { code?: unknown; status?: unknown } | null
 /**
  * The error of a response that is not OK, or of an error in a reply of HTTP 200, from its JSON
  * body: Gemini's `error.status` and `details` tell its kind. A body that is a list is read by its
- * first entry.
+ * first entry. `cause`, when given, is the error's `cause`: why a token refused with HTTP 401 could
+ * not be renewed, for one.
  */
-export function geminiFailure(status: number, data: unknown, retryAfterMs: number | undefined, fallback: string): GeminiRequestError {
+export function geminiFailure(status: number, data: unknown, retryAfterMs: number | undefined, fallback: string, cause?: unknown): GeminiRequestError {
   const error = errorBodyOf(data)?.error;
   return new GeminiRequestError(typeof error?.message === "string" && error.message ? error.message : fallback, status, {
+    ...(cause === undefined ? {} : { cause }),
     ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     ...(typeof error?.status === "string" ? { code: error.status } : {}),
     ...(error?.details !== undefined ? { details: error.details } : {}),

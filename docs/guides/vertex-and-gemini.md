@@ -126,7 +126,9 @@ const endpoint = vertexAi({
   was refused: force a new one when `refresh` is true, as the sample does. That sample works for
   the clients that keep their token in `credentials`: a service account, the metadata server
   (Cloud Run, GKE, Compute Engine) and user credentials. A second 401 is the error: there is no
-  third try. A token given as a string, an API key and a gateway's headers get no second try.
+  third try. If the function throws when it is asked to refresh, the first 401 is the error (a
+  `GeminiRequestError` of kind `"auth"`), with what the function threw as its `cause`. A token
+  given as a string, an API key and a gateway's headers get no second try.
 - **A token that is refused for good** (HTTP 401 twice, or 403: a missing role, the Vertex AI API
   not enabled in the project) is a `GeminiRequestError` with `kind` `"auth"`. It is not sent again.
 

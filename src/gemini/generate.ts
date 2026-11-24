@@ -174,8 +174,7 @@ export function createGeminiGenerateText(options: {
           generationConfig: options.generationConfig?.(limit) ?? { maxOutputTokens: limit },
           ...options.body?.(limit),
         });
-        const post = async (refresh: boolean): Promise<Response> => {
-          const headers = await resolveHeaderSource(options.headers, refresh ? { refresh: true } : undefined);
+        const post = async (headers: Record<string, string>): Promise<Response> => {
           try {
             return await fetchImpl(url, { method: "POST", headers, ...(timer.signal ? { signal: timer.signal } : {}), body });
           } catch (error) {
@@ -183,11 +182,23 @@ export function createGeminiGenerateText(options: {
             throw lost(error);
           }
         };
-        let response = await post(false);
+        // An error may have no JSON body, and one that is a list is read by its first entry.
+        const failureOf = async (response: Response, cause?: unknown): Promise<Error> => {
+          const data = errorBodyOf(await response.json().catch(() => null));
+          return geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`, cause);
+        };
+        let response = await post(await resolveHeaderSource(options.headers));
         // A token that was refused may be one a cache kept past its time: one more try, with a new one.
         if (response.status === 401 && options.refreshable) {
+          let fresh: Record<string, string>;
+          try {
+            fresh = await resolveHeaderSource(options.headers, { refresh: true });
+          } catch (error) {
+            // No new token came: the refusal is the error, and why none came is its cause.
+            throw await failureOf(response, error);
+          }
           discard(response);
-          response = await post(true);
+          response = await post(fresh);
         }
         type Chunk = {
           error?: { message?: string; code?: unknown; status?: unknown };
@@ -195,11 +206,7 @@ export function createGeminiGenerateText(options: {
           usageMetadata?: Record<string, unknown>;
           promptFeedback?: { blockReason?: unknown };
         };
-        // An error may have no JSON body, and one that is a list is read by its first entry.
-        if (!response.ok) {
-          const data = errorBodyOf(await response.json().catch(() => null));
-          throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`);
-        }
+        if (!response.ok) throw await failureOf(response);
         // A reply must have one: a body that could not be read is a connection that failed, and is
         // sent again. It may be a list of chunks, as Gemini gives a reply without `alt=sse` (a
         // gateway): every chunk is read, as a chat reply's are.
