@@ -1216,9 +1216,15 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       names[meta.id] = meta.name;
       formats[meta.id] = meta.format;
     }
-    // A document sent whole was shown, every line of it.
+    // A document sent whole was shown, every line of it, and a whole-file read read every line:
+    // those from 1 to its last. A line past the end of the file is not supported.
+    const linesOf = new Map(documents.map((meta) => [meta.id, meta.lines]));
+    const bounded = (entry: Evidence): Evidence => {
+      const lines = linesOf.get(entry.documentId);
+      return entry.whole === true && !entry.lines && typeof lines === "number" && Number.isFinite(lines) ? { ...entry, lines: lines >= 1 ? [[1, Math.trunc(lines)]] : [] } : entry;
+    };
     const sentWhole: Evidence[] = prepared.plan.inline.map((meta) => ({ tool: "inline", documentId: meta.id, document: meta.name, whole: true }));
-    return checkCitations(text, [...sentWhole, ...evidence], names, formats);
+    return checkCitations(text, [...sentWhole, ...evidence].map(bounded), names, formats);
   };
   const result = (answered: boolean): AskResult => ({
     text,
