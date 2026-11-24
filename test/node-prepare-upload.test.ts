@@ -100,9 +100,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 /**
  * The idle time of the tests that hold a call to the disk, or a body. Every other call must end
  * within it too: on a Windows runner, opening a new file can take more than 200 ms (the virus
- * scanner). Each call held waits that long: the tests that use it are given 30 s.
+ * scanner). Each call held waits that long: the tests that use it are given 30 s. On Windows 2 s:
+ * on Node 26 runners (Nov 2026) calls the test does not hold still passed 1 s, and an upload refused
+ * with 409 was answered 503 (ETIMEDOUT).
  */
-const IDLE_MS = 1_000;
+const IDLE_MS = process.platform === "win32" ? 2_000 : 1_000;
 
 /** The servers of a test, closed after it. */
 const servers: Server[] = [];
