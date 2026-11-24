@@ -673,8 +673,10 @@ only when the call gave `labels`. Code reads the replies, checks the items and c
 merges them, and there is no answer of the read: one request a part.
 
 - A reply is read leniently: a line may start with a list mark (`- `, `1. `) and end with a comma,
-  code fences are passed over, and a JSON array of the objects is read too. A line that is not a
-  JSON object is skipped. A reply that says `NOTHING RELEVANT` has no item.
+  or hold several objects (`{…} {…}`), code fences are passed over, and a JSON array of the objects
+  is read too, and so is an object that wraps their list (`{"items": […]}`: no `quote` of its own,
+  and one array of objects). A line that is not a JSON object is skipped. A reply that says
+  `NOTHING RELEVANT` has no item, unless it lists items after it: those are checked as any other.
 - An item counts when its `quote` is on the line it names, within the part that listed it. They
   are compared composed (NFC) and folded as exact search folds text (case, quotes, dashes, spaces),
   without Hebrew points, with final letters as plain ones (כסף is found in כספים), without the

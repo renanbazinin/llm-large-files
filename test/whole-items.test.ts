@@ -291,4 +291,19 @@ describe("parseItemLines", () => {
     expect(parseItemLines('{"line": 3, "value": "5,000 ש\\"\\ח", "quote": "a\\u05d0"}')).toEqual({ objects: [{ line: 3, value: '5,000 ש"ח', quote: "a\u05d0" }], skipped: 0 });
     expect(parseItemLines('{"line": 3, "quote": "\\u05')).toEqual({ objects: [], skipped: 1 });
   });
+
+  it("reads two objects on one line, a list wrapped in an object, and items after NOTHING RELEVANT", () => {
+    const a = { line: 3, quote: "a b" };
+    const b = { line: 4, quote: "c d" };
+    // 0.10.0 before this fix: no object and one line skipped; one item with no quote; nothing at all.
+    expect(parseItemLines('{"line": 3, "quote": "a b"} {"line": 4, "quote": "c d"}')).toEqual({ objects: [a, b], skipped: 0 });
+    expect(parseItemLines('{"line": 3, "quote": "a b"},{"line": 4, "quote": "c d"}\n- {"line": 5, "quote": "{x}"}')).toEqual({ objects: [a, b, { line: 5, quote: "{x}" }], skipped: 0 });
+    expect(parseItemLines('{"items": [{"line": 3, "quote": "a b"}, {"line": 4, "quote": "c d"}]}')).toEqual({ objects: [a, b], skipped: 0 });
+    expect(parseItemLines('```json\n{"items": [\n{"line": 3, "quote": "a b"},\n{"line": 4, "quote": "c d"}\n], "labels": ["x"]}\n```')).toEqual({ objects: [a, b], skipped: 0 });
+    expect(parseItemLines('[{"items": [{"line": 3, "quote": "a b"}]}, {"line": 4, "quote": "c d"}]')).toEqual({ objects: [a, b], skipped: 0 });
+    expect(parseItemLines('NOTHING RELEVANT\n{"line": 3, "quote": "a b"}')).toEqual({ objects: [a], skipped: 0 });
+    // An object with a quote of its own is an item, whatever lists it holds; and the sentinel alone is still nothing.
+    expect(parseItemLines('{"line": 3, "quote": "a b", "notes": [{"x": 1}]}')).toEqual({ objects: [{ ...a, notes: [{ x: 1 }] }], skipped: 0 });
+    expect(parseItemLines("NOTHING RELEVANT. No clause of this part sets a fine.")).toEqual({ objects: [], skipped: 0 });
+  });
 });

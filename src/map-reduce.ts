@@ -734,23 +734,68 @@ function parseLeniently(text: string): unknown {
 }
 
 /**
- * The JSON objects of the reply of a part read that lists items, read leniently: one a line, a line
- * may start with a list mark ("- ", "1. ") and end in a comma, code fences are passed over, a JSON
- * array of them is read too, and a backslash that starts no JSON escape is taken out. A line that is
- * not a JSON object is skipped, and counted. A reply that says the part has nothing relevant has no
- * item. New in 0.10.0.
+ * The JSON objects written one after another on a line (`{…} {…}`, `{…},{…}`, `- {…}`): each from
+ * its "{" to the "}" that closes it, braces inside strings aside. An object whose end is not on
+ * the line is not among them.
+ */
+function objectsOnLine(line: string): string[] {
+  const found: string[] = [];
+  let depth = 0;
+  let start = 0;
+  let inString = false;
+  let escaped = false;
+  for (let at = 0; at < line.length; at++) {
+    const char = line[at];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+    } else if (char === '"') {
+      // A quote mark of the words around the objects starts no string.
+      inString = depth > 0;
+    } else if (char === "{") {
+      if (depth === 0) start = at;
+      depth++;
+    } else if (char === "}" && depth > 0 && --depth === 0) {
+      found.push(line.slice(start, at + 1));
+    }
+  }
+  return found;
+}
+
+/**
+ * The items of an object a model wrapped them in (`{"items": [{…}, {…}]}`), as models that think in
+ * JSON write a list: an object with no quote of its own and one array of objects. Any other object
+ * is an item.
+ */
+function unwrapped(objects: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return objects.flatMap((object) => {
+    if (Object.hasOwn(object, "quote")) return [object];
+    const lists = Object.values(object).filter((value): value is Array<Record<string, unknown>> => Array.isArray(value) && value.length > 0 && value.every(isObject));
+    return lists.length === 1 ? lists[0]! : [object];
+  });
+}
+
+/**
+ * The JSON objects of the reply of a part read that lists items, read leniently: one a line, or
+ * several on a line; a line may start with a list mark ("- ", "1. ") and end in a comma, code fences
+ * are passed over, a JSON array of them is read too, and so is an object that wraps their list
+ * (`{"items": […]}`); a backslash that starts no JSON escape is taken out. A line that is not a JSON
+ * object is skipped, and counted. A reply that says the part has nothing relevant has no item,
+ * unless it lists items after it: each is checked against its line as any other. New in 0.10.0.
  */
 export function parseItemLines(reply: string): { objects: Array<Record<string, unknown>>; skipped: number } {
   const text = reply.trim();
-  if (!text || saysNothingRelevant(text)) return { objects: [], skipped: 0 };
+  if (!text || (saysNothingRelevant(text) && !text.includes("{"))) return { objects: [], skipped: 0 };
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("```"));
   const joined = lines.join("\n");
-  if (joined.startsWith("[")) {
+  if (joined.startsWith("[") || joined.startsWith("{")) {
     try {
       const parsed: unknown = parseLeniently(joined);
-      if (Array.isArray(parsed)) return { objects: parsed.filter(isObject), skipped: parsed.filter((value) => !isObject(value)).length };
+      if (Array.isArray(parsed)) return { objects: unwrapped(parsed.filter(isObject)), skipped: parsed.filter((value) => !isObject(value)).length };
+      if (isObject(parsed)) return { objects: unwrapped([parsed]), skipped: 0 };
     } catch {
-      // Not one array: read line by line.
+      // Not one array or object: read line by line.
     }
   }
   const objects: Array<Record<string, unknown>> = [];
@@ -758,14 +803,23 @@ export function parseItemLines(reply: string): { objects: Array<Record<string, u
   for (const raw of lines) {
     if (raw === "[" || raw === "]" || saysNothingRelevant(raw)) continue;
     const line = raw.replace(/^(?:[-*•]|\d+[.)])\s+/, "").replace(/,$/, "");
-    const open = line.indexOf("{");
-    const close = line.lastIndexOf("}");
-    try {
-      const value: unknown = open === -1 || close < open ? undefined : parseLeniently(line.slice(open, close + 1));
-      if (isObject(value)) objects.push(value);
-      else skipped++;
-    } catch {
-      skipped++;
+    let found = objectsOnLine(line);
+    if (found.length === 0) {
+      // A quote mark not escaped in a string hides the end of its object from the count of braces:
+      // from the first "{" to the last "}", which a bad escape taken out may still mend.
+      const open = line.indexOf("{");
+      const close = line.lastIndexOf("}");
+      found = open === -1 || close < open ? [] : [line.slice(open, close + 1)];
+    }
+    if (found.length === 0) skipped++;
+    for (const each of found) {
+      try {
+        const value: unknown = parseLeniently(each);
+        if (isObject(value)) objects.push(...unwrapped([value]));
+        else skipped++;
+      } catch {
+        skipped++;
+      }
     }
   }
   return { objects, skipped };
