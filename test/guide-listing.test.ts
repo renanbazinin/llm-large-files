@@ -279,6 +279,31 @@ describe("room kept for what is besides the documents (reserve)", () => {
     expect(pinned.placement).toMatchObject({ inline: plain.placement!.inline.filter((id) => id !== runbook.id), cards: [log.id, runbook.id] });
   });
 
+  it("plans again without a file found gone while the cards are counted", async () => {
+    const metas = new Map<string, DocumentMeta>();
+    for (const id of ["doc_a", "doc_b"]) metas.set(id, { id, name: `${id}.txt`, mimeType: "text/plain", format: "text", bytes: 16_000, textBytes: 16_000, characters: 16_000, lines: 400, estimatedTokens: 4_000, wrappedLines: 0, outline: [], createdAt: "2026-11-24T08:00:00.000Z", expiresAt: "2030-01-01T00:00:00.000Z" });
+    let loads = 0;
+    const context: PrepareContext = {
+      callerOf: () => ({}) as never,
+      metaFor: async (id) => metas.get(id),
+      // doc_b is deleted after its text was read whole: its card cannot be read.
+      load: async (id) => (id === "doc_b" && ++loads > 1 ? undefined : ({ meta: metas.get(id)!, readText: async () => "a\nb", readLines: async () => ["a", "b"], broken: false }) as never),
+      stillOpened: async () => true,
+      budgetFor: () => resolveBudget({ contextTokens: 10_000, reservedTokens: 1_000, inlineTokens: 10_000 }),
+      viewableMeta: () => false,
+      rules: {} as never,
+    };
+    // Both fit, but not with their header: the cards are counted, and doc_b is gone by then.
+    expect((await prepareDocuments(context, ["doc_a", "doc_b"], base, { reserve: { tokens: 0, bytes: 0 } })).plan.inline).toHaveLength(2);
+    loads = 0;
+    const prepared = await prepareDocuments(context, ["doc_a", "doc_b"], base, { reserve: { tokens: 1_000, bytes: 0 } });
+    expect(prepared.missing).toEqual(["doc_b"]);
+    expect(prepared.plan.inline.map((meta) => meta.id)).toEqual(["doc_a"]);
+    expect([...prepared.blocks.keys()]).toEqual(["doc_a"]);
+    expect([...prepared.listing!.keys()]).toEqual(["doc_a"]);
+    expect(prepared.placement).toMatchObject({ inline: ["doc_a"], cards: [] });
+  });
+
   it("is refused when it is not a size, and so are numberInline and inlineTables of the wrong kind", async () => {
     const files = library();
     const meta = await files.ingest({ name: "notes.txt", bytes: utf8("one\n") });
