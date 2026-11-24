@@ -31,9 +31,9 @@ export type PlanOptions = {
 /**
  * Decides which documents go into the prompt in full and which the model reaches through
  * tools. Smaller documents are inlined first, so as many as possible are read in full. Since
- * 0.10.0, `options` can count them with their lines numbered, keep documents in the place they
- * had in earlier questions, and so on (`PlanOptions`). Both lists are in order of size, smallest
- * first, as before.
+ * 0.10.0, `options` can count them with their lines numbered, and keep the documents of earlier
+ * questions where they were (`PlanOptions`). Both lists are in order of size, smallest first, as
+ * before.
  */
 export function planDocuments(
   documents: DocumentMeta[],
@@ -60,7 +60,7 @@ export function planDocuments(
   const byId = new Map(documents.map((meta) => [meta.id, meta]));
   for (const id of pinned) {
     const meta = byId.get(id);
-    if (meta && !inline.has(id)) place(meta);
+    if (meta) place(meta);
   }
   for (const meta of sorted) if (!pinned.has(meta.id) && !cards.has(meta.id)) place(meta);
   return {
