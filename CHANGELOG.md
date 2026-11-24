@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.10.0 — not released yet
+## 0.10.0 — 2026-11-25
 
 Counts that are right and a cost that is bounded, for a chatbot on Gemini. Tables sent whole get
 exact counts, files sent whole get line numbers, and every question has a ceiling on input tokens

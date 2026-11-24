@@ -844,7 +844,7 @@ as one string. Two runs each.
 
 ## 0.10.0, live on the Gemini API
 
-Not released yet. Everything here ran on 2026-11-24 on the Gemini API (`geminiApi()`), with
+Released on 2026-11-25. Everything here ran on 2026-11-24 on the Gemini API (`geminiApi()`), with
 `gemini-3.5-flash-lite` and `gemini-3.8-flash`, over synthetic files. Nothing ran on Vertex AI:
 there was no project, so Model Armor, `LANGUAGE` and labels were not seen. The cached share of a
 request is recorded here, never used as a gate. The release gate of 0.10.0 is the live gates of
