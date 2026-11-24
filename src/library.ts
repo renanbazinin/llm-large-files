@@ -881,7 +881,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
    */
   async function removal(call: () => Promise<boolean>, signal: AbortSignal | undefined): Promise<boolean> {
     checkStuck("delete", maxStuckStoreCalls);
-    signal?.throwIfAborted();
+    if (signal?.aborted) throw signal.reason;
     const late = new AbortController();
     const timer = isTimeLimit(storeTimeoutMs) ? setTimeout(() => late.abort(), storeTimeoutMs) : undefined;
     let release: () => void;
@@ -923,8 +923,10 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       throw new TypeError(rules.requireOwner ? OWNER_REQUIRED : SCOPE_REQUIRED);
     }
     // The tool set's signal ends its waits for the store too, unless `access` has a signal of its own.
+    // It is taken as it is, as before 0.10.0 (an object made like an AbortSignal too): only
+    // `access.signal`, new in 0.10.0, must be an AbortSignal (`callerOf`).
     const signal = access?.signal ?? toolOptions.signal;
-    const asker = access !== undefined ? callerOf({ ...access, signal }, rules) : undefined;
+    const asker = access !== undefined ? withSignal(callerOf(access, rules), signal) : undefined;
     const budget = budgetFor(overrides);
     // Which PDFs can be looked at, by the metadata handed in: each look reads the metadata the
     // store holds, and the file it names, not the one handed in.
@@ -1033,7 +1035,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       const access: unknown = toolOptions?.access;
       if (typeof access !== "object" || access === null) throw new TypeError("toolsFor needs options.access: the owner and scope of the caller, such as { owner: userId }.");
       if (!Array.isArray(ids)) throw new TypeError("toolsFor needs an array of document IDs.");
-      const caller = callerOf({ ...toolOptions.access, signal: toolOptions.access.signal ?? toolOptions.signal }, rules);
+      const caller = withSignal(callerOf(toolOptions.access, rules), toolOptions.access.signal ?? toolOptions.signal);
       const found: DocumentMeta[] = [];
       const missing: string[] = [];
       // One look-up at a time: a store that does not answer holds one thread of the pool, not one for each ID.
@@ -1048,13 +1050,20 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
 
   /**
    * The caller a document was handed to `tools` for (without `access`): its owner and scope, and the
-   * tool set's signal. Undefined for a scope that is not valid.
+   * tool set's signal. Undefined for a scope that is not valid: only that reads as missing.
    */
   function handedCaller(meta: DocumentMeta, signal: AbortSignal | undefined): Caller | undefined {
+    let caller: Caller;
     try {
-      return callerOf({ owner: meta.owner, scope: meta.scope, signal }, rules);
+      caller = callerOf({ owner: meta.owner, scope: meta.scope }, rules);
     } catch {
       return undefined;
     }
+    return withSignal(caller, signal);
   }
+}
+
+/** `caller`, whose waits for the store end when `signal` aborts. */
+function withSignal(caller: Caller, signal: AbortSignal | undefined): Caller {
+  return signal === undefined ? caller : { ...caller, signal };
 }

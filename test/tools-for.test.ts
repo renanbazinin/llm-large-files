@@ -39,6 +39,32 @@ describe("files.toolsFor", () => {
     expect(tools.declarations.length).toBeGreaterThan(0);
   });
 
+  it("takes the tool set's signal as it is, as before 0.10.0: one made like an AbortSignal reads, with access or without", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "a.txt", bytes: utf8("one\ntwo\nthree\n") });
+    // A polyfill, or a signal of another realm: not an instance of this realm's AbortSignal.
+    const real = new AbortController().signal;
+    const signal = {
+      get aborted() {
+        return real.aborted;
+      },
+      get reason() {
+        return real.reason;
+      },
+      throwIfAborted: () => real.throwIfAborted(),
+      addEventListener: real.addEventListener.bind(real),
+      removeEventListener: real.removeEventListener.bind(real),
+    } as unknown as AbortSignal;
+    // Before, without access, every document read as gone; with access, tools() threw.
+    const sets = [files.tools([meta], { signal }), files.tools([meta], { signal, access: {} }), (await files.toolsFor([meta.id], { signal, access: {} })).tools];
+    for (const tools of sets) {
+      expect(await tools.execute("read_document", { document_id: meta.id, start_line: 1, end_line: 2 })).toMatchObject({ lines: "1-2", text: "1| one\n2| two" });
+    }
+    // `access.signal`, new in 0.10.0, must be an AbortSignal.
+    expect(() => files.tools([meta], { access: { signal } })).toThrow("signal must be an AbortSignal.");
+    await expect(files.toolsFor([meta.id], { access: { signal } })).rejects.toThrow("signal must be an AbortSignal.");
+  });
+
   it("stops waiting for the store when the caller's signal aborts", async () => {
     const store = new MemoryDocumentStore();
     const files = createLargeFiles({ store, storeTimeoutMs: 0 });

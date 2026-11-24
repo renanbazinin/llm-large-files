@@ -222,8 +222,9 @@ export const storeTimeout = (operation: DocumentStoreOperation, ms: number) => n
 export async function storeCall<T>(operation: DocumentStoreOperation, call: () => Promise<T>, options: StoreCallOptions = {}): Promise<T> {
   const { timeoutMs = 0, maxStuck = Number.POSITIVE_INFINITY, counts = true, signal } = options;
   checkStuck(operation, maxStuck);
-  // A caller that has left starts no call.
-  signal?.throwIfAborted();
+  // A caller that has left starts no call. (Its signal may be an object made like an AbortSignal,
+  // which `ToolOptions.signal` takes as before 0.10.0.)
+  if (signal?.aborted) throw signal.reason;
   let running: Promise<T>;
   try {
     running = Promise.resolve(call());
