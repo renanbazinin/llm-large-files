@@ -632,15 +632,19 @@ upgrade, from that round on.
 
 A turn is kept as it is, part by part, when anything in it is not of that form: a function of
 your own, a call next to one of yours, a thought signature, a response with a file in it, or
-responses that do not match the calls. With `model` (new in 0.10.0), a round whose `model` turn
-also has thought signatures, or text parts next to its calls, as `geminiToolTurns()` writes a round
-that kept its own turn, becomes a stored round too, with that turn as `native` for the adapter
-`model` names. `askGemini` gives `model` (the id of the model that makes the tool calls) when the
-rounds of earlier questions go back in Gemini's own form ([`AskOptions.nativeRounds`](./ask.md#askoptions),
-by default the model's `capabilities.nativeRounds`). So is a round that ends `contents`, with no turn after it:
+responses that do not match the calls. So is a round that ends `contents`, with no turn after it:
 its responses are the turn the model answers (an application that ran the tools in a loop of its
 own hands the conversation over). `askWithFiles` throws "The last message must be the user's." for
 a conversation that ends with a stored round.
+
+With `model` (new in 0.10.0), a round whose `model` turn also has thought signatures, or text
+parts next to its calls, as `geminiToolTurns()` writes a round that kept its own turn, becomes a
+stored round too, with that turn as `native` for the adapter `model` names. `askGemini` gives
+`model` (the id of the model that makes the tool calls) only once the loop sends `native` back,
+and then when the rounds of earlier questions go back in Gemini's own form
+([`AskOptions.nativeRounds`](./ask.md#askoptions), by default the model's `capabilities.nativeRounds`).
+Until then a loop would send such a round as its calls alone, so `askGemini` leaves it as it is,
+and its thought signatures go out as they came, as in 0.9.
 
 Guide: [conversations](../guides/conversations.md#gemini-contents).
 

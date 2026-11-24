@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore, type AskOptions, type PlacementState } from "llm-large-files";
 import { askGemini, geminiApi, geminiToolTurns, vertexAi, type GeminiContent } from "llm-large-files/gemini";
+import { LOOP_SENDS_NATIVE } from "../src/gemini/chat.js";
 import { fakeFetch, utf8 } from "llm-large-files/testing";
 
 /** What askGemini gave askWithFiles: askWithFiles itself still runs. */
@@ -58,7 +59,7 @@ describe("askGemini's options since 0.10.0", () => {
     for (const own of ["endpoint", "fetch", "contents", "generationConfig", "body", "maxToolCallsPerTurn"]) expect(given[0]).not.toHaveProperty(own);
   });
 
-  it("gives the stored rounds of contents to the loop with their signed turns when the tool model takes them back", async () => {
+  it("gives the stored rounds of contents to the loop with their signed turns when the tool model takes them back, once the loop sends them", async () => {
     const { files, meta } = await notes();
     const signed: GeminiContent = { role: "model", parts: [{ functionCall: { name: "search_document", args: { document_id: meta.id, query: "heron" } }, thoughtSignature: "sig" }] };
     const contents: GeminiContent[] = [
@@ -71,7 +72,10 @@ describe("askGemini's options since 0.10.0", () => {
 
     given.length = 0;
     await askGemini({ files, endpoint: geminiApi({ apiKey: "k", model: "gemini-test" }), fetch: fakeFetch([say("Yes.")]).fetch, documentIds: [meta.id], contents });
-    expect(roundOf()).toMatchObject({ native: { model: "gemini-test", turn: signed } });
+    // Until the loop sends ToolTurn.native back, the round stays as it is, and its signature goes
+    // out with it (test/gemini-signed-contents.test.ts).
+    if (LOOP_SENDS_NATIVE) expect(roundOf()).toMatchObject({ native: { model: "gemini-test", turn: signed } });
+    else expect(roundOf()).toBeUndefined();
 
     // Not on Vertex AI yet, nor when the question says no: the turn stays as it is, as in 0.9.
     await askGemini({ files, endpoint: vertexAi({ project: "p", model: "gemini-test", accessToken: "t" }), fetch: fakeFetch([say("Yes.")]).fetch, documentIds: [meta.id], contents });
