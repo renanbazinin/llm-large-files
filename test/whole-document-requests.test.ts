@@ -5,7 +5,7 @@
 // answer), and a question with `limits.requests: 32` made 42.
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore, type GenerateText, type ToolRequestStart } from "../src/index.js";
-import { PART_OUTPUT_TOKENS } from "../src/map-reduce.js";
+import { PART_OUTPUT_TOKENS, TooManyPartsError } from "../src/map-reduce.js";
 import { estimateMerges } from "../src/whole-cost.js";
 import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
 
@@ -99,6 +99,18 @@ describe("a whole-file read with maxRequests", () => {
       expect(result.parts_read).toBe(27);
       expect(requests).toBe(27);
     }
+  });
+
+  it("says one request, for one part, in the singular", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const meta = await files.ingest({ name: "all.txt", bytes: utf8("One line.\nTwo lines.") });
+    const generate: GenerateText = async () => "NOTHING RELEVANT";
+    const { result } = await files.tools([meta], { generate }).executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "anything" }, { maxRequests: 0 });
+    // 0.10.0 before this fix: "takes 1 model requests, one for each part".
+    expect(result).toEqual({ error: "Reading all of all.txt takes 1 model request, for its one part, and 0 are left for it in this question. Use search_document and read_document." });
+    expect(new TooManyPartsError("all.txt", 2, 1, "requests").message).toBe("Reading all of all.txt takes 2 model requests, one for each part, and 1 is left for it in this question. Use search_document and read_document.");
+    expect(new TooManyPartsError("all.txt", 1, 0).message).toBe("Reading all of all.txt needs 1 model call, over the limit of 0. Use search_document to narrow the question first.");
+    expect(new TooManyPartsError("all.txt", 31, 30).message).toBe("Reading all of all.txt needs 31 model calls, over the limit of 30. Use search_document to narrow the question first.");
   });
 
   it("prices its merges before it halves a part the model finds too large", async () => {

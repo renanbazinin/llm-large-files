@@ -3,7 +3,7 @@ import { until } from "./http.js";
 import { classifyModelError, errorKindOf, isModelStatus, modelErrorOf, type ModelErrorKind } from "./model.js";
 import { noTextReason } from "./output-limit.js";
 import { statusOf, withRetry, type RetryOptions } from "./retry.js";
-import { composed, estimateTokens, foldCase, jsonBytes, MAX_LINE_CHARACTERS, sliceWhole } from "./text.js";
+import { composed, estimateTokens, foldCase, jsonBytes, MAX_LINE_CHARACTERS, plural, sliceWhole } from "./text.js";
 import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
 import type { Budget, GenerateText, GenerateUsage, ProgressListener, ToolCallHooks, ToolRequestStart } from "./types.js";
 
@@ -346,8 +346,8 @@ function readSignal(signal: AbortSignal | undefined): { stop: AbortController; s
 export class TooManyPartsError extends Error {
   constructor(name: string, readonly parts: number, readonly limit: number, of: "parts" | "requests" = "parts") {
     super(of === "requests"
-      ? `Reading all of ${name} takes ${parts} model requests, one for each part, and ${limit} ${limit === 1 ? "is" : "are"} left for it in this question. Use search_document and read_document.`
-      : `Reading all of ${name} needs ${parts} model calls, over the limit of ${limit}. Use search_document to narrow the question first.`);
+      ? `Reading all of ${name} takes ${parts === 1 ? "1 model request, for its one part" : `${parts} model requests, one for each part`}, and ${limit} ${limit === 1 ? "is" : "are"} left for it in this question. Use search_document and read_document.`
+      : `Reading all of ${name} needs ${parts} model ${plural(parts, "call")}, over the limit of ${limit}. Use search_document to narrow the question first.`);
     this.name = "TooManyPartsError";
   }
 }

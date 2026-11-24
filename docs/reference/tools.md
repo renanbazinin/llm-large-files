@@ -764,8 +764,8 @@ Errors:
 | `The whole-file read of NAME failed earlier in this question (REASON), and is not tried again. Use search_document and read_document.` | An earlier read of it could read no part. | no |
 | `NAME is shown in full above: answer from it, and use search_document or aggregate_table for exact counts.` | The document is one of `ToolOptions.inline`: its text is in the prompt. Nothing is sent. New in 0.10.0. | no |
 | `labels takes up to 12 labels, each up to 40 characters.` | `output: "items"` with more labels, or a longer one. New in 0.10.0. | no |
-| `Reading all of NAME needs N model calls, over the limit of M. Use search_document to narrow the question first.` | The read counted more parts than `maxMapChunks`. Nothing was sent. | no |
-| `Reading all of NAME takes N model requests, one for each part, and M are left for it in this question. Use search_document and read_document.` | The read counted more parts than [`ToolCallLimits.maxRequests`](#toolcalllimits) ("1 is left" for one). Nothing was sent. New in 0.10.0: before, the read sent every part whatever its limit. | no |
+| `Reading all of NAME needs N model calls, over the limit of M. Use search_document to narrow the question first.` | The read counted more parts than `maxMapChunks` ("1 model call" for one). Nothing was sent. | no |
+| `Reading all of NAME takes N model requests, one for each part, and M are left for it in this question. Use search_document and read_document.` | The read counted more parts than [`ToolCallLimits.maxRequests`](#toolcalllimits) ("1 is left" for one; "takes 1 model request, for its one part" for a file of one part). Nothing was sent. New in 0.10.0: before, the read sent every part whatever its limit. | no |
 | `Could not read any part of NAME: REASON` | Every part failed at the model. | yes |
 | The store's error | No part could be read from the store. Nothing was sent. A store timeout is thrown instead ([Store timeouts](#rules-for-every-tool)). | no |
 
