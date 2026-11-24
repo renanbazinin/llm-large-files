@@ -344,7 +344,8 @@ describe("createLargeFiles", () => {
     };
     const result = await files.tools([meta], { generate: verbose }).execute("analyze_whole_document", { document_id: meta.id, task: "summarize" });
     expect(result.answer).toBe("merged");
-    expect(reducePrompts.filter((prompt) => prompt.startsWith("Task: summarize\n\nMerge")).length).toBeGreaterThan(1);
+    // Since 0.10.0 a merge has its notes first and its task last (M8).
+    expect(reducePrompts.filter((prompt) => prompt.startsWith("<notes>\n") && prompt.includes("\nTask: summarize\nMerge these notes")).length).toBeGreaterThan(1);
   });
 
   it("splits parts on line boundaries that cover the document exactly once", () => {
