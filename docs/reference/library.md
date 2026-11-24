@@ -144,7 +144,7 @@ type LargeFilesOptions = {
 | `keepOriginals` | `DocumentFormat[]` | `[]` | Formats whose uploaded file is kept, for example `["pdf"]`, which `view_pages` needs: as a copy in the store, next to its text, when the store has `putOriginal`; or, for an ingest with `IngestInput.original` (new in 0.9.0), where your application keeps it, read back through `originals`. A copy takes as much space as the upload until its document expires or is deleted. |
 | `originals` | [`OriginalsReader`](#originalsreader) | none | Reads the uploaded files your application keeps itself, by the ref given at ingest (`IngestInput.original`), in place of a copy in the store: `fileOriginals(root)` of [`llm-large-files/node`](./node.md#fileoriginalsroot), or your own. Each read is checked against the size and SHA-256 the file had at ingest. Without it, an ingest with `original` throws a `TypeError`. Not an object with a `read` method: a `TypeError` when the library is made. New in 0.9.0. |
 | `scannedPdfPages` | `number` | 30 | The most pages a PDF without any text (a scan) may have and still be accepted, so that its pages can be shown to the model. It applies only when `"pdf"` is in `keepOriginals` and the file is kept: the store has `putOriginal`, or (0.9.0) the ingest gives `original` and the library has `originals`. Otherwise, and with 0, such a PDF is refused. Your own PDF extractor receives it as `ExtractInput.scannedPages`. |
-| `cacheBytes` | `number` | [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), 256 MB | The most memory that documents kept ready between tool calls may take, together with the decoded pieces of documents read by range. The least recently used go first. A document that would take more than this is not kept and is read again for each call. A document whose decoded text would take more than a quarter of it keeps no pieces. 0 keeps nothing. Each use of a kept document asks the store first, so a document deleted or expired on another server is never served from memory. |
+| `cacheBytes` | `number` | [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), 256 MB | The most memory that documents kept ready between tool calls may take, together with the decoded pieces of documents read by range. The least recently used go first. A document that would take more than this is not kept with the others: since 0.10.2 the last one is kept apart, one at most, for a minute after its last use (P4), so the tool calls of a question do not each load and index it again (before, it was read again for each call; that matters over a store without `readTextRange`). A document whose decoded text would take more than a quarter of it keeps no pieces. 0 keeps nothing. Each use of a kept document asks the store first, so a document deleted or expired on another server is never served from memory. |
 | `cacheSize` | `number` | no limit | Also caps the number of documents kept. The pieces of a document read by range are not counted, and leave with their document. 0 keeps nothing. |
 | `wholeDocumentBytes` | `number` | [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes), 2 MB | Documents whose text (`textBytes`) is at most this size are loaded whole into memory. Larger ones are read by range when the store has `readTextRange`, as `FileDocumentStore` does: a tool call reads only the lines it needs, and a search reads the text a piece at a time. `Infinity` loads every document whole; 0 reads every one by range. |
 | `scanChunkBytes` | `number` | 1 MB (1,048,576) | Reading by range: about how many bytes of text are read and searched at a time. At least 1. |
@@ -194,6 +194,9 @@ interface LargeFiles {
   tools(documents: DocumentMeta[], options?: ToolOptions): ToolSet;
   stats?(): LargeFilesStats; // new in 0.10.0
   toolsFor?(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>; // new in 0.10.0
+  list?(access?: AccessOptions): Promise<DocumentMeta[]>; // new in 0.10.2
+  touch?(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>; // new in 0.10.2
+  update?(id: string, changes: { appData?: AppData | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>; // new in 0.10.2
 }
 ```
 
@@ -220,6 +223,14 @@ The members new in 0.10.0:
 |---|---|---|
 | `stats` | `() => LargeFilesStats`, optional | Counters for metrics and alerts ([`files.stats()`](#filesstats)), read without a store call. Optional, so that a `LargeFiles` of your own still compiles; the one `createLargeFiles` makes has it. New in 0.10.0. |
 | `toolsFor` | `(ids: string[], options: ToolOptions & { access: AccessOptions }) => Promise<{ tools: ToolSet; missing: string[] }>`, optional | Looks each ID up for `options.access`, then makes the tools for the documents found; `missing` lists the others ([`files.toolsFor()`](#filestoolsforids-options)). Optional, as `stats` is. New in 0.10.0. |
+
+The members new in 0.10.2, optional for the same reason; the one `createLargeFiles` makes has them:
+
+| Member | Type | What it is |
+|---|---|---|
+| `list` | `(access?: AccessOptions) => Promise<DocumentMeta[]>` | The documents of a scope the caller may use ([`files.list()`](#fileslistaccess)). |
+| `touch` | `(id: string, access?: AccessOptions) => Promise<DocumentMeta \| undefined>` | Counts a document's expiry again from now ([`files.touch()`](#filestouchid-access)). |
+| `update` | `(id: string, changes: { appData?: AppData \| null }, access?: AccessOptions) => Promise<DocumentMeta \| undefined>` | Changes the application's own data about a document ([`files.update()`](#filesupdateid-changes-access)). |
 
 #### `files.access`
 
@@ -577,6 +588,51 @@ async function chatTools(files: LargeFiles & { toolsFor: NonNullable<LargeFiles[
 }
 ```
 
+#### `files.list(access?)`
+
+`list(access?: AccessOptions): Promise<DocumentMeta[]>`
+
+New in 0.10.2. The documents of `access.scope` that the caller may use, as
+[`files.getMeta`](#filesgetmetaid-access) would give each: those of no scope without one. For a
+chat's file panel, with no second list of its files in your database. The oldest first, then by
+ID. Left out: expired documents, those of another owner (or with an owner, for a caller without
+one), metadata that is damaged or names another ID, and metadata of a newer version of the package,
+where `getMeta` would throw `"NEWER_VERSION"`. It reads the store once, through
+[`DocumentStore.list`](#documentstore): a store without it is a `TypeError`. Under `requireOwner`
+and `requireScope` it needs the owner and the scope, as every call does. A store that fails is a
+`DocumentStoreError` of operation `"read"`, within `storeTimeoutMs`; `access.signal` ends the wait.
+
+```ts
+// The files of one chat, for its panel.
+const shown = (await files.list!({ owner: userId, scope: [userId, chatId] })).map(toDocumentSummary);
+```
+
+#### `files.touch(id, access?)`
+
+`touch(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>`
+
+New in 0.10.2. Marks a document used: its `expiresAt` is counted again from now (`ttlMs`), so a
+file that a chat still reads stays while one nobody reads goes at its time (H5). An expiry that is
+already later stays as it is, and nothing is written. Returns the metadata as it now is, or
+undefined when the document is missing for this caller (never there, deleted, expired, of another
+owner or scope). Only the metadata is written, through
+[`DocumentStore.putMeta`](#documentstore): a store without it is a `TypeError`. The text, its
+index and its original are not touched, and a copy kept in memory stays valid. A store that fails
+is a `DocumentStoreError`. Call it when a question uses a document, for example after
+`askWithFiles`, for each of its `documentIds`.
+
+#### `files.update(id, changes, access?)`
+
+`update(id: string, changes: { appData?: AppData | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>`
+
+New in 0.10.2. Changes the application's own data about a document,
+[`DocumentMeta.appData`](#documentmeta), and nothing else: `appData` replaces it whole, `null`
+removes it, and leaving it out changes nothing. The same checks as at ingest
+([`IngestInput.appData`](#ingestinput)): a JSON object of at most `MAX_APP_DATA_BYTES` (16 KB) as
+JSON; another field in `changes` is a `TypeError`. Returns the metadata as it now is, or undefined
+when the document is missing for this caller. It needs [`DocumentStore.putMeta`](#documentstore),
+as `touch` does.
+
 #### `files.budget`
 
 `readonly budget: Budget`
@@ -651,6 +707,8 @@ type IngestInput = {
   ifExists?: "fail" | "replace"; // new in 0.9.0
   scope?: DocumentScope; // new in 0.9.0
   original?: { ref: string }; // new in 0.9.0
+  appData?: AppData; // new in 0.10.2
+  dedupe?: boolean; // new in 0.10.2
 };
 ```
 
@@ -669,6 +727,8 @@ The argument of [`files.ingest`](#filesingestinput).
 | `ifExists` | `"fail" \| "replace"` | `"fail"` | What to do when a document of `id` is already there, as the store sees it for this scope. `"fail"`: an `IngestError` `"exists"` (status 409). `"replace"`: the document is deleted, then the new one is stored; only one of the same owner and scope. One of another owner or scope is `"exists"` too, even when its text is gone. A document that has expired is written over in both cases. The store is asked before the file is read and again just before the writes. While one ingest of this library stores `id`, another ingest of `id` is `"exists"`, whatever its `ifExists`. Replacing is not atomic for readers on other servers: for a moment the document is missing. New in 0.9.0. |
 | `scope` | [`DocumentScope`](#documentscope) | none | Where the document belongs, such as `[userId, chatId]`. Every store call of the ingest carries it, and it is kept in `meta.scope`, a copy: only a caller of the same scope may use the document, segment by segment. Never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error` ([events](./events.md#documents-eventresults-and-eventresult)). Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
 | `original` | `{ ref: string }` | none | Where your application keeps the uploaded file: `ref`, 1 to 1,024 characters, which your [`OriginalsReader`](#originalsreader) understands, such as a path under the folder of `fileOriginals`. When `keepOriginals` lists the format, the store keeps no copy (`putOriginal` is not called), and the metadata records `original: { ref, bytes, sha256 }`; `originalKept` is true. Without `originals` in the library: a `TypeError`. A format `keepOriginals` does not list records nothing. The ref is never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error` ([events](./events.md#documents-eventresults-and-eventresult)). The library never writes, moves or deletes that file: `delete` and `sweep` leave it. [Storage](../guides/storage.md#keeping-the-uploaded-files). New in 0.9.0. |
+| `appData` | [`AppData`](#documentmeta) | none | Your application's own data about the document, kept as `DocumentMeta.appData`: a JSON object, at most `MAX_APP_DATA_BYTES` (16,384) bytes as JSON in UTF-8, such as the ID of its row in your database or a label. It is copied through JSON, so what JSON leaves out (a function, `undefined`) is left out. Not an object (an array, a string), or something JSON cannot write (a `BigInt`, a loop): a `TypeError`; larger: a `RangeError`. `null` counts as none. Never sent to the model, nor in a summary; an event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error`. Change it later with [`files.update`](#filesupdateid-changes-access). New in 0.10.2. |
+| `dedupe` | `boolean` | `false` | When the store already has a document of the same owner and scope whose file has the same SHA-256, and its text is still there, `ingest` gives back that document instead of storing another (H6): its ID, name and `appData` stay its own, and its expiry is counted again from now when the store has `putMeta`. The file is hashed first and not extracted, and `ingest.finish` tells the document found. Never across owners or scopes. It reads the store's [`list`](#documentstore): a store without it is a `TypeError`; with `id` too, a `TypeError` (an application's ID names its own document). The document found is never removed for this ingest, even when its caller leaves or a listener throws. New in 0.10.2. |
 
 Guide: [web app](../guides/web-app.md).
 
@@ -1090,6 +1150,12 @@ declare const DEFAULT_INGEST_TIMEOUT_MS = 120000; // 2 minutes
 
 The default of `LargeFilesOptions.ingestTimeoutMs`. New in 0.6.0.
 
+### `MAX_APP_DATA_BYTES`
+
+`const MAX_APP_DATA_BYTES = 16384`
+
+New in 0.10.2. The most bytes [`DocumentMeta.appData`](#documentmeta) may take, as JSON in UTF-8.
+
 ### `NEVER_EXPIRES`
 
 ```ts
@@ -1231,6 +1297,8 @@ interface DocumentStore {
   readTextRange?(id: string, start: number, end: number, context?: DocumentContext): Promise<Uint8Array | undefined>;
   putIndex?(id: string, index: Uint8Array, context?: DocumentContext): Promise<void>;
   getIndex?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  list?(context?: DocumentContext): Promise<DocumentMeta[]>; // new in 0.10.2
+  putMeta?(meta: DocumentMeta, context?: DocumentContext): Promise<boolean>; // new in 0.10.2
 }
 ```
 
@@ -1257,6 +1325,8 @@ A store that wraps another one, or a subclass that overrides a method, passes th
 | `readTextRange(id, start, end)` | no | Bytes `start` (inclusive) to `end` (exclusive) of the text exactly as given to `put`, as UTF-8: the line index is built from those bytes. Return fewer bytes at the end of the text, and `undefined` when the document is gone. Called only after `getMeta` found the document. Without it, every document is loaded whole. |
 | `putIndex(id, index)` | no | Keep the line index of a document (a few bytes a line). Called at ingest before `put`, and when a document ingested without an index is first read by range (an error then is ignored). Without it, the index is built from the text each time a large document is opened. |
 | `getIndex(id)` | no | The index kept by `putIndex`, or `undefined`. A damaged one is noticed and built again. An error is taken as no index. |
+| `list()` | no | The metadata of the documents of `context.scope` (of no scope when it has none), in any order, without the expired ones; a store that keeps no scopes apart may give every document, and the library keeps to the caller's. Called by [`files.list`](#fileslistaccess) and by `ingest({ dedupe: true })`. Without it, both are a `TypeError`. A store of many documents should answer from an index (a query on the scope), not by reading each one. New in 0.10.2. |
+| `putMeta(meta)` | no | Replace the metadata of the document `meta.id`, and keep its text, index and original as they are: `true`, or `false` when the document is not there (unknown, deleted, expired), and nothing written. Called by [`files.touch`](#filestouchid-access), [`files.update`](#filesupdateid-changes-access) and `ingest({ dedupe: true })`. Without it, `touch` and `update` are a `TypeError`. New in 0.10.2. |
 
 Errors:
 
@@ -2062,7 +2132,7 @@ browser instead.
 | `metaVersion` | `number \| undefined` | The version of this shape: [`DOCUMENT_META_VERSION`](#document_meta_version) (1) on documents ingested by 0.9.0 and later, absent on older ones. A higher one is refused. Never sent to the model. New in 0.9.0. |
 | `owner` | `string \| undefined` | The owner given at ingest. Absent when none was given. |
 | `scope` | `string[] \| undefined` | The scope given at ingest (`IngestInput.scope`), as a copy. Absent when none was given. Only a caller of the same scope may use the document. Never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error` ([events](./events.md#documents-eventresults-and-eventresult)). New in 0.9.0. |
-| `sha256` | `string \| undefined` | The SHA-256 of the uploaded file, as 64 lowercase hex digits. Always set by 0.9.0 and later, for bytes and for a path; absent on older documents. A kept copy in the store is checked against it when it is read back. The library does not look for documents of the same file: to give the user the document of a file already in a chat, compare it with those of the chat's documents in your records. Never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error` ([events](./events.md#documents-eventresults-and-eventresult)). New in 0.9.0. |
+| `sha256` | `string \| undefined` | The SHA-256 of the uploaded file, as 64 lowercase hex digits. Always set by 0.9.0 and later, for bytes and for a path; absent on older documents. A kept copy in the store is checked against it when it is read back. Since 0.10.2, `ingest({ dedupe: true })` gives back the document of the same owner and scope with the same SHA-256 instead of storing another ([`IngestInput`](#ingestinput)). Never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error` ([events](./events.md#documents-eventresults-and-eventresult)). New in 0.9.0. |
 | `original` | `{ ref, bytes, sha256 } \| undefined` | Where your application keeps the uploaded file (`IngestInput.original.ref`), with its size and SHA-256 at ingest, which each read is checked against. Set when the file is kept by its ref; absent for a copy in the store. The ref is never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error` ([events](./events.md#documents-eventresults-and-eventresult)). New in 0.9.0. |
 | `name` | `string` | The cleaned file name (see [`IngestInput`](#ingestinput)). |
 | `mimeType` | `string` | The MIME type given, cleaned since 0.9.0 to a lowercased type/subtype without parameters (see [`IngestInput`](#ingestinput)), or `"application/octet-stream"`. |
@@ -2084,7 +2154,8 @@ browser instead.
 | `garbledPages` | `number[]` or `undefined` | The pages of a PDF whose text looks garbled: of at least 40 characters, fewer than 3 in 10 letters or digits, or more than max(6, 3%) replacement characters (a font without a Unicode map). Up to 200. The card says not to rely on them. New in 0.8.1. |
 | `scripts` | `{ script, percent }[]` or `undefined` | The scripts of the text by their share of its letters, from its first 2 MB, those of 5% or more: "Latin", "Hebrew", "Arabic", "Cyrillic", "Greek", "CJK", "Devanagari", "Thai". Absent for a text in Latin letters alone, one with fewer than 200 letters, and documents from before 0.8.1. The card says "Written in: Hebrew 81%, Latin 19%. Search in the language of the text." New in 0.8.1. |
 | `createdAt` | `string` | When it was ingested, as an ISO 8601 date. |
-| `expiresAt` | `string` | When it expires, as an ISO 8601 date: `createdAt` plus `ttlMs`, or [`NEVER_EXPIRES`](#never_expires). |
+| `expiresAt` | `string` | When it expires, as an ISO 8601 date: `createdAt` plus `ttlMs`, or [`NEVER_EXPIRES`](#never_expires). Since 0.10.2, [`files.touch`](#filestouchid-access) counts it again from the time of the call. |
+| `appData` | `AppData \| undefined` | Your application's own data about the document: a JSON object (`{ [key: string]: JsonValue }`) of at most `MAX_APP_DATA_BYTES` (16 KB) as JSON, set at ingest ([`IngestInput.appData`](#ingestinput)) or by [`files.update`](#filesupdateid-changes-access). The library keeps it with the metadata and does nothing else with it: never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error`. Absent when none was given. New in 0.10.2. |
 
 ### `DocumentSummary`
 

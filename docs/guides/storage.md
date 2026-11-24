@@ -565,8 +565,10 @@ setInterval(() => {
 }, 60 * 60 * 1000).unref();
 ```
 
-- At ingest, `expiresAt` is set to `createdAt` plus `ttlMs`. It never changes: the library has no
-  call to extend it.
+- At ingest, `expiresAt` is set to `createdAt` plus `ttlMs`. Since 0.10.2,
+  [`files.touch(id, access)`](../reference/library.md#filestouchid-access) counts it again from now,
+  so that a file a chat still uses stays (see [Expiry from the last use](#expiry-from-the-last-use)).
+  Nothing else changes it.
 - From that instant the document counts as missing everywhere: `getMeta` and `getOriginal` give
   undefined, `prepare` lists it in `missing`, and a question throws `DocumentsNotFoundError`. The
   library checks `expiresAt` with its own clock before every use, whether or not the store has
@@ -602,6 +604,41 @@ answers without them, and a function can ingest them again from the uploads you 
   is in use. The library reads the date from `getMeta` before every use. Keep the format of
   `toISOString()`. In the example store below, change `meta.expiresAt` and the record's own
   `expiresAt` together: `sweep` and a TTL index read the second.
+
+### Expiry from the last use
+
+New in 0.10.2. With a store that has `putMeta` (both built-in stores do), `files.touch` counts a
+document's expiry again from the time of the call, so `ttlMs` becomes the time a file is kept after
+its last use rather than after its upload. It writes the metadata alone, never the text, and an
+expiry already later stays. Call it for the documents of each question:
+
+```ts
+const result = await askGemini({ files, endpoint, documentIds, owner: userId, scope: [userId, chatId], messages });
+// The chat used these files: they stay ttlMs from now.
+await Promise.all(documentIds.map((id) => files.touch!(id, { owner: userId, scope: [userId, chatId] })));
+```
+
+### A chat's files, its own data and the same file twice
+
+New in 0.10.2. Three calls for a chat that keeps its files in the library, with no second list of
+them in your database:
+
+- **`files.list({ owner, scope })`** gives the documents of the chat that the caller may use, the
+  oldest first, for its file panel. It needs a store with `list`; the built-in stores read the
+  chat's folder (a `FileDocumentStore` without `scopes` reads its whole directory: give it `scopes`,
+  or keep your own list, when it holds many files).
+- **`appData`** is your own data about a document, kept with its metadata and never sent to the
+  model: the ID of its row in your database, who uploaded it, a label. Set it at ingest
+  (`ingest({ appData })`), change it with `files.update(id, { appData }, access)`, remove it with
+  `appData: null`. A JSON object of at most 16 KB.
+- **`ingest({ dedupe: true })`** gives back the chat's document of the same file (same owner, scope
+  and SHA-256) when a user uploads it again, instead of a second copy. The file is hashed, not
+  read; the document keeps its own name and `appData`, and its expiry is counted again.
+
+```ts
+const meta = await files.ingest({ name, bytes, owner: userId, scope: [userId, chatId], dedupe: true, appData: { uploadedBy: userId } });
+const panel = (await files.list!({ owner: userId, scope: [userId, chatId] })).map((doc) => ({ ...toDocumentSummary(doc), by: doc.appData?.uploadedBy }));
+```
 
 ## Keeping the uploaded files
 
@@ -800,6 +837,8 @@ Which context a call carries:
 | `readTextRange(id, start, end)` | No | To read a document larger than `wholeDocumentBytes`, and to build its index. Only after `getMeta` found the document. | Return the bytes of the text from `start` (inclusive) to `end` (exclusive). See [Reading by range](#reading-by-range). |
 | `putIndex(id, index)` | No | `ingest`, after `putOriginal` and before `put`, for every document. Again when a document read by range has no index, or one that does not match its text. | Keep the bytes. |
 | `getIndex(id)` | No | When a document read by range is opened. | Return the bytes `putIndex` kept, or undefined. A damaged index is noticed and built again. |
+| `list()` | No | `files.list`, and `ingest({ dedupe: true })`. New in 0.10.2. | Return the metadata of the documents of `context.scope` (of no scope without one), without the expired ones. A query on the scope, not a read of each document: index the field you keep the scope in. |
+| `putMeta(meta)` | No | `files.touch`, `files.update`, and `ingest({ dedupe: true })` for the document it gives back. New in 0.10.2. | Replace the metadata of `meta.id` and nothing else; return false, writing nothing, when the document is not there. In a store that keeps `expiresAt` in a field of its own for a TTL index, change that field too. |
 
 The library checks `expiresAt` itself, with its own clock, before every use. Your `getMeta` and
 `get` may return a document that has expired; your `sweep` must remove it. If they remove an expired
@@ -828,6 +867,8 @@ What a missing optional method changes:
 | `getOriginal` | `files.getOriginal` returns undefined, and `view_pages` is never offered. |
 | `readTextRange` | Every document is loaded whole with `get`, whatever its size, so memory grows with the size of the files in use and the number of users. `wholeDocumentBytes`, `scanChunkBytes` and `maxConcurrentScans` change nothing. |
 | `putIndex` and `getIndex` | With `readTextRange` only: the index of a large document is built by reading its whole text once, 4 MB at a time, each time the document is opened, that is, each time it is not in the cache. |
+| `list` | `files.list` and `ingest({ dedupe: true })` are a `TypeError` (0.10.2). |
+| `putMeta` | `files.touch` and `files.update` are a `TypeError` (0.10.2). |
 
 ### Reading by range
 
