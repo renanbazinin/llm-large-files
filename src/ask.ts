@@ -1,7 +1,7 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
 import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type DocumentRef, type EventResult, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
-import type { CitationCheck } from "./citations.js";
+import { checkCitations, type CitationCheck } from "./citations.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
@@ -44,7 +44,7 @@ import {
   toolResultSummary,
   unknownToolName,
 } from "./tools.js";
-import type { Budget, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PlacementState, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PlacementState, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
@@ -152,8 +152,10 @@ export type AskOptions = {
    */
   numberInline?: boolean;
   /**
-   * What to do with an answer that a filter of the provider stopped: "keep" (the default) keeps
-   * its text, as in 0.9; "drop" gives `answered: false` and no text. New in 0.10.0. Not read yet.
+   * What to do with an answer that a filter of the provider stopped (`AskResult.finish`
+   * "filtered"): "keep" (the default) keeps its text, as in 0.9; "drop" gives `answered: false` and
+   * `text: ""`. Text already sent through `onText` and `text` events cannot be taken back: the
+   * "answer_filtered" notice then says `discardText`, before `run.finish`. New in 0.10.0.
    */
   filteredAnswer?: "keep" | "drop";
   /**
@@ -251,9 +253,12 @@ export type AskResult = {
    */
   text: string;
   /**
-   * False when the model's last turn had no text: the prompt was blocked, the reply was cut off
-   * before any text, or the model produced a malformed tool call. `text` may then be empty or
-   * hold only an earlier remark, so show your own message instead of treating it as the answer.
+   * False when the reply that should be the answer had no text: the prompt was blocked, or the
+   * reply was cut off or filtered before any text. A turn whose tool call could not be read is
+   * not an answer either, even with text: the answer is asked for once more. With
+   * `filteredAnswer: "drop"`, false for a filtered answer too. `text` may then be empty or hold
+   * only an earlier remark, so show your own message instead of treating it as the answer
+   * (`answerInfoOf` says which).
    */
   answered: boolean;
   /** Why the provider refused the prompt, when it did. */
@@ -286,10 +291,14 @@ export type AskResult = {
   lastUsage?: Record<string, unknown>;
   /**
    * How the reply whose text is the answer ended (`ModelReply.finish`), or the last reply of the
-   * chat when none answered. New in 0.10.0. Not set yet.
+   * chat when none answered. Absent when the adapter does not say. A "filtered" or "cut" answer
+   * also has an "answer_filtered" or "answer_cut" notice. New in 0.10.0.
    */
   finish?: ModelReply["finish"];
-  /** The answer's line citations, checked against what the tools showed (`checkCitations`). New in 0.10.0. Not set yet. */
+  /**
+   * The line citations of `text`, checked against what the tools showed (`checkCitations`): a
+   * document sent whole counts as shown. Set when the question had documents. New in 0.10.0.
+   */
   citations?: CitationCheck;
   /**
    * Where the documents of this chat were placed: keep it with the chat, and pass it as
@@ -783,11 +792,20 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
  * A result as `run.finish` and `run.error` carry it: a copy, so that a listener cannot change the
  * caller's, without the tool rounds and with the plan naming documents only (both hold text of
  * the documents: tool results, outline headings, the commonest lines of a log) unless `withTurns`.
+ * Its plan never holds the owner, scope, SHA-256 or original of a document.
  */
 function eventResultOf(result: AskResult, withTurns: boolean): EventResult {
-  if (withTurns) return { ...result };
-  const { toolTurns: _toolTurns, plan, ...rest } = result;
+  const { toolTurns, plan, ...rest } = result;
+  // The full metadata only with `withTurns`, and never what is to stay on the server: who owns a
+  // document, its scope, the SHA-256 and the ref of its original.
+  if (withTurns) return { ...rest, toolTurns, plan: { inline: plan.inline.map(withoutServerFields), searchable: plan.searchable.map(withoutServerFields) } };
   return { ...rest, plan: { inline: plan.inline.map(documentRef), searchable: plan.searchable.map(documentRef) } };
+}
+
+/** A document's metadata without what is to stay on the server, for an event (since 0.10.0). */
+function withoutServerFields(meta: DocumentMeta): Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion"> {
+  const { owner: _owner, scope: _scope, sha256: _sha256, original: _original, metaVersion: _metaVersion, ...rest } = meta;
+  return rest;
 }
 
 /**
@@ -921,6 +939,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
 
   let text = "";
   let turns = carried?.turns ?? 0;
+  /** The last reply of the chat: its `finish` is the answer's (`AskResult.finish`). */
+  let lastReply: ModelReply | undefined;
+  const dropFiltered = options.filteredAnswer === "drop";
   let finishReason: string | undefined;
   let blockReason: string | undefined;
   let lastUsage: Record<string, unknown> | undefined;
@@ -1047,9 +1068,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       if (events.active) events.emit({ type: "request.end", requestId, ms: Date.now() - began, outcome: "error", error: eventErrorOf(error) });
       throw error;
     }
-    // Text the adapter did not pass on as it came (no streaming was asked for, or it cannot).
-    if (shown && reply.text.length > got.length && reply.text.startsWith(got)) write(reply.text.slice(got.length));
+    // Text the adapter did not pass on as it came (no streaming was asked for, or it cannot). Not
+    // the text of a reply a filter stopped, when such an answer is dropped: it was not shown yet.
+    if (shown && reply.text.length > got.length && reply.text.startsWith(got) && !(dropFiltered && reply.finish === "filtered")) write(reply.text.slice(got.length));
     answeredRequests++;
+    lastReply = reply;
     usage.add(adapter.id, reply.usage);
     // The count of the model that answered, in the library's tokens by that model's own scale: how
     // much more than its scale says the text costs it, which the other model will see too. By the
@@ -1067,6 +1090,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       ...(reply.finish ? { finish: reply.finish } : {}),
       ...(reply.finishReason !== undefined ? { finishReason: reply.finishReason } : {}),
       toolCalls: reply.calls.length,
+      ...(typeof reply.responseId === "string" ? { responseId: reply.responseId } : {}),
+      ...(typeof reply.responseModel === "string" ? { responseModel: reply.responseModel } : {}),
     });
     if (reply.blockReason) notice("blocked", `The provider refused the prompt: ${reply.blockReason}.`);
     return reply;
@@ -1075,6 +1100,19 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const wrote = (reply: ModelReply) => reply.text.trim().length > 0 && !reply.blockReason;
 
   const asked = messages.length;
+  /** The documents of the question, by ID: their names and formats, for the citations of the answer. */
+  const documents = [...prepared.plan.inline, ...prepared.plan.searchable];
+  const citationsOf = (): CitationCheck => {
+    const names: Record<string, string> = {};
+    const formats: Record<string, DocumentFormat> = {};
+    for (const meta of documents) {
+      names[meta.id] = meta.name;
+      formats[meta.id] = meta.format;
+    }
+    // A document sent whole was shown, every line of it.
+    const sentWhole: Evidence[] = prepared.plan.inline.map((meta) => ({ tool: "inline", documentId: meta.id, document: meta.name, whole: true }));
+    return checkCitations(text, [...sentWhole, ...evidence], names, formats);
+  };
   const result = (answered: boolean): AskResult => ({
     text,
     answered,
@@ -1097,7 +1135,33 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(finishReason ? { finishReason } : {}),
     usage: usage.totals,
     ...(lastUsage ? { lastUsage } : {}),
+    ...(lastReply?.finish !== undefined ? { finish: lastReply.finish } : {}),
+    ...(documents.length > 0 ? { citations: citationsOf() } : {}),
   });
+  /**
+   * The result of a question that ends with an answer: one that a filter stopped, or that was cut
+   * at the output limit, says so in a notice, before `run.finish`. A filtered answer is dropped
+   * when `filteredAnswer` says so; text of it already sent is to be taken away (`discardText`).
+   */
+  const answer = (answered: boolean): AskResult => {
+    const finish = lastReply?.finish;
+    if (finish === "filtered") {
+      const sent = text.length > 0;
+      const message = !lastReply?.text.trim()
+        ? "A filter of the provider stopped the answer before any text came."
+        : dropFiltered
+          ? "A filter of the provider stopped the answer before it was finished: its text was dropped."
+          : "A filter of the provider stopped the answer before it was finished.";
+      events.emit({ type: "notice", code: "answer_filtered", message, display: "none", ...(dropFiltered && sent ? { discardText: true as const } : {}) });
+      if (dropFiltered) {
+        text = "";
+        return result(false);
+      }
+    } else if (finish === "cut") {
+      notice("answer_cut", lastReply?.text.trim() ? "The answer stopped at the model's output limit, so it is incomplete." : "The answer stopped at the model's output limit before any text came.");
+    }
+    return result(answered);
+  };
 
   // Pages the model looks at stay in the request until the question is answered, so they are
   // counted twice: as bytes against the request limit, and as tokens against half of what the
@@ -1352,7 +1416,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // looked at: that one may have its whole text in the prompt and still hide a chart from the model.
     const { searchable } = prepared.plan;
     const { viewable } = prepared;
-    if (searchable.length === 0 && viewable.length === 0) return result(wrote(await send(model, () => ({ system, messages }), true, { role: "answer", purpose: "direct" })));
+    if (searchable.length === 0 && viewable.length === 0) return answer(wrote(await send(model, () => ({ system, messages }), true, { role: "answer", purpose: "direct" })));
 
     // Reading a whole file in parts is exploring too: the explorer model's work, when there is one.
     // Bound to its adapter: a class with a `generateText` method that uses `this` keeps it.
@@ -1478,7 +1542,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // It is a request of the chat like any other: it takes a tool turn, and the last turn is still the answer's.
       if (reply.calls.length === 0 && nudges < MOST_NUDGES && round + 1 < maxTurns && !reply.blockReason && !spent()) {
         const malformed = reply.finish === "malformed_call";
-        const empty = !reply.text.trim() && callsAnswered === 0 && reply.finish !== "cut" && reply.finish !== "filtered";
+        // Not a reply that a filter, the output limit or another reason that asking again does not
+        // mend ended ("other": Gemini's OTHER, LANGUAGE): it would only end the same way.
+        const empty = !reply.text.trim() && callsAnswered === 0 && reply.finish !== "cut" && reply.finish !== "filtered" && reply.finish !== "other";
         if (malformed || empty) {
           nudges++;
           round++;
@@ -1490,8 +1556,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       }
       if (reply.calls.length === 0) {
         // Text from this turn is the answer. A remark made earlier, before a tool call, is not.
-        // Neither is anything an explorer model writes: the answer is asked for below.
-        answered = wrote(reply) && !explorer;
+        // Neither is anything an explorer model writes: the answer is asked for below. Nor the
+        // remark of a turn whose tool call could not be read ("Let me look at the errors."), on
+        // the last tool turn or after its nudge: the answer is asked for below.
+        answered = wrote(reply) && !explorer && reply.finish !== "malformed_call";
         break;
       }
       const pending: ModelToolRound = { role: "tools", calls: reply.calls, answers: [], ...(reply.raw !== undefined ? { raw: reply.raw } : {}) };
@@ -1876,14 +1944,15 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       let reply = await send(model, answerRequest(), true, { role: "answer", purpose: "closing" });
       // A reply with no text (empty, or a tool call the model was told not to make, or one that
       // could not be read) is asked for once more, with a note that is not kept: otherwise the
-      // question ends with nothing to show. Not after a refusal or a filter, which would come again,
-      // nor a reply cut off at the output limit with nothing in it, nor once a ceiling of `limits`
-      // is reached. It is one of the second tries of the question, and may be one request past
-      // `limits.toolTurns`, which counts the answer's first request.
+      // question ends with nothing to show. Not after a refusal, a filter or another reason that
+      // asking again does not mend ("other"), which would come again, nor a reply cut off at the
+      // output limit with nothing in it, nor once a ceiling of `limits` is reached. It is one of
+      // the second tries of the question, and may be one request past `limits.toolTurns`, which
+      // counts the answer's first request.
       const calledInstead = reply.calls.length > 0 || reply.finish === "malformed_call";
       const ceilingReached = (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
         || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
-      if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
+      if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && reply.finish !== "other" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
         if (ceilingReached) {
           budgetReached();
         } else {
@@ -1894,7 +1963,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       }
       answered = wrote(reply);
     }
-    return result(answered);
+    return answer(answered);
   } catch (error) {
     // What the question found and paid for until it failed, for the application to keep. The usage is
     // a copy: a part reader that went on after the question was stopped may still report its own.

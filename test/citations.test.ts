@@ -1,7 +1,8 @@
 // S3 (0.10.0): the line citations of an answer, checked against what the tools showed
 // (`checkCitations`, `AskResult.citations`), Hebrew forms included.
 import { describe, expect, it } from "vitest";
-import { checkCitations, type Evidence } from "llm-large-files";
+import { askWithFiles, checkCitations, createLargeFiles, MemoryDocumentStore, type Evidence } from "llm-large-files";
+import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
 
 const read = (documentId: string, document: string, lines: Array<[number, number]>): Evidence => ({ tool: "read_document", documentId, document, lines });
 
@@ -60,5 +61,29 @@ describe("checkCitations", () => {
     expect(checkCitations("(app.log L97) (db.log L3)", evidence, {})).toMatchObject({ checked: 2, supported: 2 });
     // A part of a file name is no citation.
     expect(checkCitations("(report-L3.docx L5)", [read("doc_r", "report-L3.docx", [[1, 9]])], { "doc_r": "report-L3.docx" })).toEqual({ checked: 1, supported: 1, unchecked: 0, unsupported: [] });
+  });
+});
+
+describe("AskResult.citations", () => {
+  it("checks the answer's citations against the evidence of the question, a file sent whole as shown", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
+    const note = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe nightly import runs at 02:00 UTC.\n") });
+    const model = fakeModel([
+      calls([{ id: "r", name: "read_document", args: { document_id: log.id, start_line: 90, end_line: 100 } }]),
+      says("The first error is at (app.log L97), the import at (notes.md L3), and another at (app.log L194)."),
+    ]);
+    const result = await askWithFiles({ files, model, documentIds: [log.id, note.id], messages: [{ role: "user", text: "When did it fail?" }] });
+    expect(result.citations).toEqual({ checked: 3, supported: 2, unchecked: 0, unsupported: [{ document: "app.log", line: 194 }] });
+    // The run's end carries it too.
+    const events: unknown[] = [];
+    await askWithFiles({ files, model: fakeModel([says("Nothing cited.")]), documentIds: [note.id], messages: [{ role: "user", text: "?" }], onEvent: (event) => events.push(event) });
+    expect(events.at(-1)).toMatchObject({ type: "run.finish", result: { citations: { checked: 0, supported: 0, unchecked: 0, unsupported: [] } } });
+  });
+
+  it("is absent for a question without documents", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const result = await askWithFiles({ files, model: fakeModel([says("Hello (L1).")]), documentIds: [], messages: [{ role: "user", text: "Hi" }] });
+    expect(result).not.toHaveProperty("citations");
   });
 });
