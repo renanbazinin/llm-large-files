@@ -175,8 +175,10 @@ export type AskOptions = {
    * and the events get it: return `{ result }` to send another result (it is sent with
    * `redacted: true`, and the call's outcome is "redacted"), `{ reject: "why" }` to send
    * `{ error: "why" }` in its place (outcome "refused"), or undefined to keep it. What it throws, or
-   * a value of another shape, ends the question. The parts of a whole-file read go to the model
-   * that reads them, not through this. New in 0.10.0.
+   * a value of another shape, ends the question. Each call's hook is called as soon as its result
+   * is in, so those of one turn may run at the same time; the verdicts are applied in call order,
+   * and what they let through is then fitted to the room in the request. The parts of a whole-file
+   * read go to the model that reads them, not through this. New in 0.10.0.
    */
   onToolResult?: (context: ToolResultContext) => ToolResultVerdict | undefined | Promise<ToolResultVerdict | undefined>;
   /**
@@ -328,8 +330,9 @@ export type AskResult = {
 };
 
 /**
- * What `AskOptions.onToolResult` is given: the call and its result, the document it names, who
- * asks, and a signal that aborts when the question is stopped or fails. New in 0.10.0.
+ * What `AskOptions.onToolResult` is given: the call and its result, as the tool returned it (before
+ * it is fitted to the room in the request), the document it names, who asks, and a signal that
+ * aborts when the question is stopped or fails. New in 0.10.0.
  */
 export type ToolResultContext = { call: ToolCall; result: ToolResult; documentId?: string; owner?: string; scope?: DocumentScope; signal: AbortSignal };
 
@@ -1610,17 +1613,21 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       const closing = meter.current(viewFor(model)).tokens * scaleOf(model);
       return spentTokens() + next + closing > ceiling;
     };
-    /** The whole-file reads of the question that sent requests: those that returned, and those that failed after they sent them. */
+    /**
+     * The whole-file reads of the question that sent requests, by document: those that returned, and
+     * those that failed after they sent them. Counted from what the tool returned, before
+     * `onToolResult`: a read whose answer the hook replaced or rejected still made its requests.
+     */
+    const readsSent = new Map<string, number>();
     const readsMade = (documentId?: string): number => {
-      let made = evidence.filter((shown) => shown.whole && shown.tool === TOOL_NAMES.analyze && (documentId === undefined || shown.documentId === documentId)).length;
-      for (const message of messages.slice(asked)) {
-        if (!isRound(message)) continue;
-        for (const { call, result: returned } of message.answers) {
-          if (call.name === TOOL_NAMES.analyze && (documentId === undefined || call.args.document_id === documentId) && typeof returned.error === "string" && returned.error.startsWith(NOTHING_READ)) made++;
-        }
-      }
+      if (documentId !== undefined) return readsSent.get(documentId) ?? 0;
+      let made = 0;
+      for (const reads of readsSent.values()) made += reads;
       return made;
     };
+    /** True for the output of a whole-file read that sent its parts: its answer, or the error of a read that could read none of them. */
+    const sentParts = (call: ToolCall, output: ToolResult): boolean => call.name === TOOL_NAMES.analyze
+      && (evidenceOf(call, output)?.whole === true || (typeof output.error === "string" && output.error.startsWith(NOTHING_READ)));
     /**
      * A whole-file read is many requests at once: one that would pass a ceiling of the question is
      * not started. `reserved` is what the reads already let through in this turn will take: they run
@@ -2021,13 +2028,61 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         }
 
         /**
+         * The application's say on what the model gets (`onToolResult`): each call's verdict, asked
+         * for as soon as its result is in, so that the hooks of a turn run at the same time. They are
+         * applied below, in call order, before the result is fitted to the room in the request, and
+         * before the evidence, the step and the events, which all tell what the model was sent.
+         * `raw` is what the tool returned; `output`, what the hook let through. A call made twice in
+         * the turn is given the verdict of its first (`copied`): no pointer to a result the hook
+         * replaced or rejected. A hook that fails ends the turn at once.
+         */
+        type Judged = { raw: ToolOutput; output: ToolOutput; judged?: ToolOutcome; copied?: boolean };
+        const hook = options.onToolResult;
+        const judgedOutputs: Array<Promise<Judged>> = [];
+        for (const [index, { call, refusal, pointer, twinOf }] of planned.entries()) {
+          const raw = outputs[index]!;
+          let judging: Promise<Judged>;
+          if (hook && pointer && twinOf !== undefined) {
+            judging = Promise.all([raw, judgedOutputs[twinOf]!]).then(([own, first]): Judged => (first.judged
+              ? { raw: own, output: { result: first.output.result, files: [] }, judged: first.judged, copied: true }
+              : { raw: own, output: own }));
+          } else if (hook && !refusal && !pointer) {
+            judging = raw.then(async (own): Promise<Judged> => {
+              const context: ToolResultContext = {
+                call,
+                result: own.result,
+                ...(typeof call.args.document_id === "string" ? { documentId: call.args.document_id } : {}),
+                ...(options.owner !== undefined ? { owner: options.owner } : {}),
+                ...(options.scope !== undefined ? { scope: options.scope } : {}),
+                signal: halt.signal,
+              };
+              let verdict: ToolResultVerdict | undefined;
+              try {
+                // A hook that does not look at the signal does not hold the question once it is stopped.
+                verdict = checkedVerdict(await until(Promise.resolve().then(() => hook(context)), halt.signal));
+              } catch (error) {
+                halt.abort(error);
+                throw error;
+              }
+              if (verdict && "result" in verdict) return { raw: own, output: { ...own, result: { ...verdict.result, redacted: true } }, judged: "redacted" };
+              if (verdict) return { raw: own, output: { result: { error: verdict.reject }, files: [] }, judged: "refused" };
+              return { raw: own, output: own };
+            });
+          } else {
+            judging = raw.then((own): Judged => ({ raw: own, output: own }));
+          }
+          judging.catch(() => undefined);
+          judgedOutputs.push(judging);
+        }
+
+        /**
          * The room of each whole-file read of the turn: what the other results left, shared among the
          * reads, the smaller answers first. Worked out when the first of them is reached, by which time
          * the other calls, which are quick, have most often returned.
          */
         let lateRoom: Map<number, number> | undefined;
         const roomOfReads = async (): Promise<Map<number, number>> => {
-          const sizes = await Promise.all(outputs.map(async (output) => resultTokens((await output).result)));
+          const sizes = await Promise.all(judgedOutputs.map(async (judging) => resultTokens((await judging).output.result)));
           const reads = planned.flatMap((plan, index) => (plan.late ? [index] : []));
           let free = left - sizes.reduce((sum, size, index) => sum + (planned[index]!.late ? 0 : size), 0);
           const shares = new Map<number, number>();
@@ -2041,10 +2096,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
 
         /**
          * The tokens the results of this turn took so far, of the calls that were given room and are
-         * not whole-file reads (those are fitted to what the others left, above). A result is cut
-         * when it would take more than the room leaves it once the calls after it, and the reads,
-         * have their shares: the room shared by characters is a guess, and a tool set of your own
-         * may not keep to `maxResultCharacters`.
+         * not whole-file reads (those are fitted to what the others left, above), and of those the
+         * hook replaced. A result is cut when it would take more than the room leaves it once the
+         * calls after it, and the reads, have their shares: the room shared by characters is a
+         * guess, a tool set of your own may not keep to `maxResultCharacters`, and a hook may return
+         * more than the tool did.
          */
         let took = 0;
         const roomFor = (index: number): number => {
@@ -2055,19 +2111,29 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
 
         // The answers in call order. Each call's `tool.end` goes out here, in the same order.
         for (const [index, { call, label, late, refusal, pointer }] of planned.entries()) {
-          let output = await outputs[index]!;
+          const { raw, output: judgedOutput, judged, copied } = await judgedOutputs[index]!;
           if (listenerError) throw listenerError.error;
+          // A hook of a later call failed: nothing more of the turn reaches the model.
+          if (halt.signal.aborted) throw halt.signal.reason;
           callsAnswered++;
+          // A whole-file read that sent its parts counts against `wholeReadsPerQuestion`, whatever the hook made of its answer.
+          if (!refusal && !pointer && sentParts(call, raw.result)) {
+            const id = String(call.args.document_id);
+            readsSent.set(id, (readsSent.get(id) ?? 0) + 1);
+          }
+          let output = judgedOutput;
           if (late) {
             lateRoom ??= await roomOfReads();
             const share = lateRoom.get(index)!;
             if (resultTokens(output.result) > share) output = { ...output, result: cutToTokens(output.result, share) };
-          } else if (given.has(index)) {
+          } else if (given.has(index) || judged) {
             const fits = roomFor(index);
             if (resultTokens(output.result) > fits) output = { ...output, result: cutToTokens(output.result, fits) };
             took += resultTokens(output.result);
           }
-          if (pointer) {
+          // A cut replacement is still a replacement.
+          if (judged === "redacted" && output.result.redacted !== true) output = { ...output, result: { ...output.result, redacted: true } };
+          if (pointer && !copied) {
             const line = step(`${label} — already shown above`);
             const sent = { ...output.result, tool_turns_left: turnsLeft };
             answers.push({ call, result: sent, files: [] });
@@ -2075,42 +2141,22 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
             continue;
           }
           // Two searches in a row that failed in the same mode: the second says to try another way.
-          if (!refusal) {
+          // Read from what the tool returned; the hint goes only to a result the hook kept.
+          if (!refusal && !copied) {
+            const own = judged ? raw.result : output.result;
             const kind = failureKind(call);
             if (kind === undefined) {
               failing = undefined;
-            } else if (typeof output.result.error === "string") {
+            } else if (typeof own.error === "string") {
               failing = failing?.kind === kind ? { kind, count: failing.count + 1 } : { kind, count: 1 };
-              if (failing.count >= 2) output = { ...output, result: { ...output.result, error: `${output.result.error} ${repeatedFailureHint(call)}` } };
+              if (failing.count >= 2 && !judged) output = { ...output, result: { ...output.result, error: `${output.result.error} ${repeatedFailureHint(call)}` } };
             } else {
               failing = undefined;
             }
           }
-          // The application's say on what the model gets, before the evidence, the step and the
-          // events, which all tell what the model was sent.
-          let judged: ToolOutcome | undefined;
-          if (!refusal && options.onToolResult) {
-            const hook = options.onToolResult;
-            const context: ToolResultContext = {
-              call,
-              result: output.result,
-              ...(typeof call.args.document_id === "string" ? { documentId: call.args.document_id } : {}),
-              ...(options.owner !== undefined ? { owner: options.owner } : {}),
-              ...(options.scope !== undefined ? { scope: options.scope } : {}),
-              signal: halt.signal,
-            };
-            // A hook that does not look at the signal does not hold the question once it is stopped.
-            const verdict = checkedVerdict(await until(Promise.resolve().then(() => hook(context)), halt.signal));
-            if (verdict && "result" in verdict) {
-              output = { ...output, result: { ...verdict.result, redacted: true } };
-              judged = "redacted";
-            } else if (verdict) {
-              output = { result: { error: verdict.reject }, files: [] };
-              judged = "refused";
-            }
-          }
           const line = step(`${label}${toolResultSummary(label, output.result)}`);
-          const shown = evidenceOf(call, output.result);
+          // A copy of the first call's verdict shows nothing that the first did not.
+          const shown = copied ? undefined : evidenceOf(call, output.result);
           if (shown) evidence.push({ ...shown, callId: callIds[index]! });
           const sent = { ...output.result, tool_turns_left: turnsLeft };
           answers.push({ call, result: sent, files: output.files });

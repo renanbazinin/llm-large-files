@@ -297,7 +297,7 @@ The options of `askWithFiles`.
 | `runId` | `string` | `"run_"` and 16 hex digits | The `runId` of every event of the question. Pass your own to find the events in your logs. New in 0.7.0. |
 | `eventResults` | `boolean` | `false` | Put each tool result in its `tool.end` event (`result`), and `toolTurns` in the result that `run.finish` and `run.error` carry. Off by default: results hold the text of the documents, and events are often sent on to a browser. The result `askWithFiles` returns always has `toolTurns`. New in 0.7.0. |
 | `filteredAnswer` | `"keep" \| "drop"` | `"keep"` | What to do with an answer that a filter of the provider stopped (`result.finish` `"filtered"`). `"keep"` keeps its text, as in 0.9, with `answered: true` when it has some. `"drop"` gives `answered: false` and `text: ""`. Text that was already sent (`onText`, `text` events) cannot be taken back: the `answer_filtered` notice then has `discardText: true`, before `run.finish`, and the page takes the text away. Text of a reply that was not streamed is not sent at all. Any other value (`"Drop"`, `true`) is a `TypeError` before any request: it would keep an answer that was meant to be dropped. See [filtered and cut answers](../guides/errors-and-reliability.md#filtered-and-cut-answers). New in 0.10.0. |
-| `onToolResult` | `(context: ToolResultContext) => ToolResultVerdict \| undefined \| Promise<ToolResultVerdict \| undefined>` | none | Called with the result of every tool call that ran, before the model, the evidence, the steps and the events get it ([`ToolResultContext` and `ToolResultVerdict`](#toolresultcontext-and-toolresultverdict)). A call that was refused, not run, or answered with a pointer is not passed to it. What it throws, or a value of another shape, ends the question. For data loss prevention: [security](../security.md#tool-results-ontoolresult). New in 0.10.0. |
+| `onToolResult` | `(context: ToolResultContext) => ToolResultVerdict \| undefined \| Promise<ToolResultVerdict \| undefined>` | none | Called with the result of every tool call that ran, as soon as it is in (the hooks of one turn may run at the same time), before the model, the evidence, the steps and the events get it ([`ToolResultContext` and `ToolResultVerdict`](#toolresultcontext-and-toolresultverdict)). A call that was refused, not run, or answered with a pointer is not passed to it. What it throws, or a value of another shape, ends the question. For data loss prevention: [security](../security.md#tool-results-ontoolresult). New in 0.10.0. |
 | `signal` | `AbortSignal` | none | Stops the question: the request under way is aborted through the adapter, tool calls stop, and nothing is sent again. `askWithFiles` then throws the signal's reason, at once: the loop does not wait for an adapter, or a part reader, that does not look at the signal. A request left running that way may be billed by the provider, and is not counted in the usage. Since 0.10.0 the loop does not wait either for `files.prepare`, a tool call or `onToolResult` once it aborts, and it passes the signal on with the access of the question (`PrepareOptions.signal`, `ToolOptions.access.signal`), for a library that ends its own waits for the store with it. |
 
 Guides: [conversations](../guides/conversations.md) (`messages`, `documentPlacement`),
@@ -541,17 +541,24 @@ type ToolResultVerdict = { result: ToolResult } | { reject: string };
 
 What `AskOptions.onToolResult` is given, and what it returns. New in 0.10.0.
 
-The hook is called once for each tool call that ran, in call order, after the result was fitted to
-the room in the request and before anything else sees it: the model, `evidence`, `steps`,
-`toolTurns`, `onStep` and the `tool.end` event all get what the hook let through. A call refused by
-the loop (no room, a limit, an unknown tool, arguments that did not arrive whole), answered with a
-pointer to an earlier result, or over `callsPerTurn`, is not passed to it: the model gets no file
-text from those. The question waits for an async hook, and stops waiting when its signal aborts.
+The hook is called once for each tool call that ran, as soon as its result is in, with the result
+as the tool returned it. The hooks of one turn may run at the same time: an async check of 200 ms
+adds about 200 ms to a turn of eight calls, not 1.6 s. Their verdicts are applied in call order, and
+what they let through is then fitted to the room in the request, as the tool's own result would be:
+a replacement larger than the room is cut, and keeps `redacted: true`. Nothing else sees a result
+before its hook: the model, `evidence`, `steps`, `toolTurns`, `onStep` and the `tool.end` event all
+get what the hook let through. A call refused by the loop (no room, a limit, an unknown tool,
+arguments that did not arrive whole), answered with a pointer to an earlier result, or over
+`callsPerTurn`, is not passed to it: the model gets no file text from those. The same call made
+twice in one turn is passed once: the second gets the first one's verdict (the same replacement, or
+the same error), and a pointer only when the hook kept the result. The question waits for an async
+hook, and stops waiting when its signal aborts. A hook that fails ends the question at once, without
+waiting for the hooks of the other calls.
 
 | Field | Type | What it holds |
 |---|---|---|
 | `call` | [`ToolCall`](#toolcall) | The tool call, as the model made it. |
-| `result` | [`ToolResult`](./tools.md#toolresult) | What the tool returned. An error result (`{ error }`) is passed too. |
+| `result` | [`ToolResult`](./tools.md#toolresult) | What the tool returned, before it is fitted to the room in the request. An error result (`{ error }`) is passed too. |
 | `documentId` | `string`, optional | The document the call names (`args.document_id`), when it names one. |
 | `owner` | `string`, optional | The question's `owner`. |
 | `scope` | [`DocumentScope`](./library.md#documentscope), optional | The question's `scope`. |
@@ -559,7 +566,7 @@ text from those. The question waits for an async hook, and stops waiting when it
 
 | Verdict | What the model is sent | `tool.end` outcome |
 |---|---|---|
-| `{ result }` | That result in place of the tool's, with `redacted: true` added. A later call is never answered with a pointer to it ("already shown above"): it runs again, through the hook. | `"redacted"` |
+| `{ result }` | That result in place of the tool's, with `redacted: true` added, fitted to the room in the request. A later call is never answered with a pointer to it ("already shown above"): it runs again, through the hook. The same call made again in the same turn gets the same replacement. | `"redacted"` |
 | `{ reject: "why" }` | `{ error: "why" }`. No evidence. | `"refused"` |
 | `undefined` | The tool's result. | as without the hook |
 

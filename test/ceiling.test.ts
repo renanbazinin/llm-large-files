@@ -244,6 +244,28 @@ describe("whole-file reads under the ceiling", () => {
     expect(one.result.toolTurns[0]!.calls[1]!.result.error).toBe("Not run: one question makes at most 1 whole-file read, and this one has made it. Use search_document and read_document on b.log.");
   }, 60_000);
 
+  it("counts a read whose answer onToolResult rejected or replaced: it made its requests", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
+    const logs = await Promise.all(["a.log", "b.log", "c.log"].map((name) => files.ingest({ name, bytes: utf8(serviceLog(1_500)) })));
+    const reads = logs.map((meta, index) => ({ id: `r${index}`, name: "analyze_whole_document", args: { document_id: meta.id, task: "errors" } }));
+    for (const verdict of [{ reject: "This summary holds ID numbers." }, { result: { error: "This summary holds ID numbers." } }]) {
+      let parts = 0;
+      const generateText: GenerateText = async () => {
+        parts++;
+        return "Notes (L97).";
+      };
+      // One read a turn, as a DLP hook that withholds each answer.
+      const model = fakeModel([calls([reads[0]!]), calls([reads[1]!]), calls([reads[2]!]), says("Done.")], { generateText });
+      const result = await askWithFiles({
+        files, model, documentIds: logs.map((meta) => meta.id), messages: question("Errors?"),
+        onToolResult: (context) => (context.call.name === "analyze_whole_document" ? verdict : undefined),
+      });
+      // Before this, the third read ran too: 45 parts.
+      expect(result.toolTurns[2]!.calls[0]!.result.error).toBe("Not run: one question makes at most 2 whole-file reads, and this one has made them. Use search_document and read_document on c.log.");
+      expect(parts).toBe(30);
+    }
+  }, 60_000);
+
   it("refuses a whole-file read that would pass the ceiling with the price of wholeReadCost", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(3_000)) });

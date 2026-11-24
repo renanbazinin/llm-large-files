@@ -336,13 +336,20 @@ export function askWithDlp(options: AskOptions): Promise<AskResult> {
 
 - **It may be async.** A call to a DLP service of your own gets the context's `signal`, which
   aborts when the question is stopped or fails; the question does not wait for the hook once its
-  own signal aborts.
+  own signal aborts. Each call's hook starts as soon as its result is in, so the checks of one turn
+  run at the same time; their verdicts are applied in call order.
 - **It fails closed.** What the hook throws, or a value of another shape than `{ result }`,
-  `{ reject }` or undefined, ends the question with that error or a `TypeError`. A DLP service that
-  is down stops the question; the model never gets the unchecked result.
+  `{ reject }` or undefined, ends the question with that error or a `TypeError`, at once: the other
+  calls of the turn stop, and no result of the turn reaches the model. A DLP service that is down
+  stops the question; the model never gets the unchecked result.
+- **It sees the whole result.** The hook gets what the tool returned, before it is fitted to the
+  room in the request. What it lets through is fitted then, a masked copy as the tool's own result
+  would be: a copy larger than the room is cut, and is still marked `redacted: true`.
 - **What the model saw is what is kept.** The evidence, the steps, `toolTurns` (stored with the
   conversation, and sent again in later questions) and `tool.end` tell the masked result. A later
-  call is never answered with a pointer to a masked result: it runs again, through the hook.
+  call is never answered with a pointer to a masked result: it runs again, through the hook. The
+  same call made twice in one turn gets the first one's verdict: the same masked copy, or the same
+  error.
 - **It sees tool results only.** The model gets other text of the files that no tool returns, and
   the hook does not see it:
   - a document small enough to be sent whole goes into the prompt as it is;

@@ -135,6 +135,107 @@ describe("onToolResult", () => {
     expect(rounds.map((round) => round.answers[0]!.result.redacted)).toEqual([true, true, true]);
   });
 
+  it("gives the same call made twice in one turn the first one's verdict, not a pointer to it", async () => {
+    const { files, meta } = await payments();
+    const twice = () => calls([{ ...read(meta.id), id: "a" }, { ...read(meta.id), id: "b" }]);
+    const asked = async (hook: () => { result: { text: string } } | { reject: string } | undefined) => {
+      const events: AskEvent[] = [];
+      const model = fakeModel([twice(), says("ok")]);
+      let hooked = 0;
+      const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), onEvent: (event) => events.push(event), onToolResult: () => {
+        hooked++;
+        return hook();
+      } });
+      const sent = roundsOf(model.requests[1]!.messages)[0]!.answers.map((answer) => answer.result);
+      const outcomes = events.filter((event): event is ToolEnd => event.type === "tool.end").map((event) => event.outcome);
+      return { sent, outcomes, hooked, result };
+    };
+    // Replaced: the second gets the same replacement (before this, "already shown" pointed to it).
+    const replaced = await asked(() => ({ result: { text: "[redacted]" } }));
+    expect(replaced.sent).toEqual([{ text: "[redacted]", redacted: true, tool_turns_left: 10 }, { text: "[redacted]", redacted: true, tool_turns_left: 10 }]);
+    expect(replaced.outcomes).toEqual(["redacted", "redacted"]);
+    expect(replaced.hooked).toBe(1);
+    // The copy shows nothing the first did not: one entry of evidence.
+    expect(replaced.result.evidence).toHaveLength(1);
+    // Rejected: the second gets the same error.
+    const rejected = await asked(() => ({ reject: "Card numbers cannot be shown." }));
+    expect(rejected.sent).toEqual([{ error: "Card numbers cannot be shown.", tool_turns_left: 10 }, { error: "Card numbers cannot be shown.", tool_turns_left: 10 }]);
+    expect(rejected.outcomes).toEqual(["refused", "refused"]);
+    // Kept: the second still points to the first, which is the tool's own result.
+    const kept = await asked(() => undefined);
+    expect(kept.sent[1]).toMatchObject({ already_shown: true });
+    expect(kept.outcomes).toEqual(["ok", "already_shown"]);
+    expect(kept.hooked).toBe(1);
+  });
+
+  it("fits a replacement to the room in the request, as it does the tool's own result", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, contextTokens: 128_000 } });
+    const lines = Array.from({ length: 5_000 }, (_, index) => `2026-11-12 08:00:00 INFO request ${index + 1} ok`);
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(lines.join("\n")) });
+    const events: AskEvent[] = [];
+    const model = fakeModel([calls([read(meta.id)]), says("ok")], { contextTokens: 128_000 });
+    await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), onEvent: (event) => events.push(event), onToolResult: () => ({ result: { text: "x ".repeat(1_000_000) } }) });
+    const sent = roundsOf(model.requests[1]!.messages)[0]!.answers[0]!.result;
+    expect(sent.redacted).toBe(true);
+    expect(JSON.stringify(sent).length).toBeLessThan(400_000);
+    // Before this, the replacement went as it was: a request of about 1,105,000 tokens on a window of 128,000.
+    const starts = events.filter((event): event is Extract<AskEvent, { type: "request.start" }> => event.type === "request.start");
+    expect(starts).toHaveLength(2);
+    expect(starts[1]!.estimatedInputTokens).toBeLessThan(128_000);
+  });
+
+  it("runs the hooks of a turn at the same time, and applies their verdicts in call order", async () => {
+    const { files, meta } = await payments();
+    const reads = Array.from({ length: 8 }, (_, index) => read(meta.id, 1 + index * 10, 3 + index * 10));
+    const model = fakeModel([calls(reads), says("ok")]);
+    // Each hook waits until all eight have started. One after another, the first would wait for ever:
+    // after 2 s the gate opens anyway, and the test fails.
+    let started = 0;
+    let opened: "together" | "late" | undefined;
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const late = setTimeout(() => {
+      opened ??= "late";
+      open();
+    }, 2_000);
+    await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), onToolResult: async (context) => {
+      started++;
+      if (started === reads.length) {
+        opened ??= "together";
+        open();
+      }
+      await gate;
+      return { result: { lines: context.result.lines, text: "masked" } };
+    } });
+    clearTimeout(late);
+    expect(opened).toBe("together");
+    expect(roundsOf(model.requests[1]!.messages)[0]!.answers.map((answer) => answer.result.lines)).toEqual(reads.map((call) => `${call.args.start_line}-${call.args.end_line}`));
+  });
+
+  it("ends the question when the hook of a later call fails, without waiting for the hook of an earlier one", async () => {
+    const { files, meta } = await payments();
+    const model = fakeModel([calls([read(meta.id, 1, 3), read(meta.id, 10, 12)]), says("ok")]);
+    let firstAborted = false;
+    const began = Date.now();
+    const outcome = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), onToolResult: (context) => {
+      if (context.call.args.start_line === 1) {
+        // A DLP call that does not answer: it ends with the question.
+        return new Promise(() => {
+          context.signal.addEventListener("abort", () => {
+            firstAborted = true;
+          });
+        });
+      }
+      throw new Error("The DLP service is down.");
+    } }).then(() => undefined, (error: unknown) => error);
+    expect(outcome).toMatchObject({ message: "The DLP service is down." });
+    expect(firstAborted).toBe(true);
+    expect(model.requests).toHaveLength(1);
+    expect(Date.now() - began).toBeLessThan(2_000);
+  });
+
   it("is not called for a call that did not run, and stops waiting for it when the question is stopped", async () => {
     const { files, meta } = await payments();
     const seen: string[] = [];
