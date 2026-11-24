@@ -3,7 +3,7 @@
 // request. A synthetic Hebrew contract has 37 penalty clauses among 200.
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, estimateTokens, evidenceOf, MemoryDocumentStore, stubResult, type GenerateText, type ToolResult } from "../src/index.js";
-import { parseItemLines, quoteForm, quoteNearLine, quoteOnLine } from "../src/map-reduce.js";
+import { ITEMS_FRAME_TOKENS, parseItemLines, quoteForm, quoteNearLine, quoteOnLine } from "../src/map-reduce.js";
 import { MAX_LINE_CHARACTERS } from "../src/text.js";
 import { fitAnswer } from "../src/tools.js";
 import { wholeReadCost } from "../src/whole-cost.js";
@@ -93,7 +93,12 @@ describe("a read that lists items", () => {
     expect(price).toMatchObject({ parts: result.parts_read, merges: 0 });
     const tokens = sent.reduce((sum, request) => sum + estimateTokens(request.system) + estimateTokens(request.prompt), 0);
     expect(price.inputTokens).toBeGreaterThanOrEqual(tokens);
-    expect(price.inputTokens).toBeLessThanOrEqual(tokens * 1.15);
+    // The numbered lines are priced near what they take; the rest of each part, within the room
+    // ITEMS_FRAME_TOKENS keeps for 12 labels and a task of a few lines. In these parts of 1,500
+    // tokens, the frames are a third of the price.
+    const lines = sent.reduce((sum, request) => sum + estimateTokens(request.prompt.slice(request.prompt.indexOf("<part>\n") + 7, request.prompt.indexOf("\n</part>"))), 0);
+    expect(Math.abs(price.inputTokens - price.parts * ITEMS_FRAME_TOKENS - lines)).toBeLessThanOrEqual(lines * 0.1);
+    expect(tokens - lines).toBeLessThanOrEqual(price.parts * ITEMS_FRAME_TOKENS);
     // Less than a read that answers, which merges and answers too.
     expect(price.inputTokens).toBeLessThan(wholeReadCost(meta, files.budget, 1).inputTokens);
   });

@@ -5,7 +5,7 @@ import { noTextReason } from "./output-limit.js";
 import { statusOf, withRetry, type RetryOptions } from "./retry.js";
 import { composed, estimateTokens, foldCase, jsonBytes, MAX_LINE_CHARACTERS, plural, sliceWhole } from "./text.js";
 import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
-import type { Budget, GenerateText, GenerateUsage, ProgressListener, ToolCallHooks, ToolRequestStart } from "./types.js";
+import type { Budget, DocumentMeta, GenerateText, GenerateUsage, ProgressListener, ToolCallHooks, ToolRequestStart } from "./types.js";
 
 const NOTHING = "NOTHING RELEVANT";
 /** The output limit of a part read and of a merge of notes: the most tokens their notes may have. */
@@ -23,15 +23,17 @@ const FINAL_SYSTEM = "You write a complete answer from notes taken across every 
 
 /**
  * The tokens of a request of a read besides the text it reads or the notes it merges: its system
- * text, the task and the rules. By `estimateTokens`, the fixed words take 144 tokens in a part
- * read, 79 in a merge and 93 in the answer of the read; the rest is room for a task of a few lines.
+ * text, the task and the rules. By `estimateTokens`, the fixed words take 146 tokens in a part
+ * read, 81 in a merge and 94 in the answer of the read; the rest is room for a task of a few lines
+ * (a task of 160 characters takes 39). The heading a part may start with is `PART_HEADING_TOKENS`.
  */
 export const REQUEST_FRAME_TOKENS = 200;
 /**
- * The same for a part read that lists items (`output: "items"`): its fixed words take 308 tokens
- * with two labels; the rest is room for a task of a few lines and more labels.
+ * The same for a part read that lists items (`output: "items"`): its fixed words take 292 tokens
+ * with no label and 311 with two; with `MAX_ITEM_LABELS` labels of `MAX_LABEL_CHARACTERS`, 464 in
+ * English and 564 in Hebrew. The rest is room for a task of a few lines.
  */
-export const ITEMS_FRAME_TOKENS = 400;
+export const ITEMS_FRAME_TOKENS = 650;
 /** The tokens of the "### Lines a-b" heading of a part's notes, and of the blank line that joins notes. */
 export const NOTE_HEADING_TOKENS = 25;
 /** The most labels a read that lists items takes (`labels`), and the most characters of each. New in 0.10.0. */
@@ -440,6 +442,22 @@ type WholeReadOptions = {
 
 /** The heading a part's lines are under is sent cut to this many characters. */
 const HEADING_CHARACTERS = 120;
+/**
+ * The tokens a part that starts under a heading takes for it (`partStart`), in either output: by
+ * `estimateTokens`, 28 for the words that say so and the heading's line number (of six digits),
+ * and a heading of `HEADING_CHARACTERS` takes 28 in English and 59 in Hebrew. A price counts it for
+ * every part after the first of a file whose parts may have one (`partsHaveHeadings`).
+ */
+export const PART_HEADING_TOKENS = 90;
+
+/**
+ * Whether the parts of a whole-file read of a document may start with the heading they are under
+ * (`headingAbove`): a document with an outline, but not a log, JSON or CSV file, which have none.
+ */
+export function partsHaveHeadings(meta: Partial<Pick<DocumentMeta, "format" | "outline">>): boolean {
+  // A store of your own may give metadata without an outline.
+  return meta.format !== "log" && meta.format !== "json" && meta.format !== "csv" && Array.isArray(meta.outline) && meta.outline.length > 0;
+}
 
 /** The heading of the outline that a part's lines are under (`headingAbove`): its line and its text, as the file writes them. */
 type Heading = { line: number; text: string };
@@ -454,8 +472,7 @@ type Heading = { line: number; text: string };
  */
 async function headingAbove(document: DocumentSource, from: number): Promise<Heading | undefined> {
   const { meta } = document;
-  // A store of your own may give metadata without an outline.
-  const outline = meta.format === "log" || meta.format === "json" || meta.format === "csv" || !Array.isArray(meta.outline) ? [] : meta.outline;
+  const outline = partsHaveHeadings(meta) ? meta.outline : [];
   let low = 0;
   let high = outline.length - 1;
   let found = -1;
