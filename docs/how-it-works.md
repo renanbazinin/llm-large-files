@@ -233,7 +233,7 @@ A file that is sent whole sits between two frame lines:
 
 ```text
 --- Attached file [mark 1f0c3a9e]: "app.log" (log, 3,000 lines; it ends only at the line with mark 1f0c3a9e) ---
-2026-11-19T08:00:01.370Z INFO request id=0 handled in 0ms
+1| 2026-11-19T08:00:01.370Z INFO request id=0 handled in 0ms
 …
 --- End attached file [mark 1f0c3a9e] ---
 ```
@@ -250,6 +250,12 @@ valid UTF-8 adds a note after the line count ([Text encodings](#text-encodings))
 `, read as windows-1255`, `, read as windows-1255, 1 character not valid in it, shown as �`, or
 `, 3 characters not valid UTF-8, shown as �`. What the mark guards against, and what it does not:
 [Security](./security.md#the-frame-around-a-file).
+
+Since 0.10.0 `askWithFiles` numbers the lines between the frame lines as `read_document` numbers
+them, from `1| `, so that an answer can cite a file sent whole as it cites a searched one
+([below](#numbered-lines-and-tables-sent-whole)). With `numberInline: false`, and in
+`files.prepare()` unless it is asked for, the text goes as it is, as in 0.9. The frame lines are the
+same either way.
 
 A file too large to send whole is replaced by its card, a few kilobytes. This is the card of a
 3,000-line log, with its first lines shortened here:
@@ -370,7 +376,8 @@ user turn (`documentPlacement: "first"`, the default). They stay there as the co
 so a provider's prompt cache, which matches the start of a request, can reuse them on every
 follow-up question: Gemini's own cache, and Claude's `cache_control`. `"last"` appends them to the
 latest user turn instead, where they move with every turn and are billed in full each time. A
-question with no searchable file and no viewable PDF is then one request, without tools.
+question with no searchable file, no viewable PDF and no table sent whole that the tools count
+([below](#numbered-lines-and-tables-sent-whole)) is then one request, without tools.
 
 To see a plan and a budget without asking a model:
 
@@ -392,6 +399,42 @@ console.log(prepared.plan.searchable.map((document) => document.name)); // cards
 console.log(prepared.blocks.get(meta.id)); // the text or the card
 console.log(prepared.instruction); // the tool guide, or ""
 ```
+
+### Numbered lines and tables sent whole
+
+New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do, and that
+`files.prepare()` does only when asked (`PrepareOptions.numberInline`, `inlineTables`):
+
+- **Numbered lines** (`numberInline`, true by default). Every line of a file sent whole carries its
+  number, `12| `, as the tools show lines. The model can then cite it, "(report.docx L12)", and
+  `result.citations` checks the citation against the file's lines. The plan counts each such file
+  at its numbered size, about 1.2 tokens a digit of the numbers and 1.5 a line more: 8% to 16% more
+  tokens (15.5% for a CSV of 3,000 short rows, 9.4% for a service log, 8.4% for Hebrew prose). It
+  also measures the numbered text it reads, which can be larger (deeply indented lines), and plans
+  again when it is. So a file at the edge of `inlineTokens` may become a card. When no file is
+  searched, no tool guide asks for citations, so the system text gets one fixed line:
+  `Cite line numbers like (report.docx L12).` Its file name is an example, the same in every
+  question, so the line does not change the start of the requests from one question to the next.
+- **Tables that the tools still count** (`inlineTables: "tools"`, the default). A file sent whole
+  whose rows `aggregate_table` reads gets the tools: a CSV or an XLSX workbook always, and a DOCX,
+  PPTX, PDF, HTML or Markdown file when its text has at least 3 `| cell |` rows (a line that starts
+  and ends with `|`, not a `| --- |` separator). Before 0.10.0 such a file had no tools, so the
+  model counted its rows by eye: of 3,000 invoices sent whole, 750 late, Gemini Flash-Lite counted
+  749 in one run of three, and added up the amounts of the 750 canceled ones wrong by millions in
+  all three (the 0.9.0 baseline of the evals). The question declares `search_document`,
+  `read_document` and `aggregate_table` for such files, never `get_document_overview` or
+  `analyze_whole_document` (which answers that a file sent whole is shown in full above, when a
+  searched file has it declared), and the system text gets the line "Files shown in full can still
+  be counted exactly: use aggregate_table for counts, sums and groups over their tables, and
+  search_document exact for matching lines. In a spreadsheet, give the Row number when asked which
+  row." The question then runs the [tool loop](#the-loop-askwithfiles): one that needs no count is
+  answered in its first request, as before, with the tools declared; a count takes a request that
+  calls `aggregate_table` and one that answers from its result.
+
+When no file is searched, the answering model runs that loop itself, even when the question has an
+explorer ([An explorer model](#an-explorer-model)). The [evidence](#usage-and-evidence) lists each
+file sent whole first. `inlineTables: "text"` with `numberInline: false` sends what 0.9 sent, byte
+for byte.
 
 ## Token estimates
 
@@ -940,9 +983,13 @@ is sent to the answering model, and it must be answered in text:
   not made after a blocked prompt, which would only be blocked again.
 - **What.** The conversation, then a user message: `FINAL_ANSWER_REQUEST` after text tools,
   `FINAL_ANSWER_AFTER_PAGES` when the only tool offered was `view_pages` (every text was in the
-  prompt), or `FINAL_ANSWER_WITHOUT_TOOLS` when no call was answered at all. For Gemini the request
-  declares no tools; for an OpenAI-compatible endpoint and for Claude it keeps them and sets the
-  tool choice to none.
+  prompt), or `FINAL_ANSWER_WITHOUT_TOOLS` when no call was answered at all. Since 0.10.0, after
+  text tools in a question that also sent files whole, numbered or with tables the tools count, the
+  message says to answer from those files too: "Stop using tools now. Answer my question using only
+  the files shown in full and what the tools returned above, with line citations. …". In a chat with
+  Gemini Flash-Lite told "only what the tools returned", two answers said that a fact of a file
+  shown in full was not in the tool results. For Gemini the request declares no tools; for an
+  OpenAI-compatible endpoint and for Claude it keeps them and sets the tool choice to none.
 - **Its result.** `answered` is true when the reply has text and the prompt was not blocked. A
   reply with no text is asked for once more ([Empty or broken turns](#empty-or-broken-turns)). When
   even that has no text, or the provider blocked the prompt, `answered` is `false` (with
@@ -965,6 +1012,11 @@ explorer })`, where the two may be of different providers, or an `askGemini` end
 - **The budget fits both models**: the smaller window, the larger `tokenScale`, and pages at the
   larger `pageTokens`. `view_pages` needs both to take a file. `limits.toolTurns` counts the
   explorer's requests and the answer's, so the explorer has one less.
+- **Not for tables sent whole alone** (since 0.10.0). When no file is searched and the tools are
+  there for [tables sent whole](#numbered-lines-and-tables-sent-whole), the answering model runs
+  the loop itself, and the explorer gets no request. A question that needs no count is then
+  answered in one request; with the explorer, every such question would be two requests, each with
+  every file sent whole, to two models that share no cache. `run.start` still names the explorer.
 
 ### Usage and evidence
 
@@ -974,11 +1026,13 @@ explorer })`, where the two may be of different providers, or an `askGemini` end
   still counts its requests. `turns` counts the chat requests alone, and `lastUsage` is the
   provider's own usage object of the last chat response. Turning it into a cost:
   [Costs and limits](./guides/costs-and-limits.md).
-- **Evidence** is read from the tool calls, in call order: for each call that ran, the document and
-  the lines or pages it showed (merged into ranges). A search adds its query and mode, and an exact
-  or regex search its `totalMatchingLines`. An overview shows the first 30 and last 20 lines. A
-  whole-file read is marked `whole: true`, with its task as the query. Calls that failed or were
-  refused, pointers and stand-ins add nothing.
+- **Evidence** lists first each file sent whole, in the order of its block (since 0.10.0): `{ tool:
+  "inline", documentId, document, lines: [[1, lines]], whole: true }`, with no `callId`, as no tool
+  call showed it. Then it is read from the tool calls, in call order: for each call that ran, the
+  document and the lines or pages it showed (merged into ranges). A search adds its query and mode,
+  and an exact or regex search its `totalMatchingLines`. An overview shows the first 30 and last 20
+  lines. A whole-file read is marked `whole: true`, with its task as the query. Calls that failed or
+  were refused, pointers and stand-ins add nothing.
 
 ### What your application sees
 

@@ -85,11 +85,12 @@ What it does, in order:
 2. **Plans the documents** with `files.prepare`, for the room the conversation leaves. Documents
    that are missing are settled by `onMissingDocuments` before any model request: by default the
    question throws `DocumentsNotFoundError` ([missing documents](#missing-documents)).
-3. **Sends one request without tools** to `model` when every document went in whole and no PDF
-   can be looked at, and returns its reply.
+3. **Sends one request without tools** to `model` when every document went in whole, no PDF can be
+   looked at, and no table sent whole gets the tools (`inlineTables`), and returns its reply.
 4. **Otherwise runs tool rounds.** The model that explores (`explorer`, or `model` without one)
-   gets the tools. Of each turn's calls, the loop runs at most `limits.callsPerTurn`, up to four
-   at a time, each result fitted to the room left in the request, and sends the results back.
+   gets the tools; `model` does when no file is searched and the tools are there for tables sent
+   whole (since 0.10.0). Of each turn's calls, the loop runs at most `limits.callsPerTurn`, up to
+   four at a time, each result fitted to the room left in the request, and sends the results back.
    Tools run in at most `limits.toolTurns - 1` model turns. Before each tool request it checks the
    ceiling of the question ([`AskLimits`](#asklimits)): when what was spent, that request and the
    answer's request would pass it, the next request is the answer.
@@ -272,7 +273,7 @@ The options of `askWithFiles`.
 |---|---|---|---|
 | `files` | [`LargeFiles`](./library.md#largefiles) | required | The library that holds the documents, plans them and makes the tools. |
 | `model` | [`ModelAdapter`](#modeladapter) | required | The model that answers. Without `explorer`, it also makes the tool calls and reads whole files in parts. |
-| `explorer` | `ModelAdapter \| undefined` | none | A second model, of any provider, that makes the tool calls (search, read, look at pages) and reads whole files in parts. `model` then writes the answer from what the tools returned. Its requests get [`EXPLORER_INSTRUCTION`](#explorer_instruction), and its text is not shown. Left out, or the same object as `model`: one model does both. |
+| `explorer` | `ModelAdapter \| undefined` | none | A second model, of any provider, that makes the tool calls (search, read, look at pages) and reads whole files in parts. `model` then writes the answer from what the tools returned. Its requests get [`EXPLORER_INSTRUCTION`](#explorer_instruction), and its text is not shown. Left out, or the same object as `model`: one model does both. A question in which no file is searched and the tools are there for tables sent whole (`inlineTables`) does not use it: `model` runs the tools (since 0.10.0). |
 | `documentIds` | `string[]` | required | The documents this question may use. Duplicates count once. One that is missing throws [`DocumentsNotFoundError`](#documentsnotfounderror), unless `onMissingDocuments` says otherwise. |
 | `messages` | [`ChatMessage[]`](#chatmessage) | required | The conversation, oldest first. The last message must be the user's question. The loop works on copies: your array is not changed. |
 | `documentPlacement` | `"first" \| "last" \| "attached"` | `"first"` | Where document text and cards go. `"first"`: at the start of the first user turn, where they stay as the conversation grows, so the provider's prompt cache can reuse them on every follow-up question. `"last"`: after the text of the latest user turn; they then move on every turn and are billed in full each time. `"attached"`: at the start of the user turn whose `documentIds` lists the document first; new in 0.10.0, not applied yet (taken as `"first"`). |
@@ -287,8 +288,8 @@ The options of `askWithFiles`.
 | `budget` | `Partial<`[`Budget`](./library.md#budget)`>` | the library's | Budget fields for this question, in place of the library's. Fields given nowhere follow the context window. The budget is then fitted to the models either way: `result.budget` shows it. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`. It changes nothing for a library that keeps no originals. |
-| `inlineTables` | `"tools" \| "text"` | `"tools"` | `"tools"`: a table sent whole (a CSV, a workbook, `\| cell \|` rows) can still be counted and searched with `aggregate_table` and `search_document`. `"text"`: it is sent whole without tools, as in 0.9. New in 0.10.0. Not read yet: tables sent whole get no tools. |
-| `numberInline` | `boolean` | `true` | Number the lines of the files sent whole, as the tools number them, so that the answer can cite them. New in 0.10.0. Not read yet: they are not numbered. |
+| `inlineTables` | `"tools" \| "text"` | `"tools"` | `"tools"`: a table sent whole can still be counted and searched. A CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with at least 3 `\| cell \|` rows, gets `search_document`, `read_document` and `aggregate_table` (not `get_document_overview`, not `analyze_whole_document`), and the system text a line that says to count with them. The question then runs the tool loop: one that needs no count is answered in its first request, a count takes about 3. When no file is searched, `model` runs that loop itself and `explorer` gets no request. `"text"`: it is sent whole without tools, as in 0.9. Another value is a `TypeError` before any request. See [the cost of tables sent whole](../guides/costs-and-limits.md#tables-sent-whole). New in 0.10.0. |
+| `numberInline` | `boolean` | `true` | Number the lines of the files sent whole, as the tools number them (`12\| `), so that the answer can cite them and `result.citations` can check it. Each such file is planned at its numbered size, 8% to 16% more tokens, so a file at the edge of `inlineTokens` may become a card. When no file is searched, the system text gets the line `Cite line numbers like (report.docx L12).` `false` sends them as in 0.9; with `inlineTables: "text"` too, the requests are those of 0.9, byte for byte. Another value is a `TypeError` before any request. New in 0.10.0. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. With it, `streamText` defaults to `true`, and the adapter streams when it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
 | `streamText` | `boolean` | `true` with `onText`, and in [`askStream`](#askstreamoptions); `false` otherwise | Whether to ask the model for the answer as it is written: the loop then passes `onText` to the adapter's `send` ([`SendHooks`](#sendhooks)), and an adapter that can stream does. A reply that fails after its first piece of text is not sent again: that text was shown. With `false`, the text of each reply comes once the reply is in, to `onText` and as `text` events, and a reply that fails can be sent again. A listener of the events alone (`onEvent` without `onText`) does not change how the model is asked. New in 0.7.0. |
 | `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry of a chat request ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. The retries of a whole-file read's requests are not told here: they come only as `retry` events. |
@@ -345,7 +346,7 @@ question that failed.
 | `answered` | `boolean` | True when the last reply had text that is not blank, and the provider did not refuse the prompt. False when the prompt was refused (`blockReason`), or the last reply had no text: it was cut off or filtered before any text, or the request for the answer came back without text, and so did its second try. A turn whose tool call could not be read is not the answer, even with a remark in it: the answer is asked for (since 0.10.0; before, the remark was the answer). With `filteredAnswer: "drop"`, false for a filtered answer. `text` may then be empty, or hold a remark made before a tool call, or the start of a reply that was refused: show your own message ([`answerInfoOf`](#answerinfo) says which). |
 | `blockReason` | `string`, optional | Why the provider refused the prompt, in the adapter's words. Set only then. Nothing more is asked after a refusal. |
 | `steps` | `string[]` | Each finished step, in order: a line for each tool call, run or refused ("Search app.log (exact) for “timeout” — 12 matching lines", or "… — already shown above"), one for the calls of a turn over `callsPerTurn`, and one when the loop shortened older results, asked again after an empty or broken reply, or planned the documents again. The second try of the answer says "The model's answer was empty: it was asked again" or "The model called a tool instead of answering: it was asked again for the answer". The lines `onStep` got. Each is one line of plain text: a line break, a tab or another control character in what the model sent becomes one space with the blanks around it; the invisible characters that file text loses are dropped (text-direction overrides and isolates, zero-width spaces, word joiners, soft hyphens, tag characters); `](` becomes `] (`, so that a markdown link or picture stays text. A query is cut at 80 characters and a task at 100, never in the middle of a character. Steps still quote the model's words, HTML tags and web addresses included: show them as plain text, never as markdown or HTML. |
-| `evidence` | [`Evidence[]`](#evidence) | What each tool call showed the model: the document, and the lines or pages. In call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. Each has the `callId` of its call's events (new in 0.7.0). |
+| `evidence` | [`Evidence[]`](#evidence) | What the model was shown. First each file sent whole, in the order of its block: `{ tool: "inline", documentId, document, lines: [[1, lines]], whole: true }`, with no `callId` (new in 0.10.0). Then what each tool call showed: the document, and the lines or pages, in call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. Each of those has the `callId` of its call's events (new in 0.7.0). |
 | `toolTurns` | [`ToolTurn[]`](#toolturn) | The tool rounds of this question, as plain JSON, as the model last had them. Pass them back in `messages`, between this question and its answer, and a later question sees what was found here. Each result of a call made in this question has `tool_turns_left`, except a stand-in (`dropped: true`, see [`stubResult`](#stubresultcall-result-hadfiles)): a result shortened to make room, a pointer whose result was shortened, and the result of a call that showed pages. The pages are not kept: their stand-in says which pages were shown. A call's `problem` is left out. |
 | `plan` | [`DocumentPlan`](./library.md#documentplan) | Which documents went in whole (`inline`) and which were reached through tools (`searchable`). |
 | `missing` | `string[]`, optional | The documents of `documentIds` that were missing, and that the question was answered without (`onMissingDocuments` `"drop"`). Absent when none was. New in 0.9.0. |
@@ -705,6 +706,14 @@ and tool calls were answered:
 > Stop using tools now. Answer my question using only what the tools returned above, with line
 > citations. Say plainly what you could not find. Answer in the language of my question.
 
+When files were also sent whole, with their lines numbered or tables the tools count
+(`numberInline`, `inlineTables`), the line says to answer from them too (new in 0.10.0; it is not
+exported):
+
+> Stop using tools now. Answer my question using only the files shown in full and what the tools
+> returned above, with line citations. Say plainly what you could not find. Answer in the language
+> of my question.
+
 ### `FINAL_ANSWER_AFTER_PAGES`
 
 The same, when every document went in whole and the only tool was `view_pages`:
@@ -721,11 +730,11 @@ was empty, or no turn was left for tools), so there is no tool result to answer 
 > if the answer needs a part of a file that is not shown here, say so plainly. Answer in the language
 > of my question.
 
-The three end with "Answer in the language of my question." since 0.8.0: a model asked in Hebrew
+They all end with "Answer in the language of my question." since 0.8.0: a model asked in Hebrew
 answered in English after an English closing request. To have answers in one language whatever
 the question, say so in `system`.
 
-None of the three is kept in the conversation or in `toolTurns`. Nor is the note of the answer's
+None of them is kept in the conversation or in `toolTurns`. Nor is the note of the answer's
 second try, which is not exported (new in 0.6.0): "Your last reply had no text. No tool can be
 called in this reply: write the answer now, in text, from what is above."
 

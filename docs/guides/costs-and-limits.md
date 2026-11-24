@@ -696,6 +696,33 @@ repeats cheaper ([below](#prompt-caching)).
   sent whole can take several when the document is searched.
 - Name in `documentIds` only the documents a question is about. Each one named is planned: sent
   whole, or given a card.
+- Since 0.10.0 their lines are numbered (`numberInline`), so that the answer can cite them: about
+  8% to 16% more tokens for each file sent whole (15.5% for a CSV of short rows, 9.4% for a service
+  log, 8.4% for Hebrew prose). A file at the edge of `inlineTokens` may become a card for it.
+  `numberInline: false` sends them as 0.9 did.
+
+### Tables sent whole
+
+Since 0.10.0 a table sent whole (a CSV, an XLSX workbook, a file with `| cell |` rows) gets
+`search_document`, `read_document` and `aggregate_table` (`inlineTables: "tools"`, the default), so
+that counts and sums over it are exact, not made by eye. What a question costs then:
+
+- **A question that needs no count** stays at one request when the model answers at once, as it
+  does when the answer is in the table it sees. The request is a little larger, by the three tool
+  declarations and one line of the system text (about 1,500 tokens).
+- **A count** takes about 3 requests: one that calls `aggregate_table` (or an exact search), one
+  that answers from its result, and sometimes one more call. Each sends the table again. For a CSV
+  of 3,000 invoices (113,000 estimated tokens, 131,000 with its lines numbered), one request of 0.9
+  becomes about three of 131,000 tokens each: about 400,000 input tokens by the library's estimate.
+  Requests two and three start as the first did, so a provider whose cache matches that start
+  (Gemini's implicit cache on Vertex AI) bills most of them at the cached price.
+- **With an explorer**, a question in which no file is searched is run by the answering model
+  alone: the explorer would send every file sent whole again, to a model that does not share the
+  other's cache.
+
+To keep the cost of 0.9 for such questions, at the price of counts made by eye, pass
+`inlineTables: "text"`. A lower `inlineTokens` sends the table as a card instead: its requests are
+small, and the model reads it only through the tools.
 
 ### An explorer model
 
