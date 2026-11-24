@@ -338,7 +338,10 @@ should not have given, or should have: the same call fails again. The message of
 The library throws `"read"` from every look-up, `"write"` from `files.ingest` (code `"ETIMEDOUT"`
 for a write that did not end within `ingestTimeoutMs`), `"delete"` from `files.delete` and
 `"sweep"` from `files.sweep`. Until 0.9.0 the errors of writes came out as the store threw them. A
-`DocumentScopeError` the store throws is never wrapped.
+`DocumentScopeError` the store throws is never wrapped. Since 0.10.0 a store call that does not end
+within `storeTimeoutMs` (30 s by default) is one of code `"ETIMEDOUT"`, and one refused at once
+because `maxStuckStoreCalls` calls of the process are stuck is one of code `"STORE_STUCK"`
+([`LargeFilesOptions`](./library.md#largefilesoptions)).
 
 #### Telling errors apart across copies of the package
 
@@ -408,7 +411,8 @@ provider's words.
 | An `AbortError` (a signal that aborted: the user left, the server stopped the question) | `"aborted"` | `"aborted"` | 503 | `true` | "It was stopped before it finished." |
 | A `TimeoutError` (`AbortSignal.timeout`, a deadline) | `"aborted"` | `"timeout"` | 504 | `true` | "It took too long, and was stopped. Try again." |
 | `DocumentScopeError` `"scope_invalid"` or `"scope_required"`, a `TypeError`, a `RangeError`, and their `EventError` | `"input"` | the scope error's code | 500 | `false` | "Something went wrong." It is a bug of the server, not something the user did. |
-| A Node system error (a `code` and a `syscall`), such as a path `ingest` does not read (`ELOOP`, `EISDIR`, `EINVAL`, `ENOENT`, `ETIMEDOUT`), and its `EventError` | `"unknown"` | its code: `"ENOSPC"`, when it reads as one (capitals, digits and `_`). A code that does not, such as a host, is left out | 500 | `false` | "Something went wrong (ENOSPC).", or "Something went wrong." without a code |
+| A Node system error (a `code` and a `syscall`), such as a path `ingest` does not read (`ELOOP`, `EISDIR`, `EINVAL`, `ENOENT`), and its `EventError` | `"unknown"` | its code: `"EACCES"`, when it reads as one (capitals, digits and `_`). A code that does not, such as a host, is left out | 500 | `false` | "Something went wrong (EACCES).", or "Something went wrong." without a code |
+| A Node system error whose code says the server, or a service it needs, could not answer just now ([transient](#transient-system-errors)), and its `EventError`. New in 0.10.0 | `"unknown"` | its code: `"ETIMEDOUT"`, `"ECONNRESET"`… | 503 | `true`, `retryAfterMs` 5,000; for a full disk (`ENOSPC`, `EDQUOT`) 30,000 | "The server could not do this just now (ETIMEDOUT). Try again in a moment."; for a full disk "The server has no room right now (ENOSPC). Try again later." |
 | Plain data (an `EventError`) without a `kind`, and without a `code` or `name` of the rows above | `"unknown"` | none | its `status` when it is 400 to 599, else 500 | `true` for 429, 502, 503 and 504 | "Something went wrong." |
 | Anything else | `"unknown"` | none | 500 | `false` | "Something went wrong." |
 
@@ -416,6 +420,30 @@ The statuses of model errors are those a server that asks a model for its user a
 `toUserError` in [Errors and reliability](../guides/errors-and-reliability.md#putting-it-together-a-chat-route).
 The upload handlers answer with [`uploadAnswerOf`](./node.md#uploadansweroferror), which follows
 the same rules for the library's errors and keeps the message of an error with a status.
+
+#### Transient system errors
+
+New in 0.10.0. A Node system error (one with a `code` and a `syscall`) whose code says that the
+server, or a service it needs, could not answer just now is read as one to retry: `errorInfoOf`
+gives status 503, `retryable: true` and `retryAfterMs` 5,000, and the upload handlers answer it
+`503` with `Retry-After: 5`. A full disk is retryable too, later: 30,000 and `Retry-After: 30`.
+Before 0.10.0 they were `"unknown"`, 500, and not retryable.
+
+| Code | What it says |
+|---|---|
+| `ETIMEDOUT` | A call that did not answer in time: a volume, a connection, a path upload whose read did not answer within `ingestTimeoutMs` (new in 0.10.0: it was the `IngestError` `"timeout"`, 422) |
+| `ECONNRESET`, `EPIPE` | A connection cut by the other end |
+| `ECONNREFUSED`, `EHOSTUNREACH`, `ENETUNREACH` | A service, a host or a network that could not be reached |
+| `EAI_AGAIN` | A name that could not be looked up just now |
+| `EAGAIN`, `EBUSY` | A resource busy for a moment |
+| `EMFILE`, `ENFILE` | Too many files open, in the process or the system |
+| `ESTALE` | A handle to a file of a network volume that the server no longer knows |
+| `ENOSPC`, `EDQUOT` | A full disk, or a quota reached: 30 s to wait |
+
+The code is read from the error itself, and from the library's words for it in an `EventError`
+("Upload failed (ETIMEDOUT).", "The file could not be read from storage (ETIMEDOUT)."), whatever
+status that data holds: the `ingest.error` of a 0.9 upload handler said 500. Other codes keep the
+row above: 500, not retryable. A store's error is a `DocumentStoreError`, 503 whatever its code.
 
 #### Your own words, in one switch
 
