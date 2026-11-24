@@ -246,6 +246,43 @@ describe("tables sent whole get the tools that count them (inlineTables)", () =>
     expect(plain.requests[0]!.tools).toBeUndefined();
   });
 
+  it("ends a question over tables sent whole on a reply that a filter, OTHER or the output limit ended before any text, as the direct request did", async () => {
+    const files = await library();
+    const meta = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices(40)) });
+    const ended = { filtered: says("", { finish: "filtered", finishReason: "SAFETY" }), other: says("", { finish: "other", finishReason: "LANGUAGE" }), cut: says("", { finish: "cut", finishReason: "MAX_TOKENS" }) } as const;
+    const run = async (reply: Partial<ModelReply>, shape: Pick<AskOptions, "inlineTables">, first: Partial<ModelReply>[] = []) => {
+      const events: AskEvent[] = [];
+      const model = fakeModel([...first, reply]);
+      const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: [question("כמה באיחור?")], onEvent: (event) => events.push(event), ...shape });
+      const notices = events.flatMap((event) => (event.type === "notice" ? [event.code] : []));
+      const kinds = events.flatMap((event) => (event.type === "request.start" ? [`${event.role} ${event.purpose}`] : []));
+      return { result, notices, kinds, requests: model.requests };
+    };
+    for (const [finish, reply] of Object.entries(ended)) {
+      const tools = await run(reply, {});
+      const text = await run(reply, { inlineTables: "text" });
+      // One request, as with "text": no request for the answer that would send the table again.
+      expect(tools.kinds, finish).toEqual(["tools turn"]);
+      expect(text.kinds, finish).toEqual(["answer direct"]);
+      expect(tools.result.answered, finish).toBe(false);
+      expect(tools.result.finish, finish).toBe(finish);
+      expect(tools.notices, finish).toEqual(text.notices);
+    }
+    expect((await run(ended.filtered, {})).notices).toEqual(["answer_filtered"]);
+    expect((await run(ended.cut, {})).notices).toEqual(["answer_cut"]);
+    // After a count too: the reply that follows its result ends the question.
+    const count = calls([{ id: "c1", name: "aggregate_table", args: { document_id: meta.id, metrics: ["count"] } }]);
+    const after = await run(ended.filtered, {}, [count]);
+    expect(after.kinds).toEqual(["tools turn", "tools turn"]);
+    expect(after.notices).toEqual(["answer_filtered"]);
+    // A file searched keeps the request for the answer after such a reply.
+    const searched = await createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 } });
+    const log = await searched.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
+    const events: AskEvent[] = [];
+    await askWithFiles({ files: searched, model: fakeModel([ended.filtered]), documentIds: [log.id], messages: [question("Errors?")], onEvent: (event) => events.push(event) });
+    expect(events.flatMap((event) => (event.type === "request.start" ? [event.purpose] : []))).toEqual(["turn", "closing"]);
+  });
+
   it("asks a question over tables sent whole in one request without the tools when not one tool turn fits, with no notice", async () => {
     const files = await library();
     const meta = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices(600)) });

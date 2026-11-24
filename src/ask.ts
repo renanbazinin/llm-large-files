@@ -1827,6 +1827,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         // remark of a turn whose tool call could not be read ("Let me look at the errors."), on
         // the last tool turn or after its nudge: the answer is asked for below.
         answered = wrote(reply) && !explorer && reply.finish !== "malformed_call";
+        // Over tables sent whole alone, a reply that a filter or another reason that asking again
+        // does not mend ended ("other"), or one cut at the output limit before any text, ends the
+        // question, as it ends the direct request of 0.9: the request for the answer would send
+        // the whole tables again, only to end the same way.
+        if (tablesOnly && !answered && (reply.finish === "filtered" || reply.finish === "other" || reply.finish === "cut")) return answer(false);
         break;
       }
       const pending: ModelToolRound = { role: "tools", calls: reply.calls, answers: [], ...(reply.raw !== undefined ? { raw: reply.raw } : {}) };
