@@ -248,9 +248,22 @@ export function finishOf09(reply: ModelReply): string {
   }
 }
 
-/** The plan of an event names no owner since 0.10.0: read it from `AskResult.plan`. */
+/**
+ * The plan of an event names no owner since 0.10.0: read it from `AskResult.plan`. Code of 0.9 told
+ * the full metadata from a `DocumentRef` by its `lines`, then read the owner. A `DocumentRef` never
+ * had an owner, so only the read after that check tells 0.9 from 0.10: on 0.9 the directive is unused.
+ */
 export function ownerOf(result: EventResult, returned: AskResult): string | undefined {
-  // @ts-expect-error -- Property 'owner' does not exist on the event plan's documents (TS2339).
-  const fromEvent: string | undefined = result.plan.inline[0]?.owner;
-  return fromEvent ?? returned.plan.inline[0]?.owner;
+  const first = result.plan.inline[0];
+  if (first && "lines" in first) {
+    // @ts-expect-error -- Property 'owner' does not exist on the event plan's metadata (TS2339).
+    return first.owner;
+  }
+  return returned.plan.inline[0]?.owner;
 }
+
+/** The full metadata in the plan of an event: the documents that are not a `DocumentRef`. */
+type EventPlanMeta = Extract<EventResult["plan"]["inline" | "searchable"][number], { lines: number }>;
+
+/** It has none of the five fields of a document's access and origin. On 0.9 this line fails (TS2322). */
+export const eventPlanLeavesOut: [Extract<keyof EventPlanMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">] extends [never] ? true : false = true;
