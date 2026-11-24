@@ -12,6 +12,7 @@ import {
   laterResult,
   modelErrorOf,
   rateAllowanceOf,
+  reportsInput,
   TOOL_TURN_VERSION,
   UsageMeter,
   type ChatMessage,
@@ -28,7 +29,7 @@ import {
   type UsageTotals,
 } from "./model.js";
 import { DocumentStoreError } from "./errors.js";
-import { estimateParts, REQUEST_BYTES_MARGIN } from "./plan.js";
+import { canBeReadWhole, estimateParts, REQUEST_BYTES_MARGIN } from "./plan.js";
 import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
 import {
@@ -45,6 +46,7 @@ import {
   unknownToolName,
 } from "./tools.js";
 import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PlacementState, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import { wholeReadCost } from "./whole-cost.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
@@ -62,11 +64,14 @@ export const FINAL_ANSWER_WITHOUT_TOOLS = "Answer my question now, from what is 
 export const EXPLORER_INSTRUCTION = "You only gather material in this conversation: another model writes the answer. It sees this conversation and what your tool calls returned, not what you thought or wrote. So call the tools until their results hold everything the answer needs from the files. Then, or at once if no tool is needed, reply with the single word DONE instead of an answer.";
 
 /**
- * The ceiling on the input tokens of a question that sets no `limits.inputTokens`, before the room
- * for whole-file reads is added to it. New in 0.10.0. Not applied yet: a question without
- * `limits.inputTokens` has no ceiling.
+ * The least ceiling on the input tokens of a question that sets no `limits.inputTokens`. Its
+ * ceiling is the larger of this and `toolTurns` times its first request, with the room for its
+ * whole-file reads added. New in 0.10.0.
  */
 export const DEFAULT_INPUT_TOKENS = 1_000_000;
+
+/** How many whole-file reads one question may make, over all its documents, by default (`limits.wholeReadsPerQuestion`). */
+const DEFAULT_WHOLE_READS_PER_QUESTION = 2;
 
 /** The limits of one question. */
 export type AskLimits = {
@@ -91,16 +96,23 @@ export type AskLimits = {
   wholeDocumentReads?: number;
   /**
    * A ceiling on the input tokens of one question, over all its requests, whole-file part reads
-   * included. Once it is reached no more tools run and the next request is the answer; a
-   * whole-file read that would pass it is refused. Unset: no ceiling.
+   * included, in the models' own tokens. Before each tool request the loop looks ahead: when what
+   * was spent, that request and the answer's request would pass it, no more tools run and the next
+   * request is the answer. A whole-file read that would pass it is refused. A request whose
+   * provider reports no input counts by the library's estimate (`UsageTotals.estimatedInputTokens`).
+   * Unset (since 0.10.0): the larger of `DEFAULT_INPUT_TOKENS` and `toolTurns` times the estimate
+   * of the question's first request, plus room for its whole-file reads: as many as
+   * `wholeReadsPerQuestion` and the documents allow, each at the price of the dearest one.
+   * `Infinity`: no ceiling, as before 0.10.0.
    */
   inputTokens?: number;
   /** The same ceiling, on the number of model requests: the chat's and the part reads' together. */
   requests?: number;
   /**
    * How many whole-file reads (`analyze_whole_document`) one question may make over all its
-   * documents, next to `wholeDocumentReads` for each one. Defaults to 2; `Infinity` keeps the rule
-   * of 0.9, one read of each document. New in 0.10.0. Not applied yet.
+   * documents, next to `wholeDocumentReads` for each one. A read that sent requests counts, one
+   * that failed among them. Defaults to 2; `Infinity` keeps the rule of 0.9, one read of each
+   * document. New in 0.10.0.
    */
   wholeReadsPerQuestion?: number;
 };
@@ -421,14 +433,52 @@ const DEFAULT_CALLS_PER_TURN = 8;
 const CALLS_AT_ONCE = 4;
 /** With less room than this for its result, a call is not run. */
 const LEAST_ROOM_CHARACTERS = 1_500;
-/** Characters of a tool result for each token of room. A log full of IDs and numbers comes to about two. */
+/**
+ * Characters of a tool result for each token of room, when the call names no document of the
+ * question. Since 0.10.0 a call that names one takes its document's own (`charactersPerToken`).
+ */
 const CHARACTERS_PER_TOKEN = 2;
+
+/**
+ * The characters of a document's text for each token of the estimate, as its ingest counted them,
+ * from 0.8 to 4: about 0.9 for a table of numbers, 1.4 for a service log, 1.9 for Hebrew prose.
+ * The JSON of a tool result that quotes the text comes to about the same. `CHARACTERS_PER_TOKEN`
+ * when the metadata does not say. New in 0.10.0.
+ */
+function charactersPerToken(meta: Pick<DocumentMeta, "characters" | "estimatedTokens"> | undefined): number {
+  const ratio = meta && meta.estimatedTokens > 0 ? meta.characters / meta.estimatedTokens : Number.NaN;
+  return Number.isFinite(ratio) ? Math.min(4, Math.max(0.8, ratio)) : CHARACTERS_PER_TOKEN;
+}
+
+/** The tokens of room a tool result takes in a request, as the request meter counts an answer. */
+const resultTokens = (result: ToolResult): number => estimateTokens(JSON.stringify(result)) + 8;
+
+/**
+ * `result` cut to `tokens` of room (`resultTokens`): by `fitAnswer`, to the characters its own
+ * characters per token give, and a little less again while it is still over. Never below
+ * `LEAST_RESULT_CHARACTERS`.
+ */
+function cutToTokens(result: ToolResult, tokens: number): ToolResult {
+  const json = JSON.stringify(result);
+  const perToken = json.length / Math.max(1, resultTokens(result));
+  let characters = Math.max(LEAST_RESULT_CHARACTERS, Math.floor(tokens * perToken));
+  let cut = fitAnswer(result, characters);
+  for (let tries = 0; tries < 4 && resultTokens(cut) > tokens && characters > LEAST_RESULT_CHARACTERS; tries++) {
+    characters = Math.max(LEAST_RESULT_CHARACTERS, Math.floor(characters * 0.85));
+    cut = fitAnswer(result, characters);
+  }
+  return cut;
+}
 /** Bytes a character of a tool result may take in the request. */
 const BYTES_PER_CHARACTER = 3;
 /** Tool rounds whose results are kept in full when older ones are dropped to make room. */
 const ROUNDS_KEPT = [3, 2, 1];
 
 const NO_ROOM = "Not run: there is no room left in this conversation for another tool result. Answer now, from what the tools returned so far.";
+/** How the error of a whole-file read that sent its parts, and could read none of them, begins (`NothingReadError`). */
+const NOTHING_READ = "Could not read any part of ";
+/** The answer to a call of a tool the question does not have: it is not run, and takes no room. New in 0.10.0. */
+const unknownTool = (name: string, tools: string[]) => `Unknown tool ${unknownToolName(name)}. The tools are: ${tools.join(", ")}.`;
 /** Why a request of a whole-file read that its read left behind ended with its call. */
 const CALL_ENDED = "The tool call ended before this request did.";
 
@@ -599,23 +649,30 @@ class RequestMeter {
 }
 
 /**
- * Shares `room` characters among tool calls whose results may be up to `caps` characters. A call
- * gets no more than its cap, and the others split what it leaves. Calls that cannot each get
- * `LEAST_ROOM_CHARACTERS` (or their cap, when it is smaller) are not run, the last ones first:
- * their share is undefined.
+ * Shares `room` among tool calls whose results may be up to `caps` characters. A character of the
+ * result of call i takes `rates[i]` of the room (1 when `rates` is left out: the room is in
+ * characters; since 0.10.0 the loop gives it in tokens, and each call the tokens a character of its
+ * document takes). A call gets no more than its cap, and the others split what it leaves. Calls
+ * that cannot each get `LEAST_ROOM_CHARACTERS` (or their cap, when it is smaller) are not run, the
+ * last ones first: their share is undefined. The shares are in characters.
  */
-export function shareRoom(caps: number[], room: number): Array<number | undefined> {
-  const least = (cap: number) => Math.min(cap, LEAST_ROOM_CHARACTERS);
+export function shareRoom(caps: number[], room: number, rates?: number[]): Array<number | undefined> {
+  const rate = (index: number) => rates?.[index] ?? 1;
+  const least = (cap: number, index: number) => Math.min(cap, LEAST_ROOM_CHARACTERS) * rate(index);
   let count = caps.length;
-  let needed = caps.reduce((sum, cap) => sum + least(cap), 0);
-  while (count > 0 && needed > room) needed -= least(caps[--count]!);
+  let needed = caps.reduce((sum, cap, index) => sum + least(cap, index), 0);
+  while (count > 0 && needed > room) {
+    count--;
+    needed -= least(caps[count]!, count);
+  }
   const shares: Array<number | undefined> = caps.map(() => undefined);
   // The smallest caps first: each call takes its cap or an even share of what is left, whichever is less.
-  const order = caps.slice(0, count).map((cap, index) => ({ cap, index })).sort((left, right) => left.cap - right.cap);
+  const order = caps.slice(0, count).map((cap, index) => ({ cap: cap * rate(index), index })).sort((left, right) => left.cap - right.cap);
   let left = Math.max(0, Math.floor(room));
   order.forEach(({ cap, index }, position) => {
     const share = Math.min(cap, Math.floor(left / (order.length - position)));
-    shares[index] = share;
+    // A call given its whole cap gets the cap as it is, not as it comes back from the rate.
+    shares[index] = share === cap ? caps[index]! : Math.floor(share / rate(index));
     left -= share;
   });
   return shares;
@@ -716,7 +773,7 @@ const MOST_OVERFLOW_RECOVERIES = 2;
  * so it turned off the ceilings and the cap on whole-file reads, or every tool.
  */
 function checkedLimits(given: AskLimits | undefined): AskLimits {
-  for (const field of ["toolTurns", "callsPerTurn", "wholeDocumentReads", "inputTokens", "requests"] as const) {
+  for (const field of ["toolTurns", "callsPerTurn", "wholeDocumentReads", "inputTokens", "requests", "wholeReadsPerQuestion"] as const) {
     const value: unknown = given?.[field];
     if (value === undefined) continue;
     if (typeof value !== "number") throw new TypeError(`limits.${field} must be a number, and is ${typeof value === "string" ? JSON.stringify(value) : typeof value}.`);
@@ -1073,7 +1130,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     if (shown && reply.text.length > got.length && reply.text.startsWith(got) && !(dropFiltered && reply.finish === "filtered")) write(reply.text.slice(got.length));
     answeredRequests++;
     lastReply = reply;
-    usage.add(adapter.id, reply.usage);
+    // A reply without its input tokens is counted by the estimate, in the model's own tokens.
+    usage.add(adapter.id, reply.usage, estimated * scaleOf(adapter));
     // The count of the model that answered, in the library's tokens by that model's own scale: how
     // much more than its scale says the text costs it, which the other model will see too. By the
     // larger scale of the two, a count of the model with the smaller one was taken for no more.
@@ -1174,10 +1232,15 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   // request as too large, and names its window, makes it smaller.
   let tokenLimit = budget.contextTokens - Math.floor(reservedTokens / 2);
   const byteLimit = maxRequestBytes - Math.max(32_768, Math.floor(maxRequestBytes / 50));
-  /** Characters of tool results that still fit, with a model turn that is about to be answered. */
-  const room = (pending: ModelToolRound): number => {
+  /**
+   * The tokens of tool results that still fit, with a model turn that is about to be answered, for
+   * calls whose results take `rates` tokens a character: within the token limit, and within the
+   * bytes of the request for the call that takes the fewest tokens a character.
+   */
+  const room = (pending: ModelToolRound, rates: number[]): number => {
     const now = meter.current([...messages, pending]);
-    return Math.floor(Math.min((tokenLimit - now.tokens) * CHARACTERS_PER_TOKEN, (byteLimit - now.bytes) / BYTES_PER_CHARACTER));
+    const fewest = rates.length > 0 ? Math.min(...rates) : 1 / CHARACTERS_PER_TOKEN;
+    return Math.floor(Math.min(tokenLimit - now.tokens, (byteLimit - now.bytes) / BYTES_PER_CHARACTER * fewest));
   };
   /**
    * Makes room: the results of every tool round but the last `keep` are replaced by short
@@ -1423,17 +1486,20 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const partReader = options.wholeDocumentAnalysis === false ? undefined : toolModel.generateText?.bind(toolModel);
     const generate: GenerateText | undefined = partReader && (async (part) => {
       let reported = false;
+      // What the request sends, in the reader's tokens: counted for a request whose usage does not
+      // give its input, so that `limits.inputTokens` sees it. Worked out only then.
+      const estimate = () => (estimateTokens(part.system) + estimateTokens(part.prompt)) * scaleOf(toolModel);
       const text = await partReader({
         ...part,
         onUsage: (used) => {
           reported = true;
-          usage.add(toolModel.id, used);
+          usage.add(toolModel.id, used, reportsInput(used) ? undefined : estimate());
           part.onUsage?.(used);
         },
       });
       // A part reader that does not report its usage (`onUsage` is optional) still made a request,
       // and `limits.requests` counts it.
-      if (!reported) usage.add(toolModel.id, undefined);
+      if (!reported) usage.add(toolModel.id, undefined, estimate());
       return text;
     });
     const tools = files.tools(searchable, {
@@ -1452,7 +1518,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     /** The documents a tool call found gone, told once each ("document_gone"). */
     const gone = new Set<string>();
     /** The file name of a document of the question, as the plan has it. */
-    const nameOf = (id: string): string | undefined => [...searchable, ...viewable].find((meta) => meta.id === id)?.name;
+    const metaOf = (id: unknown): DocumentMeta | undefined => (typeof id === "string" ? [...searchable, ...viewable].find((meta) => meta.id === id) : undefined);
+    const nameOf = (id: string): string | undefined => metaOf(id)?.name;
     // The requests that use the tools are the chat's own, or an explorer model's: the same
     // conversation, and a line that says what its part is.
     const toolSystem = explorer ? `${system}\n\n${EXPLORER_INSTRUCTION}` : system;
@@ -1463,11 +1530,51 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
 
     const maxTurns = Math.max(1, Math.trunc(limits.toolTurns ?? DEFAULT_TOOL_TURNS));
     const maxCalls = Math.max(1, Math.trunc(limits.callsPerTurn ?? DEFAULT_CALLS_PER_TURN));
-    /** True once the question has used what it may: no more tools run. One request is kept for the answer. */
-    const spent = (): boolean => (
-      (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
-      || (limits.requests !== undefined && usage.totals.requests >= limits.requests - 1)
-    );
+    const readsOfEach = limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS;
+    // As the tool set reads its own count of reads of each document: whole numbers, none below 0.
+    const readsInAll = Math.max(0, Math.trunc(limits.wholeReadsPerQuestion ?? DEFAULT_WHOLE_READS_PER_QUESTION));
+    /** The price of a whole-file read of `meta` by the model that explores, in its own tokens and requests. */
+    const priceOf = (meta: DocumentMeta) => wholeReadCost(meta, budget, scaleOf(toolModel));
+    /**
+     * The ceiling on the input tokens of the question: `limits.inputTokens`, or by default the larger
+     * of `DEFAULT_INPUT_TOKENS` and `toolTurns` times the first request, plus room for the
+     * whole-file reads the question may make: as many as `wholeReadsPerQuestion` and the documents
+     * that can be read whole allow, each at the price of the dearest of them.
+     */
+    const ceiling = ((): number => {
+      if (limits.inputTokens !== undefined) return limits.inputTokens;
+      const first = meter.current(viewFor(toolModel)).tokens * scaleOf(toolModel);
+      const readable = tools.has(TOOL_NAMES.analyze) && readsOfEach > 0 ? searchable.filter((meta) => canBeReadWhole(meta, budget)) : [];
+      const reads = Math.max(0, Math.min(readsInAll, readable.length * Math.trunc(readsOfEach)));
+      const prices = readable.map((meta) => priceOf(meta).inputTokens).filter((price) => Number.isFinite(price));
+      const allowance = prices.length > 0 ? (Number.isFinite(reads) ? reads : readable.length) * Math.max(...prices) : 0;
+      return Math.max(DEFAULT_INPUT_TOKENS, maxTurns * first) + allowance;
+    })();
+    /** The input tokens the question has used: those the providers reported, and the estimates of those they did not. */
+    const spentTokens = (): number => usage.totals.inputTokens + (usage.totals.estimatedInputTokens ?? 0);
+    /**
+     * True once the question has used what it may: no more tools run. One request is kept for the
+     * answer. The ceiling of input tokens looks ahead: what was spent, the tool request about to be
+     * sent and the answer's request after it, each as the meter counts it now, must stay within it.
+     */
+    const spent = (): boolean => {
+      if (limits.requests !== undefined && usage.totals.requests >= limits.requests - 1) return true;
+      if (!(ceiling < Number.POSITIVE_INFINITY)) return false;
+      const next = meter.current(viewFor(toolModel)).tokens * scaleOf(toolModel);
+      const closing = meter.current(viewFor(model)).tokens * scaleOf(model);
+      return spentTokens() + next + closing > ceiling;
+    };
+    /** The whole-file reads of the question that sent requests: those that returned, and those that failed after they sent them. */
+    const readsMade = (documentId?: string): number => {
+      let made = evidence.filter((shown) => shown.whole && shown.tool === TOOL_NAMES.analyze && (documentId === undefined || shown.documentId === documentId)).length;
+      for (const message of messages.slice(asked)) {
+        if (!isRound(message)) continue;
+        for (const { call, result: returned } of message.answers) {
+          if (call.name === TOOL_NAMES.analyze && (documentId === undefined || call.args.document_id === documentId) && typeof returned.error === "string" && returned.error.startsWith(NOTHING_READ)) made++;
+        }
+      }
+      return made;
+    };
     /**
      * A whole-file read is many requests at once: one that would pass a ceiling of the question is
      * not started. `reserved` is what the reads already let through in this turn will take: they run
@@ -1477,17 +1584,26 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       if (call.name !== TOOL_NAMES.analyze) return {};
       const meta = searchable.find((document) => document.id === call.args.document_id);
       if (!meta) return {};
-      // A read of a document read whole as often as it may be is refused by the tool, at no cost: it
-      // takes nothing from the reads of other documents.
-      const before = evidence.filter((shown) => shown.whole && shown.documentId === meta.id).length + (reserved.reads.get(meta.id) ?? 0);
-      if (before >= (limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS)) return {};
-      // The parts are read by the model that explores, in its own tokens.
-      const tokens = Math.ceil(meta.estimatedTokens * scaleOf(toolModel));
+      // A read of a document read whole as often as it may be is refused by the tool, at no cost,
+      // with its own reason (such as a read that failed earlier): it takes nothing from the reads
+      // of other documents. The tool set says how many reads are left; one of your own that does
+      // not is read by what the reads of this question returned.
+      const inTurn = reserved.reads.get(meta.id) ?? 0;
+      const left = tools.wholeReadsLeft?.(meta.id);
+      if (typeof left === "number" ? left - inTurn <= 0 : readsMade(meta.id) + inTurn >= readsOfEach) return {};
+      const allReserved = [...reserved.reads.values()].reduce((sum, reads) => sum + reads, 0);
+      if (readsMade() + allReserved >= readsInAll) {
+        return { refusal: `Not run: one question makes at most ${count(readsInAll)} whole-file ${readsInAll === 1 ? "read" : "reads"}, and this one has made ${readsInAll === 1 ? "it" : "them"}. Use search_document and read_document on ${meta.name}.` };
+      }
+      // The parts are read by the model that explores, in its own tokens: their lines numbered, the
+      // prompts, and the merges of their notes (`wholeReadCost`).
+      const price = priceOf(meta).inputTokens;
+      const tokens = Number.isFinite(price) ? price : Math.ceil(meta.estimatedTokens * scaleOf(toolModel));
       // The parts, a merge of their notes, the answer of the read, and the answer of the question.
       const requests = estimateParts(meta, budget) + 3;
-      if (limits.inputTokens !== undefined) {
-        const left = Math.max(0, limits.inputTokens - usage.totals.inputTokens - reserved.inputTokens);
-        if (tokens > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} are left of the ${count(limits.inputTokens)} this question may use. Use search_document and read_document.` };
+      if (ceiling < Number.POSITIVE_INFINITY) {
+        const left = Math.max(0, ceiling - spentTokens() - reserved.inputTokens);
+        if (tokens > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} are left of the ${count(ceiling)} this question may use. Use search_document and read_document.` };
       }
       if (limits.requests !== undefined) {
         const left = Math.max(0, limits.requests - usage.totals.requests - reserved.requests);
@@ -1582,6 +1698,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         const label = labelOf(call);
         // A call that did not arrive whole is not run: the model is told, and can send it again.
         if (call.problem) return { call, label, refusal: call.problem };
+        // Nor a call of a tool the question does not have: it is told which there are, and its
+        // answer takes no room (a turn of unknown calls made room for each of them, at the cap of
+        // a result, and shortened the results of earlier turns for nothing).
+        if (!tools.has(call.name)) return { call, label, refusal: unknownTool(call.name, declarations.map((declaration) => declaration.name)) };
         // A look at pages returns a file and a few words: the file has its own room, worked out when it runs.
         if (call.name === TOOL_NAMES.view) return { call, label };
         const key = toolCallKey(call.name, call.args);
@@ -1607,14 +1727,17 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // The calls that return text, and the most they may return: a call that is refused, or
       // answered with a pointer to what is already shown, needs no room.
       const sized = planned.filter((plan) => !plan.refusal && !plan.pointer && plan.call.name !== TOOL_NAMES.view);
-      const needed = sized.reduce((sum, plan) => sum + most(plan.call), 0);
-      let left = room(pending);
+      // The room is in tokens, and each result takes those of its document's characters.
+      const rateOf = (call: ToolCall) => 1 / charactersPerToken(metaOf(call.args.document_id));
+      const sizedRates = sized.map((plan) => rateOf(plan.call));
+      const needed = sized.reduce((sum, plan, index) => sum + most(plan.call) * sizedRates[index]!, 0);
+      let left = room(pending, sizedRates);
       let dropped = false;
       for (const keep of canShrink ? ROUNDS_KEPT : []) {
         if (left >= needed) break;
         if (shrink(keep)) {
           dropped = true;
-          left = room(pending);
+          left = room(pending, sizedRates);
         }
       }
       if (dropped) {
@@ -1636,10 +1759,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // The room is shared by those calls. A result is most often far smaller than its cap, so a call
       // that was given its whole cap first could leave none for the next ones, and a turn of small
       // searches ended the question.
-      const shares = shareRoom(runsNow.map((plan) => most(plan.call)), left);
+      const runRates = runsNow.map((plan) => rateOf(plan.call));
+      const shares = shareRoom(runsNow.map((plan) => most(plan.call)), left, runRates);
+      /** The tokens of room each call that runs was given, by its index in the turn. */
+      const given = new Map<number, number>();
       runsNow.forEach((plan, index) => {
         const share = shares[index];
         const cap = most(plan.call);
+        if (share !== undefined) given.set(planned.indexOf(plan), share * runRates[index]!);
         if (share === undefined) {
           if (!outOfRoom) notice("no_room", "There is no room left in this conversation for another tool result.");
           outOfRoom = true;
@@ -1852,7 +1979,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
          */
         let lateRoom: Map<number, number> | undefined;
         const roomOfReads = async (): Promise<Map<number, number>> => {
-          const sizes = await Promise.all(outputs.map(async (output) => JSON.stringify((await output).result).length));
+          const sizes = await Promise.all(outputs.map(async (output) => resultTokens((await output).result)));
           const reads = planned.flatMap((plan, index) => (plan.late ? [index] : []));
           let free = left - sizes.reduce((sum, size, index) => sum + (planned[index]!.late ? 0 : size), 0);
           const shares = new Map<number, number>();
@@ -1864,6 +1991,20 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           return shares;
         };
 
+        /**
+         * The tokens the results of this turn took so far, of the calls that were given room and are
+         * not whole-file reads (those are fitted to what the others left, above). A result is cut
+         * when it would take more than the room leaves it once the calls after it, and the reads,
+         * have their shares: the room shared by characters is a guess, and a tool set of your own
+         * may not keep to `maxResultCharacters`.
+         */
+        let took = 0;
+        const roomFor = (index: number): number => {
+          let others = 0;
+          for (const [other, tokens] of given) if (other > index || planned[other]!.late) others += tokens;
+          return left - took - others;
+        };
+
         // The answers in call order. Each call's `tool.end` goes out here, in the same order.
         for (const [index, { call, label, late, refusal, pointer }] of planned.entries()) {
           let output = await outputs[index]!;
@@ -1872,7 +2013,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           if (late) {
             lateRoom ??= await roomOfReads();
             const share = lateRoom.get(index)!;
-            if (JSON.stringify(output.result).length > share) output = { ...output, result: fitAnswer(output.result, Math.max(LEAST_RESULT_CHARACTERS, share)) };
+            if (resultTokens(output.result) > share) output = { ...output, result: cutToTokens(output.result, share) };
+          } else if (given.has(index)) {
+            const fits = roomFor(index);
+            if (resultTokens(output.result) > fits) output = { ...output, result: cutToTokens(output.result, fits) };
+            took += resultTokens(output.result);
           }
           if (pointer) {
             const line = step(`${label} — already shown above`);
@@ -1946,12 +2091,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // could not be read) is asked for once more, with a note that is not kept: otherwise the
       // question ends with nothing to show. Not after a refusal, a filter or another reason that
       // asking again does not mend ("other"), which would come again, nor a reply cut off at the
-      // output limit with nothing in it, nor once a ceiling of `limits` is reached. It is one of
-      // the second tries of the question, and may be one request past `limits.toolTurns`, which
+      // output limit with nothing in it, nor once the ceiling of the question is reached. It is one
+      // of the second tries of the question, and may be one request past `limits.toolTurns`, which
       // counts the answer's first request.
       const calledInstead = reply.calls.length > 0 || reply.finish === "malformed_call";
-      const ceilingReached = (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
-        || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
+      const ceilingReached = spentTokens() >= ceiling || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
       if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && reply.finish !== "other" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
         if (ceilingReached) {
           budgetReached();

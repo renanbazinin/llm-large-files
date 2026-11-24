@@ -130,8 +130,8 @@ export type ModelReply = {
    * limit; "filtered" by the provider's safety filters; "malformed_call", a tool call the model
    * tried to make that could not be read (Gemini's MALFORMED_FUNCTION_CALL); "other", a known
    * reason that is none of these and that asking again does not mend (Gemini's OTHER or LANGUAGE;
-   * new in 0.10.0, and no built-in adapter gives it yet). Unset when the adapter does not know the
-   * reason.
+   * new in 0.10.0). The loop does not ask again after "filtered" or "other". Unset when the adapter
+   * does not know the reason.
    */
   finish?: "complete" | "cut" | "filtered" | "malformed_call" | "other";
   /** Why the provider refused the prompt, when it did. Nothing more is asked after it. */
@@ -522,20 +522,35 @@ export type UsageTotals = ModelUsage & {
   requests: number;
   byModel: Record<string, ModelUsage & { requests: number }>;
   /**
-   * The input tokens of the requests whose provider said nothing of their usage, by the library's
-   * estimate: the ceiling of the question counts them with the reported ones. New in 0.10.0. Not
-   * counted yet.
+   * The input tokens of the requests whose provider said nothing of their input, by the library's
+   * estimate, in each model's own tokens: the ceiling of the question (`limits.inputTokens`) counts
+   * them with the reported ones. Absent when every request reported its input. New in 0.10.0.
    */
   estimatedInputTokens?: number;
-  /** Requests that were answered without any usage from the provider (see `estimatedInputTokens`). New in 0.10.0. Not counted yet. */
+  /**
+   * Requests that were answered without their input tokens from the provider: no usage, or an input
+   * of 0 (see `estimatedInputTokens`). Absent when there was none. New in 0.10.0.
+   */
   unmeasuredRequests?: number;
+};
+
+/** True when `usage` gives the input tokens of its request: a number above 0. */
+export const reportsInput = (usage: Partial<ModelUsage> | undefined): boolean => {
+  const input = usage?.inputTokens;
+  return typeof input === "number" && Number.isFinite(input) && input > 0;
 };
 
 /** Sums the usage of the requests of one question. */
 export class UsageMeter {
   readonly totals: UsageTotals = { requests: 0, ...EMPTY_USAGE, byModel: {} };
 
-  add(model: string, usage: Partial<ModelUsage> | undefined): void {
+  /**
+   * Counts one answered request of `model`. `estimatedInputTokens` is the library's estimate of its
+   * input, in the model's own tokens: when `usage` does not give the input (no usage, or 0), the
+   * estimate goes into `estimatedInputTokens` and the request into `unmeasuredRequests`. Without
+   * it, such a request is counted as before 0.10.0.
+   */
+  add(model: string, usage: Partial<ModelUsage> | undefined, estimatedInputTokens?: number): void {
     const { byModel } = this.totals;
     // An own entry only: an id such as "__proto__" or "constructor" found what every object
     // inherits, and "__proto__" then counted the usage into Object.prototype.
@@ -551,5 +566,9 @@ export class UsageMeter {
         if (typeof value === "number" && Number.isFinite(value) && value > 0) sum[key] += value;
       }
     }
+    if (estimatedInputTokens === undefined || reportsInput(usage)) return;
+    this.totals.unmeasuredRequests = (this.totals.unmeasuredRequests ?? 0) + 1;
+    const estimate = Number.isFinite(estimatedInputTokens) && estimatedInputTokens > 0 ? Math.ceil(estimatedInputTokens) : 0;
+    this.totals.estimatedInputTokens = (this.totals.estimatedInputTokens ?? 0) + estimate;
   }
 }
