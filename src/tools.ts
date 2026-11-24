@@ -1339,8 +1339,15 @@ export function createDocumentTools(options: {
     const reads: DocumentSource[] = [];
     const calls = typeof args === "object" && args !== null ? loaded.get(args) ?? new Set<DocumentSource[]>() : undefined;
     if (calls) loaded.set(args, calls.add(reads));
+    /**
+     * Asks the store, once the call has ended, whether each document it read is still the one it
+     * loaded. A call with a signal of its own ends when it aborts, even while this store call hangs.
+     */
     const checkReads = async () => {
-      for (const document of reads) if (options.checkRead && !await options.checkRead(document)) throw gone(document.meta.id);
+      const checking = (async () => {
+        for (const document of reads) if (options.checkRead && !await options.checkRead(document)) throw gone(document.meta.id);
+      })();
+      await (hooks.signal ? until(checking, signal) : checking);
     };
     try {
       let result: ToolResult;

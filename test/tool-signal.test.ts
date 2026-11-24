@@ -18,6 +18,8 @@ const hang = <T>(then: () => Promise<T>): Promise<T> => new Promise<void>((resol
 class Holding implements DocumentStore {
   readonly hung = new Set<string>();
   metaHung = false;
+  /** Told of each ranged read, before it is answered. */
+  onRead?: (id: string) => void;
   readonly #inner = new MemoryDocumentStore();
   put(document: StoredDocument, context?: DocumentContext) {
     return this.#inner.put(document, context);
@@ -32,6 +34,7 @@ class Holding implements DocumentStore {
     return this.#inner.delete(id, context);
   }
   async readTextRange(id: string, start: number, end: number, context?: DocumentContext): Promise<Uint8Array | undefined> {
+    this.onRead?.(id);
     const read = async () => {
       const document = await this.#inner.get(id, context);
       return document && utf8(document.text).subarray(start, end);
@@ -71,6 +74,25 @@ describe("ToolCallHooks.signal", () => {
     // The tool set goes on: another call of it runs.
     store.hung.clear();
     expect((await tools.execute("read_document", { document_id: quick.id, start_line: 1, end_line: 2 })).lines).toBe("1-2");
+  });
+
+  it("ends a call whose check of the store after its read hangs", async () => {
+    const store = new Holding();
+    const files = createLargeFiles({ store, budget: { inlineTokens: 10, mapChunkTokens: 2_000 }, wholeDocumentBytes: 0, cacheBytes: 0, scanChunkBytes: 4_096, storeTimeoutMs: 0 });
+    const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(800)) });
+    const tools = files.tools([log]);
+    // The metadata answers when the call loads the document, and hangs once its lines are read:
+    // the call is then in its check that the store still holds the document it read.
+    store.onRead = (id) => {
+      store.metaHung = true;
+      store.hung.add(id);
+    };
+    const stop = new AbortController();
+    const stopped = tools.executeWithFiles("read_document", { document_id: log.id, start_line: 100, end_line: 120 }, {}, { signal: stop.signal });
+    setTimeout(() => stop.abort(reason()), 50);
+    // 0.10.0 before this fix: still waiting, until storeTimeoutMs, or for good with 0.
+    await expect(within(stopped)).rejects.toThrow("stopped by the user");
+    expect(store.hung.has(log.id)).toBe(true);
   });
 
   it("ends a call that waits for a document's metadata", async () => {

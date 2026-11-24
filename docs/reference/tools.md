@@ -153,7 +153,8 @@ result for the model.
 
 **A call's own signal.** `ToolCallHooks.signal` (new in 0.10.0, the fourth argument of
 `executeWithFiles`) ends that call alone: its load of the document, its search, its regex time, its
-whole-file read, its wait for a turn to look at pages and its read of the original. It is joined
+whole-file read, its wait for a turn to look at pages, its read of the original, and the check made
+once it has read, that the store still holds the document it loaded. It is joined
 with the tool set's `signal`. The call throws the signal's reason, as for the tool set's own; the
 other calls of the tool set go on.
 
