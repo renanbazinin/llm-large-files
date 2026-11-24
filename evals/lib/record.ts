@@ -14,9 +14,12 @@
 // their values, every other header (authorization, x-goog-api-key, x-goog-user-project, a gateway's
 // key…) is written as redacted. So no key, token or project ID is written.
 //
-// Replay answers each request from the file whose hash it has, in the order they were recorded
-// for requests of the same hash, or strictly in order. A request with no file throws
-// CassetteMissError, which names the first field that differs from the request expected there.
+// A stream is handed on piece by piece as it arrives, and written when it ends. A stream that fails
+// partway is written with the pieces that came and its error, and a replay fails it at the same
+// place. Replay answers each request from the file whose hash it has, in the order they were
+// recorded for requests of the same hash, or strictly in order. A request with no file throws
+// CassetteMissError, which names the first field that differs from the request expected there: the
+// method, the URL (another model or endpoint), or a field of the body.
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -36,9 +39,9 @@ export type RecordedRequest = {
 /** A piece of a body as it arrived: its text, or its bytes when the piece ends inside a character. */
 export type Chunk = string | { base64: string };
 
-/** A response as a cassette keeps it. */
+/** A response as a cassette keeps it. `streamError`: the body failed after its `chunks`. */
 export type RecordedResponse =
-  | { status: number; statusText?: string; headers: Record<string, string>; json?: unknown; text?: string; base64?: string; chunks?: Chunk[] }
+  | { status: number; statusText?: string; headers: Record<string, string>; json?: unknown; text?: string; base64?: string; chunks?: Chunk[]; streamError?: { name: string; message: string } }
   | { error: { name: string; message: string } };
 
 /** One file of a cassette. */
@@ -226,40 +229,57 @@ function chunkOf(bytes: Uint8Array): Chunk {
 
 const bytesOf = (chunk: Chunk): Uint8Array => (typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(Buffer.from(chunk.base64, "base64")));
 
-/** Reads a whole body, piece by piece as it arrives. */
-async function piecesOf(response: Response): Promise<Uint8Array[]> {
-  if (!response.body) return [];
+/** An error as a cassette keeps it: its name and message, any URL in it normalized. */
+const failureOf = (error: unknown) => {
+  const failure = error instanceof Error ? error : new Error(String(error));
+  return { name: failure.name, message: normalizeUrl(failure.message) };
+};
+const failureFrom = (kept: { name: string; message: string }) => Object.assign(new Error(kept.message), { name: kept.name });
+
+/** Reads a whole body, piece by piece as it arrives, and how it failed when it did not end. */
+async function piecesOf(response: Response): Promise<{ pieces: Uint8Array[]; error?: unknown }> {
   const pieces: Uint8Array[] = [];
+  if (!response.body) return { pieces };
   const reader = response.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return pieces;
-    if (value.byteLength > 0) pieces.push(value);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return { pieces };
+      if (value.byteLength > 0) pieces.push(value);
+    }
+  } catch (error) {
+    return { pieces, error };
   }
 }
 
-/** A response as a cassette keeps it: a stream as its pieces, a JSON body parsed, other text as text. */
-async function recordedResponseOf(response: Response): Promise<{ recorded: RecordedResponse; pieces: Uint8Array[] }> {
-  const pieces = await piecesOf(response);
+/** The status and the headers an adapter reads, as a cassette keeps them. */
+function headOf(response: Response): { status: number; statusText?: string; headers: Record<string, string> } {
   const headers: Record<string, string> = {};
   for (const name of KEPT_HEADERS) {
     const value = response.headers.get(name);
     if (value !== null) headers[name] = value;
   }
-  const base = { status: response.status, ...(response.statusText ? { statusText: response.statusText } : {}), headers };
-  if (/event-stream/i.test(headers["content-type"] ?? "")) return { recorded: { ...base, chunks: pieces.map(chunkOf) }, pieces };
-  const whole = Buffer.concat(pieces);
-  const text = chunkOf(whole);
-  if (typeof text !== "string") return { recorded: { ...base, base64: text.base64 }, pieces };
+  return { status: response.status, ...(response.statusText ? { statusText: response.statusText } : {}), headers };
+}
+
+/** A whole response as a cassette keeps it: a JSON body parsed, other text as text, a body that failed as its pieces and its error. */
+function recordedBodyOf(head: ReturnType<typeof headOf>, pieces: Uint8Array[], error?: unknown): RecordedResponse {
+  if (error !== undefined) return { ...head, chunks: pieces.map(chunkOf), streamError: failureOf(error) };
+  if (/event-stream/i.test(head.headers["content-type"] ?? "")) return { ...head, chunks: pieces.map(chunkOf) };
+  const text = chunkOf(Buffer.concat(pieces));
+  if (typeof text !== "string") return { ...head, base64: text.base64 };
   try {
-    return { recorded: { ...base, json: JSON.parse(text) as unknown }, pieces };
+    return { ...head, json: JSON.parse(text) as unknown };
   } catch {
-    return { recorded: { ...base, text }, pieces };
+    return { ...head, text };
   }
 }
 
-/** A body that gives its pieces one at a time, as they arrived, and fails when `signal` aborts. */
-function streamOf(pieces: Uint8Array[], signal?: AbortSignal | null): ReadableStream<Uint8Array> {
+/**
+ * A body that gives its pieces one at a time, as they arrived, then ends, or fails with `failure`
+ * (a body that failed partway). It fails when `signal` aborts.
+ */
+function streamOf(pieces: Uint8Array[], signal?: AbortSignal | null, failure?: unknown): ReadableStream<Uint8Array> {
   let next = 0;
   let stop: (() => void) | undefined;
   return new ReadableStream<Uint8Array>({
@@ -270,7 +290,13 @@ function streamOf(pieces: Uint8Array[], signal?: AbortSignal | null): ReadableSt
     },
     pull(controller) {
       if (next < pieces.length) controller.enqueue(pieces[next++]!);
-      if (next >= pieces.length) {
+      else if (failure !== undefined) {
+        // On the read after the last piece: an error drops the pieces not read yet.
+        if (stop) signal?.removeEventListener("abort", stop);
+        controller.error(failure);
+        return;
+      }
+      if (next >= pieces.length && failure === undefined) {
         if (stop) signal?.removeEventListener("abort", stop);
         controller.close();
       }
@@ -281,12 +307,14 @@ function streamOf(pieces: Uint8Array[], signal?: AbortSignal | null): ReadableSt
   });
 }
 
+const NO_BODY = [101, 204, 205, 304];
+
 /** A Response from a recorded one. */
 function responseOf(recorded: Exclude<RecordedResponse, { error: unknown }>, signal?: AbortSignal | null): Response {
   const init = { status: recorded.status, ...(recorded.statusText ? { statusText: recorded.statusText } : {}), headers: recorded.headers };
   // Statuses that have no body.
-  if ([101, 204, 205, 304].includes(recorded.status)) return new Response(null, init);
-  if (recorded.chunks) return new Response(streamOf(recorded.chunks.map(bytesOf), signal), init);
+  if (NO_BODY.includes(recorded.status)) return new Response(null, init);
+  if (recorded.chunks) return new Response(streamOf(recorded.chunks.map(bytesOf), signal, recorded.streamError ? failureFrom(recorded.streamError) : undefined), init);
   const body = recorded.json !== undefined ? JSON.stringify(recorded.json) : recorded.text ?? (recorded.base64 !== undefined ? Buffer.from(recorded.base64, "base64") : "");
   return new Response(body, init);
 }
@@ -319,8 +347,10 @@ export type RecordingFetchOptions = {
 
 /**
  * A fetch that sends each request on and writes it, with its response, to `directory` as
- * `<n>-<hash>.json`. It reads the whole response before it hands it on, piece by piece as it
- * arrived. A request that fails to connect is written as its error, and thrown again.
+ * `<n>-<hash>.json`. A stream is handed on piece by piece as it arrives, and written when it ends,
+ * fails (with its error, which a replay gives back at the same place) or is cancelled. Another body
+ * is read whole before it is handed on. A request that fails to connect is written as its error,
+ * and thrown again.
  */
 export function recordingFetch(directory: string, options: RecordingFetchOptions = {}): typeof fetch {
   const upstream = options.fetch ?? globalThis.fetch;
@@ -332,19 +362,61 @@ export function recordingFetch(directory: string, options: RecordingFetchOptions
     const hash = requestHash(normalized);
     const kept = options.redact ? options.redact(normalized) : normalized;
     const request = { method: kept.method, url: normalizeUrl(kept.url), headers: redactHeaders(kept.headers), hash, bytes: Buffer.byteLength(bodyText(normalized.body)), outline: outlineOf(kept.body) };
+    const file = path.join(directory, fileName(n, hash));
+    const signal = init?.signal ?? (typeof input === "object" && !(input instanceof URL) ? input.signal : undefined);
     let response: Response;
     try {
       response = await upstream(input, init);
     } catch (error) {
-      const failure = error instanceof Error ? error : new Error(String(error));
-      writeJson(path.join(directory, fileName(n, hash)), { n, request, response: { error: { name: failure.name, message: normalizeUrl(failure.message) } } } satisfies CassetteEntry);
+      writeJson(file, { n, request, response: { error: failureOf(error) } } satisfies CassetteEntry);
       throw error;
     }
-    const { recorded, pieces } = await recordedResponseOf(response);
-    writeJson(path.join(directory, fileName(n, hash)), { n, request, response: recorded } satisfies CassetteEntry);
+    const head = headOf(response);
     const headers = new Headers(response.headers);
     for (const name of ["content-encoding", "content-length", "transfer-encoding"]) headers.delete(name);
-    return new Response([101, 204, 205, 304].includes(response.status) ? null : streamOf(pieces, init?.signal), { status: response.status, statusText: response.statusText, headers });
+    const handedOn = { status: response.status, statusText: response.statusText, headers };
+    /** An abort of the request ends a replay at the same place by itself: it is not written as the body's error. */
+    const written = (error: unknown) => (error === undefined || signal?.aborted ? undefined : error);
+    if (NO_BODY.includes(response.status) || !response.body || !/event-stream/i.test(head.headers["content-type"] ?? "")) {
+      const { pieces, error } = await piecesOf(response);
+      writeJson(file, { n, request, response: recordedBodyOf(head, pieces, written(error)) } satisfies CassetteEntry);
+      return new Response(NO_BODY.includes(response.status) ? null : streamOf(pieces, signal, error), handedOn);
+    }
+    // A stream: each piece goes on as it arrives, and the file is written when the stream ends.
+    const pieces: Uint8Array[] = [];
+    const reader = response.body.getReader();
+    let done = false;
+    const finish = (error?: unknown) => {
+      if (done) return;
+      done = true;
+      writeJson(file, { n, request, response: recordedBodyOf(head, pieces, written(error)) } satisfies CassetteEntry);
+    };
+    return new Response(new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          for (;;) {
+            const next = await reader.read();
+            if (next.done) {
+              finish();
+              controller.close();
+              return;
+            }
+            if (next.value.byteLength === 0) continue;
+            pieces.push(next.value);
+            controller.enqueue(next.value);
+            return;
+          }
+        } catch (error) {
+          finish(error);
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        // The reader stopped here: what came is what a replay gives.
+        finish();
+        await reader.cancel(reason);
+      },
+    }), handedOn);
   }) as typeof fetch;
 }
 

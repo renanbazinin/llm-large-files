@@ -134,6 +134,69 @@ describe("record and replay of a stream (evals/lib/record.ts)", () => {
     });
   }
 
+  it("hands a stream on as it arrives, before it ends", async () => {
+    const dir = folder();
+    let release!: () => void;
+    const later = new Promise<void>((resolve) => { release = resolve; });
+    const [one, two] = cut(STREAMS[0]!.events, [Buffer.from(`data: ${JSON.stringify(STREAMS[0]!.events[0])}\n\n`).length]);
+    const upstream = (async () => new Response(new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(one!);
+        await later;
+        controller.enqueue(two!);
+        controller.close();
+      },
+    }), { headers: { "Content-Type": "text/event-stream" } })) as typeof fetch;
+    const response = await recordingFetch(dir, { fetch: upstream })("https://x.test/v1/models/m:streamGenerateContent?alt=sse", { method: "POST", body: "{}" });
+    const reader = response.body!.getReader();
+    // The first piece arrives while the second is held back, and nothing is written yet.
+    expect(Buffer.from((await reader.read()).value!).equals(Buffer.from(one!))).toBe(true);
+    expect(readCassette(dir)).toEqual([]);
+    release();
+    expect(Buffer.from((await reader.read()).value!).equals(Buffer.from(two!))).toBe(true);
+    expect((await reader.read()).done).toBe(true);
+    expect((readCassette(dir)[0]!.response as { chunks: unknown[] }).chunks).toHaveLength(2);
+  });
+
+  it("writes a stream that failed partway with its pieces and its error, and a replay fails it at the same place", async () => {
+    const dir = folder();
+    const [one] = cut(STREAMS[0]!.events, [Buffer.from(`data: ${JSON.stringify(STREAMS[0]!.events[0])}\n\n`).length]);
+    const upstream = (async () => {
+      let sent = false;
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!sent) {
+            sent = true;
+            controller.enqueue(one!);
+          } else {
+            controller.error(new TypeError("terminated: other side closed"));
+          }
+        },
+      }), { headers: { "Content-Type": "text/event-stream" } });
+    }) as typeof fetch;
+    const url = "https://x.test/v1/models/m:streamGenerateContent?alt=sse";
+    const read = async (fetch: typeof globalThis.fetch) => {
+      const got: string[] = [];
+      const reader = (await fetch(url, { method: "POST", body: "{}" })).body!.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) return { got, error: undefined };
+          got.push(Buffer.from(value).toString());
+        }
+      } catch (error) {
+        return { got, error: error as Error };
+      }
+    };
+    const live = await read(recordingFetch(dir, { fetch: upstream }));
+    expect(live.got).toEqual([Buffer.from(one!).toString()]);
+    expect(live.error?.message).toBe("terminated: other side closed");
+    expect(readCassette(dir)[0]!.response).toMatchObject({ status: 200, chunks: [Buffer.from(one!).toString()], streamError: { name: "TypeError", message: "terminated: other side closed" } });
+    const again = await read(replayFetch(dir));
+    expect(again.got).toEqual(live.got);
+    expect(again.error).toMatchObject({ name: "TypeError", message: "terminated: other side closed" });
+  });
+
   it("keeps a body that is not a stream, and an error status, and replays them in recorded order", async () => {
     const dir = folder();
     const upstream = fakeFetch([
