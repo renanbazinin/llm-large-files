@@ -58,6 +58,32 @@ describe("ToolOptions.declare", () => {
     expect(await tools.execute(TOOL_NAMES.read, { document_id: log.id, start_line: 1, end_line: 2 })).toMatchObject({ lines: "1-2" });
   });
 
+  it("answers no tool it does not declare, and keeps the least room for a tool that cannot run", async () => {
+    const { files, log } = await library();
+    let requests = 0;
+    const generate: GenerateText = async () => {
+      requests++;
+      return "A note (L1).";
+    };
+    // 0.10.0 before this fix: an undeclared analyze_whole_document ran a read, and aggregate_table was answered.
+    const none = files.tools([log], { generate, declare: [] });
+    expect(none.declarations).toEqual([]);
+    expect(none.has(TOOL_NAMES.analyze)).toBe(false);
+    expect(await none.execute(TOOL_NAMES.analyze, { document_id: log.id, task: "Summarize." })).toEqual({ error: "Unknown tool “analyze_whole_document”." });
+    expect(await none.execute(TOOL_NAMES.aggregate, { document_id: log.id })).toEqual({ error: "Unknown tool “aggregate_table”." });
+    expect(requests).toBe(0);
+    expect(none.resultCharacters(TOOL_NAMES.analyze)).toBe(LEAST_RESULT_CHARACTERS);
+    // Declared with no part reader, or with no table: the call answers its reason in a few words, and
+    // no more room is kept for it (0.10.0 before this fix kept 40,000 for the whole-file read).
+    const cannot = files.tools([log], { declare: ["search_document", "aggregate_table", "analyze_whole_document"] });
+    expect(await cannot.execute(TOOL_NAMES.analyze, { document_id: log.id, task: "Summarize." })).toEqual({ error: "Whole-document analysis is not enabled." });
+    expect(cannot.resultCharacters(TOOL_NAMES.analyze)).toBe(LEAST_RESULT_CHARACTERS);
+    expect(cannot.resultCharacters(TOOL_NAMES.aggregate)).toBe(LEAST_RESULT_CHARACTERS);
+    expect(cannot.resultCharacters(TOOL_NAMES.search)).toBe(files.budget.toolResultCharacters);
+    // With a part reader it may answer at length.
+    expect(files.tools([log], { generate, declare: ["analyze_whole_document"] }).resultCharacters(TOOL_NAMES.analyze)).toBe(40_000);
+  });
+
   it("with today's set gives today's bytes", async () => {
     const { files, log, sales } = await library();
     const today = files.tools([log, sales], { generate: notes });
@@ -74,8 +100,8 @@ describe("ToolOptions.inline", () => {
       requests++;
       return "unused";
     };
-    const tools = files.tools([sales], { generate, inline: [sales.id], declare: ["search_document", "read_document", "aggregate_table"] });
-    expect(names(tools.declarations)).not.toContain(TOOL_NAMES.analyze);
+    // Declared for the documents that are searched: here, a call of it names the one shown in full.
+    const tools = files.tools([sales], { generate, inline: [sales.id], declare: ["search_document", "read_document", "aggregate_table", "analyze_whole_document"] });
     const result = await tools.execute(TOOL_NAMES.analyze, { document_id: sales.id, task: "Sum the amounts." });
     expect(result).toEqual({ error: "sales.csv is shown in full above: answer from it, and use search_document or aggregate_table for exact counts." });
     expect(requests).toBe(0);

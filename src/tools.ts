@@ -886,10 +886,15 @@ export function createDocumentTools(options: {
     ...(viewable.size > 0 ? [DECLARATIONS.view] : []),
   ];
   const known = new Set(declarations.map((declaration) => declaration.name));
-  // Answered for any document, declared or not: a model may know the tool from earlier in the conversation.
-  if (textTools) known.add(TOOL_NAMES.aggregate);
-  // Not declared for files that are all too large for it, but still answered: with the reason, not "unknown tool".
-  if (textTools && options.generate) known.add(TOOL_NAMES.analyze);
+  // With `declare`, the tool set answers the tools it declares and no other: a chat whose tools only
+  // grow declares every tool of its earlier questions, and a call of one it does not declare (a
+  // whole-file read, many requests) is not run.
+  if (!declared) {
+    // Answered for any document, declared or not: a model may know the tool from earlier in the conversation.
+    if (textTools) known.add(TOOL_NAMES.aggregate);
+    // Not declared for files that are all too large for it, but still answered: with the reason, not "unknown tool".
+    if (textTools && options.generate) known.add(TOOL_NAMES.analyze);
+  }
   /**
    * Why a declared tool cannot run in this tool set, when it cannot: each call of it answers with
    * this. A chat's tools only grow (`ToolOptions.declare`), so a tool declared for an earlier
@@ -1413,8 +1418,10 @@ export function createDocumentTools(options: {
     declarations,
     has: (name) => known.has(name),
     execute: (name, args) => execute(name, args),
-    // A name the tool set does not answer gets an error of a few words: no more room is kept for it.
-    resultCharacters: (name) => (!known.has(name) ? LEAST_RESULT_CHARACTERS : name === TOOL_NAMES.analyze ? Math.max(cap, ANALYSIS_RESULT_CHARACTERS) : name === TOOL_NAMES.view ? LEAST_RESULT_CHARACTERS : cap),
+    // A name the tool set does not answer, a declared tool that cannot run, and a whole-file read
+    // with no part reader each get an error of a few words: no more room is kept for them.
+    resultCharacters: (name) => (!known.has(name) || cannotRun(name) !== undefined || (name === TOOL_NAMES.analyze && !options.generate) ? LEAST_RESULT_CHARACTERS
+      : name === TOOL_NAMES.analyze ? Math.max(cap, ANALYSIS_RESULT_CHARACTERS) : name === TOOL_NAMES.view ? LEAST_RESULT_CHARACTERS : cap),
     async executeWithFiles(name, args, limits = {}, hooks = {}) {
       if (name !== TOOL_NAMES.view || !known.has(name)) return { result: await execute(name, args, limits, hooks), files: [] };
       const signal = signalOf(hooks);
