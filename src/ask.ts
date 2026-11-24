@@ -1741,11 +1741,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       const requests = estimateParts(meta, budget) + (items ? 1 : 3);
       if (ceiling < Number.POSITIVE_INFINITY) {
         const left = Math.max(0, ceiling - spentTokens() - reserved.inputTokens);
-        if (tokens > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} are left of the ${count(ceiling)} this question may use. Use search_document and read_document.` };
+        if (tokens > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} ${count(left) === "1" ? "is" : "are"} left of the ${count(ceiling)} this question may use. Use search_document and read_document.` };
       }
       if (limits.requests !== undefined) {
         const left = Math.max(0, limits.requests - usage.totals.requests - reserved.requests);
-        if (requests > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(requests)} model requests, and ${count(left)} are left of the ${count(limits.requests)} this question may make. Use search_document and read_document.` };
+        if (requests > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(requests)} model requests, and ${count(left)} ${count(left) === "1" ? "is" : "are"} left of the ${count(limits.requests)} this question may make. Use search_document and read_document.` };
       }
       reserved.inputTokens += tokens;
       // The answer of the question is one request, whatever number of reads come before it.
