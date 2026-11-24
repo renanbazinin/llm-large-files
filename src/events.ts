@@ -112,13 +112,7 @@ export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_ru
  * - "answer_filtered": a filter of the provider stopped the answer, with or without text
  *   (`AskResult.finish` "filtered"). New in 0.10.0;
  * - "answer_cut": the answer stopped at the output limit (`AskResult.finish` "cut"). New in
- *   0.10.0;
- * - "placement_changed": the documents were planned afresh, not as `AskOptions.placement` had
- *   them: the state was of another version or of another start of the chat, or a document sent
- *   whole is searched with the tools now. New in 0.10.0. Not emitted yet;
- * - "native_rounds_dropped": the provider refused the rounds of earlier questions in its own form
- *   (`ToolTurn.native`), and the request was sent again with their calls only. New in 0.10.0. Not
- *   emitted yet.
+ *   0.10.0.
  *
  * A switch over every code must handle the codes added in a later version.
  */
@@ -138,9 +132,7 @@ export type NoticeCode =
   | "document_gone"
   | "page_looks_busy"
   | "answer_filtered"
-  | "answer_cut"
-  | "placement_changed"
-  | "native_rounds_dropped";
+  | "answer_cut";
 
 /**
  * Where a notice went in the callbacks of earlier versions: "activity" to `onActivity`, "step" to

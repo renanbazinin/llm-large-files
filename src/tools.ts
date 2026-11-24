@@ -891,9 +891,8 @@ export function createDocumentTools(options: {
     ...(viewable.size > 0 ? [DECLARATIONS.view] : []),
   ];
   const known = new Set(declarations.map((declaration) => declaration.name));
-  // With `declare`, the tool set answers the tools it declares and no other: a chat whose tools only
-  // grow declares every tool of its earlier questions, and a call of one it does not declare (a
-  // whole-file read, many requests) is not run.
+  // With `declare`, the tool set answers the tools it declares and no other: a call of one it does
+  // not declare (a whole-file read, many requests) is not run.
   if (!declared) {
     // Answered for any document, declared or not: a model may know the tool from earlier in the conversation.
     if (textTools) known.add(TOOL_NAMES.aggregate);
@@ -902,8 +901,7 @@ export function createDocumentTools(options: {
   }
   /**
    * Why a declared tool cannot run in this tool set, when it cannot: each call of it answers with
-   * this. A chat's tools only grow (`ToolOptions.declare`), so a tool declared for an earlier
-   * question may have nothing to work on in this one.
+   * this. A caller may declare a tool (`ToolOptions.declare`) that has nothing to work on here.
    */
   const cannotRun = (name: string): string | undefined => {
     if (!declared?.has(name)) return undefined;

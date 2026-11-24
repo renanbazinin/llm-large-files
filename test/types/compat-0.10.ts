@@ -65,7 +65,7 @@ export const toolsOf09: ToolSet = {
 
 /**
  * A LargeFiles of an application's own, as 0.9 wrote it: no `stats` or `toolsFor`, and a prepare()
- * that gives the PreparedContext of 0.9 (no `guide`, `listing`, `toolable` or `placement`).
+ * that gives the PreparedContext of 0.9 (no `toolable`).
  */
 export class FilesOf09 implements LargeFiles {
   readonly budget: Budget = resolveBudget();
@@ -113,7 +113,7 @@ export class FilesOf09 implements LargeFiles {
   }
 }
 
-/** An adapter of your own, as 0.9 wrote it: the finish values of 0.9, no `nativeRounds`, no response ID. */
+/** An adapter of your own, as 0.9 wrote it: the finish values of 0.9, no response ID. */
 export const adapterOf09: ModelAdapter = {
   id: "own-model",
   capabilities: { toolFiles: "none", pageTokens: 1_000, contextTokens: 128_000 },
@@ -122,14 +122,14 @@ export const adapterOf09: ModelAdapter = {
   },
 };
 
-/** A question asked with them, with a conversation of 0.9: plain turns and stored rounds without `native`. */
+/** A question asked with them, with a conversation of 0.9: plain turns and stored rounds. */
 export async function askedWithOwn(): Promise<AskResult> {
   const turn: ChatTurn = { role: "user", text: "How many errors?" };
   const round: ToolTurn = { role: "tools", version: 1, calls: [{ id: "c1", name: "search_document", args: {}, result: { total_matching_lines: 3 } }] };
   return askWithFiles({ files: new FilesOf09(), model: adapterOf09, documentIds: [], messages: [turn, round, { role: "assistant", text: "3." }, turn] });
 }
 
-/** A result built by hand, as a test of 0.9 wrote it: `finish`, `citations`, `placement` and `userTurn` are optional. */
+/** A result built by hand, as a test of 0.9 wrote it: `finish` and `citations` are optional. */
 export const resultOf09: AskResult = {
   text: "3.",
   answered: true,
@@ -159,7 +159,7 @@ export function metricsOf(files: LargeFiles): LargeFilesStats | undefined {
   return files.stats?.();
 }
 
-/** An exhaustive switch over the notice codes of 0.9: the four codes of 0.10.0 are not handled. */
+/** An exhaustive switch over the notice codes of 0.9: the two codes of 0.10.0 are not handled. */
 export function noticeOf09(code: NoticeCode): string {
   switch (code) {
     case "searching_instead":
@@ -178,7 +178,7 @@ export function noticeOf09(code: NoticeCode): string {
     case "page_looks_busy":
       return code;
     default: {
-      // @ts-expect-error -- "answer_filtered" | "answer_cut" | "placement_changed" | "native_rounds_dropped" is not assignable to 'never' (TS2322).
+      // @ts-expect-error -- "answer_filtered" | "answer_cut" is not assignable to 'never' (TS2322).
       const unhandled: never = code;
       return unhandled;
     }
@@ -204,8 +204,6 @@ export function noticeOf010(code: NoticeCode): string {
     case "page_looks_busy":
     case "answer_filtered":
     case "answer_cut":
-    case "placement_changed":
-    case "native_rounds_dropped":
       return code;
     default: {
       const unhandled: never = code;

@@ -1,7 +1,5 @@
-// A signed round of an earlier question, handed to askGemini in `contents`, goes out with its
-// thought signature (0.10.0). In 0.9 such a round stayed as it was and was sent as it came. A round
-// made a stored round keeps the signed turn only in `ToolTurn.native`, so askGemini makes it one only
-// once the loop sends `native` back; until then the round stays as it is, on every endpoint.
+// A signed round of an earlier question, handed to askGemini in `contents`, goes out as it came,
+// with its thought signature, as in 0.9: fromGeminiContents leaves it as it is, on every endpoint.
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, geminiApi, vertexAi, type GeminiContent } from "llm-large-files/gemini";
@@ -10,11 +8,9 @@ import { fakeFetch, utf8 } from "llm-large-files/testing";
 const say = (text: string) => Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text }] } }] });
 
 describe("signed rounds in askGemini's contents", () => {
-  for (const [label, endpoint, nativeRounds] of [
-    ["the Gemini API", geminiApi({ apiKey: "k", model: "gemini-test" }), undefined],
-    ["the Gemini API, nativeRounds true", geminiApi({ apiKey: "k", model: "gemini-test" }), true],
-    ["the Gemini API, nativeRounds false", geminiApi({ apiKey: "k", model: "gemini-test" }), false],
-    ["Vertex AI", vertexAi({ project: "p", model: "gemini-test", accessToken: "t" }), undefined],
+  for (const [label, endpoint] of [
+    ["the Gemini API", geminiApi({ apiKey: "k", model: "gemini-test" })],
+    ["Vertex AI", vertexAi({ project: "p", model: "gemini-test", accessToken: "t" })],
   ] as const) {
     it(`sends the thought signature of an earlier question's round again (${label})`, async () => {
       const files = createLargeFiles({ store: new MemoryDocumentStore() });
@@ -26,7 +22,6 @@ describe("signed rounds in askGemini's contents", () => {
       const api = fakeFetch([say("Heron.")]);
       await askGemini({
         files, endpoint, fetch: api.fetch, documentIds: [meta.id],
-        ...(nativeRounds === undefined ? {} : { nativeRounds }),
         contents: [
           { role: "user", parts: [{ text: "What is the code word?" }] },
           signed,

@@ -1,10 +1,11 @@
 // Files sent whole with their lines numbered (L12, P1): `PrepareOptions.numberInline` numbers the
 // text between the frame lines exactly as the tools number lines, and planning counts the numbered
 // size. Without it, `prepare` gives the blocks and the instruction of 0.9.
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, estimateTokens, MemoryDocumentStore, type DocumentMeta } from "llm-large-files";
 import { serviceLog, utf8 } from "llm-large-files/testing";
-import { documentToolsInstruction, numberedSize, numberedText, renderInline } from "../src/plan.js";
+import { documentToolsInstruction, INLINE_CITATION_LINE, inlineInstruction, numberedSize, numberedText, renderInline } from "../src/plan.js";
 
 const base = { tokens: 0, bytes: 0 };
 
@@ -148,5 +149,24 @@ describe("numbered files sent whole (numberInline)", () => {
       expect(Buffer.byteLength(JSON.stringify(block))).toBeLessThanOrEqual(Math.ceil(size.bytes));
     }
     expect(shares).toEqual({ "invoices.csv": 15.5, "app.log": 9.4, "policy.md": 8.4 });
+  });
+
+  it("asks for citations of the numbered lines of a PDF whose pages can be looked at, and no file is searched", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const pdf = await files.ingest({ name: "דוח.pdf", bytes: new Uint8Array(readFileSync(new URL("./fixtures/pdf/word-hebrew.pdf", import.meta.url))) });
+    const numbered = await files.prepare([pdf.id], base, { viewPages: true, numberInline: true });
+    expect(numbered.viewable.map((meta) => meta.id)).toEqual([pdf.id]);
+    expect(numbered.plan.inline.map((meta) => meta.id)).toEqual([pdf.id]);
+    // The instruction of 0.9 has the guide to view_pages only, which asks for no citations.
+    expect(numbered.instruction).toContain("view_pages");
+    expect(numbered.instruction).not.toContain("Cite");
+    expect(inlineInstruction(numbered, true)).toBe(INLINE_CITATION_LINE);
+  });
+
+  it("is refused, and so is inlineTables, when it is of the wrong kind", async () => {
+    const { files } = await library();
+    const meta = await files.ingest({ name: "notes.txt", bytes: utf8("one\n") });
+    await expect(files.prepare([meta.id], base, { numberInline: "yes" as never })).rejects.toThrow(new TypeError("PrepareOptions.numberInline must be true or false (got string)."));
+    await expect(files.prepare([meta.id], base, { inlineTables: "table" as never })).rejects.toThrow(new TypeError('PrepareOptions.inlineTables must be "tools" or "text" (got "table").'));
   });
 });

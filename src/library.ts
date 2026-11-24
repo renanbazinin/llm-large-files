@@ -29,7 +29,6 @@ import type {
   DocumentStore,
   Extractor,
   GenerateText,
-  PlacementState,
   PreparedContext,
   ProgressListener,
   ToolName,
@@ -330,27 +329,19 @@ export type PrepareOptions = AccessOptions & {
    */
   wholeDocumentAnalysis?: boolean;
   /**
-   * The `PlacementState` of the chat's last question: the documents keep the place they had.
-   * New in 0.10.0. Not read yet.
-   */
-  placement?: PlacementState;
-  /**
-   * Number the lines of the documents sent whole, as the tools number them. Defaults to false here,
-   * so that `prepare` gives the blocks of 0.9 (`askWithFiles` will ask for true). New in 0.10.0.
-   * Not read yet.
+   * Number the lines of the documents sent whole, as the tools number them ("12| text"), and plan
+   * them at that size. Defaults to false here, so that `prepare` gives the blocks of 0.9;
+   * `askWithFiles` asks for true unless `AskOptions.numberInline` is false. A value that is not
+   * true or false is a TypeError. New in 0.10.0.
    */
   numberInline?: boolean;
   /**
-   * "tools": list the documents sent whole whose tables the tools can count in `toolable`; "text":
-   * as in 0.9. Defaults to "text" here (`askWithFiles` will ask for "tools"). New in 0.10.0. Not
-   * read yet.
+   * "tools": list the documents sent whole whose tables the tools can count in `toolable`, with
+   * their document_id in the first line of their block; "text": as in 0.9. Defaults to "text"
+   * here; `askWithFiles` asks for "tools" unless `AskOptions.inlineTables` is "text". Another value
+   * is a TypeError. New in 0.10.0.
    */
   inlineTables?: "tools" | "text";
-  /**
-   * Room to keep free in the request besides `base`: the tool declarations, the guide, the header
-   * lines and the cards, at their rendered size. New in 0.10.0. Not read yet.
-   */
-  reserve?: { tokens: number; bytes: number };
 };
 
 export type ToolOptions = {
@@ -394,8 +385,10 @@ export type ToolOptions = {
   viewPages?: boolean | DocumentMeta[];
   /**
    * Declare exactly these tools, in the order the tool set declares them (search, read, overview,
-   * aggregate, analyze, view). A declared tool that cannot run answers with its reason. New in
-   * 0.10.0. Not read yet.
+   * aggregate, analyze, view), in place of those the documents call for. A call of a tool that is
+   * not declared is not run, and a declared tool that cannot run (aggregate_table with no table,
+   * view_pages with no page to show) answers each call with its reason. `askWithFiles` declares
+   * the tools a question over a table sent whole needs. New in 0.10.0.
    */
   declare?: readonly ToolName[];
   /**

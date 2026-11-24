@@ -16,7 +16,6 @@ import {
   TOOL_TURN_VERSION,
   UsageMeter,
   type ChatMessage,
-  type ChatTurn,
   type ModelAdapter,
   type ModelMessage,
   type ModelReply,
@@ -30,6 +29,7 @@ import {
 } from "./model.js";
 import { DocumentStoreError } from "./errors.js";
 import { canBeReadWhole, estimateParts, inlineInstruction, questionTools, REQUEST_BYTES_MARGIN } from "./plan.js";
+import { preparedHere } from "./prepare.js";
 import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
 import {
@@ -45,7 +45,7 @@ import {
   toolResultSummary,
   unknownToolName,
 } from "./tools.js";
-import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PlacementState, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
 import { wholeReadCost } from "./whole-cost.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
@@ -143,22 +143,9 @@ export type AskOptions = {
    * Where document text and cards are added. "first" (the default) puts them at the start of the
    * first user turn, where they stay as the conversation grows, so a provider's prompt cache can
    * reuse them on every follow-up question. "last" appends them to the latest user turn; the
-   * document then moves on every turn and is billed in full each time. "attached" puts each
-   * document's block at the start of the user turn whose `ChatTurn.documentIds` lists it first (new
-   * in 0.10.0; not applied yet: it is taken as "first").
+   * document then moves on every turn and is billed in full each time.
    */
-  documentPlacement?: "first" | "last" | "attached";
-  /**
-   * The `PlacementState` of this chat's last answer (`AskResult.placement`): the documents keep
-   * the place they had, so the start of the requests stays the same. New in 0.10.0. Not read yet.
-   */
-  placement?: PlacementState;
-  /**
-   * Send the rounds of earlier questions in their provider's own form (`ToolTurn.native`) to an
-   * adapter of the same id. Defaults to the model's `capabilities.nativeRounds`, else false. New in
-   * 0.10.0. Not read yet.
-   */
-  nativeRounds?: boolean;
+  documentPlacement?: "first" | "last";
   /**
    * "tools": a table sent whole (a CSV, a workbook, a file with `| cell |` rows) can still be
    * counted and searched: the question gets `search_document`, `read_document` and
@@ -331,16 +318,6 @@ export type AskResult = {
    * document sent whole counts as shown. Set when the question had documents. New in 0.10.0.
    */
   citations?: CitationCheck;
-  /**
-   * Where the documents of this chat were placed: keep it with the chat, and pass it as
-   * `AskOptions.placement` with the next question. New in 0.10.0. Not set yet.
-   */
-  placement?: PlacementState;
-  /**
-   * The latest user turn as it was sent: its text and `documentIds`, and the `notes` the library
-   * added. Store it in place of your own copy of that turn. New in 0.10.0. Not set yet.
-   */
-  userTurn?: ChatTurn;
 };
 
 /**
@@ -1075,8 +1052,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const explorer = given && !(searchable.length === 0 && toolable.length > 0) ? given : undefined;
   const toolModel = explorer ?? model;
   // The lines of the files sent whole are numbered when asked, by a library whose `prepare` is
-  // that of 0.10.0 (it always gives `guide`): one of your own of 0.9 sends them as they are.
-  const numbered = numberInline && prepared.guide !== undefined;
+  // that of this package (its result has the mark, `preparedHere`): one of your own of 0.9 sends
+  // them as they are.
+  const numbered = numberInline && preparedHere(prepared);
 
   const blocks = [...new Set(documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
   if (blocks.length) {

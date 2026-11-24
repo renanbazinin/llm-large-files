@@ -1,10 +1,8 @@
 // askGemini takes the options of askWithFiles by their type, and gives them to it as they are (0.10.0):
-// an option new in askWithFiles reaches the loop with no change to askGemini. Rounds stored as
-// contents keep their signed turns when the tool model takes them back.
+// an option new in askWithFiles reaches the loop with no change to askGemini.
 import { describe, expect, it, vi } from "vitest";
-import { createLargeFiles, MemoryDocumentStore, type AskOptions, type PlacementState } from "llm-large-files";
-import { askGemini, gemini, geminiApi, geminiToolTurns, vertexAi, type GeminiContent } from "llm-large-files/gemini";
-import { LOOP_SENDS_NATIVE } from "../src/gemini/chat.js";
+import { createLargeFiles, MemoryDocumentStore, type AskOptions } from "llm-large-files";
+import { askGemini, gemini, geminiApi } from "llm-large-files/gemini";
 import { fakeFetch, utf8 } from "llm-large-files/testing";
 
 /** What askGemini gave askWithFiles: askWithFiles itself still runs. */
@@ -44,7 +42,6 @@ async function notes() {
 describe("askGemini's options since 0.10.0", () => {
   it("gives askWithFiles every option of its own that askGemini does not name", async () => {
     const { files, meta } = await notes();
-    const placement: PlacementState = { version: 1, head: "h", inline: [meta.id], cards: [], tools: [], stubbedThrough: 0 };
     const onToolResult: AskOptions["onToolResult"] = () => undefined;
     given.length = 0;
     const result = await askGemini({
@@ -52,10 +49,8 @@ describe("askGemini's options since 0.10.0", () => {
       endpoint: geminiApi({ apiKey: "k", model: "gemini-test" }),
       fetch: fakeFetch([say("Heron.")]).fetch,
       documentIds: [meta.id],
-      messages: [{ role: "user", text: "The code word?", documentIds: [meta.id] }],
-      documentPlacement: "attached",
-      placement,
-      nativeRounds: false,
+      messages: [{ role: "user", text: "The code word?" }],
+      documentPlacement: "last",
       inlineTables: "text",
       numberInline: false,
       filteredAnswer: "drop",
@@ -65,36 +60,11 @@ describe("askGemini's options since 0.10.0", () => {
     });
     expect(result.text).toBe("Heron.");
     expect(given).toHaveLength(1);
-    expect(given[0]).toMatchObject({ documentPlacement: "attached", placement, nativeRounds: false, inlineTables: "text", numberInline: false, filteredAnswer: "drop", onToolResult });
+    expect(given[0]).toMatchObject({ documentPlacement: "last", inlineTables: "text", numberInline: false, filteredAnswer: "drop", onToolResult });
     // limits keep their old names, and win over them.
     expect(given[0]!.limits).toEqual({ callsPerTurn: 3, wholeReadsPerQuestion: 1, toolTurns: 4 });
     // askGemini's own options do not go on: the models carry them.
     for (const own of ["endpoint", "fetch", "contents", "generationConfig", "body", "maxToolCallsPerTurn"]) expect(given[0]).not.toHaveProperty(own);
-  });
-
-  it("gives the stored rounds of contents to the loop with their signed turns when the tool model takes them back, once the loop sends them", async () => {
-    const { files, meta } = await notes();
-    const signed: GeminiContent = { role: "model", parts: [{ functionCall: { name: "search_document", args: { document_id: meta.id, query: "heron" } }, thoughtSignature: "sig" }] };
-    const contents: GeminiContent[] = [
-      { role: "user", parts: [{ text: "Where is heron?" }] },
-      ...geminiToolTurns([{ role: "tools", calls: [{ name: "search_document", args: { document_id: meta.id, query: "heron" }, result: { total_matching_lines: 1 } }], native: { model: "gemini-test", turn: signed } }]),
-      { role: "model", parts: [{ text: "Line 1." }] },
-      { role: "user", parts: [{ text: "Sure?" }] },
-    ];
-    const roundOf = () => (given.at(-1)!.messages as Array<{ role: string }>).find((message) => message.role === "tools");
-
-    given.length = 0;
-    await askGemini({ files, endpoint: geminiApi({ apiKey: "k", model: "gemini-test" }), fetch: fakeFetch([say("Yes.")]).fetch, documentIds: [meta.id], contents });
-    // Until the loop sends ToolTurn.native back, the round stays as it is, and its signature goes
-    // out with it (test/gemini-signed-contents.test.ts).
-    if (LOOP_SENDS_NATIVE) expect(roundOf()).toMatchObject({ native: { model: "gemini-test", turn: signed } });
-    else expect(roundOf()).toBeUndefined();
-
-    // Not on Vertex AI yet, nor when the question says no: the turn stays as it is, as in 0.9.
-    await askGemini({ files, endpoint: vertexAi({ project: "p", model: "gemini-test", accessToken: "t" }), fetch: fakeFetch([say("Yes.")]).fetch, documentIds: [meta.id], contents });
-    expect(roundOf()).toBeUndefined();
-    await askGemini({ files, endpoint: geminiApi({ apiKey: "k", model: "gemini-test" }), fetch: fakeFetch([say("Yes.")]).fetch, documentIds: [meta.id], contents, nativeRounds: false });
-    expect(roundOf()).toBeUndefined();
   });
 });
 

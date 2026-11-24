@@ -429,7 +429,7 @@ describe("files sent whole are numbered (numberInline)", () => {
     const meta = await files.ingest({ name: "notes.md", bytes: utf8(NOTE) });
     const own: LargeFiles = {
       ...files,
-      // 0.9's PreparedContext: no guide, no listing, no toolable, no placement.
+      // 0.9's PreparedContext: no toolable, and not made by this package's prepare.
       async prepare(ids, base, options) {
         const { plan, blocks, instruction, missing, viewable } = await files.prepare(ids, base, { ...options, numberInline: false, inlineTables: "text" });
         return { plan, blocks, instruction, missing, viewable };
@@ -439,5 +439,18 @@ describe("files sent whole are numbered (numberInline)", () => {
     const result = await askWithFiles({ files: own, model, documentIds: [meta.id], messages: [question("What is the code word?")] });
     expect(model.requests[0]!.system).toBe("");
     expect(result.evidence).toEqual([{ tool: "inline", documentId: meta.id, document: "notes.md", lines: [[1, 4]], whole: true }]);
+  });
+
+  it("adds the citation line for a library of your own that passes on this package's prepare, copied or not", async () => {
+    const files = await library();
+    const meta = await files.ingest({ name: "notes.md", bytes: utf8(NOTE) });
+    const passed: LargeFiles = { ...files, prepare: (ids, base, options) => files.prepare(ids, base, options) };
+    const copied: LargeFiles = { ...files, prepare: async (ids, base, options) => ({ ...await files.prepare(ids, base, options) }) };
+    for (const own of [passed, copied]) {
+      const model = fakeModel([says("Heron.")]);
+      await askWithFiles({ files: own, model, documentIds: [meta.id], messages: [question("What is the code word?")] });
+      expect(model.requests[0]!.system).toBe(INLINE_CITATION_LINE);
+      expect(JSON.stringify(model.requests[0]!.messages[0])).toContain("1| # Notes");
+    }
   });
 });

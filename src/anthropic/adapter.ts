@@ -482,9 +482,6 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       appendOnly: true,
       // With context editing, Claude may no longer have a result shown earlier: none is pointed to.
       ...(clearsToolResults(options.body) ? { clearsToolResults: true } : {}),
-      // Its own turns go back as they came, thinking blocks and their signatures included, within a
-      // question and in later ones.
-      nativeRounds: true,
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request, streaming))),
     generateText,

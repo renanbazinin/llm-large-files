@@ -95,14 +95,6 @@ export type GeminiOwnOptions = {
  */
 export type AskGeminiOptions = Omit<AskOptions, "model" | "explorer" | "messages"> & GeminiOwnOptions;
 
-/**
- * Whether the loop sends the model turn a stored round kept (`ToolTurn.native`) back to an adapter
- * of the same id. Until it does, a signed round in `contents` is not made a stored round: it stays
- * as it is, and its thought signatures go out with it, as in 0.9. The change that makes the loop
- * send `native` back sets this to true. Exported for the tests only: the package does not export it.
- */
-export const LOOP_SENDS_NATIVE: boolean = false;
-
 /** What `askWithFiles` returns. `usage` is summed over the whole question; Gemini's own `usageMetadata` of the last response is `lastUsage`. */
 export type AskGeminiResult = AskResult;
 
@@ -135,18 +127,13 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
         url: explorerUrl,
         headers: endpoint.headers,
         ...(endpoint.refreshable ? { refreshable: endpoint.refreshable } : {}),
-        ...(endpoint.nativeRounds !== undefined ? { nativeRounds: endpoint.nativeRounds } : {}),
       }, { ...shared, generationConfig: explorerGenerationConfig ?? generationConfig, ...(explorerBodyOf ? { body: explorerBodyOf } : {}) })
     : undefined;
-  // Rounds stored as contents keep their signed turns when they go back in Gemini's own form: for
-  // the model that makes the tool calls, once the loop sends such turns back.
-  const toolModel = explorer ?? model;
-  const native = LOOP_SENDS_NATIVE && (loop.nativeRounds ?? toolModel.capabilities.nativeRounds ?? false);
   return askWithFiles({
     ...loop,
     model,
     explorer,
-    messages: contents ? fromGeminiContents(contents, native ? { model: toolModel.id } : {}) : messages ?? [],
+    messages: contents ? fromGeminiContents(contents) : messages ?? [],
     limits: {
       ...(maxToolTurns !== undefined ? { toolTurns: maxToolTurns } : {}),
       ...(maxToolCallsPerTurn !== undefined ? { callsPerTurn: maxToolCallsPerTurn } : {}),

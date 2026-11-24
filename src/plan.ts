@@ -19,18 +19,18 @@ export type PlanOptions = {
   /** Count each document at its size with its lines numbered (`numberedSize`), as it is then sent. */
   numbered?: boolean;
   /**
-   * The IDs of documents sent whole in earlier questions, in the order they were first placed
-   * (`PlacementState.inline`): placed first, in that order, each while it fits. One that does not
-   * fit is searched, and leaves its room to the others.
+   * The IDs of documents to place first, in this order, each while it fits. One that does not fit
+   * is searched, and leaves its room to the others. `prepare` does not pass it.
    */
   pinned?: readonly string[];
-  /** The IDs of documents searched in earlier questions (`PlacementState.cards`): they stay searched. */
+  /** The IDs of documents that stay searched, whatever their size. `prepare` does not pass it. */
   cards?: readonly string[];
   /**
    * The size of each document's card, as rendered (`renderCard`). With it, the cards count against
    * the room of the request with the documents sent whole: a document becomes a card only for room
    * the move frees, so one whose card is no smaller than its text stays whole (within
    * `budget.inlineTokens`), a pinned one included. Without it, as in 0.9, the cards are not counted.
+   * `prepare` does not pass it.
    */
   cardSizes?: ReadonlyMap<string, Size>;
   /**
@@ -48,9 +48,9 @@ const NO_SIZE: Size = { tokens: 0, bytes: 0 };
 /**
  * Decides which documents go into the prompt in full and which the model reaches through
  * tools. Smaller documents are inlined first, so as many as possible are read in full. Since
- * 0.10.0, `options` can count them with their lines numbered, keep the documents of earlier
- * questions where they were, and count the cards (`PlanOptions`). Both lists are in order of size,
- * smallest first, as before.
+ * 0.10.0, `options` can count them with their lines numbered or at their measured size, place some
+ * first or keep some searched, and count the cards (`PlanOptions`). Both lists are in order of
+ * size, smallest first, as before.
  */
 export function planDocuments(
   documents: DocumentMeta[],
@@ -374,7 +374,7 @@ function qualityLines(meta: DocumentMeta, viewable: boolean): string[] {
   return out;
 }
 
-/** What the guides say of each text tool, the same in `documentToolsInstruction` and `toolGuide`. */
+/** What the tool guide (`documentToolsInstruction`) says of each tool. */
 const SEARCH_LINES = [
   "- search_document finds lines (exact or regex) or the most relevant passages (keywords).",
   "- To count or list what can be matched as text (a word, an ID, an error code, a log level, a pattern), use search_document in exact or regex mode: its total_matching_lines is exact.",
@@ -397,8 +397,7 @@ const VIEW_LINES = [
  * text tools. `viewable` are the PDFs whose pages it can look at with `view_pages`: some of them
  * may be searchable, and some may have their whole text in the prompt. `wholeReads` is false when
  * the tools have no `analyze_whole_document`, or every searchable file is too large for it: the
- * guide then leaves it out. It names the files, so it changes when they do: `toolGuide` is the
- * guide that stays the same (0.10.0).
+ * guide then leaves it out.
  */
 export function documentToolsInstruction(searchable: DocumentMeta[], viewable: DocumentMeta[] = [], wholeReads = true): string {
   // File names come from uploads. Quoting keeps a name that reads like an instruction a name.
@@ -483,81 +482,4 @@ export function inlineInstruction(prepared: Pick<PreparedContext, "plan" | "tool
   if ((prepared.toolable?.length ?? 0) > 0) lines.push(INLINE_TABLES_LINE);
   if (numbered && prepared.plan.inline.length > 0 && prepared.plan.searchable.length === 0) lines.push(INLINE_CITATION_LINE);
   return lines.join("\n");
-}
-
-/**
- * What `toolGuide` says of `analyze_whole_document`'s list of items (`output: "items"`). New in
- * 0.10.0.
- */
-export const ITEMS_LINE = "- To find every item of a kind across a whole file (each penalty clause, each incident), call analyze_whole_document with output \"items\" and up to 12 short labels: it lists each item with its line and a quote, and code counts them, not a model.";
-
-/** How `toolGuide` says that the tool turns are limited: the last one is marked, and no count is given. */
-const TURNS_LINE = "You have a limited number of tool turns, and you are told when a turn is your last. Call several tools in the same turn when the searches do not depend on each other, and answer as soon as you have enough evidence.";
-
-/**
- * The tool guide for the system text that stays the same from one question of a chat to the next
- * (`PreparedContext.guide`): it names no file and no document ID, and gives no count of turns, so
- * it changes only when `tools` does. The header lines of the blocks (`listingLine`) say which file
- * is shown in full and which is searched. `tools` are the tools declared, in any order.
- * `fullTables` adds `INLINE_TABLES_LINE` when aggregate_table is among them: the files sent whole
- * may have tables the tools count. `numberedInline` says that the files sent whole have numbered
- * lines: without a text tool, whose lines ask for citations, the guide ends with
- * `INLINE_CITATION_LINE` (it is that line alone without tools). Empty when there is nothing to say.
- * New in 0.10.0.
- */
-export function toolGuide(tools: readonly ToolName[], context: { fullTables?: boolean; numberedInline?: boolean } = {}): string {
-  const has = new Set(tools);
-  const guide: string[] = [];
-  const textTools = TOOL_ORDER.some((name) => name !== "view_pages" && has.has(name));
-  const fullTables = context.fullTables === true && has.has("aggregate_table");
-  if (textTools) {
-    // Files searched with the tools are there, or were in an earlier question: get_document_overview is declared only for them.
-    const searched = has.has("get_document_overview");
-    guide.push(
-      searched
-        ? "The files the file list marks \"searched with the tools\" are too large for your context: you see only a summary card for each. Read them through the tools:"
-        : fullTables ? INLINE_TABLES_LINE : "Use the document tools:",
-      ...(has.has("search_document") ? SEARCH_LINES : []),
-      ...(has.has("aggregate_table") ? [AGGREGATE_LINE] : []),
-      ...(has.has("read_document") ? [READ_LINE] : []),
-      ...(searched ? [OVERVIEW_LINE] : []),
-      ...(has.has("analyze_whole_document") ? [ANALYZE_LINE, ITEMS_LINE] : []),
-      ...(searched && fullTables ? [INLINE_TABLES_LINE] : []),
-      TURNS_LINE,
-      EVIDENCE_LINE,
-    );
-  }
-  if (has.has("view_pages")) {
-    guide.push(
-      "The text of a PDF does not show its pictures, charts or diagrams. You can look at the real pages of a PDF with view_pages: the file list gives the pages of each PDF whose pages can be shown.",
-      ...VIEW_LINES,
-    );
-  }
-  if (!textTools && context.numberedInline) guide.push(INLINE_CITATION_LINE);
-  return guide.join("\n");
-}
-
-/** The first line of a header of blocks (`renderListing`). New in 0.10.0. */
-export const LISTING_TITLE = "Attached files:";
-
-/**
- * The header line of a document (`PreparedContext.listing`): its name, its document_id, whether
- * it is shown in full below or searched with the tools, its pages when `view_pages` can show them,
- * and the document it replaces: an earlier file of the same name. It is made from the metadata
- * and the place of the document alone, so it stays the same while they do. New in 0.10.0.
- */
-export function listingLine(meta: DocumentMeta, place: { inline: boolean; viewable?: boolean; replaces?: string }): string {
-  const pages = place.viewable && meta.pages ? `, ${meta.pages} ${plural(meta.pages, "page")}` : "";
-  const replaces = place.replaces ? `; it replaces ${place.replaces}, an earlier file of the same name` : "";
-  // The name comes from the upload: quoted, as in the frame of a file sent whole.
-  return `- ${JSON.stringify(meta.name)} (document_id ${meta.id}${pages}): ${place.inline ? "shown in full below" : "searched with the tools"}${replaces}`;
-}
-
-/**
- * The header that starts a group of blocks: `LISTING_TITLE`, then the header lines of its
- * documents (`PreparedContext.listing`), in the order of the blocks. Empty for no lines. New in
- * 0.10.0.
- */
-export function renderListing(lines: readonly string[]): string {
-  return lines.length === 0 ? "" : [LISTING_TITLE, ...lines].join("\n");
 }

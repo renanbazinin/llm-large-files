@@ -319,27 +319,16 @@ export function fromOpenAiMessages(history: OpenAiMessage[]): { system: string; 
 /** An ID for a call that came without one: no round of another question has it. */
 const newCallId = (): string => `call_${randomUUID().replaceAll("-", "").slice(0, 24)}`;
 
-/** The reasoning of a round's own assistant message (`ToolTurn.native`), when it kept one: DeepSeek's `reasoning_content`. */
-function reasoningOf(turn: ToolTurn): string | undefined {
-  const own = turn.native?.turn as Json | undefined;
-  return own && typeof own === "object" && !Array.isArray(own) && own.role === "assistant" && typeof own.reasoning_content === "string" && own.reasoning_content ? own.reasoning_content : undefined;
-}
-
 /**
  * The tool rounds a question returned (`AskResult.toolTurns`) as Chat Completions messages, for an
  * application that keeps its history in that form: put them between the question and its answer.
- * With `native` (since 0.10.0), a round that kept its own assistant message (`ToolTurn.native`)
- * gets that message's `reasoning_content` back: DeepSeek's thinking mode asks for the reasoning of
- * every earlier turn in a request with tools, and refuses one without it (HTTP 400).
  */
-export function openAiToolTurns(turns: ToolTurn[], options: { native?: boolean } = {}): OpenAiMessage[] {
+export function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[] {
   return turns.flatMap((turn, index) => {
     // A call that came without an ID is given one that no round of another question has: these
     // messages are kept, and sent again next to those of later questions.
     const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: newCallId() }, result: laterResult(result) }));
-    const [asked, ...answered] = roundMessages({ role: "tools", calls: answers.map((answer) => answer.call), answers }, index + 1, false);
-    const reasoning = options.native ? reasoningOf(turn) : undefined;
-    return [reasoning === undefined ? asked! : { role: asked!.role, content: asked!.content, reasoning_content: reasoning, tool_calls: asked!.tool_calls }, ...answered];
+    return roundMessages({ role: "tools", calls: answers.map((answer) => answer.call), answers }, index + 1, false);
   });
 }
 
@@ -471,9 +460,6 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       toolFiles: pdfInput ? "beside" : "none",
       pageTokens: options.pageTokens ?? 1_000,
       ...(options.tokenScale ? { tokenScale: options.tokenScale } : {}),
-      // Its own assistant messages go back as they came, within a question and in later ones: the
-      // reasoning that DeepSeek asks for again is in them.
-      nativeRounds: true,
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request, false))),
     generateText,
