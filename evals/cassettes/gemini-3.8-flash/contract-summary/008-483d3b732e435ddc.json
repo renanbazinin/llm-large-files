@@ -1,0 +1,75 @@
+{
+ "n": 8,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "483d3b732e435ddc",
+  "bytes": 4180,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2427 chars #a2cb14c6"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "172 chars #1eecc68f"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "**1. פרטי הצדדים וההסכם:**\n* חוזה שירותי תחזוקה מס' 2026/114 (L1).\n* המזמין: חברת אורן מערכות בע\"מ (L2).\n* הספק: חברת קור-טק שירותים בע\"מ (L2).\n\n**2. התחייבויות הספק:**\n* החזקת מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L4, L14, L24).\n* הגעת טכנאי למחסן באשדוד: תוך 4 שעות מקריאה דחופה, ותוך יומיים מקריאה רגילה (L6, L16, L26, L36, L46).\n* תיאום מראש עם מנהל האתר של כל עבודה המשביתה פעילות במפעל בקריית גת (L9, L19, L29).\n* מינוי מנהל לקוח יחיד לריכוז הקשר מול המזמין (L11, L21, L31, L41).\n* החזקת פוליסות ביטוח חבות מעבידים וצד שלישי לעובדיו (L17, L27, L37, L47).\n* ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון ומסירת דוח ביקור (L22, L32, L42).\n\n**3. זכויות והתחייבויות המזמין:**\n* תשלום תמורה תוך 45 יום מקבלת חשבונית מס כדין (L3, L13, L33, L43).\n* זכות לבצע ביקורת איכות שירות בכל עת בתיאום מראש (L10, L20, L30, L40).\n\n**4. התחייבויות הדדיות:**\n* שינוי בהיקף השירות תקף רק בכתב ובחתימת שני הצדדים (L5, L15, L25, L35, L45).\n* שמירת סודיות מלאה לגבי מידע שהועבר במסגרת ההתקשרות (L8, L38).\n\n**5. סעיפי קנסות (עילה, אתר, סכום לכל מקרה):**\n* סעיף 5: איחור בתגובה לקריאת שירות דחופה | מרכז הלוגיסטיקה בחולון | 1,000 ש\"ח (L7).\n* סעיף 10: אי עמידה בזמני תיקון לפי נספח השירות | משרדים בתל אביב | 2,750 ש\"ח (L12).\n* סעיף 16: השבתת מערכת הקירור מעל 4 שעות | מפעל בקריית גת | 4,500 ש\"ח (L18).\n* סעיף 21: אי הגשת דוח תחזוקה חודשי במועד | סניף בחיפה | 6,250 ש\"ח (L23).\n* סעיף 26: החלפת טכנאי ללא הודעה מוקדמת | מחסן באשדוד | 8,000 ש\"ח (L28).\n* סעיף 32: שימוש בחלקי חילוף שאינם מקוריים | מרכז הלוגיסטיקה בחולון | 9,750 ש\"ח (L34).\n* סעיף 37: הפרת הוראות בטיחות באתר | משרדים בתל אביב | 11,500 ש\"ח (L39).\n* סעיף 42: אובדן ציוד של המזמין | מפעל בקריית גת | 13,250 ש\"ח (L44).",
+        "thoughtSignature": "Et0YCtoYAWkUfRPFZSFO1ka8kk2jXO48n2aXEyUA0HmXkhLdq7H7b9sGuQNAeDqXetKx1Ya1fFKPoUULEGekUf2zH27T+NIPnm8MItovxVJZnHoSaAvpTOtlwRu/ypG9NaXbI+e7EOAc8XTRgBEPAdD1xSvtyKo8ULBgl/s27tpS8hb262jjj9aaOK3USiZ8T0s/aIx8sCqs/VzsKtk0cfa8y3LObpsj0OkPeEaxnl3Pg5/5rqjOvFchfi6J86BjRLMk09E/3U/UfYwyxSt1HhMRXHVpHlOTpKC47/Yv3+K0tT34MZZYY2bEUFwIcN/KafBSAl//crygMKxGhxYT6LHv23UVeRTuo7i+PSUJXxrzIP+yfKLC66Lg+KKy6kUq2xVT2ReAToJVVrtlpye8j0bfPXpkmfQ4mm5mDjLFzlbkW4MZjSPd+/vfq0zWC8MSQModcSD9Sqv/ecFPcVz7Sm78v3bj3VUttkXl5m4Qa2UJfDQRID80DdRWbjgKHyKR60aWDqTK6km6sjIdYpfQiPx/l0SJ2wGNOqd6Z+HjIPSdOuS0yRGz3qJbRMdncV9M1D5V4rMPoLgpqPATAWgTQ0pWP57kwq5L/5l6v9n8X3o073uCZZ5S+H9FA6lH+jt1mdBGmfkOl0DDYrHIH+qeFVD0LnuA5jM3IlU2HlucvnOjjyS56+Uv2JzHUSmeePji5aytnejCXb93jTjSaIs3dSeI8w4HTb+Pb9hNG/xLfjez3w1yYjMQnMQfSZ/XSi9YcmOBnCzzq0giVYz405j2tfHHobfFK50Zhfj+RpJ7svAQamTqtQrQjakEANHyQzAFQGnyezIkV4/T/p0YT6JhNtrXKXkxh8Fq48dENM5xYz28eVpF1/Y19QdDVGLb9BPSskLsOCxK9EiA6inOYAVsccE+o5S5bJS7VcBJvK4s/KXLZOJws5ffB1m2VdDi61Ipts789rSAAVIv9FCcJ3UqXNDQA25b26gVBVD4nzYqzxoVnPqReYZR5Y2Bf5+UwRORyWdS9DFoXeMBMK2HyQUai7+LnPK0lr2VN3lNw4AD8ycKlrGs6KGgbqiwQbC03xmWoZDTPoFIXyK3KQILS/XJhgUnSKchMILWtaxbznsWR7fJf8J0IkmIj/fUjppKbyLPEeBFvaPVJRpP5GBkC/q3JnPNhmhDMOnLqbPglHrhsQcIwLk4Ag1ncvxaA05p8DqFrlyAcs46BgfVKMMHwitaYufnOL0MRG+AfMUx7JU3f08vd3AELzYu/jZVoUrRiTn0LKCiZn4IpUp4hIMyaKwd0FltjFPNAVLFP6QqDMwbMntdHgmVlUcjlWC4CfwCPmFxrPOfPTv1WtJjobIrIbCvlOpj/ZtSSXgVsf3kRZi0vF/4thpC9IjEUmTnHwyh2liNe6xhRKvW0ZTBCK4qYxuQ80Ntbl+dna3rydoaZms9gLBfZ3uA9lhn08D7IComMVri3/Axc8bahhPvAXibna5n1iFR+1t3R7ndMX8V2jcQb5D9YYJuYlBS5Mq9dN/bPmmcaVPBQO2k/g6eLzXM+x7QwYvfGlsZ3R5mF1IQy0ehyyVWZKlg6WV+mPQiZ8HQP+QthFGscx7Up4qGywVIxynGkCFBZ51vcfWZ8PX2a+g3lhG6PcqgVukctwe1c2ZV2mhKcb/q65z4QqBV9cy2kkcjZkandyhtN5IGfYxjMzQ1iBo3Xv9lpgjibs8NlZQLU3NvaMGG0ujs4b1IpgiqzLRQxWi6xqi+4Gagc51sPRTIoTuDo8ootOtHS0cesoSGSuG4xCJe2e1k5SQVM73QrAEnJIO2RPC3jyfu5PTvgU+aekJqF/LbYIb289LFq7NcxAWpQeplJVV+lcxlyUPgHnWLPoEMOSg+d4Lfan5q0Ls/8Az6eu42EVHDnmySvo/p1+Culd+GA8L2fj7sgbEdWpTPpyW7v/vOM8LC00TnSXxeoIgdHFyi4FdcuCP489AD77m+68USu4aMsJFBj0s5lTemIkENSvuImK+M1O/et2SsnURe+9MKW0H6GbWjOmR1Es4XrhtuPr7eB9Qk9e+ANr9UO2IA+l6JAihn5ENF/k0hxuykmwEEmUKYOqvG9Uy7GDFGSR17LkQ04E3pleBelvgryCQkArePsVCsMj/vK8+eks4nW1V1XGNQiBkWJCmn8We8n74EWgTTPumXGCebDUDtrsJpy87luRH1Iq0RzJAc8atq/JGazH8GDVDjDxVvQJnKRcS1xSk2NXalL8snZnWxMPDivNnHYNT8Bk5LrTCM/Tg8C2AYhW0JOG+rTEYICH0yETnj20HZyBkwDE8hBeKIIA1wPagCT8rh5+mA+Te5MZiDq8jV0ZqXQCjWY0ZYIKSMeD7bY1iSLDzHWx9DA/6S46qO53myeshkC0Hdk79V15ZbnB5NrcldZTwSDPgIKo2Lyd8HxE1SuEjU9kffNFbQM5WIKJRuZ1V660oggWTVRyEyjkEi+5mnZ22D7M8pfyX7UNIcwOneq1WznGcnjGki+Eaah1qHSyvInK2jMMxtT8vjr81WjsV0+pBePG68Yv1NEeo2D4SHB4fuDiwSydBO44v9qHJQgl4Q5dOLXJXu8PxBxDl7Sc7pL6uNAAaxUQ/lxFKPzHzoHyogXKIcWNf0zERKh2US9WDXJXQBp9mMDZYhZPW8gZ1GmfupE7ceQqmFVVoSxzFNNayA/ZQGzk7WwBt2jpa0gkEK5jdwzXZX9HLaKoyaUQGmbrvMjonPTgmJYlTADHzY9vn1nocoegBKj4/wvWQw652VwIkKK3kItIot9BN6WwREnxOsW8V5cQMhaNoRfFP7TeJYQhFVzyaJdhks7sht4JJlY3vtdfI7K03d/YpdB7BZB+KUFLbJSwgEp/yW3sXcfTJFttQp+D5m1xLotKBNGWj2ud2kUyJ12O3QCbLBWN1QtkbHV+lR3HksdCHdWC+uAhXVDGxAsdxmvSEsijESO8eVsSYw0qnvQ9vYWhHZiii3ue045shwgA63tEycq97QGnGYqvydd8fqmWJELlajD+5c9AkBRTW5CN05HbtV5FrjJucOWf0kNLFfvxZhHK745GIO+j+AyyaxZguE/3mVNNE1DKWpEQK9SnD7JPdezSHtcenfvYeuE4rrlDJcZXPC1AttaUdpj3B9iuPLD0r9hUy8OfTiM4iNnkITuXU8nrI8diw7NbhmrFZLcMtZAMuZ0J9jIAyScmxE6ho/3to4IAsWWM7tiTSUbXYrvCyM5PQ2+/QXNetgX/mU61+IF7Ih/KuSL8b2P/bCKUgMtmCL22NJF//J1UtwSpW3icQ4uHbGZ94xyOHfw/zq2VSIGw3rp5ioOmNe/dQdehaSbTYar/FWfwoh3ulmHPmtrHJzItA0K9OpF3ZKLJ02+0c2ULYwSjiHYSm3XUSWJIr6wxhYWOc63bMqc4D8cS2ZzhPLzMYV0EneMYnrN5VcT2yS3FBtEdAqGxgjzbBY1iSSRHGaBtbs45wlorQFjmGWQxCVyJj20dyHtTvUuYUEEEcQCAn6VtbGzFGD0cEc61OTArfC6UXs/kB42SjUZcIMCYYbz4Se5uyuk3ISRR+nRyP0B0gmKSdowiZB5LcvS7qN5MXZ0CQvQIjJlXe3Ugc57nFON6B2FDTpHk7QX3iNnthFb4pGFgzOAWxmQQUHZEVc/1KUpqC38414r76EWZhlsia+6Azi4gjmfamsfDMWTZ/tGCzn5xQQ3TNEqaL/jliL5YZjft+mGt+Ym2m1mjN6fAPesFS8/OANm2yv/cR/WNI48ZAfCeBcM+QCoTTJLBC6u3X7UygazZJpQZmfrfjn2MtzALKiWUwUtLkvRF0aM6NF1Nw5D0y8JiXTcd5PsW/u36Iuz6eAuRg6ysrL9NRSpYKe2myO5iUPkOeKLHvuH3XEVrvP94xckp8iAmqMes7C5y7rE0wddk6BrLwT62xFQ26i8fVkJYvGPX1hdJ/c5VkJwugqB0qkYJbw90MbJK2uFnh1m/JY2BfpgE/bkW2SB97xCgQMqt5bbTPrFvoXIO7Huy+3+2TohtyOnZI89KARt/ihi80aIn8lWwDSUoy/E2HcM0Wh1K09H1qf7nPORV5V0dbtJRcMakM6e51AlqSYoGDr42BZFaJJC90bamM/dglb+FJ2f0oihIJN5HviZSyNgvPGX9ZCnUH2ATpdzWawNSwtQ6vDOiNYNf5tLGaMYMrdzehvuHwvVPu7Wmz+"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 1316,
+    "candidatesTokenCount": 939,
+    "totalTokenCount": 3277,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 1316
+     }
+    ],
+    "thoughtsTokenCount": 1022,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "1YQFa_eSM6qH28oPjdnEoAY"
+  }
+ }
+}

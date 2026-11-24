@@ -1,0 +1,75 @@
+{
+ "n": 5,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "73f48479998d7944",
+  "bytes": 7330,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "4264 chars #9c86fcff"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "להלן הנקודות הרלוונטיות מחלק זה (שורות 95–139):\n\n### 1. התחייבויות הספק (אתרים, זמני תגובה, ביטוח, כוח אדם, נהלים)\n* **זמני הגעה במחסן באשדוד**: טכנאי יגיע בתוך 4 שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה (L96, L106, L116, L126, L136).\n* **תיאום השבתות במפעל בקריית גת**: הספק יתאם מראש עם מנהל האתר כל עבודה המחייבת השבתה (L99, L109, L119, L139).\n* **מנהל לקוח**: הספק ימנה מנהל לקוח אחד שירכז את הקשר מול המזמין (L101, L111, L121, L131).\n* **מלאי חלקי חילוף**: הספק יחזיק מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L104, L114).\n* **ביטוחים**: הספק יבטח את עובדיו בביטוח חבות מעבידים ובביטוח צד שלישי (L107, L117, L127, L137).\n* **ביקורי תחזוקה שוטפים**: ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון, כולל מסירת דוח על הביקור (L112, L122, L132).\n\n### 2. זכויות והתחייבויות המזמין\n* **ביקורת איכות**: המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L100, L110, L120, L130).\n* **תנאי תשלום**: תשלום התמורה בתוך 45 ימים ממועד קבלת חשבונית מס כדין (L103, L123, L133).\n\n### 3. התחייבויות הדדיות\n* **שינויים בהסכם**: כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים (L95, L105, L115, L125, L135).\n* **סודיות**: הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות (L98, L128, L138).\n\n### 4. סעיפי קנסות ופיצויים מוסכמים\n* **סעיף 95 (L97)**: שימוש בחלקי חילוף שאינם מקוריים ב**מפעל בקריית גת** – קנס בסך **6,750 ש\"ח** לכל מקרה.\n* **סעיף 100 (L102)**: הפרת הוראות הבטיחות באתר ב**סניף בחיפה** – קנס בסך **8,500 ש\"ח** לכל מקרה.\n* **סעיף 106 (L108)**: אובדן ציוד של המזמין ב**מחסן באשדוד** – קנס בסך **10,250 ש\"ח** לכל מקרה.\n* **סעיף 111 (L113)**: אי ביצוע תחזוקה מונעת במועד ב**מרכז הלוגיסטיקה בחולון** – קנס בסך **12,000 ש\"ח** לכל מקרה.\n* **סעיף 116 (L118)**: עבודה ללא אישור כניסה בתוקף ב**משרדים בתל אביב** – קנס בסך **13,750 ש\"ח** לכל מקרה.\n* **סעיף 122 (L124)**: אי תיעוד של קריאת שירות במערכת ב**מפעל בקריית גת** – קנס בסך **15,500 ש\"ח** לכל מקרה.\n* **סעיף 127 (L129)**: השארת פסולת באתר לאחר העבודה ב**סניף בחיפה** – קנס בסך **17,250 ש\"ח** לכל מקרה.\n* **סעיף 132 (L134)**: איחור בתגובה לקריאת שירות דחופה ב**מחסן באשדוד** – קנס בסך **19,000 ש\"ח** לכל מקרה.",
+        "thoughtSignature": "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"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2236,
+    "candidatesTokenCount": 1149,
+    "totalTokenCount": 5074,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2236
+     }
+    ],
+    "thoughtsTokenCount": 1689,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "wIQFa8bNJofFnsEPhIuNiQ8"
+  }
+ }
+}
