@@ -24,10 +24,13 @@ const FINAL_SYSTEM = "You write a complete answer from notes taken across every 
 /**
  * The tokens of a request of a read besides the text it reads or the notes it merges: its system
  * text, the task and the rules. By `estimateTokens`, the fixed words take 146 tokens in a part
- * read, 81 in a merge and 94 in the answer of the read; the rest is room for a task of a few lines
- * (a task of 160 characters takes 39). The heading a part may start with is `PART_HEADING_TOKENS`.
+ * read, 81 in a merge and 94 in the answer of the read; the rest is room for a task of a few lines.
+ * A task of 160 characters takes 39 tokens in English and up to 74 in Hebrew: a part read of a file
+ * with a Hebrew name then frames 189 tokens with the English task and 218 to 224 with a Hebrew one.
+ * It only prices a read (`wholeReadCost`, `estimateMerges`): no text sent depends on it. The heading
+ * a part may start with is `PART_HEADING_TOKENS`.
  */
-export const REQUEST_FRAME_TOKENS = 200;
+export const REQUEST_FRAME_TOKENS = 240;
 /**
  * The same for a part read that lists items (`output: "items"`): its fixed words take 292 tokens
  * with no label and 311 with two; with `MAX_ITEM_LABELS` labels of `MAX_LABEL_CHARACTERS`, 464 in
@@ -526,7 +529,7 @@ const itemsPrompt = (name: string, from: number, to: number, text: string, headi
   `- line: the number before "| " at the start of the line that states the item, from ${from} to ${to}; not a number written in its text.`,
   ...(labels ? [`- label: one of ${labels.map((label) => JSON.stringify(label)).join(", ")}.`] : []),
   "- value: the amount, date, name or other figure the item gives, as written. Leave it out when it gives none.",
-  "- quote: the few words of that line that state the item, copied exactly, enough to tell the line from the others, at most 80 characters.",
+  "- quote: five to twelve words of that line that state the item, copied exactly, letter by letter, enough to tell the line from the others, at most 80 characters.",
   `Write every letter as it is in the file, not as a \\u escape. List each item once, on the line that states it. If this part has no such item, reply exactly: ${NOTHING}`,
 ].join("\n");
 
@@ -783,10 +786,11 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 
 /**
  * A JSON text with each backslash that starts no JSON escape taken out: `ש\"\ח` (a quote mark
- * escaped, then a Hebrew letter escaped, as Gemini Flash-Lite wrote "ש"ח" in a value), or a `\u`
- * without four hex digits.
+ * escaped, then a Hebrew letter escaped, as Gemini Flash-Lite wrote "ש"ח" in a value). A `\u`
+ * without four hex digits is taken out with the hex digits it has: Flash-Lite wrote ט as `\u05d`,
+ * whose "u05d" left in a quote kept it off its line (0.10.0's live measures).
  */
-const withoutBadEscapes = (text: string): string => text.replace(/\\(\\|["/bfnrt]|u[0-9a-fA-F]{4})|\\/g, (whole, escape: string | undefined) => (escape === undefined ? "" : whole));
+const withoutBadEscapes = (text: string): string => text.replace(/\\(\\|["/bfnrt]|u[0-9a-fA-F]{4})|\\u[0-9a-fA-F]{0,3}|\\/g, (whole, escape: string | undefined) => (escape === undefined ? "" : whole));
 
 /** `JSON.parse`, and once more with the bad escapes of `withoutBadEscapes` taken out when it fails. */
 function parseLeniently(text: string): unknown {
@@ -958,15 +962,6 @@ const numbersOf = (text: string): string[] => (text.match(/\d(?:[\d,.]*\d)?/g) ?
 
 /** The most characters of an item's quote that are kept. */
 const QUOTE_CHARACTERS = 300;
-/**
- * Up to this many cells (the letters of a piece of a quote times the characters of its line), the
- * nearest run of the piece is looked for along the whole line: a quote of `QUOTE_CHARACTERS` on a
- * line of `MAX_LINE_CHARACTERS`, the longest that ingest stores, about 12 ms. So every line the
- * library stores is measured whole. A longer line, which a store of your own may give, is looked at
- * only around a word of the piece (`nearestRunWithin`): measured along all of a line of 118,759
- * characters, a quote of 270 took 688 ms, for each item that was not on its line.
- */
-const NEAR_LINE_CELLS = QUOTE_CHARACTERS * MAX_LINE_CHARACTERS;
 /** On a long line, the words of a piece of a quote around which its near run is looked for: the longest that are rare on the line. */
 const NEAR_ANCHOR_WORDS = 2;
 /** The most places a word of a quote may have on a long line to be one of those words. */
@@ -1003,19 +998,26 @@ function nearestRun(wanted: readonly string[], line: string, work: NearWork | un
 
 /**
  * `nearestRun` of a piece of a quote on `target`, its line, both in `quoteForm`, when it is at
- * most `most`: past that, it may be more than the true distance. Along the whole line while the
- * piece's letters times the line's characters are at most `NEAR_LINE_CELLS`. On a longer line, only
- * around the `NEAR_ANCHOR_WORDS` longest words of the piece that are on the line in 1 to
- * `NEAR_ANCHOR_PLACES` places: from `most` letters before where the piece would start at such a
+ * most `most`: past that, it may be more than the true distance. Along the whole line when it has
+ * at most `MAX_LINE_CHARACTERS`, the longest that ingest stores: so every line the library stores is
+ * measured whole, and the pieces of a quote fill no more cells together (the letters of each piece
+ * times the line's characters) than its letters times `MAX_LINE_CHARACTERS`, about 12 ms for a quote
+ * of `QUOTE_CHARACTERS`. A longer line, which a store of your own may give, is looked at, for each
+ * piece, only around the `NEAR_ANCHOR_WORDS` longest words of the piece that are on the line in 1
+ * to `NEAR_ANCHOR_PLACES` places: from `most` letters before where the piece would start at such a
  * place, to `most` letters after where it would end. A run that holds none of those words where the
  * piece holds it is not found, and a piece none of whose words is on the line so counts as wrong
  * in all its letters. The work is then a few windows of about the piece's length, whatever the
  * line's: at most `NEAR_ANCHOR_WORDS` × `NEAR_ANCHOR_PLACES` × 2 × (letters + `most`) characters
  * (twice that on a line with letters outside the BMP), each measured against every letter of the piece.
+ * Measured along all of a line of 118,759 characters, a quote of 270 took 688 ms. A quote cut with
+ * "…" into 41 short pieces took 677 ms on it in 0.10.0 before this fix, which chose by the piece's
+ * letters times the line's characters and so measured each short piece along all of the line; 15 ms
+ * since.
  */
 function nearestRunWithin(piece: string, target: string, most: number, work: NearWork | undefined): number {
   const wanted = [...piece];
-  if (wanted.length * target.length <= NEAR_LINE_CELLS) return nearestRun(wanted, target, work);
+  if (target.length <= MAX_LINE_CHARACTERS) return nearestRun(wanted, target, work);
   // The places are in UTF-16 units: a letter outside the BMP takes two, so the margins are doubled
   // on a line that has one.
   const unit = /[\uD800-\uDBFF]/.test(target) ? 2 : 1;
@@ -1094,16 +1096,31 @@ function itemText(value: unknown, most: number): string | undefined {
 }
 
 /**
+ * Whether a line in `quoteForm` starts with the number `named`, after any marks before it ("5. …",
+ * "(5) …", "## 5. …"): a whole number, not the start of a longer one ("50. …", "5,000 …", "5.1 …"),
+ * nor of a date or a time ("5/11 …", "5-11-2026", "05:30:12 …", "5.11.2026"): a log line of 5
+ * November is no clause 5.
+ */
+function startsWithNumber(form: string, named: number): boolean {
+  const lead = /^[^\p{L}\p{N}]*(\d+)(?!\d|[.,/:-]\d)/u.exec(form);
+  return lead !== null && Number(lead[1]) === named;
+}
+
+/**
  * An item a part listed, checked: its quote on its line, within the part (`from` and the part's
  * `lines`). An item whose quote is not on the line it names, but on exactly one line of the part, is
  * given that line: Gemini Flash-Lite named clause 5 on line 7 ("7| 5. …") as line 5. One whose quote
  * is on no line of the part, but near the line it names (`quoteNearLine`: a few letters copied
- * wrong, the same numbers), keeps that line. Undefined for any other: it is counted as unverified.
+ * wrong, the same numbers), keeps that line. One whose quote is on no line of the part, nor near the
+ * line it names, is given the line of the part near its quote that starts with the number it named,
+ * when exactly one line is both: Flash-Lite named clause 5 for line 7 and copied ישלם as שילם (0.10.0's
+ * live measures). Undefined for any other: it is counted as unverified. `moved` is true for an item
+ * given a line other than the one it named.
  * A label is matched to the read's labels in `quoteForm`, and given as the read spelled it.
  * `formOf` gives a line of the part, by its index, in `quoteForm`: made once for the part, as an
  * item that is not on its line is looked for on every line of it.
  */
-function checkedItem(object: Record<string, unknown>, from: number, lines: readonly string[], formOf: (index: number) => string, labels: readonly string[] | undefined): WholeItem | undefined {
+function checkedItem(object: Record<string, unknown>, from: number, lines: readonly string[], formOf: (index: number) => string, labels: readonly string[] | undefined): { item: WholeItem; moved: boolean } | undefined {
   const named = typeof object.line === "number" ? object.line : typeof object.line === "string" && object.line.trim() ? Number(object.line) : Number.NaN;
   const quote = itemText(object.quote, QUOTE_CHARACTERS);
   if (quote === undefined) return undefined;
@@ -1112,21 +1129,27 @@ function checkedItem(object: Record<string, unknown>, from: number, lines: reado
   let number = named;
   if (!inPart || !piecesOnLine(wanted, formOf(named - from))) {
     const found = lines.flatMap((_, index) => (piecesOnLine(wanted, formOf(index)) ? [from + index] : []));
-    const near = found.length === 0 && inPart && piecesNearLine(wanted, formOf(named - from));
-    if (found.length !== 1 && !near) return undefined;
-    number = near ? named : found[0]!;
+    if (found.length > 1) return undefined;
+    if (found.length === 1) number = found[0]!;
+    else if (!inPart || !piecesNearLine(wanted, formOf(named - from))) {
+      // Near is looked at only on the lines that start with the number named: a few of the part.
+      const numbered = Number.isInteger(named) ? lines.flatMap((_, index) => (startsWithNumber(formOf(index), named) && piecesNearLine(wanted, formOf(index)) ? [from + index] : [])) : [];
+      if (numbered.length !== 1) return undefined;
+      number = numbered[0]!;
+    }
   }
   const given = itemText(object.label, MAX_LABEL_CHARACTERS);
   const label = given === undefined ? undefined : labels?.find((known) => quoteForm(known) === quoteForm(given)) ?? given;
   const value = itemText(object.value, 200);
-  return { line: number, ...(label !== undefined ? { label } : {}), ...(value !== undefined ? { value } : {}), quote };
+  return { item: { line: number, ...(label !== undefined ? { label } : {}), ...(value !== undefined ? { value } : {}), quote }, moved: number !== named };
 }
 
 /**
  * Lists the items a task asks for across the whole document (`output: "items"`, new in 0.10.0,
  * M9): each part replies with JSON lines, one an item, with its line, label, value and a quote of
  * its line. Code reads them, checks each against its line, drops the same item listed twice (by
- * line, label and value), and counts them: no merge, no final request, and no count made by a
+ * line, label and value, or, for an item moved to another line than it named, by line and label),
+ * and counts them: no merge, no final request, and no count made by a
  * model. A part whose list stops at the output limit is read again as two halves, two levels at
  * most, while `maxRequests` allows it (without it, while the halves take no more than
  * `maxMapChunks` requests). A part the model refuses as too large is halved the same way.
@@ -1152,7 +1175,12 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
   let skippedLines = 0;
   let firstFailure = "";
   let firstError: unknown;
+  /** The items kept, by line, label and value. */
   const found = new Map<string, WholeItem>();
+  /** The keys of the items kept on each line with each label (`placeOf`), and which of them were moved there (`checkedItem`). */
+  const atPlace = new Map<string, Set<string>>();
+  const moved = new Set<string>();
+  const placeOf = (item: WholeItem) => `${item.line}\u0000${quoteForm(item.label ?? "")}`;
   const fail = (error: unknown, reason: string) => {
     pieces++;
     failed++;
@@ -1207,13 +1235,37 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
     const forms: Array<string | undefined> = [];
     const formOf = (index: number): string => (forms[index] ??= quoteForm(lines[index]!));
     for (const object of objects) {
-      const item = checkedItem(object, from, lines, formOf, labels);
-      if (!item) {
+      const checked = checkedItem(object, from, lines, formOf, labels);
+      if (!checked) {
         unverified++;
         continue;
       }
-      const key = `${item.line}\u0000${quoteForm(item.label ?? "")}\u0000${quoteForm(item.value ?? "")}`;
-      if (!found.has(key)) found.set(key, item);
+      const { item } = checked;
+      const place = placeOf(item);
+      const key = `${place}\u0000${quoteForm(item.value ?? "")}`;
+      if (found.has(key)) {
+        // The same item: kept as the one that named its own line, when this one did.
+        if (!checked.moved && moved.delete(key)) found.set(key, item);
+        continue;
+      }
+      const there = atPlace.get(place) ?? new Set<string>();
+      // An item moved to a line (named by its clause's number, say) that has an item with its label
+      // is that item listed twice, its value written another way ("5,000 ש"ח" and "5000"): Gemini
+      // Flash-Lite listed a clause once by its line and once by its number. It counts once, as the
+      // item that named its own line, whichever of the two came first.
+      if (checked.moved) {
+        if (there.size > 0) continue;
+        moved.add(key);
+      } else {
+        for (const other of there) {
+          if (!moved.delete(other)) continue;
+          found.delete(other);
+          there.delete(other);
+        }
+      }
+      found.set(key, item);
+      there.add(key);
+      atPlace.set(place, there);
     }
   };
   await pool(parts.length, options.concurrency ?? 4, async (index) => {

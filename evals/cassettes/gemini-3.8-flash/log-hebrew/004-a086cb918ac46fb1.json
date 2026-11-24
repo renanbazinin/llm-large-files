@@ -1,0 +1,162 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "a086cb918ac46fb1",
+  "bytes": 14534,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "52 chars #16e2c4bd"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #e25b914f",
+        "id": "25 chars #82b7a93a"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #82b7a93a",
+        "response": "{6 keys} #be4f0c88"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #1beef88b",
+        "id": "25 chars #443a33b5"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #443a33b5",
+        "response": "{6 keys} #fe84cdad"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "263 chars #b5c21d73"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "23 chars #07206f99"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"השגיאה הראשונה נרשמה בתאריך וב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5537,\"candidatesTokenCount\": 14,\"totalTokenCount\": 5551,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5537}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"63UFa6PaDeikkdUPt7jNuAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שעה:  \\n**`2026-11-12T09:12:0\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5537,\"candidatesTokenCount\": 39,\"totalTokenCount\": 5576,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5537}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"63UFa6PaDeikkdUPt7jNuAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0.000Z`** (שורה 17280).\\n\\nשורת הלוג המלאה:\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5537,\"candidatesTokenCount\": 67,\"totalTokenCount\": 5604,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5537}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"63UFa6PaDeikkdUPt7jNuAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"```\\n2026-11-12T09:12:00.00\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5537,\"candidatesTokenCount\": 91,\"totalTokenCount\": 5628,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5537}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"63UFa6PaDeikkdUPt7jNuAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0Z ERROR [worker-3] PAY-5031 card processor timeout after 30000\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5537,\"candidatesTokenCount\": 115,\"totalTokenCount\": 5652,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5537}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"63UFa6PaDeikkdUPt7jNuAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ms order=40960\\n```\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5537,\"candidatesTokenCount\": 125,\"totalTokenCount\": 5662,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5537}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"63UFa6PaDeikkdUPt7jNuAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Ep8BCpwBAWkUfRNyc17bCE7DkH/GJQ+jU4hOAEE2fF5EK75UUz1aYMY3kzMNosqQrWRaVTyTNUcafgjKVy6Ddsueb++rKrEB1PgAy+zbqLW4yOkLQH3SEokSvDYx6cFL34QqreFItI6QUlsZAAd1YCQXRo6QW46ogaQmqrXbAoN3NulqEYpt77JTCJj2/tjR1UDF7OBVKzoUo7vj/iipaSOf\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5537,\"candidatesTokenCount\": 125,\"totalTokenCount\": 5662,\"cachedContentTokenCount\": 3474,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5537}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3474}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"63UFa6PaDeikkdUPt7jNuAw\"}\r\n\r\n"
+  ]
+ }
+}

@@ -1710,49 +1710,84 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     /** True for the output of a whole-file read that sent its parts: its answer, or the error of a read that could read none of them. */
     const sentParts = (call: ToolCall, output: ToolResult): boolean => call.name === TOOL_NAMES.analyze
       && (evidenceOf(call, output)?.whole === true || (typeof output.error === "string" && output.error.startsWith(NOTHING_READ)));
+    /** What the whole-file reads already let through in a turn will take: they run together, and the totals do not show them yet. */
+    type Reserved = { inputTokens: number; requests: number; reads: Map<string, number> };
     /**
-     * A whole-file read is many requests at once: one that would pass a ceiling of the question is
-     * not started. `reserved` is what the reads already let through in this turn will take: they run
-     * together, and the totals do not show them yet.
+     * True when no whole-file read of `meta` is left, past those of `reserved`: the tool refuses one
+     * itself, at no cost, with its own reason (such as a read that failed earlier). The tool set says
+     * how many reads are left; one of your own that does not is read by what the reads of this
+     * question returned.
      */
-    const tooCostly = (call: ToolCall, reserved: { inputTokens: number; requests: number; reads: Map<string, number> }): { refusal?: string; own?: number } => {
-      if (call.name !== TOOL_NAMES.analyze) return {};
-      const meta = searchable.find((document) => document.id === call.args.document_id);
-      if (!meta) return {};
-      // A read of a document read whole as often as it may be is refused by the tool, at no cost,
-      // with its own reason (such as a read that failed earlier): it takes nothing from the reads
-      // of other documents. The tool set says how many reads are left; one of your own that does
-      // not is read by what the reads of this question returned.
+    const noReadLeft = (meta: DocumentMeta, reserved: Reserved): boolean => {
       const inTurn = reserved.reads.get(meta.id) ?? 0;
       const left = tools.wholeReadsLeft?.(meta.id);
-      if (typeof left === "number" ? left - inTurn <= 0 : readsMade(meta.id) + inTurn >= readsOfEach) return {};
-      const allReserved = [...reserved.reads.values()].reduce((sum, reads) => sum + reads, 0);
-      if (readsMade() + allReserved >= readsInAll) {
-        return { refusal: `Not run: one question makes at most ${count(readsInAll)} whole-file ${readsInAll === 1 ? "read" : "reads"}, and this one has made ${readsInAll === 1 ? "it" : "them"}. Use search_document and read_document on ${meta.name}.` };
-      }
+      return typeof left === "number" ? left - inTurn <= 0 : readsMade(meta.id) + inTurn >= readsOfEach;
+    };
+    /**
+     * What a whole-file read of `meta` takes, and why the question would not start it now, past the
+     * reads of `reserved`: its whole reads made, or a ceiling it would pass. Not the tool's own
+     * reasons (`noReadLeft`). `output` is the read's own: a read that lists items ("items") is
+     * priced at its parts alone, any other ("answer") at its parts, merges and answer.
+     */
+    const readNeeds = (meta: DocumentMeta, reserved: Reserved, output: "answer" | "items"): { refusal?: string; tokens: number; requests: number } => {
       // The parts are read by the model that explores, in its own tokens: their lines numbered, the
       // prompts, and the merges of their notes (`wholeReadCost`). A read that lists items sends its
       // parts alone, with the rules of a list.
-      const items = call.args.output === "items";
-      const price = priceOf(meta, items ? "items" : "answer").inputTokens;
+      const items = output === "items";
+      const price = priceOf(meta, output).inputTokens;
       const tokens = Number.isFinite(price) ? price : Math.ceil(meta.estimatedTokens * scaleOf(toolModel));
       // The parts, a merge of their notes, the answer of the read, and the answer of the question;
       // for a list of items, the parts and the answer of the question.
       const requests = estimateParts(meta, budget) + (items ? 1 : 3);
+      const allReserved = [...reserved.reads.values()].reduce((sum, reads) => sum + reads, 0);
+      if (readsMade() + allReserved >= readsInAll) {
+        return { tokens, requests, refusal: `Not run: one question makes at most ${count(readsInAll)} whole-file ${readsInAll === 1 ? "read" : "reads"}, and this one has made ${readsInAll === 1 ? "it" : "them"}. Use search_document and read_document on ${meta.name}.` };
+      }
       if (ceiling < Number.POSITIVE_INFINITY) {
         const left = Math.max(0, ceiling - spentTokens() - reserved.inputTokens);
-        if (tokens > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} ${count(left) === "1" ? "is" : "are"} left of the ${count(ceiling)} this question may use. Use search_document and read_document.` };
+        if (tokens > left) return { tokens, requests, refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} ${count(left) === "1" ? "is" : "are"} left of the ${count(ceiling)} this question may use. Use search_document and read_document.` };
       }
       if (limits.requests !== undefined) {
         const left = Math.max(0, limits.requests - usage.totals.requests - reserved.requests);
-        if (requests > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(requests)} model requests, and ${count(left)} ${count(left) === "1" ? "is" : "are"} left of the ${count(limits.requests)} this question may make. Use search_document and read_document.` };
+        if (requests > left) return { tokens, requests, refusal: `Not run: reading all of ${meta.name} takes about ${count(requests)} model requests, and ${count(left)} ${count(left) === "1" ? "is" : "are"} left of the ${count(limits.requests)} this question may make. Use search_document and read_document.` };
       }
+      return { tokens, requests };
+    };
+    /**
+     * A whole-file read is many requests at once: one that would pass a ceiling of the question is
+     * not started. `reserved` is what the reads already let through in this turn will take.
+     */
+    const tooCostly = (call: ToolCall, reserved: Reserved): { refusal?: string; own?: number } => {
+      if (call.name !== TOOL_NAMES.analyze) return {};
+      const meta = searchable.find((document) => document.id === call.args.document_id);
+      // A read of a document read whole as often as it may be takes nothing from the reads of other documents.
+      if (!meta || noReadLeft(meta, reserved)) return {};
+      const { refusal, tokens, requests } = readNeeds(meta, reserved, call.args.output === "items" ? "items" : "answer");
+      if (refusal) return { refusal };
       reserved.inputTokens += tokens;
       // The answer of the question is one request, whatever number of reads come before it.
       reserved.requests += requests - 1;
       reserved.reads.set(meta.id, (reserved.reads.get(meta.id) ?? 0) + 1);
       // The read's own requests: its parts, a merge of their notes, and its answer; or its parts.
       return { own: requests - 1 };
+    };
+    /**
+     * The requests a whole-file read of the document of a `read_document` call may make
+     * (`ToolCallLimits.maxRequests`), judged as on the next turn, the first the model can call it on:
+     * with the reads of this turn reserved, and that turn's request, of the conversation with
+     * `pending` at least (its results are not in it yet). 0 when the question would not start one
+     * then (`noReadLeft`, `readNeeds`), so that a read cut short of its range does not point at it
+     * (`whole_file`); what is left of `limits.requests` with one kept for the answer, when that is
+     * set; undefined otherwise.
+     */
+    const wholeReadRequests = (call: ToolCall, reserved: Reserved, pending: ModelToolRound): number | undefined => {
+      const meta = searchable.find((document) => document.id === call.args.document_id);
+      if (!meta) return undefined;
+      const nextTurn = meter.current(viewFor(toolModel, [...messages, pending])).tokens * scaleOf(toolModel);
+      const later: Reserved = { ...reserved, inputTokens: reserved.inputTokens + nextTurn, requests: reserved.requests + 1 };
+      // The hint points at a read that gives an answer, the dearer of the two kinds.
+      if (noReadLeft(meta, later) || readNeeds(meta, later, "answer").refusal !== undefined) return 0;
+      return limits.requests === undefined ? undefined : Math.max(0, limits.requests - usage.totals.requests - 1 - later.requests);
     };
     /**
      * A pointer for a call whose result is already in the conversation, in full: an earlier result
@@ -1879,6 +1914,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       if (limits.requests !== undefined && reads.length > 0) {
         const slack = Math.max(0, limits.requests - usage.totals.requests - 1 - reserved.requests);
         for (const plan of reads) plan.limits = { ...plan.limits, maxRequests: plan.own! + Math.floor(slack / reads.length) };
+      }
+      // A read of lines points at a whole read of its file only when the question would start one
+      // on the next turn, past the whole reads of this turn: each is told the requests one may make.
+      for (const plan of planned) {
+        if (plan.refusal || plan.call.name !== TOOL_NAMES.read) continue;
+        const most = wholeReadRequests(plan.call, reserved, pending);
+        if (most !== undefined) plan.limits = { ...plan.limits, maxRequests: most };
       }
       // The calls that return text, and the most they may return: a call that is refused, or
       // answered with a pointer to what is already shown, needs no room.

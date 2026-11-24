@@ -137,6 +137,18 @@ describe("a read that lists items", () => {
     expect((result.items as Array<{ line: number }>).map((item) => item.line)).toEqual(penaltyLines);
   });
 
+  it("gives an item named by its clause's number, its quote copied with a letter wrong, the one line near it that starts with that number", async () => {
+    const { files, meta, penaltyLines } = await library();
+    // As Gemini Flash-Lite listed the part of lines 1-47 of the eval's contract (0.10.0's live
+    // measures): clause 5 for line 7 ("7| 5. …"), and ישלם copied as שילם. The quote is on no line,
+    // and not near line 5, which holds clause 3.
+    const generate = lister([], (items) => items.map((item) => JSON.stringify({ ...item, line: item.line - 2, quote: `שילם הספק למזמין קנס בסך ${item.value} ש"ח לכל מקרה` })).join("\n"));
+    const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: TASK, output: "items", labels: ["penalty"] });
+    // 0.10.0 before this fix: 0 counted, 37 unverified.
+    expect(result).toMatchObject({ total_items: 37, unverified_items: 0 });
+    expect((result.items as Array<{ line: number }>).map((item) => item.line)).toEqual(penaltyLines);
+  });
+
   it("reads a value whose quote mark and letter were both escaped (ש\\\"\\ח), as Flash-Lite writes them", async () => {
     const { files, meta } = await library();
     const generate = lister([], (items) => items.map((item) => JSON.stringify({ ...item, value: `${item.value} ש"ח` }).replace('ש\\"ח"', 'ש\\"\\ח"')).join("\n"));
@@ -387,6 +399,28 @@ describe("quoteNearLine", () => {
       }
     });
 
+    it("stays within a few windows of each piece of a quote cut with an ellipsis into many short pieces", () => {
+      // 16 pieces of 15 letters, each of another clause, with לקזוז for לקזז: none is on the line,
+      // and each is near a run of it. 0.10.0 before this fix chose by the piece's letters times the
+      // line's characters, which a short piece kept under its bound, and so measured each piece
+      // along all of the line (41 pieces on a line of 118,759 characters: 677 ms).
+      const pieces = Array.from({ length: 16 }, (_, k) => `לקזוז ${amount(k * 25)} ש"ח`);
+      const quote = pieces.join(" … ");
+      const letters = pieces.map((piece) => [...quoteForm(piece)].length);
+      expect(letters.every((each) => each === 15)).toBe(true);
+      expect(pieces.every((piece) => !long.includes(piece))).toBe(true);
+      const work = { cells: 0 };
+      expect(quoteNearLine(quote, long, work)).toBe(true);
+      // Measured along all of the line, each piece would fill its letters times the line's characters.
+      const along = letters.reduce((sum, each) => sum + each * long.length, 0);
+      expect(work.cells).toBeGreaterThan(0);
+      expect(work.cells).toBeLessThan(along / 100);
+      // Each piece: at most 2 words of 4 places each, a window of the piece and its margin around
+      // each, the margin at most a fifth of the quote's letters.
+      const most = Math.floor(letters.reduce((sum, each) => sum + each, 0) * 0.2);
+      expect(work.cells).toBeLessThanOrEqual(letters.reduce((sum, each) => sum + 2 * 4 * 2 * (each + most) * each, 0));
+    });
+
     it("does not measure a quote none of whose words is rare on the line, which a stored line of the same text measures whole", () => {
       // Clause 1 without its amount, and with השרים for השרתים: near a line the library stores.
       const quote = "המזמין רשאי לקזז ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרים פתוחה";
@@ -420,6 +454,114 @@ describe("quoteNearLine", () => {
     expect(result).toMatchObject({ total_items: 2, unverified_items: 1 });
     expect((result.items as Array<{ line: number }>).map((item) => item.line)).toEqual([2, 3]);
   });
+  it("does not give an item a line by its number when two lines of the part start with it and are near its quote", async () => {
+    // A file whose numbering starts again in each chapter: clause 5 of each sets the same offset.
+    const chapters = (second: string) => [
+      "הסכם שירותי ניקיון",
+      "פרק א",
+      offset.replace(/^3\./, "5."),
+      "6. הספק יבצע ניקיון יומי של המשרדים.",
+      "7. הספק יבצע ניקיון יומי של המטבח.",
+      "פרק ב",
+      `${second} המזמין רשאי לקזז 810 ש"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה באגף ב.`,
+    ].join("\n");
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    // Named for clause 5, on line 5, which holds clause 7, with לקזז copied as מקוזז.
+    const generate: GenerateText = async () => JSON.stringify({ line: 5, value: "810", quote: "מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה" });
+    const read = async (text: string) => {
+      const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(text) });
+      return files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "sanctions", output: "items" });
+    };
+    // One line starts with 5: the item is given it.
+    const one = await read(chapters("8."));
+    expect(one).toMatchObject({ total_items: 1, unverified_items: 0 });
+    expect((one.items as Array<{ line: number }>).map((item) => item.line)).toEqual([3]);
+    // Lines 3 and 7 both start with 5 and are near the quote: either may be the item's, so neither is taken.
+    expect(await read(chapters("5."))).toMatchObject({ total_items: 0, unverified_items: 1 });
+    // Nor a line that starts with a longer number, 50 or 5.1.
+    for (const longer of ["50.", "5.1"]) {
+      const kept = await read(chapters(longer));
+      expect((kept.items as Array<{ line: number }>).map((item) => item.line), longer).toEqual([3]);
+    }
+  });
+
+  it("does not take a line that starts with a date or a time for one that starts with the clause's number", async () => {
+    // Clause 5 on line 3, and a log line of 5 November, or of 05:30, near the same quote on line 7.
+    const lines = (second: string) => [
+      "הסכם שירותי ניקיון",
+      "פרק א",
+      offset.replace(/^3\./, "5."),
+      "6. הספק יבצע ניקיון יומי של המשרדים.",
+      "7. הספק יבצע ניקיון יומי של המטבח.",
+      "יומן",
+      `${second} המזמין רשאי לקזז 810 ש"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה באגף ב.`,
+    ].join("\n");
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const generate: GenerateText = async () => JSON.stringify({ line: 5, value: "810", quote: "מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה" });
+    for (const date of ["5/11", "5/11/2026", "05:30:12", "5:30", "5.11.2026", "5-11-2026", "[05:30:12]"]) {
+      const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(lines(date)) });
+      const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "sanctions", output: "items" });
+      // 0.10.0 before this fix: "5/11" and "05:30:12" started with 5, so two lines did, and neither was taken.
+      expect(result, date).toMatchObject({ total_items: 1, unverified_items: 0 });
+      expect((result.items as Array<{ line: number }>).map((item) => item.line), date).toEqual([3]);
+    }
+  });
+
+  it("counts once a clause listed by its line and again by its number, with its value written another way", async () => {
+    const { files, meta, penaltyLines } = await library();
+    // As Gemini Flash-Lite listed clauses of the eval's contract (0.10.0's live measures): once on
+    // its line with the amount as the line writes it, and once named by the clause's number ("7| 5. …"
+    // named 5) with the amount written another way. The second is moved to the line of its quote.
+    const twice = (byNumberFirst: boolean): GenerateText => lister([], (items) => items.flatMap((item) => {
+      const byLine = JSON.stringify(item);
+      const byNumber = JSON.stringify({ ...item, line: item.line - 2, value: `${item.value.replaceAll(",", "")} ש"ח` });
+      return byNumberFirst ? [byNumber, byLine] : [byLine, byNumber];
+    }).join("\n"));
+    for (const byNumberFirst of [false, true]) {
+      const result = await files.tools([meta], { generate: twice(byNumberFirst) }).execute("analyze_whole_document", { document_id: meta.id, task: TASK, output: "items", labels: ["penalty"] });
+      // 0.10.0 before this fix: 74, each clause twice.
+      expect(result, `by number first: ${byNumberFirst}`).toMatchObject({ total_items: 37, counts_by_label: { penalty: 37 }, unverified_items: 0 });
+      const items = result.items as Array<{ line: number; value: string }>;
+      expect(items.map((item) => item.line)).toEqual(penaltyLines);
+      // The item that named its own line is kept, with the value as it wrote it.
+      expect(items[0]!.value).toBe("1,250");
+    }
+  });
+
+  it("still counts the items its reply placed on one line with one label and other values", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", "4. בגין איחור ינוכו 1,200 ש\"ח, ובגין כל יום נוסף ינוכו 300 ש\"ח, ובגין נזק ינוכו 500 ש\"ח מהתמורה."].join("\n")) });
+    const late = { label: "penalty", value: "1,200", quote: "בגין איחור ינוכו 1,200 ש\"ח" };
+    const daily = { label: "penalty", value: "300", quote: "ובגין כל יום נוסף ינוכו 300 ש\"ח" };
+    const damage = { label: "penalty", value: "500", quote: "ובגין נזק ינוכו 500 ש\"ח" };
+    /** The values a read counts of a reply of these items, in this order. */
+    const counted = async (items: Array<Record<string, unknown>>) => {
+      const generate: GenerateText = async () => items.map((item) => JSON.stringify(item)).join("\n");
+      const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "fines", output: "items", labels: ["penalty"] });
+      expect(result).toMatchObject({ unverified_items: 0 });
+      return (result.items as Array<{ value: string }>).map((item) => item.value).sort();
+    };
+    // Two on their line, and the first again named by its clause's number (4), moved to line 2.
+    expect(await counted([{ line: 2, ...late }, { line: 2, ...daily }, { line: 4, ...late, value: "1200" }])).toEqual(["1,200", "300"]);
+    // The moved one first, then the same item on its own line, then another: both are kept.
+    expect(await counted([{ line: 4, ...daily }, { line: 2, ...daily }, { line: 2, ...late }])).toEqual(["1,200", "300"]);
+    // The moved one first, dropped for another item on its line; then the same item on its own
+    // line, which counts, and a third, which does not take it out.
+    expect(await counted([{ line: 4, ...daily }, { line: 2, ...late }, { line: 2, ...daily }, { line: 2, ...damage }])).toEqual(["1,200", "300", "500"]);
+  });
+
+  it("counts an item whose quote had a \\u escape with three hex digits, on its line", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", "4. בגין הפרת הוראות הבטיחות באתר ינוכו 1,200 ש\"ח מהתמורה החודשית של הספק."].join("\n")) });
+    // ט written as \u05d, as Gemini Flash-Lite wrote it: the escape is bad JSON.
+    const generate: GenerateText = async () => '{"line": 2, "value": "1,200", "quote": "בגין הפרת הוראות הב\\u05dיחות באתר ינוכו 1,200 ש\\"ח"}';
+    const reply = String(await generate({ system: "", prompt: "", maxOutputTokens: 100 }));
+    expect(() => JSON.parse(reply)).toThrow();
+    const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "sanctions", output: "items" });
+    // 0.10.0 before this fix: "u05d" was left in the quote, whose number 05 is not the line's.
+    expect(result).toMatchObject({ total_items: 1, unverified_items: 0 });
+    expect((result.items as Array<{ line: number; quote: string }>)[0]).toMatchObject({ line: 2, quote: "בגין הפרת הוראות הביחות באתר ינוכו 1,200 ש\"ח" });
+  });
 });
 
 describe("parseItemLines", () => {
@@ -433,6 +575,11 @@ describe("parseItemLines", () => {
     // A backslash before a letter starts no JSON escape: it is taken out. One cut in its middle is still skipped.
     expect(parseItemLines('{"line": 3, "value": "5,000 ש\\"\\ח", "quote": "a\\u05d0"}')).toEqual({ objects: [{ line: 3, value: '5,000 ש"ח', quote: "a\u05d0" }], skipped: 0 });
     expect(parseItemLines('{"line": 3, "quote": "\\u05')).toEqual({ objects: [], skipped: 1 });
+    // A \u with fewer than four hex digits is taken out with the digits it has: Flash-Lite wrote ט as \u05d.
+    expect(parseItemLines('{"line": 3, "quote": "הוראות הב\\u05dיחות באתר"}')).toEqual({ objects: [{ line: 3, quote: "הוראות הביחות באתר" }], skipped: 0 });
+    expect(parseItemLines('{"line": 3, "quote": "a\\u05 b\\u0 c\\u d"}')).toEqual({ objects: [{ line: 3, quote: "a b c d" }], skipped: 0 });
+    // Four hex digits are an escape, and an escaped backslash before a "u" is a backslash.
+    expect(parseItemLines('{"line": 3, "quote": "\\u05d8 \\\\u05d"}')).toEqual({ objects: [{ line: 3, quote: "\u05d8 \\u05d" }], skipped: 0 });
   });
 
   it("reads two objects on one line, a list wrapped in an object, and items after NOTHING RELEVANT", () => {

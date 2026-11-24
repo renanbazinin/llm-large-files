@@ -71,7 +71,7 @@ describe("wholeReadCost", () => {
     const budget = resolveBudget({ mapChunkTokens: 60_000 });
     const meta = { estimatedTokens: 1_000, lines: 99, textBytes: 4_000 };
     // 99 lines: 189 digits of line numbers. One part with its prompt, then the read's answer from its notes.
-    const tokens = 1_000 + 1.2 * 189 + 1.5 * 99 + 200 + PART_OUTPUT_TOKENS + 25 + 200;
+    const tokens = 1_000 + 1.2 * 189 + 1.5 * 99 + REQUEST_FRAME_TOKENS + PART_OUTPUT_TOKENS + 25 + REQUEST_FRAME_TOKENS;
     expect(wholeReadCost(meta, budget, 1)).toEqual({ inputTokens: Math.ceil(tokens), requests: 2, parts: 1, merges: 0 });
     expect(wholeReadCost(meta, budget, 1.35).inputTokens).toBe(Math.ceil(tokens * 1.35));
     expect(Number.isNaN(wholeReadCost({ estimatedTokens: Number.NaN, lines: 1, textBytes: 1 }, budget, 1).inputTokens)).toBe(true);
@@ -128,6 +128,15 @@ describe("the frame of a part read, which a price counts for each part", () => {
     expect(notes).toBeLessThanOrEqual(REQUEST_FRAME_TOKENS);
   });
 
+  it("is within REQUEST_FRAME_TOKENS for a read of notes with a Hebrew task of a few lines", async () => {
+    const task = [..."פרט כל סעיף בחוזה שקובע קנס שהספק משלם למזמין, עם הסכום שלו והאתר שהוא חל עליו. השמט קנסות שרק הוצעו ולא נקבעו. ציין גם את התאריך של כל אחד מהם ואת שם המפקח שאישר אותו"].slice(0, 160).join("");
+    expect(task.length).toBe(160);
+    const { frames: [notes] } = await frames("הסכם ניקיון.txt", "שורה אחת.\nשורה שנייה.", { task });
+    // 0.10.0 before this fix: 200, under what this part sends.
+    expect(notes).toBeGreaterThan(200);
+    expect(notes).toBeLessThanOrEqual(REQUEST_FRAME_TOKENS);
+  });
+
   it("counts the heading a part starts under, cut to 120 characters, for each part after the first of a file with an outline", async () => {
     // A heading of 120 characters in Hebrew, the longest an outline takes, and 400 lines under it.
     const heading = `# ${[..."פרק 12: דוח התחזוקה הרבעוני של האתרים הצפוניים, עם הקנסות וההפרות שהוטלו על הספק בגין איחורים בתגובה לקריאות שירות דחופות"].slice(0, 118).join("")}`;
@@ -168,7 +177,7 @@ describe("estimateMerges", () => {
 
   it("merges in batches that fit, round after round", () => {
     // 25 notes of 4,121 tokens: batches of 14, so 2 merges, whose notes then fit together.
-    expect(estimateMerges(25, 4_096, 60_000)).toEqual({ requests: 2, inputTokens: 25 * 4_121 + 2 * 200, finalTokens: 2 * 4_121 });
+    expect(estimateMerges(25, 4_096, 60_000)).toEqual({ requests: 2, inputTokens: 25 * 4_121 + 2 * REQUEST_FRAME_TOKENS, finalTokens: 2 * 4_121 });
     // 400 notes in batches of 2: 200 merges, then 100, 50, 25, 13, 7, 4 and 2, whose 2 notes fit 10,000.
     expect(estimateMerges(400, 4_096, 10_000)).toMatchObject({ requests: 200 + 100 + 50 + 25 + 13 + 7 + 4 + 2, finalTokens: 2 * 4_121 });
   });

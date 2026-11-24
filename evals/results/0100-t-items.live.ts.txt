@@ -73,7 +73,7 @@ it("measures", async () => {
           result = { error: String(error) };
         }
         const parsed = replies.filter((reply) => parses(reply.text)).length;
-        debug.push({ model, document: target.id, run, replies: replies.map((reply) => ({ lines: /Document: [^\n]*, lines (\d+-\d+)\./.exec(reply.prompt)?.[1], text: reply.text })) });
+        debug.push({ model, document: target.id, run, replies: replies.map((reply) => ({ lines: /Document: [^\n]*, lines (\d+-\d+)[.,]/.exec(reply.prompt)?.[1], text: reply.text })) });
         const row = { measure: "items", model, document: target.id, run, expected: target.expected, total_items: result.total_items, unverified_items: result.unverified_items, parts_read: result.parts_read, parts_cut_short: result.parts_cut_short, parts_failed: result.parts_failed, error: result.error, replies: replies.length, parsed, inputTokens: tokens.input - before, unparsed: replies.filter((reply) => !parses(reply.text)).map((reply) => reply.text.slice(0, 300)) };
         results.push(row);
         process.stdout.write(`${JSON.stringify({ ...row, unparsed: row.unparsed.length })}\n`);

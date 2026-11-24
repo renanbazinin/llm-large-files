@@ -569,6 +569,32 @@ shortened (to 70% of its length, step by step) until it fits, and `next_start_li
 go on. When one line alone is longer than that, its text is cut to half of that room and
 `text_cut` is `true`.
 
+A read cut short of its range that way also says, in `whole_file`, that the whole file can be
+read with `analyze_whole_document`, when all of these hold (new in 0.10.0), so that it points only
+at a read that the tool set and the question's limits would let through on the model's next turn,
+by the read's estimated parts:
+
+- the tool set declares `analyze_whole_document` and has a part reader (`generate`);
+- the file can be read whole: it is not sent whole in the prompt (`ToolOptions.inline`), a
+  whole read of it is left (`maxWholeDocumentReads`, and no earlier read of it that could read no
+  part), and its estimated parts are within `maxMapChunks` (without the margin of 5% that the
+  declaration and the card give the estimate: the read counts its parts, and may count one more)
+  and within the call's [`ToolCallLimits.maxRequests`](#toolcalllimits), when it has one. In
+  `askWithFiles` that is what `limits.requests` leaves once the next turn, which calls the read,
+  and the answer of the question have their requests; and 0 when the question would not start a
+  whole read of the file on that turn: one that would pass its ceiling on input tokens or requests
+  (`limits.inputTokens`, `limits.requests`) with that turn's request counted, or one more than its
+  `wholeReadsPerQuestion`;
+- the result, with it, stays within its cap.
+
+At a border the hint can still point at a read that is then refused, before it sends any request:
+the read can count one part more than the estimate, and the next turn's request is counted at the
+size of the conversation before this turn's results.
+
+A read that shows every line asked for, and one shortened only to 600 lines, have no `whole_file`.
+Gemini 3.5 Flash-Lite and 3.8 Flash read a contract they were asked to summarize in ranges of about
+16 lines, and answered from those, when a whole read would have given all of it.
+
 | Field | Type | Meaning |
 |---|---|---|
 | `document` | string | The file name. |
@@ -579,6 +605,7 @@ go on. When one line alone is longer than that, its text is cut to half of that 
 | `text_cut` | `true`, optional | The one line shown was cut: its end is missing. |
 | `next_start_line` | number, optional | The first line not shown, when the file goes on. |
 | `note` | `"End of file."`, optional | Instead of `next_start_line`, when the last line shown is the file's last. |
+| `whole_file` | string, optional | "Only N lines fit here. To read all M lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document." ("Only 1 line fits here" for one; "Not even one line fits here: the text of line N is cut." when `text_cut` is `true`), on a read cut short of its range by the size limit when the file can be read whole (see above). New in 0.10.0. |
 
 ```json
 { "document": "app.log", "lines": "1200-1399", "total_lines": 5000, "text": "1200| ...\n1201| ...", "next_start_line": 1400 }
@@ -694,10 +721,12 @@ that number is (since 0.10.0; before, a number of 2 or more let it try again).
 
 New in 0.10.0. Each part replies with one JSON object for each item it finds, on a line of its own:
 `{"line": 123, "label": "penalty", "value": "5%", "quote": "a fine of 5% of the order"}`, the label
-only when the call gave `labels`. The rules ask for a quote of the few words that state the item,
-at most 80 characters: the longer quotes asked for at first (200 characters) made Gemini
-Flash-Lite cut its list at the output limit more often, and copy more words wrong. Code reads the replies, checks the items and counts them. No model
-merges them, and there is no answer of the read: one request a part.
+only when the call gave `labels`. The rules ask for a quote of five to twelve words of the line
+that state the item, copied exactly, letter by letter, at most 80 characters: the longer quotes
+asked for at first (200 characters) made Gemini Flash-Lite cut its list at the output limit more
+often, and copy more words wrong; asked for "the few words" of the line, it gave some quotes of 14
+characters, too short for the near check below. Code reads the replies, checks the items and
+counts them. No model merges them, and there is no answer of the read: one request a part.
 
 - A reply is read leniently: a line may start with a list mark (`- `, `1. `) and end with a comma,
   or hold several objects (`{…} {…}`), code fences are passed over, and a JSON array of the objects
@@ -720,14 +749,27 @@ merges them, and there is no answer of the read: one request a part.
   out in all. Gemini Flash-Lite copies Hebrew quotes with a letter or a word changed (השרים for
   השרתים, מקוזז for לקזז, ש"ץ for ש"ח). A quote with an amount other than the line's is not near
   it, so neither is the quote of the next clause of a contract written to the same pattern. A line
-  longer than ingest stores (2,000 characters), which a store of your own may give, is looked at
-  only around the two longest words of the quote that are on it in at most 4 places: a quote none
-  of whose words is so is not near it. Measured along all of a line of 118,759 characters, one
-  quote took 688 ms.
+  of up to 2,000 characters, the longest that ingest stores, is compared whole. A longer line, which
+  a store of your own may give, is looked at only around the two longest words of each piece of the
+  quote that are on it in 1 to 4 places: a piece none of whose words is so counts as wrong in all
+  its letters, and a quote none of whose words is so is not near it. Measured along all of a line
+  of 118,759 characters, one quote took 688 ms, and one cut with "…" into 41 short pieces 677 ms.
+- An item whose quote is on no line of its part, nor near the line it names, is given the line of
+  its part that is near its quote and starts with the number it names ("7| 5. …" for 5), when
+  exactly one line is both: Gemini Flash-Lite named the clause for the line and copied a letter of
+  the quote wrong (שילם for ישלם). When two lines start with that number and are near the quote,
+  as in a file whose numbering starts again, it is not counted. A line that starts with a date or
+  a time (`5/11 …`, `5-11-2026 …`, `05:30:12 …`, `5.11.2026 …`) does not start with the number 5.
+  New in 0.10.0.
 - Any other item counts in `unverified_items`, not in `total_items`.
 - A backslash that starts no JSON escape (`ש\"\ח`, as Gemini Flash-Lite escapes a Hebrew letter) is
-  taken out before a line is read again.
-- The same item listed twice (the same line, label and value) counts once.
+  taken out before a line is read again, and a `\u` with fewer than four hex digits is taken out
+  with the digits it has (Flash-Lite wrote ט as `\u05d`, which left "u05d" in the quote).
+- The same item listed twice (the same line, label and value) counts once. So does an item given
+  a line other than the one it named (either way above) when that line has an item with its label,
+  whatever its value: Gemini Flash-Lite listed a clause once by its line and once by the clause's
+  number, with the value written another way (`5,000 ש"ח` and `5000`). The item that named its own
+  line is the one kept. New in 0.10.0.
 - A label is matched to `labels` as quotes are compared, and given as the call spelled it. A label
   that is not one of them is kept as the model wrote it.
 - A part whose list stops at the output limit is read again as two halves, and a half as two
@@ -1195,14 +1237,16 @@ type ToolCallLimits = {
 | `maxFileBytes` | number | 3/8 of (`maxRequestBytes` − 262,144): 3,651,696 bytes with the default budget | `view_pages`: the most bytes its file may have. Pages are left off the end until the cut fits. Below 1,024 the call fails. Give the room left in your request, times 3/4 when you send files as base64. |
 | `maxPages` | number | [`MAX_VIEW_PAGES`](#max_view_pages) (5) | `view_pages`: the most pages this call may show, never more than 5. Below 1 the call fails. Lower it as the pages already shown use up your token budget. |
 | `maxResultCharacters` | number | The tool's own cap ([`resultCharacters`](#toolset)) | The most characters of the JSON result, when that is less than the tool's cap: the room left in the request. The result is cut to it and says where to go on. Never below 600. `view_pages` ignores it. |
-| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a read with more parts than this is refused before any request, a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. New in 0.6.0. |
+| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a read with more parts than this is refused before any request, a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. `read_document` (since 0.10.0): what a whole read of its file may make on the model's next turn, the first it can call one on; a read cut short of its range points at one (`whole_file`) only when the file's estimated parts are within it. New in 0.6.0. |
 | `maxWaitMs` | number | The library's `pageLookWaitMs` (30,000) | `view_pages`: the most milliseconds the look waits for its turn, when that is less than `pageLookWaitMs`. 0: it runs only when a turn is free now, and is told the server is busy if not. New in 0.9.0. |
 
 In `askWithFiles`, `maxFileBytes` is what is left of `maxRequestBytes` after the request so far
 and a tenth kept free (256 KiB at least), times 3/4; `maxPages` is what is left of
 `reservedTokens / 2 / pageTokens` pages for the question (60 with a `reservedTokens` of 64,000 and
 Gemini's 530 tokens a page); `maxRequests`, when `limits.requests` is set, is the read's own
-requests and a share of what the question has left of it; `maxWaitMs` is 0 for the looks of a
+requests and a share of what the question has left of it (for a `read_document` call, what the
+question has left of it with one request kept for the answer, and 0 when the question would not
+start a whole read of the file: since 0.10.0); `maxWaitMs` is 0 for the looks of a
 tool turn after one of them was told the server is busy, so that a wait that ends busy comes once
 in a turn. See
 [Your own adapter and loop](../guides/own-adapter-and-loop.md).

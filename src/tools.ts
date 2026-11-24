@@ -940,6 +940,37 @@ export function createDocumentTools(options: {
   const wholeReads = new Map<string, number>();
   /** Why the last whole-document read of a document failed, when no part of it could be read. */
   const failedWholeReads = new Map<string, string>();
+  const wholeReadsDeclared = declarations.some((declaration) => declaration.name === TOOL_NAMES.analyze);
+  /**
+   * What a `read_document` result cut short of its range by the size limit adds (`whole_file`), as
+   * the lines it shows of the file from `start` (`shown`, or none whole when `cut`: the text of the
+   * first line was cut): that `analyze_whole_document` reads all of it. Gemini Flash-Lite and Flash
+   * read a contract to summarize in ranges of about 16 lines, and answered from those
+   * (`evals/results/0100-t-live-3.md`). Only when this tool set declares the read and would run it on
+   * the file, by the estimate of its parts: a part reader, a file not sent whole, a read of it left,
+   * and its parts within `maxMapChunks` and within the requests the call says a whole read may make
+   * (`limits.maxRequests`), the checks the read makes before it sends a part (`partsToRead`). The
+   * parts are `estimateParts`'s, without the margin `canBeReadWhole` gives the estimate. The read
+   * counts its own, and at a border may count one more than the estimate: then it is refused, before
+   * it sends a request. `askWithFiles` gives a read 0 requests when the question would not start a
+   * whole read of its file on the next turn, the first the model can call it on (its ceilings on
+   * input tokens and requests, with that turn's request counted, its whole reads made). New in 0.10.0.
+   */
+  const wholeFileHint = (document: DocumentSource, start: number, shown: number, cut: boolean, limits: ToolCallLimits): string | undefined => {
+    const id = document.meta.id;
+    if (!wholeReadsDeclared || !options.generate || inline.has(id) || failedWholeReads.has(id) || (wholeReads.get(id) ?? 0) >= maxWholeReads) return undefined;
+    const requests = typeof limits.maxRequests === "number" && !Number.isNaN(limits.maxRequests) ? limits.maxRequests : Number.POSITIVE_INFINITY;
+    // Every part is one request.
+    if (requests < 1) return undefined;
+    const parts = estimateParts(document.meta, options.budget);
+    // Metadata that does not give its size (a record an application kept in part): as `canBeReadWhole`, not held back.
+    if (Number.isFinite(parts) && (parts > options.budget.maxMapChunks || parts > requests)) return undefined;
+    const total = document.lineCount.toLocaleString("en-US");
+    const fitting = cut
+      ? `Not even one line fits here: the text of line ${start.toLocaleString("en-US")} is cut.`
+      : `Only ${shown.toLocaleString("en-US")} ${shown === 1 ? "line fits" : "lines fit"} here.`;
+    return `${fitting} To read all ${total} lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document.`;
+  };
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
@@ -1135,16 +1166,23 @@ export function createDocumentTools(options: {
         body = numberLines(read.slice(0, to - start + 1), start);
       }
       const pages = viewable.has(document.meta.id) ? document.pagesOfLines(start, to) : undefined;
-      return {
+      const cut = !fits(body);
+      const result: ToolResult = {
         document: document.meta.name,
         lines: `${start}-${to}`,
         ...(pages ? { pages } : {}),
         total_lines: total,
-        text: fits(body) ? body : sliceWhole(body, Math.floor((limit - 500) / 2)),
+        text: cut ? sliceWhole(body, Math.floor((limit - 500) / 2)) : body,
         // One line longer than the room: its text was cut, so the lines are not all shown.
-        ...(fits(body) ? {} : { text_cut: true }),
+        ...(cut ? { text_cut: true } : {}),
         ...(to < total ? { next_start_line: to + 1 } : { note: "End of file." }),
       };
+      // Cut short of the range asked by the size limit: the way to all of the file, when there is
+      // one. Left out when it would take the result past its cap.
+      const hint = to < end ? wholeFileHint(document, start, to - start + 1, cut, limits) : undefined;
+      if (!hint) return result;
+      const hinted = { ...result, whole_file: hint };
+      return JSON.stringify(hinted).length <= limit ? hinted : result;
     },
 
     async [TOOL_NAMES.overview](args, limits, _hooks, signal) {
