@@ -52,18 +52,21 @@ options are optional, and the requests are byte for byte those of 0.10.1.
 - A store of your own that keeps a fixed list of metadata fields drops `appData`, the new field of
   `DocumentMeta`: keep `meta` whole, as the storage guide says
   ([The methods](docs/guides/storage.md#the-methods)).
-- `documentStoreChecks` checks `list` and `putMeta` only for a store that has them: your store's
+- `documentStoreChecks` checks `list` and `patchMeta` only for a store that has them: your store's
   tests pass as before.
 
 ### New: what you can add
 
-- **`files.list(access)`**: the documents of a scope the caller may use, the oldest first, for a
-  chat's file panel without a second list in your database. It needs the store's new optional
+- **`files.list(access)`**: the documents of exactly the caller's owner and scope, the oldest first,
+  for a chat's file panel without a second list in your database. A document without an owner is
+  listed only to a caller without one. It needs the store's new optional
   `list(context)`, which `MemoryDocumentStore` and `FileDocumentStore` have
   ([`files.list`](docs/reference/library.md#fileslistaccess)).
 - **`files.touch(id, access)`**: the document's expiry is counted again from now (H5), so `ttlMs`
-  becomes the time a file is kept after its last use. Only the metadata is written, through the
-  store's new optional `putMeta(meta, context)`
+  becomes the time a file is kept after its last use. Only the expiry is changed, through the
+  store's new optional `patchMeta(id, { createdAt, expiresAt?, appData? }, context)`: field by field,
+  and only in the document of that `createdAt`, so a document stored again under the same ID
+  meanwhile is never changed, and a `touch` and an `update` at once both stay
   ([Expiry from the last use](docs/guides/storage.md#expiry-from-the-last-use)).
 - **`appData`**: the application's own data about a document (`DocumentMeta.appData`, a JSON object
   of at most 16 KB, `MAX_APP_DATA_BYTES`), set with `ingest({ appData })` and changed with
@@ -75,23 +78,28 @@ options are optional, and the requests are byte for byte those of 0.10.1.
   ```
 - **`ingest({ dedupe: true })`**: a file uploaded again gives back the document of the same owner
   and scope with the same SHA-256, with its expiry counted again, instead of a second copy (H6). The
-  file is hashed, not extracted. Never across owners or scopes; not with `id`
+  file is read once to hash it, not extracted. Never across owners or scopes; not with `id`. The
+  document keeps its `createdAt`, which tells it from a new one
   ([`IngestInput`](docs/reference/library.md#ingestinput)).
 - **`storeRounds: "compact"`** and **`compactToolTurns(turns)`**: stored tool rounds with each large
   result replaced by the stand-in the loop already sends when it drops a result (I2), a few hundred
   bytes a call instead of up to 24,000 characters. A later question sends the stand-ins, and the
   model reads again what it needs ([`compactToolTurns`](docs/reference/ask.md#compacttoolturnsturns)).
-- `documentStoreChecks` checks `list` and `putMeta`; `StoreCheckPart` has `"list"` and `"meta"`.
+- `documentStoreChecks` checks `list` and `patchMeta`; `StoreCheckPart` has `"list"` and `"meta"`.
 
 ### Changed: what works differently
 
 - **The last document larger than the whole cache is kept apart** for a minute after its last use
   (P4): over a store without `readTextRange`, the tool calls of a question no longer each load and
-  index it again (250 ms a read, and about 2 GB of RSS at 100 MB in the 0.6 review). One at most;
-  `cacheBytes: 0` keeps none, and `stats().cache.bytes` counts it.
+  index it again (250 ms a read, and about 2 GB of RSS at 100 MB in the 0.6 review). One at most, on
+  top of `cacheBytes`; `cacheBytes: 0` keeps none; `stats().cache.bytes` counts it,
+  `stats().cache.entries` does not.
+- **`FileDocumentStore.sweep` removes metadata whose text is gone**, once it is older than
+  `orphanAgeMs`, as it removes files of no document: a document changed on one server while another
+  deleted it can be left so, and reads already took it as missing.
 - **An ingest's own reads of a path upload count as stuck calls** (the `lstat`, the parts read for
-  the format, the read of the file), as its store calls do, once they have run the time the ingest
-  gives them: a volume that does not answer now shows in `stats().stuckStoreCalls`, and past
+  the format, and, when `ingestTimeoutMs` is a time limit, the read of the file), as its store calls
+  do, once they have run the time the ingest gives them: a volume that does not answer now shows in `stats().stuckStoreCalls`, and past
   `maxStuckStoreCalls` store calls fail at once with `"STORE_STUCK"`
   ([A store that stops answering](docs/guides/deployment.md#a-store-that-stops-answering)).
 

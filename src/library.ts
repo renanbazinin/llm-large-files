@@ -1,5 +1,5 @@
 import {
-  callerOf, checkMetaVersion, checkStuck, documentContext, isTimeLimit, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, storeTimeout,
+  callerOf, checkMetaVersion, checkStuck, documentContext, heldBy, isTimeLimit, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, storeTimeout,
   stuckCalls, type AccessRules, type Caller,
 } from "./access.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
@@ -30,6 +30,7 @@ import type {
   DocumentStore,
   Extractor,
   GenerateText,
+  MetaPatch,
   PreparedContext,
   ProgressListener,
   ToolName,
@@ -284,12 +285,13 @@ export type IngestInput = {
    * RangeError. Never sent to the model, nor in a summary. Change it later with `files.update`.
    * New in 0.10.2.
    */
-  appData?: AppData;
+  appData?: object;
   /**
    * When the store already has a document of the same owner and scope whose file has the same
    * SHA-256, and its text is there, give back that document instead of storing another: its name,
-   * ID and `appData` stay its own, and its expiry is counted again from now when the store has
-   * `putMeta`. The file is hashed first and not read further. It needs a store with `list`
+   * ID, `createdAt` and `appData` stay its own (a `createdAt` before the ingest began tells it from
+   * a new one: never delete it as one this ingest made), and its expiry is counted again from now
+   * when the store has `patchMeta`. The file is read once to hash it, and not extracted. It needs a store with `list`
    * (another is a TypeError), and it cannot be given with `id` (a TypeError). Never across owners
    * or scopes (H6). New in 0.10.2.
    */
@@ -480,9 +482,11 @@ export interface LargeFiles {
    */
   toolsFor?(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>;
   /**
-   * The documents of `access.scope` that the caller may use (those of no scope without one), as
-   * `getMeta` would give each, the oldest first. Expired documents, and metadata this version
-   * cannot read (damaged, or of a newer version), are left out. It needs a store with `list`
+   * The documents held by exactly the caller's owner and scope (`access.owner` and `access.scope`;
+   * without one, those without one), as `getMeta` would give each, the oldest first. A document
+   * without an owner is listed only to a caller without one: its ID is all it takes to use it, and
+   * a list must not hand it to every user. Expired documents, and metadata this version cannot read
+   * (damaged, or of a newer version), are left out. It needs a store with `list`
    * (`MemoryDocumentStore` and `FileDocumentStore` have it): another is a TypeError. A store that
    * fails is a `DocumentStoreError` (operation "read"). Optional, so that a `LargeFiles` of your own
    * still compiles; the one `createLargeFiles` makes has it. New in 0.10.2.
@@ -491,17 +495,18 @@ export interface LargeFiles {
   /**
    * Marks a document used: its expiry is counted again from now (`ttlMs`), so that a chat that
    * still reads a file keeps it. An expiry already later stays. Returns the metadata as it now is,
-   * or undefined when the document is missing for this caller. It needs a store with `putMeta`:
+   * or undefined when the document is missing for this caller. It needs a store with `patchMeta`:
    * another is a TypeError. A store that fails is a `DocumentStoreError`. Optional, as `list` is.
    * New in 0.10.2.
    */
   touch?(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
   /**
-   * Changes the application's own data about a document (`appData`; null removes it), and nothing
-   * else. Returns the metadata as it now is, or undefined when the document is missing for this
-   * caller. It needs a store with `putMeta`, as `touch` does. Optional, as `list` is. New in 0.10.2.
+   * Changes the application's own data about a document (`appData`, a JSON object; null removes
+   * it), and nothing else. Returns the metadata as it now is, or undefined when the document is
+   * missing for this caller. It needs a store with `patchMeta`, as `touch` does. Optional, as `list`
+   * is. New in 0.10.2.
    */
-  update?(id: string, changes: { appData?: AppData | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>;
+  update?(id: string, changes: { appData?: object | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>;
 }
 
 /** What `files.stats()` counts: plain numbers, for metrics and alerts. New in 0.10.0. */
@@ -811,23 +816,19 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
   }
 
   /**
-   * The metadata of a document as the store keeps it, when `caller` may use it and it has not
-   * expired: to change and write back (`putMeta`), with its name as stored. `operation` names the
-   * method that needs `putMeta` in the TypeError of a store without it.
+   * Changes the metadata of a document `caller` may use (`patchMeta`): the document as `getMeta`
+   * finds it, then the change, made by the store to the document of that `createdAt` only, so that
+   * one deleted and stored again under the ID since is never changed. The metadata as it is after
+   * the change, or undefined when the document is missing for this caller or went meanwhile.
+   * `operation` names the method in the TypeError of a store without `patchMeta`.
    */
-  async function storedFor(id: string, caller: Caller, operation: string): Promise<DocumentMeta | undefined> {
-    if (typeof store.putMeta !== "function") throw new TypeError(`files.${operation} needs a store with putMeta(): MemoryDocumentStore and FileDocumentStore have it.`);
-    if (!isDocumentId(id)) return undefined;
-    const meta = metaOf(await reading(() => store.getMeta(id, caller.context), caller.signal), id);
-    if (!meta || Date.parse(meta.expiresAt) <= now().getTime() || !mayUse(meta, caller, rules)) return undefined;
-    checkMetaVersion(meta);
-    return meta;
-  }
-
-  /** Writes `meta` back (`putMeta`), within `storeTimeoutMs`: the metadata as it now is, or undefined when the document went meanwhile. */
-  async function rewrite(meta: DocumentMeta, caller: Caller): Promise<DocumentMeta | undefined> {
-    const written = await timed("write", () => store.putMeta!(meta, caller.context), caller.signal);
-    return written === true ? wholeName(meta) : undefined;
+  async function changeMeta(id: string, caller: Caller, operation: string, change: Omit<MetaPatch, "createdAt">): Promise<DocumentMeta | undefined> {
+    if (typeof store.patchMeta !== "function") throw new TypeError(`files.${operation} needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it.`);
+    const meta = await metaFor(id, caller);
+    if (!meta) return undefined;
+    const changed = metaOf(await timed("write", () => store.patchMeta!(id, { ...change, createdAt: meta.createdAt }, caller.context), caller.signal), id);
+    // The store changed the document of that `createdAt`, or none: one of another is not given back.
+    return changed && changed.createdAt === meta.createdAt ? wholeName(changed) : undefined;
   }
 
   /**
@@ -1126,25 +1127,23 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       const listed: DocumentMeta[] = [];
       for (const item of Array.isArray(found) ? found : []) {
         const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
-        // Damaged, or of another ID than a document may have, or expired: not listed.
-        if (!meta || typeof meta.id !== "string" || !isDocumentId(meta.id) || !(Date.parse(meta.expiresAt) > at)) continue;
+        // Damaged, or of another ID than a document may have, or expired (as `getMeta` reads the date): not listed.
+        if (!meta || typeof meta.id !== "string" || !isDocumentId(meta.id) || Date.parse(meta.expiresAt) <= at) continue;
         // Written by a newer version of the package: left out, where `getMeta` would throw.
         const version: unknown = meta.metaVersion ?? 0;
         if (typeof version !== "number" || version > DOCUMENT_META_VERSION) continue;
-        if (mayUse(meta, caller, rules)) listed.push(wholeName(meta));
+        // Exactly the caller's owner and scope: a document without an owner, which any caller who
+        // has its ID may use, is never handed to a caller with an owner (nor one without a scope to
+        // a caller with one), and the rules of `requireOwner` and `requireScope` still hold.
+        if (heldBy(meta, caller.owner, caller.scope) && mayUse(meta, caller, rules)) listed.push(wholeName(meta));
       }
       // The oldest first, then by ID: the same order whatever order the store gave.
       return listed.sort((left, right) => (Date.parse(left.createdAt) - Date.parse(right.createdAt)) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
     },
 
     async touch(id, access) {
-      const caller = callerOf(access, rules);
-      const meta = await storedFor(id, caller, "touch");
-      if (!meta) return undefined;
-      const expiresAt = expiryAfter(now(), ttlMs);
-      // An expiry already later stays: nothing is written.
-      if (Date.parse(expiresAt) <= Date.parse(meta.expiresAt)) return wholeName(meta);
-      return rewrite({ ...meta, expiresAt }, caller);
+      // An expiry already later stays: the store keeps the later of the two.
+      return changeMeta(id, callerOf(access, rules), "touch", { expiresAt: expiryAfter(now(), ttlMs) });
     },
 
     async update(id, changes, access) {
@@ -1154,10 +1153,12 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       const given: unknown = changes.appData;
       const appData: AppData | null | undefined = given === undefined || given === null ? given : checkAppData(given, "appData");
       const caller = callerOf(access, rules);
-      const meta = await storedFor(id, caller, "update");
-      if (!meta || appData === undefined) return meta && wholeName(meta);
-      const { appData: _old, ...rest } = meta;
-      return rewrite(appData === null ? rest : { ...rest, appData }, caller);
+      if (appData === undefined) {
+        // Nothing to change: the document as it is, when the store could change it.
+        if (typeof store.patchMeta !== "function") throw new TypeError("files.update needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it.");
+        return metaFor(id, caller);
+      }
+      return changeMeta(id, caller, "update", { appData });
     },
   };
 

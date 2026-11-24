@@ -144,7 +144,7 @@ type LargeFilesOptions = {
 | `keepOriginals` | `DocumentFormat[]` | `[]` | Formats whose uploaded file is kept, for example `["pdf"]`, which `view_pages` needs: as a copy in the store, next to its text, when the store has `putOriginal`; or, for an ingest with `IngestInput.original` (new in 0.9.0), where your application keeps it, read back through `originals`. A copy takes as much space as the upload until its document expires or is deleted. |
 | `originals` | [`OriginalsReader`](#originalsreader) | none | Reads the uploaded files your application keeps itself, by the ref given at ingest (`IngestInput.original`), in place of a copy in the store: `fileOriginals(root)` of [`llm-large-files/node`](./node.md#fileoriginalsroot), or your own. Each read is checked against the size and SHA-256 the file had at ingest. Without it, an ingest with `original` throws a `TypeError`. Not an object with a `read` method: a `TypeError` when the library is made. New in 0.9.0. |
 | `scannedPdfPages` | `number` | 30 | The most pages a PDF without any text (a scan) may have and still be accepted, so that its pages can be shown to the model. It applies only when `"pdf"` is in `keepOriginals` and the file is kept: the store has `putOriginal`, or (0.9.0) the ingest gives `original` and the library has `originals`. Otherwise, and with 0, such a PDF is refused. Your own PDF extractor receives it as `ExtractInput.scannedPages`. |
-| `cacheBytes` | `number` | [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), 256 MB | The most memory that documents kept ready between tool calls may take, together with the decoded pieces of documents read by range. The least recently used go first. A document that would take more than this is not kept with the others: since 0.10.2 the last one is kept apart, one at most, for a minute after its last use (P4), so the tool calls of a question do not each load and index it again (before, it was read again for each call; that matters over a store without `readTextRange`). A document whose decoded text would take more than a quarter of it keeps no pieces. 0 keeps nothing. Each use of a kept document asks the store first, so a document deleted or expired on another server is never served from memory. |
+| `cacheBytes` | `number` | [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), 256 MB | The most memory that documents kept ready between tool calls may take, together with the decoded pieces of documents read by range. The least recently used go first. A document that would take more than this is not kept with the others: since 0.10.2 the last one is kept apart, one at most and on top of this limit, for a minute after its last use (P4; `stats().cache.bytes` counts it, `entries` does not), so the tool calls of a question do not each load and index it again (before, it was read again for each call; that matters over a store without `readTextRange`). A document whose decoded text would take more than a quarter of it keeps no pieces. 0 keeps nothing. Each use of a kept document asks the store first, so a document deleted or expired on another server is never served from memory. |
 | `cacheSize` | `number` | no limit | Also caps the number of documents kept. The pieces of a document read by range are not counted, and leave with their document. 0 keeps nothing. |
 | `wholeDocumentBytes` | `number` | [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes), 2 MB | Documents whose text (`textBytes`) is at most this size are loaded whole into memory. Larger ones are read by range when the store has `readTextRange`, as `FileDocumentStore` does: a tool call reads only the lines it needs, and a search reads the text a piece at a time. `Infinity` loads every document whole; 0 reads every one by range. |
 | `scanChunkBytes` | `number` | 1 MB (1,048,576) | Reading by range: about how many bytes of text are read and searched at a time. At least 1. |
@@ -196,7 +196,7 @@ interface LargeFiles {
   toolsFor?(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>; // new in 0.10.0
   list?(access?: AccessOptions): Promise<DocumentMeta[]>; // new in 0.10.2
   touch?(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>; // new in 0.10.2
-  update?(id: string, changes: { appData?: AppData | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>; // new in 0.10.2
+  update?(id: string, changes: { appData?: object | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>; // new in 0.10.2
 }
 ```
 
@@ -230,7 +230,7 @@ The members new in 0.10.2, optional for the same reason; the one `createLargeFil
 |---|---|---|
 | `list` | `(access?: AccessOptions) => Promise<DocumentMeta[]>` | The documents of a scope the caller may use ([`files.list()`](#fileslistaccess)). |
 | `touch` | `(id: string, access?: AccessOptions) => Promise<DocumentMeta \| undefined>` | Counts a document's expiry again from now ([`files.touch()`](#filestouchid-access)). |
-| `update` | `(id: string, changes: { appData?: AppData \| null }, access?: AccessOptions) => Promise<DocumentMeta \| undefined>` | Changes the application's own data about a document ([`files.update()`](#filesupdateid-changes-access)). |
+| `update` | `(id: string, changes: { appData?: object \| null }, access?: AccessOptions) => Promise<DocumentMeta \| undefined>` | Changes the application's own data about a document ([`files.update()`](#filesupdateid-changes-access)). |
 
 #### `files.access`
 
@@ -592,15 +592,18 @@ async function chatTools(files: LargeFiles & { toolsFor: NonNullable<LargeFiles[
 
 `list(access?: AccessOptions): Promise<DocumentMeta[]>`
 
-New in 0.10.2. The documents of `access.scope` that the caller may use, as
-[`files.getMeta`](#filesgetmetaid-access) would give each: those of no scope without one. For a
-chat's file panel, with no second list of its files in your database. The oldest first, then by
-ID. Left out: expired documents, those of another owner (or with an owner, for a caller without
-one), metadata that is damaged or names another ID, and metadata of a newer version of the package,
-where `getMeta` would throw `"NEWER_VERSION"`. It reads the store once, through
-[`DocumentStore.list`](#documentstore): a store without it is a `TypeError`. Under `requireOwner`
-and `requireScope` it needs the owner and the scope, as every call does. A store that fails is a
-`DocumentStoreError` of operation `"read"`, within `storeTimeoutMs`; `access.signal` ends the wait.
+New in 0.10.2. The documents held by exactly the caller's owner and scope, as
+[`files.getMeta`](#filesgetmetaid-access) would give each: with `{ owner, scope }`, those stored with
+that owner and that scope; without an owner, those without one; without a scope, those without
+one. For a chat's file panel, with no second list of its files in your database. The oldest first,
+then by ID. A document without an owner is never listed to a caller with one: anyone who has its
+ID may use it (its ID works like a password, [Security](../security.md)), and a list would hand
+those IDs to every user. Left out too: expired documents, metadata that is damaged or names another
+ID, and metadata of a newer version of the package, where `getMeta` would throw `"NEWER_VERSION"`.
+It reads the store once, through [`DocumentStore.list`](#documentstore): a store without it is a
+`TypeError`. Under `requireOwner` and `requireScope` it needs the owner and the scope, as every
+call does. A store that fails is a `DocumentStoreError` of operation `"read"`, within
+`storeTimeoutMs`; `access.signal` ends the wait.
 
 ```ts
 // The files of one chat, for its panel.
@@ -613,25 +616,27 @@ const shown = (await files.list!({ owner: userId, scope: [userId, chatId] })).ma
 
 New in 0.10.2. Marks a document used: its `expiresAt` is counted again from now (`ttlMs`), so a
 file that a chat still reads stays while one nobody reads goes at its time (H5). An expiry that is
-already later stays as it is, and nothing is written. Returns the metadata as it now is, or
-undefined when the document is missing for this caller (never there, deleted, expired, of another
-owner or scope). Only the metadata is written, through
-[`DocumentStore.putMeta`](#documentstore): a store without it is a `TypeError`. The text, its
-index and its original are not touched, and a copy kept in memory stays valid. A store that fails
+already later stays as it is. Returns the metadata as it now is, or undefined when the document is
+missing for this caller (never there, deleted, expired, of another owner or scope). Only the
+expiry is changed, through [`DocumentStore.patchMeta`](#documentstore), and only for the document
+the library just looked up (by its `createdAt`): one deleted and stored again under the same ID
+meanwhile is not changed, and `touch` gives undefined. A store without `patchMeta` is a
+`TypeError`. The text, its index and its original are not touched, and a copy kept in memory stays
+valid. A `touch` and an `update` at once both stay. A store that fails
 is a `DocumentStoreError`. Call it when a question uses a document, for example after
 `askWithFiles`, for each of its `documentIds`.
 
 #### `files.update(id, changes, access?)`
 
-`update(id: string, changes: { appData?: AppData | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>`
+`update(id: string, changes: { appData?: object | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>`
 
 New in 0.10.2. Changes the application's own data about a document,
 [`DocumentMeta.appData`](#documentmeta), and nothing else: `appData` replaces it whole, `null`
 removes it, and leaving it out changes nothing. The same checks as at ingest
 ([`IngestInput.appData`](#ingestinput)): a JSON object of at most `MAX_APP_DATA_BYTES` (16 KB) as
 JSON; another field in `changes` is a `TypeError`. Returns the metadata as it now is, or undefined
-when the document is missing for this caller. It needs [`DocumentStore.putMeta`](#documentstore),
-as `touch` does.
+when the document is missing for this caller, or was stored again under the ID meanwhile. It needs
+[`DocumentStore.patchMeta`](#documentstore), as `touch` does.
 
 #### `files.budget`
 
@@ -707,7 +712,7 @@ type IngestInput = {
   ifExists?: "fail" | "replace"; // new in 0.9.0
   scope?: DocumentScope; // new in 0.9.0
   original?: { ref: string }; // new in 0.9.0
-  appData?: AppData; // new in 0.10.2
+  appData?: object; // new in 0.10.2: a JSON object, kept as DocumentMeta.appData (AppData)
   dedupe?: boolean; // new in 0.10.2
 };
 ```
@@ -727,8 +732,8 @@ The argument of [`files.ingest`](#filesingestinput).
 | `ifExists` | `"fail" \| "replace"` | `"fail"` | What to do when a document of `id` is already there, as the store sees it for this scope. `"fail"`: an `IngestError` `"exists"` (status 409). `"replace"`: the document is deleted, then the new one is stored; only one of the same owner and scope. One of another owner or scope is `"exists"` too, even when its text is gone. A document that has expired is written over in both cases. The store is asked before the file is read and again just before the writes. While one ingest of this library stores `id`, another ingest of `id` is `"exists"`, whatever its `ifExists`. Replacing is not atomic for readers on other servers: for a moment the document is missing. New in 0.9.0. |
 | `scope` | [`DocumentScope`](#documentscope) | none | Where the document belongs, such as `[userId, chatId]`. Every store call of the ingest carries it, and it is kept in `meta.scope`, a copy: only a caller of the same scope may use the document, segment by segment. Never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error` ([events](./events.md#documents-eventresults-and-eventresult)). Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
 | `original` | `{ ref: string }` | none | Where your application keeps the uploaded file: `ref`, 1 to 1,024 characters, which your [`OriginalsReader`](#originalsreader) understands, such as a path under the folder of `fileOriginals`. When `keepOriginals` lists the format, the store keeps no copy (`putOriginal` is not called), and the metadata records `original: { ref, bytes, sha256 }`; `originalKept` is true. Without `originals` in the library: a `TypeError`. A format `keepOriginals` does not list records nothing. The ref is never sent to the model, nor in a summary. An event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error` ([events](./events.md#documents-eventresults-and-eventresult)). The library never writes, moves or deletes that file: `delete` and `sweep` leave it. [Storage](../guides/storage.md#keeping-the-uploaded-files). New in 0.9.0. |
-| `appData` | [`AppData`](#documentmeta) | none | Your application's own data about the document, kept as `DocumentMeta.appData`: a JSON object, at most `MAX_APP_DATA_BYTES` (16,384) bytes as JSON in UTF-8, such as the ID of its row in your database or a label. It is copied through JSON, so what JSON leaves out (a function, `undefined`) is left out. Not an object (an array, a string), or something JSON cannot write (a `BigInt`, a loop): a `TypeError`; larger: a `RangeError`. `null` counts as none. Never sent to the model, nor in a summary; an event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error`. Change it later with [`files.update`](#filesupdateid-changes-access). New in 0.10.2. |
-| `dedupe` | `boolean` | `false` | When the store already has a document of the same owner and scope whose file has the same SHA-256, and its text is still there, `ingest` gives back that document instead of storing another (H6): its ID, name and `appData` stay its own, and its expiry is counted again from now when the store has `putMeta`. The file is hashed first and not extracted, and `ingest.finish` tells the document found. Never across owners or scopes. It reads the store's [`list`](#documentstore): a store without it is a `TypeError`; with `id` too, a `TypeError` (an application's ID names its own document). The document found is never removed for this ingest, even when its caller leaves or a listener throws. New in 0.10.2. |
+| `appData` | `object` | none | Your application's own data about the document, kept as `DocumentMeta.appData` ([`AppData`](#documentmeta), JSON values): a JSON object (an interface type of yours fits), at most `MAX_APP_DATA_BYTES` (16,384) bytes as JSON in UTF-8, such as the ID of its row in your database or a label. It is copied through JSON, so what JSON leaves out (a function, `undefined`) is left out. Not an object (an array, a string), or something JSON cannot write (a `BigInt`, a loop): a `TypeError`; larger: a `RangeError`. `null` counts as none. Never sent to the model, nor in a summary; an event holds it only with `eventResults: true`, in the full plan of `run.finish` and `run.error`. Change it later with [`files.update`](#filesupdateid-changes-access). New in 0.10.2. |
+| `dedupe` | `boolean` | `false` | When the store already has a document of the same owner and scope whose file has the same SHA-256, and its text is still there, `ingest` gives back that document instead of storing another (H6): its ID, name and `appData` stay its own, and its expiry is counted again from now when the store has `patchMeta`; a document the store then says is gone (deleted meanwhile) is passed over. Its `createdAt` is before the call: an application that deletes what an ingest made when a later step fails must not delete this one. The file is read once to hash it, not extracted, and `ingest.finish` tells the document found. Never across owners or scopes. It reads the store's [`list`](#documentstore): a store without it is a `TypeError`; with `id` too, a `TypeError` (an application's ID names its own document). The document found is never removed for this ingest, even when its caller leaves or a listener throws. New in 0.10.2. |
 
 Guide: [web app](../guides/web-app.md).
 
@@ -1298,8 +1303,10 @@ interface DocumentStore {
   putIndex?(id: string, index: Uint8Array, context?: DocumentContext): Promise<void>;
   getIndex?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
   list?(context?: DocumentContext): Promise<DocumentMeta[]>; // new in 0.10.2
-  putMeta?(meta: DocumentMeta, context?: DocumentContext): Promise<boolean>; // new in 0.10.2
+  patchMeta?(id: string, patch: MetaPatch, context?: DocumentContext): Promise<DocumentMeta | undefined>; // new in 0.10.2
 }
+
+type MetaPatch = { createdAt: string; expiresAt?: string; appData?: AppData | null }; // new in 0.10.2
 ```
 
 Where the extracted text lives, with its metadata, and optionally the uploaded file and a line
@@ -1326,7 +1333,7 @@ A store that wraps another one, or a subclass that overrides a method, passes th
 | `putIndex(id, index)` | no | Keep the line index of a document (a few bytes a line). Called at ingest before `put`, and when a document ingested without an index is first read by range (an error then is ignored). Without it, the index is built from the text each time a large document is opened. |
 | `getIndex(id)` | no | The index kept by `putIndex`, or `undefined`. A damaged one is noticed and built again. An error is taken as no index. |
 | `list()` | no | The metadata of the documents of `context.scope` (of no scope when it has none), in any order, without the expired ones; a store that keeps no scopes apart may give every document, and the library keeps to the caller's. Called by [`files.list`](#fileslistaccess) and by `ingest({ dedupe: true })`. Without it, both are a `TypeError`. A store of many documents should answer from an index (a query on the scope), not by reading each one. New in 0.10.2. |
-| `putMeta(meta)` | no | Replace the metadata of the document `meta.id`, and keep its text, index and original as they are: `true`, or `false` when the document is not there (unknown, deleted, expired), and nothing written. Called by [`files.touch`](#filestouchid-access), [`files.update`](#filesupdateid-changes-access) and `ingest({ dedupe: true })`. Without it, `touch` and `update` are a `TypeError`. New in 0.10.2. |
+| `patchMeta(id, patch)` | no | Change the fields of `patch` in the metadata of the document `id` whose `createdAt` is `patch.createdAt`, and nothing else: `expiresAt` becomes the later of the stored one and `patch.expiresAt`; `appData` is replaced, or removed when `null`; fields left out are not touched. Return the metadata as it is after the change, or `undefined`, writing nothing, when no such document is there: unknown, deleted, expired, or another one stored under the ID since (another `createdAt`). Apply the fields to what is stored when you write, not to a copy read before, so that a `touch` and an `update` at once both stay: a database does it in one conditional update. Called by [`files.touch`](#filestouchid-access), [`files.update`](#filesupdateid-changes-access) and `ingest({ dedupe: true })`. Without it, `touch` and `update` are a `TypeError`. New in 0.10.2. |
 
 Errors:
 

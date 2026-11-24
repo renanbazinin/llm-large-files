@@ -1,7 +1,7 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
-import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
+import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, isTimeLimit, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
@@ -134,9 +134,10 @@ async function claim(context: IngestContext, target: Target & { id: string }, na
 /**
  * The document of the same owner and scope whose file has this SHA-256 (`IngestInput.dedupe`), as
  * the store lists them (`list`), when its text is still there: the latest stored, when several
- * are. Expired documents, and those of a newer version, are not it. Its expiry is counted again
- * from now when the store can write metadata alone (`putMeta`), as `files.touch` does. Undefined
- * when there is none. Each store call is refused at once while too many calls are stuck, and
+ * are. Expired documents (as `getMeta` reads the date), and those of a newer version, are not it.
+ * Its expiry is counted again from now when the store can change metadata alone (`patchMeta`), as
+ * `files.touch` does; a document the store then says is gone (deleted meanwhile) is not it either,
+ * and the next one is tried. Undefined when there is none. Each store call is refused at once while too many calls are stuck, and
  * counts as stuck past `slotCapMs`, as the look-up of an application's ID does. New in 0.10.2.
  */
 async function sameDocument(context: IngestContext, target: Target, sha256: string): Promise<DocumentMeta | undefined> {
@@ -147,7 +148,7 @@ async function sameDocument(context: IngestContext, target: Target, sha256: stri
   const candidates: DocumentMeta[] = [];
   for (const item of Array.isArray(listed) ? listed : []) {
     const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
-    if (!meta || meta.sha256 !== sha256 || !(Date.parse(meta.expiresAt) > at) || !heldBy(meta, target.owner, target.scope)) continue;
+    if (!meta || typeof meta.id !== "string" || !APP_DOCUMENT_ID_PATTERN.test(meta.id) || meta.sha256 !== sha256 || Date.parse(meta.expiresAt) <= at || !heldBy(meta, target.owner, target.scope)) continue;
     const version: unknown = meta.metaVersion ?? 0;
     if (typeof version === "number" && version <= DOCUMENT_META_VERSION) candidates.push(meta);
   }
@@ -160,12 +161,10 @@ async function sameDocument(context: IngestContext, target: Target, sha256: stri
       ? await call("read", () => store.readTextRange!(meta.id, 0, 1, target.context)) !== undefined
       : await call("read", () => store.get(meta.id, target.context)) !== undefined;
     if (!there) continue;
-    const expiresAt = expiryAfter(now(), ttlMs);
-    if (typeof store.putMeta === "function" && Date.parse(expiresAt) > Date.parse(meta.expiresAt)) {
-      const touched = { ...meta, expiresAt };
-      if (await call("write", () => store.putMeta!(touched, target.context)) === true) return touched;
-    }
-    return meta;
+    if (typeof store.patchMeta !== "function") return meta;
+    // The document of that `createdAt` only: one deleted and stored again under the ID is not it.
+    const touched = metaOf(await call("write", () => store.patchMeta!(meta.id, { createdAt: meta.createdAt, expiresAt: expiryAfter(now(), ttlMs) }, target.context)), meta.id);
+    if (touched && touched.createdAt === meta.createdAt) return touched;
   }
   return undefined;
 }
@@ -689,8 +688,9 @@ async function ingestFile(
    * read (422, "split it"), since 0.10.0. The ingest keeps its turn until the read ends (`IngestSlot`).
    */
   const readWithin = async <T>(read: Promise<T>): Promise<T> => {
-    // Counted as stuck past the time the ingest gives its store calls, until it ends (0.10.2).
-    watchStuck(read, slotCapMs);
+    // Counted as stuck past the ingest's time, until it ends (0.10.2): only when the ingest has a
+    // time limit (`ingestTimeoutMs`), since a read without one may go on, and still be reading.
+    if (isTimeLimit(ingestTimeoutMs)) watchStuck(read, slotCapMs);
     work.abandoned = read;
     let got: T;
     try {

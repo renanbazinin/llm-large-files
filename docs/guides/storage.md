@@ -607,7 +607,7 @@ answers without them, and a function can ingest them again from the uploads you 
 
 ### Expiry from the last use
 
-New in 0.10.2. With a store that has `putMeta` (both built-in stores do), `files.touch` counts a
+New in 0.10.2. With a store that has `patchMeta` (both built-in stores do), `files.touch` counts a
 document's expiry again from the time of the call, so `ttlMs` becomes the time a file is kept after
 its last use rather than after its upload. It writes the metadata alone, never the text, and an
 expiry already later stays. Call it for the documents of each question:
@@ -623,8 +623,9 @@ await Promise.all(documentIds.map((id) => files.touch!(id, { owner: userId, scop
 New in 0.10.2. Three calls for a chat that keeps its files in the library, with no second list of
 them in your database:
 
-- **`files.list({ owner, scope })`** gives the documents of the chat that the caller may use, the
-  oldest first, for its file panel. It needs a store with `list`; the built-in stores read the
+- **`files.list({ owner, scope })`** gives the documents stored with exactly that owner and scope,
+  the oldest first, for the chat's file panel (a document without an owner is listed only to a
+  caller without one: its ID alone opens it). It needs a store with `list`; the built-in stores read the
   chat's folder (a `FileDocumentStore` without `scopes` reads its whole directory: give it `scopes`,
   or keep your own list, when it holds many files).
 - **`appData`** is your own data about a document, kept with its metadata and never sent to the
@@ -632,8 +633,10 @@ them in your database:
   (`ingest({ appData })`), change it with `files.update(id, { appData }, access)`, remove it with
   `appData: null`. A JSON object of at most 16 KB.
 - **`ingest({ dedupe: true })`** gives back the chat's document of the same file (same owner, scope
-  and SHA-256) when a user uploads it again, instead of a second copy. The file is hashed, not
-  read; the document keeps its own name and `appData`, and its expiry is counted again.
+  and SHA-256) when a user uploads it again, instead of a second copy. The file is read once to
+  hash it, not extracted; the document keeps its own name, `createdAt` and `appData`, and its expiry
+  is counted again. Its `createdAt` is before the upload: if your app deletes an upload's document
+  when a later step fails, do not delete this one.
 
 ```ts
 const meta = await files.ingest({ name, bytes, owner: userId, scope: [userId, chatId], dedupe: true, appData: { uploadedBy: userId } });
@@ -838,7 +841,7 @@ Which context a call carries:
 | `putIndex(id, index)` | No | `ingest`, after `putOriginal` and before `put`, for every document. Again when a document read by range has no index, or one that does not match its text. | Keep the bytes. |
 | `getIndex(id)` | No | When a document read by range is opened. | Return the bytes `putIndex` kept, or undefined. A damaged index is noticed and built again. |
 | `list()` | No | `files.list`, and `ingest({ dedupe: true })`. New in 0.10.2. | Return the metadata of the documents of `context.scope` (of no scope without one), without the expired ones. A query on the scope, not a read of each document: index the field you keep the scope in. |
-| `putMeta(meta)` | No | `files.touch`, `files.update`, and `ingest({ dedupe: true })` for the document it gives back. New in 0.10.2. | Replace the metadata of `meta.id` and nothing else; return false, writing nothing, when the document is not there. In a store that keeps `expiresAt` in a field of its own for a TTL index, change that field too. |
+| `patchMeta(id, patch)` | No | `files.touch`, `files.update`, and `ingest({ dedupe: true })` for the document it gives back. New in 0.10.2. | Change only the fields of `patch` (the later `expiresAt`; `appData` set, or removed when `null`), only in the document of that `id` and `createdAt`, applied to what is stored at the time of the write; return the metadata after the change, or undefined, writing nothing, when there is no such document. In MongoDB: `findOneAndUpdate({ _id: id, "meta.createdAt": patch.createdAt }, { $max: { "meta.expiresAt": patch.expiresAt }, $set: { "meta.appData": … } }, { returnDocument: "after" })`, and `$unset` for `null`. In a store that keeps `expiresAt` in a field of its own for a TTL index, change that field too. |
 
 The library checks `expiresAt` itself, with its own clock, before every use. Your `getMeta` and
 `get` may return a document that has expired; your `sweep` must remove it. If they remove an expired
@@ -868,7 +871,7 @@ What a missing optional method changes:
 | `readTextRange` | Every document is loaded whole with `get`, whatever its size, so memory grows with the size of the files in use and the number of users. `wholeDocumentBytes`, `scanChunkBytes` and `maxConcurrentScans` change nothing. |
 | `putIndex` and `getIndex` | With `readTextRange` only: the index of a large document is built by reading its whole text once, 4 MB at a time, each time the document is opened, that is, each time it is not in the cache. |
 | `list` | `files.list` and `ingest({ dedupe: true })` are a `TypeError` (0.10.2). |
-| `putMeta` | `files.touch` and `files.update` are a `TypeError` (0.10.2). |
+| `patchMeta` | `files.touch` and `files.update` are a `TypeError`, and `dedupe` counts no expiry again (0.10.2). |
 
 ### Reading by range
 

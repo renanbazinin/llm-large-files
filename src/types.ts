@@ -146,6 +146,21 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
 /** The application's own data about a document (`DocumentMeta.appData`): a JSON object. New in 0.10.2. */
 export type AppData = { [key: string]: JsonValue };
 
+/**
+ * What `DocumentStore.patchMeta` changes in the metadata of one document. New in 0.10.2.
+ */
+export type MetaPatch = {
+  /**
+   * The `createdAt` of the document to change. A document stored again under the same ID since
+   * (deleted, then ingested again) has another, and is not changed.
+   */
+  createdAt: string;
+  /** A later expiry: the stored `expiresAt` becomes the later of the two, as ISO 8601 dates compare. */
+  expiresAt?: string;
+  /** The application's own data: replaces `appData` whole, or removes it when null. */
+  appData?: AppData | null;
+};
+
 export type StoredDocument = { meta: DocumentMeta; text: string };
 
 /** A JSON-safe summary for API responses and browser state. */
@@ -214,12 +229,16 @@ export interface DocumentStore {
    */
   list?(context?: DocumentContext): Promise<DocumentMeta[]>;
   /**
-   * Replaces the metadata of a stored document (`meta.id`), and keeps its text, line index and
-   * original as they are: true, or false when the document is not there (unknown, deleted or
-   * expired), and nothing was written. Optional: `files.touch()` and `files.update()` need it. New
-   * in 0.10.2.
+   * Changes the fields of `patch` in the metadata of the document `id` whose `createdAt` is
+   * `patch.createdAt`, and nothing else: its other fields, its text, line index and original stay
+   * as they are. Returns the metadata as it is after the change, or undefined when no such document
+   * is there (unknown, deleted, expired, or another one stored under the ID since), and nothing was
+   * written. Apply the fields to what is stored at the time of the write, not to a copy read
+   * before: two changes at once (a `touch` and an `update`) must both stay. A database does it in
+   * one conditional update (`$max` on the expiry, `$set`/`$unset` on `appData`). Optional:
+   * `files.touch()`, `files.update()` and `ingest({ dedupe })` use it. New in 0.10.2.
    */
-  putMeta?(meta: DocumentMeta, context?: DocumentContext): Promise<boolean>;
+  patchMeta?(id: string, patch: MetaPatch, context?: DocumentContext): Promise<DocumentMeta | undefined>;
 }
 
 export type ExtractedText = {

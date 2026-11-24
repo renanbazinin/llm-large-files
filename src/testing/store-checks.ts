@@ -53,7 +53,7 @@ export type DocumentStoreChecksOptions = {
    * The parts the store does not have: "originals" (`putOriginal`, `getOriginal`), "ranges"
    * (`readTextRange`), "index" (`putIndex`, `getIndex`), "sweep", or "shared" for a store whose
    * storage two stores cannot share (`MemoryDocumentStore`). A check of a part the store lacks, and
-   * that is not skipped, fails and says so. Since 0.10.2, "list" (`list`) and "meta" (`putMeta`):
+   * that is not skipped, fails and says so. Since 0.10.2, "list" (`list`) and "meta" (`patchMeta`):
    * those are checked only when the store has them, so a store written for 0.10.1 passes as before.
    */
   skip?: readonly StoreCheckPart[];
@@ -521,20 +521,38 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
   }
 
   if (!skip.has("meta")) {
-    checks.push(check("replaces the metadata alone with putMeta, and writes nothing for a document that is not there (when it has putMeta)", async ({ store, start, context }) => {
-      if (typeof store.putMeta !== "function") return;
-      const meta = metaFor("check-meta", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a" });
+    checks.push(check("changes the fields of patchMeta alone, of the document of that createdAt only (when it has patchMeta)", async ({ store, start, context }) => {
+      if (typeof store.patchMeta !== "function") return;
+      const meta = metaFor("check-meta", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a", appData: { row: "1" } });
       await must(() => store.put({ meta, text: TEXT }, context()), "put");
-      const changed = { ...meta, expiresAt: new Date(start + 3 * DAY).toISOString(), appData: { row: "42", tags: ["a"] } };
-      same(await must(() => store.putMeta!(changed, context()), "putMeta"), true, "putMeta of a document that is there");
-      same(await store.getMeta("check-meta", context()), changed, "getMeta(id) after putMeta");
-      same((await store.get("check-meta", context()))?.text, TEXT, "get(id).text after putMeta, which must not change");
-      const unknown = metaFor("check-meta-unknown", TEXT, start, start + DAY);
-      same(await must(() => store.putMeta!(unknown, context()), "putMeta"), false, "putMeta of an unknown ID");
-      same(await store.getMeta("check-meta-unknown", context()), undefined, "getMeta(id) after putMeta of an unknown ID, which must write nothing");
+      const later = new Date(start + 3 * DAY).toISOString();
+      const expected = { ...meta, expiresAt: later, appData: { row: "42", tags: ["a"] } };
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, expiresAt: later, appData: { row: "42", tags: ["a"] } }, context()), "patchMeta"), expected, "what patchMeta gave for a document that is there");
+      same(await store.getMeta("check-meta", context()), expected, "getMeta(id) after patchMeta");
+      same((await store.get("check-meta", context()))?.text, TEXT, "get(id).text after patchMeta, which must not change");
+      // An earlier expiry is not taken: the later of the two stays. appData: null removes it.
+      const { appData: _removed, ...withoutData } = expected;
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, expiresAt: new Date(start + DAY).toISOString(), appData: null }, context()), "patchMeta"), withoutData, "patchMeta with an earlier expiry and appData: null");
+      // Another createdAt is another document, stored under the ID since: nothing is changed.
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: new Date(start + 1).toISOString(), appData: { row: "x" } }, context()), "patchMeta"), undefined, "patchMeta for another createdAt");
+      same(await store.getMeta("check-meta", context()), withoutData, "getMeta(id) after patchMeta for another createdAt, which must change nothing");
+      same(await must(() => store.patchMeta!("check-meta-unknown", { createdAt: meta.createdAt, appData: { row: "x" } }, context()), "patchMeta"), undefined, "patchMeta of an unknown ID");
+      same(await store.getMeta("check-meta-unknown", context()), undefined, "getMeta(id) after patchMeta of an unknown ID, which must write nothing");
       await store.delete("check-meta", context());
-      same(await must(() => store.putMeta!(changed, context()), "putMeta"), false, "putMeta after delete");
-      same(await store.getMeta("check-meta", context()), undefined, "getMeta(id) after putMeta of a deleted document");
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, expiresAt: later }, context()), "patchMeta"), undefined, "patchMeta after delete");
+      same(await store.getMeta("check-meta", context()), undefined, "getMeta(id) after patchMeta of a deleted document");
+    }));
+
+    checks.push(check("keeps both of two patchMeta calls made at once (when it has patchMeta)", async ({ store, start, context }) => {
+      if (typeof store.patchMeta !== "function") return;
+      const meta = metaFor("check-meta-both", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a" });
+      await must(() => store.put({ meta, text: TEXT }, context()), "put");
+      const later = new Date(start + 2 * DAY).toISOString();
+      await Promise.all([
+        must(() => store.patchMeta!("check-meta-both", { createdAt: meta.createdAt, expiresAt: later }, context()), "patchMeta"),
+        must(() => store.patchMeta!("check-meta-both", { createdAt: meta.createdAt, appData: { row: "7" } }, context()), "patchMeta"),
+      ]);
+      same(await store.getMeta("check-meta-both", context()), { ...meta, expiresAt: later, appData: { row: "7" } }, "getMeta(id) after two patchMeta calls at once, the expiry of one and the appData of the other");
     }));
   }
 
