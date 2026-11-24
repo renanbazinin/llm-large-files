@@ -264,7 +264,8 @@ export function evalCases(facts: EvalFacts): EvalCase[] {
     // must keep that incident. When recorded, neither model read the agreement whole: both counted
     // with searches (18 and 30), so the case is not of kind "whole-read". Nor is the diary's:
     // test/evals-record.test.ts lists the whole-read cases, and their cassettes, by name. Flash-Lite
-    // read it whole in every run so far.
+    // read the diary whole in 3 of 3 runs in evals/results/0100-t-live.md, and in none of 3 in
+    // 0100-t-live-2.md, where it searched.
     chat("cleaning-sanctions", "he", ["count", "searched"], [
       ask("קרא את כל הסכם הניקיון, מתחילתו ועד סופו, ומנה את כל הסעיפים שבהם הספק משלם כסף, או שמנכים ממנו כסף, בגלל הפרה או איחור, בכל ניסוח שהוא. כמה סעיפים כאלה יש בדיוק, ומה הסכום הגבוה ביותר מביניהם?", ["cleaning-1"], [number(cleaning.count), number(cleaning.largest)]),
     ], { budget: { ...SEARCHED, mapChunkTokens: 2_000, toolResultCharacters: 2_000 }, limits: fewTurns(4) }),

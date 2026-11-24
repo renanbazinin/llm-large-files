@@ -3,7 +3,8 @@
 // the line numbers, the prompts and the merges of notes: about 9% under what probe5's read sends.
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, estimateTokens, MemoryDocumentStore, resolveBudget, type DocumentMeta, type GenerateText, type LargeFiles } from "llm-large-files";
-import { ITEMS_FRAME_TOKENS, PART_OUTPUT_TOKENS } from "../src/map-reduce.js";
+import { ITEMS_FRAME_TOKENS, MAX_ITEM_LABELS, MAX_LABEL_CHARACTERS, PART_HEADING_TOKENS, PART_OUTPUT_TOKENS, REQUEST_FRAME_TOKENS } from "../src/map-reduce.js";
+import { numberLines } from "../src/search.js";
 import { estimateMerges, lineNumberDigits, wholeReadCost } from "../src/whole-cost.js";
 import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
 
@@ -83,6 +84,70 @@ describe("wholeReadCost", () => {
     const tokens = 1_000 + 1.2 * 189 + 1.5 * 99 + ITEMS_FRAME_TOKENS;
     expect(wholeReadCost(meta, budget, 1, "items")).toEqual({ inputTokens: Math.ceil(tokens), requests: 1, parts: 1, merges: 0 });
     expect(wholeReadCost(meta, budget, 2, "items").inputTokens).toBe(Math.ceil(tokens * 2));
+  });
+});
+
+describe("the frame of a part read, which a price counts for each part", () => {
+  /** A task of a few lines: 160 characters. */
+  const TASK = "List every clause that sets a fine the supplier pays, with its amount and the site it applies to. Leave out fines that are only proposed. Give the date of each.";
+  /** The most labels a read takes, each of the most characters, in Hebrew. */
+  const LABELS = Array.from({ length: MAX_ITEM_LABELS }, (_, k) => [...`${k + 1} קנס בגין איחור בתגובה לקריאת שירות דחופה באתר הצפוני`].slice(0, MAX_LABEL_CHARACTERS).join(""));
+
+  /**
+   * What each part read of `text` sends besides its numbered lines, by `estimateTokens`: its
+   * system text, where it is, the task and the rules, and the heading it starts under, if any.
+   */
+  async function frames(name: string, text: string, args: Record<string, unknown>, mapChunkTokens = 60_000) {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens } });
+    const meta = await files.ingest({ name, bytes: utf8(text) });
+    const lines = text.split("\n");
+    const sent: Array<{ system: string; prompt: string }> = [];
+    const generateText: GenerateText = async ({ system, prompt }) => {
+      sent.push({ system, prompt });
+      return "NOTHING RELEVANT";
+    };
+    await files.tools([meta], { generate: generateText }).execute("analyze_whole_document", { document_id: meta.id, ...args });
+    const parts = sent.filter((request) => request.system.startsWith("You read one part"));
+    return {
+      meta,
+      files,
+      frames: parts.map(({ system, prompt }) => {
+        const [, from, to] = /lines (\d+)-(\d+)/.exec(prompt)!.map(Number);
+        return estimateTokens(system) + estimateTokens(prompt) - estimateTokens(numberLines(lines.slice(from! - 1, to), from!));
+      }),
+      sent: parts.reduce((sum, { system, prompt }) => sum + estimateTokens(system) + estimateTokens(prompt), 0),
+    };
+  }
+
+  it("is within ITEMS_FRAME_TOKENS for a list with 12 labels of 40 characters and a task of a few lines", async () => {
+    const { frames: [items] } = await frames("הסכם ניקיון.txt", "שורה אחת.\nשורה שנייה.", { task: TASK, output: "items", labels: LABELS });
+    // 0.10.0 before this fix: 400, under what this part sends.
+    expect(items).toBeGreaterThan(550);
+    expect(items).toBeLessThanOrEqual(ITEMS_FRAME_TOKENS);
+    const { frames: [notes] } = await frames("הסכם ניקיון.txt", "שורה אחת.\nשורה שנייה.", { task: TASK });
+    expect(notes).toBeLessThanOrEqual(REQUEST_FRAME_TOKENS);
+  });
+
+  it("counts the heading a part starts under, cut to 120 characters, for each part after the first of a file with an outline", async () => {
+    // A heading of 120 characters in Hebrew, the longest an outline takes, and 400 lines under it.
+    const heading = `# ${[..."פרק 12: דוח התחזוקה הרבעוני של האתרים הצפוניים, עם הקנסות וההפרות שהוטלו על הספק בגין איחורים בתגובה לקריאות שירות דחופות"].slice(0, 118).join("")}`;
+    expect(heading.length).toBe(120);
+    const text = [heading, ...Array.from({ length: 400 }, (_, k) => `רישום ${k}: המשאבה באתר ${k % 7} נבדקה ונמצאה תקינה.`)].join("\n");
+    for (const output of ["answer", "items"] as const) {
+      const read = await frames("יומן.md", text, { task: TASK, output }, 2_000);
+      expect(read.meta.outline).toEqual([expect.objectContaining({ line: 1 })]);
+      expect(read.frames.length).toBeGreaterThan(2);
+      // The first part starts with the heading's line itself; each other part is sent the heading first.
+      const extra = read.frames[1]! - read.frames[0]!;
+      expect(extra).toBeGreaterThan(40);
+      expect(extra).toBeLessThanOrEqual(PART_HEADING_TOKENS);
+      // The price counts it for each part after the first, and none for a file without an outline.
+      const price = wholeReadCost(read.meta, read.files.budget, 1, output);
+      expect(price.parts).toBe(read.frames.length);
+      expect(price.inputTokens - wholeReadCost({ ...read.meta, outline: [] }, read.files.budget, 1, output).inputTokens).toBe((price.parts - 1) * PART_HEADING_TOKENS);
+      expect(wholeReadCost({ ...read.meta, format: "log" }, read.files.budget, 1, output).inputTokens).toBe(wholeReadCost({ ...read.meta, outline: [] }, read.files.budget, 1, output).inputTokens);
+      if (output === "items") expect(price.inputTokens).toBeGreaterThanOrEqual(read.sent);
+    }
   });
 });
 

@@ -705,7 +705,11 @@ merges them, and there is no answer of the read: one request a part.
   and whose pieces are runs of the line with at most one letter in five changed, added or taken
   out in all. Gemini Flash-Lite copies Hebrew quotes with a letter or a word changed (השרים for
   השרתים, מקוזז for לקזז, ש"ץ for ש"ח). A quote with an amount other than the line's is not near
-  it, so neither is the quote of the next clause of a contract written to the same pattern.
+  it, so neither is the quote of the next clause of a contract written to the same pattern. A line
+  longer than ingest stores (2,000 characters), which a store of your own may give, is looked at
+  only around the two longest words of the quote that are on it in at most 4 places: a quote none
+  of whose words is so is not near it. Measured along all of a line of 118,759 characters, one
+  quote took 688 ms.
 - Any other item counts in `unverified_items`, not in `total_items`.
 - A backslash that starts no JSON escape (`ש\"\ח`, as Gemini Flash-Lite escapes a Hebrew letter) is
   taken out before a line is read again.
@@ -725,15 +729,15 @@ merges them, and there is no answer of the read: one request a part.
 | Field | Type | Meaning |
 |---|---|---|
 | `document` | string | The file name. |
-| `total_items` | number | The items found, each once, whose quote is on their line. Counted by code. |
+| `total_items` | number | The items found, each once, whose quote is on their line, or near it as above. Counted by code. |
 | `counts_by_label` | object, optional | The items by label, when they have labels: `{ "penalty": 37 }`. An item with no label among labelled ones counts under `"unlabeled"`. |
 | `items` | array | The first 50 items, in the order of the file, each `{ line, label?, value?, quote }`. The value and the quote are as the model wrote them, up to 200 and 300 characters. |
 | `more_items` | number, optional | The items not shown: past the first 50, or past those kept when the result was cut to its room. |
-| `unverified_items` | number | Items a part listed that are not counted: a quote on no line of the part, or on several but not on the line the item names. |
+| `unverified_items` | number | Items a part listed that are not counted: a quote on no line of the part and not near the line the item names, or on several lines but not on that one. A quote near its line (15 characters or more, at most one letter in five wrong, every number a number of the line) counts there, so it is not among them. |
 | `parts_read` | number | The parts the file was read in, those that could not be read included; a halved part counts as its halves. |
 | `parts_failed` | number, optional | Parts that could not be read: their items are missing. |
 | `parts_cut_short` | number, optional | Parts whose list was still cut at the output limit. |
-| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK." (a stop is added to a task that has none); "No item was found on its line for: TASK." when items were listed and none is counted; "The first 50 items are shown; total_items counts them all.", or "The first K items are shown, to stay within the size limit; total_items counts them all." when the result was cut to its room; "N listed items are not counted: their quote is not on the line they name, nor on just one other line of the part."; "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
+| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK." (a stop is added to a task that has none); "No item was found on its line for: TASK." when items were listed and none is counted; "The first 50 items are shown; total_items counts them all.", or "The first K items are shown, to stay within the size limit; total_items counts them all." when the result was cut to its room; "N listed items are not counted: their quote is not on the line they name, nor on just one other line of the part." (an item whose quote is near its line counts, so it is not among them); "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
 
 ```json
 {
@@ -760,8 +764,8 @@ Errors:
 | `The whole-file read of NAME failed earlier in this question (REASON), and is not tried again. Use search_document and read_document.` | An earlier read of it could read no part. | no |
 | `NAME is shown in full above: answer from it, and use search_document or aggregate_table for exact counts.` | The document is one of `ToolOptions.inline`: its text is in the prompt. Nothing is sent. New in 0.10.0. | no |
 | `labels takes up to 12 labels, each up to 40 characters.` | `output: "items"` with more labels, or a longer one. New in 0.10.0. | no |
-| `Reading all of NAME needs N model calls, over the limit of M. Use search_document to narrow the question first.` | The read counted more parts than `maxMapChunks`. Nothing was sent. | no |
-| `Reading all of NAME takes N model requests, one for each part, and M are left for it in this question. Use search_document and read_document.` | The read counted more parts than [`ToolCallLimits.maxRequests`](#toolcalllimits) ("1 is left" for one). Nothing was sent. New in 0.10.0: before, the read sent every part whatever its limit. | no |
+| `Reading all of NAME needs N model calls, over the limit of M. Use search_document to narrow the question first.` | The read counted more parts than `maxMapChunks` ("1 model call" for one). Nothing was sent. | no |
+| `Reading all of NAME takes N model requests, one for each part, and M are left for it in this question. Use search_document and read_document.` | The read counted more parts than [`ToolCallLimits.maxRequests`](#toolcalllimits) ("1 is left" for one; "takes 1 model request, for its one part" for a file of one part). Nothing was sent. New in 0.10.0: before, the read sent every part whatever its limit. | no |
 | `Could not read any part of NAME: REASON` | Every part failed at the model. | yes |
 | The store's error | No part could be read from the store. Nothing was sent. A store timeout is thrown instead ([Store timeouts](#rules-for-every-tool)). | no |
 

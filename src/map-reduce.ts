@@ -3,9 +3,9 @@ import { until } from "./http.js";
 import { classifyModelError, errorKindOf, isModelStatus, modelErrorOf, type ModelErrorKind } from "./model.js";
 import { noTextReason } from "./output-limit.js";
 import { statusOf, withRetry, type RetryOptions } from "./retry.js";
-import { composed, estimateTokens, foldCase, jsonBytes, sliceWhole } from "./text.js";
+import { composed, estimateTokens, foldCase, jsonBytes, MAX_LINE_CHARACTERS, plural, sliceWhole } from "./text.js";
 import { numberLines, scanSource, SearchableDocument, type DocumentSource, type TextChunk } from "./search.js";
-import type { Budget, GenerateText, GenerateUsage, ProgressListener, ToolCallHooks, ToolRequestStart } from "./types.js";
+import type { Budget, DocumentMeta, GenerateText, GenerateUsage, ProgressListener, ToolCallHooks, ToolRequestStart } from "./types.js";
 
 const NOTHING = "NOTHING RELEVANT";
 /** The output limit of a part read and of a merge of notes: the most tokens their notes may have. */
@@ -23,15 +23,17 @@ const FINAL_SYSTEM = "You write a complete answer from notes taken across every 
 
 /**
  * The tokens of a request of a read besides the text it reads or the notes it merges: its system
- * text, the task and the rules. By `estimateTokens`, the fixed words take 144 tokens in a part
- * read, 79 in a merge and 93 in the answer of the read; the rest is room for a task of a few lines.
+ * text, the task and the rules. By `estimateTokens`, the fixed words take 146 tokens in a part
+ * read, 81 in a merge and 94 in the answer of the read; the rest is room for a task of a few lines
+ * (a task of 160 characters takes 39). The heading a part may start with is `PART_HEADING_TOKENS`.
  */
 export const REQUEST_FRAME_TOKENS = 200;
 /**
- * The same for a part read that lists items (`output: "items"`): its fixed words take 308 tokens
- * with two labels; the rest is room for a task of a few lines and more labels.
+ * The same for a part read that lists items (`output: "items"`): its fixed words take 292 tokens
+ * with no label and 311 with two; with `MAX_ITEM_LABELS` labels of `MAX_LABEL_CHARACTERS`, 464 in
+ * English and 564 in Hebrew. The rest is room for a task of a few lines.
  */
-export const ITEMS_FRAME_TOKENS = 400;
+export const ITEMS_FRAME_TOKENS = 650;
 /** The tokens of the "### Lines a-b" heading of a part's notes, and of the blank line that joins notes. */
 export const NOTE_HEADING_TOKENS = 25;
 /** The most labels a read that lists items takes (`labels`), and the most characters of each. New in 0.10.0. */
@@ -99,7 +101,10 @@ export type WholeItemsResult = {
   items: WholeItem[];
   /** The items by label, when they have labels. */
   countsByLabel: Record<string, number>;
-  /** Items a part listed that are not counted: their line is outside the part, or their quote is not on their line. */
+  /**
+   * Items a part listed that are not counted: their quote is on no line of the part and not near the
+   * line they name (`quoteNearLine`), or on several lines of it but not on theirs.
+   */
   unverified: number;
   /** The parts the file was read in, those that could not be read included; a halved part counts as its halves. */
   parts: number;
@@ -346,8 +351,8 @@ function readSignal(signal: AbortSignal | undefined): { stop: AbortController; s
 export class TooManyPartsError extends Error {
   constructor(name: string, readonly parts: number, readonly limit: number, of: "parts" | "requests" = "parts") {
     super(of === "requests"
-      ? `Reading all of ${name} takes ${parts} model requests, one for each part, and ${limit} ${limit === 1 ? "is" : "are"} left for it in this question. Use search_document and read_document.`
-      : `Reading all of ${name} needs ${parts} model calls, over the limit of ${limit}. Use search_document to narrow the question first.`);
+      ? `Reading all of ${name} takes ${parts === 1 ? "1 model request, for its one part" : `${parts} model requests, one for each part`}, and ${limit} ${limit === 1 ? "is" : "are"} left for it in this question. Use search_document and read_document.`
+      : `Reading all of ${name} needs ${parts} model ${plural(parts, "call")}, over the limit of ${limit}. Use search_document to narrow the question first.`);
     this.name = "TooManyPartsError";
   }
 }
@@ -437,6 +442,22 @@ type WholeReadOptions = {
 
 /** The heading a part's lines are under is sent cut to this many characters. */
 const HEADING_CHARACTERS = 120;
+/**
+ * The tokens a part that starts under a heading takes for it (`partStart`), in either output: by
+ * `estimateTokens`, 28 for the words that say so and the heading's line number (of six digits),
+ * and a heading of `HEADING_CHARACTERS` takes 28 in English and 59 in Hebrew. A price counts it for
+ * every part after the first of a file whose parts may have one (`partsHaveHeadings`).
+ */
+export const PART_HEADING_TOKENS = 90;
+
+/**
+ * Whether the parts of a whole-file read of a document may start with the heading they are under
+ * (`headingAbove`): a document with an outline, but not a log, JSON or CSV file, which have none.
+ */
+export function partsHaveHeadings(meta: Partial<Pick<DocumentMeta, "format" | "outline">>): boolean {
+  // A store of your own may give metadata without an outline.
+  return meta.format !== "log" && meta.format !== "json" && meta.format !== "csv" && Array.isArray(meta.outline) && meta.outline.length > 0;
+}
 
 /** The heading of the outline that a part's lines are under (`headingAbove`): its line and its text, as the file writes them. */
 type Heading = { line: number; text: string };
@@ -451,8 +472,7 @@ type Heading = { line: number; text: string };
  */
 async function headingAbove(document: DocumentSource, from: number): Promise<Heading | undefined> {
   const { meta } = document;
-  // A store of your own may give metadata without an outline.
-  const outline = meta.format === "log" || meta.format === "json" || meta.format === "csv" || !Array.isArray(meta.outline) ? [] : meta.outline;
+  const outline = partsHaveHeadings(meta) ? meta.outline : [];
   let low = 0;
   let high = outline.length - 1;
   let found = -1;
@@ -893,16 +913,23 @@ export function quoteForm(text: string): string {
   return foldCase(composed(text).replace(FORMAT_CHARACTERS, "")).replace(HEBREW_POINTS, "").replace(/[ךםןףץ]/g, (letter) => HEBREW_FINALS[letter]!).replace(/\s+/g, " ").trim();
 }
 
+/** A quote as it is looked for on lines: in `quoteForm`, and cut into its pieces where it was cut with "…" or "...". */
+type QuoteToFind = { bare: string; pieces: string[] };
+
 /**
- * Whether the quote of an item is on its line, in `quoteForm`: a line number copied with it ("12| ")
- * and the quote marks and punctuation around it are left out, and a quote cut with "…" or "..."
- * must have each of its pieces on the line, in order.
+ * A quote as it is looked for on lines (`quoteOnLine`, `quoteNearLine`): in `quoteForm`, without
+ * a line number copied with it ("12| ") and the quote marks and punctuation around it, and cut into
+ * its pieces where it was cut with "…" or "...". Made once for an item, not once for each line.
  */
-export function quoteOnLine(quote: string, line: string): boolean {
+function quoteToFind(quote: string): QuoteToFind {
   const bare = quoteForm(quote.replace(/^\s*\d+\|\s?/, "")).replace(/^["'`\s]+|["'`.,;:\s]+$/g, "");
   const pieces = bare.split(/\s*(?:…|\.\.\.)\s*/).map((piece) => piece.replace(/^["'`\s]+|["'`.,;:\s]+$/g, "")).filter(Boolean);
+  return { bare, pieces };
+}
+
+/** `quoteOnLine` of a quote made by `quoteToFind`, on a line in `quoteForm`. */
+function piecesOnLine({ pieces }: QuoteToFind, target: string): boolean {
   if (pieces.length === 0 || pieces.join("").length < 2) return false;
-  const target = quoteForm(line);
   let at = 0;
   for (const piece of pieces) {
     const found = target.indexOf(piece, at);
@@ -910,6 +937,15 @@ export function quoteOnLine(quote: string, line: string): boolean {
     at = found + piece.length;
   }
   return true;
+}
+
+/**
+ * Whether the quote of an item is on its line, in `quoteForm`: a line number copied with it ("12| ")
+ * and the quote marks and punctuation around it are left out, and a quote cut with "…" or "..."
+ * must have each of its pieces on the line, in order.
+ */
+export function quoteOnLine(quote: string, line: string): boolean {
+  return piecesOnLine(quoteToFind(quote), quoteForm(line));
 }
 
 /** A quote must have this many characters (in `quoteForm`) to be found on its line with a few letters copied wrong. */
@@ -920,18 +956,39 @@ const NEAR_QUOTE_SHARE = 0.2;
 /** The numbers of a text in `quoteForm`, without their thousands separators: "1,490" is 1490. */
 const numbersOf = (text: string): string[] => (text.match(/\d(?:[\d,.]*\d)?/g) ?? []).map((number) => number.replaceAll(",", ""));
 
+/** The most characters of an item's quote that are kept. */
+const QUOTE_CHARACTERS = 300;
 /**
- * The fewest letters to change, add or take out to make `quote` a run of `line` (the edit distance
- * to the nearest run): Sellers' algorithm, by code point. Only a quote not found on its line is
- * measured, against that line alone.
+ * Up to this many cells (the letters of a piece of a quote times the characters of its line), the
+ * nearest run of the piece is looked for along the whole line: a quote of `QUOTE_CHARACTERS` on a
+ * line of `MAX_LINE_CHARACTERS`, the longest that ingest stores, about 12 ms. So every line the
+ * library stores is measured whole. A longer line, which a store of your own may give, is looked at
+ * only around a word of the piece (`nearestRunWithin`): measured along all of a line of 118,759
+ * characters, a quote of 270 took 688 ms, for each item that was not on its line.
  */
-function nearestRun(quote: string, line: string): number {
-  const wanted = [...quote];
+const NEAR_LINE_CELLS = QUOTE_CHARACTERS * MAX_LINE_CHARACTERS;
+/** On a long line, the words of a piece of a quote around which its near run is looked for: the longest that are rare on the line. */
+const NEAR_ANCHOR_WORDS = 2;
+/** The most places a word of a quote may have on a long line to be one of those words. */
+const NEAR_ANCHOR_PLACES = 4;
+
+/** The work of the near check of quotes: the cells of `nearestRun` it filled. For tests. */
+export type NearWork = { cells: number };
+
+/**
+ * The fewest letters to change, add or take out to make `wanted` (a piece of a quote, by code
+ * point) a run of `line` (the edit distance to the nearest run): Sellers' algorithm, by code point.
+ * Only a quote not found on its line is measured, against that line alone. It fills a cell for
+ * each letter of the piece and each of the line, and counts them in `work`.
+ */
+function nearestRun(wanted: readonly string[], line: string, work: NearWork | undefined): number {
   const size = wanted.length;
   let previous = new Uint32Array(size + 1).map((_, index) => index);
   let current = new Uint32Array(size + 1);
   let best = size;
+  let letters = 0;
   for (const letter of line) {
+    letters++;
     // A run may start at any letter of the line: its first row costs nothing.
     current[0] = 0;
     for (let index = 1; index <= size; index++) {
@@ -940,7 +997,64 @@ function nearestRun(quote: string, line: string): number {
     best = Math.min(best, current[size]!);
     [previous, current] = [current, previous];
   }
+  if (work) work.cells += size * letters;
   return best;
+}
+
+/**
+ * `nearestRun` of a piece of a quote on `target`, its line, both in `quoteForm`, when it is at
+ * most `most`: past that, it may be more than the true distance. Along the whole line while the
+ * piece's letters times the line's characters are at most `NEAR_LINE_CELLS`. On a longer line, only
+ * around the `NEAR_ANCHOR_WORDS` longest words of the piece that are on the line in 1 to
+ * `NEAR_ANCHOR_PLACES` places: from `most` letters before where the piece would start at such a
+ * place, to `most` letters after where it would end. A run that holds none of those words where the
+ * piece holds it is not found, and a piece none of whose words is on the line so counts as wrong
+ * in all its letters. The work is then a few windows of about the piece's length, whatever the
+ * line's: at most `NEAR_ANCHOR_WORDS` × `NEAR_ANCHOR_PLACES` × 2 × (letters + `most`) characters
+ * (twice that on a line with letters outside the BMP), each measured against every letter of the piece.
+ */
+function nearestRunWithin(piece: string, target: string, most: number, work: NearWork | undefined): number {
+  const wanted = [...piece];
+  if (wanted.length * target.length <= NEAR_LINE_CELLS) return nearestRun(wanted, target, work);
+  // The places are in UTF-16 units: a letter outside the BMP takes two, so the margins are doubled
+  // on a line that has one.
+  const unit = /[\uD800-\uDBFF]/.test(target) ? 2 : 1;
+  const words = [...new Set(piece.split(" ").filter(Boolean))].sort((left, right) => right.length - left.length);
+  const windows: Array<[number, number]> = [];
+  let anchors = 0;
+  for (const word of words) {
+    if (anchors === NEAR_ANCHOR_WORDS) break;
+    const places: number[] = [];
+    for (let at = target.indexOf(word); at !== -1 && places.length <= NEAR_ANCHOR_PLACES; at = target.indexOf(word, at + 1)) places.push(at);
+    if (places.length === 0 || places.length > NEAR_ANCHOR_PLACES) continue;
+    anchors++;
+    // Where the word is in the piece, in letters: each place it has there may be the one on the line.
+    const offsets: number[] = [];
+    for (let at = piece.indexOf(word); at !== -1; at = piece.indexOf(word, at + 1)) offsets.push([...piece.slice(0, at)].length);
+    for (const place of places) {
+      for (const offset of offsets) {
+        let start = Math.max(0, place - unit * (offset + most));
+        let end = Math.min(target.length, place + unit * (wanted.length - offset + most));
+        // Not between the two halves of a letter outside the BMP.
+        if (start > 0 && /[\uDC00-\uDFFF]/.test(target[start]!)) start--;
+        if (end < target.length && /[\uD800-\uDBFF]/.test(target[end - 1]!)) end++;
+        windows.push([start, end]);
+      }
+    }
+  }
+  if (windows.length === 0) return wanted.length;
+  windows.sort((left, right) => left[0] - right[0]);
+  let best = wanted.length;
+  let [start, end] = windows[0]!;
+  for (const [from, to] of windows.slice(1)) {
+    if (from <= end) {
+      end = Math.max(end, to);
+      continue;
+    }
+    best = Math.min(best, nearestRun(wanted, target.slice(start, end), work));
+    [start, end] = [from, to];
+  }
+  return Math.min(best, nearestRun(wanted, target.slice(start, end), work));
 }
 
 /**
@@ -950,20 +1064,24 @@ function nearestRun(quote: string, line: string): number {
  * the line, and its pieces (a quote cut with "…" has several) are each a run of the line, or near
  * one, with no more letters to change, add or take out in all than `NEAR_QUOTE_SHARE` of its
  * characters. A quote with an amount other than the line's is not, nor one of the next clause of a
- * contract written to the same pattern with another amount. New in 0.10.0.
+ * contract written to the same pattern with another amount. On a line longer than ingest stores, a
+ * piece is looked for only around a few of its words (`nearestRunWithin`). `work` counts the cells
+ * measured, for tests. New in 0.10.0.
  */
-export function quoteNearLine(quote: string, line: string): boolean {
-  const bare = quoteForm(quote.replace(/^\s*\d+\|\s?/, "")).replace(/^["'`\s]+|["'`.,;:\s]+$/g, "");
-  const pieces = bare.split(/\s*(?:…|\.\.\.)\s*/).map((piece) => piece.replace(/^["'`\s]+|["'`.,;:\s]+$/g, "")).filter(Boolean);
+export function quoteNearLine(quote: string, line: string, work?: NearWork): boolean {
+  return piecesNearLine(quoteToFind(quote), quoteForm(line), work);
+}
+
+/** `quoteNearLine` of a quote made by `quoteToFind`, on a line in `quoteForm`. */
+function piecesNearLine({ bare, pieces }: QuoteToFind, target: string, work?: NearWork): boolean {
   const length = pieces.reduce((sum, piece) => sum + [...piece].length, 0);
   if (length < NEAR_QUOTE_CHARACTERS) return false;
-  const target = quoteForm(line);
   const numbers = new Set(numbersOf(target));
   if (!numbersOf(bare).every((number) => numbers.has(number))) return false;
   const most = Math.floor(length * NEAR_QUOTE_SHARE);
   let edits = 0;
   for (const piece of pieces) {
-    if (!target.includes(piece)) edits += nearestRun(piece, target);
+    if (!target.includes(piece)) edits += nearestRunWithin(piece, target, most - edits, work);
     if (edits > most) return false;
   }
   return true;
@@ -982,15 +1100,19 @@ function itemText(value: unknown, most: number): string | undefined {
  * is on no line of the part, but near the line it names (`quoteNearLine`: a few letters copied
  * wrong, the same numbers), keeps that line. Undefined for any other: it is counted as unverified.
  * A label is matched to the read's labels in `quoteForm`, and given as the read spelled it.
+ * `formOf` gives a line of the part, by its index, in `quoteForm`: made once for the part, as an
+ * item that is not on its line is looked for on every line of it.
  */
-function checkedItem(object: Record<string, unknown>, from: number, lines: readonly string[], labels: readonly string[] | undefined): WholeItem | undefined {
+function checkedItem(object: Record<string, unknown>, from: number, lines: readonly string[], formOf: (index: number) => string, labels: readonly string[] | undefined): WholeItem | undefined {
   const named = typeof object.line === "number" ? object.line : typeof object.line === "string" && object.line.trim() ? Number(object.line) : Number.NaN;
-  const quote = itemText(object.quote, 300);
+  const quote = itemText(object.quote, QUOTE_CHARACTERS);
   if (quote === undefined) return undefined;
+  const wanted = quoteToFind(quote);
+  const inPart = Number.isInteger(named) && named >= from && named < from + lines.length;
   let number = named;
-  if (!Number.isInteger(named) || named < from || named >= from + lines.length || !quoteOnLine(quote, lines[named - from]!)) {
-    const found = lines.flatMap((text, index) => (quoteOnLine(quote, text) ? [from + index] : []));
-    const near = found.length === 0 && Number.isInteger(named) && named >= from && named < from + lines.length && quoteNearLine(quote, lines[named - from]!);
+  if (!inPart || !piecesOnLine(wanted, formOf(named - from))) {
+    const found = lines.flatMap((_, index) => (piecesOnLine(wanted, formOf(index)) ? [from + index] : []));
+    const near = found.length === 0 && inPart && piecesNearLine(wanted, formOf(named - from));
     if (found.length !== 1 && !near) return undefined;
     number = near ? named : found[0]!;
   }
@@ -1081,8 +1203,11 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
     if (reply.truncated) truncatedParts++;
     const { objects, skipped } = parseItemLines(reply.text);
     skippedLines += skipped;
+    // The lines of the part in `quoteForm`, each made when an item first needs it.
+    const forms: Array<string | undefined> = [];
+    const formOf = (index: number): string => (forms[index] ??= quoteForm(lines[index]!));
     for (const object of objects) {
-      const item = checkedItem(object, from, lines, labels);
+      const item = checkedItem(object, from, lines, formOf, labels);
       if (!item) {
         unverified++;
         continue;
