@@ -435,24 +435,68 @@ type WholeReadOptions = {
   maxRequests?: number;
 };
 
+/** The heading a part's lines are under is sent cut to this many characters. */
+const HEADING_CHARACTERS = 120;
+
+/** The heading of the outline that a part's lines are under (`headingAbove`): its line and its text, as the file writes them. */
+type Heading = { line: number; text: string };
+
+/**
+ * The heading of the outline that a part's first line is under, when the part does not start with
+ * it: the line of the file it is on, as the file writes it, cut to `HEADING_CHARACTERS`. A part that
+ * starts in the middle of a section (a day of a diary, a chapter, a sheet) is sent with it first, so
+ * that its lines are read under the right heading: Gemini Flash-Lite dated an incident of 23
+ * October, in a part that started at 04:12 that day, as 22 October. Logs, JSON and CSV files have
+ * no outline. New in 0.10.0.
+ */
+async function headingAbove(document: DocumentSource, from: number): Promise<Heading | undefined> {
+  const { meta } = document;
+  // A store of your own may give metadata without an outline.
+  const outline = meta.format === "log" || meta.format === "json" || meta.format === "csv" || !Array.isArray(meta.outline) ? [] : meta.outline;
+  let low = 0;
+  let high = outline.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (outline[middle]!.line < from) {
+      found = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  if (found === -1) return undefined;
+  const line = outline[found]!.line;
+  const [text] = await document.readLines(line, line);
+  if (text === undefined || !text.trim()) return undefined;
+  return { line, text: [...text].length > HEADING_CHARACTERS ? `${sliceWhole(text, HEADING_CHARACTERS)}…` : text };
+}
+
 /**
  * The start of the prompt of a part read, the same for every read of the part, whatever its task
- * or output: the file's name and lines, then the part, marked as the file's content. The task and
- * the rules come after it (M8).
+ * or output: the file's name and lines, then the part, marked as the file's content, with the
+ * heading its lines are under first when it does not start with it. The task and the rules come
+ * after it (M8).
  */
-const partStart = (name: string, from: number, to: number, text: string): string[] => [`Document: ${name}, lines ${from}-${to}.`, "<part>", text, "</part>"];
+const partStart = (name: string, from: number, to: number, text: string, heading: Heading | undefined): string[] => [
+  heading ? `Document: ${name}, lines ${from}-${to}, under the heading on line ${heading.line}, which comes first.` : `Document: ${name}, lines ${from}-${to}.`,
+  "<part>",
+  ...(heading ? [numberLines([heading.text], heading.line)] : []),
+  text,
+  "</part>",
+];
 
 /** The prompt of a part read that takes notes: the part, where it is, the task, the rules. */
-const notesPrompt = (name: string, from: number, to: number, text: string, where: string, task: string): string => [
-  ...partStart(name, from, to, text),
+const notesPrompt = (name: string, from: number, to: number, text: string, heading: Heading | undefined, where: string, task: string): string => [
+  ...partStart(name, from, to, text, heading),
   `This is ${where}.`,
   `Task: ${task}`,
   `Write concise notes on everything in this part that is relevant to the task, for a later step that combines the notes of every part. Keep exact names, numbers, and quotes that matter. Cite line numbers like (L123). If nothing in this part is relevant, reply exactly: ${NOTHING}`,
 ].join("\n");
 
 /** The prompt of a part read that lists items (`output: "items"`): the part, where it is, the task, the format of the list. */
-const itemsPrompt = (name: string, from: number, to: number, text: string, where: string, task: string, labels: readonly string[] | undefined): string => [
-  ...partStart(name, from, to, text),
+const itemsPrompt = (name: string, from: number, to: number, text: string, heading: Heading | undefined, where: string, task: string, labels: readonly string[] | undefined): string => [
+  ...partStart(name, from, to, text, heading),
   `This is ${where}.`,
   `Task: ${task}`,
   "List each item of this part that the task asks for, as one JSON object on a line of its own, and nothing else:",
@@ -546,8 +590,10 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
    */
   const readPart = async (from: number, to: number, where: string, halved: boolean, detail: string): Promise<Note[]> => {
     let part: string;
+    let heading: Heading | undefined;
     try {
       part = numberLines(await document.readLines(from, to), from);
+      heading = await headingAbove(document, from);
     } catch (error) {
       if (signal?.aborted || storeGaveUp(error)) throw error;
       // The store's error, not the model's: a `DocumentStoreError` tells it in words safe to show.
@@ -555,7 +601,7 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
     }
     sent++;
     try {
-      const reply = await request({ system: PART_SYSTEM, prompt: notesPrompt(name, from, to, part, where, task), maxOutputTokens: PART_OUTPUT_TOKENS }, "part", detail);
+      const reply = await request({ system: PART_SYSTEM, prompt: notesPrompt(name, from, to, part, heading, where, task), maxOutputTokens: PART_OUTPUT_TOKENS }, "part", detail);
       let text = reply.text;
       if (reply.truncated) {
         truncatedParts++;
@@ -995,8 +1041,10 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
   };
   const readPart = async (from: number, to: number, where: string, level: number, detail: string): Promise<void> => {
     let lines: string[];
+    let heading: Heading | undefined;
     try {
       lines = await document.readLines(from, to);
+      heading = await headingAbove(document, from);
     } catch (error) {
       if (signal?.aborted || storeGaveUp(error)) throw error;
       fail(error, safeErrorMessage(error));
@@ -1017,7 +1065,7 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
       used++;
       reply = await ask(generate, {
         system: PART_SYSTEM,
-        prompt: itemsPrompt(name, from, to, numberLines(lines, from), where, task, labels),
+        prompt: itemsPrompt(name, from, to, numberLines(lines, from), heading, where, task, labels),
         maxOutputTokens: PART_OUTPUT_TOKENS,
       }, signal, retry, told("part", detail));
     } catch (error) {

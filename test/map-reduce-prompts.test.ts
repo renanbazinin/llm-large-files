@@ -55,6 +55,52 @@ describe("a part read", () => {
     }
   });
 
+  it("sends the heading its lines are under first, when it starts in the middle of a section", async () => {
+    // A diary of 12 days, a heading for each, read in parts that start inside a day.
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 1_500 } });
+    const lines = ["# Shift diary"];
+    for (let day = 1; day <= 12; day++) {
+      lines.push("", `## Day ${day} of March`, "");
+      for (let hour = 0; hour < 24; hour += 2) lines.push(`- ${String(hour).padStart(2, "0")}:00, the room was checked: all is well, and the readings were noted.`);
+    }
+    const meta = await files.ingest({ name: "diary.md", bytes: utf8(lines.join("\n")) });
+    const prompts: string[] = [];
+    const generate: GenerateText = async ({ prompt }) => {
+      prompts.push(prompt);
+      return prompt.includes("<part>") ? "NOTHING RELEVANT" : "unused";
+    };
+    for (const output of ["answer", "items"]) {
+      prompts.length = 0;
+      await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "Every check of day 5.", output });
+      expect(prompts.length).toBeGreaterThan(2);
+      let under = 0;
+      for (const prompt of prompts) {
+        const [first, open, second, third] = prompt.split("\n");
+        const [, from] = /lines (\d+)-\d+/.exec(first!)!;
+        const heading = /, under the heading on line (\d+), which comes first\.$/.exec(first!);
+        expect(open).toBe("<part>");
+        if (!heading) {
+          // A part that starts at the top, or with a heading of its own, is sent as it is.
+          expect(first).toMatch(/^Document: diary\.md, lines \d+-\d+\.$/);
+          expect(second).toMatch(new RegExp(`^${from}\\| `));
+          continue;
+        }
+        under++;
+        // The heading's line, numbered as in the file, then the part's first line.
+        const line = Number(heading[1]);
+        expect(line).toBeLessThan(Number(from));
+        expect(second).toBe(`${line}| ${lines[line - 1]}`);
+        expect(second).toMatch(/^\d+\| ## Day \d+ of March$/);
+        expect(third).toMatch(new RegExp(`^${from}\\| - `));
+      }
+      // 0.10.0 before this fix: no part said which day its first lines are of.
+      expect(under).toBeGreaterThan(0);
+    }
+    // A log has no outline: its parts are sent as before.
+    const { parts } = await readWith("List every slow request.", "A slow request (L12).");
+    for (const part of parts) expect(part.prompt.split("\n")[0]).toMatch(/^Document: app\.log, lines \d+-\d+\.$/);
+  });
+
   it("shares its start with a read of another task, through the end of the part", async () => {
     const one = await readWith("List every slow request.", "A slow request (L12).");
     const two = await readWith("Which worker served the most requests?", "worker-3 (L4).");

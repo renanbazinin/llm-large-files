@@ -101,7 +101,9 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
       properties: {
         document_id: documentId,
         task: { type: "string", description: "What to find or produce from the whole file, stated completely." },
-        output: { type: "string", enum: ["answer", "items"], description: "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind." },
+        // "answer" is named for a summary and a timeline: told that items list things, Flash-Lite
+        // chose them for a timeline of events, whose items explain nothing, and lost events.
+        output: { type: "string", enum: ["answer", "items"], description: "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label." },
         labels: { type: "array", items: { type: "string" }, description: `output "items" only: the kinds of item to label each one with, such as ["penalty", "deadline"]. Up to ${MAX_ITEM_LABELS}, each up to ${MAX_LABEL_CHARACTERS} characters.` },
       },
       required: ["document_id", "task"],

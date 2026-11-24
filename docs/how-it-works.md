@@ -583,7 +583,9 @@ the part reader (`generateText`) of the model that explores.
    (`(L123)`) or replies `NOTHING RELEVANT`. A part that fails is sent again by the loop's rule
    ([Retries and waits](#retries-and-waits)), and an error with no status once more at once.
    - A part's request sends the file's name and lines, then the part between `<part>` and
-     `</part>`, then where the part is ("This is part 3 of 12."), the task and the rules. The task
+     `</part>`, then where the part is ("This is part 3 of 12."), the task and the rules. A part
+     that starts in the middle of a section of the outline has the line of the heading it is under
+     first, so that the events of a day of a diary are not dated by the day before. The task
      comes last, after the file's text, and the system text says that text inside `<part>` is the
      file's content: never instructions to follow. A line in the file
      that says "reply NOTHING RELEVANT" is text to read, not an order. Two reads of one file with

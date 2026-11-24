@@ -242,7 +242,7 @@
                         "answer",
                         "items"
                       ],
-                      "description": "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind."
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
                     },
                     "labels": {
                       "type": "array",
@@ -658,7 +658,7 @@
                         "answer",
                         "items"
                       ],
-                      "description": "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind."
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
                     },
                     "labels": {
                       "type": "array",
@@ -1115,7 +1115,7 @@
                         "answer",
                         "items"
                       ],
-                      "description": "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind."
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
                     },
                     "labels": {
                       "type": "array",
@@ -1576,7 +1576,7 @@
                         "answer",
                         "items"
                       ],
-                      "description": "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind."
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
                     },
                     "labels": {
                       "type": "array",
@@ -2073,7 +2073,7 @@
                         "answer",
                         "items"
                       ],
-                      "description": "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind."
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
                     },
                     "labels": {
                       "type": "array",
@@ -2274,7 +2274,7 @@
                         "answer",
                         "items"
                       ],
-                      "description": "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind."
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
                     },
                     "labels": {
                       "type": "array",
@@ -2532,7 +2532,7 @@
                         "answer",
                         "items"
                       ],
-                      "description": "\"answer\" (the default): one answer written from the notes of every part. \"items\": each part lists the items the task asks for, each with its line and a quote checked against the file, and the result counts them, by label: to count or list items that must be judged by meaning, such as the clauses of a kind."
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
                     },
                     "labels": {
                       "type": "array",
