@@ -477,7 +477,7 @@ status since 0.10.0, so a 503 is tried again; before, it was "The model returned
 Each part read may take `timeoutMs`: 180,000 ms by default, its whole reply included. That is a
 limit of its own, not the waits above. A part past it is a `GeminiRequestError` of kind
 `"timeout"` and status 0: it is tried once more, after the retry wait (`retry.baseDelayMs`: 250 to
-500 ms by default) and with a `request.retry` event, and is then reported in the answer of the read
+500 ms by default) and with a `retry` event, and is then reported in the answer of the read
 as "The model took too long to answer". Set `timeoutMs` on `gemini()` or `askGemini` (both
 models get it); 0 sets none. New in 0.10.0: before, the limit could be changed only by replacing
 the adapter's part reader, and a part past it came as the abort error of the timer.

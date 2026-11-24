@@ -138,12 +138,13 @@ export type ModelReply = {
   blockReason?: string;
   /**
    * The provider's ID of this response (Gemini's `responseId`, the `id` of OpenAI and Claude), when
-   * it gives one. New in 0.10.0. No built-in adapter sets it yet.
+   * it gives one. `gemini()`, `openAiCompatible()` and `anthropic()` set it. New in 0.10.0.
    */
   responseId?: string;
   /**
    * The model that wrote this response, as the provider names it (Gemini's `modelVersion`, the
-   * `model` of OpenAI and Claude). New in 0.10.0. No built-in adapter sets it yet.
+   * `model` of OpenAI and Claude). `gemini()`, `openAiCompatible()` and `anthropic()` set it. New
+   * in 0.10.0.
    */
   responseModel?: string;
   usage?: Partial<ModelUsage>;

@@ -31,7 +31,7 @@ export type QuestionRun = {
   ms: number;
   /** A `budget_reached` notice: the question's input-token ceiling or request limit stopped its tools. */
   ceilingReached: boolean;
-  /** `checkCitations` of the answer; null while it is not written yet. */
+  /** `checkCitations` of the answer; null in runs of 0.9.0, which had no checkCitations. */
   citations: CitationCheck | null;
   /** The tools called, in order, and how many line reads (read_document) and whole-file reads. */
   tools: string[];
@@ -179,7 +179,7 @@ export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
     }
     messages.push(...result.toolTurns);
     if (result.answered) messages.push({ role: "assistant", text: result.text });
-    const factContext: FactContext = { ...context, evidence: result.evidence, ...(result.citations ? { citations: result.citations } : {}) };
+    const factContext: FactContext = { ...context, evidence: result.evidence, documentIds: turn.documentIds, ...(result.citations ? { citations: result.citations } : {}) };
     const facts = turn.facts.map((fact) => checkFact(fact, result.text, factContext));
     const passed = facts.every((fact) => fact.status !== "fail");
     const tools = recorder.tools().map((call) => call.tool);

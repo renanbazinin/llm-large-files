@@ -266,29 +266,30 @@ is quiet for less: see [Deployment](./deployment.md).
 ### Part reads have a time limit of their own
 
 The waits cover chat requests. Each request of a whole-file read (a part read) has a limit on its
-whole time instead: `timeoutMs` of `openAiCompatible()` and `anthropic()`, 180,000 by default. For
-Gemini it is 180 s, and neither `gemini()` nor `askGemini` has an option for it. A part read that
-runs out of time is tried once more, at once. If it fails again, the tool's result says the part
-could not be read (`parts_that_failed`), and the question goes on.
-
-To give Gemini part reads more time, replace the adapter's `generateText` and call
-`askWithFiles`:
+whole time instead: `timeoutMs` of `gemini()`, `askGemini`, `openAiCompatible()` and
+`anthropic()`, 180,000 by default. 0 sets none. A part read that runs out of time is an error of
+kind `timeout` and status 0, in every adapter. It is tried once more, after the first wait of
+`retry` (250 to 500 ms by default). If it fails again, the tool's result says the part could not be
+read (`parts_that_failed`), and the question goes on.
 
 ```ts
-import { askWithFiles, type ModelAdapter } from "llm-large-files";
-import { createGeminiGenerateText, gemini } from "llm-large-files/gemini";
+import { askGemini, gemini } from "llm-large-files/gemini";
 
-const patient: ModelAdapter = {
-  ...gemini(endpoint),
-  // Each part read may take 5 minutes.
-  generateText: createGeminiGenerateText({ url: endpoint.url, headers: endpoint.headers, timeoutMs: 300_000 }),
-};
-const result = await askWithFiles({ files, model: patient, documentIds, messages, owner });
+// Each part read may take 5 minutes.
+const answer = await askGemini({ files, endpoint, documentIds, messages, owner, timeoutMs: 300_000 });
+
+// The same option on an adapter, for askWithFiles.
+const model = gemini(endpoint, { timeoutMs: 300_000 });
 ```
 
-`analysisConfig` of `gemini()` is `generationConfig` here, if you set one. With an
-[explorer model](./explorer-model.md), the part reads are the explorer's: replace its
-`generateText`.
+`askGemini`'s `timeoutMs` covers the part reads of both models. With `askWithFiles` and an
+[explorer model](./explorer-model.md), the part reads are the explorer's: set `timeoutMs` on its
+adapter.
+
+Before 0.10.0, `gemini()` and `askGemini` had no option for it: a Gemini part read had 180 s. A
+part read that ran out of time threw the timer's abort error, with no status, and was tried once
+more at once. `timeoutMs: 0` of `openAiCompatible()` and `anthropic()` aborted every part read at
+once.
 
 ## An overall deadline
 

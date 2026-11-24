@@ -709,7 +709,12 @@ that counts and sums over it are exact, not made by eye. What a question costs t
 
 - **A question that needs no count** stays at one request when the model answers at once, as it
   does when the answer is in the table it sees. The request is a little larger, by the three tool
-  declarations and one line of the system text (about 1,500 tokens).
+  declarations and one line of the system text (about 1,500 tokens). Some models look the row up
+  with a tool anyway, which takes 2 requests: in the live checks of 0.10.0, Flash-Lite did so for
+  about half of these questions, and Flash rarely
+  ([measurements](../measurements.md#tables-sent-whole-p1s-live-gate)). A reply that ends with no
+  text and no call, and not by a filter or the output limit, is asked again once with a note, as in
+  any question: one request more, with the table.
 - **A count** takes about 3 requests: one that calls `aggregate_table` (or an exact search), one
   that answers from its result, and sometimes one more call. Each sends the table again. For a CSV
   of 3,000 invoices (113,000 estimated tokens, 131,000 with its lines numbered), one request of 0.9

@@ -447,8 +447,8 @@ export type ToolSet = {
   /**
    * How many more times this tool set may read the document `documentId` whole
    * (`analyze_whole_document`): 0 once a read of it found no part it could read, or at the cap.
-   * Optional, so that a tool set of your own still compiles. New in 0.10.0. The tool set of
-   * `files.tools()` does not have it yet.
+   * Optional, so that a tool set of your own still compiles. The tool set of `files.tools()` has
+   * it. New in 0.10.0.
    */
   wholeReadsLeft?(documentId: string): number;
 };

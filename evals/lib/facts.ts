@@ -9,8 +9,9 @@ import { checkCitations, type CitationCheck, type DocumentFormat, type Evidence 
  *   are read: 4,167.90 is 4167.9). With `near`, the number must stand after that label on its line,
  *   before any of the `stop` labels: a value tied to its row, not any value of the answer;
  * - `{ says }`: one of these texts or patterns;
- * - `{ mustCite }`: a line citation of `document` at a line that holds `text` (checked with
- *   `checkCitations`; "not checked yet" while it is not available);
+ * - `{ mustCite }`: a line citation of `document` at a line that holds `text`, read by
+ *   `checkCitations` ("not checked yet" while it is not available): the citation names the file,
+ *   or the question has that file alone;
  * - `{ mustNotClaim }`: none of this text, pattern, or number;
  * - `{ language: "he" }`: at least 60% of the answer's letters are Hebrew letters, once citations,
  *   file names, numbers, code (a quoted log line), identifiers (payments-service, /api/v2), names
@@ -40,6 +41,8 @@ export type FactContext = {
   linesWith(id: string, phrase: string): number[];
   /** `AskResult.citations`, when the version fills it. */
   citations?: CitationCheck;
+  /** The documents of the question: a citation without a file name goes with its one document. All of `names` when not given. */
+  documentIds?: string[];
 };
 
 /** A fact in words, for the report. */
@@ -98,14 +101,28 @@ function textNear(text: string, near: { label: string; stop?: string[] }): strin
   return out;
 }
 
-/** The line citations of a text: "L12", "L12-14", "שורה 12", "שורות 12-14", "Row 12", "line 12". */
-export function citedLines(text: string): Array<[number, number]> {
-  const out: Array<[number, number]> = [];
-  for (const match of text.matchAll(/(?:\bL|\blines?\s+|\bRows?\s+|שורו?ת\s*|שורה\s*)(\d+)(?:\s*[-–]\s*L?(\d+))?/gi)) {
-    const from = Number(match[1]);
-    out.push([from, match[2] ? Number(match[2]) : from]);
+/**
+ * Where `text` cites `document`, read by `checkCitations` as it reads `AskResult.citations`: the
+ * file name next to a citation, ranges, "line N", the Hebrew "שורה N". `cited` is the first line of
+ * each citation of the document; `at` is true when one of them holds a line of `lines`.
+ * `CitationCheck` lists only the citations of lines that were not shown, with the first such line:
+ * so the document is shown whole but `lines` for `at`, and not at all for `cited`.
+ */
+export function citationsAt(text: string, document: string, lines: number[], context: Pick<FactContext, "names" | "formats" | "documentIds">): { at: boolean; cited: number[] } {
+  const ids = context.documentIds ?? Object.keys(context.names);
+  const names = Object.fromEntries([...ids, document].map((id) => [id, context.names[id] ?? id]));
+  const name = names[document]!;
+  const linesOf = (check: CitationCheck) => check.unsupported.filter((entry) => entry.document === name).map((entry) => entry.line);
+  const wanted = [...new Set(lines)].filter((line) => Number.isInteger(line) && line > 0).sort((a, b) => a - b);
+  const others: Array<[number, number]> = [];
+  let from = 1;
+  for (const line of wanted) {
+    if (line > from) others.push([from, line - 1]);
+    from = line + 1;
   }
-  return out;
+  others.push([from, Number.MAX_SAFE_INTEGER]);
+  const at = wanted.length > 0 && linesOf(checkCitations(text, [{ tool: "fact", documentId: document, lines: others }], names, context.formats)).some((line) => wanted.includes(line));
+  return { at, cited: linesOf(checkCitations(text, [], names, context.formats)) };
 }
 
 /**
@@ -135,7 +152,7 @@ export function hebrewShare(text: string, names: string[] = []): number {
   return letters === 0 ? 0 : hebrew / letters;
 }
 
-/** `checkCitations` of this version, or undefined while it is not written yet. */
+/** `AskResult.citations`, else `checkCitations` of the text; undefined for a version whose checkCitations is a stub. */
 export function citationsOf(text: string, context: FactContext): CitationCheck | undefined {
   if (context.citations) return context.citations;
   try {
@@ -170,10 +187,9 @@ export function checkFact(fact: Fact, text: string, context: FactContext): FactR
     const share = hebrewShare(text, Object.values(context.names));
     return result(share >= 0.6, `${Math.round(share * 100)}% of its letters are Hebrew`);
   }
-  // mustCite: once checkCitations works, a citation of a line that holds the text.
-  const citations = citationsOf(text, context);
-  if (!citations) return { fact: named, status: "not checked yet", detail: "checkCitations is not available in this version" };
+  // mustCite: a citation of the document, as checkCitations reads it, at a line that holds the text.
+  if (!citationsOf(text, context)) return { fact: named, status: "not checked yet", detail: "checkCitations is not available in this version" };
   const lines = context.linesWith(fact.mustCite.document, fact.mustCite.text);
-  const cited = citedLines(text);
-  return result(citations.checked > 0 && cited.some(([from, to]) => lines.some((line) => line >= from && line <= to)), `cited ${cited.map(([from, to]) => (from === to ? `L${from}` : `L${from}-${to}`)).join(", ") || "nothing"}; the fact is at L${lines.join(", L")}`);
+  const { at, cited } = citationsAt(text, fact.mustCite.document, lines, context);
+  return result(at, `cited ${cited.length ? `L${cited.join(", L")}` : "nothing"} of ${context.names[fact.mustCite.document] ?? fact.mustCite.document}; the fact is at ${lines.length ? `L${lines.join(", L")}` : "no line"}`);
 }

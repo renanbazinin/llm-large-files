@@ -91,6 +91,9 @@ With `scopes` (new in 0.9.0), the files of each scope are in a folder of their o
 - Every file is written under a temporary name and then renamed, so no reader, on this server or
   another one, sees half a file. A rename or a removal that meets `EPERM`, `EACCES` or `EBUSY` (on
   Windows, another process has the file open for a moment) is tried again for about 2.6 seconds.
+- A text longer than 1,048,576 UTF-16 units is encoded and written a slice of that size at a
+  time, never cutting a character in two: the bytes are the same as written at once (new in
+  0.10.0). A 50 MB `put` held the event loop for 379 ms in 0.9; it now holds it for about 20 ms.
 - `put` writes the text first and the metadata last. `delete` removes the metadata first, and
   nothing else when that fails: it throws, and the document stays whole. Once the metadata is
   gone, the document is gone: `delete` returns true, and a text, index or original it could not

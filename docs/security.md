@@ -1089,7 +1089,7 @@ New in 0.9.0. `createDocumentHandlers` writes no file unless it is asked to: by 
   ([Stopping a server](./guides/deployment.md#stopping-a-server)).
 - **Bounded.** A body written to a file has the same limits as one in memory: `maxUploadBytes` and
   `uploadIdleTimeoutMs`, which also bounds each call to the disk (a volume that stops answering is
-  a `500` "Upload failed (ETIMEDOUT).", and gives the upload's room back). `maxSpooledUploadBytes`
+  a `503` "Upload failed (ETIMEDOUT).", a `500` before 0.10.0, and gives the upload's room back). `maxSpooledUploadBytes`
   (ten times `maxUploadBytes`) bounds the spool's files at once. A full disk (`ENOSPC`, `EDQUOT`) is
   answered `503`, and the file removed. The files of `prepareUpload` are bounded by your disk only.
 - **Not sent.** The path of a file and its ref are never in an answer, an event, a summary, or a

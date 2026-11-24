@@ -242,7 +242,7 @@ for `onText`.
 | `ms` | `number` | From `request.start` to now, retries and their waits included. |
 | `outcome` | `"ok" \| "error"` | How it ended. |
 | `usage` | `Partial<ModelUsage>`, optional | What the provider said this request used. For a `"reader"` request, the sum of all its sends. |
-| `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call" \| "other"`, optional | How the reply ended, in the library's words. Chat requests only. `"other"` is new in 0.10.0, and no built-in adapter gives it yet. |
+| `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call" \| "other"`, optional | How the reply ended, in the library's words. Chat requests only. `"other"` is new in 0.10.0: `gemini()` gives it for Gemini's `OTHER`, `LANGUAGE` and four more reasons. |
 | `finishReason` | `string`, optional | How the reply ended, in the provider's words. Chat requests only. |
 | `toolCalls` | `number`, optional | How many tool calls the reply asked for. Chat requests with outcome `"ok"`. |
 | `responseId` | `string`, optional | The provider's ID of the response (`ModelReply.responseId`), when the adapter gives one: to find the request in the provider's logs. Chat requests only. New in 0.10.0. |
@@ -286,7 +286,7 @@ outcome that says so.
 | `outcome` | [`ToolOutcome`](#tooloutcome) | How it ended. |
 | `ms` | `number` | From `tool.start` to now. Ends come in call order, so this includes the wait for the calls before it in the turn. |
 | `step` | `string`, optional | The finished step, as `onStep` got it. Absent for `"not_run"` (one `calls_not_run` notice says it for all of them), and for a call ended because its turn failed. |
-| `evidence` | [`Evidence`](./ask.md#evidence), optional | What the call showed the model, with this `callId`. Each entry of `AskResult.evidence` has its `callId` too, so you can find the call it came from. |
+| `evidence` | [`Evidence`](./ask.md#evidence), optional | What the call showed the model, with this `callId`. Each entry of `AskResult.evidence` that a call made has its `callId` too, so you can find the call it came from. The entries of the files sent whole (`tool: "inline"`, new in 0.10.0) have none: no call made them. |
 | `resultCharacters` | `number`, optional | The characters of the JSON result the model was sent. 0 for a call ended because its turn failed. |
 | `error` | `string`, optional | When the result the model was sent is an error (outcomes `"error"`, `"refused"`, `"not_run"`): its message. For a call ended because its turn failed: why, as in `EventError.message`. |
 | `result` | [`ToolResult`](./tools.md#toolresult), optional | The result the model was sent. Only with `eventResults: true`: it holds document text. |

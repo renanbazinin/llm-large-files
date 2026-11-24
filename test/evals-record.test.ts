@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { askWithFiles, checkCitations, createLargeFiles, MemoryDocumentStore, type AskEvent, type LargeFiles, type ModelAdapter, type ModelRequest } from "llm-large-files";
+import { askWithFiles, createLargeFiles, MemoryDocumentStore, type AskEvent, type LargeFiles, type ModelAdapter, type ModelRequest } from "llm-large-files";
 import { anthropic } from "llm-large-files/anthropic";
 import { gemini, geminiApi, vertexAi } from "llm-large-files/gemini";
 import { openAiCompatible } from "llm-large-files/openai";
@@ -507,17 +507,28 @@ describe("the facts of the eval cases", () => {
     expect(hebrewShare("The East region has 22 rows, and their total is 32,133.")).toBe(0);
   });
 
-  it("reports a cited-line fact as not checked yet while checkCitations is not written", () => {
-    const context = { evidence: [], names: { "policy-1": "policy.docx" }, formats: {}, linesWith: () => [17] };
-    const result = checkFact({ mustCite: { document: "policy-1", text: "18" } }, "18 ימים (policy.docx L17)", context);
-    let written = true;
-    try {
-      checkCitations("", [], {});
-    } catch (error) {
-      written = !/not available yet/.test(String(error));
-    }
-    // Once checkCitations is written, the fact is checked: here, the line cited holds it.
-    expect(result.status).toBe(written ? "pass" : "not checked yet");
+  it("checks a cited-line fact with checkCitations: the citation of that file, at a line that holds the text", () => {
+    // policy.docx holds the fact at L17; the question has the policy and a log.
+    const names = { "policy-1": "מדיניות משאבי אנוש 2026.docx", "log-1": "app.log" };
+    const context = { evidence: [], names, formats: {}, linesWith: () => [17], documentIds: ["policy-1", "log-1"] };
+    const status = (answer: string, given: Partial<typeof context> = {}) => checkFact({ mustCite: { document: "policy-1", text: "18 ימי חופשה" } }, answer, { ...context, ...given }).status;
+    // The forms of the recorded answers: the name without its extension, a range, the Hebrew "שורה".
+    expect(status("18 ימי חופשה (מדיניות משאבי אנוש 2026 L17).")).toBe("pass");
+    expect(status("18 ימי חופשה (מדיניות משאבי אנוש 2026.docx L15–L19).")).toBe("pass");
+    expect(status("18 ימי חופשה (מדיניות משאבי אנוש 2026.docx, שורות 16 עד 18).")).toBe("pass");
+    // The right line of another file, a line of this file that does not hold it, a bare L17 with no
+    // file next to it, or a line named in passing: no citation of the fact.
+    expect(status("18 ימי חופשה (app.log L17).")).toBe("fail");
+    expect(status("18 ימי חופשה (מדיניות משאבי אנוש 2026.docx L19).")).toBe("fail");
+    expect(status("18 ימי חופשה. The L17 cache.")).toBe("fail");
+    // A citation with no file name goes with the question's one file, as AskResult.citations reads it.
+    expect(status("18 ימי חופשה (שורה 17).")).toBe("fail");
+    expect(status("18 ימי חופשה (שורה 17).", { documentIds: ["policy-1"] })).toBe("pass");
+    expect(status("18 ימי חופשה (policy-1 L17).", { documentIds: ["policy-1"] })).toBe("pass");
+    // The report says what was cited, and where the fact is.
+    expect(checkFact({ mustCite: { document: "policy-1", text: "18 ימי חופשה" } }, "18 (מדיניות משאבי אנוש 2026.docx L19, L23-25)", context)).toMatchObject({
+      status: "fail", detail: "cited L19, L23 of מדיניות משאבי אנוש 2026.docx; the fact is at L17",
+    });
   });
 });
 

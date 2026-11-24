@@ -416,7 +416,7 @@ the larger limit off when that allowance is no larger than 32,768. Both requests
   `OpenAiRequestError` of status 0 and kind `"timeout"` ("The model took longer than 180 s to
   answer."), since 0.10.0; before, the abort error of the timer, with no status, tried once more at
   once. It is tried once more, after the retry wait (`retry.baseDelayMs`: 250 to 500 ms by default)
-  and with a `request.retry` event, and then counts as a part that could not be read, which the
+  and with a `retry` event, and then counts as a part that could not be read, which the
   tool result says ("The model took too long to answer."). Raise `timeoutMs` for a model that
   thinks long over a large part; 0 sets none (since 0.10.0).
 
@@ -629,7 +629,12 @@ Who does what, what changes for your application, and what it costs:
 
 Gemini also has an OpenAI layer, at `https://generativelanguage.googleapis.com/v1beta/openai`, and
 the adapter reads its errors, which come wrapped in a list. For Gemini, `gemini()` is the adapter to
-use: it sends pages to the model, which the layer refuses as a `file` part.
+use: it sends pages to the model, which the layer refuses as a `file` part. The layer also leaves a
+thinking model's thoughts out of its usage: in a live check in 0.10.0 on `gemini-3.8-flash`, its
+`total_tokens` was about 46 more than `prompt_tokens` plus `completion_tokens`, with no
+`reasoning_tokens`. Those tokens are billed, but `usage.outputTokens` does not hold them, and
+`usage.thoughtTokens` is 0. `result.lastUsage` keeps the layer's own object, `total_tokens`
+included.
 
 ## What was run live
 

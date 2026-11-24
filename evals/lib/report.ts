@@ -34,9 +34,9 @@ export type CaseSummary = {
   medianMs: number;
   /** Questions whose ceiling was reached. */
   ceilingReached: number;
-  /** Citations matched to a file and line, per answer; null while checkCitations is not available. */
+  /** Citations matched to a file and line, per answer; null for runs of 0.9.0, which had no checkCitations. */
   citationsPerAnswer: number | null;
-  /** Answers with no citation recognized, of the answers; null while checkCitations is not available. */
+  /** Answers with no citation recognized, of the answers; null for runs of 0.9.0, which had no checkCitations. */
   noCitationShare: number | null;
   /** Citations inside what the tools showed, of those checked; null while none is checked. */
   supportedShare: number | null;
