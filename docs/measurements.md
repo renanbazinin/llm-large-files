@@ -39,7 +39,7 @@ as it was recorded, with the release it was recorded for. Before you rely on a n
 | Provider | Live runs on record | Not run live |
 |---|---|---|
 | Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions. 0.10.0: the prompt cache, thought signatures of earlier questions, and the eval's cases at pass^3 ([below](#0100-live-on-the-gemini-api)) | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
-| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | Everything of 0.10.0: thought signatures of earlier questions (so `nativeRounds` stays off), Model Armor, `LANGUAGE`, labels |
+| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | Everything of 0.10.0, among it thought signatures of earlier questions, Model Armor, `LANGUAGE` and labels |
 | OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only. 0.10.0: a streamed tool call on Gemini's OpenAI layer | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
 | Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation |
 
@@ -314,9 +314,10 @@ of three, and no search.
 follow-up that was sent the stored tool rounds of the first question and repeated its first search
 got a pointer to the earlier result, instead of a second run, and answered from that result.
 
-**Stored rounds sent back as they were (0.10.0, live on the Gemini API).** See
-[the live session of 0.10.0](#the-live-session-on-the-gemini-api): on 3.8 Flash, a
-follow-up whose rounds went back as their calls kept only the system text and tools in the cache.
+**Stored rounds sent back as their calls (0.10.0, live on the Gemini API).** See
+[the live session of 0.10.0](#the-live-session-on-the-gemini-api): on 3.8 Flash, in the one shape
+tried, a follow-up whose rounds went back as their calls, as 0.9 and 0.10.0 send them, kept only
+the system text and tools in the cache.
 
 The [Conversations guide](./guides/conversations.md) shows how to keep tool rounds.
 
@@ -845,12 +846,14 @@ as one string. Two runs each.
 
 Not released yet. Everything here ran on 2026-11-24 on the Gemini API (`geminiApi()`), with
 `gemini-3.5-flash-lite` and `gemini-3.8-flash`, over synthetic files. Nothing ran on Vertex AI:
-there was no project, so `vertexAi()` keeps `nativeRounds` off, and Model Armor, `LANGUAGE` and
-labels were not seen. The cached share of a request is recorded here, never used as a gate.
+there was no project, so Model Armor, `LANGUAGE` and labels were not seen. The cached share of a
+request is recorded here, never used as a gate. The release gate of 0.10.0 is the live gates of
+packages P1 and T below, over the same requests: the eval replay matches each request of the
+release to its recording byte for byte.
 
 ### The live session on the Gemini API
 
-On the code of 0.10.0 before packages P1, P2 and T merged (commit bf13a4d), with stored rounds sent
+On the code of 0.10.0 before packages P1 and T merged (commit bf13a4d), with stored rounds sent
 as their calls. 212 requests: 3,831,750 input tokens reported, 2,352,245 of them cached, and 32,581
 output tokens. A second check of every figure against the raw records corrected a few. Not
 measured: streamed Gemini requests, `functionCallingMode: "VALIDATED"`, and a request for the
@@ -892,10 +895,10 @@ the second question changed was not checked.
 | Random bytes of the same length, or cut to half | 400 `Corrupted thought signature.` |
 | The current question's signature removed | 400 `Function call is missing a thought_signature in functionCall parts. …` |
 
-The library makes each 400 a `GeminiRequestError` of kind `"invalid"`. `/thought[ _]signature/i`
-matches all three, and is the trigger of the fallback that resends calls only: the Gemini API
-refuses damaged signatures, not reused ones. Not tried: a signature of another round, and base64
-encoded again on the way. No reply ended with `MISSING_THOUGHT_SIGNATURE`.
+The library makes each 400 a `GeminiRequestError` of kind `"invalid"`. The Gemini API refuses
+damaged signatures, not reused ones. Not tried: a signature of another round, and base64 encoded
+again on the way. No reply ended with `MISSING_THOUGHT_SIGNATURE`. 0.10.0 sends the rounds of
+earlier questions as their calls, with no signature, as 0.9 did.
 
 **Four checks of earlier figures.**
 
@@ -920,15 +923,15 @@ signature. Each way of sending the rounds back as the first follow-up, in a chat
 
 | Rounds sent back | Trials | Cached |
 | --- | --- | --- |
-| As their calls (0.9) | 9 | the system text and tools only: 33.7% at 7K tokens, 15.7% at 15K |
-| As they were sent (0.10.0, `ToolTurn.native`) | 3 | 69.5% at 7.1K, 85.7% at 15.3K, and one total miss at 6.4K |
+| As their calls (0.9 and 0.10.0) | 9 | the system text and tools only: 33.7% at 7K tokens, 15.7% at 15K |
+| As they were sent, signatures included | 3 | 69.5% at 7.1K, 85.7% at 15.3K, and one total miss at 6.4K |
 
-So on the Gemini API, rounds sent back as they were cost no cache, and likely gain: `geminiApi()`
-keeps `nativeRounds` on. Each signed round is billed in full on every later request that carries
-it. This is shown for one shape: one round of two calls. Not tested: single calls, several
-rounds, a loop that ends with the request for the answer, and Vertex AI.
-[Conversations](./guides/conversations.md#native-rounds-and-their-fallback) has what the library
-does with it.
+So on the Gemini API, rounds sent back as they were cost no cache, and likely gain. A signed round
+is billed in full on every later request that carries it. This is shown for one shape: one round
+of two calls. Not tested: single calls, several rounds, a loop that ends with the request for the
+answer, and Vertex AI. 0.10.0 still sends the rounds of earlier questions as their calls; sending
+them as they were is planned for a later version.
+[Conversations](./guides/conversations.md#what-toolturns-holds) has what the library sends.
 
 ### Tables sent whole (P1's live gate)
 
@@ -1000,15 +1003,6 @@ replies parse, and the totals are exact.
 - A line planted in a part that tells the reader to reply `NOTHING RELEVANT` was not followed: the
   part's notes kept the incident in 6 of 6 reads, three on each model.
 - Package T's live calls came to 10,634,007 input tokens in all.
-
-### P2 and the release live gate
-
-> **To be filled in.** The figures of package P2 (placement and the prompt cache) and of the
-> release's live gate on the merged branch are not recorded yet. Expected here: the re-recorded
-> cassettes and their input tokens; pass^3 on both models with no fact lost against P1's run;
-> requests per question against P1's; the cached share of follow-ups (recorded, not a gate); the
-> chat cases under `documentPlacement: "attached"`; and whether any `native_rounds_dropped`
-> notice came on the Gemini API.
 
 ## Faults reproduced before a fix
 

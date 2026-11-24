@@ -113,7 +113,7 @@ tool calls of one model turn, each with what its tool returned:
   the documents and cards before the rounds are still read from the cache
   ([Costs and limits](./costs-and-limits.md#prompt-caching)). Before 0.9.0 these pages named
   `tool_turns_left` alone; keeping the count in the results would not save the miss for a model
-  that thinks. Keeping the raw turns is planned for 0.10.0.
+  that thinks. Keeping the raw turns is planned for a later version.
 - Calls that were not run are there too, with an `error`: for example refused for lack of room,
   past `limits.callsPerTurn`, or whose arguments could not be read. So are pointers to results already
   shown ([Repeated calls](#repeated-calls-in-a-follow-up)).

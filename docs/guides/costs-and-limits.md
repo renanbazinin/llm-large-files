@@ -776,6 +776,9 @@ What the library changes:
 
 - A document that went whole can become a card as the history grows (above). The tool guide, which
   names the files that are searched, changes with it.
+- The tools declared follow the files of the question. Since 0.10.0 a table sent whole gets three
+  of them and a line of the system text ([Tables sent whole](#tables-sent-whole)), so a table
+  added to a chat whose files were all sent whole adds tools to its requests.
 - Within a question, when room runs short, older tool results are replaced by short stand-ins. The
   request changes from the first round replaced. A model whose conversation may only grow (Claude)
   has nothing of the question replaced. Since 0.9.0 the stored rounds of earlier questions are
@@ -793,7 +796,7 @@ What the library changes:
   questions were already sent that way, and still match. The documents and cards before them are
   still read from the cache. Pages up to 0.8.2 named `tool_turns_left` alone; with a model that
   thinks, the signatures make the miss on their own. Keeping the model's own turns is planned for
-  0.10.0.
+  a later version.
 - An upgrade that changes the library's prompts misses the cache once in each conversation. 0.6.0
   changed the tool guide, the descriptions of `search_document` and `analyze_whole_document`, and
   the frame lines of a file sent whole. The first request after the upgrade shares with what 0.5.0
@@ -803,7 +806,9 @@ What the library changes:
   instruction. For a question whose files are all sent whole, it is your own system text, and
   `view_pages` with its guide when the pages of a PDF can be looked at. From then on the frame of a
   document is the same in every request
-  ([Deployment](./deployment.md#servers-of-two-versions)).
+  ([Deployment](./deployment.md#servers-of-two-versions)). 0.10.0 changes the text again: files
+  sent whole are numbered, a table sent whole gets tools, and `analyze_whole_document` is declared
+  with two more arguments ([Upgrading to 0.10](../upgrading-0.10.md)).
 
 The adapters:
 

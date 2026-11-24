@@ -231,10 +231,9 @@ const deepseek = openAiCompatible({
   ```
 
   A first question, with no earlier answer in `messages`, works with thinking on. The tool rounds
-  of earlier questions can carry their reasoning already: `openAiToolTurns(result.toolTurns, { native: true })`
-  writes it in Chat Completions messages ([below](#conversations-kept-as-chat-completions-messages)),
-  and `capabilities.nativeRounds` is true for the loop that sends stored rounds in their own form.
-  The reasoning of the answer turns is planned for a later 0.10.x.
+  of earlier questions go back as their calls and results, without their reasoning, so they do
+  not give DeepSeek what it asks for either. Keeping the reasoning of earlier questions is planned
+  for a later version.
 - **`insufficient_system_resource`**: DeepSeek stops a reply when its servers run short. The
   adapter takes that for the server's failure, HTTP 503, and the loop sends the request again. A
   reply that is not streamed is checked before any of it is shown, so it can always be sent again;
@@ -549,10 +548,7 @@ await saveHistory(chatId, history);
 - does not keep the text of an assistant turn that also made tool calls.
 
 `openAiToolTurns(result.toolTurns)` gives each round as an assistant message with its
-`tool_calls` and one `tool` message per call, its content the JSON of the result. With
-`{ native: true }` (new in 0.10.0), a round that kept its own assistant message (`ToolTurn.native`)
-gets that message's `reasoning_content` back, which DeepSeek's thinking mode asks for in a request
-with tools. **Since 0.6.0, a
+`tool_calls` and one `tool` message per call, its content the JSON of the result. **Since 0.6.0, a
 call that came without an ID gets a random one**, `call_` and 24 hexadecimal characters, and a new
 one each time you convert. Before, they were numbered from 1 each time, so the stored rounds of two
 questions had the same IDs. Convert a question's rounds once and store the messages; do not convert

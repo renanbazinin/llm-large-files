@@ -100,11 +100,9 @@ withClaude.answered;  // false when the last reply had no text (a blocked prompt
 withClaude.usage;     // { requests: 5, inputTokens: 32662, cachedInputTokens: 6086, outputTokens: 750, thoughtTokens: 0, byModel: { … } }
 withClaude.evidence;  // [{ tool: "read_document", documentId, document: "app.log", lines: [[34100, 34110]] }, …]
 withClaude.toolTurns; // pass these back in `messages`, between this question and its answer: a follow-up then needs no new search
-withClaude.userTurn;  // store it as the question's turn, and pass withClaude.placement with the next question: the start of the requests stays the same (new in 0.10.0)
 ```
 
-How to keep a chat's history, tool turns included, across requests and servers, and keep the
-provider's prompt cache from one question to the next:
+How to keep a chat's history, tool turns included, across requests and servers:
 [Conversations](docs/guides/conversations.md).
 
 Every model gets the same loop. A failed request is sent again when another try can help (a lost
@@ -268,7 +266,6 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 | **Reliability** | Retries, waits on a silent model, recovery from a request too large, error kinds, answers that say when a filter or the output limit stopped them, and a time limit on every store call, so a network volume that hangs does not hold a server: see [Errors and reliability](docs/guides/errors-and-reliability.md) |
 | **Models** | Gemini and Vertex AI, any OpenAI-compatible endpoint, Claude, or an adapter of your own. Two models of different providers can share a question |
 | **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and input tokens; since 0.10.0 every question has a ceiling on input tokens by default |
-| **Prompt cache** | The start of a chat's requests stays the same from one question to the next, so the provider's cache keeps serving it; with `documentPlacement: "attached"`, an upload adds text only to the newest turn (since 0.10.0): see [Prompt caching](docs/guides/costs-and-limits.md#prompt-caching) |
 | **Privacy** | Documents can belong to an `owner`; other users can't plan, read, or delete them |
 | **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused when the checks recognize them, with a code (`"hostile"`); ingest pauses for other requests between pages and slices. Not every hostile file is refused, and some steps hold the server for a while: read untrusted uploads in child processes with `createIsolatedExtractors`, which refuses a file that runs out of memory or time while the server goes on ([Security](docs/security.md#uploads)) |
 | **Storage** | In memory, on disk with expiry, or your own store (Redis, S3, a database) |
