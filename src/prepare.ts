@@ -116,23 +116,39 @@ function shapeOf(options: PrepareOptions | undefined): Shape {
   return { numbered: numbered === true, tables: tables === "tools" };
 }
 
+/** Two strings in the order of their UTF-16 code units, as `<` compares them. */
+const byUnits = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+
+/**
+ * The order of two documents of the same name: by `createdAt`, then by ID. It is made from their
+ * metadata alone, so it is the same whatever the order the question lists them in.
+ */
+const earlierFirst = (left: DocumentMeta, right: DocumentMeta) => byUnits(String(left.createdAt), String(right.createdAt)) || byUnits(left.id, right.id);
+
 /**
  * The header line of each document (`PreparedContext.listing`), in the order of `documents`. A
- * document whose name an earlier document of the question has (by `createdAt`, then by place in
- * `documents`) says that it replaces the latest of them.
+ * document whose name an earlier document of the question has (names compared in NFC; earlier by
+ * `createdAt`, then by ID) says that it replaces the latest of them.
  */
 function listingOf(documents: DocumentMeta[], inline: Set<string>, viewable: Set<string>): Map<string, string> {
-  const nameKey = (meta: DocumentMeta) => meta.name.normalize("NFC");
-  const order = new Map(documents.map((meta, index) => [meta.id, index]));
-  const earlier = (left: DocumentMeta, right: DocumentMeta) => (left.createdAt === right.createdAt ? order.get(left.id)! < order.get(right.id)! : left.createdAt < right.createdAt);
+  // The documents of each name, each name made NFC once.
+  const byName = new Map<string, DocumentMeta[]>();
+  for (const meta of documents) {
+    const key = meta.name.normalize("NFC");
+    const named = byName.get(key);
+    if (named) named.push(meta);
+    else byName.set(key, [meta]);
+  }
+  const replaces = new Map<string, string>();
+  for (const named of byName.values()) {
+    if (named.length < 2) continue;
+    named.sort(earlierFirst);
+    for (let index = 1; index < named.length; index++) replaces.set(named[index]!.id, named[index - 1]!.id);
+  }
   const listing = new Map<string, string>();
   for (const meta of documents) {
-    let replaces: DocumentMeta | undefined;
-    for (const other of documents) {
-      if (other.id === meta.id || nameKey(other) !== nameKey(meta) || !earlier(other, meta)) continue;
-      if (!replaces || earlier(replaces, other)) replaces = other;
-    }
-    listing.set(meta.id, listingLine(meta, { inline: inline.has(meta.id), viewable: viewable.has(meta.id), ...(replaces ? { replaces: replaces.id } : {}) }));
+    const replaced = replaces.get(meta.id);
+    listing.set(meta.id, listingLine(meta, { inline: inline.has(meta.id), viewable: viewable.has(meta.id), ...(replaced ? { replaces: replaced } : {}) }));
   }
   return listing;
 }

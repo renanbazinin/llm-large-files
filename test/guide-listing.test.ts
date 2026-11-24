@@ -3,10 +3,11 @@
 // document kept with its block (`listing`), with "replaces doc_…" for a file uploaded again under
 // its name, and room kept for the declarations, the cards, the header and the guide (`reserve`).
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { createLargeFiles, estimateTokens, MemoryDocumentStore, type LargeFiles, type PreparedContext } from "llm-large-files";
+import { describe, expect, it, vi } from "vitest";
+import { createLargeFiles, estimateTokens, MemoryDocumentStore, resolveBudget, type DocumentMeta, type LargeFiles, type PreparedContext } from "llm-large-files";
 import { serviceLog, utf8 } from "llm-large-files/testing";
 import { emptyPlacement, placementHead } from "../src/placement.js";
+import { prepareDocuments, type PrepareContext } from "../src/prepare.js";
 import { INLINE_CITATION_LINE, INLINE_TABLES_LINE, LISTING_TITLE, listingLine, renderListing, toolGuide } from "../src/plan.js";
 
 const base = { tokens: 0, bytes: 0 };
@@ -134,6 +135,57 @@ describe("the header lines (prepared.listing)", () => {
     expect(three.listing?.get(third.id)).toContain(`; it replaces ${again.id},`);
     expect(three.listing?.get(again.id)).toBe(two.listing?.get(again.id));
     expect(listingLine({ ...old, pages: 3 }, { inline: false, viewable: true, replaces: "doc_x" })).toBe(`- "résumé.txt" (document_id ${old.id}, 3 pages): searched with the tools; it replaces doc_x, an earlier file of the same name`);
+  });
+});
+
+describe("the replaces marker, from the metadata alone", () => {
+  it("is on the same line whatever the order the question lists two files of one name made in the same millisecond", async () => {
+    const fixed = new Date("2026-11-24T08:00:00.000Z");
+    const files = createLargeFiles({ store: new MemoryDocumentStore({ now: () => fixed }), now: () => fixed });
+    const a = await files.ingest({ name: "חוזה.txt", bytes: utf8("גרסה 1\n") });
+    const b = await files.ingest({ name: "חוזה.txt", bytes: utf8("גרסה 2\n") });
+    expect(a.createdAt).toBe(b.createdAt);
+    const [first, second] = [a, b].sort((left, right) => (left.id < right.id ? -1 : 1));
+    const one = await files.prepare([a.id, b.id], base, { placement: emptyPlacement(HEAD) });
+    // The later by ID replaces the earlier: before, the one listed second did.
+    expect(one.listing?.get(first!.id)).toBe(`- "חוזה.txt" (document_id ${first!.id}): shown in full below`);
+    expect(one.listing?.get(second!.id)).toBe(`- "חוזה.txt" (document_id ${second!.id}): shown in full below; it replaces ${first!.id}, an earlier file of the same name`);
+    for (const ids of [[b.id, a.id], [a.id, b.id]]) {
+      const again = await files.prepare(ids, base, { placement: one.placement });
+      expect([...again.listing!.entries()].sort()).toEqual([...one.listing!.entries()].sort());
+    }
+    expect([...(await files.prepare([b.id, a.id], base)).listing!.entries()].sort()).toEqual([...one.listing!.entries()].sort());
+  });
+
+  it("makes each name NFC once, so that a question of many files is planned in time", async () => {
+    const count = 2_000;
+    const metas = new Map<string, DocumentMeta>();
+    for (let i = 0; i < count; i++) {
+      const id = `doc_${i.toString(16).padStart(24, "0")}`;
+      // Every tenth name is that of the file before it.
+      const name = `שם קובץ ${i - (i % 10 === 9 ? 1 : 0)}.txt`;
+      metas.set(id, { id, name, mimeType: "text/plain", format: "text", bytes: 4, textBytes: 4, characters: 4, lines: 2, estimatedTokens: 3, wrappedLines: 0, outline: [], createdAt: new Date(1_700_000_000_000 + i * 1_000).toISOString(), expiresAt: "2030-01-01T00:00:00.000Z" });
+    }
+    const context: PrepareContext = {
+      callerOf: () => ({}) as never,
+      metaFor: async (id) => metas.get(id),
+      load: async (id) => ({ meta: metas.get(id)!, readText: async () => "a\nb", readLines: async () => ["a", "b"], broken: false }) as never,
+      stillOpened: async () => true,
+      budgetFor: () => resolveBudget({ contextTokens: 10_000_000, inlineTokens: 10_000_000 }),
+      viewableMeta: () => false,
+      rules: {} as never,
+    };
+    const normalize = vi.spyOn(String.prototype, "normalize");
+    try {
+      const prepared = await prepareDocuments(context, [...metas.keys()], base);
+      // Twice for each pair of documents before: 8 million calls, and seconds of a blocked loop.
+      expect(normalize.mock.calls.length).toBeLessThanOrEqual(count);
+      const replacing = [...prepared.listing!.entries()].filter(([, line]) => line.includes("; it replaces "));
+      expect(replacing).toHaveLength(count / 10);
+      expect(prepared.listing?.get(`doc_${(19).toString(16).padStart(24, "0")}`)).toContain(`; it replaces doc_${(18).toString(16).padStart(24, "0")}, `);
+    } finally {
+      normalize.mockRestore();
+    }
   });
 });
 

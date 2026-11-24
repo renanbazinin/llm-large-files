@@ -1005,9 +1005,12 @@ Attached files:
 
 - The name is a JSON string, as in the frame of a file sent whole.
 - `12 pages` is there for a PDF whose pages `view_pages` can show (`viewable`).
-- `it replaces …` is on the later of two documents of the same name (by `createdAt`; names compared
-  in Unicode NFC), and names the latest document before it. The earlier document's line does not
-  change.
+- `it replaces …` is on the later of two documents of the same name (by `createdAt`, then by ID for
+  two made in the same millisecond; names compared in Unicode NFC), and names the latest document
+  before it. The earlier document's line does not change, and the order the question lists them in
+  does not matter. `createdAt` comes from the clock of the server that stored the file: keep the
+  clocks of your servers in step, or a file uploaded again within the gap can be taken for the
+  earlier one.
 
 A document sent whole sits between these two lines (new in 0.6.0, for every document):
 
