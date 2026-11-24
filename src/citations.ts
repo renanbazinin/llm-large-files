@@ -60,6 +60,14 @@ const NAME_DISTANCE = 40;
  * "and" ("ו" in Hebrew, alone or with a hyphen). A name across one is farther than its characters say.
  */
 const CLAUSE_BREAK = /[,;.!?]|(?<!\p{L})(?:and|ו)(?!\p{L})/iu;
+/**
+ * What may stand between a citation and a name after it that it belongs to: "of", "in", "from",
+ * "בקובץ", "של" and the like, or only a space when the name carries the prefix letter "ב" or "מ"
+ * ("שורה 40 בחשבוניות.csv").
+ */
+const INTRODUCED = /^\s*(?:of|in|from|בקובץ|מקובץ|בגיליון|של)\s*$/iu;
+/** A name followed by a comma or a colon and then the citation: "app.log, line 97", "חוזה.docx: שורה 12". */
+const LISTED = /^\s*[,:]\s*$/u;
 
 /** A text for a regular expression that matches it as it is. */
 const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -180,15 +188,21 @@ function distance(text: string, from: number, to: number, broken: boolean): numb
 }
 
 /**
- * The nearer of the name before a citation and the name after it. A citation that opens with "ו"
+ * The nearer of the name before a citation and the name after it. A name after it introduced as
+ * its own ("of x", "בקובץ x", "בx") is its name. A name before it followed by only a comma or a
+ * colon ("x, line 97") is as near as its characters say. Otherwise a citation that opens with "ו"
  * ("ושורה 40") starts a clause of its own, and so does a name after it that opens with "ו". When
  * both are as near, the name before.
  */
 function nearer(text: string, cited: Cited, before: Named | undefined, after: Named | undefined): Named | undefined {
   if (!before || !after) return before ?? after;
-  const back = distance(text, before.end, cited.start, text[cited.start] === "ו");
-  const ahead = distance(text, cited.end, after.from, after.from < after.start && text[after.from] === "ו");
-  return ahead < back ? after : before;
+  const ahead = text.slice(cited.end, after.from);
+  // "line 40 of x", "שורה 40 בקובץ x", "שורה 40 בx": the name after is introduced as the citation's.
+  if (INTRODUCED.test(ahead) || (/^\s*$/u.test(ahead) && after.from < after.start && (text[after.from] === "ב" || text[after.from] === "מ"))) return after;
+  // "x, line 97" and "x: שורה 12": the comma gives the citation to the name before, no clause.
+  const back = LISTED.test(text.slice(before.end, cited.start)) ? cited.start - before.end : distance(text, before.end, cited.start, text[cited.start] === "ו");
+  const far = distance(text, cited.end, after.from, after.from < after.start && text[after.from] === "ו");
+  return far < back ? after : before;
 }
 
 /**
@@ -226,9 +240,10 @@ function firstNotShown(shown: NumberRange[] | "whole", from: number, to: number)
  * direction in the text are not read.
  *
  * A citation goes with the file name next to it: in the same parentheses, or on the same line
- * within 40 characters. Of the name before it and the name after it, the nearer one, where a
- * comma, a semicolon, the end of a sentence or "and" ("ו") between them counts as far ("בשורה 40
- * בקובץ חשבוניות.csv" goes with the name after it). With one file it may have none. A bare "L12"
+ * within 40 characters. A name after it introduced as its own ("line 40 of x", "בשורה 40 בקובץ
+ * x", "שורה 40 בx") is its name. Else, of the name before it and the name after it, the nearer
+ * one, where a comma, a semicolon, the end of a sentence or "and" ("ו") between them counts as far,
+ * except a comma or colon right after the name before ("x, line 97"). With one file it may have none. A bare "L12"
  * with no name next to it counts only inside parentheses ("(L12)"): "L2 cache" is no citation. A
  * citation is supported when every line it names was shown, by the lines of an evidence entry of
  * that document. An entry with `whole` (a file read whole, or sent whole) and no lines shows every

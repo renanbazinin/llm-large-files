@@ -627,9 +627,12 @@ A range is written with a hyphen, a dash, a maqaf (`12־14`), "to" or "עד". He
 (`שׁוּרָה`) and the marks that set the direction of text (RLM, LRM and the like) are not read.
 
 A citation goes with the file name next to it: one in its parentheses, else one on its line within
-40 characters. Of the name before it and the name after it, the nearer one, where a comma, a
-semicolon, the end of a sentence or "and" ("ו") between them counts as far: in "בשורה 12 בקובץ
-חוזה.docx, והאיחור בשורה 40 בקובץ חשבוניות.csv", line 40 goes with חשבוניות.csv. The name may be
+40 characters. A name after it that is introduced as its own ("line 40 of x", "בשורה 40 בקובץ x",
+"שורה 40 בx") is its name: in "בשורה 12 בקובץ חוזה.docx, והאיחור בשורה 40 בקובץ חשבוניות.csv", line
+40 goes with חשבוניות.csv. Else, of the name before it and the name after it, the nearer one, where
+a comma, a semicolon, the end of a sentence or "and" ("ו") between them counts as far, except a
+comma or a colon right after the name before: in "לפי חוזה.docx, שורה 12 סותרת את חשבוניות.csv",
+line 12 goes with חוזה.docx. The name may be
 written without its extension ("report" for report.docx) or with a Hebrew prefix letter
 ("בחוזה.docx"). With one file, a citation needs no name. A bare `L12` with no name next to it counts
 only inside parentheses (`(L12)`): "the L2 cache" is no citation. A citation is supported when every

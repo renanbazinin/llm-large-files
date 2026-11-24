@@ -59,6 +59,19 @@ describe("checkCitations", () => {
     expect(checkCitations("app.log: line 97; db.log: line 12", evidence, names)).toMatchObject({ checked: 2, supported: 2 });
   });
 
+  it("gives a citation right after \"name, \" to that name, unless a name after it is introduced as its own", () => {
+    const both = { "doc_c": "חוזה.docx", "doc_i": "חשבוניות.csv" };
+    const shown = [read("doc_c", "חוזה.docx", [[10, 20]]), read("doc_i", "חשבוניות.csv", [[35, 45]])];
+    const one = { checked: 1, supported: 1, unchecked: 0, unsupported: [] };
+    // Before this, both went with the second name, which had not shown those lines.
+    expect(checkCitations("In app.log, line 97 shows the timeout that db.log reports.", evidence, names)).toEqual(one);
+    expect(checkCitations("לפי חוזה.docx, שורה 12 סותרת את חשבוניות.csv.", shown, both)).toEqual(one);
+    // Introduced: the name after.
+    expect(checkCitations("ראו חוזה.docx, שורה 40 בקובץ חשבוניות.csv.", shown, both)).toEqual(one);
+    expect(checkCitations("ראו חוזה.docx, שורה 40 בחשבוניות.csv.", shown, both)).toEqual(one);
+    expect(checkCitations("See app.log, line 12 of db.log.", evidence, names)).toEqual(one);
+  });
+
   it("reads citations with Hebrew points, marks of direction, a maqaf range, and \"L 97\" or \"l97\"", () => {
     const both = { "doc_c": "חוזה.docx", "doc_log": "app.log" };
     const shown = [read("doc_c", "חוזה.docx", [[10, 20]]), read("doc_log", "app.log", [[90, 120]])];
