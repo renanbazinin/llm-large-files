@@ -703,7 +703,7 @@ async function ingestFile(
     measured = await measureText(text, slicer);
     if (measured.utf8 > maxTextBytes) throw tooMuchText(name, maxTextBytes);
     outline = await buildOutlineInSlices(lines, format, slicer);
-    // A PDF whose text gives fewer than 3 headings gets those of its type sizes, when there are more (0.10.0).
+    // A PDF whose text gives fewer than 3 headings gets those of its type sizes, when 3 or more of them are found (0.10.0).
     if (format === "pdf") outline = await pdfOutline(outline, lines, headings, slicer);
     logProfile = format === "log" ? await buildLogProfileInSlices(lines, slicer) : undefined;
     quality = await measureQuality(lines, format, slicer);

@@ -217,6 +217,32 @@ describe("the outline of a PDF from the size of its type", () => {
     expect(outlineOf(meta, text).map(([, level, title]) => [level, title])).toEqual([[1, "פרק 1"], [1, "פרק 2"], [1, "פרק 3"], [1, "פרק 4"]]);
   });
 
+  it("keeps numbered sections several to a page and chapters on the odd pages, and leaves out a page number on the odd pages and on each (Hebrew)", async () => {
+    const lines = ["המשכיר הוא בעל הזכויות בדירה ברחוב הרצל", "השוכר מעוניין לשכור את הדירה למגורים בלבד", "דמי השכירות ישולמו בראשון לכל חודש בהעברה"].map(body);
+    const section = (number: number): SizedLine[] => [{ text: `סעיף ${number}`, size: 14 }, { text: `נושא ${String.fromCharCode(0x5d0 + number)}`, size: 14 }, ...lines];
+    const pages = Array.from({ length: 10 }, (_, index): SizedLine[] => [
+      // On the odd pages: a running header with the page's number, and a chapter counting by one.
+      ...(index % 2 === 0 ? [{ text: `דוח שנתי עמוד ${index + 1}`, size: 13 }, { text: `פרק ${index / 2 + 1}`, size: 18 }] : []),
+      ...section(2 * index + 1), ...section(2 * index + 2),
+      { text: `עמוד ${index + 1} מתוך 10`, size: 13 },
+    ]);
+    const { meta, text } = await ingested(pdfWithSizedLines(pages));
+    const sections = (page: number) => [[2, `סעיף ${2 * page + 1}`], [2, `סעיף ${2 * page + 2}`]];
+    expect(outlineOf(meta, text).map(([, level, title]) => [level, title])).toEqual(Array.from({ length: 10 }, (_, page) => [
+      ...(page % 2 === 0 ? [[1, `פרק ${page / 2 + 1}`]] : []), ...sections(page),
+    ]).flat());
+  });
+
+  it("keeps numbered articles, 3 to a page on every page, and leaves out a page number on the odd pages (English)", async () => {
+    const filler = [body("The supplier keeps the systems running at all hours of the day."), body("Each party does what this agreement asks of it, on time and in full.")];
+    const pages = Array.from({ length: 6 }, (_, index): SizedLine[] => [
+      ...(index % 2 === 0 ? [{ text: `Annual Report page ${index + 1}`, size: 16 }] : []),
+      ...[1, 2, 3].flatMap((article) => [{ text: `Article ${3 * index + article}`, size: 14 }, ...filler]),
+    ]);
+    const { meta, text } = await ingested(pdfWithSizedLines(pages));
+    expect(outlineOf(meta, text).map(([, level, title]) => [level, title])).toEqual(Array.from({ length: 18 }, (_, index) => [1, `Article ${index + 1}`]));
+  });
+
   it("gives the headings of the body their own levels below a cover page", async () => {
     const filler = [body("The supplier keeps the systems running at all hours of the day."), body("Each party does what this agreement asks of it, on time and in full.")];
     const { meta, text } = await ingested(pdfWithSizedLines([
@@ -309,17 +335,25 @@ describe("PdfHeadingFinder", () => {
     expect(find([lines]).map((heading) => heading.title)).toEqual(["A1B2C3", "Fine heading"]);
   });
 
-  it("leaves out lines repeated on most pages, and numbered lines on more than half of them", () => {
+  it("leaves out lines repeated on most pages, and page numbers, but not numbered headings", () => {
     const page = (number: number, extra: PdfTextItem[] = []) => [item("Company name", 14), ...extra, item(BODY, 10), item(BODY, 10), item(`Page ${number}`, 14)];
     // Two pages of two: both repeated. Two pages of five: kept. Three pages: repeated.
     expect(find([page(1, [item("First", 18)]), page(2)]).map((heading) => heading.title)).toEqual(["First"]);
     const five = find([page(1, [item("Twice seen", 18)]), page(2, [item("Twice seen", 18)]), page(3), page(4), page(5)]);
     expect(five.map((heading) => heading.title)).toEqual(["Twice seen", "Twice seen"]);
     expect(find([[item("Notes", 18), item(BODY, 10)], [item("Notes", 18), item(BODY, 10)], [item("Notes", 18), item(BODY, 10)], [item(BODY, 10)], [item(BODY, 10)], [item(BODY, 10)]])).toEqual([]);
-    // Numbered: on 3 pages of 6, and on 2 of 4, kept; on 4 of 6, left out.
-    const numbered = (every: number, count: number) => find(Array.from({ length: count }, (_, index) => [...(index % every === 0 ? [item(`Part ${index + 1}`, 18)] : []), item(BODY, 10), item(BODY, 10)]));
-    expect(numbered(2, 6).map((heading) => heading.title)).toEqual(["Part 1", "Part 3", "Part 5"]);
-    expect(numbered(2, 4).map((heading) => heading.title)).toEqual(["Part 1", "Part 3"]);
+    // Numbered lines on the odd pages, half of them: a page number skips the pages it is not on, and is left out;
+    // section numbers count by one, and are kept. On fewer than half the pages, numbers on pages in a row are kept.
+    const odd = (count: number, title: (page: number, nth: number) => string) =>
+      find(Array.from({ length: count }, (_, index) => [...(index % 2 === 0 ? [item(title(index + 1, index / 2 + 1), 18)] : []), item(BODY, 10), item(BODY, 10)]));
+    expect(odd(6, (page) => `Annual Report page ${page}`)).toEqual([]);
+    expect(odd(4, (page) => `Annual Report page ${page} of 4`)).toEqual([]);
+    expect(odd(6, (_, nth) => `Part ${nth}`).map((heading) => heading.title)).toEqual(["Part 1", "Part 2", "Part 3"]);
+    expect(find(Array.from({ length: 5 }, (_, index) => [...(index < 2 ? [item(`Part ${index + 1}`, 18)] : []), item(BODY, 10), item(BODY, 10)]))).toHaveLength(2);
+    // Several to a page are headings, on every page: "Article 1" to "Article 18", 3 to a page of 6.
+    const articles = find(Array.from({ length: 6 }, (_, index) => [1, 2, 3].flatMap((article) => [item(`Article ${3 * index + article}`, 14), item(BODY, 10), item(BODY, 10)])));
+    expect(articles.map((heading) => heading.title)).toEqual(Array.from({ length: 18 }, (_, index) => `Article ${index + 1}`));
+    // On pages in a row, counting by one, section numbers read as a page number: on 4 pages of 6, left out.
     expect(find(Array.from({ length: 6 }, (_, index) => [...(index < 4 ? [item(`Part ${index + 1}`, 18)] : []), item(BODY, 10), item(BODY, 10)]))).toEqual([]);
   });
 

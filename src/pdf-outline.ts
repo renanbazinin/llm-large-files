@@ -112,7 +112,7 @@ function seenOn(pages: Map<string, Set<number>>, key: string, page: number): voi
  *   start with "|";
  * - lines with less than three quarters of their characters at their size;
  * - running headers and footers: the same line on 3 pages or more, or on 2 pages and half the
- *   pages; or, numbers aside ("Page 3 of 10"), on more than half the pages and 2 at least;
+ *   pages; or a page number (`pageNumbered`);
  * - the lines after the first of a heading set on several lines in a row, at one size;
  * - all of them, when more than 30% of the text is set larger than the body (sizes then mark
  *   something else).
@@ -228,19 +228,22 @@ export class PdfHeadingFinder {
     if (large === 0 || large > MAX_LARGE_SHARE * all || this.floor >= least) return [];
     const lines = [...this.kept].flatMap(([size, kept]) => (size >= least ? kept : []));
     lines.sort((left, right) => left.page - right.page || left.order - right.order);
-    // Running headers and footers. Numbered chapters ("Chapter 3") are on fewer pages than a page number.
+    // Running headers and footers: the same line on many pages, or a page number.
     const exactly = new Map<string, Set<number>>();
-    const numbered = new Map<string, Set<number>>();
+    const numbered = new Map<string, Line[]>();
     for (const line of lines) {
       seenOn(exactly, line.title.replace(/\s+/g, ""), line.page);
       const key = numberless(line.title);
-      if (key) seenOn(numbered, key, line.page);
+      if (key === undefined) continue;
+      const alike = numbered.get(key);
+      if (alike) alike.push(line);
+      else numbered.set(key, [line]);
     }
+    const paged = new Set([...numbered].flatMap(([key, alike]) => (pageNumbered(alike, this.pages) ? [key] : [])));
     const running = (line: Line) => {
       const same = exactly.get(line.title.replace(/\s+/g, ""))!.size;
       const key = numberless(line.title);
-      const alike = key ? numbered.get(key)!.size : 0;
-      return same >= 3 || (same >= 2 && same * 2 >= this.pages) || (alike >= 2 && alike * 2 > this.pages);
+      return same >= 3 || (same >= 2 && same * 2 >= this.pages) || (key !== undefined && paged.has(key));
     };
     const found: Line[] = [];
     let previous: Line | undefined;
@@ -253,6 +256,44 @@ export class PdfHeadingFinder {
     const levelOf = levels(found.map((line) => line.size));
     return pickOutline(found.map((line) => ({ page: line.page, level: levelOf.get(line.size)!, title: line.title, ...(line.skip > 0 ? { skip: line.skip } : {}) })));
   }
+}
+
+/** The numbers of a line, in its order. */
+const numbersOf = (title: string) => (title.match(/\p{Nd}+/gu) ?? []).map(Number);
+
+/** Whether `after` is `before` with one of its numbers 1 more and the others the same. */
+function oneMore(before: number[], after: number[]): boolean {
+  let more = 0;
+  for (const [index, number] of before.entries()) {
+    if (after[index] === number + 1) more++;
+    else if (after[index] !== number) return false;
+  }
+  return more === 1;
+}
+
+/**
+ * Whether lines that differ only by their numbers, in the order of the text, are a page number, a
+ * running header or footer ("עמוד 3 מתוך 10", "Annual Report page 7"): on 2 pages or more and at
+ * least half the pages, at most once on each, and not counting as section numbers do. Section
+ * numbers count headings: each is the one before with one number 1 more, with pages without one
+ * between some of them ("פרק 1" to "פרק 5" on the odd pages). A page number counts pages: it skips
+ * the pages it is missing from ("page 1", "page 3" on the odd pages). Several on one page ("Article
+ * 1" to "Article 18", 3 to a page) are headings. On pages in a row, counting by one, the two read
+ * the same, and are taken for a page number: chapters one to a page on pages in a row, half the
+ * pages or more, are lost.
+ */
+function pageNumbered(alike: Line[], pages: number): boolean {
+  if (alike.length < 2 || alike.length * 2 < pages) return false;
+  let counts = true;
+  let skips = false;
+  for (let index = 1; index < alike.length; index++) {
+    const before = alike[index - 1]!;
+    const line = alike[index]!;
+    if (line.page === before.page) return false;
+    skips ||= line.page > before.page + 1;
+    counts &&= oneMore(numbersOf(before.title), numbersOf(line.title));
+  }
+  return !(counts && skips);
 }
 
 /**

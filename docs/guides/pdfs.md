@@ -504,22 +504,30 @@ Outline (8 of 8 headings):
   is passed over.
 - Not headings: a line of more than 120 characters, or of fewer than 3 letters, or with more digits
   than letters (a bare amount, a date in digits, a page number); a table row; a running header or
-  footer, which is a line found on 3 pages or more, or on 2 pages and at least half of them, or,
-  its numbers aside ("עמוד 3 מתוך 10"), on more than half of the pages. Numbered chapters ("פרק 1",
-  "Chapter 2") are on fewer pages, and are kept.
+  footer, which is a line found on 3 pages or more, or on 2 pages and at least half of them.
+- A line that differs from those of other pages only by its numbers ("עמוד 3 מתוך 10", "Annual
+  Report page 7") is a page number, and not a heading, when it is found on at least half of the
+  pages, at most once on each, and does not count as section numbers do. Section numbers count
+  headings: each is the one before with one number 1 more, with pages without one between some of
+  them ("פרק 1" to "פרק 5" on the odd pages). A page number counts pages, and skips those it is
+  missing from: a header on the odd pages only reads "page 1", "page 3". Numbered headings several
+  to a page ("Article 1" to "Article 18", 3 to a page; "סעיף 1" to "סעיף 20", 2 to a page above
+  their titles) are always kept.
 - No outline from sizes when more than 30% of the text is set larger than the body: the sizes then
   mark something else.
 
 It adds no line to the text: the text of a PDF, its reads and its pages are those of 0.9.0, and its
 search hits the same but for the `section` they now name. What it does not find: a heading in bold
 type of the body's size (pdf.js does not say which text is bold), a heading less than 15% larger
-than the body (Word's Heading 3, 12 points over 11), a heading repeated on 3 pages or more, one
-numbered chapter on each page of a short document (on more than half its pages, as a page number
-is), and headings a PDF keeps only in its bookmarks or tags. What it can take for a heading: any
-other short line set large, such as a caption, a date written with its month's name, or a total
-with its label ("Total due 12,500.00"), and the header cell of a table that is not rebuilt when
-pdf.js gives it as a line of its own. A PDF whose text gives 3 headings or more (lines that start
-with `#`) keeps the outline of its text.
+than the body (Word's Heading 3, 12 points over 11), a heading repeated on 3 pages or more,
+numbered chapters one to a page on pages in a row that are at least half the document ("Chapter 1"
+to "Chapter 4" on pages 1 to 4 of 6: they count as a page number does), and headings a PDF keeps
+only in its bookmarks or tags. What it can take for a heading: any other short line set large, such
+as a caption, a date written with its month's name, or a total with its label ("Total due
+12,500.00"); the header cell of a table that is not rebuilt when pdf.js gives it as a line of its
+own; and a header row set large whose cells are closer than 3 times its type size, as in a narrow
+table of two columns ("Field" and "Value"), which does not read as a table row. A PDF whose text
+gives 3 headings or more (lines that start with `#`) keeps the outline of its text.
 
 A PDF ingested before 0.10.0 keeps the outline it was given, most often none, until it is uploaded
 again; the metadata does not say where an outline came from. The outline from sizes comes in
@@ -529,10 +537,10 @@ again; the metadata does not say where an outline came from. The outline from si
 import { createLargeFiles, defaultExtractors, FileDocumentStore, type Extractor } from "llm-large-files";
 
 // The outline of 0.9.0: from the text alone.
-const pdfWithoutSizes: Extractor = async (bytes, input) => ({
-  ...await defaultExtractors.pdf(bytes, input),
-  headings: undefined,
-});
+const pdfWithoutSizes: Extractor = async (bytes, input) => {
+  const { headings, ...extracted } = await defaultExtractors.pdf(bytes, input);
+  return extracted;
+};
 
 export const files = createLargeFiles({
   store: new FileDocumentStore("./data/large-files"),
