@@ -757,6 +757,11 @@ thoughts, joined. `onUsage` gets the usage of every request that was answered
 `MAX_TOKENS`, a filter stopped it, or, since 0.10.0, it ended for a reason whose `finish` is
 `"other"` ([`gemini()`](#geminiendpoint-options)).
 
+A reply of HTTP 200 that is a list of chunks, as Gemini answers without `?alt=sse` (a gateway that
+passes such a reply on), is read chunk by chunk, as a chat reply is: its text is that of every
+chunk, and its finish reason and usage are the last ones it has (since 0.10.0; before, the read
+threw "The model returned no text.").
+
 When a reply stops at `MAX_TOKENS` with no text, or with half the limit or more spent on thoughts,
 and the limit was below [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens), the request is sent
 once more with that limit, and later requests to the same `url` start there. If that second request
@@ -771,7 +776,7 @@ first request to a `url` goes alone: requests to it that arrive meanwhile wait f
 | Case | Error |
 |---|---|
 | An HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "The model returned HTTP 503.", with `status`, `kind` and `retryAfterMs`. A body that is a list is read by its first entry (since 0.10.0). |
-| An error in a body of HTTP 200 (a gateway, or Vertex AI) | `GeminiRequestError` with its message, or "Gemini reported an error.", whose `status` is its `code`, else that of its `google.rpc` name, else 500. New in 0.10.0: before, the reply had no text, and the error was "The model returned no text." |
+| An error in a body of HTTP 200 (a gateway, or Vertex AI), or in any chunk of a list | `GeminiRequestError` with its message, or "Gemini reported an error.", whose `status` is its `code`, else that of its `google.rpc` name, else 500. New in 0.10.0: before, the reply had no text, and the error was "The model returned no text." |
 | The connection failed, or the body could not be read | `GeminiRequestError`: "Gemini could not be reached (…).", `status` 0 |
 | A body of HTTP 200 that is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", `status` 0 |
 | A body that is not JSON | `GeminiRequestError`: "Gemini's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the response's `status`, kind `"invalid"`, the `SyntaxError` as `cause`. Until 0.6.0, the `SyntaxError` itself. |

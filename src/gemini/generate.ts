@@ -189,43 +189,59 @@ export function createGeminiGenerateText(options: {
           discard(response);
           response = await post(true);
         }
-        type Data = {
+        type Chunk = {
           error?: { message?: string; code?: unknown; status?: unknown };
           candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: unknown; thought?: boolean }> } }>;
           usageMetadata?: Record<string, unknown>;
           promptFeedback?: { blockReason?: unknown };
-        } | null;
-        // An error may have no JSON body. A reply must: one whose body could not be read is a
-        // connection that failed, and is sent again. A body that is a list is read by its first entry.
-        const data = errorBodyOf(response.ok
-          ? await readJson<unknown>(response, () => Boolean(signal?.aborted), lost, timer.signal ? { pulse: () => undefined, signal: timer.signal } : undefined, (error) => notJson(response, error))
-          : await response.json().catch(() => null)) as Data;
-        if (!response.ok) throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`);
-        // An error in a body of HTTP 200 (a gateway, or Vertex AI): thrown with its own status, so
-        // that a 503 is sent again rather than read as a reply with no text.
-        if (data?.error && typeof data.error === "object") throw geminiFailure(statusOfError(data.error), data, retryAfterMs(response.headers, data), "Gemini reported an error.");
-        onUsage?.(usageOfGemini(data?.usageMetadata));
-        const candidate = data?.candidates?.[0];
+        };
+        // An error may have no JSON body, and one that is a list is read by its first entry.
+        if (!response.ok) {
+          const data = errorBodyOf(await response.json().catch(() => null));
+          throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`);
+        }
+        // A reply must have one: a body that could not be read is a connection that failed, and is
+        // sent again. It may be a list of chunks, as Gemini gives a reply without `alt=sse` (a
+        // gateway): every chunk is read, as a chat reply's are.
+        const data = await readJson<unknown>(response, () => Boolean(signal?.aborted), lost, timer.signal ? { pulse: () => undefined, signal: timer.signal } : undefined, (error) => notJson(response, error));
+        const chunks = (Array.isArray(data) ? data : [data]).filter((chunk): chunk is Chunk => chunk !== null && typeof chunk === "object" && !Array.isArray(chunk));
+        let text = "";
+        let answered = false;
+        let finishReason: string | undefined;
+        let usage: Record<string, unknown> | undefined;
+        let blockReason: unknown;
+        for (const chunk of chunks) {
+          // An error in a body of HTTP 200 (a gateway, or Vertex AI), alone or after part of the
+          // reply: thrown with its own status, so that a 503 is sent again rather than read as a
+          // reply with no text, or with part of its text.
+          if (chunk.error && typeof chunk.error === "object") throw geminiFailure(statusOfError(chunk.error), chunk, retryAfterMs(response.headers, chunk), "Gemini reported an error.");
+          usage = chunk.usageMetadata ?? usage;
+          blockReason = chunk.promptFeedback?.blockReason ?? blockReason;
+          const candidate = chunk.candidates?.[0];
+          if (!candidate) continue;
+          answered = true;
+          text += (candidate.content?.parts ?? [])
+            .filter((part) => part.thought !== true && typeof part.text === "string")
+            .map((part) => part.text as string)
+            .join("");
+          finishReason = candidate.finishReason ?? finishReason;
+        }
+        onUsage?.(usageOfGemini(usage));
         // A prompt Gemini blocked comes with 200, a reason and no candidate: the reply has no text,
         // and says why ("The model returned no text (PROHIBITED_CONTENT).").
-        const blockReason = data?.promptFeedback?.blockReason;
-        if (!candidate && typeof blockReason === "string" && blockReason) {
+        if (!answered && typeof blockReason === "string" && blockReason) {
           blocked = true;
           return { text: "", cutOff: false, stopped: true, reason: blockReason, thoughts: 0 };
         }
-        const text = (candidate?.content?.parts ?? [])
-          .filter((part) => part.thought !== true && typeof part.text === "string")
-          .map((part) => part.text as string)
-          .join("");
-        const thoughts = data?.usageMetadata?.thoughtsTokenCount;
-        const finish = finishOfGemini(candidate?.finishReason);
+        const thoughts = usage?.thoughtsTokenCount;
+        const finish = finishOfGemini(finishReason);
         return {
           text,
-          cutOff: candidate?.finishReason === "MAX_TOKENS",
+          cutOff: finishReason === "MAX_TOKENS",
           // Stopped before its end by a filter, or for another reason that is not the limit: what
           // it wrote is not all there is.
           stopped: finish === "filtered" || finish === "other",
-          ...(candidate?.finishReason ? { reason: candidate.finishReason } : {}),
+          ...(finishReason ? { reason: finishReason } : {}),
           thoughts: typeof thoughts === "number" ? thoughts : 0,
         };
       } finally {

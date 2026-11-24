@@ -103,3 +103,34 @@ describe("a Gemini part read whose body of HTTP 200 holds an error, since 0.10.0
     await expect(named({ system: "s", prompt: "p", maxOutputTokens: 100 })).rejects.toMatchObject({ status: 429, kind: "rate_limit" });
   });
 });
+
+describe("a Gemini part read whose body of HTTP 200 is a list of chunks, since 0.10.0", () => {
+  const chunk = (text: string, finishReason?: string, usageMetadata?: Record<string, unknown>) => ({
+    candidates: [{ ...(finishReason ? { finishReason } : {}), content: { role: "model", parts: [{ text }] } }],
+    ...(usageMetadata ? { usageMetadata } : {}),
+  });
+
+  it("reads every chunk: the whole text, the last finish reason and the last usage", async () => {
+    // As Gemini gives a reply without `alt=sse`, which a gateway may pass on.
+    const body = [chunk("Line one of the notes. ", undefined, { promptTokenCount: 10 }), chunk("Line two. "), chunk("Line three.", "STOP", { promptTokenCount: 10, candidatesTokenCount: 9, thoughtsTokenCount: 4 })];
+    const used: unknown[] = [];
+    let truncated = false;
+    const read = createGeminiGenerateText({ url: "https://gemini.example/v1/models/list-chunks:generateContent", headers: {}, fetchImpl: fakeFetch([Response.json(body)]).fetch });
+    const text = await read({ system: "s", prompt: "p", maxOutputTokens: 100, onUsage: (usage) => used.push(usage), onTruncated: () => { truncated = true; } });
+    expect(text).toBe("Line one of the notes. Line two. Line three.");
+    expect(truncated).toBe(false);
+    expect(used).toEqual([expect.objectContaining({ inputTokens: 10, outputTokens: 13 })]);
+
+    // Stopped by a filter in its last chunk: the part says that it is not whole.
+    const cut = createGeminiGenerateText({ url: "https://gemini.example/v1/models/list-chunks-cut:generateContent", headers: {}, fetchImpl: fakeFetch([Response.json([chunk("Line one. "), chunk("Line t", "SAFETY")])]).fetch });
+    let stopped = false;
+    expect(await cut({ system: "s", prompt: "p", maxOutputTokens: 100, onTruncated: () => { stopped = true; } })).toBe("Line one. Line t");
+    expect(stopped).toBe(true);
+  });
+
+  it("throws an error that comes after part of the text, with its status", async () => {
+    const body = [chunk("Partial notes. "), { error: { code: 503, message: "The model is overloaded.", status: "UNAVAILABLE" } }];
+    const read = createGeminiGenerateText({ url: "https://gemini.example/v1/models/list-chunks-error:generateContent", headers: {}, fetchImpl: fakeFetch([Response.json(body)]).fetch });
+    await expect(read({ system: "s", prompt: "p", maxOutputTokens: 100 })).rejects.toMatchObject({ status: 503, kind: "server", message: "The model is overloaded." });
+  });
+});
