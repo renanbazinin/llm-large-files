@@ -203,6 +203,17 @@ function itemLabels(value: unknown): string[] | undefined {
   return distinct;
 }
 
+/** A task as a note quotes it: ending in a stop, so that the sentence after it starts as one. */
+const quotedTask = (task: string): string => {
+  const trimmed = task.trim();
+  return /[.!?…:;]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
+};
+
+/** The sentence of a note on the items a result shows, when not all of them: as `itemsResult` and `fitItems` write it. */
+const itemsShown = (shown: number, cut: boolean): string =>
+  `The first ${shown} ${plural(shown, "item")} ${shown === 1 ? "is" : "are"} shown${cut ? ", to stay within the size limit" : ""}; total_items counts them all.`;
+const ITEMS_SHOWN = /The first \d+ items? (?:is|are) shown(?:, to stay within the size limit)?; total_items counts them all\.\s*/;
+
 /**
  * The result of a read that lists items (`output: "items"`): the totals, counted by code from the
  * items each part listed and checked against its lines, and the first items in the order of the file.
@@ -211,8 +222,9 @@ function itemsResult(file: string, task: string, read: WholeItemsResult): ToolRe
   const shown = read.items.slice(0, MAX_SHOWN_ITEMS);
   const more = read.items.length - shown.length;
   const notes = [
-    ...(read.items.length === 0 ? [`No part of ${file} listed an item for: ${task}`] : []),
-    ...(more > 0 ? [`The first ${shown.length} items are shown; total_items counts them all.`] : []),
+    // With items listed and none found on its line, the note on those that are not counted follows.
+    ...(read.items.length === 0 ? [read.unverified > 0 ? `No item was found on its line for: ${quotedTask(task)}` : `No part of ${file} listed an item for: ${quotedTask(task)}`] : []),
+    ...(more > 0 ? [itemsShown(shown.length, false)] : []),
     ...(read.unverified > 0 ? [`${read.unverified} listed ${plural(read.unverified, "item")} ${read.unverified === 1 ? "is" : "are"} not counted: ${read.unverified === 1 ? "its" : "their"} quote is not on the line ${read.unverified === 1 ? "it names" : "they name"}, nor on just one other line of the part.`] : []),
     ...(read.failedParts > 0 ? [`${read.failedParts} ${plural(read.failedParts, "part")} could not be read (${read.firstFailure ?? "see the notes"}), so items may be missing: tell the user the count may be incomplete.`] : []),
     ...(read.truncatedParts > 0 ? [`${read.truncatedParts} ${plural(read.truncatedParts, "part")} listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete.`] : []),
@@ -278,7 +290,7 @@ function fit(result: ToolResult, listKey: string | null, limit: number): ToolRes
  * and keeps its counts.
  */
 export function fitAnswer(result: ToolResult, limit: number): ToolResult {
-  if (JSON.stringify(result).length > limit && typeof result.answer !== "string" && Array.isArray(result.items)) return fit(result, "items", limit);
+  if (JSON.stringify(result).length > limit && typeof result.answer !== "string" && Array.isArray(result.items) && result.items.length > 0) return fitItems(result, limit);
   if (JSON.stringify(result).length <= limit || typeof result.answer !== "string") return fit(result, null, limit);
   const answer = result.answer;
   const cutAt = (keep: number): ToolResult => ({
@@ -296,6 +308,33 @@ export function fitAnswer(result: ToolResult, limit: number): ToolResult {
     else high = middle - 1;
   }
   return fit(cutAt(low), null, limit);
+}
+
+/**
+ * The result of a read that lists items within `limit` characters: items are dropped from the end of
+ * its list, at least one kept, `more_items` counts every item not shown, and the note says how many
+ * are shown. Its counts stay whole. A result cut before (`askWithFiles` fits a result again to the
+ * room left) is cut the same way, from what it still shows.
+ */
+function fitItems(result: ToolResult, limit: number): ToolResult {
+  const items = result.items as unknown[];
+  const total = typeof result.total_items === "number" ? result.total_items : items.length;
+  const others = typeof result.note === "string" ? result.note.replace(ITEMS_SHOWN, "").trim() : "";
+  const build = (kept: number): ToolResult => {
+    const more = total - kept;
+    const out: ToolResult = {};
+    // The fields in their order, with more_items after the items.
+    for (const [key, value] of Object.entries(result)) {
+      if (key === "more_items" || key === "note") continue;
+      out[key] = key === "items" ? items.slice(0, kept) : value;
+      if (key === "items" && more > 0) out.more_items = more;
+    }
+    out.note = [itemsShown(kept, true), others].filter(Boolean).join(" ");
+    return out;
+  };
+  let kept = items.length;
+  while (kept > 1 && JSON.stringify(build(kept)).length > limit) kept--;
+  return fit(build(kept), null, limit);
 }
 
 /**

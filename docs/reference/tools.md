@@ -705,12 +705,12 @@ merges them, and there is no answer of the read: one request a part.
 | `total_items` | number | The items found, each once, whose quote is on their line. Counted by code. |
 | `counts_by_label` | object, optional | The items by label, when they have labels: `{ "penalty": 37 }`. An item with no label among labelled ones counts under `"unlabeled"`. |
 | `items` | array | The first 50 items, in the order of the file, each `{ line, label?, value?, quote }`. The value and the quote are as the model wrote them, up to 200 and 300 characters. |
-| `more_items` | number, optional | The items past the first 50. |
+| `more_items` | number, optional | The items not shown: past the first 50, or past those kept when the result was cut to its room. |
 | `unverified_items` | number | Items a part listed that are not counted: a quote on no line of the part, or on several but not on the line the item names. |
 | `parts_read` | number | The parts the file was read in, those that could not be read included; a halved part counts as its halves. |
 | `parts_failed` | number, optional | Parts that could not be read: their items are missing. |
 | `parts_cut_short` | number, optional | Parts whose list was still cut at the output limit. |
-| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK"; "The first 50 items are shown; total_items counts them all."; "N listed items are not counted: their quote is not on the line they name, nor on just one other line of the part."; "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
+| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK." (a stop is added to a task that has none); "No item was found on its line for: TASK." when items were listed and none is counted; "The first 50 items are shown; total_items counts them all.", or "The first K items are shown, to stay within the size limit; total_items counts them all." when the result was cut to its room; "N listed items are not counted: their quote is not on the line they name, nor on just one other line of the part."; "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
 
 ```json
 {
@@ -723,7 +723,8 @@ merges them, and there is no answer of the read: one request a part.
 }
 ```
 
-Cut to its room, it loses items from the end of its list and keeps its counts. Its evidence
+Cut to its room, it loses items from the end of its list (one is always kept), `more_items` counts
+every item it does not show, and the note says how many it shows. Its counts are kept whole. Its evidence
 ([`evidenceOf`](./ask.md#evidenceofcall-result)) is `whole: true` with the lines of the items it
 shows, and its stand-in keeps the counts and the first 20 items.
 

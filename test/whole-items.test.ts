@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, estimateTokens, evidenceOf, MemoryDocumentStore, stubResult, type GenerateText, type ToolResult } from "../src/index.js";
 import { parseItemLines, quoteForm, quoteOnLine } from "../src/map-reduce.js";
+import { fitAnswer } from "../src/tools.js";
 import { wholeReadCost } from "../src/whole-cost.js";
 import { utf8 } from "./fake-model.js";
 
@@ -220,6 +221,39 @@ describe("a read that lists items", () => {
     expect(result.total_items).toBe(4);
     // 0.10.0 before this fix: "function Object() { [native code] }11" for constructor, and no __proto__.
     expect(JSON.parse(JSON.stringify(result.counts_by_label))).toEqual(JSON.parse('{"constructor": 2, "__proto__": 1, "toString": 1}'));
+  });
+
+  it("says so when items were listed and none is on its line, and ends the task with a stop", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const meta = await files.ingest({ name: "f.txt", bytes: utf8(["1. a fine of 100", "2. a fee of 200", "3. late delivery"].join("\n")) });
+    const wrong: GenerateText = async () => [1, 2, 3].map((line) => JSON.stringify({ line, quote: "words not in the file" })).join("\n");
+    const tools = files.tools([meta], { generate: wrong, maxWholeDocumentReads: 2 });
+    // 0.10.0 before this fix: "No part of f.txt listed an item for: fines 3 listed items are not counted: …".
+    expect((await tools.execute("analyze_whole_document", { document_id: meta.id, task: "fines", output: "items" })).note)
+      .toBe("No item was found on its line for: fines. 3 listed items are not counted: their quote is not on the line they name, nor on just one other line of the part.");
+    const none = files.tools([meta], { generate: async () => "NOTHING RELEVANT" });
+    expect((await none.execute("analyze_whole_document", { document_id: meta.id, task: "Every fine?", output: "items" })).note).toBe("No part of f.txt listed an item for: Every fine?");
+  });
+
+  it("cut to its room, says how many items it shows, and counts the others in more_items", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1, mapChunkTokens: 100_000 } });
+    const lines = Array.from({ length: 120 }, (_, index) => `${index + 1}. the supplier pays a fine of ${1_000 + index} for breach ${index + 1}`);
+    const meta = await files.ingest({ name: "f.txt", bytes: utf8(lines.join("\n")) });
+    const generate: GenerateText = async () => lines.map((text, index) => JSON.stringify({ line: index + 1, value: String(1_000 + index), quote: text.slice(text.indexOf("the")) })).join("\n");
+    const tools = files.tools([meta], { generate });
+    const { result } = await tools.executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "fines", output: "items" }, { maxResultCharacters: 3_000 });
+    const shown = (result.items as unknown[]).length;
+    expect(shown).toBeLessThan(50);
+    expect(JSON.stringify(result).length).toBeLessThanOrEqual(3_000);
+    // 0.10.0 before this fix: more_items stayed 70, and the note was a search's ("Showing K of 50 results … read specific lines.").
+    expect(result).toMatchObject({ total_items: 120, more_items: 120 - shown, unverified_items: 0 });
+    expect(result.note).toBe(`The first ${shown} items are shown, to stay within the size limit; total_items counts them all.`);
+    expect(Object.keys(result)).toEqual(["document", "total_items", "items", "more_items", "unverified_items", "parts_read", "note"]);
+    // Fitted again to less room, as askWithFiles does: the same, from what it still shows.
+    const again = fitAnswer(result, 2_000);
+    const left = (again.items as unknown[]).length;
+    expect(left).toBeLessThan(shown);
+    expect(again).toMatchObject({ total_items: 120, more_items: 120 - left, note: `The first ${left} items are shown, to stay within the size limit; total_items counts them all.` });
   });
 
   it("gives the lines of its items as evidence, and keeps its counts in a stand-in", async () => {
