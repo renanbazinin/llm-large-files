@@ -3,7 +3,7 @@
 // 0.10.0, for the ceiling of a question, which prices a read before it lets it run. Internal: not
 // exported from the package.
 import { PART_OUTPUT_TOKENS } from "./map-reduce.js";
-import { digitsUpTo, estimateParts } from "./plan.js";
+import { estimateParts } from "./plan.js";
 import type { Budget, DocumentMeta } from "./types.js";
 
 /**
@@ -15,6 +15,16 @@ const REQUEST_FRAME_TOKENS = 200;
 
 /** The tokens of the "### Lines a-b" heading of a part's notes, and of the blank line that joins notes. */
 const NOTE_HEADING_TOKENS = 25;
+
+/**
+ * The digits of the line numbers 1 to `lines`, written out: what the numbers take in the prompts of
+ * the parts. `estimateParts` (src/plan.ts) counts them the same way.
+ */
+export function lineNumberDigits(lines: number): number {
+  let digits = 0;
+  for (let width = 1, first = 1; first <= lines; width++, first *= 10) digits += (Math.min(lines, first * 10 - 1) - first + 1) * width;
+  return digits;
+}
 
 /** What a whole-file read costs. */
 export type WholeReadCost = {
@@ -67,7 +77,7 @@ export function wholeReadCost(meta: Pick<DocumentMeta, "estimatedTokens" | "line
   if (output !== "answer") throw new Error(`The price of a whole-file read with output "${output}" is not written yet.`);
   const parts = estimateParts(meta, budget);
   const lines = Math.max(1, meta.lines);
-  const numbered = meta.estimatedTokens + 1.2 * digitsUpTo(lines) + 1.5 * lines;
+  const numbered = meta.estimatedTokens + 1.2 * lineNumberDigits(lines) + 1.5 * lines;
   const merges = estimateMerges(parts, PART_OUTPUT_TOKENS, budget.mapChunkTokens);
   const tokens = numbered + parts * REQUEST_FRAME_TOKENS + merges.inputTokens + merges.finalTokens + REQUEST_FRAME_TOKENS;
   return { inputTokens: Math.ceil(tokens * scale), requests: parts + merges.requests + 1, parts, merges: merges.requests };

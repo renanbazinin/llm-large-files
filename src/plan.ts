@@ -36,7 +36,7 @@ export function planDocuments(
 }
 
 /** The digits of the numbers 1 to `count`, written out: what the line numbers of a text take. */
-export function digitsUpTo(count: number): number {
+function digitsUpTo(count: number): number {
   let digits = 0;
   for (let width = 1, first = 1; first <= count; width++, first *= 10) digits += (Math.min(count, first * 10 - 1) - first + 1) * width;
   return digits;

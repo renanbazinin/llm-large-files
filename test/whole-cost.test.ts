@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, estimateTokens, MemoryDocumentStore, resolveBudget, type DocumentMeta, type GenerateText, type LargeFiles } from "llm-large-files";
 import { PART_OUTPUT_TOKENS } from "../src/map-reduce.js";
-import { estimateMerges, wholeReadCost } from "../src/whole-cost.js";
+import { estimateMerges, lineNumberDigits, wholeReadCost } from "../src/whole-cost.js";
 import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
 
 /** Notes of a part that say little, as in probe5. */
@@ -78,6 +78,15 @@ describe("wholeReadCost", () => {
 
   it("does not price a read that lists items yet", () => {
     expect(() => wholeReadCost({ estimatedTokens: 1_000, lines: 99, textBytes: 4_000 }, resolveBudget(), 1, "items")).toThrow(/output "items" is not written yet/);
+  });
+});
+
+describe("lineNumberDigits", () => {
+  it("counts the digits of the line numbers 1 to n", () => {
+    const written = (lines: number) => Array.from({ length: lines }, (_, index) => String(index + 1).length).reduce((sum, digits) => sum + digits, 0);
+    for (const lines of [0, 1, 9, 10, 99, 100, 999, 1_000, 12_345, 20_000]) expect(lineNumberDigits(lines)).toBe(written(lines));
+    // probe5's 20,000 lines: 9 of one digit, 90 of two, 900 of three, 9,000 of four and 10,001 of five.
+    expect(lineNumberDigits(20_000)).toBe(88_894);
   });
 });
 
