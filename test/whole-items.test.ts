@@ -206,6 +206,22 @@ describe("a read that lists items", () => {
     expect(sent[0]!.prompt).not.toContain("- label:");
   });
 
+  it("counts labels named like the members of every object", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const lines = ["1. the constructor pays a fine of 100", "2. the constructor pays a fine of 200", "3. the owner pays a fee of 300", "4. late delivery costs 400"];
+    const meta = await files.ingest({ name: "c.txt", bytes: utf8(lines.join("\n")) });
+    const generate: GenerateText = async () => [
+      { line: 1, label: "constructor", value: "100", quote: "the constructor pays a fine of 100" },
+      { line: 2, label: "constructor", value: "200", quote: "the constructor pays a fine of 200" },
+      { line: 3, label: "__proto__", value: "300", quote: "the owner pays a fee of 300" },
+      { line: 4, label: "toString", value: "400", quote: "late delivery costs 400" },
+    ].map((item) => JSON.stringify(item)).join("\n");
+    const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "fines", output: "items", labels: ["constructor", "__proto__", "toString"] });
+    expect(result.total_items).toBe(4);
+    // 0.10.0 before this fix: "function Object() { [native code] }11" for constructor, and no __proto__.
+    expect(JSON.parse(JSON.stringify(result.counts_by_label))).toEqual(JSON.parse('{"constructor": 2, "__proto__": 1, "toString": 1}'));
+  });
+
   it("gives the lines of its items as evidence, and keeps its counts in a stand-in", async () => {
     const { files, meta, penaltyLines } = await library();
     const call = { id: "c1", name: "analyze_whole_document", args: { document_id: meta.id, task: TASK, output: "items" } };

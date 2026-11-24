@@ -933,9 +933,12 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
   // request was made: that is the store's failure.
   if (failed === pieces) throw sent === 0 && firstError !== undefined ? firstError : new NothingReadError(name, firstFailure);
   const items = [...found.values()].sort((left, right) => left.line - right.line);
-  const countsByLabel: Record<string, number> = {};
+  // Counted in a Map: a label is the model's word, and one named like a member of every object
+  // ("constructor", "toString", "__proto__") read that member in a plain object.
+  const byLabel = new Map<string, number>();
   if (items.some((item) => item.label !== undefined)) {
-    for (const item of items) countsByLabel[item.label ?? "unlabeled"] = (countsByLabel[item.label ?? "unlabeled"] ?? 0) + 1;
+    for (const item of items) byLabel.set(item.label ?? "unlabeled", (byLabel.get(item.label ?? "unlabeled") ?? 0) + 1);
   }
+  const countsByLabel: Record<string, number> = Object.fromEntries(byLabel);
   return { items, countsByLabel, unverified, parts: pieces, failedParts: failed, ...(failed ? { firstFailure } : {}), truncatedParts, requests: used, replies, skippedLines };
 }
