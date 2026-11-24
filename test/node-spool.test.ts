@@ -287,7 +287,7 @@ describe("uploadSpool", () => {
 
   // A volume that stops answering (a network volume whose server is gone) held the upload: no
   // answer, and its room of the spool kept for good, so that the next upload got a 503.
-  it("answers 500 (ETIMEDOUT) when the disk does not answer within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
+  it("answers 503 (ETIMEDOUT) when the disk does not answer within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore() });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     for (const call of ["open", "write", "close"] as const) {
@@ -296,7 +296,8 @@ describe("uploadSpool", () => {
         disk.hold = { under: spool, call, gate: new Promise<void>((resolve) => (release = resolve)) };
         const hung = await send(`${call}.txt`);
         disk.hold = undefined;
-        expect(hung.status).toBe(500);
+        // A 503, to try again, since 0.10.0 (a 500 before).
+        expect(hung.status).toBe(503);
         const body = hung instanceof Response ? await hung.text() : hung.body;
         expect(body).toBe(JSON.stringify({ error: "Upload failed (ETIMEDOUT)." }));
         // Its room is back: another upload of 800 bytes is taken.

@@ -689,7 +689,10 @@ describe("errors as the upload answers them (S12)", () => {
       [Object.assign(new Error("Sign in again."), { status: 401 }), { status: 401, error: "Sign in again." }],
       [Object.assign(new Error("Later."), { statusCode: 503, retryAfterMs: 2_500 }), { status: 503, error: "Later.", retryAfterMs: 2_500 }],
       [Object.assign(new Error(""), { status: 400 }), { status: 400, error: "Upload failed." }],
-      [Object.assign(new Error(`ENOSPC: no space left, write '/srv/uploads/a'`), { code: "ENOSPC", syscall: "write" }), { status: 500, error: "Upload failed (ENOSPC)." }],
+      [Object.assign(new Error(`EACCES: permission denied, write '/srv/uploads/a'`), { code: "EACCES", syscall: "write" }), { status: 500, error: "Upload failed (EACCES)." }],
+      // A full disk, and a disk that does not answer, are 503s to try again, since 0.10.0.
+      [Object.assign(new Error(`ENOSPC: no space left, write '/srv/uploads/a'`), { code: "ENOSPC", syscall: "write" }), { status: 503, error: "Upload failed (ENOSPC).", retryAfterMs: 30_000 }],
+      [Object.assign(new Error(`ETIMEDOUT: connect ${host}`), { code: "ETIMEDOUT", syscall: "connect" }), { status: 503, error: "Upload failed (ETIMEDOUT).", retryAfterMs: 5_000 }],
       // A driver may put a host in `code`: only a code that reads as one is told.
       [Object.assign(new Error(`connect ECONNREFUSED ${host}`), { code: host, syscall: "connect" }), { status: 500, error: "Upload failed." }],
       [new Error(`MongoServerSelectionError: connect ECONNREFUSED ${host}`), { status: 500, error: "Upload failed." }],

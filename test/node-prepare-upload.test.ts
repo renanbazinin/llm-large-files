@@ -486,7 +486,7 @@ describe("prepareUpload with a path", () => {
   });
 
   // A volume that stopped answering held the upload, unanswered, with its file.
-  it("removes the file, and answers 500 (ETIMEDOUT), when a write does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
+  it("removes the file, and answers 503 (ETIMEDOUT), when a write does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
     const files = library();
     const { options, saved } = chatbot({ uploadIdleTimeoutMs: IDLE_MS });
     const base = await serve(files, options);
@@ -495,7 +495,9 @@ describe("prepareUpload with a path", () => {
     disk.writesGate = new Promise<void>((resolve) => (release = resolve));
     for (const events of [false, true]) {
       const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events);
-      expect(response.status).toBe(500);
+      // A 503, to try again, since 0.10.0 (a 500 before).
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("5");
       expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
     }
     expect(writes(saved("up-1"))).toHaveLength(1);
@@ -509,7 +511,7 @@ describe("prepareUpload with a path", () => {
 
   // The look at the folders of the ref came before the first timed call to the disk: on a volume
   // that stopped answering, such an upload was never answered.
-  it("answers 500 (ETIMEDOUT), and writes nothing, when the look at the folders of the ref does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
+  it("answers 503 (ETIMEDOUT), and writes nothing, when the look at the folders of the ref does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
     const files = library();
     const { options } = chatbot({ uploadIdleTimeoutMs: IDLE_MS });
     const base = await serve(files, options);
@@ -517,7 +519,7 @@ describe("prepareUpload with a path", () => {
     for (const events of [false, true]) {
       // Answered before the event stream starts: JSON on both paths.
       const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events, AbortSignal.timeout(10_000));
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(503);
       expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
     }
     expect(disk.opens.filter((entry) => entry.flags === "wx")).toEqual([]);

@@ -379,15 +379,17 @@ function formatDuration(ms: number): string {
 
 /**
  * The signal one ingest runs under: aborted when the caller's is, or when `timeoutMs` has passed
- * (with an error that says the file took too long). `dispose` stops the timer.
+ * (with an error that says the file took too long). `dispose` stops the timer. `timedOut` says
+ * whether an error is the one of the time limit.
  */
-function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; dispose(): void } {
+function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; dispose(): void; timedOut(error: unknown): boolean } {
   const controller = new AbortController();
   const onAbort = () => controller.abort(caller!.reason);
   if (caller?.aborted) controller.abort(caller.reason);
   else caller?.addEventListener("abort", onAbort, { once: true });
+  let late: Error | undefined;
   const timer = timeoutMs > 0 && timeoutMs <= LONGEST_TIMER_MS
-    ? setTimeout(() => controller.abort(new Error(`${name} took too long to read (more than ${formatDuration(timeoutMs)}). Split it, or save it as plain text, and attach that.`)), timeoutMs)
+    ? setTimeout(() => controller.abort(late = new Error(`${name} took too long to read (more than ${formatDuration(timeoutMs)}). Split it, or save it as plain text, and attach that.`)), timeoutMs)
     : undefined;
   return {
     signal: controller.signal,
@@ -395,6 +397,7 @@ function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: 
       clearTimeout(timer);
       caller?.removeEventListener("abort", onAbort);
     },
+    timedOut: (error) => late !== undefined && error === late,
   };
 }
 
@@ -569,7 +572,7 @@ async function ingestFile(
   const mayCopy = !byRef && (keeps(format, false) || (format === "text" && keeps("log", false)));
   // A file at a path that its extractor reads itself (an isolated reader) is not read here at all.
   const extractorReads = path !== undefined && extractorFor(format, extractors).readsPath === true && !mayCopy;
-  const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
+  const { signal, dispose, timedOut } = ingestSignal(name, input.signal, ingestTimeoutMs);
   // Each long step works in slices, with pauses for other requests: one large upload no longer
   // holds the whole server while it is read.
   const slicer = new TimeSlicer(signal);
@@ -580,13 +583,20 @@ async function ingestFile(
   /** The bytes to keep in the store (`putOriginal`), until they are written. */
   let copy: Uint8Array | undefined;
   /**
-   * A read of the file at `path`, or the signal's reason once it aborts: a volume that does not
-   * answer fails the ingest in its time, as an extractor does. The ingest keeps its turn until the
-   * read ends (`IngestSlot`).
+   * A read of the file at `path`, or the signal's reason once it aborts. A volume that does not
+   * answer within the ingest's time is the server's trouble, not the file's: a system error
+   * ETIMEDOUT (503, to try again), not the `IngestError` "timeout" of a file that takes too long to
+   * read (422, "split it"), since 0.10.0. The ingest keeps its turn until the read ends (`IngestSlot`).
    */
   const readWithin = async <T>(read: Promise<T>): Promise<T> => {
     work.abandoned = read;
-    const got = await untilAborted(read, signal);
+    let got: T;
+    try {
+      got = await untilAborted(read, signal);
+    } catch (error) {
+      if (timedOut(error)) throw Object.assign(new Error(`The file to ingest did not answer within ${formatDuration(ingestTimeoutMs)}.`), { code: "ETIMEDOUT", syscall: "read" });
+      throw error;
+    }
     work.abandoned = undefined;
     return got;
   };

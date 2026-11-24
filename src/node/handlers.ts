@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { errorInfoOf, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE } from "../error-info.js";
+import { errorInfoOf, retryAfterOfCode, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE } from "../error-info.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type IngestErrorCode } from "../errors.js";
 import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
 import { checkOwner, cleanFileName, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles } from "../library.js";
@@ -323,7 +323,10 @@ function answerFor(error: unknown, failed: string): UploadAnswer {
       return { status, error: typeof message === "string" && message ? message : plain.error, ...(status === 503 ? retryOf((error as { retryAfterMs?: unknown }).retryAfterMs) : {}) };
     }
     const code = systemErrorCode(error);
-    return code ? { status: 500, error: `${failed} (${code}).` } : plain;
+    if (!code) return plain;
+    // A disk or a service that did not answer just now, or a full disk: 503, to try again (0.10.0).
+    const retryAfterMs = retryAfterOfCode(code);
+    return retryAfterMs !== undefined ? { status: 503, error: `${failed} (${code}).`, retryAfterMs } : { status: 500, error: `${failed} (${code}).` };
   } catch {
     return plain;
   }
@@ -344,8 +347,11 @@ const retryOf = (value: unknown): { retryAfterMs?: number } => (isWait(value) ? 
  * - a model's error (`ModelRequestError`): the status and words of `errorInfoOf`, never the
  *   provider's own;
  * - any other error with a `status` (or `statusCode`) from 400 to 599: that status and its message;
- * - a Node system error (a `code` and a `syscall`): 500 "Upload failed (ENOSPC).", or "Upload
- *   failed." when its code does not read as one (capitals, digits and "_"), as a host does;
+ * - a Node system error (a `code` and a `syscall`): 500 "Upload failed (EACCES).", or "Upload
+ *   failed." when its code does not read as one (capitals, digits and "_"), as a host does. Since
+ *   0.10.0 a code that says the disk or a service could not answer just now (ETIMEDOUT,
+ *   ECONNRESET, EAGAIN, EMFILE…) is a 503 with 5 s to wait, and a full disk (ENOSPC, EDQUOT) a 503
+ *   with 30 s;
  * - anything else: 500 "Upload failed.", without its message, which may name a host.
  *
  * It reads the errors of every copy of the package, and never throws. New in 0.9.0.
