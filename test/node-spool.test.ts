@@ -106,6 +106,22 @@ async function serve(files: LargeFiles, options: DocumentHandlerOptions): Promis
 const upload = (base: string, name: string, body: string, events = false, signal?: AbortSignal) =>
   fetch(base, { method: "POST", headers: { "X-File-Name": name, ...(events ? { Accept: "text/event-stream" } : {}) }, body, ...(signal ? { signal } : {}) });
 
+/**
+ * The upload after a held call, which shows that the room is back. On a Windows runner a call to
+ * the disk for a new file can itself pass IDLE_MS (the virus scanner looks at a file just written),
+ * and the upload is answered 503 "Upload failed (ETIMEDOUT).": that alone is tried again, twice.
+ * An answer of no room is never tried again: it is what the test is there to see. Gives the status
+ * and the body, so that a failure says which 503 it was.
+ */
+async function uploadAfterHold(base: string, name: string, body: string): Promise<{ status: number; body: string }> {
+  for (let attempt = 1; ; attempt++) {
+    const answer = await upload(base, name, body);
+    const text = await answer.text();
+    if (attempt < 3 && answer.status === 503 && text === JSON.stringify({ error: "Upload failed (ETIMEDOUT)." })) continue;
+    return { status: answer.status, body: text };
+  }
+}
+
 type Answer = { status: number; headers: IncomingHttpHeaders; body: string };
 /**
  * An upload through node:http, chunked (without a Content-Length): it writes `pieces`, then ends
@@ -288,7 +304,10 @@ describe("uploadSpool", () => {
   // A volume that stops answering (a network volume whose server is gone) held the upload: no
   // answer, and its room of the spool kept for good, so that the next upload got a 503.
   it("answers 503 (ETIMEDOUT) when the disk does not answer within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    // The held call counts as stuck until it is let go, and so does an upload's call that a slow
+    // disk ran past IDLE_MS (tried again by uploadAfterHold): this test is about the answer and the
+    // room, not the stuck limit (stuck-calls.test.ts).
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     for (const call of ["open", "write", "close"] as const) {
       for (const send of [(name: string) => upload(base, name, "x".repeat(800), false, AbortSignal.timeout(10_000)), (name: string) => chunked(base, name, ["x".repeat(400), "x".repeat(400)])]) {
@@ -301,7 +320,7 @@ describe("uploadSpool", () => {
         const body = hung instanceof Response ? await hung.text() : hung.body;
         expect(body).toBe(JSON.stringify({ error: "Upload failed (ETIMEDOUT)." }));
         // Its room is back: another upload of 800 bytes is taken.
-        expect((await upload(base, "next.txt", "y".repeat(800))).status).toBe(201);
+        expect(await uploadAfterHold(base, "next.txt", "y".repeat(800))).toMatchObject({ status: 201 });
         // The file is removed at once, or once the call that hung ends (an opening that made it late).
         release();
         await expect.poll(() => spooled()).toEqual([]);
@@ -312,7 +331,10 @@ describe("uploadSpool", () => {
   // A volume that stopped answering after a write failed: the closing or the removal of the file
   // held the answer, and the room of the spool for good.
   it("answers a full disk when the closing or the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    // The held call counts as stuck until it is let go, and so does an upload's call that a slow
+    // disk ran past IDLE_MS (tried again by uploadAfterHold): this test is about the answer and the
+    // room, not the stuck limit (stuck-calls.test.ts).
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     for (const hung of ["close", "removal"] as const) {
       let release!: () => void;
@@ -327,7 +349,7 @@ describe("uploadSpool", () => {
       expect(full.status).toBe(503);
       expect(await full.json()).toEqual({ error: "The server has no room for this file right now. Try again later." });
       // Its room is back: another upload of 800 bytes is taken.
-      expect((await upload(base, "next.txt", "y".repeat(800))).status).toBe(201);
+      expect(await uploadAfterHold(base, "next.txt", "y".repeat(800))).toMatchObject({ status: 201 });
       // The file is removed at once, or once the call that hung ends.
       release();
       await expect.poll(() => spooled()).toEqual([]);
