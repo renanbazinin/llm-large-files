@@ -1,6 +1,7 @@
 import { pageList } from "./quality.js";
+import { numberLines } from "./search.js";
 import { plural, sliceWhole, wellFormed } from "./text.js";
-import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, OutlineEntry } from "./types.js";
+import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, OutlineEntry, ToolName } from "./types.js";
 
 /** Formats whose documents may hold a table that `aggregate_table` reads. */
 export const TABLE_FORMATS: ReadonlySet<DocumentFormat> = new Set<DocumentFormat>(["csv", "xlsx", "docx", "pptx", "pdf", "html", "markdown"]);
@@ -11,28 +12,49 @@ const CARD_HEAD_LINES = 25;
 const CARD_OUTLINE_ENTRIES = 40;
 
 /**
+ * How planning counts documents besides their size (`planDocuments`). New in 0.10.0: without it,
+ * the plan is that of 0.9.
+ */
+export type PlanOptions = {
+  /** Count each document at its size with its lines numbered (`numberedSize`), as it is then sent. */
+  numbered?: boolean;
+};
+
+/**
  * Decides which documents go into the prompt in full and which the model reaches through
- * tools. Smaller documents are inlined first, so as many as possible are read in full.
+ * tools. Smaller documents are inlined first, so as many as possible are read in full. Since
+ * 0.10.0, `options` can count them with their lines numbered (`PlanOptions`).
  */
 export function planDocuments(
   documents: DocumentMeta[],
   budget: Budget,
   base: { tokens: number; bytes: number },
+  options: PlanOptions = {},
 ): DocumentPlan {
   const tokenRoom = Math.min(budget.inlineTokens, budget.contextTokens - budget.reservedTokens - base.tokens);
   const byteRoom = budget.maxRequestBytes - REQUEST_BYTES_MARGIN - base.bytes;
   const plan: DocumentPlan = { inline: [], searchable: [], inlineTokens: 0, inlineBytes: 0 };
   for (const meta of [...documents].sort((left, right) => left.estimatedTokens - right.estimatedTokens)) {
-    const bytes = (meta.jsonBytes ?? Math.ceil(meta.textBytes * 1.08)) + 200;
-    if (plan.inlineTokens + meta.estimatedTokens <= tokenRoom && plan.inlineBytes + bytes <= byteRoom) {
+    const size = inlineSize(meta, options.numbered === true);
+    if (plan.inlineTokens + size.tokens <= tokenRoom && plan.inlineBytes + size.bytes <= byteRoom) {
       plan.inline.push(meta);
-      plan.inlineTokens += meta.estimatedTokens;
-      plan.inlineBytes += bytes;
+      plan.inlineTokens += size.tokens;
+      plan.inlineBytes += size.bytes;
     } else {
       plan.searchable.push(meta);
     }
   }
   return plan;
+}
+
+/**
+ * What a document sent whole takes of the request: its tokens, and its bytes with 200 for its
+ * frame. `numbered` counts its line numbers too (`numberedSize`), rounded up.
+ */
+function inlineSize(meta: DocumentMeta, numbered: boolean): { tokens: number; bytes: number } {
+  if (!numbered) return { tokens: meta.estimatedTokens, bytes: (meta.jsonBytes ?? Math.ceil(meta.textBytes * 1.08)) + 200 };
+  const size = numberedSize(meta);
+  return { tokens: Math.ceil(size.tokens), bytes: Math.ceil(size.bytes) + 200 };
 }
 
 /** The digits of the numbers 1 to `count`, written out: what the line numbers of a text take. */
@@ -43,17 +65,30 @@ function digitsUpTo(count: number): number {
 }
 
 /**
+ * The size of a document's text with its lines numbered (`12345| `), as the tools show it and as
+ * `numberInline` sends it, from its metadata alone: about 1.2 tokens a digit and one for the bar,
+ * and half a token more for each line's estimate, which is rounded up; in bytes, the digits and
+ * four more a line. About 8% to 16% more tokens than the text alone: 15.5% for a CSV of short
+ * rows, 9.4% for a service log, 8.4% for Hebrew prose. New in 0.10.0.
+ */
+export function numberedSize(meta: Pick<DocumentMeta, "estimatedTokens" | "lines" | "textBytes" | "jsonBytes">): { tokens: number; bytes: number } {
+  const lines = Math.max(1, meta.lines);
+  const digits = digitsUpTo(lines);
+  return {
+    tokens: meta.estimatedTokens + 1.2 * digits + 1.5 * lines,
+    bytes: (meta.jsonBytes ?? meta.textBytes * 1.08) + digits + 4 * lines,
+  };
+}
+
+/**
  * About how many parts a whole-document read of a document takes, from its metadata alone:
  * counting them exactly means reading the whole text. In the prompt every line carries its number
- * (`12345| `), at about 1.2 tokens a digit and one for the bar, and each line's estimate is
- * rounded up. A part ends at the end of a line, so it is short of full by half a line on average.
- * On logs, prose, tables and blank-heavy text this lands within a few percent of the count.
+ * (`numberedSize`). A part ends at the end of a line, so it is short of full by half a line on
+ * average. On logs, prose, tables and blank-heavy text this lands within a few percent of the count.
  */
 export function estimateParts(meta: Pick<DocumentMeta, "estimatedTokens" | "lines" | "textBytes" | "jsonBytes">, budget: Budget): number {
   const lines = Math.max(1, meta.lines);
-  const digits = digitsUpTo(lines);
-  const tokens = meta.estimatedTokens + 1.2 * digits + 1.5 * lines;
-  const bytes = (meta.jsonBytes ?? meta.textBytes * 1.08) + digits + 4 * lines;
+  const { tokens, bytes } = numberedSize(meta);
   const room = (limit: number, size: number) => Math.max(1, limit - size / lines / 2);
   const maxBytes = Math.floor(budget.maxRequestBytes * 0.8);
   return Math.max(1, Math.ceil(Math.max(tokens / room(budget.mapChunkTokens, tokens), bytes / room(maxBytes, bytes))));
@@ -70,14 +105,22 @@ export function canBeReadWhole(meta: Pick<DocumentMeta, "estimatedTokens" | "lin
   return !Number.isFinite(parts) || parts <= budget.maxMapChunks * 1.05;
 }
 
-function formatCount(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+/**
+ * A count of tokens as a card shows it: "9,999", "10K", "1.0M". A count that rounds to 1,000K is
+ * written in millions (since 0.10.0: "1000K" before).
+ */
+export function formatCount(value: number): string {
+  if (value >= 1_000_000 || Math.round(value / 1_000) >= 1_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 10_000) return `${Math.round(value / 1_000)}K`;
   return value.toLocaleString("en-US");
 }
 
+/**
+ * A size in bytes: "512 B", "12 KB", "1.5 MB". A size that rounds to 1,024 KB is written in MB
+ * (since 0.10.0: "1024 KB" before).
+ */
 export function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${Number((bytes / 1024 / 1024).toFixed(1))} MB`;
+  if (bytes >= 1024 * 1024 || Math.round(bytes / 1024) >= 1024) return `${Number((bytes / 1024 / 1024).toFixed(1))} MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} B`;
 }
@@ -131,6 +174,49 @@ export function renderInline(meta: DocumentMeta, text: string): string {
   const mark = frameMark(meta.id);
   const note = readingNote(meta, true);
   return `--- Attached file [mark ${mark}]: ${JSON.stringify(meta.name)} (${meta.format}, ${meta.lines.toLocaleString("en-US")} ${plural(meta.lines, "line")}${note ? `, ${note}` : ""}; it ends only at the line with mark ${mark}) ---\n${text}\n--- End attached file [mark ${mark}] ---`;
+}
+
+/**
+ * A text with its lines numbered as the tools number them ("12| text", by `numberLines`): a line
+ * ends at "\n", and a newline at the very end does not start another line. What `numberInline`
+ * puts between the frame lines of a file sent whole. New in 0.10.0.
+ */
+export function numberedText(text: string): string {
+  if (text.length === 0) return "";
+  return numberLines((text.endsWith("\n") ? text.slice(0, -1) : text).split("\n"), 1);
+}
+
+/** A Markdown separator row, `| --- | :---: |`, as `aggregate_table` skips it. */
+const SEPARATOR_ROW = /^\|(?:\s*:?-{3,}:?\s*\|)+\s*$/;
+
+/**
+ * Whether a text has at least `rows` rows of a `| cell | cell |` table, by the rule
+ * `aggregate_table` reads them with: a line that starts and ends with "|", not counting the
+ * separator rows of Markdown. It stops at the row that makes the count.
+ */
+export function hasPipeRows(text: string, rows = 3): boolean {
+  let count = 0;
+  for (let start = 0; start < text.length;) {
+    const end = text.indexOf("\n", start);
+    const line = text.slice(start, end === -1 ? text.length : end).trim();
+    if (line.length > 1 && line.startsWith("|") && line.endsWith("|") && !SEPARATOR_ROW.test(line) && ++count >= rows) return true;
+    if (end === -1) break;
+    start = end + 1;
+  }
+  return false;
+}
+
+/** How many `| cell |` rows make a document sent whole one whose tables the tools count (`toolable`). */
+export const TOOLABLE_PIPE_ROWS = 3;
+
+/**
+ * Whether the tools can count the tables of a document sent whole (`PrepareOptions.inlineTables:
+ * "tools"`): a CSV or a workbook always; a document of another format that `aggregate_table` reads
+ * when its text has at least `TOOLABLE_PIPE_ROWS` rows of a `| cell |` table. New in 0.10.0.
+ */
+export function isToolable(format: DocumentFormat, text: string): boolean {
+  if (format === "csv" || format === "xlsx") return true;
+  return TABLE_FORMATS.has(format) && hasPipeRows(text, TOOLABLE_PIPE_ROWS);
 }
 
 /** How many lines of a file its card shows. */
@@ -232,3 +318,47 @@ export function documentToolsInstruction(searchable: DocumentMeta[], viewable: D
   }
   return guide.join("\n");
 }
+
+/** The tools in the order a tool set declares them: search, read, overview, aggregate, analyze, view. New in 0.10.0. */
+export const TOOL_ORDER: readonly ToolName[] = ["search_document", "read_document", "get_document_overview", "aggregate_table", "analyze_whole_document", "view_pages"];
+
+/** `names` once each, in `TOOL_ORDER`; names that are not tools are left out. New in 0.10.0. */
+export function toolsInOrder(names: Iterable<string>): ToolName[] {
+  const given = new Set(names);
+  return TOOL_ORDER.filter((name) => given.has(name));
+}
+
+/**
+ * The tools a question needs, in `TOOL_ORDER`, as `files.tools` declares them for its documents:
+ * for searched documents, search_document, read_document and get_document_overview, with
+ * aggregate_table when one may hold a table, and analyze_whole_document when `wholeReads`; for
+ * documents sent whole whose tables the tools count (`toolable`), search_document, read_document
+ * and aggregate_table; and view_pages for PDFs whose pages can be shown. None when there is
+ * nothing to search, count or look at. New in 0.10.0.
+ */
+export function questionTools(documents: { searchable: readonly DocumentMeta[]; toolable?: readonly DocumentMeta[]; viewable?: readonly DocumentMeta[] }, wholeReads: boolean): ToolName[] {
+  const { searchable, toolable = [], viewable = [] } = documents;
+  const names: ToolName[] = [];
+  if (searchable.length > 0 || toolable.length > 0) names.push("search_document", "read_document");
+  if (searchable.length > 0) names.push("get_document_overview");
+  if (toolable.length > 0 || searchable.some((meta) => TABLE_FORMATS.has(meta.format))) names.push("aggregate_table");
+  if (wholeReads && searchable.length > 0) names.push("analyze_whole_document");
+  if (viewable.length > 0) names.push("view_pages");
+  return toolsInOrder(names);
+}
+
+/**
+ * The line of the system text, with tools, for the files sent whole whose tables the tools can
+ * count (`PrepareOptions.inlineTables: "tools"`). New in 0.10.0.
+ */
+export const INLINE_TABLES_LINE = "Files shown in full can still be counted exactly: use aggregate_table for counts, sums and groups over their tables, and search_document exact for matching lines. In a spreadsheet, give the Row number when asked which row.";
+
+/** The file name in `INLINE_CITATION_LINE`: an example, never the name of a real file. New in 0.10.0. */
+export const CITATION_EXAMPLE_NAME = "report.docx";
+
+/**
+ * The line of the system text of a question without tools whose files sent whole have their
+ * lines numbered (`numberInline`). Its file name is always `CITATION_EXAMPLE_NAME`, so that the
+ * line is the same in every question. New in 0.10.0.
+ */
+export const INLINE_CITATION_LINE = `Cite line numbers like (${CITATION_EXAMPLE_NAME} L12).`;
