@@ -1134,6 +1134,51 @@ The credentials are the application default credentials, as on your servers: see
 [Gemini and Vertex AI](./vertex-and-gemini.md). For another provider, swap the adapter:
 [OpenAI-compatible endpoints](./openai-compatible.md), [Claude](./anthropic.md).
 
+## The library's own evals
+
+The repository has an eval suite in `evals/`: about 50 Hebrew and English questions over synthetic
+files (a Hebrew policy in Word, a budget workbook with two header rows, a windows-1255 CSV of 3,000
+rows, a deck, a 3 MB service log, Hebrew PDFs, a contract), each with the facts its answer must
+hold. It is how the library checks that a change to what it sends a model keeps the answers right.
+It is not part of the package. To run it, clone the repository and `npm install`:
+
+```bash
+npm run eval:replay                        # every case from its recording: no network, no key
+GEMINI_API_KEY=… npm run eval:record       # each case once against the Gemini API, recorded
+GEMINI_API_KEY=… npm run eval:live -- --k 3
+```
+
+- **Replay** answers each request from `evals/cassettes`, and checks the facts again on the
+  recorded answers. CI runs it on every pull request. A request that changed fails with
+  "prompt changed: re-record", with the case, the request and the first field that differs.
+- **Record** runs each case once on each model (Gemini 3.5 Flash-Lite and 3.8 Flash by default), and
+  writes its cassette: each request as a hash with an outline of its fields, and the response. A
+  cassette holds no request text, no key and no project ID.
+- **Live** runs each case k times. A case passes only when every run passes (pass^k): a real model
+  answers a little differently each time. A workflow of the repository runs it every week.
+
+Each run writes a report (`evals/results/<mode>.md`, and the runs as JSON beside it): for each case
+and model, whether it passed, and the requests, input tokens, cached share, latency, whether the
+question's input-token ceiling was reached, and the line citations checked per answer. The report
+of 0.9.0 is `evals/baseline/0.9.0.md`: later versions are compared with it.
+
+| Option | What it does |
+| --- | --- |
+| `--k 3` | Runs of each case, live. |
+| `--models a,b` | The Gemini models. |
+| `--cases id,id` | Only these cases (their IDs are in `evals/cases.ts`). |
+| `--results file.json` | Adds the runs to this file, and writes its report beside it. |
+| `--max-input-tokens N` | No question starts once the run has used this many input tokens. |
+| `--question-input-tokens N` | A question that uses more is stopped (1,500,000 by default). |
+
+A fact is a number (to a tolerance), a text the answer must say or must not say, a line the answer
+must cite, or the language: a Hebrew question is answered with at least 60% Hebrew letters, once
+citations, file names and numbers are left out.
+
+The record and replay under it is internal to `evals/` for now. It becomes public in
+`llm-large-files/testing` in 0.10.x, for recording the questions of your own app the same way;
+until then, [Recorded replies](#recorded-replies) shows a small version to copy.
+
 ## Reference
 
 - `fakeModel`, `says`, `calls`, `httpError`, `fakeFetch`, `sse`, `utf8`, `serviceLog` and
