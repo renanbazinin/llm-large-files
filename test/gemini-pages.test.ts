@@ -277,7 +277,8 @@ describe("askGemini without pages to show", () => {
       call("read_document", { document_id: large.id, start_line: 1, end_line: 3 }),
       say("Found."),
     ]);
-    await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [pdf.id, large.id], system: "Be brief.", messages: question("Where is request 250?"), ...(options.viewPages === undefined ? {} : { viewPages: options.viewPages }) });
+    // The PDF sent whole as 0.9 sent it, without line numbers (numbered by default since 0.10.0).
+    await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [pdf.id, large.id], system: "Be brief.", messages: question("Where is request 250?"), numberInline: false, ...(options.viewPages === undefined ? {} : { viewPages: options.viewPages }) });
     const ids = [pdf.id, large.id];
     const marks = ids.map(frameMark);
     return JSON.parse(JSON.stringify(gemini.bodies)
@@ -318,10 +319,11 @@ describe("askGemini without pages to show", () => {
     const gemini = fakeGemini([say("Two pages.")]);
     const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], messages: question("How long is it?") });
     const mark = frameMark(meta.id);
+    // Its lines numbered, and a line that asks to cite them (since 0.10.0).
     expect(gemini.bodies).toEqual([{ contents: [{ role: "user", parts: [
-      { text: `--- Attached file [mark ${mark}]: "report.pdf" (pdf, 5 lines; it ends only at the line with mark ${mark}) ---\n--- Page 1 ---\nPage 1 of the test file.\n\n--- Page 2 ---\nPage 2 of the test file.\n--- End attached file [mark ${mark}] ---` },
+      { text: `--- Attached file [mark ${mark}]: "report.pdf" (pdf, 5 lines; it ends only at the line with mark ${mark}) ---\n1| --- Page 1 ---\n2| Page 1 of the test file.\n3| \n4| --- Page 2 ---\n5| Page 2 of the test file.\n--- End attached file [mark ${mark}] ---` },
       { text: "How long is it?" },
-    ] }] }]);
+    ] }], systemInstruction: { parts: [{ text: "Cite line numbers like (report.docx L12)." }] } }]);
     expect(result).toMatchObject({ answered: true, turns: 1, steps: [] });
   });
 });

@@ -42,11 +42,13 @@ describe("askWithFiles", () => {
     expect(model.requests).toHaveLength(1);
     const [request] = model.requests;
     expect(request!.tools).toBeUndefined();
-    expect(request!.system).toBe("Be brief.");
+    // Since 0.10.0 the lines of a file sent whole are numbered, and the system text asks to cite them.
+    expect(request!.system).toBe("Be brief.\n\nCite line numbers like (report.docx L12).");
     // The document first, the question last, in the one user turn.
     expect(request!.messages).toHaveLength(1);
-    expect(textOf(request!.messages[0])).toMatch(/^--- Attached file \[mark [0-9a-f]{8}\]: "notes\.md"[\s\S]*The code word is heron\.[\s\S]*What is the code word\?$/);
-    expect(result).toMatchObject({ text: "Heron.", answered: true, steps: [], evidence: [], toolTurns: [], turns: 1, finishReason: "stop", lastUsage: { prompt: 40 } });
+    expect(textOf(request!.messages[0])).toMatch(/^--- Attached file \[mark [0-9a-f]{8}\]: "notes\.md"[\s\S]*\n3\| The code word is heron\.[\s\S]*What is the code word\?$/);
+    // The file sent whole is the evidence: every line of it was shown.
+    expect(result).toMatchObject({ text: "Heron.", answered: true, steps: [], evidence: [{ tool: "inline", documentId: meta.id, document: "notes.md", lines: [[1, 3]], whole: true }], toolTurns: [], turns: 1, finishReason: "stop", lastUsage: { prompt: 40 } });
     expect(result.usage).toEqual({ requests: 1, inputTokens: 40, cachedInputTokens: 0, outputTokens: 3, thoughtTokens: 0, byModel: { "fake-model": { requests: 1, inputTokens: 40, cachedInputTokens: 0, outputTokens: 3, thoughtTokens: 0 } } });
     expect(deltas.join("")).toBe("Heron.");
     expect(deltas.length).toBeGreaterThan(1);

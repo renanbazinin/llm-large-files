@@ -89,7 +89,8 @@ describe("a PDF without any text", () => {
     });
     const result = await askGemini({ files, endpoint: geminiApi({ apiKey: "k", model: "m" }), fetch, documentIds: [meta.id], messages: [{ role: "user", text: "What is this document?" }] });
     expect(bodies[0]!.tools[0].functionDeclarations.map((tool: { name: string }) => tool.name)).toEqual(["view_pages"]);
-    expect(bodies[0]!.contents[0].parts[0].text).toContain(`--- Page 1 ---\n${SCANNED_PAGE}`);
+    // Numbered, as the files sent whole are since 0.10.0.
+    expect(bodies[0]!.contents[0].parts[0].text).toContain(`1| --- Page 1 ---\n2| ${SCANNED_PAGE.split("\n").join("\n3| ")}`);
     expect(bodies[0]!.systemInstruction.parts[0].text).toContain(`"scan.pdf" (document_id ${meta.id}, 3 pages)`);
     const response = bodies[1]!.contents.at(-1).parts[0].functionResponse;
     expect(response.response).toMatchObject({ pages: "1-3", total_pages: 3 });

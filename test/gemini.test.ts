@@ -46,9 +46,10 @@ describe("askGemini", () => {
     expect(url).toBe(endpoint.url);
     const body = JSON.parse(String(init.body));
     expect(body.tools).toBeUndefined();
-    expect(body.systemInstruction.parts[0].text).toBe("Be brief.");
+    // Since 0.10.0 the system text asks to cite the numbered lines of the file sent whole.
+    expect(body.systemInstruction.parts[0].text).toBe("Be brief.\n\nCite line numbers like (report.docx L12).");
     // The document comes first and the question last.
-    expect(body.contents[0].parts[0].text).toContain("The code word is heron.");
+    expect(body.contents[0].parts[0].text).toContain("\n3| The code word is heron.");
     expect(body.contents[0].parts[1].text).toBe("What is the code word?");
   });
 

@@ -135,9 +135,13 @@ describe("AskResult.citations", () => {
       says(`The import (notes.md L3), not (notes.md L${note.lines + 40}); errors at (app.log L97) and (app.log L${log.lines + 1}).`),
     ], { generateText: async () => "Notes (L97)." });
     const result = await askWithFiles({ files, model, documentIds: [log.id, note.id], messages: [{ role: "user", text: "When?" }] });
-    expect(result.evidence).toEqual([expect.objectContaining({ tool: "analyze_whole_document", whole: true })]);
-    // The evidence itself is as it was: the lines are the check's own.
-    expect(result.evidence[0]).not.toHaveProperty("lines");
+    // The file sent whole first, with every line (since 0.10.0), then the whole-file read.
+    expect(result.evidence).toEqual([
+      { tool: "inline", documentId: note.id, document: "notes.md", lines: [[1, note.lines]], whole: true },
+      expect.objectContaining({ tool: "analyze_whole_document", whole: true }),
+    ]);
+    // The evidence of the read is as it was: its lines are the check's own.
+    expect(result.evidence[1]).not.toHaveProperty("lines");
     expect(result.citations).toEqual({ checked: 4, supported: 2, unchecked: 0, unsupported: [{ document: "notes.md", line: note.lines + 40 }, { document: "app.log", line: log.lines + 1 }] });
   });
 

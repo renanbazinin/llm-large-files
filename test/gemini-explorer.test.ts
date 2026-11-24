@@ -188,7 +188,8 @@ describe("askGemini with an explorer model", () => {
     const gemini = fakeGemini([say("Heron.")]);
     const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], system: "Be brief.", explorerGenerationConfig: { temperature: 0 }, messages: question("What is the code word?") });
     expect(gemini.sent.map((request) => request.url)).toEqual([endpoint.url]);
-    expect(systemOf(gemini.sent[0]!.body)).toBe("Be brief.");
+    // Since 0.10.0 the system text asks to cite the numbered lines of the file sent whole.
+    expect(systemOf(gemini.sent[0]!.body)).toBe("Be brief.\n\nCite line numbers like (report.docx L12).");
     expect(gemini.sent[0]!.body.generationConfig).toBeUndefined();
     expect(result).toMatchObject({ text: "Heron.", answered: true, turns: 1 });
   });

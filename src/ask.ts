@@ -29,7 +29,7 @@ import {
   type UsageTotals,
 } from "./model.js";
 import { DocumentStoreError } from "./errors.js";
-import { canBeReadWhole, estimateParts, REQUEST_BYTES_MARGIN } from "./plan.js";
+import { canBeReadWhole, estimateParts, inlineInstruction, questionTools, REQUEST_BYTES_MARGIN } from "./plan.js";
 import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
 import {
@@ -50,6 +50,12 @@ import { wholeReadCost } from "./whole-cost.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
+/**
+ * The same, when files were also sent whole and the tools can read them or their lines are
+ * numbered (`inlineTables`, `numberInline`): what they say is part of the answer too, not only what
+ * the tools returned. New in 0.10.0. Not exported from the package.
+ */
+export const FINAL_ANSWER_WITH_FILES = "Stop using tools now. Answer my question using only the files shown in full and what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
 /** The same, when the only tool was `view_pages`: the text of the files is in the prompt, not in tool results. */
 export const FINAL_ANSWER_AFTER_PAGES = "Stop using tools now. Answer my question from the text of the files and the pages you looked at. Say plainly what you could not see or find. Answer in the language of my question.";
 /**
@@ -153,14 +159,17 @@ export type AskOptions = {
    */
   nativeRounds?: boolean;
   /**
-   * "tools": a table sent whole (a CSV, a workbook, `| cell |` rows) can still be counted and
-   * searched with `aggregate_table` and `search_document`; "text": it is sent whole without tools,
-   * as in 0.9. Defaults to "tools". New in 0.10.0. Not read yet: tables sent whole get no tools.
+   * "tools": a table sent whole (a CSV, a workbook, a file with `| cell |` rows) can still be
+   * counted and searched: the question gets `search_document`, `read_document` and
+   * `aggregate_table` for it, and runs the tool loop. When no file is searched, `model` runs that
+   * loop itself, without the explorer, so a question that needs no count is still answered in one
+   * request. "text": it is sent whole without tools, as in 0.9. Defaults to "tools". New in 0.10.0.
    */
   inlineTables?: "tools" | "text";
   /**
-   * Number the lines of the files sent whole, as the tools number them, so that the answer can
-   * cite them. Defaults to true. New in 0.10.0. Not read yet: they are not numbered.
+   * Number the lines of the files sent whole, as the tools number them ("12| "), so that the answer
+   * can cite them. When no file is searched, the system text asks for citations like
+   * "(report.docx L12)". Defaults to true; false sends them as in 0.9. New in 0.10.0.
    */
   numberInline?: boolean;
   /**
@@ -282,7 +291,11 @@ export type AskResult = {
   blockReason?: string;
   /** Every tool step taken, in order (also delivered through `onStep`). */
   steps: string[];
-  /** What each tool call showed the model: the document, and the lines or pages. In call order. */
+  /**
+   * What the model was shown: first each file sent whole, in the order of its block (`tool`
+   * "inline", every line, `whole: true`, no `callId`; since 0.10.0), then what each tool call
+   * showed, the document and the lines or pages, in call order.
+   */
   evidence: Evidence[];
   /**
    * The tool rounds of this question as plain JSON. Kept with the conversation and passed back in
@@ -377,6 +390,27 @@ function checkFilteredAnswer(given: unknown): void {
   if (given === undefined || given === "keep" || given === "drop") return;
   throw new TypeError(`filteredAnswer must be "keep" or "drop", and is ${shownValue(given)}.`);
 }
+
+/**
+ * `inlineTables` and `numberInline` checked: a value they cannot be ("Text", "false") is an error
+ * before anything is planned, as `prepare` would throw it, but in the words of the question.
+ */
+function checkInlineOptions(tables: unknown, numbered: unknown): void {
+  if (tables !== undefined && tables !== "tools" && tables !== "text") throw new TypeError(`inlineTables must be "tools" or "text", and is ${shownValue(tables)}.`);
+  if (numbered !== undefined && typeof numbered !== "boolean") throw new TypeError(`numberInline must be true or false, and is ${shownValue(numbered)}.`);
+}
+
+/**
+ * The evidence of a document sent whole (since 0.10.0): every line of it was shown. It comes from
+ * no tool call, so it has no `callId`.
+ */
+const sentWhole = (meta: DocumentMeta): Evidence => ({
+  tool: "inline",
+  documentId: meta.id,
+  document: meta.name,
+  ...(Number.isFinite(meta.lines) && meta.lines >= 1 ? { lines: [[1, Math.trunc(meta.lines)]] } : {}),
+  whole: true,
+});
 
 /** An object made as `{}` or `Object.create(null)` is: not a Map, an array or an instance of a class. */
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
@@ -958,13 +992,18 @@ async function askPlanned(options: AskOptions, state: RunState): Promise<AskResu
 async function ask(options: AskOptions, carried: Carried | undefined, state: RunState): Promise<AskResult> {
   const { files, model, signal } = options;
   const { events } = state;
-  // A second model for the requests that use tools. The answering model itself is not one.
-  const explorer = options.explorer && options.explorer !== model ? options.explorer : undefined;
-  const toolModel = explorer ?? model;
-  const models = explorer ? [model, explorer] : [model];
+  // A second model for the requests that use tools. The answering model itself is not one. It
+  // explores only when a file is searched (see `explorer` below), but the budget is fitted to it.
+  const given = options.explorer && options.explorer !== model ? options.explorer : undefined;
+  const models = given ? [model, given] : [model];
   const limits = checkedLimits(options.limits);
   checkMissingPolicy(options.onMissingDocuments);
   checkFilteredAnswer(options.filteredAnswer);
+  checkInlineOptions(options.inlineTables, options.numberInline);
+  // Since 0.10.0 by default: the tables sent whole get the tools, and the files sent whole have
+  // numbered lines. "text" and false send them as 0.9 did.
+  const inlineTables = options.inlineTables ?? "tools";
+  const numberInline = options.numberInline ?? true;
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -1013,12 +1052,30 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...access,
     viewPages: options.viewPages !== false && canShowFiles,
     // The guide and the cards name `analyze_whole_document` only when the tools will have it.
-    wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof toolModel.generateText === "function",
+    wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof (given ?? model).generateText === "function",
     budget,
+    numberInline,
+    inlineTables,
   }), signal));
   const { prepared, documentIds } = planned;
   /** The documents left out of the question ("drop"), by this try and by the first. */
   const missing = [...carried?.missing ?? [], ...planned.dropped];
+  // Tools are needed for a file that is too large to send whole, for a PDF whose pages can be
+  // looked at (that one may have its whole text in the prompt and still hide a chart from the
+  // model), and for a table sent whole whose rows they can count (`inlineTables`). A library of
+  // your own whose `prepare` gives no `toolable` has none of the last.
+  const { searchable } = prepared.plan;
+  const { viewable } = prepared;
+  const toolable = prepared.toolable ?? [];
+  // The explorer gathers what the answer needs from the files searched with the tools. When none
+  // is, and the tools are there for tables sent whole, the answering model runs the loop itself: a
+  // question that needs no count is then answered in its first request, and the whole files are
+  // not sent to two models that share no cache.
+  const explorer = given && !(searchable.length === 0 && toolable.length > 0) ? given : undefined;
+  const toolModel = explorer ?? model;
+  // The lines of the files sent whole are numbered when asked, by a library whose `prepare` is
+  // that of 0.10.0 (it always gives `guide`): one of your own of 0.9 sends them as they are.
+  const numbered = numberInline && prepared.guide !== undefined;
 
   const blocks = [...new Set(documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
   if (blocks.length) {
@@ -1029,13 +1086,16 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   }
   // A question without some of its files says so to the model, in one line of its own.
   const missingLine = missing.length > 0 ? missingFilesLine(missing.length) : "";
-  const system = [options.system?.trim(), prepared.instruction, missingLine].filter(Boolean).join("\n\n");
+  // The fixed lines for the files sent whole (since 0.10.0): that their tables can still be counted
+  // with the tools, and, when no file is searched, to cite their numbered lines.
+  const inlineLine = inlineInstruction(prepared, numbered);
+  const system = [options.system?.trim(), prepared.instruction, inlineLine, missingLine].filter(Boolean).join("\n\n");
 
   // The size of what stays in every request: the text as asked, the documents, the tool guide.
   const whole = new Set(prepared.plan.inline.map((meta) => meta.id));
   meter.fixed = {
-    tokens: asText.tokens + prepared.plan.inlineTokens + estimateTokens(prepared.instruction) + (missingLine ? estimateTokens(missingLine) : 0),
-    bytes: asText.bytes + prepared.plan.inlineBytes + jsonBytes(prepared.instruction) + (missingLine ? jsonBytes(missingLine) : 0),
+    tokens: asText.tokens + prepared.plan.inlineTokens + estimateTokens(prepared.instruction) + (inlineLine ? estimateTokens(inlineLine) : 0) + (missingLine ? estimateTokens(missingLine) : 0),
+    bytes: asText.bytes + prepared.plan.inlineBytes + jsonBytes(prepared.instruction) + (inlineLine ? jsonBytes(inlineLine) : 0) + (missingLine ? jsonBytes(missingLine) : 0),
   };
   for (const [id, block] of prepared.blocks) {
     if (whole.has(id)) continue;
@@ -1052,7 +1112,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   let blockReason: string | undefined;
   let lastUsage: Record<string, unknown> | undefined;
   const steps: string[] = [];
-  const evidence: Evidence[] = [];
+  // The files sent whole come first, in the order of their blocks: the model was shown every line
+  // of them before any tool ran (since 0.10.0).
+  const inlineById = new Map(prepared.plan.inline.map((meta) => [meta.id, meta]));
+  const evidence: Evidence[] = [...new Set(documentIds)].flatMap((id) => {
+    const meta = inlineById.get(id);
+    return meta ? [sentWhole(meta)] : [];
+  });
   const emit = (delta: string, requestId: string) => {
     text += delta;
     options.onText?.(delta);
@@ -1216,15 +1282,15 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       names[meta.id] = meta.name;
       formats[meta.id] = meta.format;
     }
-    // A document sent whole was shown, every line of it, and a whole-file read read every line:
-    // those from 1 to its last. A line past the end of the file is not supported.
+    // A document sent whole was shown, every line of it (its evidence comes first and says so),
+    // and a whole-file read read every line: those from 1 to its last. A line past the end of the
+    // file is not supported.
     const linesOf = new Map(documents.map((meta) => [meta.id, meta.lines]));
     const bounded = (entry: Evidence): Evidence => {
       const lines = linesOf.get(entry.documentId);
       return entry.whole === true && !entry.lines && typeof lines === "number" && Number.isFinite(lines) ? { ...entry, lines: lines >= 1 ? [[1, Math.trunc(lines)]] : [] } : entry;
     };
-    const sentWhole: Evidence[] = prepared.plan.inline.map((meta) => ({ tool: "inline", documentId: meta.id, document: meta.name, whole: true }));
-    return checkCitations(text, [...sentWhole, ...evidence].map(bounded), names, formats);
+    return checkCitations(text, evidence.map(bounded), names, formats);
   };
   const result = (answered: boolean): AskResult => ({
     text,
@@ -1530,11 +1596,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   else signal?.addEventListener("abort", stopTools, { once: true });
 
   try {
-    // Tools are needed for a file that is too large to send whole, and for a PDF whose pages can be
-    // looked at: that one may have its whole text in the prompt and still hide a chart from the model.
-    const { searchable } = prepared.plan;
-    const { viewable } = prepared;
-    if (searchable.length === 0 && viewable.length === 0) return answer(wrote(await send(model, () => ({ system, messages }), true, { role: "answer", purpose: "direct" })));
+    // Nothing for the tools (see `toolable` above): one request, without them.
+    if (searchable.length === 0 && viewable.length === 0 && toolable.length === 0) return answer(wrote(await send(model, () => ({ system, messages }), true, { role: "answer", purpose: "direct" })));
 
     // Reading a whole file in parts is exploring too: the explorer model's work, when there is one.
     // Bound to its adapter: a class with a `generateText` method that uses `this` keeps it.
@@ -1557,7 +1620,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       if (!reported) usage.add(toolModel.id, undefined, estimate());
       return text;
     });
-    const tools = files.tools(searchable, {
+    // The tables sent whole are read by the tools too. Their question declares exactly the tools it
+    // needs (`questionTools`): search_document, read_document and aggregate_table for them, never
+    // get_document_overview or analyze_whole_document, which refuses a file sent whole if it is
+    // called. With no such table, the tool set of 0.9.
+    const declare = toolable.length > 0
+      ? { declare: questionTools({ searchable, toolable, viewable }, generate !== undefined && searchable.some((meta) => canBeReadWhole(meta, budget))), inline: prepared.plan.inline.map((meta) => meta.id) }
+      : {};
+    const tools = files.tools([...searchable, ...toolable], {
       // The owner and scope the store holds are checked against the question's own, not against
       // the metadata handed in.
       access,
@@ -1568,12 +1638,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       maxWholeDocumentReads: limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS,
       ...(options.retry ? { retry: options.retry } : {}),
       budget,
+      ...declare,
     });
     const declarations = tools.declarations;
     /** The documents a tool call found gone, told once each ("document_gone"). */
     const gone = new Set<string>();
     /** The file name of a document of the question, as the plan has it. */
-    const metaOf = (id: unknown): DocumentMeta | undefined => (typeof id === "string" ? [...searchable, ...viewable].find((meta) => meta.id === id) : undefined);
+    const metaOf = (id: unknown): DocumentMeta | undefined => (typeof id === "string" ? [...searchable, ...toolable, ...viewable].find((meta) => meta.id === id) : undefined);
     const nameOf = (id: string): string | undefined => metaOf(id)?.name;
     // The requests that use the tools are the chat's own, or an explorer model's: the same
     // conversation, and a line that says what its part is.
@@ -2205,7 +2276,12 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // With an explorer model this request is always made: it is the one the answering model gets.
     if (!answered && !blockReason) {
       activity("writing_answer", "Writing the answer…");
-      let closing = searchable.length > 0 ? FINAL_ANSWER_REQUEST : FINAL_ANSWER_AFTER_PAGES;
+      // With view_pages alone, the files are in the prompt and the pages were looked at. With the
+      // text tools, the answer comes from what they returned, and from the files sent whole too when
+      // their lines can be cited or their tables were counted: a model told "only what the tools
+      // returned" said that a fact of a file shown in full was not there.
+      const fromFiles = prepared.plan.inline.length > 0 && (numbered || toolable.length > 0);
+      let closing = searchable.length === 0 && toolable.length === 0 ? FINAL_ANSWER_AFTER_PAGES : fromFiles ? FINAL_ANSWER_WITH_FILES : FINAL_ANSWER_REQUEST;
       // No tool ran (the explorer needed none, the first reply was empty, or no turn was left for
       // tools): there is no tool result to answer from. The answering model gets the explorer's
       // calls and what they returned, and nothing else of it.

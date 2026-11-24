@@ -67,7 +67,8 @@ async function roomForPages(before: ChatMessage[] = []): Promise<number | undefi
     },
   };
   const model = fakeModel([calls([{ name: "view_pages", args: { document_id: meta.id, from_page: 2 } }]), says("Page 2.")]);
-  await askWithFiles({ files: spy, model, documentIds: [meta.id], messages: [...before, { role: "user", text: "What is on page 2?" }] });
+  // The PDF sent whole as 0.8.2 sent it: without line numbers, which 0.10.0 adds by default.
+  await askWithFiles({ files: spy, model, documentIds: [meta.id], messages: [...before, { role: "user", text: "What is on page 2?" }], numberInline: false });
   expect(seen).toHaveLength(1);
   return seen[0];
 }
