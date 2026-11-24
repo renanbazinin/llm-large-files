@@ -38,8 +38,9 @@ provider's prompt cache once at the upgrade.
 
 ## Does my code compile?
 
-Most code does. Every new option and field is optional, and no export was removed or renamed.
-These do not compile:
+Most code does. Every new option and field is optional, except two that the library's own objects
+now have (`stats` and `toolsFor` of `CreatedLargeFiles`, and `DocumentHandlers.stats()`): a mock of
+those types needs them, as the table says. No export was removed or renamed. These do not compile:
 
 | Code of yours | The error | What to write |
 |---|---|---|
@@ -152,6 +153,10 @@ What a question over a table costs:
 - **Limits sized for 0.9's one request** (`toolTurns: 1`, `requests: 1`, an `inputTokens` between
   one and two requests with the table) leave no tool turn: the question makes 0.9's one request,
   without tools.
+- **With an explorer** (`explorerModel` of `askGemini`, `explorer` of `askWithFiles`), a question in
+  which no file is searched and a table sent whole gets the tools runs on the answering model alone:
+  the files sent whole are not sent to two models. In 0.9 the explorer was not used either, since
+  such a question had no tools.
 
 **Who:** chats whose files are sent whole.
 **What to do:** nothing, or `inlineTables: "text"` for 0.9's cost and `numberInline: false` for
@@ -201,8 +206,9 @@ limit.
 
 A reply that a filter stopped part-way was an answer like any other in 0.9. Now `result.finish`
 says how the answer ended. An `answer_filtered` or `answer_cut` notice comes before `run.finish`.
-A reply ended by `"filtered"` or `"other"` is not asked for again: 2 requests over a searched file,
-where 0.9 made 4. Gemini's `MODEL_ARMOR` and the image filters new since 0.9
+A reply ended by `"filtered"` or `"other"` is not asked for again. 0.9 already stopped so after
+`SAFETY` and the filters it knew; a reply ended by a reason it did not know (`MODEL_ARMOR`, `OTHER`,
+`LANGUAGE` …) made 4 requests over a searched file, and now makes 2. Gemini's `MODEL_ARMOR` and the image filters new since 0.9
 (`IMAGE_PROHIBITED_CONTENT`, `IMAGE_RECITATION`, `IMAGE_OTHER`) count as `"filtered"`, as
 `IMAGE_SAFETY` did; `OTHER`, `LANGUAGE` and four more as `"other"`. `MALFORMED_RESPONSE` is now `"malformed_call"`: the turn is
 asked for once more.
@@ -259,10 +265,12 @@ The Hebrew chatbot of [the 0.9 guide](./upgrading-0.9.md#a-worked-example-a-hebr
 answers with Gemini on Vertex AI, keeps its chats in MongoDB (one record per chat, one per
 question), and stores its files on a shared volume with a folder per user and chat. Its
 `documents.ts` and its records do not change: each question's record keeps the question's text,
-its `toolTurns` and its answer, as in 0.9. Its `ask.ts` changes in four places:
+its `toolTurns` and its answer, as in 0.9. Its `ask.ts` changes in four places (the reply still
+passes `result.missing` on, as in 0.9):
 
 - the token function takes `{ refresh }`, and fetches a new token after a 401;
-- `body` puts billing labels on every request;
+- `body` puts billing labels on every chat request, and `analysisBody` on each part read of a
+  whole-file read (`body` does not reach those);
 - `filteredAnswer: "drop"` drops a filtered answer;
 - `answerInfoOf` gives the Hebrew message for an answer that is not complete.
 
@@ -298,7 +306,7 @@ function historyOf(earlier: TurnRecord[], question: string): Array<ChatTurn | To
   ];
 }
 
-export type Answer = { status: number; text?: string; note?: string; error?: string; retryAfterMs?: number };
+export type Answer = { status: number; text?: string; note?: string; missing?: string[]; error?: string; retryAfterMs?: number };
 
 export async function ask(userId: string, sessionId: string, question: string, signal: AbortSignal): Promise<Answer> {
   const session = await sessions.findOne({ _id: sessionId, userId });
@@ -310,6 +318,7 @@ export async function ask(userId: string, sessionId: string, question: string, s
       files,
       endpoint,
       body: { labels: { app: "chatbot", team: "hr" } }, // billing labels: never a user ID
+      analysisBody: () => ({ labels: { app: "chatbot", team: "hr" } }), // the part reads of a whole-file read
       owner: userId,
       scope: scopeOf(userId, sessionId),
       documentIds: session.files.map((file) => file.id),
@@ -322,10 +331,11 @@ export async function ask(userId: string, sessionId: string, question: string, s
     if (result.missing?.length) {
       await sessions.updateOne({ _id: sessionId, userId }, { $pull: { files: { id: { $in: result.missing } } } });
     }
+    const missing = result.missing ?? [];
     const info = answerInfoOf(result);
-    if (info.complete) return { status: 200, text: result.text };
+    if (info.complete) return { status: 200, text: result.text, missing };
     // A cut answer has text worth reading: the message goes under it.
-    return result.answered && result.text ? { status: 200, text: result.text, note: hebrew(info) } : { status: 200, text: hebrew(info) };
+    return result.answered && result.text ? { status: 200, text: result.text, note: hebrew(info), missing } : { status: 200, text: hebrew(info), missing };
   } catch (error) {
     const partial = partialResultOf(error);
     if (partial) await turns.insertOne({ ...asked, toolTurns: partial.toolTurns });
@@ -355,8 +365,8 @@ function hebrew(info: AnswerInfo): string {
   so the record keeps no answer. When the answer was streamed, the `answer_filtered` notice has
   `discardText: true`: the page takes back what it showed
   ([Filtered and cut answers](./guides/errors-and-reliability.md#filtered-and-cut-answers)).
-- **`body` labels** reach the project's billing export. Label by app, team or feature, never by
-  user.
+- **`body` labels** reach the project's billing export, for the chat requests; `analysisBody` gives
+  the part reads of a whole-file read the same labels. Label by app, team or feature, never by user.
 - **The chat misses the cache once**, at its first question after the upgrade: its files are
   numbered from then on. A follow-up still differs from its first stored round, as in 0.9
   ([The one cache miss](#the-one-cache-miss)).
@@ -364,7 +374,9 @@ function hebrew(info: AnswerInfo): string {
 ## Loops of your own
 
 `files.prepare()` keeps 0.9's plan, blocks and `instruction`, names included, unless you pass
-`numberInline` or `inlineTables`. With `inlineTables: "tools"` it also returns `toolable`.
+`numberInline: true` or `inlineTables: "tools"` (`false` and `"text"` keep 0.9's). With
+`inlineTables: "tools"` it also returns `toolable`. The card sizes of LLF-059 ("1.0M", "1 MB")
+change whatever you pass.
 
 - **Line numbers and tables with tools:** pass `numberInline: true` and `inlineTables: "tools"`,
   and give the tools the files of `prepared.toolable` too, with the IDs of the files sent whole as
@@ -387,7 +399,7 @@ New options of `gemini()` and `askGemini`, each unset by default
 
 | Option | What it does |
 |---|---|
-| `body` | Fields merged last into every chat request: `safetySettings`, `labels`, `serviceTier`, `cachedContent` (`GeminiRequestFields`) |
+| `body` | Fields merged last into every chat request (not the part reads: see `analysisBody`): `safetySettings`, `labels`, `serviceTier`, `cachedContent` (`GeminiRequestFields`). `askGemini` sends `systemInstruction` in every chat request, so `cachedContent` does not fit it ([why](./guides/vertex-and-gemini.md#fields-of-your-own-safety-settings-labels-and-more)) |
 | `explorerBody` | The same for the explorer, when it needs other fields (`askGemini`) |
 | `analysisBody` | A function of `maxOutputTokens`, merged last into each part read |
 | `functionCallingMode` | `"VALIDATED"` has Gemini check each call against its declaration; `"AUTO"` by default. Not measured live |
@@ -406,8 +418,8 @@ Before you set them:
 
 - **Labels reach the billing export** of the project, and everyone who reads it. Never put a user
   ID, an email or other personal data in them.
-- **`body` changes the bytes of every request**: the first request after you set it misses the
-  cache once.
+- **`body` changes the bytes of every chat request** (and `analysisBody` those of each part read):
+  the first request after you set it misses the cache once.
 
 ## Operations on a shared volume
 

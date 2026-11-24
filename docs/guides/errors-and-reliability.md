@@ -744,7 +744,8 @@ New in 0.10.0. A store that stops answering no longer holds a question forever. 
 the library has a time limit, `storeTimeoutMs` (30 s by default): past it, the call is a
 `DocumentStoreError` of code `"ETIMEDOUT"`, a 503 to retry. In a question it ends the question with
 `run.error`, and the model sees no new text. While too many calls of the process are stuck past
-their limit (`maxStuckStoreCalls`, half of `UV_THREADPOOL_SIZE`), store calls fail at once with code
+their limit (`maxStuckStoreCalls`, half of the libuv pool, at least 1: 2 when `UV_THREADPOOL_SIZE`
+is unset), store calls fail at once with code
 `"STORE_STUCK"`, 503 too, so that the server keeps its threads for everything else. Both are
 category `"store"` for `errorInfoOf`: the words of the `"store"` case above fit them ("try again in
 a moment"). [Deployment](./deployment.md#a-store-that-stops-answering) says how to size the limits

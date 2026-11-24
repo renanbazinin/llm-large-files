@@ -662,7 +662,7 @@ not an overflow.
 | A conflict | 409 | `"invalid"` | Yes |
 | A gateway refused the body as too large | 413 | `"context_overflow"` | Made smaller, as in [A request too large](#a-request-too-large) |
 | Gemini failed on its side | 5xx | `"server"` | Yes |
-| An error inside a stream, or in a body of HTTP 200, without a numeric code | The status of its `google.rpc` name: `"UNAVAILABLE"` 503, `"RESOURCE_EXHAUSTED"` 429, `"DEADLINE_EXCEEDED"` 504, `"INVALID_ARGUMENT"` 400 …; 500 for a name it does not know. Before 0.10.0, 200. | By the status | Yes for 429 and 5xx, unless text was shown; a daily quota is `"quota"`, and is not |
+| An error inside a stream, or in a body of HTTP 200, without a numeric code | The status of its `google.rpc` name: `"UNAVAILABLE"` 503, `"RESOURCE_EXHAUSTED"` 429, `"DEADLINE_EXCEEDED"` 504, `"INVALID_ARGUMENT"` 400 …; 500 for a name it does not know. Before 0.10.0, 200. | By the status | Yes for 408, 409, 429 and 5xx (`"ABORTED"` and `"ALREADY_EXISTS"` are 409), unless text was shown; a daily quota is `"quota"`, and is not |
 | Nothing came for `firstByteTimeoutMs` or `idleTimeoutMs` | 0 | `"timeout"` | Once |
 | A part read took longer than `timeoutMs` | 0 | `"timeout"` | Once (since 0.10.0) |
 | The connection failed, or a stream ended before its `finishReason` | 0 | `"unreachable"` | Yes, unless text was shown |

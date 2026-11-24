@@ -107,7 +107,7 @@ The endpoint of a Gemini model on Vertex AI, signed in with an OAuth access toke
 | `project` | `string` | required with `accessToken` | The Google Cloud project ID. URL-encoded into the path. Not with `apiKey`. |
 | `model` | `string` | required | The model that answers, under `publishers/google/models/`. Without an explorer it also makes the tool calls. |
 | `explorerModel` | `string \| undefined` | none | A second model that explores the documents, with the same rules as in [`geminiApi()`](#geminiapioptions). It is in the same project and location. |
-| `location` | `string` | `"global"` | Where the requests are served. It picks the host ([`vertexHost()`](#vertexhostlocation)) and is the `locations/{location}` segment of the path. It must be lowercase letters, digits and single hyphens (`"global"`, `"us"`, `"europe-west4"`): anything else throws a `TypeError`, since 0.7.1. Not with `apiKey`. |
+| `location` | `string` | `"global"` | Where the requests are served. It picks the host ([`vertexHost()`](#vertexhostlocation)) and is the `locations/{location}` segment of the path. It must be lowercase letters, digits and single hyphens (`"global"`, `"us"`, `"europe-west4"`): anything else throws a `TypeError`, since 0.7.1 (with `host`, it is not checked, only URL-encoded). Not with `apiKey`. |
 | `accessToken` | `string \| ((context: { refresh: boolean }) => string \| Promise<string>)` | required without `apiKey` | Sent as `Authorization: Bearer {token}`. A function is called before every request, chat requests and part reads of both models alike, so it can return a renewed token. Since 0.10.0 it is called with `{ refresh: true }` when the token it gave was refused with HTTP 401: return a new token then, not the one kept in a cache. A function of no arguments still fits. |
 | `apiKey` | `string` | none | The API key of Vertex AI express mode, sent as the `x-goog-api-key` header. The URL then names no project or location: `{host}/{apiVersion}/publishers/google/models/{model}:generateContent`. Give `apiKey` or `project` and `accessToken`, not both. New in 0.10.0. |
 | `headers` | `Record<string, string>` or a function that returns them | none | More headers, merged after the library's: a name you give replaces the library's. A function is called before every request with the context the endpoint's `headers` get (`{ refresh: true }` after a 401). New in 0.10.0. |
@@ -164,6 +164,7 @@ type VertexAiOptions =
       project: string;
       location?: string;
       accessToken: string | ((context: { refresh: boolean }) => string | Promise<string>);
+      apiKey?: never;
       model: string;
       explorerModel?: string | undefined;
       headers?: HeaderSource | undefined;
@@ -172,6 +173,9 @@ type VertexAiOptions =
     }
   | {
       apiKey: string;
+      project?: never;
+      location?: never;
+      accessToken?: never;
       model: string;
       explorerModel?: string | undefined;
       headers?: HeaderSource | undefined;
@@ -179,11 +183,12 @@ type VertexAiOptions =
       apiVersion?: string;
     };
 // HeaderSource = Record<string, string> | ((context?: { refresh?: boolean }) => Record<string, string> | Promise<Record<string, string>>)
+// HeaderSource is exported from llm-large-files since 0.10.1.
 ```
 
 The options of [`vertexAi()`](#vertexaioptions): a project with a token, or an API key of express
-mode. The type refuses a project with an API key, and a project without a token. New as a type of
-its own in 0.10.0.
+mode. The type refuses a project with an API key (the `never` fields), and a project without a
+token. New as a type of its own in 0.10.0.
 
 ### vertexHost(location)
 
@@ -484,7 +489,7 @@ What `send` does:
 | Case | Error | `status` | `kind` |
 |---|---|---|---|
 | Gemini answered with an HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "Gemini returned HTTP 503." | The HTTP status | Told from the status, Gemini's `error.status` and `details` |
-| An error object inside the stream, or in a reply of HTTP 200 that is not streamed | `GeminiRequestError` with its message, or "Gemini reported an error." | Its `code` when that is a number; else, since 0.10.0, the status of its `google.rpc` name (`"UNAVAILABLE"` 503, `"RESOURCE_EXHAUSTED"` 429, `"DEADLINE_EXCEEDED"` 504, `"INVALID_ARGUMENT"` 400 …); else 500. Before 0.10.0, the response's 200, so it was not sent again. | As above |
+| An error object inside the stream, or in a reply of HTTP 200 that is not streamed | `GeminiRequestError` with its message, or "Gemini reported an error." | Its `code` when that is a whole number from 400 to 599; else, since 0.10.0, the status of its `google.rpc` name (`"UNAVAILABLE"` 503, `"RESOURCE_EXHAUSTED"` 429, `"DEADLINE_EXCEEDED"` 504, `"INVALID_ARGUMENT"` 400 …); else 500. Before 0.10.0, the response's 200, so it was not sent again. | As above |
 | The connection failed, before or while the reply arrived, or an event of the stream was not JSON | `GeminiRequestError`: "Gemini could not be reached (fetch failed)." | 0 | `"unreachable"` |
 | A reply of HTTP 200 whose body is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", new in 0.6.0. When the reply's type is `text/event-stream`, "Gemini's reply ended before it was complete." Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
 | Nothing arrived for a whole wait | `GeminiRequestError`: "Gemini sent nothing for 600 s." | 0 | `"timeout"` |

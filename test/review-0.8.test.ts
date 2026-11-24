@@ -32,7 +32,7 @@ describe("search", () => {
     let note: string | undefined;
     for (let budget = 5; budget <= 640; budget *= 2) {
       const result = await files.tools([meta], { regexBudgetMs: budget }).execute("search_document", { document_id: meta.id, query: "(ab)*line \\d+", mode: "regex", order: "last" });
-      note = result.note;
+      note = typeof result.note === "string" ? result.note : undefined;
       if (!note || !outOfTime.test(note)) break;
     }
     expect(note).toMatch(/^The scan stopped early; the total is a lower bound\. These are the last \d+ matching lines it found, in the order of the file\. There may be later ones, after line \d+: search again with from_line \d+\.$/);
