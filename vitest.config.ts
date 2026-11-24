@@ -35,8 +35,8 @@ export default defineConfig({
     environment: "node",
     // `npm run coverage`: the unit project, over the source (coverage/coverage-summary.json). It
     // fails when a total is under its threshold. The thresholds are 1 point under the totals of the
-    // 0.9.0 suite, rounded down (statements 92.95%, branches 87.84%, functions 94.52%, lines
-    // 95.52%). Raise them as the totals rise; lower one only on purpose, and say why. The numbers
+    // 0.10.0 suite, rounded down (statements 93.87%, branches 89.38%, functions 95.48%, lines
+    // 96.1%). Raise them as the totals rise; lower one only on purpose, and say why. The numbers
     // are reported even when a test fails: counting makes the tests several times slower, and its
     // script gives each 60 s. A test's own timeout is kept: one that is slow under coverage needs
     // one that fits.
@@ -45,7 +45,7 @@ export default defineConfig({
       include: ["src/**"],
       reporter: ["text-summary", "json-summary"],
       reportOnFailure: true,
-      thresholds: { statements: 91, branches: 86, functions: 93, lines: 94 },
+      thresholds: { statements: 92, branches: 88, functions: 94, lines: 95 },
     },
     projects: [
       {

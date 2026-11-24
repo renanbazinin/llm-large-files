@@ -46,11 +46,13 @@ These do not compile:
 |---|---|---|
 | A `switch` over `NoticeCode` with a `never` check, or a `Record<NoticeCode, …>` | Four new members: `"answer_filtered"`, `"answer_cut"`, `"placement_changed"`, `"native_rounds_dropped"` | Add them; a `switch` can end in a `default` instead |
 | The same over `ToolOutcome` | A new member: `"redacted"` | Add it |
-| The same over `ModelReply["finish"]` or `AskResult["finish"]` | A new member: `"other"` | Add it |
+| The same over `ModelReply["finish"]`, `AskResult["finish"]` or the `finish` of a `request.end` event | A new member: `"other"` | Add it |
 | Code that reads `owner`, `scope`, `sha256`, `original` or `metaVersion` of a document in the plan of `run.finish` or `run.error` (`EventResult.plan`) (TS2339) | Its metas are `Omit<DocumentMeta, …>` of those fields, and `eventResults: true` leaves them out at run time too | Read them from `AskResult.plan` |
 | A mock typed `ReturnType<typeof createLargeFiles>`, or a variable whose type was inferred from `createLargeFiles` and that you later give a `LargeFiles` of your own (TS2322) | `createLargeFiles` returns `CreatedLargeFiles`, whose `stats()` and `toolsFor()` are required | Type it `LargeFiles` |
 | A `DocumentHandlers` made by hand, such as a mock (TS2741) | `DocumentHandlers` has a required `stats()` | Add `stats`, or type the mock as the part you use |
 | A `LargeFiles` of your own with a member named `stats` or `toolsFor` of another type (TS2322, TS2416) | `LargeFiles` has optional methods of those names | Rename yours |
+| A type of your own that extends `ChatTurn`, `ToolTurn` or `ModelCapabilities` with a field named `notes`, `documentIds`, `native` or `nativeRounds` of another type (TS2430, TS2322) | The library has optional fields of those names | Rename yours |
+| A value typed `Parameters<typeof vertexAi>[0]` whose `project` or `location` you read as a string, or whose `accessToken` you call with no argument (TS2322, TS2554) | `vertexAi` takes `VertexAiOptions`, a union of the token form and express mode (`apiKey`), and its token function is typed with its `{ refresh }` argument | Type it `Extract<VertexAiOptions, { project: string }>`, and call `accessToken({ refresh: false })` |
 | A subclass of `UsageMeter` whose `add` takes a parameter of its own after `usage` (TS2416) | `add(model, usage, estimatedInputTokens?)` takes that place | Put yours after it |
 | `openAiToolTurns` passed as a callback: `histories.map(openAiToolTurns)` (TS2345) | Its new second parameter, `{ native }`, would get the index | `histories.map((turns) => openAiToolTurns(turns))` |
 
@@ -91,18 +93,23 @@ pays its full input price once. What changes:
 - Stored rounds go back in the model's own form (thought signatures, thinking blocks,
   `reasoning_content`) to `geminiApi()`, `anthropic()` and `openAiCompatible()`.
 - On a card, a size between 999,500 and 999,999 tokens reads "1.0M"; on a card and in
-  `get_document_overview`, a size between 1,048,064 and 1,048,575 bytes reads "1 MB".
+  `get_document_overview`, a size between 1,048,064 and 1,048,575 bytes reads "1 MB", and so do the
+  error messages that print such a size (upload and text limits, `view_pages`).
 
 **Why one miss.** All these changes ship in one release, so a chat misses once, not once a
-version. **Why later questions cache better.** From then on, question N+1's first request extends
-question N's last request, byte for byte, up to the note at its end. An upload, a dropped file, a
-new tool or a growing history no longer rewrites the start of every later request. On the Gemini
-API with Gemini 3.8 Flash, a follow-up whose rounds went back as calls kept only the system text
-and tools in the cache (33.7% of a 7K request, 15.7% of a 15K one, 9 of 9); with the rounds sent
-back as they were, 69.5% and 85.7% in 2 of 3, and one total miss
+version. **Why later questions cache better.** From then on, on the Gemini API and
+OpenAI-compatible servers, question N+1's first request extends question N's last request, byte for
+byte, up to the note at its end. An upload, a dropped file, a new tool or a growing history no
+longer rewrites the start of every later request. On the Gemini API with Gemini 3.8 Flash, a
+follow-up whose rounds went back as calls kept only the system text and tools in the cache (33.7%
+of a 7K request, 15.7% of a 15K one, 9 of 9); with the rounds sent back as they were, 69.5% and
+85.7% in 2 of 3, and one total miss
 ([Measurements](./measurements.md#the-live-session-on-the-gemini-api)). The cache share is
-reported in `usage.cachedInputTokens`, not promised: the provider decides what it serves. With
-Claude, a follow-up still differs from its first stored round, as in 0.9.
+reported in `usage.cachedInputTokens`, not promised: the provider decides what it serves.
+
+**Where a follow-up still differs from its first stored round, as in 0.9:** on Vertex AI, where
+`nativeRounds` stays off and rounds go back as their calls; with `nativeRounds: false`; and with
+Claude.
 
 This holds when you store what each question returns, as
 [the worked example](#keeping-the-cache-the-worked-example) does. What still changes the start, and
@@ -150,18 +157,19 @@ gives 0.9's rules ([The default ceiling](./guides/costs-and-limits.md#the-defaul
 
 ### Tables sent whole get tools, and files sent whole are numbered
 
-In `askWithFiles` and `askGemini`, a table sent whole (a CSV, an XLSX workbook, or a file with a
-table of at least 3 `| cell |` rows) gets `search_document`, `read_document` and
-`aggregate_table`, and the question runs the tool loop. Counts and sums are then exact. Files sent
-whole are numbered, about 8% to 16% more tokens each, and a file at the edge of `inlineTokens` may
-become a card.
+In `askWithFiles` and `askGemini`, a table sent whole (a CSV, an XLSX workbook, or a DOCX, PPTX,
+PDF, HTML or Markdown file with a table of at least 3 `| cell |` rows) gets `search_document`,
+`read_document` and `aggregate_table`, and the question runs the tool loop. Counts and sums are
+then exact. Files sent whole are numbered, about 8% to 16% more tokens each, and a file at the edge
+of `inlineTokens` may become a card.
 
 What a question over a table costs:
 
 - **No count:** one request when the model answers at once, a little larger (about 1,500 tokens of
   declarations and a guide line).
-- **A count:** about 3 requests, each sending the table again. Requests two and three start as the
-  first did, so an implicit cache bills most of them at the cached price.
+- **A count:** 2 or 3 requests (live, a median of 2 on both models), each sending the table again.
+  The later requests start as the first did, so an implicit cache bills most of them at the cached
+  price.
 - **At most:** about `toolTurns` times the first request, bounded by the ceiling: about 1.5M input
   tokens for a CSV of 3,000 invoices.
 - **Live, on the eval's cases** shared with 0.9.0: about 2.3 to 2.4 times 0.9.0's input tokens.
@@ -222,9 +230,10 @@ limit.
 
 A reply that a filter stopped part-way was an answer like any other in 0.9. Now `result.finish`
 says how the answer ended. An `answer_filtered` or `answer_cut` notice comes before `run.finish`.
-A reply ended by `"filtered"` or `"other"` is not asked for again: 2 requests, where 0.9 made 4.
-Gemini's `MODEL_ARMOR` and image filters count as `"filtered"`; `OTHER`, `LANGUAGE` and four more
-as `"other"`.
+A reply ended by `"filtered"` or `"other"` is not asked for again: 2 requests over a searched file,
+where 0.9 made 4. Gemini's `MODEL_ARMOR` and image filters count as `"filtered"`; `OTHER`,
+`LANGUAGE` and four more as `"other"`. `MALFORMED_RESPONSE` is now `"malformed_call"`: the turn is
+asked for once more.
 
 **Who:** every chat page.
 **What to do:** switch on `answerInfoOf(result)` for the message to show. With
@@ -281,7 +290,7 @@ apps that pass a `documentPlacement` from a setting.
 `nativeRounds` defaults to the `capabilities` of the adapter a round goes back to.
 `geminiApi()`, `anthropic()` and `openAiCompatible()` get their own turns back, in later questions
 too. `vertexAi()` keeps it off: no live check of old thought signatures has run on Vertex AI, so its
-rounds go back as their calls, as in 0.9.
+rounds go back as their calls, as in 0.9, and a follow-up differs from its first stored round.
 
 - Each signed round sent again is billed: 133 to 215 input tokens a round on Gemini 3.8 Flash.
 - A provider that refuses old signatures (an HTTP 400 that names a thought signature, Claude's
@@ -454,11 +463,15 @@ function hebrew(info: AnswerInfo): string {
 - **Store `result.userTurn`, not your `turn`.** It is your turn as it was sent: your text, your
   `documentIds` and any field of your own, with the library's `notes` (the files left out, a file
   that moved to the cards). A document no turn listed goes to the newest turn, and
-  `userTurn.documentIds` names it, so it stays there. A record of 0.9 has no `userTurn`: that turn
-  changes once, and nothing fails.
-- **Keep `toolTurns` as they are.** Each round holds `native`, a few KB: the model's own turn. Here
-  it is not sent back to Vertex AI (`nativeRounds` is off there). Keep it all the same: a round
-  stored without it changes once, and a later version may send it.
+  `userTurn.documentIds` names it, so it stays there. A turn stored as `{ role, text }` loses that
+  list, and its documents move to the newest turn at every question. A record of 0.9 has no
+  `userTurn`: that turn changes once, and nothing fails.
+- **Keep `toolTurns` as they are.** Each round holds `native`, a few KB: the model's own turn. It
+  is not sent back to Vertex AI (`nativeRounds` is off there), so on this chat a follow-up still
+  differs from its first stored round, as in 0.9. The cache can keep the system text, the tools and
+  the turns before that round; on Gemini 3.8 Flash it kept only the system text and tools
+  ([Measurements](./measurements.md#the-live-session-on-the-gemini-api)). Keep `native` all the
+  same: a later version may send it to Vertex AI.
 - **Pass `result.placement` back.** It holds document IDs, the tools of the chat, a hash of the
   first user turn and the stand-in boundary; never names or text, and it is never sent to a model.
   A state that does not fit (another version, another first turn, a bad shape) is ignored with a
@@ -478,9 +491,15 @@ function hebrew(info: AnswerInfo): string {
 ### Allow the new fields
 
 A schema that checks each field of what you store refuses the fields 0.10.0 adds: a MongoDB
-`$jsonSchema` with `additionalProperties: false`, or a Mongoose schema in strict mode that throws.
-Your insert then fails after each question. Change the schema before the first server of 0.10.0
-starts:
+`$jsonSchema` with `additionalProperties: false`, or a Mongoose schema with `strict: "throw"`.
+Your insert then fails after each question. Mongoose's default strict mode is worse: it drops the
+fields it does not know, with no error. The placement and `native` are then lost every time, so
+every question is planned afresh and every follow-up differs from its first stored round. In
+Mongoose, declare `userTurn`, `placement` and the rounds of `toolTurns` as `Schema.Types.Mixed`.
+
+Change the schema before the first server of 0.10.0 starts. `collMod` replaces the collection's
+whole validator, so merge these properties into the `$jsonSchema` you already have, or your own
+rules on `turns` and `sessions` are lost. The sample shows only the new ones:
 
 ```ts
 import { MongoClient } from "mongodb";

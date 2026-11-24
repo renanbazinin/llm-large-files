@@ -26,7 +26,7 @@ npm run test:watch   # the tests again on every save
 `test/timing/`, and prints the share of lines, statements, functions and branches the tests run
 (`coverage/coverage-summary.json` holds them). It fails when a test fails, or when a total is
 under its threshold (`coverage.thresholds` in `vitest.config.ts`). The thresholds are 1 point under
-the totals of the 0.9.0 suite, rounded down: raise them as the totals rise, and lower one only on
+the totals of the 0.10.0 suite, rounded down: raise them as the totals rise, and lower one only on
 purpose, saying why in the pull request. Counting makes the tests several times slower, so it
 gives each test 60 s. A test that sets a timeout of its own keeps it under coverage, and fails
 past it: raise each such timeout to fit the test's time there ([Tests](#tests)).

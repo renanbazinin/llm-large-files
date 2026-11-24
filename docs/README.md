@@ -292,6 +292,11 @@ headings, each pointing to its new home.
 starts with what you must change when you upgrade, then what you can add, what works differently
 and what was fixed.
 
+[Upgrading to 0.10](./upgrading-0.10.md) takes an application from 0.9.0 to 0.10.0: what no longer
+compiles, the one cache miss, behavior to check, keeping the cache (the chatbot of the 0.9 guide,
+carried over), loops of your own, Vertex AI controls, operations on a shared volume and rolling
+deploys.
+
 [Upgrading to 0.9](./upgrading-0.9.md) takes an application from 0.8.x to 0.9.0: what no longer
 compiles, behavior to check, stores of your own, servers of two versions on one store, and a worked
 example of a chatbot with a folder per user and chat on a shared volume.

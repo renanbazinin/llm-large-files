@@ -1117,7 +1117,7 @@ import { askGemini } from "llm-large-files/gemini";
 const result = await askGemini({
   files, endpoint, documentIds, messages, owner,
   limits: {
-    inputTokens: 1_000_000, // no more tools once the question has sent this many input tokens
+    inputTokens: 1_000_000, // no tool request that, with the answer, would pass it
     requests: 20,           // chat requests and part reads together
     wholeDocumentReads: 0,  // no whole-file reads
   },
@@ -1127,10 +1127,11 @@ const { inputTokens, cachedInputTokens, outputTokens, requests, byModel } = resu
 console.log({ owner, inputTokens, cachedInputTokens, outputTokens, requests, byModel });
 ```
 
-The ceilings are checked before each request that may use tools. Once one is reached, the next
-request is the answer, which is still made: a question can pass `inputTokens` by about two
-requests (the one that crossed it, and the answer): set it that far below what must not be passed
-([Costs and limits](./guides/costs-and-limits.md#inputtokens-and-requests-are-checked-between-turns)). A
+The ceilings are checked before each request that may use tools, looking ahead: when what the
+question spent, the next tool request and the answer would pass `inputTokens`, the next request is
+the answer. So a question can pass `inputTokens` by about one request, the answer's, with the
+results of the last tool turn in it: set it that far below what must not be passed
+([Costs and limits](./guides/costs-and-limits.md#the-ceiling-looks-ahead)). A
 cheaper [explorer model](./guides/explorer-model.md) takes the searching and the part reads off the
 model that answers.
 

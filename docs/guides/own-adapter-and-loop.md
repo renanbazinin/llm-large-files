@@ -826,7 +826,7 @@ const prepared = await files.prepare(documentIds, base, {
   owner,
   numberInline: true,
   inlineTables: "tools",
-  placement: chat.placement, // undefined for the first question
+  ...(chat.placement ? { placement: chat.placement } : {}), // none for the first question
   reserve: { tokens: estimateTokens(sentDeclarations), bytes: jsonBytes(sentDeclarations) },
 });
 chat.placement = prepared.placement;

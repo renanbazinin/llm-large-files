@@ -554,7 +554,8 @@ export async function answer(sessions: Sessions, userId: string, sessionId: stri
 ### An allowance per user
 
 To keep a user within an allowance, turn what the user has left into `limits.inputTokens` of the
-next question. Keep a margin: a question can pass its ceiling by about two requests.
+next question. Keep a margin: a question can pass its ceiling by about one request, the answer's
+([The ceiling looks ahead](#the-ceiling-looks-ahead)).
 
 ```ts
 import { askGemini } from "llm-large-files/gemini";
@@ -562,7 +563,7 @@ import { askGemini } from "llm-large-files/gemini";
 // files and endpoint as in the first sample. spentThisMonth: the user's input tokens this month,
 // from your records. userId, documentIds and messages are yours.
 const allowance = 50_000_000; // input tokens a month: your own figure
-const margin = 2_000_000;     // about two requests of a 1M-token window
+const margin = 1_000_000;     // about one request of a 1M-token window
 const left = allowance - spentThisMonth;
 if (left <= margin) throw new Error("You have used this month's allowance.");
 
