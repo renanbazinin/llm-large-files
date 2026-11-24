@@ -8,7 +8,7 @@ import { createLargeFiles, DocumentScopeError, DocumentStoreError, FileDocumentS
 const bytes = (text: string) => new TextEncoder().encode(text);
 const log = (lines: number) => Array.from({ length: lines }, (_, i) => `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z INFO request ${i} took ${i % 900}ms`).join("\n");
 
-type FsCall = "readFile" | "open" | "rm" | "unlink";
+type FsCall = "readFile" | "open" | "rm" | "unlink" | "rename";
 
 /**
  * Makes the next `times` matching calls of an `fs/promises` function fail the way a busy volume
@@ -31,6 +31,15 @@ function failNext(method: FsCall, matches: (target: string) => boolean, code: st
     table[method] = real;
     syncBuiltinESMExports();
   };
+}
+
+/**
+ * Makes the next removal of the metadata fail: its rename to a name of the removal's own (since
+ * 0.10.0), and an `unlink` of it (before).
+ */
+function failBoth(matches: (target: string) => boolean, code: string): () => void {
+  const undo = [failNext("rename", matches, code), failNext("unlink", matches, code)];
+  return () => undo.reverse().forEach((step) => step());
 }
 
 let directory: string | undefined;
@@ -124,8 +133,9 @@ describe("a store that could not be read", () => {
     const before = (await readdir(dir)).sort();
     expect(before).toHaveLength(4);
 
-    // EIO, which is not tried again (EBUSY is since 0.9.0: see below).
-    restore = failNext("unlink", (target) => target.endsWith(`${meta.id}.json`), "EIO");
+    // EIO, which is not tried again (EBUSY is since 0.9.0: see below). Since 0.10.0 the metadata is
+    // renamed to a name of the delete's own before it is removed: the rename fails.
+    restore = failBoth((target) => target.endsWith(`${meta.id}.json`), "EIO");
     await expect(files.delete(meta.id)).rejects.toMatchObject({ name: "DocumentStoreError", operation: "delete", code: "EIO" });
     restore();
     restore = undefined;
@@ -212,7 +222,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
     const files = createLargeFiles({ store: new FileDocumentStore(dir) });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\n") });
     // EROFS (a volume mounted read-only) is not tried again: EPERM, EACCES and EBUSY are, since 0.9.0.
-    restore = failNext("unlink", (target) => target.endsWith(`${meta.id}.json`), "EROFS");
+    restore = failBoth((target) => target.endsWith(`${meta.id}.json`), "EROFS");
     const thrown = await files.delete(meta.id).catch((error: unknown) => error);
     expect(DocumentStoreError.is(thrown)).toBe(true);
     expect(thrown).toMatchObject({ operation: "delete", code: "EROFS", status: 503, message: "The document could not be deleted (EROFS). Try again." });
@@ -263,13 +273,14 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
 
 /**
  * Makes removing a file that `matches` fail with `code`, `times` times, whichever call removes it:
- * `unlink` since 0.9.0, `rm` before. Counts the tries.
+ * `unlink` since 0.9.0, `rm` before, and for the metadata, since 0.10.0, its `rename` to a name of
+ * the removal's own. Counts the tries.
  */
 function failRemoval(matches: (target: string) => boolean, code: string, times = Number.POSITIVE_INFINITY): { tries: number } {
-  const table = fsp as unknown as Record<"rm" | "unlink", (...args: unknown[]) => Promise<unknown>>;
-  const real = { rm: table.rm, unlink: table.unlink };
+  const table = fsp as unknown as Record<"rm" | "unlink" | "rename", (...args: unknown[]) => Promise<unknown>>;
+  const real = { rm: table.rm, unlink: table.unlink, rename: table.rename };
   const counted = { tries: 0 };
-  for (const method of ["rm", "unlink"] as const) {
+  for (const method of ["rm", "unlink", "rename"] as const) {
     table[method] = function (this: unknown, ...args: unknown[]) {
       const target = String(args[0]);
       if (matches(target)) {
@@ -283,6 +294,7 @@ function failRemoval(matches: (target: string) => boolean, code: string, times =
   restore = () => {
     table.rm = real.rm;
     table.unlink = real.unlink;
+    table.rename = real.rename;
     syncBuiltinESMExports();
   };
   return counted;

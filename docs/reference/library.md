@@ -1406,13 +1406,15 @@ documents of each scope are in a folder of their own:
   links in the folders of a scope are refused on every platform (`"scope_invalid"`).
 - `delete` removes the metadata first. When that fails, it throws, and nothing else is removed: the
   document stays whole. Then it removes the text, the index and the original, and returns whether
-  the metadata existed. Since 0.9.0, a part that cannot be removed then is left for `sweep`, and
-  `delete` still returns `true`: the document is gone once its metadata is.
+  it removed the metadata itself. Since 0.9.0, a part that cannot be removed then is left for
+  `sweep`, and `delete` still returns `true`: the document is gone once its metadata is. Since
+  0.10.0 the metadata is first renamed to a name of the call's own (`<id>.json.<8 hex>.tmp`), and
+  that name is then removed: of two deletes of one document at once, on one server or two, only
+  one returns `true`, on Windows too.
 - `sweep(now?)` removes expired documents and returns how many, counting a document whose metadata
   is not valid and is older than `orphanAgeMs`. It counts only the documents whose metadata it
-  removed itself: of two sweeps at once, on one server or two, each document is counted once
-  (since 0.9.0). Not always on Windows: there, two processes that remove one file at the same
-  moment can both be told it was removed, so the total can count a document twice. It also
+  removed itself, as `delete` does: of two sweeps at once, on one server or two, each document is
+  counted once (since 0.9.0; on Windows too since 0.10.0). It also
   removes files that belong to no document, and temporary files, once they are older than
   `orphanAgeMs` (these are not counted). Where files
   of your own may sit beside the documents (`directory` without `scopes`, or `scopes.folder` `""`),

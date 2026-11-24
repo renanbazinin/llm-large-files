@@ -53,7 +53,7 @@ function metaOf(id: string, text: string, expiresAt: number): DocumentMeta {
 }
 const documentOf = (id: string, text: string, expiresAt = START + DAY): StoredDocument => ({ meta: metaOf(id, text, expiresAt), text });
 
-type FsTable = Record<"realpath" | "unlink", (...args: unknown[]) => Promise<unknown>>;
+type FsTable = Record<"realpath" | "unlink" | "rename", (...args: unknown[]) => Promise<unknown>>;
 
 /** Replaces a function of `node:fs/promises` for the test, as the store imports it. */
 function replace(method: keyof FsTable, make: (real: FsTable[keyof FsTable]) => FsTable[keyof FsTable]): void {
@@ -331,18 +331,24 @@ describe("FileDocumentStore.sweep counts a document once", () => {
     const root = await folder();
     const store = new FileDocumentStore(root, { now });
     await store.put(documentOf("a", "alpha", START - DAY));
-    // Another server's sweep removes the metadata just before this one does.
-    replace("unlink", (real) => async function (this: unknown, ...args: unknown[]) {
-      if (String(args[0]).endsWith(`${path.sep}a.json`)) await real.apply(this, args);
+    // Another server's sweep claims the metadata (renames it to a name of its own, since 0.10.0)
+    // and removes it, just before this one does.
+    replace("rename", (real) => async function (this: unknown, ...args: unknown[]) {
+      if (String(args[0]).endsWith(`${path.sep}a.json`)) {
+        const other = `${String(args[0])}.0000aaaa.tmp`;
+        await real.call(this, args[0], other);
+        await unlink(other);
+      }
       return real.apply(this, args);
     });
     expect(await store.sweep(new Date(START))).toBe(0);
     expect(await readdir(root)).toEqual([]);
   });
 
-  // Not on Windows: two processes that unlink one file at the same moment can both succeed there
-  // (the file goes when the last handle closes), and a Windows runner counted 26 of 25.
-  it.skipIf(process.platform === "win32")("gives two sweeps of one volume at once a total of the documents removed", async () => {
+  // On Windows too, since 0.10.0: two processes that unlink one file at the same moment can both
+  // succeed there (a Windows runner counted 26 of 25), so each removal first renames the metadata to
+  // a name of its own, and counts only when that name is still there to remove.
+  it("gives two sweeps of one volume at once a total of the documents removed", async () => {
     const root = await folder();
     const writer = new FileDocumentStore(root, { now, scopes: { depth: 2, createScopeFolders: true } });
     for (let chat = 0; chat < 25; chat++) await writer.put(documentOf("a", "alpha", START - DAY), { scope: ["u1", `s${chat}`] });

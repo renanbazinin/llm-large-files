@@ -41,8 +41,10 @@ async function folder(): Promise<string> {
 const log = (lines: number) => Array.from({ length: lines }, (_, i) => `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z INFO request ${i} took ${i % 900}ms`).join("\n");
 
 /**
- * Makes the next `times` calls of `rename` fail with `code`, the way Windows refuses to replace a
- * file that a reader or a virus scanner has open for a moment. Notes the target of every call.
+ * Makes the next `times` calls of `rename` that write a file (a temporary file onto its name) fail
+ * with `code`, the way Windows refuses to replace a file that a reader or a virus scanner has open
+ * for a moment. Notes the target of every such call. The renames of a removal (the metadata to a
+ * name of its own, since 0.10.0) are let through.
  */
 function failRename(times: number, code: string): string[] {
   const table = fsp as unknown as { rename: (...args: unknown[]) => Promise<unknown> };
@@ -50,6 +52,7 @@ function failRename(times: number, code: string): string[] {
   const targets: string[] = [];
   let left = times;
   table.rename = function (this: unknown, ...args: unknown[]) {
+    if (!String(args[0]).endsWith(".tmp")) return real.apply(this, args);
     targets.push(String(args[1]));
     if (left-- > 0) return Promise.reject(Object.assign(new Error(`${code}: operation not permitted, rename '${String(args[0])}'`), { code, syscall: "rename" }));
     return real.apply(this, args);

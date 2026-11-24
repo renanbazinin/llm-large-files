@@ -235,15 +235,52 @@ async function removeFile(file: string): Promise<boolean> {
   }
 }
 
+/** A temporary name of the store for `target`: `<name>.<8 hex>.tmp`, which `sweep` removes once it is old. */
+const temporaryOf = (target: string) => `${target}.${randomUUID().slice(0, 8)}.tmp`;
+
+/**
+ * A text longer than this, in UTF-16 units, is written a slice of this many at a time, so that no
+ * one turn of the event loop encodes it all: a text of 97.5 MB, encoded at once, held the thread
+ * for a second. New in 0.10.0.
+ */
+export const WRITE_SLICE_CHARACTERS = 1024 * 1024;
+
+/**
+ * Writes `text` to `file`, new, in UTF-8: in slices of `WRITE_SLICE_CHARACTERS`, each cut before a
+ * high surrogate rather than after it, so that no character is cut in two and the bytes are those
+ * of the whole text encoded at once.
+ */
+async function writeSlices(file: string, text: string, mode: number): Promise<void> {
+  const handle = await open(file, "w", mode);
+  try {
+    for (let at = 0; at < text.length;) {
+      let end = Math.min(at + WRITE_SLICE_CHARACTERS, text.length);
+      const last = text.charCodeAt(end - 1);
+      if (end < text.length && last >= 0xd800 && last <= 0xdbff) end--;
+      const bytes = Buffer.from(text.slice(at, end), "utf8");
+      for (let written = 0; written < bytes.byteLength;) {
+        const { bytesWritten } = await handle.write(bytes, written, bytes.byteLength - written);
+        if (bytesWritten <= 0) throw Object.assign(new Error("The text could not be written."), { code: "EIO", syscall: "write" });
+        written += bytesWritten;
+      }
+      at = end;
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
  * Writes a file whole or not at all, as other processes see it: to a temporary name first, then
  * renamed. A server reading a shared volume never sees half of a file another server is writing.
- * The temporary file is made with `mode`, and the rename keeps it.
+ * The temporary file is made with `mode`, and the rename keeps it. A text longer than
+ * `WRITE_SLICE_CHARACTERS` is written in slices (0.10.0).
  */
 async function writeWhole(target: string, data: string | Uint8Array, mode: number): Promise<void> {
-  const temporary = `${target}.${randomUUID().slice(0, 8)}.tmp`;
+  const temporary = temporaryOf(target);
   try {
-    await writeFile(temporary, data, { mode });
+    if (typeof data === "string" && data.length > WRITE_SLICE_CHARACTERS) await writeSlices(temporary, data, mode);
+    else await writeFile(temporary, data, { mode });
     await retried(() => rename(temporary, target));
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => undefined);
@@ -641,13 +678,34 @@ export class FileDocumentStore implements DocumentStore {
   }
 
   /**
-   * Removes the metadata, then the other files. When the metadata cannot be removed, the error is
-   * thrown and nothing else is touched: the document stays whole. Once it is gone, the document is
-   * gone: a text, index or original that cannot be removed now is left for `sweep`.
+   * Removes the metadata, then the other files. True only when this call removed the metadata.
+   * When the metadata cannot be removed, the error is thrown and nothing else is touched: the
+   * document stays whole. Once it is gone, the document is gone: a text, index or original that
+   * cannot be removed now is left for `sweep`.
+   *
+   * Since 0.10.0 the metadata is first renamed to a name of this call's own (`<id>.json.<8 hex>.tmp`),
+   * then that name is removed, and the removal is this call's only when that succeeds. On Windows
+   * two unlinks of one file at the same moment can both succeed (the file goes when the last handle
+   * closes), so two sweeps counted one document twice, and two deletes both said true. A rename of
+   * a name that is gone fails (ENOENT); two renames of one file can both succeed on Windows, when
+   * both opened it before either moved it, but the file then has the last name only, and only that
+   * call's unlink finds it. The rename is tried again while Windows refuses it for a moment
+   * (EPERM, EBUSY, EACCES: a reader or a scanner has the file open), as a write's is. A name of
+   * this call's own that cannot be removed now (it is renamed already: the document is gone) is
+   * left for `sweep`, which removes temporary files once they are old, and the removal counts.
    */
   async #remove(place: Place, id: string): Promise<boolean> {
     const files = filesOf(place.folder, id);
-    const existed = await removeFile(files.meta);
+    const claim = temporaryOf(files.meta);
+    let existed: boolean;
+    try {
+      await retried(() => rename(files.meta, claim));
+      existed = true;
+    } catch (error) {
+      if (!missing(error)) throw error;
+      existed = false;
+    }
+    if (existed) existed = await removeFile(claim).catch(() => true);
     await Promise.allSettled([files.text, files.original, files.index].map(removeFile));
     return existed;
   }
@@ -801,8 +859,6 @@ export class FileDocumentStore implements DocumentStore {
         const known = meta !== undefined && (ours || meta.id === id);
         if (known ? expired(meta!, now) : ours && await old(metaFile)) {
           // 1 only when this sweep removed the metadata: another sweep at the same time may have.
-          // On Windows both unlinks of one file can succeed (the file goes when the last handle
-          // closes), and both sweeps count it: claiming it by a rename first would tell them apart.
           return await pool(() => this.#remove(place, id)).then((existed) => (existed ? 1 : 0), () => 0);
         }
       }
