@@ -211,6 +211,17 @@ export type ExtractedText = {
    * to hash it, a slice at a time. Other extractors leave it out. New in 0.9.0.
    */
   file?: { bytes: number; sha256: string };
+  /**
+   * A PDF's headings, found from the size of its type: each line set larger than the body, with
+   * its page (from 1), its level (1 is the top) and its text, in the order of the text; and `skip`,
+   * when lines above it on its page read the same (a contents list, a running header), how many.
+   * The built-in PDF extractor returns them; `ingest` finds each among the lines of its page (the
+   * lines after `--- Page N ---`), with spaces left out of the comparison, past the first `skip`
+   * that match, and makes them the outline when the text's own rules find fewer than 3 headings and
+   * it finds 3 or more. Read for a PDF only. An extractor that wraps the built-in one passes them on
+   * to keep that outline. New in 0.10.0.
+   */
+  headings?: Array<{ page: number; level: number; title: string; skip?: number }>;
 };
 
 export type ExtractInput = {
