@@ -1,7 +1,8 @@
 // The bytes of the requests the library sends, for the questions of the ask, explorer,
 // missing-document, Gemini, OpenAI and Claude fixtures below, kept in test/request-bodies/*.json.
 // Recorded on 0.9.0, before the first change of 0.10.0 to src/. A change to src/ that is not meant
-// to change what a model is sent must leave every body equal, byte for byte.
+// to change what a model is sent must leave every body equal, byte for byte. The whole-file reads of
+// the OpenAI and Claude fixtures came later, and were recorded on the source of 0.9.0 too.
 //
 // What is recorded:
 // - for a fake model (`fakeModel` of llm-large-files/testing): each `ModelRequest` given to `send`,
@@ -113,11 +114,38 @@ function recordingFetch(replies: FakeReply[], log: Sent[]): typeof globalThis.fe
 
 /** The system text of a request of a whole-file read, or undefined for a request of the chat. */
 function readSystem(sent: Sent): string | undefined {
-  const body = JSON.parse(sent.body) as { system?: string; systemInstruction?: { role?: string; parts?: Array<{ text?: string }> } };
-  if (sent.to === "generateText") return body.system;
+  return readSystemOf(sent.to, JSON.parse(sent.body) as ReadBody);
+}
+
+/** What `readSystemOf` reads of a body, in the shape of each fixture's model. */
+type ReadBody = {
+  system?: string;
+  systemInstruction?: { role?: string; parts?: Array<{ text?: string }> };
+  messages?: Array<{ content?: unknown }>;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  stream?: boolean;
+};
+
+/** The system text of a request posted to `to`, when it is one of a whole-file read. */
+function readSystemOf(to: string, body: ReadBody): string | undefined {
+  if (to === "generateText") return body.system;
+  // OpenAI's requests of a whole-file read (its generateText) set an output limit; its chat requests here do not.
+  if (to.startsWith("https://api.openai.com/")) {
+    const system = body.messages?.[0]?.content;
+    return (body.max_tokens !== undefined || body.max_completion_tokens !== undefined) && typeof system === "string" ? system : undefined;
+  }
+  // Claude's chat requests here stream, as by default; its requests of a whole-file read do not.
+  if (to.startsWith("https://api.anthropic.com/")) return body.stream === true ? undefined : body.system;
   // Gemini's part reads (createGeminiGenerateText) give their system instruction a role; its chat requests do not.
   return body.systemInstruction?.role === "system" ? body.systemInstruction.parts?.[0]?.text : undefined;
 }
+
+/** Notes of a part long enough that the notes of three parts of about 8,000 tokens need a merge. */
+const LONG_NOTES = `Notes on these lines (L1). ${"The worker answered the orders route in time. ".repeat(450)}`;
+
+/** What answers a request of a whole-file read, told by its system text: a part's notes, a merge, or the read's answer. */
+const readReply = (system: string) => (system.startsWith("You read one part") ? LONG_NOTES : system.startsWith("You merge") ? "Merged notes (L1)." : "Every request was answered in time (L1).");
 
 /** The requests in the order they are kept: each run of whole-file reads with the same system text sorted by its bytes. */
 function settled(requests: Sent[]): Sent[] {
@@ -176,8 +204,7 @@ async function askCases(): Promise<Case[]> {
     // Parts of about 8,000 tokens: three parts, whose long notes need a merge before the answer.
     const small = await library({ mapChunkTokens: 8_000 });
     const log: Sent[] = [];
-    const notes = `Notes on these lines (L1). ${"The worker answered the orders route in time. ".repeat(450)}`;
-    const generateText = reader(log, (request) => (request.system.startsWith("You read one part") ? notes : request.system.startsWith("You merge") ? "Merged notes (L1)." : "Every request was answered in time (L1)."));
+    const generateText = reader(log, (request) => readReply(request.system));
     const model = fakeModel([calls([{ id: "c1", name: "analyze_whole_document", args: { document_id: "short-log-1", task: "Summarize the log." } }]), says("All in time.")], { generateText });
     await askWithFiles({ files: small, model: recorded(model, log), documentIds: ["short-log-1"], messages: [question("Summarize short.log.")] });
     cases.push({ name: "a whole-file read: parts, a merge, the read's answer, then the answer", requests: settled(log) });
@@ -283,7 +310,7 @@ async function geminiCases(): Promise<Case[]> {
 
 const openAiReply = (message: Record<string, unknown>, finish = "stop") => Response.json({ id: "chatcmpl-1", model: "gpt-test", choices: [{ index: 0, finish_reason: finish, message: { role: "assistant", ...message } }], usage: { prompt_tokens: 900, completion_tokens: 30 } });
 
-/** openAiCompatible: a tool turn, then a follow-up on its stored rounds. */
+/** openAiCompatible: a tool turn, a follow-up on its stored rounds, a whole-file read. */
 async function openAiCases(): Promise<Case[]> {
   const cases: Case[] = [];
   const files = await library();
@@ -298,6 +325,19 @@ async function openAiCases(): Promise<Case[]> {
   const next = openAiCompatible({ model: "gpt-test", apiKey: "test-key", fetch: recordingFetch([openAiReply({ content: "Yes, 51." })], again) });
   await askWithFiles({ files, model: next, documentIds: ["notes-1", "log-1", "sales-1"], system: "Be brief.", messages: followUp(asked, first, "Are you sure?") });
   cases.push({ name: "a follow-up on the stored rounds", requests: again });
+
+  // Parts of about 8,000 tokens: three part reads, a merge of their long notes, the read's answer.
+  const small = await library({ mapChunkTokens: 8_000 });
+  const read: Sent[] = [];
+  const analyze = { id: "call_1", type: "function", function: { name: "analyze_whole_document", arguments: JSON.stringify({ document_id: "short-log-1", task: "Summarize the log." }) } };
+  const reads = openAiCompatible({ model: "gpt-test", apiKey: "test-key", fetch: recordingFetch([(sent) => {
+    const system = readSystemOf(sent.url, sent.body);
+    if (system !== undefined) return openAiReply({ content: readReply(system) });
+    const called = (sent.body.messages as Array<{ role: string }>).some((message) => message.role === "tool");
+    return called ? openAiReply({ content: "All in time." }) : openAiReply({ content: null, tool_calls: [analyze] }, "tool_calls");
+  }], read) });
+  await askWithFiles({ files: small, model: reads, documentIds: ["short-log-1"], messages: [question("Summarize short.log.")] });
+  cases.push({ name: "a whole-file read: parts, a merge, the read's answer, then the answer", requests: settled(read) });
   return cases;
 }
 
@@ -318,7 +358,10 @@ function claudeStream(content: Array<{ type: "text"; text: string } | { type: "t
   return sse(events);
 }
 
-/** anthropic(), streamed as by default: a tool turn, then a follow-up on its stored rounds. */
+/** A Claude message that is not streamed, as a part read gets it. */
+const claudeMessage = (text: string) => Response.json({ id: "msg_2", type: "message", role: "assistant", model: "claude-test", content: [{ type: "text", text }], stop_reason: "end_turn", usage: { input_tokens: 900, output_tokens: 30 } });
+
+/** anthropic(), streamed as by default: a tool turn, a follow-up on its stored rounds, a whole-file read. */
 async function anthropicCases(): Promise<Case[]> {
   const cases: Case[] = [];
   const files = await library();
@@ -333,6 +376,19 @@ async function anthropicCases(): Promise<Case[]> {
   const next = anthropic({ model: "claude-test", apiKey: "test-key", fetch: recordingFetch([claudeStream([{ type: "text", text: "Yes, 51." }], "end_turn")], again) });
   await askWithFiles({ files, model: next, documentIds: ["notes-1", "log-1", "sales-1"], system: "Be brief.", messages: followUp(asked, first, "Are you sure?") });
   cases.push({ name: "a follow-up on the stored rounds", requests: again });
+
+  // Parts of about 8,000 tokens: three part reads, a merge of their long notes, the read's answer.
+  const small = await library({ mapChunkTokens: 8_000 });
+  const read: Sent[] = [];
+  const analyze = { type: "tool_use" as const, id: "toolu_1", name: "analyze_whole_document", input: { document_id: "short-log-1", task: "Summarize the log." } };
+  const reads = anthropic({ model: "claude-test", apiKey: "test-key", fetch: recordingFetch([(sent) => {
+    const system = readSystemOf(sent.url, sent.body);
+    if (system !== undefined) return claudeMessage(readReply(system));
+    const called = (sent.body.messages as Array<{ content: unknown }>).some((message) => Array.isArray(message.content) && message.content.some((block: { type?: string }) => block.type === "tool_result"));
+    return called ? claudeStream([{ type: "text", text: "All in time." }], "end_turn") : claudeStream([analyze], "tool_use");
+  }], read) });
+  await askWithFiles({ files: small, model: reads, documentIds: ["short-log-1"], messages: [question("Summarize short.log.")] });
+  cases.push({ name: "a whole-file read: parts, a merge, the read's answer, then the answer", requests: settled(read) });
   return cases;
 }
 
