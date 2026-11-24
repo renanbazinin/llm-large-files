@@ -2,7 +2,7 @@
 // auth headers, so this works with the Gemini API, Vertex AI, or an enterprise gateway.
 import type { ToolAnswer, ToolCall } from "../model.js";
 import { completeWithinLimit, noTextReason, type LimitedReply } from "../output-limit.js";
-import { base64, partTimer, readJson, resolveHeaderSource, type HeaderSource } from "../http.js";
+import { base64, partTimer, readJson, resolveHeaderSource, until, type HeaderSource } from "../http.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
 import { errorBodyOf, finishOfGemini, geminiFailure, notJson, statusOfError, tooSlow, unreachable } from "./errors.js";
@@ -176,7 +176,8 @@ export function createGeminiGenerateText(options: {
         });
         const post = async (headers: Record<string, string>): Promise<Response> => {
           try {
-            return await fetchImpl(url, { method: "POST", headers, ...(timer.signal ? { signal: timer.signal } : {}), body });
+            // The time limit ends the wait even for a fetch that does not stop when its signal aborts.
+            return await until(fetchImpl(url, { method: "POST", headers, ...(timer.signal ? { signal: timer.signal } : {}), body }), timer.signal);
           } catch (error) {
             if (signal?.aborted) throw error;
             throw lost(error);

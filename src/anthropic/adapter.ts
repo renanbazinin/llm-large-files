@@ -1,7 +1,7 @@
 // Claude (the Messages API) as a model of `askWithFiles`. No SDK, like the other adapters: the
 // caller gives a key or a token, and may give the URL of a gateway that speaks the same API.
 import { randomUUID } from "node:crypto";
-import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
+import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
@@ -380,10 +380,15 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
     ...options.body,
   });
 
-  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => AnthropicRequestError = unreachable, headers?: Record<string, string>): Promise<Response> => {
+  /**
+   * Sends a request. A `bounded` one (a part read, whose time limit is its signal) stops waiting
+   * when the signal aborts, even for a fetch that does not stop then itself.
+   */
+  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => AnthropicRequestError = unreachable, headers?: Record<string, string>, bounded = false): Promise<Response> => {
     let response: Response;
     try {
-      response = await fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      const sent = fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      response = await (bounded ? until(sent, signal) : sent);
     } catch (error) {
       if (stopped()) throw error;
       throw lost(error);
@@ -442,7 +447,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
         system,
         messages: [{ role: "user", content: prompt }],
         ...options.analysisBody?.(limit),
-      }, timer.signal, stopped, lost);
+      }, timer.signal, stopped, lost, undefined, true);
       const data = await readJson<Json>(response, stopped, lost, timer.signal ? { pulse: () => undefined, signal: timer.signal } : undefined, (error) => notJson(response, error));
       const used = usageOf(data.usage as Json | undefined);
       onUsage?.(used);

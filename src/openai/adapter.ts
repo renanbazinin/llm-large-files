@@ -1,7 +1,7 @@
 // Any Chat Completions endpoint as a model of `askWithFiles`: OpenAI, Azure OpenAI, DeepSeek,
 // LiteLLM, vLLM, Ollama, OpenRouter, Gemini's OpenAI layer. No SDK: the caller gives the URL.
 import { randomUUID } from "node:crypto";
-import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
+import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
@@ -393,10 +393,15 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
     };
   };
 
-  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => OpenAiRequestError = unreachable, headers?: Record<string, string>): Promise<Response> => {
+  /**
+   * Sends a request. A `bounded` one (a part read, whose time limit is its signal) stops waiting
+   * when the signal aborts, even for a fetch that does not stop then itself.
+   */
+  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => OpenAiRequestError = unreachable, headers?: Record<string, string>, bounded = false): Promise<Response> => {
     let response: Response;
     try {
-      response = await fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      const sent = fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      response = await (bounded ? until(sent, signal) : sent);
     } catch (error) {
       if (stopped()) throw error;
       throw lost(error);
@@ -428,13 +433,13 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       // The name this request is sent with: part reads run together, and another may learn the other name meanwhile.
       const sent = maxTokensField;
       try {
-        response = await post(body(sent), timer.signal, stopped, lost);
+        response = await post(body(sent), timer.signal, stopped, lost, undefined, true);
       } catch (error) {
         // A server that knows only the other name of the output limit: it is sent that one, now and from now on.
         if (options.maxTokensField !== undefined || !refusesField(error, sent)) throw error;
         const other = sent === "max_tokens" ? "max_completion_tokens" : "max_tokens";
         if (maxTokensField === sent) maxTokensField = other;
-        response = await post(body(other), timer.signal, stopped, lost);
+        response = await post(body(other), timer.signal, stopped, lost, undefined, true);
       }
       const data = await readJson<Json>(response, stopped, lost, timer.signal ? { pulse: () => undefined, signal: timer.signal } : undefined, (error) => new OpenAiRequestError(notJsonMessage("The model's", response), response.status, { kind: "invalid", cause: error }));
       // An error in a body that came with 200 (OpenRouter, once generation has started): thrown as

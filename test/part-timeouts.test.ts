@@ -66,6 +66,28 @@ describe("the time limit of a part read since 0.10.0", () => {
     });
   }
 
+  for (const provider of PROVIDERS) {
+    it(`ends the wait at timeoutMs for a fetch that does not stop when its signal aborts (${provider})`, async () => {
+      // A fetch of your own that never answers and does not listen to its signal.
+      let sent = 0;
+      const hung = (async () => {
+        sent++;
+        return new Promise<Response>(() => undefined);
+      }) as unknown as typeof fetch;
+      const model = provider === "gemini"
+        ? gemini(geminiApi({ apiKey: "k", model: "gemini-hung" }), { fetch: hung, timeoutMs: 50 })
+        : provider === "openai"
+          ? openAiCompatible({ model: "openai-hung", apiKey: "k", baseUrl: "https://llm.example/v1", fetch: hung, timeoutMs: 50 })
+          : anthropic({ model: "anthropic-hung", apiKey: "k", fetch: hung, timeoutMs: 50 });
+      const started = Date.now();
+      const error = await model.generateText!({ system: "s", prompt: "p", maxOutputTokens: 100 }).then(() => undefined, (failed: unknown) => failed);
+      expect(error).toMatchObject({ status: 0, kind: "timeout" });
+      expect(sent).toBe(1);
+      // In 0.9 and before this fix, it was still waiting after 2 s.
+      expect(Date.now() - started).toBeLessThan(1_500);
+    });
+  }
+
   it("gives gemini() the default of 180 s, and createGeminiGenerateText none with 0", async () => {
     // A reply after 100 ms is well within it.
     const api = slow("gemini", 100);
