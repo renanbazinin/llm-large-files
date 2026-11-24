@@ -8,7 +8,7 @@ helpers for a tool loop of your own. How to set Gemini up for production is in t
 
 ```ts
 import { askGemini, gemini, geminiApi, vertexAi } from "llm-large-files/gemini";
-import type { AskGeminiOptions, GeminiContent, GeminiEndpoint, GeminiModelOptions } from "llm-large-files/gemini";
+import type { AskGeminiOptions, GeminiContent, GeminiEndpoint, GeminiModelOptions, GeminiRequestFields } from "llm-large-files/gemini";
 ```
 
 The entry point needs no Google SDK: it posts to the Generate Content REST API with `fetch`.
@@ -16,11 +16,14 @@ The entry point needs no Google SDK: it posts to the Generate Content REST API w
 ## Contents
 
 - [Endpoints](#endpoints): [`geminiApi()`](#geminiapioptions), [`vertexAi()`](#vertexaioptions),
-  [`vertexHost()`](#vertexhostlocation), [`GeminiEndpoint`](#geminiendpoint)
+  [`VertexAiOptions`](#vertexaioptions-1), [`vertexHost()`](#vertexhostlocation),
+  [`GeminiEndpoint`](#geminiendpoint)
 - [Asking a question](#asking-a-question): [`askGemini()`](#askgeminioptions),
-  [`AskGeminiOptions`](#askgeminioptions-1), [`AskGeminiResult`](#askgeminiresult)
+  [`AskGeminiOptions`](#askgeminioptions-1), [`GeminiOwnOptions`](#geminiownoptions),
+  [`AskGeminiResult`](#askgeminiresult)
 - [The model adapter](#the-model-adapter): [`gemini()`](#geminiendpoint-options),
-  [`GeminiModelOptions`](#geminimodeloptions), [`GEMINI_PAGE_TOKENS`](#gemini_page_tokens)
+  [`GeminiModelOptions`](#geminimodeloptions), [`GeminiRequestFields`](#geminirequestfields),
+  [`GEMINI_PAGE_TOKENS`](#gemini_page_tokens)
 - [Gemini contents](#gemini-contents): [`fromGeminiContents()`](#fromgeminicontentscontents-options),
   [`FromGeminiContentsOptions`](#fromgeminicontentsoptions),
   [`geminiToolTurns()`](#geminitoolturnsturns), [`GeminiContent`](#geminicontent),
@@ -72,6 +75,7 @@ It returns:
 | `streamUrl` | `{baseUrl}/{apiVersion}/models/{model}:streamGenerateContent?alt=sse` |
 | `headers` | The object `{ "Content-Type": "application/json", "x-goog-api-key": apiKey }` |
 | `explorerUrl` | `{baseUrl}/{apiVersion}/models/{explorerModel}:generateContent`, only when an explorer is named. Otherwise the field is absent. |
+| `nativeRounds` | `true`: the Gemini API takes the tool rounds of earlier questions in Gemini's own form, thought signatures included. New in 0.10.0. |
 
 It makes no request and throws nothing.
 
@@ -93,35 +97,36 @@ Guides: [Gemini API and Vertex AI](../guides/vertex-and-gemini.md),
 ### vertexAi(options)
 
 ```ts
-declare function vertexAi(options: {
-  project: string;
-  model: string;
-  explorerModel?: string | undefined;
-  location?: string;
-  accessToken: string | (() => string | Promise<string>);
-  apiVersion?: string;
-}): GeminiEndpoint;
+declare function vertexAi(options: VertexAiOptions): GeminiEndpoint;
 ```
 
-The endpoint of a Gemini model on Vertex AI, signed in with an OAuth access token.
+The endpoint of a Gemini model on Vertex AI, signed in with an OAuth access token, or, since
+0.10.0, with an API key of Vertex AI express mode.
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `project` | `string` | required | The Google Cloud project ID. URL-encoded into the path. |
+| `project` | `string` | required with `accessToken` | The Google Cloud project ID. URL-encoded into the path. Not with `apiKey`. |
 | `model` | `string` | required | The model that answers, under `publishers/google/models/`. Without an explorer it also makes the tool calls. |
 | `explorerModel` | `string \| undefined` | none | A second model that explores the documents, with the same rules as in [`geminiApi()`](#geminiapioptions). It is in the same project and location. |
-| `location` | `string` | `"global"` | Where the requests are served. It picks the host ([`vertexHost()`](#vertexhostlocation)) and is the `locations/{location}` segment of the path. It must be lowercase letters, digits and single hyphens (`"global"`, `"us"`, `"europe-west4"`): anything else throws a `TypeError`, since 0.7.1. |
-| `accessToken` | `string \| (() => string \| Promise<string>)` | required | Sent as `Authorization: Bearer {token}`. A function is called before every request, chat requests and part reads of both models alike, so it can return a renewed token. |
+| `location` | `string` | `"global"` | Where the requests are served. It picks the host ([`vertexHost()`](#vertexhostlocation)) and is the `locations/{location}` segment of the path. It must be lowercase letters, digits and single hyphens (`"global"`, `"us"`, `"europe-west4"`): anything else throws a `TypeError`, since 0.7.1. Not with `apiKey`. |
+| `accessToken` | `string \| ((context: { refresh: boolean }) => string \| Promise<string>)` | required without `apiKey` | Sent as `Authorization: Bearer {token}`. A function is called before every request, chat requests and part reads of both models alike, so it can return a renewed token. Since 0.10.0 it is called with `{ refresh: true }` when the token it gave was refused with HTTP 401: return a new token then, not the one kept in a cache. A function of no arguments still fits. |
+| `apiKey` | `string` | none | The API key of Vertex AI express mode, sent as the `x-goog-api-key` header. The URL then names no project or location: `{host}/{apiVersion}/publishers/google/models/{model}:generateContent`. Give `apiKey` or `project` and `accessToken`, not both. New in 0.10.0. |
+| `headers` | `Record<string, string>` or a function that returns them | none | More headers, merged after the library's: a name you give replaces the library's. A function is called before every request with the context the endpoint's `headers` get (`{ refresh: true }` after a 401). New in 0.10.0. |
+| `host` | `string` | the host of `location` | The https origin to send the requests to: a Private Service Connect endpoint, or a proxy that keeps Vertex AI's paths. `"https://host"` or `"https://host:port"`, with a slash at the end or none, and nothing more: a path, a query, a fragment, an `@` or another scheme throws a `TypeError`, as a bad `location` does, since the token would go to another host. New in 0.10.0. |
 | `apiVersion` | `string` | `"v1"` | The version segment of the path. |
 
 It returns:
 
 | Field | Value |
 |---|---|
-| `url` | `{vertexHost(location)}/{apiVersion}/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent` |
+| `url` | `{host}/{apiVersion}/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent`, where `host` is `vertexHost(location)` unless given; with `apiKey`, `{host}/{apiVersion}/publishers/google/models/{model}:generateContent` |
 | `streamUrl` | The same, ending in `:streamGenerateContent?alt=sse` |
-| `headers` | An async function that returns `{ "Content-Type": "application/json", Authorization: "Bearer {token}" }` |
+| `headers` | An async function that returns `{ "Content-Type": "application/json", Authorization: "Bearer {token}" }` (with `apiKey`, `"x-goog-api-key": apiKey` in place of `Authorization`), then the fields of `headers` |
 | `explorerUrl` | The `:generateContent` URL of `explorerModel`, only when an explorer is named. Otherwise the field is absent. |
+| `refreshable` | `true` when `accessToken` is a function, new in 0.10.0: a request refused with HTTP 401 is sent once more with a new token. Absent for a token given as a string, and for `apiKey`. |
+
+`nativeRounds` is not set yet: Vertex AI gets the calls alone of the rounds of earlier questions,
+not their thought signatures, until a live check shows that it takes them.
 
 It makes no request and does not call `accessToken`. An error that the token function throws comes
 out of the request that needed the token, as it was thrown: it is not a `GeminiRequestError`. It
@@ -139,11 +144,48 @@ const endpoint = vertexAi({
   location: "global",
   model: "gemini-3.8-flash",
   explorerModel: "gemini-3.5-flash-lite",
-  accessToken: async () => (await auth.getAccessToken()) ?? "",
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    // The cached token was refused: mark it expired, so that the client fetches a new one.
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 });
+    return (await client.getAccessToken()).token ?? "";
+  },
 });
+
+// Express mode: an API key, and no project.
+const express = vertexAi({ apiKey: process.env.VERTEX_API_KEY!, model: "gemini-3.8-flash" });
 ```
 
 Guide: [Gemini API and Vertex AI](../guides/vertex-and-gemini.md), which covers access tokens.
+
+### `VertexAiOptions`
+
+```ts
+type VertexAiOptions =
+  | {
+      project: string;
+      location?: string;
+      accessToken: string | ((context: { refresh: boolean }) => string | Promise<string>);
+      model: string;
+      explorerModel?: string | undefined;
+      headers?: HeaderSource | undefined;
+      host?: string | undefined;
+      apiVersion?: string;
+    }
+  | {
+      apiKey: string;
+      model: string;
+      explorerModel?: string | undefined;
+      headers?: HeaderSource | undefined;
+      host?: string | undefined;
+      apiVersion?: string;
+    };
+// HeaderSource = Record<string, string> | ((context?: { refresh?: boolean }) => Record<string, string> | Promise<Record<string, string>>)
+```
+
+The options of [`vertexAi()`](#vertexaioptions): a project with a token, or an API key of express
+mode. The type refuses a project with an API key, and a project without a token. New as a type of
+its own in 0.10.0.
 
 ### vertexHost(location)
 
@@ -170,8 +212,10 @@ Use it to build the URLs of a [`GeminiEndpoint`](#geminiendpoint) of your own on
 type GeminiEndpoint = {
   url: string;
   streamUrl?: string;
-  headers: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
+  headers: Record<string, string> | ((context?: { refresh?: boolean }) => Record<string, string> | Promise<Record<string, string>>);
   explorerUrl?: string | undefined;
+  refreshable?: true | undefined;
+  nativeRounds?: boolean | undefined;
 };
 ```
 
@@ -181,8 +225,10 @@ Where a Gemini model is and how to call it.
 |---|---|---|---|
 | `url` | `string` | required | The non-streaming `...:generateContent` URL. Chat requests made without `onText`, and the part reads of a whole-file read when there is no explorer, go here. |
 | `streamUrl` | `string` | none | The streaming `...:streamGenerateContent?alt=sse` URL, used for a chat request when `onText` is given. Without it each reply arrives whole, and `onText` gets its text once it has arrived. |
-| `headers` | `Record<string, string>` or a function that returns them | required | Sent with every request as they are. A function is called before every request, so a renewed token is used. `gemini()` adds no header of its own: give `"Content-Type": "application/json"`, as `geminiApi()` and `vertexAi()` do. |
+| `headers` | `Record<string, string>` or a function that returns them | required | Sent with every request as they are. A function is called before every request, so a renewed token is used. Since 0.10.0 it may take a context: it is called with `{ refresh: true }` when a request of a `refreshable` endpoint is sent again after a 401, and with nothing otherwise. `gemini()` adds no header of its own: give `"Content-Type": "application/json"`, as `geminiApi()` and `vertexAi()` do. |
 | `explorerUrl` | `string \| undefined` | none | The `...:generateContent` URL of an explorer model, called with the same `headers` and never streamed. Only `askGemini` reads it, and only when it differs from `url`. With `askGemini` it receives the explorer's chat requests and the part reads of whole-file reads. `gemini()` ignores it. |
+| `refreshable` | `true \| undefined` | none | `headers({ refresh: true })` gives a token that is new, not the one it keeps in a cache: a request refused with HTTP 401 is sent once more with those headers, in chat requests, part reads and askGemini's explorer alike. A second 401 is the error: there is no third try. `vertexAi()` sets it when `accessToken` is a function. New in 0.10.0. |
+| `nativeRounds` | `boolean \| undefined` | none | Whether the tool rounds of earlier questions may go back to this endpoint's models in Gemini's own form, thought signatures included. `gemini()` gives it as `capabilities.nativeRounds`, the default of [`AskOptions.nativeRounds`](./ask.md#askoptions). `geminiApi()` sets it to true; `vertexAi()` does not set it yet. New in 0.10.0. |
 
 An endpoint for a gateway that proxies Generate Content:
 
@@ -221,6 +267,10 @@ pages can be looked at, is reached through tools. When the tool loop ends withou
 tools asks for it. When that reply has no text (it is empty, or ends with `UNEXPECTED_TOOL_CALL` or
 `MALFORMED_FUNCTION_CALL`), it is asked for once more. `answered` is false when there is still no
 text: a blocked prompt, which gets no last request, or an empty or cut-off reply.
+
+Since 0.10.0 `askGemini` takes every option of `askWithFiles` by its type, and gives the ones it does
+not use itself to `askWithFiles` as they are: an option new in `askWithFiles` reaches the loop with no
+change to `askGemini`.
 
 `askGemini` cannot set `contextTokens`, `maxRequestBytes`, `pageTokens` or `id` on its models. Put
 the model's window in the library's budget, or use `askWithFiles` with
@@ -265,14 +315,19 @@ Guide: [Gemini API and Vertex AI](../guides/vertex-and-gemini.md).
 
 ### `AskGeminiOptions`
 
+```ts
+type AskGeminiOptions = Omit<AskOptions, "model" | "explorer" | "messages"> & GeminiOwnOptions;
+```
+
 The options of `askGemini`. `AskOptions.model` and `AskOptions.explorer` are not here: `endpoint`
 takes their place.
 
-Shared with [`AskOptions`](./ask.md#askoptions), with the same meaning and defaults: `files`,
-`documentIds`, `documentPlacement`, `system`, `owner`, `limits`, `retry`, `budget`,
-`wholeDocumentAnalysis`, `viewPages`, `onText`, `onActivity`, `onStep`, `signal`, and, new in 0.7.0,
-`streamText`, `onEvent`, `runId` and `eventResults` (see [events](./events.md)), and, new in 0.9.0,
-`scope` and `onMissingDocuments` ([missing documents](./ask.md#missing-documents)). With Gemini:
+Every other option of [`AskOptions`](./ask.md#askoptions) is one of `askGemini`, with the same
+meaning and default, and goes to `askWithFiles` as it is. Since 0.10.0 the type says so itself
+(before, `askGemini` listed each option by hand); no option was removed. Among them: `files`,
+`documentIds`, `documentPlacement`, `system`, `owner`, `scope`, `onMissingDocuments`, `limits`,
+`retry`, `budget`, `wholeDocumentAnalysis`, `viewPages`, `onText`, `streamText`, `onActivity`,
+`onStep`, `onEvent`, `runId`, `eventResults`, `signal`, and those new in 0.10.0. With Gemini:
 
 - `messages` is optional and typed [`ChatMessage[]`](./ask.md#chatmessage), as in `askWithFiles`:
   plain turns, the `toolTurns` of earlier questions, and turns with parts, such as
@@ -286,7 +341,7 @@ Shared with [`AskOptions`](./ask.md#askoptions), with the same meaning and defau
 - `limits` is merged with `maxToolTurns` and `maxToolCallsPerTurn` (below). A field of `limits`
   wins.
 
-Fields `askGemini` adds:
+Fields `askGemini` adds, its own (`GeminiOwnOptions`):
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
@@ -301,6 +356,20 @@ Fields `askGemini` adds:
 | `maxToolTurns` | `number` | 12 | `limits.toolTurns`, under the name it had before 0.5.0. `limits.toolTurns` wins when both are set. |
 | `maxToolCallsPerTurn` | `number` | 8 | `limits.callsPerTurn`, under the name it had before 0.5.0. `limits.callsPerTurn` wins when both are set. |
 | `fetch` | `typeof fetch` | the global `fetch` | Used for every request of both models, part reads included: a proxy, logging, tests. |
+| `body` | [`GeminiRequestFields`](#geminirequestfields) | none | More fields for the body of every chat request of the answering model, and of the explorer unless `explorerBody` is set: `safetySettings`, `labels`, `serviceTier`, `cachedContent`. Merged last. Not used for part reads. New in 0.10.0. |
+| `explorerBody` | [`GeminiRequestFields`](#geminirequestfields) | `body` | The same, for the explorer's chat requests. Not used without an explorer. New in 0.10.0. |
+| `analysisBody` | `(maxOutputTokens: number) => GeminiRequestFields` | none | More fields for the body of each part read of a whole-file read, for both models. New in 0.10.0. |
+| `functionCallingMode` | `"AUTO" \| "VALIDATED"` | `"AUTO"` | The `functionCallingConfig` mode of the requests that offer tools, for both models. New in 0.10.0. |
+| `answerWithoutTools` | `"omit" \| "mode_none"` | `"omit"` | How the request for the answer in text says so, for both models ([`GeminiModelOptions`](#geminimodeloptions)). New in 0.10.0. |
+| `timeoutMs` | `number` | `180_000` | The longest time of one part read of a whole-file read, for both models. 0 sets none. New in 0.10.0. |
+
+### `GeminiOwnOptions`
+
+The options of `askGemini` that are not `askWithFiles`'s: `endpoint`, `messages` (optional here),
+`contents`, `generationConfig`, `explorerGenerationConfig`, `body`, `explorerBody`, `analysisBody`,
+`functionCallingMode`, `answerWithoutTools`, `timeoutMs`, `maxToolTurns`, `maxToolCallsPerTurn`,
+`toolFilePlacement`, `analysisConfig`, `firstByteTimeoutMs`, `idleTimeoutMs` and `fetch`, as
+described above. New as a type of its own in 0.10.0.
 
 `askGemini` has no stream form of its own. To read its events with `for await`, as
 [`askStream`](./ask.md#askstreamoptions) gives them for `askWithFiles`, wrap it in
@@ -356,7 +425,7 @@ Guide: [errors and reliability](../guides/errors-and-reliability.md).
 
 ```ts
 declare function gemini(
-  endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "headers">,
+  endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "headers" | "refreshable" | "nativeRounds">,
   options?: GeminiModelOptions,
 ): ModelAdapter;
 ```
@@ -372,18 +441,22 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`. Without it, the model name in the URL (`/models/{name}`, decoded); for a URL without one, its host; else `"gemini"`. |
-| `capabilities` | `toolFiles` from `toolFilePlacement` (`"inside"`), `pageTokens` (530), and `contextTokens` and `maxRequestBytes` when they are set. No `tokenScale` (so 1), no `outputTokens`, not `appendOnly`. |
+| `capabilities` | `toolFiles` from `toolFilePlacement` (`"inside"`), `pageTokens` (530), and `contextTokens` and `maxRequestBytes` when they are set. `nativeRounds` from `endpoint.nativeRounds` when it is set (true for `geminiApi()`), new in 0.10.0. No `tokenScale` (so 1), no `outputTokens`, not `appendOnly`. |
 | `send(request, hooks?)` | One chat request: to `streamUrl` when `hooks.onText` is given and the endpoint has one, otherwise to `url`. |
 | `requestBytes(request)` | The size in bytes of the JSON body that `send` would post. |
-| `generateText` | The part reader of whole-file reads: [`createGeminiGenerateText()`](#creategeminigeneratetextoptions) on `endpoint.url`, with `analysisConfig` and `fetch`. `askWithFiles` uses it when this model is the one that explores. Each of its requests may take 180 s, and `gemini()` has no option to change that. |
+| `generateText` | The part reader of whole-file reads: [`createGeminiGenerateText()`](#creategeminigeneratetextoptions) on `endpoint.url`, with `analysisConfig`, `analysisBody`, `timeoutMs`, `fetch` and the endpoint's `refreshable`. `askWithFiles` uses it when this model is the one that explores. Each of its requests may take `timeoutMs` (180 s); before 0.10.0, `gemini()` had no option to change that. |
 
 What `send` does:
 
 - It asks for the headers before every request.
 - The body holds `contents`; `systemInstruction` when the system instruction is not empty;
-  `generationConfig` when it is set; and, when tools are offered, `tools: [{ functionDeclarations }]`
-  with `toolConfig: { functionCallingConfig: { mode: "AUTO" } }`. A request that must be answered in
-  text declares no tools at all, because Gemini can ignore mode `NONE` and go on calling them.
+  `generationConfig` when it is set; when tools are offered, `tools: [{ functionDeclarations }]`
+  with `toolConfig: { functionCallingConfig: { mode } }`, the mode being `functionCallingMode`
+  (`"AUTO"`); and last, the fields of `body`. A request that must be answered in text declares no
+  tools at all by default, because Gemini can ignore mode `NONE` and go on calling them; with
+  `answerWithoutTools: "mode_none"` it keeps them, with mode `NONE`.
+- A request refused with HTTP 401 by a `refreshable` endpoint is sent once more, with the headers of
+  `headers({ refresh: true })`. A second 401 is the error. New in 0.10.0.
 - A model turn of the question goes back unchanged, thought signatures included, in the later
   requests to the same adapter. Another model of the question gets it rebuilt from its calls, as a
   stored tool round (`toolTurns`) is.
@@ -393,18 +466,29 @@ What `send` does:
   drops `?alt=sse`, or does not stream, is read whole (since 0.6.0; 0.5.0 read it as an empty
   reply). A body that starts with more than 65,536 characters of white space is read in one piece.
 - Parts marked `"thought": true` are not in the reply's `text` and are not passed to `onText`.
-- Gemini's `finishReason` becomes the reply's `finish`: `STOP` is `"complete"`; `MAX_TOKENS` is
-  `"cut"`; `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII` and `IMAGE_SAFETY` are
-  `"filtered"`; `MALFORMED_FUNCTION_CALL` and `UNEXPECTED_TOOL_CALL` are `"malformed_call"`.
-  `promptFeedback.blockReason` becomes `blockReason`, and `usageMetadata` becomes `usage`
-  ([`usageOfGemini()`](#usageofgeminiusage)) and `providerUsage`.
+- Gemini's `finishReason` becomes the reply's `finish`, and stays as it came in `finishReason`:
+
+  | `finishReason` | `finish` |
+  |---|---|
+  | `STOP` | `"complete"` |
+  | `MAX_TOKENS` | `"cut"` |
+  | `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`, `IMAGE_SAFETY`; since 0.10.0 `MODEL_ARMOR`, `IMAGE_PROHIBITED_CONTENT`, `IMAGE_RECITATION`, `IMAGE_OTHER` | `"filtered"` |
+  | `MALFORMED_FUNCTION_CALL`, `UNEXPECTED_TOOL_CALL`; since 0.10.0 `MALFORMED_RESPONSE` | `"malformed_call"` |
+  | Since 0.10.0: `OTHER`, `FINISH_REASON_UNSPECIFIED`, `NO_IMAGE`, `TOO_MANY_TOOL_CALLS`, `MISSING_THOUGHT_SIGNATURE`, `LANGUAGE` | `"other"` |
+  | Any other | none |
+
+  `LANGUAGE` (a language the model does not take) is `"other"`, not `"filtered"`: it is no safety
+  filter. Before 0.10.0 the reasons new to the table gave no `finish`.
+  `promptFeedback.blockReason` becomes `blockReason`, `usageMetadata` becomes `usage`
+  ([`usageOfGemini()`](#usageofgeminiusage)) and `providerUsage`, and, since 0.10.0, `responseId`
+  and `modelVersion` become `responseId` and `responseModel`.
 
 `send` throws, and sends nothing again itself: `askWithFiles` decides what is retried.
 
 | Case | Error | `status` | `kind` |
 |---|---|---|---|
 | Gemini answered with an HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "Gemini returned HTTP 503." | The HTTP status | Told from the status, Gemini's `error.status` and `details` |
-| An error object inside the stream | `GeminiRequestError` with its message | Its `code` when that is a number, else the response's | As above |
+| An error object inside the stream, or in a reply of HTTP 200 that is not streamed | `GeminiRequestError` with its message, or "Gemini reported an error." | Its `code` when that is a number; else, since 0.10.0, the status of its `google.rpc` name (`"UNAVAILABLE"` 503, `"RESOURCE_EXHAUSTED"` 429, `"DEADLINE_EXCEEDED"` 504, `"INVALID_ARGUMENT"` 400 …); else 500. Before 0.10.0, the response's 200, so it was not sent again. | As above |
 | The connection failed, before or while the reply arrived, or an event of the stream was not JSON | `GeminiRequestError`: "Gemini could not be reached (fetch failed)." | 0 | `"unreachable"` |
 | A reply of HTTP 200 whose body is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", new in 0.6.0. When the reply's type is `text/event-stream`, "Gemini's reply ended before it was complete." Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
 | Nothing arrived for a whole wait | `GeminiRequestError`: "Gemini sent nothing for 600 s." | 0 | `"timeout"` |
@@ -416,7 +500,9 @@ What `send` does:
 
 For an HTTP error, `retryAfterMs` is the wait Gemini asked for: the `retry-after-ms` or
 `Retry-After` header, or the `retryDelay` of a `google.rpc.RetryInfo` in the error's `details`. An
-error inside a stream, or in the body of a response that was OK, has none.
+error inside a stream, or in the body of a response that was OK, has the `retryDelay` of its
+`details` when it has one (since 0.10.0). An error body that is a list (`[{ "error": … }]`) is read
+by its first entry, its message and `details` included (since 0.10.0).
 
 ```ts
 import { askWithFiles } from "llm-large-files";
@@ -454,11 +540,45 @@ The options of `gemini()`.
 | `firstByteTimeoutMs` | `number \| undefined` | `600_000` | The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count: a model that thinks sends nothing until it has thought, and a reply that is not streamed comes whole at the end. A request that gets nothing for that long is aborted with a `GeminiRequestError` (`status` 0, `kind` `"timeout"`), which `askWithFiles` sends again once. 0, a negative or a non-finite number waits without end. Not used for part reads. |
 | `idleTimeoutMs` | `number \| undefined` | `300_000` | The longest wait, in milliseconds, between two pieces of a chat reply once it has started to arrive. Any bytes count, keep-alives included. The same error; `askWithFiles` sends the request again once, unless text of it was shown. 0 waits without end. |
 | `fetch` | `typeof fetch \| undefined` | the global `fetch` | Used for chat requests and part reads. |
+| `body` | [`GeminiRequestFields`](#geminirequestfields) `\| undefined` | none | More fields for the body of every chat request, the request for the answer included, merged last. Counted in `requestBytes`. Not used for part reads. New in 0.10.0. |
+| `analysisBody` | `((maxOutputTokens: number) => GeminiRequestFields) \| undefined` | none | More fields for the body of each part read, given its output limit, merged last. The part reads' `generationConfig` is `analysisConfig`. New in 0.10.0. |
+| `functionCallingMode` | `"AUTO" \| "VALIDATED" \| undefined` | `"AUTO"` | The `functionCallingConfig` mode of a request that offers tools. With `"VALIDATED"`, Gemini checks each call against the declaration of its tool. Sent only with tools. New in 0.10.0. |
+| `answerWithoutTools` | `"omit" \| "mode_none" \| undefined` | `"omit"` | How the request that must be answered in text says so. `"omit"` declares no tools, as before. `"mode_none"` keeps the tools and sends mode `NONE`, so the request starts as the ones before it did; a tool call that still comes back is asked for again once (the loop's `answer_again`). New in 0.10.0. |
+| `timeoutMs` | `number \| undefined` | `180_000` | The longest time, in milliseconds, of one part read, its whole reply included. A part past it is a `GeminiRequestError` of kind `"timeout"` and status 0, sent again once, and then reported as "The model took too long to answer." 0 sets none. New in 0.10.0. |
 
 The two waits default to `DEFAULT_FIRST_BYTE_TIMEOUT_MS` and `DEFAULT_IDLE_TIMEOUT_MS`
 ([errors and retries](./errors-and-retries.md)). What to set them to, and why the first one is
 long: [Gemini API and Vertex AI](../guides/vertex-and-gemini.md) and
 [errors and reliability](../guides/errors-and-reliability.md).
+
+### `GeminiRequestFields`
+
+```ts
+type GeminiRequestFields = {
+  safetySettings?: Array<{ category: string; threshold: string; method?: string }>;
+  labels?: Record<string, string>;
+  serviceTier?: string;
+  cachedContent?: string;
+  contents?: never;
+  systemInstruction?: never;
+  tools?: never;
+  toolConfig?: never;
+  generationConfig?: never;
+  [key: string]: unknown;
+};
+```
+
+What `body`, `explorerBody` and `analysisBody` add to a request body: fields of the Generate
+Content API that the library does not write. They are merged last. The fields the library writes
+are typed `never`, so setting one fails to compile; set `generationConfig` and `analysisConfig` for
+those. Nothing is refused at run time: a field given anyway replaces the library's. New in 0.10.0.
+
+| Field | What it is |
+|---|---|
+| `safetySettings` | The thresholds of Gemini's safety filters. A reply a filter stops has `finish` `"filtered"`. |
+| `labels` | Vertex AI only: labels for the billing export, keys and values in lower case, at most 63 characters each. They reach everyone who reads the billing data: never put a user ID, an email or other personal data in them. |
+| `serviceTier` | The service tier of the request, where the API offers one. |
+| `cachedContent` | The name of an explicit context cache (`cachedContents/…`). The library keeps no cache of its own: Gemini 3 caches the start of a request by itself. |
 
 ### `GEMINI_PAGE_TOKENS`
 
@@ -512,7 +632,12 @@ upgrade, from that round on.
 
 A turn is kept as it is, part by part, when anything in it is not of that form: a function of
 your own, a call next to one of yours, a thought signature, a response with a file in it, or
-responses that do not match the calls. So is a round that ends `contents`, with no turn after it:
+responses that do not match the calls. With `model` (new in 0.10.0), a round whose `model` turn
+also has thought signatures, or text parts next to its calls, as `geminiToolTurns()` writes a round
+that kept its own turn, becomes a stored round too, with that turn as `native` for the adapter
+`model` names. `askGemini` gives `model` (the id of the model that makes the tool calls) when the
+rounds of earlier questions go back in Gemini's own form ([`AskOptions.nativeRounds`](./ask.md#askoptions),
+by default the model's `capabilities.nativeRounds`). So is a round that ends `contents`, with no turn after it:
 its responses are the turn the model answers (an application that ran the tools in a loop of its
 own hands the conversation over). `askWithFiles` throws "The last message must be the user's." for
 a conversation that ends with a stored round.
@@ -522,7 +647,7 @@ Guide: [conversations](../guides/conversations.md#gemini-contents).
 ### `FromGeminiContentsOptions`
 
 ```ts
-type FromGeminiContentsOptions = { rounds?: boolean };
+type FromGeminiContentsOptions = { rounds?: boolean; model?: string };
 ```
 
 New in 0.9.0.
@@ -530,6 +655,7 @@ New in 0.9.0.
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `rounds` | `boolean` | `true` | Turn the tool rounds of earlier questions into stored rounds (above). `false` keeps every turn as its parts, as 0.8 did. Function parts are sized by their JSON either way. With `askGemini`: `messages: fromGeminiContents(contents, { rounds: false })`. |
+| `model` | `string` | none | The `id` of the adapter the contents go to. A round whose `model` turn has thought signatures or text parts next to its calls becomes a stored round that keeps that turn (`ToolTurn.native`) for this adapter. Left out, such a round stays as it is, as before. New in 0.10.0. |
 
 ### geminiToolTurns(turns)
 
@@ -546,6 +672,12 @@ stored rounds (since 0.6.0): a history kept as `contents` gives the same request
 `toolTurns`. Contents that 0.5.0 converted keep the field. Since 0.9.0 `fromGeminiContents` turns
 these turns back into stored rounds, so the loop treats them alike too, and the rounds of 0.5.0
 are then sent without the field (above).
+
+Since 0.10.0 a round that kept Gemini's own model turn (`ToolTurn.native`, a `model` turn whose
+function calls are the round's calls) is written with that turn, thought signatures and text parts
+included, so the start of a later request stays the same as the request that made it. Any other
+`native` (the turn of another provider) is not written. `fromGeminiContents` with `model` reads such
+a round back with its turn.
 
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
@@ -592,10 +724,12 @@ These build Gemini requests in a tool loop of your own, made with `files.prepare
 ```ts
 declare function createGeminiGenerateText(options: {
   url: string;
-  headers: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
+  headers: Record<string, string> | ((context?: { refresh?: boolean }) => Record<string, string> | Promise<Record<string, string>>);
   fetchImpl?: typeof fetch;
   generationConfig?: (maxOutputTokens: number) => Record<string, unknown>;
+  body?: (maxOutputTokens: number) => GeminiRequestFields;
   timeoutMs?: number;
+  refreshable?: boolean | undefined;
 }): GenerateText;
 ```
 
@@ -608,13 +742,16 @@ completion a whole-file read uses for each part. `gemini()` builds one on its en
 | `headers` | `Record<string, string>` or a function that returns them | required | A function is called before every request: a whole-file read can outlast an access token. |
 | `fetchImpl` | `typeof fetch` | the global `fetch` | Your own `fetch`. |
 | `generationConfig` | `(maxOutputTokens: number) => Record<string, unknown>` | `{ maxOutputTokens }` | The `generationConfig` of each request, from its output limit. Until 0.6.0 the default also sent `temperature: 0.2`. |
-| `timeoutMs` | `number` | `180_000` | The longest time one request may take, its whole body included. A second try at a larger limit gets its own. |
+| `body` | `(maxOutputTokens: number) => GeminiRequestFields` | none | More fields for the body of each request, given its output limit, merged last (`gemini({ analysisBody })`). New in 0.10.0. |
+| `timeoutMs` | `number` | `180_000` | The longest time one request may take, its whole body included. A second try at a larger limit gets its own. 0 sets none (since 0.10.0; before, 0 aborted every request at once). |
+| `refreshable` | `boolean` | `false` | A request refused with HTTP 401 is sent once more with the headers of `headers({ refresh: true })`. A second 401 is the error. New in 0.10.0. |
 
 Each request posts `contents: [{ role: "user", parts: [{ text: prompt }] }]`, the system
-instruction and the `generationConfig`. The text it returns is the reply's text parts without the
+instruction, the `generationConfig` and the fields of `body`. The text it returns is the reply's text parts without the
 thoughts, joined. `onUsage` gets the usage of every request that was answered
 ([`usageOfGemini()`](#usageofgeminiusage)). `onTruncated` is called when the reply stopped at
-`MAX_TOKENS`, or a safety filter stopped it.
+`MAX_TOKENS`, a filter stopped it, or, since 0.10.0, it ended for a reason whose `finish` is
+`"other"` ([`gemini()`](#geminiendpoint-options)).
 
 When a reply stops at `MAX_TOKENS` with no text, or with half the limit or more spent on thoughts,
 and the limit was below [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens), the request is sent
@@ -629,35 +766,24 @@ first request to a `url` goes alone: requests to it that arrive meanwhile wait f
 
 | Case | Error |
 |---|---|
-| An HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "The model returned HTTP 503.", with `status`, `kind` and `retryAfterMs` |
+| An HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "The model returned HTTP 503.", with `status`, `kind` and `retryAfterMs`. A body that is a list is read by its first entry (since 0.10.0). |
+| An error in a body of HTTP 200 (a gateway, or Vertex AI) | `GeminiRequestError` with its message, or "Gemini reported an error.", whose `status` is its `code`, else that of its `google.rpc` name, else 500. New in 0.10.0: before, the reply had no text, and the error was "The model returned no text." |
 | The connection failed, or the body could not be read | `GeminiRequestError`: "Gemini could not be reached (…).", `status` 0 |
 | A body of HTTP 200 that is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", `status` 0 |
 | A body that is not JSON | `GeminiRequestError`: "Gemini's reply could not be read: it was not JSON (text/html). A proxy or gateway may have answered in its place.", the response's `status`, kind `"invalid"`, the `SyntaxError` as `cause`. Until 0.6.0, the `SyntaxError` itself. |
-| `timeoutMs` passed, or `signal` aborted | The abort error, as it is, with no status |
+| `timeoutMs` passed | `GeminiRequestError`: "Gemini took longer than 180 s to answer.", `status` 0, kind `"timeout"`, which a whole-file read sends again once. New in 0.10.0: before, the abort error of the timer, with no status. |
+| `signal` aborted | The signal's reason, as it is |
 | A reply with no text | `Error`: "The model returned no text." or, with its `finishReason`, "The model returned no text (SAFETY)." |
 | A prompt Gemini blocked: HTTP 200 with `promptFeedback.blockReason` and no candidate | `Error`: "The model returned no text (PROHIBITED_CONTENT).", with the block reason. It is not sent again: it would be blocked again. Before 0.7.1 it had no reason, and a whole-file read sent it once more. |
 
-A whole-file read tries a part once more after an error with no status. It tells the model why a
-part failed by the error's kind and status, never by Gemini's message: "The model took too long to
-answer." for a request past `timeoutMs`, "The model returned no text (SAFETY)." for a reply with no
-text, the reason only when it is a plain word (see
+A whole-file read tries a part once more after an error with no status, and after a timeout. It
+tells the model why a part failed by the error's kind and status, never by Gemini's message: "The
+model took too long to answer." for a request past `timeoutMs`, "The model returned no text
+(SAFETY)." for a reply with no text, the reason only when it is a plain word (see
 [`analyze_whole_document`](./tools.md#analyze_whole_document)).
 
-`gemini()` gives its part reads no way to change the 180 s. To change it, replace the adapter's
-`generateText`:
-
-```ts
-import type { ModelAdapter } from "llm-large-files";
-import { createGeminiGenerateText, gemini } from "llm-large-files/gemini";
-
-// endpoint as in the vertexAi() sample.
-const base = gemini(endpoint);
-const model: ModelAdapter = {
-  ...base,
-  // Part reads that may take up to five minutes each.
-  generateText: createGeminiGenerateText({ url: endpoint.url, headers: endpoint.headers, timeoutMs: 300_000 }),
-};
-```
+Since 0.10.0 `gemini(endpoint, { timeoutMs })` and `askGemini({ timeoutMs })` set the time of each
+part read: there is no need to replace the adapter's `generateText` for it.
 
 Guides: [Gemini API and Vertex AI](../guides/vertex-and-gemini.md),
 [errors and reliability](../guides/errors-and-reliability.md).
@@ -810,9 +936,10 @@ declare class GeminiRequestError extends ModelRequestError {
 ```
 
 A Gemini request that failed: Gemini answered with an HTTP error, or `status` is 0 because Gemini
-could not be reached, sent nothing for a whole wait, or ended a stream before it was complete. A
-reply of HTTP 200 that could not be read (not JSON, or an event too long) keeps its 200, with kind
-`"invalid"`.
+could not be reached, sent nothing for a whole wait, ended a stream before it was complete, or did
+not answer a part read within `timeoutMs`. A reply of HTTP 200 that could not be read (not JSON, or
+an event too long) keeps its 200, with kind `"invalid"`. An error that came inside a reply of HTTP
+200 has the status of its code or of its `google.rpc` name (since 0.10.0).
 `gemini()` throws it for chat requests, and its part reader (`generateText`) for part reads.
 `askGemini` and `askWithFiles` throw it for a chat request that failed and was not worth another
 try, or still failed after the retries. A part read that fails is not thrown: the part counts as

@@ -23,7 +23,7 @@ The entry point needs no OpenAI SDK: it posts JSON to the URL you give, with `fe
   [`OpenAiCompatibleOptions`](#openaicompatibleoptions-1)
 - [Errors](#errors): [`OpenAiRequestError`](#openairequesterror)
 - [Chat Completions messages](#chat-completions-messages): [`OpenAiMessage`](#openaimessage),
-  [`fromOpenAiMessages()`](#fromopenaimessageshistory), [`openAiToolTurns()`](#openaitoolturnsturns)
+  [`fromOpenAiMessages()`](#fromopenaimessageshistory), [`openAiToolTurns()`](#openaitoolturnsturns-options)
 
 ## The model adapter
 
@@ -43,7 +43,7 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`, else `options.model`. It names the model in `usage.byModel` and in messages. |
-| `capabilities` | `toolFiles` is `"beside"` with `pdfInput`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set), so the loop counts a scale of 1 by default. No `outputTokens`, not `appendOnly`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
+| `capabilities` | `toolFiles` is `"beside"` with `pdfInput`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set), so the loop counts a scale of 1 by default. `nativeRounds` is true (new in 0.10.0): its own assistant messages may go back in later questions as they came, with the `reasoning_content` DeepSeek asks for. No `outputTokens`, not `appendOnly`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
 | `send(request, hooks?)` | One chat request, described below. |
 | `requestBytes(request)` | The size in bytes of the JSON body of that request, without the two fields a stream adds. |
 | `generateText` | The part reader of whole-file reads, described below. With it, `analyze_whole_document` can be offered when this adapter is the model that uses the tools (the explorer, when there is one), unless `wholeDocumentAnalysis` is `false`. |
@@ -99,12 +99,18 @@ requests are never streamed. Each piece of text goes to `onText` as it arrives.
   request whose connection broke after `[DONE]` with status 0, with the whole answer already shown.
 - A server that sends the name of a tool call again with each piece of the call does not make it
   longer (since 0.6.0; it gave `search_documentsearch_document`). A name sent in pieces is joined.
+- A piece of a tool call without `index` starts a new call only when its ID is there and is not the
+  last call's; otherwise it adds to the last call (since 0.10.0). A server that sends the ID with
+  every piece made a call of each piece before.
 
 **The reply** ([`ModelReply`](./ask.md#modelreply)):
 
 - `text` is the message's content. When there is none and the model refused, it is the `refusal`,
   which goes to `onText` too.
-- `calls` are the `tool_calls` that have a name. Arguments that are not a JSON object give the call
+- `calls` are the `tool_calls` that have a name. A call that came without an ID, or with an empty
+  one, is given `call_` and 24 hexadecimal characters, once: in the call and in `raw`, so the tool
+  message that answers it names the same ID (since 0.10.0; before, `raw` went back without it and
+  the tool message had a numbered ID). Arguments that are not a JSON object give the call
   a `problem`: the loop answers it with that message instead of running it, and the model can send
   it again. In the turn that goes back, those arguments, and empty ones, become `"{}"`, and
   arguments that came as an object become their JSON text. When
@@ -121,11 +127,14 @@ requests are never streamed. Each piece of text goes to `onText` as it arrives.
   `completion_tokens`; `thoughtTokens` is `completion_tokens_details.reasoning_tokens`. A missing
   number counts 0. `providerUsage` is the `usage` object as it came. A stream reports usage only
   when the server sends it.
+- `responseId` and `responseModel` are the reply's `id` and `model`, when the server gives them
+  (new in 0.10.0).
 
 **Part reads** (`generateText`, for `analyze_whole_document`) go to the same URL with the same
 headers and are never streamed. The body is `model`, a message of role `systemRole` and a user
 message, the output limit under the name `maxTokensField`, then the fields of
-`analysisBody(limit)`. `body` is not used. Each request may take `timeoutMs` (180 s). A reply cut
+`analysisBody(limit)`. `body` is not used. Each request may take `timeoutMs` (180 s; 0 for none,
+since 0.10.0). A reply cut
 off with nothing written, or with half its limit or more spent thinking, while the limit was below
 32,768, is asked again with 32,768 output tokens
 ([`THINKING_OUTPUT_TOKENS`](./gemini.md#thinking_output_tokens)), and later part reads to the same
@@ -155,13 +164,15 @@ every later question on that model, in that process.
 
 A part read throws as `send` does for an HTTP error, a connection that failed, an empty body,
 `insufficient_system_resource`, an abort and a body that is not JSON. It has no waits of
-`firstByteTimeoutMs` and `idleTimeoutMs`; instead, a request that ran past `timeoutMs` throws the
-error of its abort (a `TimeoutError`). A reply with no text throws
-`Error("The model returned no text (length).")`, the reason in brackets being `finish_reason`.
-These two have no `status`. In a whole-file read, the model is told why a part failed by the
-error's kind and status, never by the server's message: "The model took too long to answer." for
-the `TimeoutError`, "The model returned no text (length)." for a reply with no text, the reason
-only when it is a plain word (see [`analyze_whole_document`](./tools.md#analyze_whole_document)).
+`firstByteTimeoutMs` and `idleTimeoutMs`; instead, a request that ran past `timeoutMs` throws an
+`OpenAiRequestError` "The model took longer than 180 s to answer.", status 0, kind `"timeout"`
+(since 0.10.0; before, the error of its abort, a `TimeoutError` with no status). A whole-file read
+sends it again once, as the retry rule does for a chat request that got nothing back. A reply with
+no text throws `Error("The model returned no text (length).")`, the reason in brackets being
+`finish_reason`; it has no `status`. In a whole-file read, the model is told why a part failed by
+the error's kind and status, never by the server's message: "The model took too long to answer."
+for a timeout, "The model returned no text (length)." for a reply with no text, the reason only
+when it is a plain word (see [`analyze_whole_document`](./tools.md#analyze_whole_document)).
 
 ```ts
 import { askWithFiles } from "llm-large-files";
@@ -237,7 +248,7 @@ The options of [`openAiCompatible()`](#openaicompatibleoptions).
 | `maxRequestBytes` | `number` | none | The largest request body the endpoint takes, in bytes. Set as `capabilities.maxRequestBytes`, it keeps the budget within it. Without it the library's budget holds: 10,000,000 bytes unless you set another. |
 | `pageTokens` | `number` | `1_000` | Tokens one PDF page shown by `view_pages` costs. The loop sizes the pages a question may look at from it. It matters only with `pdfInput`. |
 | `tokenScale` | `number` | none, counted as 1 | This model's tokens for one token of the library's estimate, which is fitted to Gemini. A model whose tokenizer counts a third more for the same text takes 1.33, and its documents are planned for a window that much smaller. |
-| `timeoutMs` | `number` | `180_000` | The longest a part read's request may take, in milliseconds, each try counted apart, except that a request sent again with the other name of the output limit (see `maxTokensField`) shares the time of the first. A request that runs longer is aborted. Not used for chat requests. |
+| `timeoutMs` | `number` | `180_000` | The longest a part read's request may take, in milliseconds, each try counted apart, except that a request sent again with the other name of the output limit (see `maxTokensField`) shares the time of the first. A request that runs longer is aborted, and is an `OpenAiRequestError` of kind `"timeout"` and status 0 (since 0.10.0). 0 sets no limit (since 0.10.0; before, it aborted every part read at once). Not used for chat requests. |
 | `firstByteTimeoutMs` | `number` | `600_000` | The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count: a model that thinks sends nothing until it has thought, and a reply that is not streamed comes whole at the end. A request that gets nothing for that long is aborted with an `OpenAiRequestError` (`status` 0, `kind` `"timeout"`), which `askWithFiles` sends again once. 0, a negative or a non-finite number waits without end. The key and headers are resolved before the wait starts. Not used for part reads. |
 | `idleTimeoutMs` | `number` | `300_000` | The longest wait, in milliseconds, between two pieces of a chat reply once it has started to arrive. Any bytes count, keep-alives included. The same error; `askWithFiles` sends the request again once, unless text of it was shown. 0 waits without end. Not used for part reads. |
 | `id` | `string` | `model` | The name of the model in `usage.byModel` and in messages. |
@@ -347,10 +358,10 @@ A call that no `tool` message answers keeps the result
 Native parts reach every model of the question as they are. With a model of another provider (an
 explorer on Gemini, say), both models must read parts in OpenAI's form.
 
-### openAiToolTurns(turns)
+### openAiToolTurns(turns, options?)
 
 ```ts
-declare function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[];
+declare function openAiToolTurns(turns: ToolTurn[], options?: { native?: boolean }): OpenAiMessage[];
 ```
 
 The tool rounds a question returned ([`AskResult.toolTurns`](./ask.md#askresult)) as Chat
@@ -364,6 +375,10 @@ question (since 0.6.0, as `askWithFiles` sends stored rounds). No files: `toolTu
 call without one is given a new random ID, `call_` and 24 hex digits, a different one each time the
 function runs, so that the rounds of two questions kept in one history never share an ID. (Before
 0.6.0 such calls were numbered from 1.)
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `native` | `boolean` | `false` | A round that kept its own assistant message (`ToolTurn.native`) gets that message's `reasoning_content`, written between `content` and `tool_calls`. DeepSeek's thinking mode asks for the `reasoning_content` of every earlier turn in a request with tools, and refuses one without it (HTTP 400). A round without it, or whose `native` is not an assistant message with reasoning, is written as without the option. New in 0.10.0. |
 
 ```ts
 import { askWithFiles } from "llm-large-files";

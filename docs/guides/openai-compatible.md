@@ -110,11 +110,16 @@ const openai = openAiCompatible({
   apiKey: process.env.OPENAI_API_KEY!,
   model: "gpt-5.5",
   contextTokens: 400_000,
-  body: { reasoning_effort: "medium" },              // every chat request
-  analysisBody: () => ({ reasoning_effort: "low" }), // the part reads of a whole-file read
+  body: { reasoning_effort: "none" },                // every chat request: tool calls need it (below)
+  analysisBody: () => ({ reasoning_effort: "low" }), // the part reads of a whole-file read, which offer no tools
 });
 ```
 
+- **Tool calls on GPT-5.4 and later need `reasoning_effort: "none"`** through Chat Completions,
+  which is their default: with another effort and tools in the request, the API refuses the
+  request. The chat requests of the loop offer tools, so leave the effort out of `body`, or set
+  `"none"`. A part read offers no tools, and may reason. For reasoning with tools, OpenAI points to
+  its Responses API, which this adapter does not speak (planned for 1.0.0).
 - Part reads name their output limit `max_completion_tokens`, which OpenAI's newer models require.
 - A reasoning model sends nothing while it thinks. `firstByteTimeoutMs` (600 s) is the wait for
   its first piece. Its `completion_tokens_details.reasoning_tokens` are counted as
@@ -202,7 +207,15 @@ const deepseek = openAiCompatible({
   question and the request for an answer with no turn between them, and DeepSeek's reasoner
   refuses two user turns in a row.
 - **The model's own turn goes back with its `reasoning_content`**, streamed or not
-  ([the reply](../reference/openai.md#openaicompatibleoptions)).
+  ([the reply](../reference/openai.md#openaicompatibleoptions)). DeepSeek's thinking mode asks for
+  the `reasoning_content` of every earlier turn in a request with tools, those of earlier questions
+  included, and refuses a request without it (HTTP 400), as its
+  [thinking mode guide](https://api-docs.deepseek.com/guides/thinking_mode) says (read in November
+  2026). Within a question the loop sends it back. Since 0.10.0 the adapter's
+  `capabilities.nativeRounds` is true, so the rounds of earlier questions go back with it too when
+  you store `result.toolTurns` and pass them in `messages`. If you keep Chat Completions messages,
+  write them with `openAiToolTurns(result.toolTurns, { native: true })`
+  ([below](#conversations-kept-as-chat-completions-messages)).
 - **`insufficient_system_resource`**: DeepSeek stops a reply when its servers run short. The
   adapter takes that for the server's failure, HTTP 503, and the loop sends the request again. A
   reply that is not streamed is checked before any of it is shown, so it can always be sent again;
@@ -380,9 +393,12 @@ the larger limit off when that allowance is no larger than 32,768. Both requests
 - **When a wait runs out**, the request is aborted with an `OpenAiRequestError` of status 0 and kind
   `"timeout"` ("The model sent nothing for 600 s."). `askWithFiles` sends it again once, unless
   text of it was already shown.
-- **A part read** has `timeoutMs` for the whole request, reply included. One that runs out is tried
-  once more at once, and then counts as a part that could not be read, which the tool result says.
-  Raise `timeoutMs` for a model that thinks long over a large part.
+- **A part read** has `timeoutMs` for the whole request, reply included. One that runs out is an
+  `OpenAiRequestError` of status 0 and kind `"timeout"` ("The model took longer than 180 s to
+  answer."), since 0.10.0; before, the abort error of the timer, with no status. It is tried once
+  more at once, and then counts as a part that could not be read, which the tool result says
+  ("The model took too long to answer."). Raise `timeoutMs` for a model that thinks long over a
+  large part; 0 sets none (since 0.10.0).
 
 How failed requests are sent again, and what to tell your user, is in
 [Errors and reliability](./errors-and-reliability.md).
@@ -435,6 +451,16 @@ the IDs it gives calls that came without one: "Streaming" and "The reply" under
 back with every field the server sent in it, such as `extra_content`. A server that sends the name
 of a tool call again with each piece of it is read right: the name is not doubled
 (`search_documentsearch_document`, which the loop answered as an unknown tool before 0.6.0).
+Since 0.10.0:
+
+- **A call that came without an ID**, or with an empty one, gets `call_` and 24 hexadecimal
+  characters, once, in the call and in the turn that goes back, so its tool message names the same
+  ID. Before, the turn went back without the ID and the tool message had a numbered one, which a
+  strict server refuses.
+- **A server that streams calls without `index`** starts a new call only at a piece whose ID is
+  there and is not the last call's. One that sends the ID with every piece of a call makes one
+  call; before, each piece was a call of its own.
+- **`responseId` and `responseModel`** of the reply are the `id` and `model` the server gave.
 
 ## What it does not do
 
@@ -513,7 +539,10 @@ await saveHistory(chatId, history);
 - does not keep the text of an assistant turn that also made tool calls.
 
 `openAiToolTurns(result.toolTurns)` gives each round as an assistant message with its
-`tool_calls` and one `tool` message per call, its content the JSON of the result. **Since 0.6.0, a
+`tool_calls` and one `tool` message per call, its content the JSON of the result. With
+`{ native: true }` (new in 0.10.0), a round that kept its own assistant message (`ToolTurn.native`)
+gets that message's `reasoning_content` back, which DeepSeek's thinking mode asks for in a request
+with tools. **Since 0.6.0, a
 call that came without an ID gets a random one**, `call_` and 24 hexadecimal characters, and a new
 one each time you convert. Before, they were numbered from 1 each time, so the stored rounds of two
 questions had the same IDs. Convert a question's rounds once and store the messages; do not convert
