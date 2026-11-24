@@ -79,7 +79,8 @@ export type RequestPurpose = "turn" | "nudge" | "closing" | "answer_again" | "di
  * - "error": it ran, or was checked, and returned `{ error }` (bad arguments, a document it cannot
  *   read, a regex that took too long…), or it was ended because its turn failed (the question was
  *   stopped, or a listener threw): then the model was sent nothing;
- * - "refused": it was not run, for a limit of the question (cost, room, reads of a whole file);
+ * - "refused": it was not run: for a limit of the question (cost, room, reads of a whole file), a
+ *   tool the question does not have (since 0.10.0), or a `{ reject }` of `onToolResult` (0.10.0);
  * - "already_shown": it repeated a call whose result is still in the conversation, and was answered
  *   with a pointer to it;
  * - "not_run": the turn had more calls than `limits.callsPerTurn`;

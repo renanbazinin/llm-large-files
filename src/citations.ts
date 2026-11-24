@@ -37,20 +37,27 @@ const EDGE_AFTER = String.raw`(?![\p{L}\p{N}_])`;
 const RANGE_END = String.raw`(?:\s*[-–—־]\s*|\s+(?:to|עד)\s+)`;
 /** "L" or "l", and a space at most, before a line number: "L12", "l12", "L 12". */
 const LINE_LETTER = String.raw`[Ll][  ]?`;
+/**
+ * A line number: digits, or digits in groups of three after commas ("1,200", "12,345,678"), as a
+ * model writes a large number. "L12,14" is line 12, then something else: a group has three digits.
+ */
+const NUMBER = String.raw`(\d{1,3}(?:,\d{3}){1,2}|\d{1,9})`;
+/** The value of a line number as `NUMBER` reads it: its commas left out. */
+const numberOf = (written: string) => Number(written.replaceAll(",", ""));
 
 /**
  * The forms of a citation, each with the numbers it names:
- * - "L12", "L12-14", "L12-L14", "L 12", "l12": lines, as the tools and the closing request write them;
+ * - "L12", "L12-14", "L12-L14", "L 12", "l12", "L1,200": lines, as the tools and the closing request write them;
  * - "line 12", "lines 12-14": lines, in words;
  * - "Row 12": a row, which for a workbook may be Excel's row and not a line;
  * - "שורה 12", "שורות 12-14", with a prefix letter ("בשורה 12") or "מס'": in Hebrew "שורה" is
  *   both a line and a row.
  */
 const FORMS: Array<{ pattern: RegExp; form: "line" | "row"; bare: boolean }> = [
-  { pattern: new RegExp(String.raw`${EDGE_BEFORE}${LINE_LETTER}(\d{1,9})(?:${RANGE_END}(?:${LINE_LETTER})?(\d{1,9}))?${EDGE_AFTER}`, "gu"), form: "line", bare: true },
-  { pattern: new RegExp(String.raw`${EDGE_BEFORE}[Ll]ines?\s+(\d{1,9})(?:${RANGE_END}(\d{1,9}))?${EDGE_AFTER}`, "gu"), form: "line", bare: false },
-  { pattern: new RegExp(String.raw`${EDGE_BEFORE}[Rr]ows?\s+(\d{1,9})(?:${RANGE_END}(\d{1,9}))?${EDGE_AFTER}`, "gu"), form: "row", bare: false },
-  { pattern: new RegExp(String.raw`${EDGE_BEFORE}[בלמוהכש]{0,2}שור(?:ה|ות)\s+(?:(?:מס['׳]?|מספר)\s*)?(\d{1,9})(?:${RANGE_END}(\d{1,9}))?${EDGE_AFTER}`, "gu"), form: "row", bare: false },
+  { pattern: new RegExp(String.raw`${EDGE_BEFORE}${LINE_LETTER}${NUMBER}(?:${RANGE_END}(?:${LINE_LETTER})?${NUMBER})?${EDGE_AFTER}`, "gu"), form: "line", bare: true },
+  { pattern: new RegExp(String.raw`${EDGE_BEFORE}[Ll]ines?\s+${NUMBER}(?:${RANGE_END}${NUMBER})?${EDGE_AFTER}`, "gu"), form: "line", bare: false },
+  { pattern: new RegExp(String.raw`${EDGE_BEFORE}[Rr]ows?\s+${NUMBER}(?:${RANGE_END}${NUMBER})?${EDGE_AFTER}`, "gu"), form: "row", bare: false },
+  { pattern: new RegExp(String.raw`${EDGE_BEFORE}[בלמוהכש]{0,2}שור(?:ה|ות)\s+(?:(?:מס['׳]?|מספר)\s*)?${NUMBER}(?:${RANGE_END}${NUMBER})?${EDGE_AFTER}`, "gu"), form: "row", bare: false },
 ];
 
 /** How far, in characters on one line, a file name may be from the citation it goes with. */
@@ -100,8 +107,8 @@ function citationsIn(text: string): Cited[] {
       const end = start + match[0].length;
       while (next < kept.length && kept[next]!.end <= start) next++;
       if (next < kept.length && kept[next]!.start < end) continue;
-      const first = Number(match[1]);
-      const second = match[2] === undefined ? first : Number(match[2]);
+      const first = numberOf(match[1]!);
+      const second = match[2] === undefined ? first : numberOf(match[2]);
       if (first < 1 || second < 1) continue;
       added.push({ start, end, from: Math.min(first, second), to: Math.max(first, second), form, bare });
     }

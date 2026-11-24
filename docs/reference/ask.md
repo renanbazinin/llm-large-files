@@ -359,7 +359,7 @@ question that failed.
 | `usage` | [`UsageTotals`](#usagetotals) | Tokens and requests of the whole question, whole-file part reads included, in all and for each model by its `id`. The input of requests that reported none is in `estimatedInputTokens`. |
 | `lastUsage` | `Record<string, unknown>`, optional | The provider's own usage object of the last chat reply that had one, as it came. |
 | `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call" \| "other"`, optional | How the reply whose text is the answer ended (`ModelReply.finish`), or the last reply of the chat when none answered. Absent when the adapter does not say. `"filtered"` and `"cut"` come with an `answer_filtered` or `answer_cut` notice. New in 0.10.0. |
-| `citations` | [`CitationCheck`](#citationcheck), optional | The line citations of `text`, checked against the evidence of the question: a document sent whole, or read whole, counts as shown, every line it has. Set when the question had documents. New in 0.10.0. |
+| `citations` | [`CitationCheck`](#citationcheck), optional | The line citations of `text`, checked against the evidence of the question: a document sent whole, or read whole for an answer, counts as shown, every line it has; a read of items, the lines of its items. Set when the question had documents. New in 0.10.0. |
 
 Guides: [conversations](../guides/conversations.md) (`toolTurns`),
 [costs and limits](../guides/costs-and-limits.md) (`usage`),
@@ -642,8 +642,10 @@ line it names was shown, by the lines of an evidence entry of that document. An 
 `whole: true` (a file read whole, or sent whole) and no `lines` shows every line; one with `lines`
 (`[[1, 120]]`) shows those, so a line past the end of the file is not supported. Two documents of
 one name support it by either. `askWithFiles` counts each document sent whole, and each document
-read whole (`analyze_whole_document`), as shown from its first line to its last
-(`DocumentMeta.lines`): its `evidence` is not changed for that.
+read whole for an answer (`analyze_whole_document`), as shown from its first line to its last
+(`DocumentMeta.lines`): its `evidence` is not changed for that. A read with `output: "items"` shows
+the lines of its items only (its evidence has them as `lines`), so a citation of another line of
+that file is not supported.
 
 | Field | Type | What it holds |
 |---|---|---|

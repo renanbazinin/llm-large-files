@@ -54,7 +54,7 @@ export type { RetryNotice, RetryOptions } from "./retry.js";
 export { parseSseJson, SseEventTooLongError } from "./sse.js";
 export type { SseHooks } from "./sse.js";
 export { DEFAULT_FIRST_BYTE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./http.js";
-export type { IdleWaits } from "./http.js";
+export type { HeaderContext, HeaderSource, IdleWaits } from "./http.js";
 export { DocumentScopeError, DocumentStoreError, IngestError, ingestErrorCodeOf } from "./errors.js";
 export type { DocumentScopeErrorCode, DocumentStoreOperation, IngestErrorCode } from "./errors.js";
 export { errorInfoOf } from "./error-info.js";

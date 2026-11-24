@@ -36,6 +36,51 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.10.1 — not released yet
+
+A patch from the review of 0.10.0 against its code: a few pages said more, or less, than the code
+does, `checkCitations` read a line number written with commas as its first digits, and one test
+failed on a slow runner. The text sent to the model is the same as 0.10.0's.
+
+### Upgrading: what you need to change
+
+Nothing. Code written for 0.10.0 compiles as it is, and the requests are byte for byte those of
+0.10.0.
+
+### New: what you can add
+
+- `HeaderSource` and `HeaderContext` are exported: the type of `vertexAi({ headers })` and of a
+  headers function that takes `{ refresh }`
+  ([VertexAiOptions](docs/reference/gemini.md#vertexaioptions)).
+
+### Fixed
+
+- **`checkCitations` read "(app.log L1,200)" as line 1.** A number written in groups of three after
+  commas is now one number ("L1,200", "line 12,345", "שורה 1,200"), in `AskResult.citations` too;
+  "L1,20" is still line 1.
+- **Docs that did not match the code:**
+  - after a whole-file read with `output: "items"`, only the lines of its items count as shown, not
+    the whole file ([`CitationCheck`](docs/reference/ask.md#citationcheck));
+  - a reply over a table sent whole that ended for a reason asking again cannot mend (`"other"`) is
+    not asked for again ([Tables sent whole](docs/guides/costs-and-limits.md#tables-sent-whole));
+  - `body` of `askGemini` and `gemini()` reaches the chat requests, not the part reads of a
+    whole-file read, which take `analysisBody`: the upgrade guide's worked example labelled only
+    the chat requests, and now sets both
+    ([The worked example](docs/upgrading-0.10.md#the-worked-example));
+  - `has("aggregate_table")` is true while the text tools are declared; of two keyword passages with
+    one score, the one met first comes first, not always the earlier in the file;
+    `maxStuckStoreCalls` is half the libuv pool, at least 1; a Gemini error in a stream is retried
+    for 408 and 409 too; its `code` is its status only from 400 to 599; `location` is not checked
+    when `host` is given; the printed `VertexAiOptions` shows the fields it refuses;
+  - the 0.10.0 entry below and the upgrade guide: what the opt-outs do not give back (also the
+    prompts of merges, the answer to an unknown tool, and results cut in tokens), which finish
+    reasons 0.9 already did not ask again for, the 3-row rule (for tables sent whole only), the
+    item check (it takes out a short `\u` escape), and the mocks that need `stats` and `toolsFor`;
+  - `docs/measurements.md` listed thought signatures of earlier questions as if 0.10.0 sent them:
+    it ran them as a probe, and sends none.
+- **Tests:** a search test that stops at a 5 ms budget ran out of time before its first match on a
+  Windows runner; it now doubles the budget until a scan finds lines.
+
 ## 0.10.0 — 2026-11-25
 
 Counts that are right and a cost that is bounded, for a chatbot on Gemini. Tables sent whole get
@@ -139,7 +184,10 @@ Some behavior is different. Check each point against your app:
 - **What the opt-outs do not give back.** `inlineTables: "text"` and `numberInline: false` each
   give 0.9's bytes for what they cover. With both, these stay: the `whole_file` hint of a
   `read_document` result cut short, and the `filter_note` of `aggregate_table`; the declaration of
-  `analyze_whole_document` and the prompts of its part reads (M8); and the card sizes of LLF-059
+  `analyze_whole_document` and the prompts of its part reads and merges (M8); the card sizes of
+  LLF-059; the loop's own answer to a call of an unknown tool ("Unknown tool “x”. The tools are:
+  …", LLF-049); and tool results cut to their room in tokens, at each document's own characters per
+  token, so a result cut at the room differs from 0.9's
   ([What has a way back](docs/upgrading-0.10.md#going-back-to-09s-text)).
 - **Rolling deploys.** What 0.10.0 stores is what 0.9 stores, so servers of both versions share a
   store and nothing fails. But they send different text, so a chat answered by 0.9 and 0.10 servers
@@ -180,7 +228,8 @@ Some behavior is different. Check each point against your app:
 - **Filtered and cut answers say so.** `result.finish` tells how the answer ended, an
   `answer_filtered` or `answer_cut` notice comes before `run.finish`, and a reply that a filter or
   another reason that asking again cannot mend ended (`finish` `"filtered"` or `"other"`) is not
-  asked for again: 2 requests over a searched file, where 0.9 made 4. Gemini's `MODEL_ARMOR`,
+  asked for again. 0.9 already stopped so after the filters it knew; a reason it did not know made
+  4 requests over a searched file, and now makes 2. Gemini's `MODEL_ARMOR`,
   `IMAGE_PROHIBITED_CONTENT`, `IMAGE_RECITATION` and `IMAGE_OTHER` are now `"filtered"` (as
   `IMAGE_SAFETY` was), and `OTHER`, `LANGUAGE` and four more `"other"`; they gave no finish.
   `MALFORMED_RESPONSE` is now `"malformed_call"`: the turn is asked for once more.
@@ -314,7 +363,7 @@ await chats.updateOne({ _id: chatId }, {
   tokens.
 - A reply ended by a reason that asking again cannot mend (`"filtered"`, `"other"`) is neither
   nudged nor asked for again. Over files sent whole alone (nothing searched or viewed), one with no
-  text ends the question without a closing request. Otherwise the closing request is made once, and
+  text that ended so, or at the output limit, ends the question without a closing request. Otherwise the closing request is made once, and
   a filtered closing is not asked for again.
 - The room for tool results is shared in tokens, at each document's own characters per token. A
   result that would still pass the room is cut before the model gets it, in call order.
@@ -323,7 +372,9 @@ await chats.updateOne({ _id: chatId }, {
 
 **Tables, numbers and citations**
 
-- A file counts as having a table when it has 3 rows of one table.
+- A file sent whole counts as having a table, for the tools of `inlineTables: "tools"`, when it has
+  3 rows of one table. Whether a searched file gets `aggregate_table` is decided by its format, as
+  in 0.9.
 - `aggregate_table`: a filter that orders a column (`>`, `>=`, `<`, `<=`) against a value that
   names another column compares the two cells of each row, and says so in `filter_note`. A column
   letter works in every table. Over a table sent whole, a grouped result ends with a `cite` line.
@@ -338,7 +389,8 @@ await chats.updateOne({ _id: chatId }, {
 - `analyze_whole_document` keeps 0.9.0's description word for word: items are told in `output`
   only. A new description made Gemini 3.5 Flash-Lite skip whole reads.
 - The item check counts a quote near its named line as verified (up to one letter in five
-  differs), finds a clause's line by the number it starts with, and repairs short `\u` escapes. The
+  differs), finds a clause's line by the number it starts with, and takes out a `\u` escape with
+  fewer than four hex digits, which a model writes by mistake (the near check allows for the gap). The
   rule asks for five to twelve words of the line, copied exactly.
 - A whole read with more parts than `ToolCallLimits.maxRequests` is refused before any request; one
   given `maxRequests` stops merging at it (`notes_left_out`, or `notes_only` when no request is left
@@ -417,8 +469,10 @@ await chats.updateOne({ _id: chatId }, {
 - **N12:** a whole-file read passed `limits.requests`: 40 requests against 32, 42 through
   `askWithFiles`.
 - **A6, NEW-filtered-answer:** a reply that Gemini ended with `MODEL_ARMOR`, `OTHER`, `LANGUAGE` or
-  another reason the library did not know cost 4 requests and gave no finish, and a filtered or
-  cut answer read as complete ("The employee's medical leave was", `answered: true`).
+  another reason 0.9 did not know (the image filters, `NO_IMAGE`, `TOO_MANY_TOOL_CALLS`,
+  `MISSING_THOUGHT_SIGNATURE`) cost 4 requests and gave no finish, and a filtered or cut answer
+  read as complete ("The employee's medical leave was", `answered: true`). A reason 0.10.0 does not
+  know either is still asked for again.
 - **LO-7:** with `eventResults`, event plans held owner, scope, sha256 and original at run time.
 - `alreadyShown` could point to a result that `onToolResult` replaced.
 

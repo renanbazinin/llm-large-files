@@ -18,8 +18,8 @@ as it was recorded, with the release it was recorded for. Before you rely on a n
   probe that reproduced a fault, and so does this page.
 - **Version** is the release a result was recorded for. 0.1.0 is of 2026-11-06, 0.2.0 and 0.3.0 of
   2026-11-10, 0.3.5 and 0.3.6 of 2026-11-11, 0.4.0 of 2026-11-12, and 0.4.1 and 0.5.0 of
-  2026-11-13. The checks of 0.6.0 are of November 2026. The live results of 0.10.0, not released
-  yet, are of 2026-11-24. All live results are of November 2026.
+  2026-11-13. The checks of 0.6.0 are of November 2026. The live results of 0.10.0 (released on
+  2026-11-25) are of 2026-11-24. All live results are of November 2026.
 - **Main** is a result recorded on the code on `main` up to commit 5157e7f (2026-11-20), or on its
   branches, before the rest of 0.6.0 was written. "The 0.6 review" is the review of that code, of
   2026-11-20.
@@ -38,8 +38,8 @@ as it was recorded, with the release it was recorded for. Before you rely on a n
 
 | Provider | Live runs on record | Not run live |
 |---|---|---|
-| Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions. 0.10.0: the prompt cache, thought signatures of earlier questions, and the eval's cases at pass^3 ([below](#0100-live-on-the-gemini-api)) | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
-| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | Everything of 0.10.0, among it thought signatures of earlier questions, Model Armor, `LANGUAGE` and labels |
+| Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions. 0.10.0: the eval's cases at pass^3, and two probes: the prompt cache, and thought signatures sent back with earlier questions, which 0.10.0 does not send ([below](#0100-live-on-the-gemini-api)) | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
+| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | Everything of 0.10.0, among it Model Armor, `LANGUAGE` and labels |
 | OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only. 0.10.0: a streamed tool call on Gemini's OpenAI layer | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
 | Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation |
 

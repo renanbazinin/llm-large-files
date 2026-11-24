@@ -25,8 +25,17 @@ describe("search", () => {
     const text = Array.from({ length: 300_000 }, (_, index) => `line ${index} ${"ab".repeat(30)}`).join("\n");
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "slow.txt", bytes: utf8(text) });
-    const result = await files.tools([meta], { regexBudgetMs: 5 }).execute("search_document", { document_id: meta.id, query: "(ab)*line \\d+", mode: "regex", order: "last" });
-    expect(result.note).toMatch(/^The scan stopped early; the total is a lower bound\. These are the last \d+ matching lines it found, in the order of the file\. There may be later ones, after line \d+: search again with from_line \d+\.$/);
+    // The scan must find some lines and stop before the end. On a slow runner (Windows CI, 0.10.0)
+    // 5 ms ran out before the first match, so the time is doubled until a scan finds lines: the
+    // first that does is the one checked.
+    const outOfTime = /^The scan stopped early, out of time, before it found a matching line/;
+    let note: string | undefined;
+    for (let budget = 5; budget <= 640; budget *= 2) {
+      const result = await files.tools([meta], { regexBudgetMs: budget }).execute("search_document", { document_id: meta.id, query: "(ab)*line \\d+", mode: "regex", order: "last" });
+      note = typeof result.note === "string" ? result.note : undefined;
+      if (!note || !outOfTime.test(note)) break;
+    }
+    expect(note).toMatch(/^The scan stopped early; the total is a lower bound\. These are the last \d+ matching lines it found, in the order of the file\. There may be later ones, after line \d+: search again with from_line \d+\.$/);
   });
 
   it("checks a repeated group with \\w as it is compiled, for letters of every script", () => {
