@@ -507,7 +507,8 @@ Outline (8 of 8 headings):
   footer, which is a line found on 3 pages or more, or on 2 pages and at least half of them.
 - A line that differs from those of other pages only by its numbers ("עמוד 3 מתוך 10", "Annual
   Report page 7") is a page number, and not a heading, when it is found on at least half of the
-  pages, at most once on each, and does not count as section numbers do. Section numbers count
+  pages, does not count up on one page (the same number in a page's header and its footer is one
+  page number), and does not count as section numbers do. Section numbers count
   headings: each is the one before with one number 1 more, with pages without one between some of
   them ("פרק 1" to "פרק 5" on the odd pages). A page number counts pages, and skips those it is
   missing from: a header on the odd pages only reads "page 1", "page 3". Numbered headings several

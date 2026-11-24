@@ -355,6 +355,14 @@ describe("PdfHeadingFinder", () => {
     expect(articles.map((heading) => heading.title)).toEqual(Array.from({ length: 18 }, (_, index) => `Article ${index + 1}`));
     // On pages in a row, counting by one, section numbers read as a page number: on 4 pages of 6, left out.
     expect(find(Array.from({ length: 6 }, (_, index) => [...(index < 4 ? [item(`Part ${index + 1}`, 18)] : []), item(BODY, 10), item(BODY, 10)]))).toEqual([]);
+    // The same page number in the header and the footer of each page is one page number, left out, in
+    // Hebrew too; and so is a footer printed twice on one page only.
+    const both = (count: number, twice: (page: number) => boolean) => find(Array.from({ length: count }, (_, index) => {
+      const number = item(`עמוד ${index + 1} מתוך ${count}`, 14);
+      return [number, item(BODY, 10), item(BODY, 10), ...(twice(index + 1) ? [number] : [])];
+    }));
+    expect(both(10, () => true)).toEqual([]);
+    expect(both(6, (page) => page === 3)).toEqual([]);
   });
 
   it("finds none when the text has one size, when much of it is set large, or when nothing can be measured", () => {

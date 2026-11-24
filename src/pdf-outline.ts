@@ -274,7 +274,8 @@ function oneMore(before: number[], after: number[]): boolean {
 /**
  * Whether lines that differ only by their numbers, in the order of the text, are a page number, a
  * running header or footer ("עמוד 3 מתוך 10", "Annual Report page 7"): on 2 pages or more and at
- * least half the pages, at most once on each, and not counting as section numbers do. Section
+ * least half the pages, never counting up on one page (the same number in a page's header and its
+ * footer is one page number), and not counting as section numbers do. Section
  * numbers count headings: each is the one before with one number 1 more, with pages without one
  * between some of them ("פרק 1" to "פרק 5" on the odd pages). A page number counts pages: it skips
  * the pages it is missing from ("page 1", "page 3" on the odd pages). Several on one page ("Article
@@ -283,13 +284,19 @@ function oneMore(before: number[], after: number[]): boolean {
  * pages or more, are lost.
  */
 function pageNumbered(alike: Line[], pages: number): boolean {
-  if (alike.length < 2 || alike.length * 2 < pages) return false;
+  const on = new Set(alike.map((line) => line.page)).size;
+  if (on < 2 || on * 2 < pages) return false;
   let counts = true;
   let skips = false;
   for (let index = 1; index < alike.length; index++) {
     const before = alike[index - 1]!;
     const line = alike[index]!;
-    if (line.page === before.page) return false;
+    if (line.page === before.page) {
+      // Several on one page that count up are headings ("Article 1" to "Article 3"); the same
+      // number twice on a page is a page number in the header and the footer.
+      if (oneMore(numbersOf(before.title), numbersOf(line.title))) return false;
+      continue;
+    }
     skips ||= line.page > before.page + 1;
     counts &&= oneMore(numbersOf(before.title), numbersOf(line.title));
   }
