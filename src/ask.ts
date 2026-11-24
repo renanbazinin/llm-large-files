@@ -171,9 +171,12 @@ export type AskOptions = {
    */
   filteredAnswer?: "keep" | "drop";
   /**
-   * Called with every tool result before the model, the evidence, the steps and the events get it:
-   * return `{ result }` to send another result, `{ reject }` to send an error in its place, or
-   * undefined to keep it. What it throws ends the question. New in 0.10.0. Not called yet.
+   * Called with the result of every tool call that ran, before the model, the evidence, the steps
+   * and the events get it: return `{ result }` to send another result (it is sent with
+   * `redacted: true`, and the call's outcome is "redacted"), `{ reject: "why" }` to send
+   * `{ error: "why" }` in its place (outcome "refused"), or undefined to keep it. What it throws, or
+   * a value of another shape, ends the question. The parts of a whole-file read go to the model
+   * that reads them, not through this. New in 0.10.0.
    */
   onToolResult?: (context: ToolResultContext) => ToolResultVerdict | undefined | Promise<ToolResultVerdict | undefined>;
   /**
@@ -326,7 +329,7 @@ export type AskResult = {
 
 /**
  * What `AskOptions.onToolResult` is given: the call and its result, the document it names, who
- * asks, and the question's signal, which aborts when the question ends. New in 0.10.0.
+ * asks, and a signal that aborts when the question is stopped or fails. New in 0.10.0.
  */
 export type ToolResultContext = { call: ToolCall; result: ToolResult; documentId?: string; owner?: string; scope?: DocumentScope; signal: AbortSignal };
 
@@ -382,6 +385,26 @@ function checkedAction(action: unknown): MissingDocumentsAction {
     }
   }
   throw new TypeError(`onMissingDocuments returned ${shownValue(action)}: it must return "throw", "drop", { retry: true } or { replace: { [oldId]: newId } }.`);
+}
+
+/**
+ * What `onToolResult` returned, checked: undefined, `{ result }` with a result that is an object,
+ * or `{ reject }` with a string. A verdict with a `result` is a result, whatever else it holds.
+ * Anything else ends the question: the hook is there to keep something from the model, and a
+ * mistake in it must not let the result through.
+ */
+function checkedVerdict(verdict: unknown): ToolResultVerdict | undefined {
+  if (verdict === undefined) return undefined;
+  if (verdict !== null && typeof verdict === "object") {
+    if (Object.hasOwn(verdict, "result")) {
+      const { result } = verdict as { result: unknown };
+      if (result !== null && typeof result === "object" && !Array.isArray(result)) return { result: result as ToolResult };
+    } else if (Object.hasOwn(verdict, "reject")) {
+      const { reject } = verdict as { reject: unknown };
+      if (typeof reject === "string") return { reject };
+    }
+  }
+  throw new TypeError(`onToolResult returned ${shownValue(verdict)}: it must return { result }, { reject: "why" } or undefined.`);
 }
 
 /** The documents of a question once `onMissingDocuments` had its say. */
@@ -468,6 +491,14 @@ function cutToTokens(result: ToolResult, tokens: number): ToolResult {
     cut = fitAnswer(result, characters);
   }
   return cut;
+}
+
+/**
+ * `alreadyShown`, but never a pointer to a result that `onToolResult` replaced (`redacted: true`):
+ * it does not hold what the call would return.
+ */
+function pointerTo(call: { name: string; args: Record<string, unknown> }, earlier: { call: { name: string; args: Record<string, unknown> }; result: ToolResult }, stored = false): ToolResult | undefined {
+  return earlier.result.redacted === true ? undefined : alreadyShown(call, earlier, stored);
 }
 /** Bytes a character of a tool result may take in the request. */
 const BYTES_PER_CHARACTER = 3;
@@ -953,20 +984,25 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const meter = new RequestMeter(pageTokens);
   const asText = textSize(messages, options.system);
   const earlier = meter.rounds(messages);
-  // Who asks: the documents are looked up, and every tool call reads them, for this owner and scope.
+  // Who asks: the documents are looked up, and every tool call reads them, for this owner and
+  // scope. The question's signal goes with them, for a library that ends its waits for the store
+  // with it (`AccessOptions.signal`).
   const access = {
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
     ...(options.scope !== undefined ? { scope: options.scope } : {}),
+    ...(signal ? { signal } : {}),
   };
   // Documents that are missing are settled as `onMissingDocuments` says. A question planned again
   // starts from the documents its first try planned: the function is not asked again about them.
-  const planned = await planDocumentsOf(options, carried?.documentIds ?? options.documentIds, (ids) => files.prepare(ids, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
+  // The question stops when its signal aborts, whether the library does or not: a store call that
+  // hangs (a network volume that does not answer) must not hold it, with any `LargeFiles`.
+  const planned = await planDocumentsOf(options, carried?.documentIds ?? options.documentIds, (ids) => until(files.prepare(ids, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
     ...access,
     viewPages: options.viewPages !== false && canShowFiles,
     // The guide and the cards name `analyze_whole_document` only when the tools will have it.
     wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof toolModel.generateText === "function",
     budget,
-  }));
+  }), signal));
   const { prepared, documentIds } = planned;
   /** The documents left out of the question ("drop"), by this try and by the first. */
   const missing = [...carried?.missing ?? [], ...planned.dropped];
@@ -1299,7 +1335,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         if (answer.result.already_shown === true) {
           const held = canPoint && ((key !== undefined && (inRound.has(key) || (answer.call.name !== TOOL_NAMES.read && shownKeys.has(key))))
             || (answer.call.name === TOOL_NAMES.read && (shownReads.get(answer.call.args.document_id) ?? [])
-              .some((read) => alreadyShown(answer.call, read.answer, read.index < asked && read.question !== question) !== undefined)));
+              .some((read) => pointerTo(answer.call, read.answer, read.index < asked && read.question !== question) !== undefined)));
           if (!held) {
             touched = true;
             now = {
@@ -1311,7 +1347,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               },
             };
           }
-        } else if (key !== undefined && alreadyShown(answer.call, answer) !== undefined) {
+        } else if (key !== undefined && pointerTo(answer.call, answer) !== undefined) {
           // A result in full: what a later pointer may point to.
           if (answer.call.name === TOOL_NAMES.read) {
             const reads = shownReads.get(answer.call.args.document_id) ?? [];
@@ -1628,7 +1664,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         if (!isRound(message)) continue;
         // The rounds before `asked` are those of earlier questions, which an older version may have written.
         for (const answer of message.answers) {
-          const pointer = alreadyShown(call, answer, at < asked);
+          const pointer = pointerTo(call, answer, at < asked);
           if (pointer) return pointer;
         }
       }
@@ -1935,12 +1971,12 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               requestBytes = toolModel.requestBytes?.(waiting) ?? meter.estimate(waiting.messages).bytes;
             }
             // Base64 turns three bytes into four characters.
-            const output = await tools.executeWithFiles(call.name, call.args, {
+            const output = await until(tools.executeWithFiles(call.name, call.args, {
               maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4),
               maxPages: pagesLeft,
               // A wait that ends busy comes once in a tool turn: after a busy look, the others run only when a turn is free now.
               ...(pagesBusy ? { maxWaitMs: 0 } : {}),
-            }, hooksFor(index));
+            }, hooksFor(index)), halt.signal);
             for (const file of output.files) requestBytes += Math.ceil(file.bytes.length / 3) * 4 + 512;
             if (output.files.length > 0) pagesLeft -= pagesShown(output.result);
             return output;
@@ -1954,7 +1990,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
             halt.signal.throwIfAborted();
             options.onActivity?.(`${label}…`);
             startTool(index, call, label);
-            return await tools.executeWithFiles(call.name, call.args, callLimits, hooksFor(index));
+            // The question stops when its signal aborts, whether the tool set does or not: a store
+            // call that hangs inside a tool of any `LargeFiles` must not hold it.
+            return await until(tools.executeWithFiles(call.name, call.args, callLimits, hooksFor(index)), halt.signal);
           } finally {
             release();
           }
@@ -2038,12 +2076,35 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               failing = undefined;
             }
           }
+          // The application's say on what the model gets, before the evidence, the step and the
+          // events, which all tell what the model was sent.
+          let judged: ToolOutcome | undefined;
+          if (!refusal && options.onToolResult) {
+            const hook = options.onToolResult;
+            const context: ToolResultContext = {
+              call,
+              result: output.result,
+              ...(typeof call.args.document_id === "string" ? { documentId: call.args.document_id } : {}),
+              ...(options.owner !== undefined ? { owner: options.owner } : {}),
+              ...(options.scope !== undefined ? { scope: options.scope } : {}),
+              signal: halt.signal,
+            };
+            // A hook that does not look at the signal does not hold the question once it is stopped.
+            const verdict = checkedVerdict(await until(Promise.resolve().then(() => hook(context)), halt.signal));
+            if (verdict && "result" in verdict) {
+              output = { ...output, result: { ...verdict.result, redacted: true } };
+              judged = "redacted";
+            } else if (verdict) {
+              output = { result: { error: verdict.reject }, files: [] };
+              judged = "refused";
+            }
+          }
           const line = step(`${label}${toolResultSummary(label, output.result)}`);
           const shown = evidenceOf(call, output.result);
           if (shown) evidence.push({ ...shown, callId: callIds[index]! });
           const sent = { ...output.result, tool_turns_left: turnsLeft };
           answers.push({ call, result: sent, files: output.files });
-          const outcome: ToolOutcome = call.problem ? "error" : refusal ? "refused" : typeof output.result.error === "string" ? "error" : "ok";
+          const outcome: ToolOutcome = judged ?? (call.problem ? "error" : refusal ? "refused" : typeof output.result.error === "string" ? "error" : "ok");
           endTool(index, outcome, sent, line, shown);
         }
         // A listener of a read that went on after its call returned (its progress).
