@@ -390,6 +390,7 @@ describe("runRecorder", () => {
     expect(recorder.requests()).toEqual([expect.objectContaining({ requestId: "req_1", role: "answer", purpose: "direct", outcome: "ok", usage: expect.objectContaining({ inputTokens: 40, cachedInputTokens: 10 }) })]);
     expect(recorder.events().every((event: AskEvent) => event.runId === "<run>" && event.time === 0)).toBe(true);
   });
+
   it("zeroes the durations of its events, so two runs that took different times compare", async () => {
     const { files } = await library();
     const run = async (delay: number) => {
@@ -552,6 +553,16 @@ describe("the eval runner over a cassette (evals/lib/runner.ts)", () => {
     expect(run.replayProblems![0]).toMatch(/^not recorded: /);
   });
 
+  it("fails a replay of a whole-read case whose recording made no whole read, unless its model need not make one", async () => {
+    const cassettes = folder();
+    const shared = { model: "gemini-test", library: await evalLibraryOf(), cassettes, apiKey: "test-key" };
+    const whole: EvalCase = { ...tiny, id: "whole", kinds: ["whole-read"] };
+    await runCase({ ...shared, mode: "record", evalCase: whole, fetch: answer().fetch });
+    const replayed = await runCase({ ...shared, mode: "replay", evalCase: whole });
+    expect(replayed.replayProblems).toEqual([expect.stringMatching(/^no whole read: case "gemini-test\/whole" is of kind "whole-read", and its recording holds 0 whole reads and 0 part reads/)]);
+    expect((await runCase({ ...shared, mode: "replay", evalCase: { ...whole, wholeReadOn: ["gemini-other"] } })).replayProblems).toEqual([]);
+  });
+
   it("fails a live run whose question ended with an error: a refused key does not pass", async () => {
     const refused = fakeFetch([Response.json({ error: { code: 400, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } }, { status: 400 })]);
     const run = await runCase({ mode: "live", evalCase: tiny, model: "gemini-test", library: await evalLibraryOf(), cassettes: folder(), apiKey: "bad-key", fetch: refused.fetch });
@@ -670,6 +681,25 @@ describe("the cassettes of the evals (evals/cassettes)", () => {
       return [];
     }
   };
+
+  it("hold the part reads of every whole-read case, so a change to the part, merge or final prompts fails the replay", async () => {
+    const cases = evalCases((await buildFixtures()).facts).filter((one) => one.kinds.includes("whole-read"));
+    expect(cases.map((one) => one.id)).toEqual(["contract-summary", "diary-timeline"]);
+    const models = readdirSync(CASSETTES, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    for (const one of cases) {
+      for (const model of models.filter((name) => (one.wholeReadOn ?? models).includes(name))) {
+        const folder = path.join(CASSETTES, model, one.id);
+        const purposes = (JSON.parse(readFileSync(path.join(folder, "case.json"), "utf8")) as { questions: Array<{ log: Array<{ purpose: string }> }> }).questions.flatMap((question) => question.log.map((request) => request.purpose));
+        expect(purposes, `${model}/${one.id}`).toEqual(expect.arrayContaining(["part", "final"]));
+        // The part reads are in the cassette, as requests of their own (generateContent, not
+        // streamed): one or more HTTP sends for each.
+        expect(readCassette(folder).filter((entry) => entry.request.url.endsWith(":generateContent")).length, `${model}/${one.id}`).toBeGreaterThanOrEqual(purposes.filter((purpose) => ["part", "merge", "final"].includes(purpose)).length);
+      }
+    }
+    // The contract's notes are merged too.
+    const merged = JSON.parse(readFileSync(path.join(CASSETTES, "gemini-3.5-flash-lite", "contract-summary", "case.json"), "utf8")) as { questions: Array<{ log: Array<{ purpose: string }> }> };
+    expect(merged.questions[0]!.log.map((request) => request.purpose)).toContain("merge");
+  }, 60_000);
 
   it("stay under 5 MB in all", () => {
     const bytes = filesOf(CASSETTES).reduce((total, file) => total + statSync(file).size, 0);

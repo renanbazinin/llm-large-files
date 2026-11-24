@@ -1,0 +1,74 @@
+{
+ "n": 6,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "53994b7860e9f703",
+  "bytes": 6712,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3968 chars #7380b052"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "111 chars #101f0539"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "**Supplier Obligations:**\n* Appoint one account manager to coordinate contact with the client (L141, L151, L181).\n* Perform a monthly maintenance visit at the logistics center in Holon and submit a visit report (L142, L152, L162, L170).\n* Maintain an available inventory of spare parts for the factory service in Kiryat Gat (L144, L154, L164, L174).\n* Supplier's technician shall arrive at the warehouse in Ashdod within 4 hours for an urgent call, and within 2 days for a regular call (L146, L156, L176).\n* Insure its employees with employers' liability insurance and third-party liability insurance (L147, L157, L167).\n* Both parties shall keep secret any information received as part of the engagement (L148, L158, L168, L178).\n* Coordinate in advance with the site manager any work at the Kiryat Gat factory that requires a shutdown (L149, L159, L169, L177, L179).\n* Any change in the scope of service shall be made in writing and signed by both parties (L163, L173, L175 - Note: attributed generally to changes, but applies to mutual/supplier actions).\n\n**Client Obligations:**\n* Pay the consideration within 45 days from the date of receiving a lawful tax invoice (L143, L153, L161, L171, L183).\n\n**Fines (Supplier to Client):**\n* Failure to meet repair times specified in the service appendix at the Holon logistics center: 20,750 NIS per case (L140).\n* Cooling system shutdown exceeding four hours in the Tel Aviv offices: 22,500 NIS per case (L145).\n* Leakage of client customer information under supplier responsibility: 48,000 NIS, in addition to any other remedy (L150).\n* Replacing a technician without prior notice at the Haifa branch: 2,000 NIS per case (L155).\n* Use of non-original spare parts in the Ashdod warehouse: 3,750 NIS per case (L161).\n* Breach of on-site safety instructions at the Holon logistics center: 5,500 NIS per case (L166).\n* Loss of client equipment in the Tel Aviv offices: 7,250 NIS per case (L171).\n* Failure to perform preventive maintenance on time at the Kiryat Gat factory: 9,000 NIS per case (L177).\n* Working without a valid entry permit at the Haifa branch: 10,750 NIS per case (L182).",
+        "thoughtSignature": "EpYBCpMBAWkUfRP7J6d/p3TKlqsypqGf+OYNDnQCdE923A8yh35PpGiOH6d72wuwwaS+hGElPfzFuEoLRZxBzJkW6Ezkx8xQQgzMNibXPd5ll2DgjDjaCw/QAE47MrXSamq4DLX4xeWAUh2eSTxSjULim5FfDEL8QhBliW0qHSSjCoCPXzaT6TtXB4czFe8Z4tiy2nu7wjSB"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2060,
+    "candidatesTokenCount": 659,
+    "totalTokenCount": 2719,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2060
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "kwoFa7XRE-LQvdIPqZmAyA8"
+  }
+ }
+}

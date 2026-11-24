@@ -1,0 +1,74 @@
+{
+ "n": 10,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "a3be5a75e2d268ba",
+  "bytes": 2154,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "1854 chars #98753354"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "107 chars #5e01f2d7"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "Here are the merged notes containing all distinct obligations and fines with their line citations:\n\n### Obligations of the Supplier\n* Hold available spare parts inventory for the service of the plant in Kiryat Gat (L184, L194).\n* Any change in the scope of service must be made in writing and signed by both parties (L185, L195).\n* Supplier's technician must arrive at the Ashdod warehouse within four hours for an urgent call, and within two days for a regular call (L186, L196).\n* Keep secret all information received within the framework of the engagement (L186, L188).\n* Coordinate in advance with the site manager any work at the Kiryat Gat plant that requires a shutdown (L189, L197).\n* Appoint a single account manager to coordinate contact with the client (L191, L201).\n* Perform a monthly maintenance visit at the logistics center in Holon and submit a report on the visit (L192, L202).\n* Insure its employees with employers' liability insurance and third-party insurance (L197).\n\n### Obligations of the Client\n* (No direct obligations stated; however, the client holds the right to inspect service quality at any time with advance coordination) (L190, L200).\n\n### Fines (Payable by the Supplier to the Client)\n* Failure to document a service call in the system at the Ashdod warehouse: 12,500 NIS per case (L187).\n* Leaving waste on-site after work at the Holon logistics center: 14,250 NIS per case (L193).\n* Delay in responding to an urgent service call in the Tel Aviv offices: 16,000 NIS per case (L198).",
+        "thoughtSignature": "EpYBCpMBAWkUfRNPdHy9g7RW+1jtb8Oa7KpkxcJMLG7dge4rphM4C595o+u/yRLwi+t8yL0JmVXBx5FOtxEFpCPZCMTD1+puBbR5hhHOhFYCe9Q1MRCEtroZDbKKMw9Gb+EueX+gNmMGNPST2BXZzhPXBzKQG7DNx+JuswLSnC7z//GnYnP7QWcXCj27qs0Uq9VqxI+UUqva"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 522,
+    "candidatesTokenCount": 409,
+    "totalTokenCount": 931,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 522
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "lgoFa4i6LdTsxs0PwuqBgQk"
+  }
+ }
+}

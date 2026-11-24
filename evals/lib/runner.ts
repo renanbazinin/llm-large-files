@@ -158,6 +158,7 @@ export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
         messages: [...messages],
         system: SYSTEM,
         ...(evalCase.budget ? { budget: evalCase.budget } : {}),
+        ...(evalCase.limits ? { limits: evalCase.limits } : {}),
         ...(evalCase.onMissingDocuments ? { onMissingDocuments: evalCase.onMissingDocuments } : {}),
         // Streamed, as the chatbot shows answers.
         streamText: true,
@@ -224,7 +225,7 @@ export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
       writeFileSync(caseFile, `${JSON.stringify(kept, null, 1)}\n`);
       recorded = kept;
     }
-    run.replayProblems = compare(recorded, run, replay);
+    run.replayProblems = compare(recorded, run, replay, evalCase);
   }
   return run;
 }
@@ -246,10 +247,16 @@ export function recheckRun(run: CaseRun, evalCase: EvalCase, context: Omit<FactC
 
 /**
  * What differs between a replay and its recording: a request that missed, recordings left over, a
- * fact that held and no longer does, and facts that changed since the recording.
+ * fact that held and no longer does, facts that changed since the recording, and a case of kind
+ * "whole-read" whose recording made no whole read.
  */
-function compare(recorded: CaseFile, run: CaseRun, replay: ReturnType<typeof replayFetch>): string[] {
+function compare(recorded: CaseFile, run: CaseRun, replay: ReturnType<typeof replayFetch>, evalCase: EvalCase): string[] {
   const problems: string[] = [];
+  if (evalCase.kinds.includes("whole-read") && (evalCase.wholeReadOn ?? [run.model]).includes(run.model)) {
+    const parts = recorded.questions.reduce((total, question) => total + question.log.filter((request) => request.purpose === "part").length, 0);
+    const wholeReads = recorded.questions.reduce((total, question) => total + question.wholeReads, 0);
+    if (!wholeReads || !parts) problems.push(`no whole read: case "${run.model}/${run.case}" is of kind "whole-read", and its recording holds ${wholeReads} whole reads and ${parts} part reads. Record it again, or change the case so that it needs a whole read.`);
+  }
   if (replay.misses[0]) problems.push(replay.misses[0].message);
   const unused = replay.unused();
   if (!replay.misses.length && unused.length) problems.push(`requests changed: re-record. Case "${run.model}/${run.case}": the replay made fewer requests than were recorded (recordings ${unused.join(", ")} were not asked for).`);

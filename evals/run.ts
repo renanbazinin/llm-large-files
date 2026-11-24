@@ -2,8 +2,9 @@
 // eval:recheck; evals/cli.mjs sets these variables from its options):
 //
 //   EVAL_MODE        "replay" (the default): every case from evals/cassettes, without the network
-//                    or a key. A request that changed fails with "prompt changed: re-record", and
-//                    a fact that held when recorded must hold again.
+//                    or a key. A request that changed fails with "prompt changed: re-record", a
+//                    fact that held when recorded must hold again, and a case of kind "whole-read"
+//                    must have made a whole read when recorded.
 //                    "record": each case once against the Gemini API, written to its cassette.
 //                    "live": each case EVAL_K times (3 by default) against the Gemini API: a case
 //                    passes only when every run passes (pass^k).

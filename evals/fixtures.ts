@@ -417,6 +417,68 @@ function serviceLog() {
   return { bytes: utf8(text), facts: { pay5031: { count: pay5031.length, worker: "worker-3", first: firstTime }, failover, warmUpSeconds: 41, deploy, disk } };
 }
 
+// A Hebrew shift diary of a data center for October 2026: about 1,200 routine entries, and five
+// incidents written in words that share no keyword (a burst pipe, a stuck router, a suspicious
+// login, a fire alarm, a full storage array). Searching cannot find them all: a timeline of the
+// month needs the whole file (analyze_whole_document).
+
+const ROUTINE = [
+  (n: number) => `סבב בדיקה בחדר השרתים: הטמפרטורה ${20 + (n % 3)} מעלות, הכול תקין.`,
+  () => "נבדקה מערכת כיבוי האש בגז: הלחץ תקין.",
+  () => "בדיקת הגנרטור השבועית עברה כסדרה.",
+  () => "קלטות הגיבוי הוחלפו והועברו לכספת.",
+  () => "עדכון תוכנה מתוכנן הותקן על שרתי הדואר.",
+  () => "החלפת משמרת: אין משימות פתוחות.",
+  () => "טכנאי המיזוג ביצע תחזוקה מתוכננת במזגן 2.",
+  () => "נבדקו מצלמות האבטחה: כולן מקליטות.",
+  (n: number) => `נוקו מסנני האוויר במזגנים ${1 + (n % 4)} ו-${2 + (n % 4)}.`,
+  () => "התקבל משלוח דיסקים חדש, ונרשם במלאי.",
+  (n: number) => `טכנאי הרשת עדכן את תיעוד הכבילה בארון ${1 + (n % 9)}.`,
+  () => "נבדקו לוחות החשמל: העומס רגיל.",
+  () => "סבב ניקיון בחדר הציוד.",
+  () => "נשלחה למשתמשים הודעה על חלון התחזוקה של יום שישי.",
+  (n: number) => `נבדק מלאי הסולר של הגנרטור: ${70 + (n % 25)} אחוזים.`,
+];
+
+/** The incidents of the diary, each with its start, its end, and a line between them. */
+const INCIDENTS = [
+  { day: 4, lines: [["02:17", "התראת לחות בחדר השרתים בקומה 3: מים נוטפים מהתקרה מעל ארונות 4 עד 6, צינור התפוצץ בקומה שמעל."], ["02:40", "הוחלט לכבות את ארונות 4 עד 6 כדי להגן על הציוד, והשירותים שלהם הועברו לאתר המשני."], ["07:40", "אחרי ייבוש ובדיקה, ארונות 4 עד 6 הודלקו מחדש והשירותים חזרו לאתר הראשי."]] },
+  { day: 11, lines: [["14:05", "לקוחות מדווחים שאתר ההזמנות אינו נטען. צוות הרשת מצא שנתב הליבה הראשי נתקע."], ["14:30", "ניסיון לאתחל את נתב הליבה לא עזר."], ["15:20", "נתב הליבה הוחלף בנתב הגיבוי, ואתר ההזמנות זמין שוב."]] },
+  { day: 19, lines: [["09:30", "צוות אבטחת המידע זיהה התחברות חשודה מחוץ לארץ לחשבון של עובדת במחלקת הכספים. החשבון ננעל והסיסמה אופסה."], ["10:15", "נבדקו כל הפעולות שנעשו מהחשבון בשבוע האחרון."], ["11:00", "הבדיקה הסתיימה: לא הוצא מידע, והחשבון נפתח מחדש עם אימות דו-שלבי."]] },
+  { day: 23, lines: [["22:45", "אזעקת אש בבניין: אנשי המשמרת יצאו לנקודת הכינוס בחניון."], ["22:58", "כוחות הכבאות הגיעו לבניין."], ["23:10", "הכבאים קבעו שזו אזעקת שווא מגלאי עשן תקול, והמשמרת חזרה לבניין."]] },
+  { day: 28, lines: [["06:00", "גיבוי הלילה לא הושלם: מערך האחסון התמלא, ואין מקום לעותק חדש."], ["09:10", "נמחקו עותקים ישנים שתוקפם פג, כדי לפנות מקום זמני."], ["13:30", "נוסף מדף דיסקים למערך האחסון, והגיבוי הושלם."]] },
+] as const;
+
+const WEEKDAYS = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
+
+function shiftDiary() {
+  const planted = new Map<string, string>();
+  for (const incident of INCIDENTS) {
+    for (const [time, text] of incident.lines) planted.set(`${incident.day} ${time}`, text);
+  }
+  // Markdown, a heading for each day: written as a document, not as a log, so the overview gives
+  // its outline (31 days) and not a log profile.
+  const lines = ["# יומן משמרות - מרכז הנתונים בפתח תקווה - אוקטובר 2026", ""];
+  let n = 0;
+  for (let day = 1; day <= 31; day++) {
+    lines.push(`## יום ${WEEKDAYS[new Date(Date.UTC(2026, 9, day)).getUTCDay()]}, ${day} באוקטובר 2026`, "");
+    // An entry every 36 minutes, and the incidents at their own times.
+    const times = new Set<string>();
+    for (let minute = 0; minute < 24 * 60; minute += 36) times.add(`${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`);
+    for (const key of planted.keys()) if (key.startsWith(`${day} `)) times.add(key.slice(key.indexOf(" ") + 1));
+    for (const time of [...times].sort()) {
+      const shift = time < "07:00" ? "לילה" : time < "15:00" ? "בוקר" : time < "23:00" ? "ערב" : "לילה";
+      lines.push(`- ${time}, משמרת ${shift}: ${planted.get(`${day} ${time}`) ?? ROUTINE[n % ROUTINE.length]!(n)}`);
+      n++;
+    }
+    lines.push("");
+  }
+  return {
+    bytes: utf8(lines.join("\n")),
+    facts: { incidents: INCIDENTS.map((incident) => ({ day: incident.day, started: incident.lines[0][0], ended: incident.lines[2][0] })) },
+  };
+}
+
 const pdf = (name: string) => new Uint8Array(readFileSync(fileURLToPath(new URL(`../test/fixtures/pdf/${name}`, import.meta.url))));
 
 /** The facts of the files, from the numbers they were built with. */
@@ -428,6 +490,7 @@ export async function buildFixtures() {
   const ordersFile = orders();
   const invoicesFile = invoices();
   const logFile = serviceLog();
+  const diaryFile = shiftDiary();
   const fixtures: Fixture[] = [
     { id: "policy-1", name: "מדיניות משאבי אנוש 2026.docx", bytes: policyBytes },
     { id: "contract-1", name: "חוזה שירותי תחזוקה.docx", bytes: contractFile.bytes },
@@ -437,6 +500,7 @@ export async function buildFixtures() {
     { id: "sales-1", name: "sales-2026.xlsx", bytes: salesFile.bytes },
     { id: "orders-1", name: "orders.csv", bytes: ordersFile.bytes },
     { id: "log-1", name: "payments-service.log", bytes: logFile.bytes },
+    { id: "diary-1", name: "יומן משמרות אוקטובר 2026.md", bytes: diaryFile.bytes },
     { id: "report-1", name: "דוח הכנסות.pdf", bytes: pdf("word-hebrew.pdf") },
     { id: "statement-1", name: "דף חשבון ינואר.pdf", bytes: pdf("chrome-hebrew-statement.pdf") },
     // Ingested, then deleted: a file the chat still lists.
@@ -453,6 +517,7 @@ export async function buildFixtures() {
       sales: salesFile.facts,
       orders: ordersFile.facts,
       log: logFile.facts,
+      diary: diaryFile.facts,
       report: { northQ2: 135, centerMissing: "רבעון 2" },
       statement: { closing: 4167.9, electricity: 118, salary: 2400, salaryDate: "03/01" },
     },

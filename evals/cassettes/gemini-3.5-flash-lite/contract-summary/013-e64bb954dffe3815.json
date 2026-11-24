@@ -1,0 +1,74 @@
+{
+ "n": 13,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "e64bb954dffe3815",
+  "bytes": 7564,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "7204 chars #8b07b204"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "107 chars #5e01f2d7"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "### Obligations of the Client (המזמין):\n- Pay the consideration within 45 days from receiving a lawful tax invoice (L3, L13, L33, L43, L53, L63, L73, L83, L93, L103, L123, L133, L143, L153, L161, L171, L183).\n- May inspect the quality of service at any time, subject to prior coordination (L10, L20, L30, L40, L50, L70, L80, L90, L100, L110, L120, L130, L190, L200).\n\n### Obligations of the Supplier (הספק):\n- Maintain a stock / available inventory of available spare parts for the factory/plant service in Kiryat Gat (L4, L14, L24, L54, L64, L74, L84, L94, L104, L114, L144, L154, L164, L174, L184, L194).\n- Any change in the scope of service must be made in writing and signed by both parties (L5, L15, L25, L35, L45, L95, L105, L115, L125, L135, L163, L173, L175, L185, L195).\n- Supplier's technician shall arrive at the warehouse in Ashdod within four hours for an urgent call, and within two days for a regular call (L6, L16, L26, L36, L46, L56, L66, L86, L96, L106, L116, L126, L136, L146, L156, L176, L186, L196).\n- Coordinate in advance with the site manager any work at the Kiryat Gat factory/plant that requires a shutdown (L7, L9, L17, L19, L27, L29, L59, L69, L79, L89, L99, L107, L117, L119, L139, L149, L159, L169, L177, L179, L189, L197).\n- Both parties / Supplier shall keep secret any information received within the framework of the engagement (L8, L38, L48, L58, L68, L78, L86, L98, L128, L138, L148, L158, L168, L178, L186, L188).\n- Appoint one customer manager to coordinate relations / communication with the client (L9, L11, L19, L21, L29, L31, L39, L41, L51, L61, L91, L101, L111, L121, L131, L141, L151, L181, L191, L201).\n- Insure its employees with employers' liability insurance and third-party insurance (L17, L25, L27, L35, L37, L45, L47, L57, L67, L77, L107, L115, L127, L137, L147, L157, L167, L197).\n- Perform a monthly maintenance visit at the logistics center in Holon and submit a report on the visit (L20, L22, L30, L32, L40, L42, L52, L62, L72, L80, L82, L112, L122, L132, L142, L152, L162, L170, L192, L202).\n\n### Fines (Cases and Amounts):\n- Delay in responding to an urgent service call at the logistics center in Holon: 1,000 NIS per case (L7).\n- Replacing a technician without prior notice at the Haifa branch: 2,000 NIS per case (L155).\n- Failure to meet repair times specified in the service appendix at the offices in Tel Aviv: 2,750 NIS per case (L12).\n- Failure to submit the monthly maintenance report on time at the logistics center in Holon: 3,250 NIS per case (L87).\n- Use of non-original spare parts at the logistics center in Holon: 9,750 NIS per case (L34).\n- Use of non-original spare parts in the Ashdod warehouse: 3,750 NIS per case (L161).\n- Shutdown of the cooling system beyond four hours at the warehouse in Ashdod: 1,500 NIS per case (L81).\n- Shutdown of the cooling system for more than four hours at the Kiryat Gat factory: 4,500 NIS per case (L18).\n- Replacing a technician without prior notice at the offices in Tel Aviv: 5,000 NIS per case (L92).\n- Breach of on-site safety instructions at the Holon logistics center: 5,500 NIS per case (L166).\n- Use of non-original spare parts at the Kiryat Gat plant: 6,750 NIS per case (L97).\n- Loss of client equipment in the Tel Aviv offices: 7,250 NIS per case (L171).\n- Failure to submit a monthly maintenance report on time at the Haifa branch: 6,250 NIS per case (L23).\n- Replacement of a technician without prior notice at the Ashdod warehouse: 8,000 NIS per case (L28).\n- Breach of safety instructions on-site at the Tel Aviv offices: 11,500 NIS per case (L39).\n- Breach of safety instructions on site at the Haifa branch: 8,500 NIS per case (L102).\n- Failure to perform preventative maintenance on time at the branch in Haifa: 15,000 NIS per case (L49).\n- Failure to perform preventive maintenance on time at the Kiryat Gat factory: 9,000 NIS per case (L177).\n- Loss of client equipment at the Kiryat Gat factory: 13,250 NIS per case (L44).\n- Loss of client equipment at the Ashdod warehouse: 10,250 NIS per case (L108).\n- Working without a valid entry permit at the Haifa branch: 10,750 NIS per case (L182).\n- Failure to perform preventive maintenance on time at the Holon logistics center: 12,000 NIS per case (L113).\n- Failure to document a service call in the system at the Ashdod warehouse: 12,500 NIS per case (L187).\n- Working without a valid entry permit at the warehouse in Ashdod: 16,750 NIS per case (L55).\n- Working without a valid entry permit at the Tel Aviv offices: 13,750 NIS per case (L118).\n- Leaving waste on-site after work at the Holon logistics center: 14,250 NIS per case (L193).\n- Failure to document a service call in the system at the Kiryat Gat plant: 15,500 NIS per case (L124).\n- Failure to document a service call in the system at the logistics center in Holon: 18,500 NIS per case (L60).\n- Delay in responding to an urgent service call in the Tel Aviv offices: 16,000 NIS per case (L198).\n- Leaving waste on site after work at the Haifa branch: 17,250 NIS per case (L129).\n- Delay in responding to an urgent service call at the Ashdod warehouse: 19,000 NIS per case (L134).\n- Failure to meet repair times specified in the service appendix at the Holon logistics center: 20,750 NIS per case (L140).\n- Delay in responding to an urgent service call at the plant in Kiryat Gat: 22,000 NIS per case (L71).\n- Cooling system shutdown exceeding four hours in the Tel Aviv offices: 22,500 NIS per case (L145).\n- Failure to meet the repair times determined in the service appendix at the branch in Haifa: 23,750 NIS per case (L76).\n- Leakage of client customer information under supplier responsibility: 48,000 NIS, in addition to any other remedy (L150).\n- Delay in the supply of spare parts: 5% of the order value per week of delay (L65).",
+        "thoughtSignature": "EpYBCpMBAWkUfRPfHqJWyUW4RKBoWuAflTs+iKDzwRLmoZ0tEfxjDvpyEuYpNNMfagGnT/RLegrxbex2FCQDfauM9r6VtH9jKWLs/Jbb99lGQ9SzKdhj+Dv7fYaJVgoahWT9z95pzqhpfewXC/gE07m2gRihILPDceKvFK+qixtP9m/lZbHoTaEv61FaUFnmD0J9YTPpa9nI"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2473,
+    "candidatesTokenCount": 2156,
+    "totalTokenCount": 4629,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2473
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "mwoFa9bfK4yU3boP1PT2qA8"
+  }
+ }
+}

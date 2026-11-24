@@ -1,0 +1,160 @@
+{
+ "n": 3,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "987cb74ff9a52b85",
+  "bytes": 19321,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2283 chars #7227fca5"
+      },
+      {
+       "text": "143 chars #a9a4300b"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #cb5efcb6",
+        "id": "call_9032658869395105053"
+       },
+       "thoughtSignature": "1016 chars #cd72e904"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_9032658869395105053",
+        "response": "{6 keys} #8cccac67"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #c14002ff",
+        "id": "call_6204731296015919064"
+       },
+       "thoughtSignature": "652 chars #61773b82"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_6204731296015919064",
+        "response": "{6 keys} #c9d29a4c"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1984 chars #76e73369"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{2 keys} #64ffba42",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"analyze_whole_document\",\"args\": {\"document_id\": \"contract-1\",\"task\": \"קרא את כל החוזה מתחילתו ועד סופו. רשום פירוט מלא וממצה של:\\n1. כל התחייבויות הספק (כולל זמני הגעה, תחזוקה, ביטוח, חלקי חילוף, תיאום וכו').\\n2. כל התחייבויות וזכויות המזמין (תשלום, ביקורת וכו').\\n3. התחייבויות הדדיות של שני הצדדים (סודיות, שינויים בהיקף וכו').\\n4. רשימה מלאה ומדויקת של כל סעיפי הקנסות: באילו מקרים / אתרים מוטל קנס, ומה הסכום המדויק של כל קנס (כולל האם יש סעיפים שחוזרים על עצמם או קנסות ייחודיים שונים).\"},\"id\": \"call_16935173403805195114\"},\"thoughtSignature\": \"EsYLCsMLAWkUfROYxNdI9lhY0stA0omUg+Hp",
+   "a6rVDtPJbAD9vu0my4G5GMCu9O2JivawDffedxRELA6BGixRemWsSiGccXBoZsU4DaC9rJHqpEszfk+rYGwgzN1253JuVw1Np0g7b6tgaDDFmTRg96DNGJhitW/bZeO0KHLW5rxAehZCTdMBVuyZMRx3KyBwrFK0lwz6cmWFmM18CjB1DePxGvoqWNV3hQiiUxD5h/t9ZK3BHtbxRjpvfaeVOtonM58vO+mlNvGgshy2GakaHIJjYvKmKgnD69aGeIE+80v1xgoXwi5/7ZwrJ4iKZIwfixGavCTsXAMBmrnSlnNhj/fubzFlx+Uc/q/02zHYRMIP7rvdkvP7JmErYbFlHvAGRqXNI0qez+vKDiiXDE8HHDwjNWPulvHzs3FIGtq1yIYkLVnGgPsfufPj62o+kVfWLzDwBVHshLzQ26iKT2eMDJuC9s5uWxdsE/qi+sLgWciu+x2InA/IAH/hTOqsojKmTvbM8xu8Jj35yvakQEvj7Ou//FEGZqavkeX0v1eAVwY3T6P9UyDyu7loBAYIZxKLngoBB8FqU6BinV4d3V8tmOgMTFswdlGjwtZ8m1l8EmCC37x5kZ8+hwTG6aJTIN1wKS19aPb02AVlrtJurERAhWOgPo2LOTV6O9bfOwx5sjdAz1E7Gnq1wjG/t6y1GzGd+kcMJXKpXjkus7SJPOxXmcb8gFdQUuIsG6cksbAfgqsD4BREIse96Vk/sbtoYyz+AXJUmAVOAtXESWXQ3cj41BYySbdIG//eYBrdNRM1/WV/t1SGUhR5YJ78S7n4r4/4yGJkImyZhTCdcs4JLh8/h+D8vfH1NJYeoHRcj0jxJNxp9FObALdcQXMB2DlPGhqYgb9C4+HWhtmff5wspA/ubvIxnX3hl4p0800kDYS5JAW7KJwCn0cNB5L3EDLbfdCYxx+nCwrDcBlWYmwbpA7TwjP7jQa1ULUzwQ0S78+TuRtJbMlJA0KnGdJ2MwfCsGUIgUYRXYEU3DPP6U6J/w941+/H0/bLo0ki1cFz82ZNGQFuvjVU8cQYddYQvVeTFaQf/i3xA5B/6v2RIPUubQaHmX9woXNlbwDWePSWZj8elV+zDkUbQLoP09h281PVjPwUu4GEJLG29uhPsrBi2xZLlRITgaMbZ60TsUgc/pvZkP4LporpMBAFf1YQzmkqxcltmTtVbSeJBrlIPA0+vZJ+OpwFgOkrg27Wzlwu4st19o9a1StdwrQnmGqqTxOgGu5mjlpaDU+S8iKuDsLZ0ffINpmSGy3Lq1SVo8oSs78TsR8uCK/qDr1SvZkIq+xUAp0TrI3t3xJ9RV/try2uRRrDdEC2SZAMDLIM/dOqRs0KNjXvWmotPDnQTb0HvzcZEoolBEIq1x",
+   "BwbWguAPQVN0/yXurAHoTdJof5NfiJ4M9Iy3oLS4r1+KXOtcOuxV0jByDF9DGS7DTuml1sDXMbAC5UnhXS07pzUZtQ8utuXVuqlT2TBVl0dlI9B2xrRCOJKtQOCVZN7gbw6Dk3H095R59FvgeHjVF0bK9O4GBQQ8qmq70zRk1ZMuxeWBIcfkpokZouGXaAFUAv9Ap8UNE0nrdnPDt9HBATTTKIzcn9m6ksUfm4CjVZ+PaySetfKZPxPqRraEd0Sk1t3Sv7AUf2yO6HrjZMWMNMklZSO1HJUsy+ozh6jTg7d8DeFMEaIiD+74tEUOmbk1W0OjWDbo875noR1FFkfCO/j9Ot0oNNGoleElGVepWUkBImyu/ey4qmRGI8PT2vC4+PIpmkvUNpc8mhhBgrTnUTIi93lN0UZO7ol7RozePwwVYD+weeHnKhEcPQc9R4iKL4h+UtJxNAKyEEr96OrqMeEExLc/oJEsZh1lF6hxtbGZDVBmmVo8WExG+YG+WLs7JeDRlN7+7v0UpFjMtbcxF5HyCdvi4JFxvb7XbfP08dcrU6QwQ=\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5154,\"candidatesTokenCount\": 230,\"totalTokenCount\": 5701,\"cachedContentTokenCount\": 2340,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5154}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2340}],\"thoughtsTokenCount\": 317,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"rwoFa8SRNYyU3boP1PT2qA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5154,\"candidatesTokenCount\": 230,\"totalTokenCount\": 5701,\"cachedContentTokenCount\": 2340,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5154}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2340}],\"thoughtsTokenCount\": 317,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"rwoFa8SRNYyU3boP1PT2qA8\"}\r\n\r\n"
+  ]
+ }
+}
