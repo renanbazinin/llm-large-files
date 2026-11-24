@@ -36,6 +36,65 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.10.2 — not released yet
+
+Storage for a chatbot that keeps its files in the library: the files of a chat in one call, an
+expiry counted from the last use, the application's own data on a document, and one document for a
+file uploaded twice. Stored tool rounds can be kept small. A large document over a store without
+`readTextRange` is no longer loaded again for every tool call. The text sent to the model is the
+same as 0.10.1's.
+
+### Upgrading: what you need to change
+
+Nothing. Code written for 0.10.1 compiles as it is: the new store methods, library members and
+options are optional, and the requests are byte for byte those of 0.10.1.
+
+- A store of your own that keeps a fixed list of metadata fields drops `appData`, the new field of
+  `DocumentMeta`: keep `meta` whole, as the storage guide says
+  ([The methods](docs/guides/storage.md#the-methods)).
+- `documentStoreChecks` checks `list` and `putMeta` only for a store that has them: your store's
+  tests pass as before.
+
+### New: what you can add
+
+- **`files.list(access)`**: the documents of a scope the caller may use, the oldest first, for a
+  chat's file panel without a second list in your database. It needs the store's new optional
+  `list(context)`, which `MemoryDocumentStore` and `FileDocumentStore` have
+  ([`files.list`](docs/reference/library.md#fileslistaccess)).
+- **`files.touch(id, access)`**: the document's expiry is counted again from now (H5), so `ttlMs`
+  becomes the time a file is kept after its last use. Only the metadata is written, through the
+  store's new optional `putMeta(meta, context)`
+  ([Expiry from the last use](docs/guides/storage.md#expiry-from-the-last-use)).
+- **`appData`**: the application's own data about a document (`DocumentMeta.appData`, a JSON object
+  of at most 16 KB, `MAX_APP_DATA_BYTES`), set with `ingest({ appData })` and changed with
+  `files.update(id, { appData }, access)`. Never sent to the model, nor in a summary.
+
+  ```ts
+  const meta = await files.ingest({ name, bytes, owner: userId, scope: [userId, chatId], appData: { rowId } });
+  await files.update!(meta.id, { appData: { rowId, label: "contract" } }, { owner: userId, scope: [userId, chatId] });
+  ```
+- **`ingest({ dedupe: true })`**: a file uploaded again gives back the document of the same owner
+  and scope with the same SHA-256, with its expiry counted again, instead of a second copy (H6). The
+  file is hashed, not extracted. Never across owners or scopes; not with `id`
+  ([`IngestInput`](docs/reference/library.md#ingestinput)).
+- **`storeRounds: "compact"`** and **`compactToolTurns(turns)`**: stored tool rounds with each large
+  result replaced by the stand-in the loop already sends when it drops a result (I2), a few hundred
+  bytes a call instead of up to 24,000 characters. A later question sends the stand-ins, and the
+  model reads again what it needs ([`compactToolTurns`](docs/reference/ask.md#compacttoolturnsturns)).
+- `documentStoreChecks` checks `list` and `putMeta`; `StoreCheckPart` has `"list"` and `"meta"`.
+
+### Changed: what works differently
+
+- **The last document larger than the whole cache is kept apart** for a minute after its last use
+  (P4): over a store without `readTextRange`, the tool calls of a question no longer each load and
+  index it again (250 ms a read, and about 2 GB of RSS at 100 MB in the 0.6 review). One at most;
+  `cacheBytes: 0` keeps none, and `stats().cache.bytes` counts it.
+- **An ingest's own reads of a path upload count as stuck calls** (the `lstat`, the parts read for
+  the format, the read of the file), as its store calls do, once they have run the time the ingest
+  gives them: a volume that does not answer now shows in `stats().stuckStoreCalls`, and past
+  `maxStuckStoreCalls` store calls fail at once with `"STORE_STUCK"`
+  ([A store that stops answering](docs/guides/deployment.md#a-store-that-stops-answering)).
+
 ## 0.10.1 — 2026-11-25
 
 A patch from the review of 0.10.0 against its code: a few pages said more, or less, than the code
