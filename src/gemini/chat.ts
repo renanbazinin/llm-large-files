@@ -1,9 +1,9 @@
-import { askWithFiles, type AskLimits, type AskResult } from "../ask.js";
+import { askWithFiles, type AskLimits, type AskOptions, type AskResult } from "../ask.js";
 import type { LargeFiles } from "../library.js";
 import type { AskEvent } from "../events.js";
-import type { ChatTurn, ToolTurn } from "../model.js";
+import type { ChatMessage } from "../model.js";
 import type { RetryOptions } from "../retry.js";
-import type { Budget } from "../types.js";
+import type { Budget, DocumentScope } from "../types.js";
 import { fromGeminiContents, gemini, type GeminiContent } from "./adapter.js";
 import type { GeminiEndpoint } from "./endpoints.js";
 import type { GeminiToolFilePlacement } from "./generate.js";
@@ -34,10 +34,12 @@ export type AskGeminiOptions = {
    */
   documentPlacement?: "first" | "last";
   /**
-   * Plain chat history; the last turn must be the user's question. It may hold the tool rounds of
-   * earlier questions (`toolTurns` of their results). Use this or `contents`.
+   * The chat history, as `askWithFiles` takes it; the last turn must be the user's question. It
+   * may hold the tool rounds of earlier questions (`toolTurns` of their results), and turns with
+   * parts, such as `fromGeminiContents(contents, { rounds: false })` gives. Use this or
+   * `contents`. Typed `ChatMessage[]` since 0.9.0; before, `Array<ChatTurn | ToolTurn>`.
    */
-  messages?: Array<ChatTurn | ToolTurn>;
+  messages?: ChatMessage[];
   /** Your own Gemini `contents` (with images, inline PDFs, etc.). The last turn must be the user's. */
   contents?: GeminiContent[];
   system?: string;
@@ -51,6 +53,16 @@ export type AskGeminiOptions = {
   explorerGenerationConfig?: Record<string, unknown>;
   /** The user asking. Documents ingested with a different owner are treated as missing. */
   owner?: string;
+  /**
+   * The scope of the question, such as [userId, chatId] (`AskOptions.scope`): documents ingested
+   * with another scope are treated as missing. New in 0.9.0.
+   */
+  scope?: DocumentScope;
+  /**
+   * What to do when documents of `documentIds` are missing: "throw" (the default), "drop", or a
+   * function that says (`AskOptions.onMissingDocuments`). New in 0.9.0.
+   */
+  onMissingDocuments?: AskOptions["onMissingDocuments"];
   /** The limits of the question: tool turns, calls in a turn, whole-file reads, tokens and requests. */
   limits?: AskLimits;
   /** `limits.toolTurns`, under the name it had before 0.5.0. Defaults to 12. */
@@ -137,6 +149,8 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     messages: options.contents ? fromGeminiContents(options.contents) : options.messages ?? [],
     ...(options.system !== undefined ? { system: options.system } : {}),
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
+    ...(options.scope !== undefined ? { scope: options.scope } : {}),
+    ...(options.onMissingDocuments !== undefined ? { onMissingDocuments: options.onMissingDocuments } : {}),
     limits: {
       ...(options.maxToolTurns !== undefined ? { toolTurns: options.maxToolTurns } : {}),
       ...(options.maxToolCallsPerTurn !== undefined ? { callsPerTurn: options.maxToolCallsPerTurn } : {}),

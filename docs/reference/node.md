@@ -1,35 +1,44 @@
 # `llm-large-files/node`
 
-This page lists every export of `llm-large-files/node`: `createDocumentHandlers`, its options, and
-the three HTTP handlers it returns, with the request each one expects and every status and body it
-can answer; `createIsolatedExtractors`, which reads PDF and Office files in child processes with a
-memory limit and a kill timer; and `writeSseEvents` and `sseMessageOf`, which send the events of a
+This page lists every export of `llm-large-files/node`: `createDocumentHandlers`, its options and
+hooks, and the three HTTP handlers it returns, with the request each one expects and every status
+and body it can answer; `uploadAnswerOf`, the rule by which they answer an error;
+`createIsolatedExtractors`, which reads PDF and Office files in child processes with a
+memory limit and a kill timer; `fileOriginals`, which reads back the uploads your application keeps
+in a folder; and `writeSseEvents` and `sseMessageOf`, which send the events of a
 question or an ingest to a browser as Server-Sent Events. It is for you if your server runs on Node
-and you want uploads, look-ups and deletes of documents without writing the routes yourself, files
+and you want uploads, look-ups and deletes of documents without writing the routes yourself (with
+the body saved where you keep your uploads, or spooled to disk, if you like), files
 from users read apart from your server, or a streamed answer without writing the stream yourself.
 How to mount them, what the browser sends, and how to read the stream in the browser are in the
 guide [web app](../guides/web-app.md).
 
 ```ts
-import { createDocumentHandlers, createIsolatedExtractors, sseMessageOf, writeSseEvents } from "llm-large-files/node";
+import { createDocumentHandlers, createIsolatedExtractors, fileOriginals, sseMessageOf, uploadAnswerOf, writeSseEvents } from "llm-large-files/node";
 import type {
-  DocumentHandlerOptions, DocumentHandlers, IsolatedExtractorOptions, IsolatedExtractors, SseMessage, SseWriteOptions,
+  DocumentHandlerOptions, DocumentHandlers, IsolatedExtractorOptions, IsolatedExtractors, PreparedUpload, PrepareUploadInfo,
+  RemovedContext, SseMessage, SseWriteOptions, UploadAnswer, UploadedContext, UploadedResult, UploadSpoolOptions,
 } from "llm-large-files/node";
 // What the signatures below use:
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { DocumentFormat, Extractor, LargeFiles, PdfExtractorOptions } from "llm-large-files";
+import type { DocumentFormat, DocumentMeta, DocumentScope, Extractor, IngestErrorCode, LargeFiles, OriginalsReader, PdfExtractorOptions } from "llm-large-files";
 ```
 
 ## Contents
 
 - [`createDocumentHandlers()`](#createdocumenthandlersfiles-options)
-- [`DocumentHandlerOptions`](#documenthandleroptions)
+- [`DocumentHandlerOptions`](#documenthandleroptions), with
+  [`getScope`](#what-getscope-returns), [the hooks](#the-hooks-onuploaded-and-onremoved),
+  [saving the body: `prepareUpload`](#saving-the-body-prepareupload) and
+  [spooling: `uploadSpool`](#spooling-uploadspool)
 - [`DocumentHandlers`](#documenthandlers): [`upload()`](#uploadrequest-response) and
   [its progress as events](#upload-with-progress-accept-textevent-stream),
   [`get()`](#getrequest-response-id), [`remove()`](#removerequest-response-id)
-- [How errors are answered](#how-errors-are-answered)
+- [How errors are answered](#how-errors-are-answered):
+  [`uploadAnswerOf()`](#uploadansweroferror), [`UploadAnswer`](#uploadanswer)
 - [Isolated ingest](#isolated-ingest): [`createIsolatedExtractors()`](#createisolatedextractorsoptions),
   [`IsolatedExtractorOptions`](#isolatedextractoroptions), [`IsolatedExtractors`](#isolatedextractors)
+- [Uploads your application keeps](#uploads-your-application-keeps): [`fileOriginals()`](#fileoriginalsroot)
 - [Server-Sent Events](#server-sent-events): [`writeSseEvents()`](#writesseeventsresponse-events-options),
   [`sseMessageOf()`](#ssemessageofevent), [`SseMessage`](#ssemessage),
   [`SseWriteOptions`](#ssewriteoptions)
@@ -53,9 +62,21 @@ included, and never rejects, so it can be called without a `catch`.
 | `options` | [`DocumentHandlerOptions`](#documenthandleroptions) | `{}` | Who owns a request, how many bytes of uploads are held at once, and how long a body may stop arriving. |
 
 **Returns** the three [`DocumentHandlers`](#documenthandlers). It makes no request and reads no
-store. It throws a `RangeError` for a `maxPendingUploadBytes` or `uploadIdleTimeoutMs` that is not
-a number in range, and a `TypeError` when `files` has no `maxUploadBytes` above 0 (a `LargeFiles`
-of your own, from JavaScript, must keep the one of the library it wraps; new in 0.8.2).
+store. It throws:
+
+- a `RangeError` for a `maxPendingUploadBytes`, `maxSpooledUploadBytes`, `uploadIdleTimeoutMs` or
+  `uploadSpool.minBytes` that is not a number in range;
+- a `TypeError` when `files` has no `maxUploadBytes` above 0 (a `LargeFiles` of your own, from
+  JavaScript, must keep the one of the library it wraps; new in 0.8.2);
+- a `TypeError` when `files.access.requireOwner` is on and there is no `getOwner`, or
+  `files.access.requireScope` is on and there is no `getScope` (new in 0.9.0). Every request would
+  fail otherwise. The message names the option:
+  "createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner).";
+- a `TypeError` when `getScope`, `prepareUpload`, `onUploaded` or `onRemoved` is given and is not
+  a function (new in 0.9.0);
+- a `TypeError` for an `uploadSpool` that is not `true`, `false` or an object, a
+  `uploadSpool.directory` that is not a string with something in it, or an `uploadFileMode` that is
+  not a whole number from 0 to `0o777` (new in 0.9.0).
 
 The handlers do not check the method or the path of a request: route each request to the one you
 mean. Every response they write has the header `Content-Type: application/json; charset=utf-8`
@@ -96,6 +117,13 @@ upload route of your own for multipart forms or the Fetch API's `Request`.
 ```ts
 type DocumentHandlerOptions = {
   getOwner?: (request: IncomingMessage) => string | undefined | Promise<string | undefined>;
+  getScope?: (request: IncomingMessage) => DocumentScope | undefined | Promise<DocumentScope | undefined>;
+  onUploaded?: (document: DocumentMeta, context: UploadedContext) => UploadedResult | Promise<UploadedResult>;
+  onRemoved?: (id: string, context: RemovedContext) => void | Promise<void>;
+  prepareUpload?: (request: IncomingMessage, info: PrepareUploadInfo) => PreparedUpload | void | Promise<PreparedUpload | void>;
+  uploadSpool?: boolean | UploadSpoolOptions;
+  maxSpooledUploadBytes?: number;
+  uploadFileMode?: number;
   maxPendingUploadBytes?: number;
   uploadIdleTimeoutMs?: number;
 };
@@ -105,26 +133,348 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none: every request is anonymous | The owner of this request, usually the signed-in user's ID. Called at most once per request. In `upload` it runs after the name is read and before the body: an upload without a name is answered `400` without calling it, and a refused upload is never buffered. An empty owner (`""`, or spaces only) is the server's mistake: the upload is answered `500` `{ "error": "Upload failed (empty owner)." }`, before its body is read. So is an owner from JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`, say): `{ "error": "Upload failed (owner is not a string)." }`. |
-| `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold at once. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
-| `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
+| `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none: every request is anonymous | The owner of this request, usually the signed-in user's ID. Called at most once per request. In `upload` it runs after the name is read and before the body: an upload without a name is answered `400` without calling it, and a refused upload is never buffered. An empty owner (`""`, or spaces only) is the server's mistake: the upload is answered `500` `{ "error": "Upload failed (empty owner)." }`, before its body is read. So is an owner from JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`, say): `{ "error": "Upload failed (owner is not a string)." }`. Required when the library has `requireOwner` (new in 0.9.0): an owner of `undefined`, or `null` from JavaScript (`req.user?.id ?? null`), is then answered `401` `{ "error": "Sign in first." }`, on every route, before the body is read, and an empty owner `500` "(empty owner)" on every route too. |
+| `getScope` | `(request: IncomingMessage) => DocumentScope \| undefined \| Promise<DocumentScope \| undefined>` | none: no scope | New in 0.9.0. The scope of this request, such as `[userId, chatId]` ([`DocumentScope`](./library.md#documentscope)). Called after `getOwner`, at most once per request, before the body is read, on every route. The upload is stored in that scope, and `get` and `remove` find only documents of that scope. Required when the library has `requireScope`. See [what `getScope` returns](#what-getscope-returns). |
+| `onUploaded` | `(document: DocumentMeta, context: UploadedContext) => UploadedResult \| Promise<UploadedResult>` | none | New in 0.9.0. Called once an upload is stored, before it is answered: to record the document in your database, for example. What it returns can add fields to the answer. When it throws, the document is deleted and the upload fails. See [the hooks](#the-hooks-onuploaded-and-onremoved). |
+| `onRemoved` | `(id: string, context: RemovedContext) => void \| Promise<void>` | none | New in 0.9.0. Called after `remove` deleted a document, before it answers `{ "deleted": true }`. See [the hooks](#the-hooks-onuploaded-and-onremoved). |
+| `prepareUpload` | `(request: IncomingMessage, info: PrepareUploadInfo) => PreparedUpload \| void \| Promise<PreparedUpload \| void>` | none | New in 0.9.0. Called after `getOwner` and `getScope`, before the body is read. Returns the document's `id`, a `path` to save the body to, and the `original` ref of that file, or nothing. With a `path`, the body is written there as it arrives, ingested from the file, and kept once the document is stored. See [saving the body](#saving-the-body-prepareupload). |
+| `uploadSpool` | `boolean \| UploadSpoolOptions` | `false` | New in 0.9.0. Writes bodies over `minBytes` (1 MiB), and those without a `Content-Length`, to a temporary file of mode `0o600` in `directory` (`os.tmpdir()`), ingests them from there, and removes the file once the ingest ends. `true` for the defaults. See [spooling](#spooling-uploadspool). |
+| `maxSpooledUploadBytes` | `number` | ten times `files.maxUploadBytes` (1 GB by default) | New in 0.9.0. The most bytes of the spool's files at once, counted as `maxPendingUploadBytes` counts memory. An upload that would pass it is answered `503` with `Retry-After: 5` before its body is read. `Infinity` for no limit. A value that is not a number above 0 throws a `RangeError`. |
+| `uploadFileMode` | `number` | `0o600` | New in 0.9.0. The mode of the files saved to the `path` of `prepareUpload`, minus the umask of the process. `0o640` lets a group read them: pods of another user that share the volume through a group (`fsGroup`). The spool's files are always `0o600`. |
+| `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold in memory at once. Since 0.9.0 a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`) does not count. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Since 0.9.0 its room is given back, and the body the handler read is freed, before `onUploaded` runs: a hook that waits on your database holds neither. Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
+| `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. Since 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`), it also bounds each call to the disk: the check of its folders for a link (a `path` with a ref), the opening of the file, each write, and its closing. A volume that stops answering then fails the upload with `500` `{ "error": "Upload failed (ETIMEDOUT)." }`, and its room is given back. The removal of the file is waited for no longer either: past it, the removal goes on alone, and the upload is answered all the same. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
 
 What `getOwner` returns decides what each handler does:
 
 | `getOwner` | `upload` | `get` and `remove` |
 |---|---|---|
 | Returns a string that is not empty or only spaces | The document is ingested with that `owner`. | They pass `{ owner }`: they find the documents of that owner, and those that have no owner. A document of another owner answers as one that does not exist. |
-| Returns `undefined`, or there is no `getOwner` | The document has no owner: anyone who has its ID can read it, delete it and ask about it. | They pass no owner: they find only documents that have no owner. |
-| Returns `""`, spaces only, or `null` from JavaScript | Answered `500` `{ "error": "Upload failed (empty owner)." }`, before the body is read, and nothing is logged. Such an owner would be one owner shared by every caller without a user: `user?.id ?? ""` gives it for a user who is not signed in. New in 0.6.0: 0.5.0 stored the document with that owner. | As before: they pass it as `owner`, so documents that 0.5.0 stored with the owner `""` stay readable until they expire. |
-| Returns, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array | Answered `500` `{ "error": "Upload failed (owner is not a string)." }`, before the body is read, and nothing is logged. New in 0.6.0. A finite number is taken as the owner, as before. | They pass it as `owner`, as before. |
+| Returns `undefined`, or there is no `getOwner` | The document has no owner: anyone who has its ID can read it, delete it and ask about it. Under `requireOwner`: answered `401` `{ "error": "Sign in first." }`, before the body is read (new in 0.9.0). | They pass no owner: they find only documents that have no owner. Under `requireOwner`: `401` `{ "error": "Sign in first." }`. |
+| Returns `""`, spaces only, or `null` from JavaScript | Answered `500` `{ "error": "Upload failed (empty owner)." }`, before the body is read, and nothing is logged. Under `requireOwner`, `null` is a request that is not signed in: `401`, as `undefined` (new in 0.9.0). Such an owner would be one owner shared by every caller without a user: `user?.id ?? ""` gives it for a user who is not signed in. New in 0.6.0: 0.5.0 stored the document with that owner. | As before: they pass it as `owner`, so documents that 0.5.0 stored with the owner `""` stay readable until they expire. Under `requireOwner`, where the library refuses such an owner on every call, `""` or spaces only (`null` is a `401` there, as `undefined`) are answered `500` `{ "error": "The file could not be looked up (empty owner)." }` and `{ "error": "The file could not be deleted (empty owner)." }` without calling it (new in 0.9.0: they called it, and answered its `TypeError` with a bare `500`). |
+| Returns, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array | Answered `500` `{ "error": "Upload failed (owner is not a string)." }`, before the body is read, and nothing is logged. New in 0.6.0. A finite number is taken as the owner, as before. | They pass it as `owner`, as before. Under `requireOwner`: `500` "(owner is not a string)", as the upload (new in 0.9.0). |
 | Throws an `Error` whose `status` (or `statusCode`) is a whole number from 400 to 599, as the `http-errors` package makes them | Answered with that status and `{ "error": <the error's message> }`. | The same. |
 | Throws anything else | Answered `500` without the error's message, which may name your hosts: `{ "error": "Upload failed." }` (with the code of a Node system error: "Upload failed (ECONNREFUSED)."). | `500`: "The file could not be looked up." or "The file could not be deleted.", the same way. |
 
 The owner is one opaque string, compared as it is. Pass the same string as `owner` to
-`askWithFiles` or `askGemini`, and to `files.getMeta`, `files.getOriginal` and `files.delete`. An
-owner per chat session (`${userId}/${sessionId}`) works the same way:
-[storage](../guides/storage.md). What ownership protects and what it does not:
+`askWithFiles` or `askGemini`, and to `files.getMeta`, `files.getOriginal` and `files.delete`. To
+keep each chat's files apart, give a scope with `getScope` rather than an owner per chat session
+([storage](../guides/storage.md)). What ownership protects and what it does not:
 [security](../security.md).
+
+#### What `getScope` returns
+
+New in 0.9.0. The scope keeps the documents of one chat apart from those of another, in the
+library and, with a scoped [`FileDocumentStore`](./library.md#filedocumentstore), on disk.
+
+| `getScope` | `upload` | `get` and `remove` |
+|---|---|---|
+| Returns a valid scope: an array of 1 to 8 strings, such as `[userId, chatId]` | The document is stored in that scope (`IngestInput.scope`). | They pass `{ owner, scope }`: a document of another scope answers as one that does not exist, `404` or `{ "deleted": false }`. |
+| Returns `undefined` (or `null` from JavaScript), or there is no `getScope` | The document has no scope. Under `requireScope`: answered `500` `{ "error": "Upload failed (no scope)." }`, before the body is read. | They pass no scope: they find only documents without one. Under `requireScope`: `500`, "The file could not be looked up (no scope)." or "The file could not be deleted (no scope).". |
+| Returns a scope that is not valid (not an array, a segment with "/" or a control character, more than 8 segments…) | Answered `500` `{ "error": "Upload failed (invalid scope)." }`, before the body is read. It is the server's mistake: the message says nothing more. | `500`, "The file could not be looked up (invalid scope)." or "The file could not be deleted (invalid scope).". |
+| Throws an `Error` with a `status` from 400 to 599 | Answered with that status and the error's message, as for `getOwner`. | The same. |
+| Throws anything else | `500` "Upload failed.", without the error's message. | `500`, the same way. |
+
+`getScope` runs after `getOwner`: a request refused by `getOwner` never reaches it. The scope a
+handler passes is a frozen copy of what `getScope` returned. Pass the same scope to `askWithFiles`.
+
+#### The hooks: `onUploaded` and `onRemoved`
+
+New in 0.9.0. `onUploaded` lets your app record each upload where it keeps its chats, in the same
+request, and fail the upload when it cannot:
+
+```ts
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { createDocumentHandlers } from "llm-large-files/node";
+
+const files = createLargeFiles({ store: new FileDocumentStore("/data", { scopes: { depth: 2 } }), requireOwner: true, requireScope: true });
+
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => userIdOf(request), // your sign-in
+  getScope: (request) => [userIdOf(request), chatIdOf(request)], // safe IDs: lowercase letters, digits, "_" and "-"
+  onUploaded: async (document, { owner, scope, clientGone }) => {
+    // Throw to fail the upload: the document is deleted, and the error is answered.
+    const record = await chats.addFile(scope![1]!, { documentId: document.id, name: document.name, owner, clientGone });
+    return { answer: { fileNumber: record.number } }; // in the 201, and in ingest.finish.app
+  },
+  onRemoved: async (id, { scope }) => {
+    await chats.removeFile(scope![1]!, id);
+  },
+});
+```
+
+`onUploaded(document, context)`:
+
+- **When.** Once `files.ingest` has stored the document, and before the upload is answered: before
+  the `201`, or before `ingest.finish` on the [event-stream path](#upload-with-progress-accept-textevent-stream).
+  The answer waits for it, with no time limit: bound the calls of your own (a database's
+  timeout), or a hook that hangs leaves the client waiting. The upload's room
+  (`maxPendingUploadBytes`) is given back, and the body the handler read is freed, before the hook is called, so a slow
+  hook does not hold up other uploads (new in 0.9.0). It is called once per upload, and never for
+  an upload that failed.
+- **`document`** is the whole [`DocumentMeta`](./library.md#documentmeta), with its `owner` and
+  `scope`: for your server, not for the browser.
+- **`context`** is an [`UploadedContext`](#uploadedcontext): the `request` (its body is read; the
+  bytes are not in the context, unless a framework left them in `request.body`, as `express.raw()`
+  does: those stay until the request ends), the `owner` and the `scope` the handler used,
+  `clientGone`, and the `path` where the body was saved, for an upload that `prepareUpload` gave
+  one (new in 0.9.0).
+- **A client that went away.** The hook is still called, with `clientGone: true`, for a document
+  that was stored. Nobody gets the answer. Record the document, or delete it, as your app needs.
+  With the library's own `ingest`, a client that leaves before the ingest ends leaves nothing
+  stored, and the hook is not called (new in 0.9.0). So `clientGone` is `true` for a client that
+  left after the ingest ended, while its answer waited, or with an `ingest` of your own that does
+  not stop on its `signal`.
+- **What it returns.** Nothing, or `{ answer }`. `answer` is a plain object that JSON can hold. Its
+  fields are added to the `201` JSON; the summary's own fields win when a name is the same. On the
+  event-stream path it is `ingest.finish`'s `app` field. Anything it returns without an `answer`
+  (a database's own result) adds nothing.
+- **When it throws,** or returns an `answer` that is not a plain object JSON can hold, the document
+  is deleted (best effort: a delete that fails is not told), and the file saved to the `path` of
+  [`prepareUpload`](#saving-the-body-prepareupload) is removed. The upload is then answered as an
+  error of `ingest` is ([`uploadAnswerOf`](#uploadansweroferror)): an error with a `status` from
+  400 to 599 gives that status and its message, and any other error a `500`
+  `{ "error": "Upload failed." }`. On the event-stream path, that is the `ingest.error` event, and
+  no `ingest.finish` is sent.
+
+`onRemoved(id, context)` is called after `remove` deleted the document (`files.delete` returned
+`true`), and before the answer `{ "deleted": true }`. `context` is a [`RemovedContext`](#removedcontext):
+the `request`, the `owner` and the `scope`. It is not called for `{ "deleted": false }`. When it
+throws, `remove` answers its error, as for an error of `files.delete`; the document is deleted all
+the same, and a second `remove` answers `{ "deleted": false }` without calling it again.
+
+##### `UploadedContext`
+
+```ts
+type UploadedContext = {
+  request: IncomingMessage;
+  owner?: string;
+  scope?: DocumentScope;
+  clientGone: boolean;
+  path?: string;
+};
+```
+
+| Field | What it holds |
+|---|---|
+| `request` | The upload's request, for its headers and URL. Its body has been read. A body a framework left in `request.body` (`express.raw()`) is still there: it is the framework's. |
+| `owner` | What `getOwner` returned, when it returned an owner. |
+| `scope` | What `getScope` returned, when it returned a scope (a frozen copy). |
+| `clientGone` | `true` when the client went away before the hook was called: after the ingest ended, or during an `ingest` of your own that does not stop on its `signal`. |
+| `path` | The `path` that `prepareUpload` returned, where the body is saved. Only for such an upload: the file is there while the hook runs, and stays, unless the hook throws. A file of the spool is removed before the hook, and is not told. New in 0.9.0. |
+
+##### `UploadedResult`
+
+```ts
+type UploadedResult = void | { answer?: Record<string, unknown> };
+```
+
+##### `RemovedContext`
+
+```ts
+type RemovedContext = { request: IncomingMessage; owner?: string; scope?: DocumentScope };
+```
+
+#### Saving the body: `prepareUpload`
+
+New in 0.9.0. An app that keeps each upload in a folder of its own (to show it again, or to let
+`view_pages` read it there) can have the handler save the body there, once, as it arrives. The file
+is then ingested from its path, and kept by reference: the store keeps no copy.
+
+```ts
+import path from "node:path";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { createDocumentHandlers, fileOriginals } from "llm-large-files/node";
+
+const VOLUME = "/data";
+const files = createLargeFiles({
+  store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }),
+  keepOriginals: ["pdf"],
+  originals: fileOriginals(VOLUME),
+  ttlMs: Infinity, // kept as long as the chat, as its uploads are
+  requireOwner: true,
+  requireScope: true,
+});
+
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => userIdOf(request), // your sign-in
+  getScope: (request) => [userIdOf(request), chatIdOf(request)],
+  prepareUpload: async (_request, { scope }) => {
+    const id = await uploads.newId(); // your database: lowercase letters, digits, "_" and "-"
+    // <user>/<chat>/uploads is made with the chat (below): the handler makes no folder.
+    const ref = [...scope!, "uploads", id].join("/"); // <user>/<chat>/uploads/<id>
+    return { id, path: path.join(VOLUME, ref), original: { ref } };
+  },
+});
+```
+
+The folders are yours: the handler makes no folder. Make `<user>/<chat>/uploads` when the chat is
+made, with `mode: 0o700`, as
+[the web app guide](../guides/web-app.md#save-each-upload-where-you-keep-it-prepareupload) says:
+`mkdir(path.join(VOLUME, user, chat, "uploads"), { recursive: true, mode: 0o700 })`, with the IDs
+checked first ([Storage](../guides/storage.md#files-in-a-folder-per-user-or-per-chat)). Without it,
+every upload is answered `500` `{ "error": "Upload failed (ENOENT)." }`, even when the chat's own
+folder is there.
+
+`prepareUpload(request, info)`:
+
+- **When.** After `getOwner` and `getScope`, and after a `Content-Length` over `maxUploadBytes` is
+  answered `413`; before the room of the upload is taken and before its body is read. It is called
+  once per upload. An upload can still fail after it (no room, too large, a body that stops, a file
+  that cannot be read): choose here, and record the upload in `onUploaded`.
+- **`info`** is a [`PrepareUploadInfo`](#prepareuploadinfo): the file's `name` as the document will
+  have it (the last part of the name sent, cleaned), and the `owner` and `scope` the handler uses.
+  The name is the client's: never build a path from it.
+- **What it returns.** Nothing, or a [`PreparedUpload`](#preparedupload). Each field is optional,
+  and a field of `null` counts as none:
+  - `id`: the document's ID (`IngestInput.id`). A document of that ID already stored fails the
+    upload with `409` (`IngestError` `"exists"`).
+  - `path`: an absolute path where the body is saved. See below.
+  - `original`: `{ ref }` of the saved file, for `LargeFilesOptions.originals`
+    (`IngestInput.original`). Only with `path`: the handler does not make a ref of a path, and does
+    not check that the ref names the file at `path` (a reader of your own may have refs of its
+    own). With `fileOriginals(root)`, the path is `<root>/<ref>`: see the folders below.
+    Without `original`, the file is saved and ingested all the same, and a store with `putOriginal`
+    keeps its own copy, as `keepOriginals` says. A library without `originals` refuses a ref
+    (`TypeError`): `500` "Upload failed.", and the file is removed.
+  - Anything else (a relative path, an ID that is not a string, a ref without a path) is the
+    server's mistake: `500` `{ "error": "Upload failed." }`, before the body is read.
+- **When it throws,** the upload is answered as for `getOwner`: an error with a `status` from 400
+  to 599 gives that status and its message, and any other error a `500` "Upload failed.". Nothing
+  is written.
+
+With a `path`:
+
+- **The file is made new.** It is opened with `"wx"` and mode `uploadFileMode` (`0o600`), minus the
+  umask. A file already at the path, or a link (even one that points nowhere), is never written
+  through: the upload is answered `409` `{ "error": "A file is already saved for this upload." }`,
+  before its body is read, and what is there stays as it is. That `409` is not an `IngestError`,
+  and has no `code`: `"exists"` is the code of a taken ID.
+- **Its folder must exist.** The handler makes no folder. A folder that is not there is answered
+  `500` `{ "error": "Upload failed (ENOENT)." }`. A chat your app deleted should be refused before,
+  in `getScope` or `prepareUpload`, with a `404`.
+- **No link in its folders, with a ref.** `"wx"` refuses a link only at the file's own name: a link
+  in a folder above it (`uploads` pointing to another disk) is followed. `fileOriginals` refuses a
+  link at any level below its root, so such a file could never be read back. So when the path ends
+  with the ref of `original` (`<root>/<ref>`), the handler checks the folders from that root down
+  before it reads the body. A link among them is answered `500`
+  `{ "error": "Upload failed (ELOOP)." }`, and nothing is written. The root itself may be a link,
+  as for `fileOriginals`. A ref that is not the end of the path is not checked. The check is
+  waited for no longer than `uploadIdleTimeoutMs`: a volume that stops answering is answered `500`
+  `{ "error": "Upload failed (ETIMEDOUT)." }`, and nothing is written.
+- **The body is written as it arrives,** under the same limits as in memory: a body over
+  `maxUploadBytes` is answered `413`, and one that stops arriving for `uploadIdleTimeoutMs` `408`.
+  A disk that is full (`ENOSPC`, `EDQUOT`) is answered `503`
+  `{ "error": "The server has no room for this file right now. Try again later." }` with
+  `Retry-After: 30`. Each call to the disk (the opening, each write, the closing) is waited for no
+  longer than `uploadIdleTimeoutMs`: a volume that stops answering is answered `500`
+  `{ "error": "Upload failed (ETIMEDOUT)." }`. A body a framework already read (`express.raw()`) is
+  written whole.
+- **It is ingested from the file:** `files.ingest({ name, source: { path }, id, original, … })`
+  ([`IngestFromSource`](./library.md#ingestfromsource)). The body is never held in memory, and the
+  upload takes no room of `maxPendingUploadBytes` or `maxSpooledUploadBytes`: it is on your disk.
+- **It stays once the document is stored.** It is yours: `onUploaded` is told its `path`, and the
+  library never removes it, even when the document is deleted or expires. Remove it yourself, in
+  `onRemoved` or with its chat. A document that expires (`ttlMs`) is removed without a call to
+  `onRemoved`, and leaves its file: keep the documents as long as their chat (`ttlMs: Infinity`, as
+  above), or remove the files with the chat.
+- **It is removed when the upload fails,** whatever the reason: too large, a body that stops, a
+  client that leaves while the body arrives or while it is ingested, a full disk, a file the ingest
+  refuses, an ID that is taken, or `onUploaded` throwing. After a call to the disk that did not
+  answer, it is removed at once, or once the volume answers. A file that was already at the path is
+  never removed. A server process that is killed in the middle of an upload (past its grace period,
+  or out of memory) cannot remove it: the partial file stays, and nothing removes it, since the
+  sweep removes only the store's files. Remove such files with a job of your own:
+  [Stopping a server](../guides/deployment.md#stopping-a-server).
+- **Nothing of it is sent.** The path and the ref are not in the answer, the events, the
+  summaries, or anything sent to the model.
+
+#### Spooling: `uploadSpool`
+
+New in 0.9.0. Without it, the handler holds each body whole in memory from the moment it is read
+until its ingest ends: `maxPendingUploadBytes` of them at once. With `uploadSpool`, larger bodies go
+to a temporary file instead, and are ingested from its path.
+
+```ts
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => userIdOf(request),
+  uploadSpool: { directory: "/var/spool/uploads" }, // this server's own folder, on a disk
+});
+```
+
+- **Which bodies.** Those whose `Content-Length` is over `minBytes` (1 MiB by default), and those
+  without a `Content-Length` (sent chunked). A smaller body is held in memory, as without a spool,
+  and so is a body a framework already read into `request.body`. `minBytes: 0` spools every body
+  that has bytes. The `path` of `prepareUpload` wins over the spool.
+- **The file.** It is made new in `directory` (`os.tmpdir()` by default, which must exist), named
+  `llf-upload-` and a random UUID, opened with `"wx"` and mode `0o600`. The body is written as it
+  arrives, under `maxUploadBytes` and `uploadIdleTimeoutMs` (for each piece of the body, and each
+  call to the disk), then ingested with `files.ingest({ name, source: { path }, … })`. With
+  `createIsolatedExtractors`, a PDF or Office file is read from that path by its child process,
+  unless the store keeps a copy of it (`keepOriginals`, a store with `putOriginal`, and no
+  `original`): the server then reads it to copy it, and sends the bytes to the child.
+- **It is always removed,** once the ingest ends: stored, refused, aborted because the client left,
+  or failed. A body that fails while it is written (`413`, `408`, a client that leaves) is removed
+  then. `onUploaded` runs after the removal, and is not told the path. A removal is waited for no
+  longer than `uploadIdleTimeoutMs`: on a volume that stops answering, the upload is answered and
+  gives its room back, and the removal goes on alone. A server that stops in the middle of an
+  upload leaves its file. So the folder belongs to one server process: a disk-backed `emptyDir`,
+  or a folder of its own on the shared volume, such as `path.join("/data/spool", os.hostname())`.
+  Both are one folder a pod or a host: with several server processes on one, add a number of each
+  process ([Deployment](../guides/deployment.md#uploads-and-ingest)). Each server empties its own
+  folder when it starts, and no other. Never empty a folder that several servers share: the
+  uploads still arriving or waiting for their turn would lose their files, and fail with `500`
+  "Upload failed (ENOENT).".
+- **Room.** `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the bytes of the spool's
+  files at once, as `maxPendingUploadBytes` bounds memory: an upload takes its `Content-Length`, or
+  `maxUploadBytes` without one, before its body is read, then its size once written, until its file
+  is removed. One that would pass the limit while others hold room is answered `503` with
+  `Retry-After: 5` before its body is read; one upload alone is always taken. A disk that is full is
+  answered `503` with `Retry-After: 30`, and the file is removed. A disk that does not answer within
+  `uploadIdleTimeoutMs` is answered `500` "Upload failed (ETIMEDOUT).", and gives the room back.
+- **Memory.** `maxPendingUploadBytes` then counts only the bodies held in memory. In memory, a body
+  without a `Content-Length` takes `maxUploadBytes` of room until it is read, so two of them filled
+  the default room and a third was answered `503`. Spooled, they take room on disk.
+- **A `LargeFiles` of your own** gets `IngestFromSource` (`source: { path }`, no `bytes`) for a
+  spooled or saved body: it must take one. The `ingestInProcess` recipe in
+  [deployment](../guides/deployment.md#uploads-and-ingest) sends the path to its process.
+
+Where to put the spool, and why not a memory-backed volume:
+[deployment](../guides/deployment.md#uploads-and-ingest).
+
+##### `PrepareUploadInfo`
+
+```ts
+type PrepareUploadInfo = { name: string; owner?: string; scope?: DocumentScope };
+```
+
+| Field | What it holds |
+|---|---|
+| `name` | The file's name as the document will have it: the last part of the name sent, without control characters and characters that show nothing (as `files.ingest` cleans it). The client's words: never build a path from it. |
+| `owner` | What `getOwner` returned, when it returned an owner. |
+| `scope` | What `getScope` returned, when it returned a scope (a frozen copy). |
+
+##### `PreparedUpload`
+
+```ts
+type PreparedUpload = { id?: string; path?: string; original?: { ref: string } };
+```
+
+| Field | What it does |
+|---|---|
+| `id` | The document's ID (`IngestInput.id`): lowercase letters, digits, `_` and `-`, up to 64 characters (`APP_DOCUMENT_ID_PATTERN`). The model sees it: no personal data in it. |
+| `path` | An absolute path where the body is saved, made new, then ingested from. The file stays once the document is stored, and is removed when the upload fails. |
+| `original` | `{ ref }`: where `LargeFilesOptions.originals` reads the saved file, such as its path under the folder of [`fileOriginals`](#fileoriginalsroot). Only with `path`. When `path` ends with the ref, a link in a folder below that root is refused (`500` "Upload failed (ELOOP)."). |
+
+##### `UploadSpoolOptions`
+
+```ts
+type UploadSpoolOptions = { directory?: string; minBytes?: number };
+```
+
+| Field | Default | What it does |
+|---|---|---|
+| `directory` | `os.tmpdir()` | The folder of the temporary files. It must exist; a relative path is resolved when the handlers are made. |
+| `minBytes` | 1 MiB (1,048,576) | Bodies whose `Content-Length` is this many bytes or fewer are held in memory. Larger ones, and those without a `Content-Length`, are spooled. `0` spools every body with bytes; `Infinity` only those without a `Content-Length`. |
 
 ### `DocumentHandlers`
 
@@ -160,8 +510,8 @@ The request:
 | Body | The file itself, as raw bytes. Not a multipart form: the handler does not parse one. |
 | `X-File-Name` header | The file name, URI-encoded with `encodeURIComponent` so that any name survives a header. It is decoded with `decodeURIComponent` (a value that does not decode is used as it is) and trimmed. |
 | `?name=` query parameter | The file name, when there is no `X-File-Name`. One of the two is required. |
-| `X-File-Type` header | Optional: the MIME type, URI-decoded. |
-| `Content-Type` header | The MIME type when there is no `X-File-Type`, unless it starts with `application/octet-stream`. The value is kept whole, parameters included: a `fetch` with a string body sends `text/plain;charset=UTF-8`, and that is the document's `mimeType`. A type with parameters does not set the format, so name the file with its extension. With neither header, the document's `mimeType` is `application/octet-stream`. Send `application/octet-stream`, which JSON and form parsers leave alone. |
+| `X-File-Type` header | Optional: the MIME type, URI-decoded (a value that does not decode is used as it is). |
+| `Content-Type` header | The MIME type when there is no `X-File-Type`, unless it starts with `application/octet-stream`. It is taken as it came: since 0.9.0 it is not URI-decoded, so `%0D%0A` in it stays three characters and cannot become a line break (S11). It is passed to `files.ingest` with its parameters, and `files.ingest` keeps only its type/subtype, in lower case: that is the document's `mimeType`. A `fetch` with a string body sends `text/plain;charset=UTF-8`, and the document's `mimeType` is `text/plain`. The type sets the format when the name has no known extension: `text/csv; charset=utf-8` with the name `data` is read as CSV. With neither header, the document's `mimeType` is `application/octet-stream`. Send `application/octet-stream`, which JSON and form parsers leave alone. |
 | `Content-Length` header | Optional. When it is larger than `maxUploadBytes`, the handler answers `413` before it reads anything. |
 | `Accept` header | Optional. When it names `text/event-stream`, the ingest is answered with its progress as Server-Sent Events: see [upload with progress](#upload-with-progress-accept-textevent-stream). New in 0.7.0. |
 
@@ -175,12 +525,24 @@ What it does, in order:
 1. Reads the name. Without one, it answers `400`.
 2. Calls `getOwner`, and checks what it returned: `""`, spaces only or `null`, or from JavaScript
    a value that is neither a string nor a finite number, is answered `500` (see
-   [`DocumentHandlerOptions`](#documenthandleroptions)).
-3. Makes room for the upload ([`maxPendingUploadBytes`](#documenthandleroptions)): a
-   `Content-Length`, or a body in `request.body`, over `maxUploadBytes` is answered `413` first; an
-   upload that would bring the uploads held past the limit, while others are held, is answered
-   `503`, before its body is read. New in 0.8.2.
-4. Reads the body, up to `files.maxUploadBytes`:
+   [`DocumentHandlerOptions`](#documenthandleroptions)). Under `requireOwner`, `undefined` is
+   answered `401` (new in 0.9.0).
+3. Calls `getScope`, and checks what it returned: a scope that is not valid, or none under
+   `requireScope`, is answered `500` ([what `getScope` returns](#what-getscope-returns)). New in
+   0.9.0.
+4. Answers `413` a `Content-Length`, or a body in `request.body`, over `maxUploadBytes`. Then
+   calls `prepareUpload`, when there is one, and checks the folders of a path with a ref (`500`
+   "Upload failed (ELOOP)." for a link) ([saving the body](#saving-the-body-prepareupload); new in
+   0.9.0).
+5. Makes room for the upload: in memory ([`maxPendingUploadBytes`](#documenthandleroptions)), or in
+   the spool for a body that is spooled (`maxSpooledUploadBytes`, new in 0.9.0). A body saved to the
+   `path` of `prepareUpload` takes none. An upload that would bring the uploads held past the
+   limit, while others are held, is answered `503`, before its body is read. New in 0.8.2.
+6. Reads the body, up to `files.maxUploadBytes`: into memory, or, new in 0.9.0, into a file as it
+   arrives, at the `path` of `prepareUpload` or in the spool (`uploadSpool`). A file is made new
+   (`"wx"`): one already at the path is answered `409`, a disk that is full `503` with
+   `Retry-After: 30`, and a call to the disk that does not end within `uploadIdleTimeoutMs` `500`
+   "Upload failed (ETIMEDOUT).". On any failure of the body, the file is removed.
    - a `Uint8Array` or `Buffer` that a framework left in `request.body` (`express.raw()`) is used
      as the file, with the same limit;
    - an object with fields in `request.body` (`express.json()` on a JSON request) is answered
@@ -199,49 +561,62 @@ What it does, in order:
      client stuck sending into it. The answer to such a body has no `Content-Length`. A stream
      that another middleware has already read gives no bytes, and the upload is answered `422` as
      an empty file.
-5. Ingests it: `files.ingest({ name, bytes, mimeType, owner, signal })`, `mimeType` and `owner`
-   only when there are any. The ingest may first wait its turn (`maxConcurrentIngests` of
-   `createLargeFiles`, 2 by default). The `signal` aborts when the client closes the connection
-   before the answer is sent: the ingest stops between two pages or pieces (or leaves the queue),
-   and nothing is stored. The answer then goes to no one.
-6. Answers `201` with the document's summary. With `Accept: text/event-stream`, steps 5 and 6 are
-   a stream of events instead ([below](#upload-with-progress-accept-textevent-stream)).
+7. Ingests it: `files.ingest({ name, bytes, mimeType, owner, scope, signal })`, `mimeType`,
+   `owner` and `scope` only when there are any, and the `id` and `original` of `prepareUpload`. A
+   body in a file is given as `source: { path }` in place of `bytes` (new in 0.9.0): a file of the
+   spool is removed when the ingest ends, and the file of `prepareUpload` when it fails. The ingest may first wait its turn
+   (`maxConcurrentIngests` of `createLargeFiles`, 2 by default). The `signal` aborts when the
+   client closes the connection before the answer is sent: the ingest stops between two pages or
+   pieces (or leaves the queue), and nothing is stored. The answer then goes to no one.
+8. Gives back the upload's room, then calls `onUploaded` with the stored document
+   ([the hooks](#the-hooks-onuploaded-and-onremoved)), also when the client went away. When it
+   throws, the document is deleted (and the file of `prepareUpload` removed) and the upload is
+   answered with its error. New in 0.9.0.
+9. Answers `201` with the document's summary, and the fields of `onUploaded`'s `answer`. With
+   `Accept: text/event-stream`, steps 7 to 9 are a stream of events instead
+   ([below](#upload-with-progress-accept-textevent-stream)).
 
 The responses:
 
 | Status | Body | When |
 |---|---|---|
-| `201` | The [`DocumentSummary`](./library.md#documentsummary) of the new document | It was ingested. |
+| `201` | The [`DocumentSummary`](./library.md#documentsummary) of the new document, with the fields of `onUploaded`'s `answer` (the summary's win) | It was ingested, and `onUploaded`, when there is one, did not throw. |
+| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner`, and `getOwner` returned `undefined` (or `null`). The body is not read. New in 0.9.0. |
+| `404` | `{ "error": "This chat no longer exists." }` | The store threw a [`DocumentScopeError`](./library.md#documentscopeerror) of code `"scope_missing"`: the scope's folder is gone (a scoped `FileDocumentStore` whose session folder your app removed). New in 0.9.0: it was `422` with the error's message. |
 | `400` | `{ "error": "Name the file with an X-File-Name header or a ?name= query parameter." }` | No name. |
 | `400` | `{ "error": "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream." }` | `request.body` is an object with fields. |
 | `413` | `{ "error": "The file is larger than the 100 MB upload limit." }`, with your `maxUploadBytes` in its place (`512 KB`, `1000 B`) | `Content-Length`, the bytes read, or the `Buffer` in `request.body` are over `maxUploadBytes`. |
-| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read: `files.ingest` threw an [`IngestError`](./library.md#ingesterror), whose `status` is 422. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, Word, PowerPoint, Excel or HTML file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", an Office file of before 2007 or with a password, a PDF with a password or with no text layer, and a PDF, DOCX, PPTX or XLSX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf".") or, for a PDF, cannot run on this Node ("The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.", see [defaultExtractors](./library.md#defaultextractors)). A text file is never refused for its encoding. A file past the limits of `createLargeFiles`: more text than `maxTextBytes`, more pages than `maxPdfPages`, longer to read than `ingestTimeoutMs` ("report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that."), or built to exhaust the server ([every message](../guides/pdfs.md#what-is-refused)). With [`createIsolatedExtractors`](#createisolatedextractorsoptions), also a file whose reader ran out of memory or time. An extractor of your own that throws an `Error` gives its message here too. |
+| `422` | `{ "error": <the message of files.ingest> }` | The file cannot be read: `files.ingest` threw an [`IngestError`](./library.md#ingesterror), whose `status` is 422. The message says why and is meant for the user: "app.log is empty.", "app.log did not contain any text.", "This file looks binary, not text. Attach a text, log, PDF, Word, PowerPoint, Excel or HTML file.", "This file is gzip-compressed. Decompress it, then attach the text file inside.", "This file is a ZIP archive. Extract it, then attach the text file you need.", an Office file of before 2007 or with a password, a PDF with a password or with no text layer, and a PDF, DOCX, PPTX or XLSX while the optional dependency that reads it is missing ("Reading PDF files needs the optional dependency "unpdf".") or, for a PDF, would stop the server on this Node ("The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.", see [defaultExtractors](./library.md#defaultextractors)). A text file is never refused for its encoding. A file past the limits of `createLargeFiles`: more text than `maxTextBytes`, more pages than `maxPdfPages`, longer to read than `ingestTimeoutMs` ("report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that."), or built to exhaust the server ([every message](../guides/pdfs.md#what-is-refused)). With [`createIsolatedExtractors`](#createisolatedextractorsoptions), also a file whose reader ran out of memory or time. A file of code `"unreadable"`, damaged or not of the type its name says, is answered with fixed words: "This file could not be read. It may be damaged, or not of the type its name says." Its own message is a parser's ("Invalid PDF structure."), or that of an extractor of your own that threw an `Error` (an OCR service's, which may name its host): it stays on the error, for your log. New in 0.9.0: that message was sent. |
 | `408` | `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }`, with `Connection: close` | The body stopped arriving for `uploadIdleTimeoutMs`. The connection is closed. New in 0.8.2. |
-| `503` | `{ "error": "The server is receiving other files right now. Try again in a moment." }`, with `Retry-After: 5` | Uploads are already held, and this one would bring them past `maxPendingUploadBytes`. Answered before the body is read, also to a request with `Accept: text/event-stream`. New in 0.8.2. |
+| `503` | `{ "error": "The server is receiving other files right now. Try again in a moment." }`, with `Retry-After: 5` | Uploads are already held, and this one would bring them past `maxPendingUploadBytes`, or, for a body that is spooled, past `maxSpooledUploadBytes` (new in 0.9.0). Answered before the body is read, also to a request with `Accept: text/event-stream`. New in 0.8.2. |
 | `503` | `{ "error": "The server is reading other files right now. Try again in a moment." }`, with `Retry-After: 5` | The isolated readers of [`createIsolatedExtractors`](#createisolatedextractorsoptions) are all busy and their queue is full: an `IngestError` of code `"busy"`. The header is its `retryAfterMs` in seconds, rounded up, at least 1. While they shut down (`close()`): "The server is shutting down. Try again in a moment." New in 0.8.0. |
-| 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, an extractor or the store threw an error with that `status` or `statusCode`. |
-| `500` | `{ "error": "Upload failed (empty owner)." }` | `getOwner` returned `""`, spaces only or `null`. The body is not read. New in 0.6.0. |
+| `409` | `{ "error": "report.pdf: a document with this ID already exists." }` | `files.ingest` threw an `IngestError` of code `"exists"`: a document of the ID the upload was given (`prepareUpload`'s `id`) is there. New in 0.9.0. |
+| `409` | `{ "error": "A file is already saved for this upload." }` | A file or a link is already at the `path` of `prepareUpload`. It is not written through, nor removed. The body is not read. It is not an `IngestError`, and has no `code`: `"exists"` is the code of a taken ID (the row above). New in 0.9.0. |
+| `503` | `{ "error": "The server has no room for this file right now. Try again later." }`, with `Retry-After: 30` | The disk the body was written to is full (`ENOSPC`, `EDQUOT`): the `path` of `prepareUpload`, or the spool. The file is removed. New in 0.9.0. |
+| `503` | `{ "error": "The document could not be stored (ENOSPC). Try again." }`, with `Retry-After: 5` | The store failed while it wrote the document, or did not finish writing it within `ingestTimeoutMs` (code `ETIMEDOUT`): `files.ingest` threw a [`DocumentStoreError`](./library.md#documentstoreerror) of operation `"write"`. The code is shown only when the store's error has one. The store's own message is not sent. New in 0.9.0: it was answered `500` "Upload failed (ENOSPC)." or "Upload failed.", with no `Retry-After`. |
+| 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, `getScope`, `prepareUpload`, `onUploaded` or an extractor threw an error with that `status` or `statusCode`. A model's error (`ModelRequestError`) is the exception: it is answered with the status and words of [`errorInfoOf`](./errors-and-retries.md#errorinfooferror), never the provider's. |
+| `500` | `{ "error": "Upload failed (empty owner)." }` | `getOwner` returned `""`, spaces only or `null` (`null` is a `401` under `requireOwner`). The body is not read. New in 0.6.0. |
+| `500` | `{ "error": "Upload failed (invalid scope)." }` | `getScope` returned a scope that is not valid. The body is not read. New in 0.9.0. |
+| `500` | `{ "error": "Upload failed (no scope)." }` | The library has `requireScope`, and `getScope` returned `undefined`. The body is not read. New in 0.9.0. |
 | `500` | `{ "error": "Upload failed (owner is not a string)." }` | `getOwner` returned, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array. The body is not read. New in 0.6.0. |
-| `500` | `{ "error": "Upload failed (ENOSPC)." }` | The store failed with a Node system error, one with a `code` and a `syscall`. Only the code is passed on. |
-| `500` | `{ "error": "Upload failed." }` | `getOwner` threw an error without a status, or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of either kind that has a `code` and a `syscall` is answered as in the row above, with its code. |
-| `500` | `{ "error": "Upload failed." }` | The store failed while it wrote the document, with an error that has no `status` or `statusCode` from 400 to 599 and is not a Node system error (a database driver's error, say), or did not finish writing it within `ingestTimeoutMs` (new in 0.8.2). Or `files.ingest` threw a value that is not an `Error` (an extractor of your own that throws a string, say). Such a value with a `code` and a `syscall` gets its code, as in the `ENOSPC` row. The error's own message is not sent. See below. |
+| `500` | `{ "error": "Upload failed (ELOOP)." }` | `prepareUpload` gave a `path` that ends with the ref of its `original`, and a folder between that root and the file is a link: `fileOriginals` would never read the file back. Nothing is written, and the body is not read. New in 0.9.0. |
+| `500` | `{ "error": "Upload failed (ETIMEDOUT)." }` | A call to the disk for the file of `prepareUpload` or of the spool (the check of its folders for a link, its opening, a write, its closing) did not end within `uploadIdleTimeoutMs`: the volume stopped answering. The upload's room is given back, and the file is removed at once, or once the volume answers. When the check of the folders did not end, nothing is written. New in 0.9.0. |
+| `500` | `{ "error": "Upload failed (ENOSPC)." }` | An extractor of your own failed with a Node system error, one with a `code` and a `syscall`; or the file of `prepareUpload` or of the spool could not be made, as `"Upload failed (ENOENT)."` for a folder that is not there (new in 0.9.0). Only the code is passed on, and only when it reads as one (capitals, digits and `_`): since 0.9.0 a code that does not, such as a host a driver put in `code`, is left out, and the answer is "Upload failed.". |
+| `500` | `{ "error": "Upload failed." }` | `getOwner`, `getScope` or `prepareUpload` threw an error without a status, or `prepareUpload` returned a value that is not a `PreparedUpload` (a relative path, an ID that is not a string, a ref without a path): the body is not read (`prepareUpload` is new in 0.9.0). Or the request body could not be read: the client went away, or a proxy cut the upload. Node's error for a client that went away has a `code` (`ECONNRESET`) but no `syscall`, so no code is added. An error of one of these kinds that has a `code` and a `syscall` is answered as in the row above, with its code. |
+| `500` | `{ "error": "Upload failed." }` | `files.ingest` or `onUploaded` threw an error that is none of the above: not an `IngestError`, with no status and no system error's `code` and `syscall`. Its message is not sent: it may name a host, as a database driver's does. A `DocumentScopeError` of code `"scope_invalid"` or `"scope_required"`, the server's mistake, is answered so too. New in 0.9.0: an `Error` of a `LargeFiles` of your own was answered `422` with its message (S12). So is a value that is not an `Error` (an extractor of your own that throws a string, say), as before. |
 
-A store that fails while it writes is answered `500` "Upload failed." when its error has neither a
-`status` (or `statusCode`) from 400 to 599 nor a Node system error's `code` and `syscall`. Its
-message may name a host, so it is not sent, and the handlers log nothing. `files.ingest` throws
-that error unchanged, and the handler knows it by a mark that `ingest` keeps. The package does not
-export the mark, so two paths answer such an error `422` with the store's message, as a file that
-cannot be read:
+A store that fails while it writes reaches the handler as a `DocumentStoreError` since 0.9.0, and is
+answered `503` with `Retry-After: 5` and its message, which names no path or host. The store's own
+error is its `cause`, and the handlers log nothing: log it in your store.
 
-- an `ingest` of your own that throws a new error in place of the store's, such as `ingestInProcess`
-  in [deployment](../guides/deployment.md#uploads-and-ingest);
-- a route of your own around `files.ingest`, such as the one in
-  [web app](../guides/web-app.md#filesingest-and-its-errors) with its `ingestFailure` helper.
-
-In a store of your own, log the failure and throw an error with a `status` (a `503`, say) and a
-message without hosts: every path keeps that status. An `ingest` of your own must copy the
-`status`, and a system error's `code` and `syscall`, onto the error it throws.
-[Storage](../guides/storage.md) has the rules for a store's errors.
+Only an [`IngestError`](./library.md#ingesterror) is answered `422`, since 0.9.0. A `LargeFiles` of
+your own that refuses a file must throw one, `new IngestError(code, message)`, as `ingestInProcess`
+in [deployment](../guides/deployment.md#uploads-and-ingest) does. A plain `Error` is answered `500`
+"Upload failed.", whatever its message. A route of your own around `files.ingest` answers the same
+way with [`uploadAnswerOf`](#uploadansweroferror) ([web app](../guides/web-app.md#filesingest-and-its-errors)).
+Pass a `DocumentStoreError` on as it is: an `ingest` of your own must not throw a new error in its
+place, or must copy its `status` onto the error it throws. [Storage](../guides/storage.md) has the
+rules for a store's errors.
 
 #### Upload with progress: `Accept: text/event-stream`
 
@@ -263,9 +638,13 @@ The handler reads the `Accept` header this way:
 
 What stays JSON: every check that runs before the ingest answers as it always did, with its status
 and `{ "error": "…" }`, because the stream has not started yet. That is a missing name (`400`), a
-refusal or a bad owner from `getOwner` (its status, or `500`), a body another middleware parsed
-(`400`), a file over `maxUploadBytes` (`413`), an upload that finds no room (`503`, new in 0.8.2),
-and a body that stops arriving (`408`, new in 0.8.2). Only a file that passes them is answered `200`
+refusal or a bad owner from `getOwner` (its status, `401` or `500`), a refusal or a bad scope from
+`getScope` (its status, or `500`; new in 0.9.0), a refusal from `prepareUpload` or what it should not
+return (its status, or `500`; new in 0.9.0), a body another middleware parsed (`400`), a file over
+`maxUploadBytes` (`413`), an upload that finds no room (`503`, new in 0.8.2), a file already at the
+path of `prepareUpload` (`409`), a link in the folders of a path with a ref (`500` "ELOOP"), a full
+disk (`503`) or a disk that does not answer (`500` "ETIMEDOUT"), all new in 0.9.0, and a body that
+stops arriving (`408`, new in 0.8.2). Only a file that passes them is answered `200`
 with the event-stream headers of [`writeSseEvents()`](#writesseeventsresponse-events-options) and
 a `: keep-alive` comment every 15 seconds.
 
@@ -277,8 +656,8 @@ of [`IngestEvent`](./events.md#ingestevent), stamped with `seq` (1, 2, 3… with
 |---|---|---|
 | `ingest.start` | `name` (cleaned), `format` (what the name and the type say: a text file can still become a log), `bytes` | First. |
 | `ingest.progress` | `stage` (`"decode"`, `"extract"`, `"check"`, `"pictures"`, `"prepare"`, `"index"` or `"store"`), `done`, `total` (absent when not known), `unit` (`"pages"`, `"parts"`, `"bytes"` or `"characters"`) | At most about every 12 ms for a stage, and once more when the stage ends. A stage with nothing to report may send none ([stages and units](./events.md#stages-and-units)). |
-| `ingest.finish` | `document`: the [`DocumentSummary`](./library.md#documentsummary), the same fields as the body of a `201` | Last, when the document is stored. |
-| `ingest.error` | `error`: `{ "message": …, "status": … }`, the message and status the JSON answer would have, and for a file that could not be read `"code"`, the [`IngestError`](./library.md#ingesterror) code (new in 0.8.0) | Last, when the ingest fails. |
+| `ingest.finish` | `document`: the [`DocumentSummary`](./library.md#documentsummary), the same fields as the body of a `201`. `app`: the `answer` of `onUploaded`, when it returned one (new in 0.9.0) | Last, when the document is stored and `onUploaded`, when there is one, is done. |
+| `ingest.error` | `error`: `{ "message": …, "status": … }`, the message and status the JSON answer would have, and for a file that could not be read `"code"`, the [`IngestError`](./library.md#ingesterror) code (new in 0.8.0). For a store that failed, `"name": "DocumentStoreError"`; for a scope error, `"name": "DocumentScopeError"` and its `"code"`; for documents that are gone, `"name": "DocumentsNotFoundError"`; for a model's error, its `"kind"` (new in 0.9.0) | Last, when the ingest fails. |
 
 ```text
 id: 4
@@ -294,14 +673,32 @@ data: {"type":"ingest.finish","document":{"id":"doc_f6502d2f94694d709c7db2ec634c
   `{ "message": "This file looks binary, not text. …", "status": 422, "code": "not_text" }`, and
   isolated readers that are all busy `{ "message": "The server is reading other files right now. Try
   again in a moment.", "status": 503, "code": "busy" }`, with no `Retry-After` (the headers are
-  sent). A store that failed is `{ "message": "Upload failed.", "status": 500 }`, never the store's
-  own message, which may name a host. An error with a status keeps it. The error has no `kind` or
-  `name` here, unlike the `EventError` of `files.ingest`'s own events; `code` is new in 0.8.0, so
-  that a page can say why in its own words.
+  sent). A store that failed is `{ "message": "The document could not be stored. Try again.", "status": 503 }`
+  (since 0.9.0; it was `"Upload failed."` and 500), never the store's own message, which may name a host. An error with a status keeps it. `code` is new in 0.8.0, so that a
+  page can say why in its own words. Since 0.9.0 the library's own errors other than a refused file
+  also have their `name`: `"DocumentStoreError"` (with `"name"` added to the 503 above),
+  `"DocumentScopeError"` with its `code` (`{ "message": "This chat no longer exists.", "status":
+  404, "name": "DocumentScopeError", "code": "scope_missing" }`), and `"DocumentsNotFoundError"`.
+  A model's error (a `ModelRequestError`, or any error with a `kind`, from an ingest or a hook of
+  yours that asks a model) has its `kind`, as in the `EventError` of a question: `{ "message":
+  "The model failed on its side (HTTP 503).", "status": 502, "kind": "server" }`. Until 0.9.0 the
+  handler's `ingest.error` had no `kind`.
+  So [`errorInfoOf`](./errors-and-retries.md#errorinfooferror) reads `ingest.error` as the
+  handler answered the error: a store that failed, a chat that is gone, a model's error by its
+  kind, each with the status of the JSON answer. An error that is none of these is `"unknown"`
+  there, with its status (a hook of yours that threw a `409`). The event carries no wait
+  (`retryAfterMs`), and no system error's code for a store: the JSON answer's `Retry-After` and the
+  store's message hold them.
+- **`onUploaded` runs before `ingest.finish`.** The event waits for it. When it throws, the
+  document is deleted, and the stream ends with `ingest.error` holding the error's answer instead
+  ([the hooks](#the-hooks-onuploaded-and-onremoved)). New in 0.9.0.
 - **The status is `200` whatever happens next.** Once the stream has started, a failure can only be
   an `ingest.error` event.
-- **A client that goes away stops the ingest**, as in step 5: nothing is stored, and nothing more
-  is written.
+- **A client that goes away stops the ingest**, as in step 7: nothing is stored, nothing more is
+  written, and a file of the spool or of `prepareUpload` is removed. A document stored before the
+  client left (the ingest had ended, and the events were still being written), or by an `ingest` of
+  your own that does not stop on its `signal`, still goes to `onUploaded`, once, with
+  `clientGone: true`, and the file of `prepareUpload` stays with it.
 - **The handler still never rejects.**
 
 How to read the stream in the browser: [web app](../guides/web-app.md#upload-with-progress).
@@ -309,48 +706,101 @@ How to read the stream in the browser: [web app](../guides/web-app.md#upload-wit
 #### get(request, response, id)
 
 The request: route `GET` to it; the handler does not check the method. `id` is the document ID,
-taken from your route. Nothing else is read but what `getOwner` reads.
+taken from your route. Nothing else is read but what `getOwner` and `getScope` read. It calls
+`files.getMeta(id, { owner, scope })`.
 
 | Status | Body | When |
 |---|---|---|
-| `200` | The [`DocumentSummary`](./library.md#documentsummary) | The document is there, has not expired, and has no owner or the owner `getOwner` returned. |
-| `404` | `{ "error": "This file is no longer available." }` | `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner. |
-| 400 to 599 | `{ "error": <the error's message> }` | `getOwner` threw an error with that `status` or `statusCode`. |
-| `500` | `{ "error": "The file could not be looked up (EIO)." }` | The store could not be read ([`DocumentStoreError`](./library.md#documentstoreerror)), with the code of the system error behind it, when there is one. |
-| `500` | `{ "error": "The file could not be looked up." }` | The store could not be read and gave no system error code, or `getOwner` threw an error without a status. |
+| `200` | The [`DocumentSummary`](./library.md#documentsummary) | The document is there, has not expired, has no owner or the owner `getOwner` returned, and has no scope or the scope `getScope` returned. |
+| `404` | `{ "error": "This file is no longer available." }` | `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner or another scope. |
+| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner`, and `getOwner` returned `undefined` (or `null`). New in 0.9.0. |
+| 400 to 599 | `{ "error": <the error's message> }` | `getOwner` or `getScope` threw an error with that `status` or `statusCode`. |
+| `503` | `{ "error": "The document store could not be read (EIO). Try again." }`, with `Retry-After: 5` | The store could not be read: the message of its [`DocumentStoreError`](./library.md#documentstoreerror), with the code of the system error behind it, when there is one. Since 0.9.0, the status of that error; before, `500` "The file could not be looked up (EIO).". `Retry-After` is new in 0.9.0. |
+| `500` | `{ "error": "The file could not be looked up (empty owner)." }` | The library has `requireOwner`, and `getOwner` returned `""` or spaces only; "(owner is not a string)" for an object, as for the upload. `files.getMeta` is not called. New in 0.9.0. |
+| `500` | `{ "error": "The file could not be looked up (invalid scope)." }` | `getScope` returned a scope that is not valid; "(no scope)" for none under `requireScope`. New in 0.9.0. |
+| `500` | `{ "error": "The file could not be looked up." }` | `getOwner` or `getScope` threw an error without a status. |
 
 #### remove(request, response, id)
 
 The request: route `DELETE` to it; the handler does not check the method. `id` is the document
-ID, taken from your route. It deletes the document through `files.delete`, which removes it from
-the store: its text, its index and any kept original, as far as your store's `delete` does.
+ID, taken from your route. It deletes the document through `files.delete(id, { owner, scope })`,
+which removes it from the store: its text, its index and any kept original, as far as your store's
+`delete` does. Then it calls `onRemoved`, when the document was deleted.
 
 | Status | Body | When |
 |---|---|---|
-| `200` | `{ "deleted": true }` | The document was deleted. |
-| `200` | `{ "deleted": false }` | This owner has no such document: `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner. Also when the store's `delete` returned `false`. It never answers `404`. |
-| 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, or the store's `delete`, threw an error with that `status` or `statusCode`. |
-| `500` | `{ "error": "The file could not be deleted (EIO)." }` | The store could not be read, or its `delete` failed with a Node system error, with that error's code. |
-| `500` | `{ "error": "The file could not be deleted." }` | The same with no system error code, or `getOwner` threw an error without a status. |
+| `200` | `{ "deleted": true }` | The document was deleted, and `onRemoved`, when there is one, did not throw. |
+| `200` | `{ "deleted": false }` | This owner has no such document in this scope: `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner or another scope. Also when the store's `delete` returned `false`. It never answers `404`. `onRemoved` is not called. |
+| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner`, and `getOwner` returned `undefined` (or `null`). New in 0.9.0. |
+| 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, `getScope` or `onRemoved` threw an error with that `status` or `statusCode`. When `onRemoved` threw, the document is deleted all the same. |
+| `503` | `{ "error": "The document store could not be read (EIO). Try again." }`, with `Retry-After: 5` | The look-up before the delete could not read the store, as for `get`. Since 0.9.0. |
+| `503` | `{ "error": "The document could not be deleted (EIO). Try again." }`, with `Retry-After: 5` | The store's `delete` failed: `files.delete` threw a `DocumentStoreError` of operation `"delete"`, with the code of the store's error when it has one. Since 0.9.0: it was `500` "The file could not be deleted (EIO).". |
+| `500` | `{ "error": "The file could not be deleted (empty owner)." }` | The library has `requireOwner`, and `getOwner` returned `""` or spaces only; "(owner is not a string)" for an object, as for the upload. `files.delete` is not called. New in 0.9.0. |
+| `500` | `{ "error": "The file could not be deleted (invalid scope)." }` | `getScope` returned a scope that is not valid; "(no scope)" for none under `requireScope`. New in 0.9.0. |
+| `500` | `{ "error": "The file could not be deleted." }` | `getOwner`, `getScope` or `onRemoved` threw an error without a status. |
 
 ## How errors are answered
 
-The three handlers answer an error by one rule:
+The three handlers answer an error by one rule, [`uploadAnswerOf`](#uploadansweroferror). Since
+0.9.0 it reads the library's errors by their brand (`IngestError.is` and the others), so it also
+knows them when another copy of the package made them:
 
-- **An error with a status.** An `Error` whose `status`, or else `statusCode`, is a whole number
-  from 400 to 599 is answered with that status and `{ "error": <its message> }`. With an empty
-  message, the body says what failed instead ("Upload failed.", "The file could not be looked
-  up.", "The file could not be deleted."). A `413` is always answered with the size message of
-  `upload`. An [`IngestError`](./library.md#ingesterror) carries its `status` (422, 413 or 503),
-  and a `503` whose error has a `retryAfterMs` also gets a `Retry-After` header, in seconds.
-- **Any other error** is the server's trouble: `500`, with what failed and, for a Node system error
-  (one with a `code` and a `syscall`), its code: "Upload failed (ENOSPC).". The error's own message
-  is never sent, since it can name paths and hosts of your server.
-- **The one exception** is in `upload`: an `Error` from `files.ingest` that has neither a status nor
-  a system error's `code` and `syscall` is a file that cannot be read, `422` with its message,
-  unless `files.ingest` marked it as an error the store threw while it wrote the document. That
-  one, and a thrown value that is not an `Error`, are answered as any other error. An `ingest` of
-  your own that throws a new error in its place loses the mark ([upload](#uploadrequest-response)).
+| Error | Status | `{ "error": … }` |
+|---|---|---|
+| [`IngestError`](./library.md#ingesterror): a file that could not be read | Its `status`: 422, 413 for `"too_large"`, 409 for `"exists"`, 503 for `"busy"` (with `Retry-After`, its `retryAfterMs` in seconds) | Its message, written for the user. A `413` gets the size message of `upload`. A file of code `"unreadable"` gets "This file could not be read. It may be damaged, or not of the type its name says.": its message is a parser's, or an extractor's of your own (new in 0.9.0). |
+| [`DocumentStoreError`](./library.md#documentstoreerror): the store failed | 503, with `Retry-After: 5` | Its message, which names what failed and a code, never a path or a host. |
+| [`DocumentScopeError`](./library.md#documentscopeerror) `"scope_missing"`: the chat's folder is gone | 404 | "This chat no longer exists." |
+| `DocumentScopeError` `"scope_invalid"` or `"scope_required"`: the server's mistake | 500 | What failed: "Upload failed.", "The file could not be looked up.", "The file could not be deleted." |
+| A model's error (`ModelRequestError`, or any error with a `kind`) | The status of [`errorInfoOf`](./errors-and-retries.md#errorinfooferror) (429 for `"rate_limit"`, with `Retry-After` when the provider named a wait; 502, 503, 504, 413 or 500 for the others) | `errorInfoOf`'s words ("The model was busy (HTTP 429)."), never the provider's, which can name a project or a key. |
+| Any other `Error` whose `status`, or else `statusCode`, is a whole number from 400 to 599 (`http-errors`) | That status. A `503` whose error has a `retryAfterMs` gets `Retry-After`. | Its message, or what failed when it is empty. |
+| A Node system error (a `code` and a `syscall`), such as a path `ingest({ source: { path } })` does not read: a link (`ELOOP`), a folder (`EISDIR`), a pipe (`EINVAL`), a file that is not there (`ENOENT`), a volume that did not answer (`ETIMEDOUT`) | 500 | What failed, with the code: "Upload failed (ENOSPC).". Never the path, which Node's own messages name. The code is given only when it reads as one (capitals, digits and `_`); a host a driver put in `code` is left out: "Upload failed." (new in 0.9.0). |
+| Anything else: a plain `Error`, a value that is not an `Error` | 500 | What failed: "Upload failed.". Never the error's own message, which can name paths and hosts of your server. |
+
+Until 0.9.0, `upload` answered any `Error` from `files.ingest` without a status `422` with its
+message, as a file that could not be read. A `LargeFiles` of your own whose `ingest` threw a
+database driver's error sent its host to the browser (S12). A store that failed was answered
+without `Retry-After`.
+
+### uploadAnswerOf(error)
+
+```ts
+declare function uploadAnswerOf(error: unknown): UploadAnswer;
+```
+
+New in 0.9.0. The answer the upload handler gives an error, by the table above, for a route of your
+own that ingests files: a multipart form, the Fetch API's `Request`, a job in the background. It
+never throws, and reads the errors of every copy of the package. The upload limit's own message of
+a `413` is not in it: say it yourself, or keep the error's.
+
+```ts
+import type { ServerResponse } from "node:http";
+import { uploadAnswerOf } from "llm-large-files/node";
+
+/** Answers an error of files.ingest as createDocumentHandlers would. */
+export function answerUploadError(response: ServerResponse, error: unknown): void {
+  const { status, error: message, code, retryAfterMs } = uploadAnswerOf(error);
+  if (status >= 500) console.error("An upload failed", error); // the error itself, for your log
+  const headers: Record<string, string> = { "Content-Type": "application/json; charset=utf-8" };
+  if (retryAfterMs !== undefined) headers["Retry-After"] = String(Math.max(1, Math.ceil(retryAfterMs / 1_000)));
+  response.writeHead(status, headers).end(JSON.stringify({ error: message, ...(code ? { code } : {}) }));
+}
+```
+
+### `UploadAnswer`
+
+```ts
+type UploadAnswer = { status: number; error: string; code?: IngestErrorCode; retryAfterMs?: number };
+```
+
+| Field | What it holds |
+|---|---|
+| `status` | The HTTP status: 400 to 599. |
+| `error` | The message of the JSON body, `{ "error": … }`. Safe to show: it never holds a path, a host or a provider's words. An `"unreadable"` file is told in fixed words, as `errorInfoOf` tells it (new in 0.9.0). What it does hold is the message of an error that has a `status` (one your hooks threw) and of an `IngestError` of another code: keep hosts out of those. |
+| `code` | For an `IngestError`: its code (`"too_large"`, `"busy"`…). |
+| `retryAfterMs` | How long to wait before trying again, for the `Retry-After` header: 5,000 for a store that failed, an `IngestError`'s own for `"busy"`, a model's for a rate limit. |
+
+To word an error in your users' language rather than with these messages, use
+[`errorInfoOf`](./errors-and-retries.md#errorinfooferror) from the main entry.
 
 Guide: [errors and reliability](../guides/errors-and-reliability.md), for the errors of a question
 itself; [web app](../guides/web-app.md), for what to show in the browser.
@@ -404,9 +854,18 @@ What happens to a file of one of its formats:
    as `"busy"`.
 2. Its bytes are copied to a child process, with its name, MIME type, format and the limits of
    `createLargeFiles` (`maxTextBytes`, `maxPdfPages`, `scannedPdfPages`). The child reads it with the
-   built-in extractor of its format, and sends its progress and then its text back.
+   built-in extractor of its format, and sends its progress and then its text back. A file ingested
+   from a path ([`IngestFromSource`](./library.md#ingestfromsource), new in 0.9.0) is sent as its
+   path instead, made absolute when `ingest` was called (the child's own working folder plays no
+   part): the extractors have `readsPath`, so the child reads the file itself, once, at most
+   `maxUploadBytes + 1` bytes (a larger one is refused as `"too_large"`), opened without following
+   a link at its name, and sends back its size and SHA-256 with the text. The server reads none of
+   the file, and holds none of it while it waits for a child. When the store keeps a copy of the
+   file (`keepOriginals` without `IngestInput.original`), the server reads it, and the bytes are
+   sent as before.
 3. The rest of the ingest runs in your server, as without it: the text is normalized, profiled,
-   indexed and stored. A file costs its bytes copied to the child and its text copied back.
+   indexed and stored. A file costs its bytes copied to the child (none from a path) and its text
+   copied back.
 4. A child reads one file at a time. It is replaced by a new one after `maxFilesPerChild` files,
    since some parsers keep memory for the life of their process (`@cantoo/pdf-lib` keeps every name
    it reads), and stopped after `idleMs` with nothing to read. An idle child does not keep your
@@ -428,6 +887,10 @@ numbers in its message:
 | `"busy"` | `The server is shutting down. Try again in a moment.` | `close()` was called while the file waited or was read, or before it was sent. |
 | `"unreadable"` | `report.pdf could not be read: its reader stopped (SIGSEGV).`, or `(exit code 1)` | The child ended another way. |
 | `"unreadable"` | `report.pdf could not be read: its reader could not be reached.` | The file could not be sent to the child. |
+
+The upload handler answers a file of code `"unreadable"` with fixed words, not these messages
+(new in 0.9.0): "This file could not be read. It may be damaged, or not of the type its name says."
+The messages stay on the error, for your log.
 
 A child that stops before it is ready to read, so before it was sent the file, is the server's
 trouble, not the file's: a `childScript` that is not there, an `execArgv` that Node does not know.
@@ -454,7 +917,7 @@ server, and the code of its words: a zip bomb or a PDF that would hold the serve
 PDF without text `"no_text"`, and so on ([`IngestError`](./library.md#ingesterror)).
 
 **The heap limit.** Each child runs with `--max-old-space-size` set to `maxHeapMb`, and Node adds
-its young generation above it: with 512, a heap limit of 560 MB on Node 20 and 22, 704 MB on Node
+its young generation above it: with 512, a heap limit of 560 MB on Node 22, 704 MB on Node
 24 and 608 MB on Node 26 ([Deployment](../guides/deployment.md#memory-on-each-server)). The
 server's own `NODE_OPTIONS` are not passed to the children: a `--max-old-space-size` there would
 replace this one. The rest of its environment is. The limit bounds the heap only: what a parser
@@ -511,9 +974,58 @@ type IsolatedExtractors = {
 
 | Member | What it is |
 |---|---|
-| `extractors` | One extractor for each of `formats`, to pass to `createLargeFiles({ extractors })`. To add one of your own for another format: `{ ...isolated.extractors, text: myText }`. |
+| `extractors` | One extractor for each of `formats`, to pass to `createLargeFiles({ extractors })`. Each has `readsPath: true` (new in 0.9.0): a file ingested from a path is read by the child. A wrapper of one (as above) reads no paths unless it sets `readsPath` too and passes `ExtractInput` on as it is. To add one of your own for another format: `{ ...isolated.extractors, text: myText }`. |
 | `stats()` | The files being read (`running`), the files waiting (`queued`) and the child processes alive (`children`): for a health check or a metric. |
 | `close()` | Kills every child process, and refuses the files waiting, those being read and those sent while it runs as `"busy"` ("The server is shutting down. Try again in a moment."). Resolves once the children have exited, also when nothing else keeps your process open, so code after `await isolated.close()` runs. Files sent after that start new children. Call it when the server stops, next to the server's own `close()`: a SIGTERM listener replaces Node's own exit ([above](#createisolatedextractorsoptions)). |
+
+## Uploads your application keeps
+
+### fileOriginals(root)
+
+```ts
+declare function fileOriginals(root: string): OriginalsReader;
+```
+
+New in 0.9.0. Reads back the uploads your application keeps under the folder `root`, by their ref
+(`IngestInput.original.ref`), for `createLargeFiles({ originals })`
+([`OriginalsReader`](./library.md#originalsreader)). With it, a kept PDF is read from your upload,
+not from a second copy in the store.
+
+```ts
+import path from "node:path";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { fileOriginals } from "llm-large-files/node";
+
+const VOLUME = process.env.DOCUMENTS_DIR!;
+const files = createLargeFiles({
+  store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }),
+  keepOriginals: ["pdf"],
+  originals: fileOriginals(VOLUME),
+});
+
+// Your route saved the upload at <VOLUME>/user-42/chat-7/uploads/upload-3f9a.
+const ref = "user-42/chat-7/uploads/upload-3f9a";
+await files.ingest({ name: "report.pdf", source: { path: path.join(VOLUME, ref) }, original: { ref }, owner: "user-42", scope: ["user-42", "chat-7"], id: "upload-3f9a" });
+```
+
+- A ref is a path relative to `root`. One that leads out of it (an absolute path elsewhere, `..`
+  that climbs out), or that is empty, longer than 1,024 characters or holds a NUL, throws
+  `TypeError("The ref of an original must be a relative path to a file inside the folder of fileOriginals.")`.
+  The library passes it on as a `DocumentStoreError` with that `TypeError` as `cause`. The message
+  does not repeat the ref.
+- No link below `root` is followed, at any level: the real path of the file must be the path the
+  ref names, under the real path of `root`. A file reached through a link reads as missing
+  (`undefined`), as does one that is not there, or a folder. `root` itself may be a link. The file
+  is opened without following a link at its name, where the platform can (not on Windows), which
+  closes the moment between the check and the read for the file itself; a folder swapped for a
+  link in that moment is not seen.
+- A file is read once, and no more than one byte past the size it had at ingest
+  (`OriginalReadContext.bytes`): a file that has grown is not read whole, and the library finds it
+  changed.
+- It only reads. It never writes, moves or deletes a file: removing the uploads, with their chat or
+  on your own schedule, is yours to do.
+- Errors other than a file that is not there (`EACCES`, `EIO`) are thrown as they are, and the
+  library passes them on as a `DocumentStoreError`.
 
 ## Server-Sent Events
 
@@ -654,11 +1166,13 @@ It returns `{ event: <type>, id: <seq>, data }`. The `data` is the event itself,
 
 | Event | `data` |
 |---|---|
-| `run.finish` | `{ type, seq, runId, time, result }`, where `result` holds only `answered`, `text`, `finishReason`, `blockReason`, `steps`, `evidence`, `turns` and `usage`. Not `toolTurns`, `plan`, `budget` or `lastUsage`. |
-| `run.error` | `{ type, seq, runId, time, error, partial }`, where `error` is the event's [`EventError`](./events.md#errors-eventerror) and `partial` holds only `steps`, `evidence` and `usage` of the partial result. Without a partial result, `partial` is left out of the JSON. |
-| Any other event, ingest events included | The event as it is. |
+| `run.finish` | `{ type, seq, runId, time, result }`, where `result` holds only `answered`, `text`, `finishReason`, `blockReason`, `steps`, `evidence`, `turns`, `usage` and `missing`. Not `toolTurns`, `plan`, `budget` or `lastUsage`. |
+| `run.error` | `{ type, seq, runId, time, error, partial }`, where `error` is the event's [`EventError`](./events.md#errors-eventerror) and `partial` holds only `steps`, `evidence`, `usage` and `missing` of the partial result. Without a partial result, `partial` is left out of the JSON. |
+| Any other event, ingest events included | The event as it is: a notice's `documentIds` and `ingest.finish`'s `app` included. |
 
-A field that is `undefined`, such as `finishReason` or `blockReason`, is left out of the JSON.
+A field that is `undefined`, such as `finishReason`, `blockReason` or `missing`, is left out of the
+JSON. `missing` lists the documents a question answered without (`onMissingDocuments: "drop"`); it
+is sent since 0.9.0, as `AskResult.missing` is new in 0.9.0.
 
 `toolTurns` are left out even when the question ran with `eventResults: true`: keep them on the
 server, from the stream's `result` or from `partialResultOf(error)`

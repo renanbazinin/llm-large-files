@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Each action is pinned by the full SHA of the commit its release tag points to, with the tag in a
+# comment: a tag can be moved to other code, a commit cannot. To move to a new release, look up the
+# commit of its tag (an annotated tag points to a tag object: follow it to the commit):
+#   gh api repos/actions/checkout/git/ref/tags/v7.0.1 --jq .object
+# and use the same SHA in release.yml.
 jobs:
   test:
     # Windows too: the file store has rename handling for it. (The tests make a rename fail on
@@ -16,10 +21,16 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [20, 22, 24]
+        node: [22, 24, 26]
+        # The exact floor of engines, for the typecheck, the tests and the build (the package job
+        # checks require() of the package from CommonJS on it), and a 22.x with the windows-1252
+        # TextDecoder bug that decoderFor works around: "22" is the newest 22.x.
+        include:
+          - { os: ubuntu-latest, node: "22.12.0" }
+          - { os: ubuntu-latest, node: "22.13.0" }
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -32,23 +43,22 @@ jobs:
   unpdf-versions:
     # The tests above run with the unpdf that package-lock.json pins (1.4.0). Other versions in the
     # peer range behave otherwise on some versions of Node: unpdf 1.5.0 to 1.6.0 stopped the whole
-    # process at the first PDF on Node 20 and 22, and 1.9 and later cannot load pdf.js on Node 20.
-    # Each version must read PDFs where it can, and be refused with a message where it cannot.
+    # process at the first PDF on Node 22, which has no Promise.try. Each version must read PDFs
+    # where it can, and be refused with a message where it cannot.
     name: unpdf ${{ matrix.unpdf }} on Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { node: 20, unpdf: "1.7.0" } # the last version for Node 20
           - { node: 22, unpdf: "^1" }
           - { node: 24, unpdf: "^1" }
           - { node: 24, unpdf: "^2" } # unpdf 2 needs Node 24
-          - { node: 20, unpdf: "1.9", refused: true } # npm would pick 1.7.0 on Node 20 for "^1"
+          - { node: 26, unpdf: "^2" }
           - { node: 22, unpdf: "1.6.0", refused: true }
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -62,3 +72,60 @@ jobs:
         run: npx vitest run test/unpdf-versions.test.ts
         env:
           UNPDF_EXPECT: refused
+
+  package:
+    # The package as npm installs it, from the tarball: import and require() of every subpath, an
+    # ingest in a child process, a consumer compiled under NodeNext, Bundler and Node10, PDF and
+    # DOCX with the peers installed, publint and attw (scripts/check-tarball.mjs). The release
+    # workflow runs the same script on the tarball it publishes. On the exact floor of engines
+    # (22.12.0, the first Node 22 that loads an ES module with require() without a flag), the newest
+    # 22.x, and the newest major.
+    name: Package on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.12.0", 22, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      # No install scripts, as in the release workflow: nothing in the tree needs one.
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm pack
+      - run: node scripts/check-tarball.mjs llm-large-files-*.tgz
+
+  coverage:
+    # What the unit tests cover of src/ (npm run coverage). A failing test, or a total under its
+    # threshold (coverage.thresholds in vitest.config.ts), fails the job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: npm run coverage
+        id: coverage
+        run: npm run coverage
+      - name: Coverage in the summary of the job
+        # Runs whenever the job was not cancelled, also after npm run coverage failed: the totals are
+        # written even when a test fails or a total is under its threshold. With no coverage summary
+        # at all, coverage itself is broken (a config error, a vitest and coverage-v8 mismatch, a
+        # crash): the step fails too.
+        if: ${{ !cancelled() }}
+        run: |
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "::error::npm run coverage wrote no coverage/coverage-summary.json"
+            exit 1
+          fi
+          node -e '
+            const total = require("./coverage/coverage-summary.json").total;
+            console.log("| src/ | Covered | |\n|---|---|---|");
+            for (const name of ["lines", "statements", "functions", "branches"]) console.log(`| ${name} | ${total[name].pct}% | ${total[name].covered} of ${total[name].total} |`);
+            if (process.argv[1] !== "success") console.log("\nnpm run coverage failed: a test failed, or a total is under its threshold in vitest.config.ts (see that step). The figures count the tests that ran.");
+          ' "${{ steps.coverage.outcome }}" >> "$GITHUB_STEP_SUMMARY"

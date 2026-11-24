@@ -4,6 +4,7 @@
  * large file in memory. The line index comes from the store (`getIndex`), or is built from the
  * text the first time an older document without one is opened, and saved for next time.
  */
+import { holderOf } from "./cache.js";
 import type { Limiter } from "./limiter.js";
 import { pagesOfLines, pause, type DocumentSource, type ScanFeed, type TextChunk } from "./search.js";
 import { canSerialize, parseTextIndex, positionOf, serializeTextIndex, TextIndexBuilder, type TextIndex } from "./text-index.js";
@@ -17,8 +18,8 @@ export type ScanSettings = {
   chunkBytes: number;
   /** Bounds how many scans of whole documents run at once. */
   limiter: Limiter;
-  /** Told when the stored text of a document did not agree with its index. */
-  onBroken?: (id: string) => void;
+  /** Told, with the document's key (`RangedDocument.key`), when its stored text did not agree with its index. */
+  onBroken?: (key: string) => void;
   /**
    * Where decoded pieces of frequently searched documents are kept, within the cache's memory
    * limit, so that the next search of them reads and decodes nothing. A document whose decoded
@@ -37,8 +38,12 @@ export type PieceCache = {
   maxDocumentBytes: number;
 };
 
-/** The cache key of piece `at` of a document. All of them start with `${id}#`. */
-export const pieceKey = (id: string, at: number) => `${id}#${at}`;
+/**
+ * The cache key of piece `at` of the document of key `key` (its ID, or the library's key of the
+ * document in one scope). All of them start with `${key}#`, and the document's key is all before
+ * the last "#".
+ */
+export const pieceKey = (key: string, at: number) => `${key}#${at}`;
 
 /** Bytes read at a time to build an index from the text. */
 const BUILD_READ_BYTES = 4 * 1024 * 1024;
@@ -77,8 +82,11 @@ export class RangedDocument implements DocumentSource {
     readonly meta: DocumentMeta,
     readonly index: TextIndex,
     private readonly settings: ScanSettings,
+    /** What its pieces are kept under, and what `onBroken` is told: its ID unless given another. */
+    readonly key: string = meta.id,
   ) {
-    this.pieceVersion = `${meta.createdAt}|${index.textBytes}|${index.characters}|${settings.chunkBytes}`;
+    // Whose it is too: a piece of one owner's or scope's text is never served for another's.
+    this.pieceVersion = `${meta.createdAt}|${index.textBytes}|${index.characters}|${settings.chunkBytes}|${holderOf(meta)}`;
     // Decoded text is one byte a character when it is all ASCII, two otherwise; and its lowercased copy as much again.
     const decoded = index.characters * (index.textBytes === index.characters ? 1 : 2) * 2 + index.characterStarts.byteLength;
     this.keepPieces = settings.pieces !== undefined && decoded <= settings.pieces.maxDocumentBytes;
@@ -245,7 +253,7 @@ export class RangedDocument implements DocumentSource {
   /** Piece `at`, from memory when it is kept there. */
   private async piece(at: number): Promise<TextChunk> {
     const cache = this.keepPieces ? this.settings.pieces : undefined;
-    const kept = cache?.get(pieceKey(this.meta.id, at), this.pieceVersion);
+    const kept = cache?.get(pieceKey(this.key, at), this.pieceVersion);
     if (kept) return kept;
     const { firstLine, lastLine, start, end } = this.chunkRanges()[at]!;
     const text = await this.read(start, end);
@@ -272,7 +280,7 @@ export class RangedDocument implements DocumentSource {
       // The text and, once a search needs it, its lowercased copy.
       memoryBytes: text.length * (ascii ? 1 : 2) * 2 + starts.byteLength + 256,
     };
-    cache?.set(pieceKey(this.meta.id, at), this.pieceVersion, piece);
+    cache?.set(pieceKey(this.key, at), this.pieceVersion, piece);
     return piece;
   }
 
@@ -310,7 +318,7 @@ export class RangedDocument implements DocumentSource {
   private mismatch(): Error {
     if (!this.broken) {
       this.broken = true;
-      this.settings.onBroken?.(this.meta.id);
+      this.settings.onBroken?.(this.key);
     }
     return new Error(`The stored text of ${this.meta.name} did not match its index. Try the call again.`);
   }
@@ -339,26 +347,39 @@ export async function buildIndexFromStore(store: RangeStore, id: string, limiter
  * Opens a document to be read by range. Uses the saved index when there is one that fits the
  * document; otherwise builds it from the text and saves it (best effort: a store that cannot
  * write, or another server writing the same index, changes nothing). Undefined when the text is gone.
+ * `key` is what its pieces are kept under (see `RangedDocument.key`).
  */
 export async function openRangedDocument(
   store: RangeStore,
   meta: DocumentMeta,
   settings: ScanSettings,
-  options: { ignoreSavedIndex?: boolean } = {},
+  options: { ignoreSavedIndex?: boolean; key?: string } = {},
 ): Promise<RangedDocument | undefined> {
   let index: TextIndex | undefined;
   if (!options.ignoreSavedIndex && store.getIndex) {
     const saved = await store.getIndex(meta.id).catch(() => undefined);
     if (saved) index = parseTextIndex(saved, meta);
+    // A saved index that fits the metadata may still not fit the text: another document's text,
+    // written under the ID apart from its metadata and its index (two servers that ingest one ID at
+    // once). Its pieces are checked as they are read, but lines of the same lengths would pass. So
+    // the text must end where the index says: one byte is read across that end. Otherwise the index
+    // is built again from the text, and compared with the metadata below.
+    if (index && index.textBytes > 0) {
+      const tail = await store.readTextRange(meta.id, index.textBytes - 1, index.textBytes + 1).catch(() => undefined);
+      if (tail?.length !== 1) index = undefined;
+    }
   }
   if (!index) {
     index = await buildIndexFromStore(store, meta.id, settings.limiter);
     if (!index) return undefined;
-    // An index that disagrees with the metadata describes a text that is not what was ingested.
-    // It is used, since it is what the store holds, but not saved.
-    if (store.putIndex && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && (meta.textBytes === undefined || index.textBytes === meta.textBytes)) {
+    // An index of another number of lines or characters than the metadata describes a text that is
+    // not what was ingested: another document's, written under the ID apart from its metadata (two
+    // servers that ingest one ID at once). Missing, as a document read whole is (before 0.9.0 it was
+    // used, and not saved). Every version counted lines and characters as the index does.
+    if (index.lineCount !== meta.lines || index.characters !== meta.characters) return undefined;
+    if (store.putIndex && canSerialize(index) && (meta.textBytes === undefined || index.textBytes === meta.textBytes)) {
       await store.putIndex(meta.id, serializeTextIndex(index)).catch(() => undefined);
     }
   }
-  return new RangedDocument(store, meta, index, settings);
+  return new RangedDocument(store, meta, index, settings, options.key);
 }

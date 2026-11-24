@@ -1,7 +1,7 @@
 import { Agent, createServer, request as httpRequest, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { createLargeFiles, MemoryDocumentStore, type DocumentStore } from "llm-large-files";
+import { createLargeFiles, MemoryDocumentStore, type DocumentStore, type DocumentSummary } from "llm-large-files";
 import { createDocumentHandlers, type DocumentHandlerOptions } from "llm-large-files/node";
 
 let server: Server | undefined;
@@ -37,22 +37,29 @@ describe("createDocumentHandlers", () => {
       body: "2026-01-01 10:00:00 INFO a\n".repeat(10),
     });
     expect(response.status).toBe(201);
-    const summary = await response.json();
+    const summary = (await response.json()) as DocumentSummary;
     expect(summary).toMatchObject({ name: "יומן.log", format: "log", lines: 10 });
     expect(Object.keys(summary)).not.toContain("owner");
-    expect((await (await fetch(`${base}/${summary.id}`)).json()).name).toBe("יומן.log");
+    expect(((await (await fetch(`${base}/${summary.id}`)).json()) as DocumentSummary).name).toBe("יומן.log");
   });
 
   it("accepts the name as a query parameter", async () => {
     const base = await start();
     const response = await fetch(`${base}?name=notes.md`, { method: "POST", body: "# Notes" });
-    expect((await response.json()).format).toBe("markdown");
+    expect(((await response.json()) as DocumentSummary).format).toBe("markdown");
+  });
+
+  it("passes Content-Type to ingest, which keeps its type/subtype and reads a name with no extension by it", async () => {
+    const base = await start();
+    const response = await fetch(base, { method: "POST", headers: { "Content-Type": "text/csv; charset=utf-8", "X-File-Name": "data" }, body: "city,people\nHaifa,285000\n" });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ name: "data", format: "csv", mimeType: "text/csv" });
   });
 
   it("keeps each user's uploads private", async () => {
     const base = await start();
     const upload = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt", "X-User": "alice" }, body: "alice's notes" });
-    const { id } = await upload.json();
+    const { id } = (await upload.json()) as DocumentSummary;
     expect((await fetch(`${base}/${id}`, { headers: { "X-User": "bob" } })).status).toBe(404);
     expect(await (await fetch(`${base}/${id}`, { method: "DELETE", headers: { "X-User": "bob" } })).json()).toEqual({ deleted: false });
     expect((await fetch(`${base}/${id}`, { headers: { "X-User": "alice" } })).status).toBe(200);
@@ -63,13 +70,13 @@ describe("createDocumentHandlers", () => {
     const base = await start(1_000);
     const unnamed = await fetch(base, { method: "POST", body: "x" });
     expect(unnamed.status).toBe(400);
-    expect((await unnamed.json()).error).toMatch(/X-File-Name/);
+    expect(((await unnamed.json()) as { error: string }).error).toMatch(/X-File-Name/);
     const binary = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.bin" }, body: new Uint8Array(500) });
     expect(binary.status).toBe(422);
-    expect((await binary.json()).error).toMatch(/binary/);
+    expect(((await binary.json()) as { error: string }).error).toMatch(/binary/);
     const big = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "x".repeat(5_000) });
     expect(big.status).toBe(413);
-    expect((await big.json()).error).toBe("The file is larger than the 1000 B upload limit.");
+    expect(((await big.json()) as { error: string }).error).toBe("The file is larger than the 1000 B upload limit.");
   });
 
   // LLF-033: the rest of a body over the limit is drained after the 413, up to 8 MB, so that a
@@ -160,7 +167,7 @@ describe("createDocumentHandlers", () => {
     expect((await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt", "X-User": "alice" }, body: "notes" })).status).toBe(201);
   });
 
-  it("answers a store that fails with a 500 that gives the error code and no server path", async () => {
+  it("answers a store that fails with the error code and no server path", async () => {
     const failure = (code: string, call: string) => Object.assign(new Error(`${code}: failed, ${call} 'C:\\srv\\large-files\\doc_1.txt'`), { code, syscall: call });
     class FailingStore extends MemoryDocumentStore {
       override async put(): Promise<void> {
@@ -172,16 +179,21 @@ describe("createDocumentHandlers", () => {
     }
     const base = await start(1024 * 1024, { store: new FailingStore() });
     const upload = await fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "notes" });
-    expect(upload.status).toBe(500);
-    expect(await upload.json()).toEqual({ error: "Upload failed (ENOSPC)." });
+    // A store that could not write is a DocumentStoreError since 0.9.0, whose status is 503 (it was
+    // answered 500, "Upload failed (ENOSPC).").
+    expect(upload.status).toBe(503);
+    expect(await upload.json()).toEqual({ error: "The document could not be stored (ENOSPC). Try again." });
+    // A store that could not be read is a DocumentStoreError, whose status is 503 since 0.9.0 (it
+    // was answered 500, "The file could not be looked up (EIO).").
     const lookup = await fetch(`${base}/${UNKNOWN_ID}`);
-    expect(lookup.status).toBe(500);
-    expect(await lookup.json()).toEqual({ error: "The file could not be looked up (EIO)." });
+    expect(lookup.status).toBe(503);
+    expect(await lookup.json()).toEqual({ error: "The document store could not be read (EIO). Try again." });
     const removal = await fetch(`${base}/${UNKNOWN_ID}`, { method: "DELETE" });
-    expect(await removal.json()).toEqual({ error: "The file could not be deleted (EIO)." });
+    expect(removal.status).toBe(503);
+    expect(await removal.json()).toEqual({ error: "The document store could not be read (EIO). Try again." });
   });
 
-  it("answers a custom store's own error with a 500 that does not repeat its message", async () => {
+  it("answers a custom store's own error with a 503 that does not repeat its message", async () => {
     let failing: Error | string | undefined;
     class CustomStore extends MemoryDocumentStore {
       override async put(...args: Parameters<MemoryDocumentStore["put"]>): Promise<void> {
@@ -192,17 +204,20 @@ describe("createDocumentHandlers", () => {
     const base = await start(1024 * 1024, { store: new CustomStore() });
     const upload = () => fetch(base, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "notes" });
     // A database driver's error, with no status and no system call: its message names the host.
+    // Since 0.9.0 every error of a store's write is a DocumentStoreError, answered 503 in its own
+    // words (it was a 500, "Upload failed.").
     for (const thrown of [new Error("connect ECONNREFUSED: topology was destroyed, mongo-prod-1.internal.example:27017"), "mongo-prod-1.internal.example refused"]) {
       failing = thrown;
       const failed = await upload();
-      expect(failed.status).toBe(500);
-      expect(await failed.json()).toEqual({ error: "Upload failed." });
+      expect(failed.status).toBe(503);
+      expect(await failed.json()).toEqual({ error: "The document could not be stored. Try again." });
     }
-    // An error the store gave a status, as http-errors does, is answered with that status and its message.
+    // So is an error the store gave a status of its own, as http-errors does (it was answered with
+    // that status and its message): the store's words are the cause, for the server's log.
     failing = Object.assign(new Error("The document database is down. Try again in a minute."), { status: 503 });
     const refused = await upload();
     expect(refused.status).toBe(503);
-    expect(await refused.json()).toEqual({ error: "The document database is down. Try again in a minute." });
+    expect(await refused.json()).toEqual({ error: "The document could not be stored. Try again." });
     // A file that cannot be read is still the client's 422, with the reason.
     failing = undefined;
     const empty = await fetch(base, { method: "POST", headers: { "X-File-Name": "blank.txt" }, body: "   \n\n" });
@@ -210,7 +225,7 @@ describe("createDocumentHandlers", () => {
     expect(await empty.json()).toEqual({ error: "blank.txt did not contain any text." });
   });
 
-  // On Node 20 and 22 the client's fetch keeps the aborted connection about 4 s.
+  // On Node 22 the client's fetch keeps the aborted connection about 4 s.
   it("stops reading an upload when the client goes away", { timeout: 15_000 }, async () => {
     let started!: () => void;
     const reading = new Promise<void>((resolve) => (started = resolve));

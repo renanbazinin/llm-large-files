@@ -12,7 +12,8 @@ function singleByte(text: string, encoding: string): Uint8Array {
   let bytesOf = tables.get(encoding);
   if (!bytesOf) {
     const decoder = new TextDecoder(encoding);
-    // Node 20 reads windows-1252 as Latin-1 in a call that is not streamed, until one is.
+    // Some versions of Node (20, and 22 from 22.13) read windows-1252 as Latin-1 in a call that is
+    // not streamed, until one is: see decoderFor in src/encoding.ts.
     decoder.decode(new Uint8Array(0), { stream: true });
     bytesOf = new Map<string, number>();
     for (let byte = 0; byte < 256; byte++) bytesOf.set(decoder.decode(Uint8Array.of(byte)), byte);
@@ -329,7 +330,8 @@ describe("text files that are not UTF-8", () => {
     expect(encodingsThatFit(czech)).toEqual([]);
   });
 
-  it("reads a log with stray bytes or a binary body as UTF-8, and counts them", async () => {
+  // Under a second with one test file at a time, 2.7 s beside the other files on a busy machine.
+  it("reads a log with stray bytes or a binary body as UTF-8, and counts them", { timeout: 20_000 }, async () => {
     // About 1.5 MB: 15,000 lines of ASCII, with bytes that are not UTF-8 in a few of them.
     const log = (extra: (line: number) => number[] | undefined) => concat(Array.from({ length: 15_000 }, (_, line) => {
       const text = utf8(`2026-11-10T06:00:${String(line % 60).padStart(2, "0")}Z INFO [gateway] request ${line} served route=/api/items/${line % 500} status=200`);
@@ -409,7 +411,9 @@ describe("text files that are not UTF-8", () => {
     expect(await defaultExtractors.csv(sjis, input("clients.csv", "csv"))).toEqual({ text: japanese.join(""), encoding: "shift_jis" });
   });
 
-  it("decodes the rows of a file with lines in two encodings a few at a time, and pauses", () => {
+  // About 4 s with one test file at a time, 7 s beside the other files on a busy machine, and
+  // 22 to 26.5 s under coverage on a busy machine.
+  it("decodes the rows of a file with lines in two encodings a few at a time, and pauses", { timeout: 60_000 }, () => {
     const steps = (bytes: Uint8Array) => {
       const decoding = decodeNotUtf8(bytes);
       let count = 0;

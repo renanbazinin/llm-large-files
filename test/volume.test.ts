@@ -1,4 +1,5 @@
-import { mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import fsp, { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -143,8 +144,13 @@ describe("FileDocumentStore on a volume", () => {
     const tools = files.tools([small, large]);
     await tools.execute("read_document", { document_id: small.id, start_line: 5 });
     expect(calls).toEqual({ get: 1, readTextRange: 0 });
+    // Two reads by range: one byte across the end of the text, which must be where its saved index
+    // says (src/ranged.ts), and lines 5 to 6.
     await tools.execute("read_document", { document_id: large.id, start_line: 5, end_line: 6 });
-    expect(calls).toEqual({ get: 1, readTextRange: 1 });
+    expect(calls).toEqual({ get: 1, readTextRange: 2 });
+    // The document is kept open: a second read reads only its lines.
+    await tools.execute("read_document", { document_id: large.id, start_line: 7, end_line: 8 });
+    expect(calls).toEqual({ get: 1, readTextRange: 3 });
   });
 
   it("opens an older document that has no index, builds the index once, and saves it for the next server", async () => {
@@ -419,5 +425,94 @@ describe("sweep on a shared volume", () => {
     await Promise.all(Array.from({ length: 20 }, (_, i) => files.ingest({ name: `f${i}.log`, bytes: bytes(TEXTS.log!) })));
     expect((await readdir(directory)).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
     expect((await readdir(directory)).length).toBe(80);
+  });
+});
+
+describe("the modes of the files on the volume (0.9.0)", () => {
+  /** The permission bits of a file or folder. */
+  const mode = async (file: string) => (await stat(file)).mode & 0o777;
+
+  it.skipIf(process.platform === "win32")("writes files 0600 in folders 0700, even under a umask of 0002, or the modes it is given", async () => {
+    const previous = process.umask(0o002);
+    try {
+      const flat = path.join(await folder(), "documents");
+      await createLargeFiles({ store: new FileDocumentStore(flat), keepOriginals: ["log"] }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
+      expect(await mode(flat)).toBe(0o700);
+      expect(await readdir(flat)).toHaveLength(4);
+      for (const entry of await readdir(flat)) expect(await mode(path.join(flat, entry)), entry).toBe(0o600);
+
+      // The folders of a scope it makes, and its own folder in one the application made.
+      const scoped = await folder();
+      const made = new FileDocumentStore(scoped, { scopes: { depth: 2, createScopeFolders: true } });
+      await createLargeFiles({ store: made }).ingest({ name: "a.txt", bytes: bytes("alpha\n"), scope: ["u1", "s1"] });
+      for (const part of ["u1", "u1/s1", "u1/s1/.llm-large-files"]) expect(await mode(path.join(scoped, part)), part).toBe(0o700);
+      await mkdir(path.join(scoped, "u2", "s1"), { recursive: true, mode: 0o775 });
+      await createLargeFiles({ store: new FileDocumentStore(scoped, { scopes: { depth: 2 } }) }).ingest({ name: "a.txt", bytes: bytes("alpha\n"), scope: ["u2", "s1"] });
+      expect(await mode(path.join(scoped, "u2", "s1"))).toBe(0o775);
+      expect(await mode(path.join(scoped, "u2", "s1", ".llm-large-files"))).toBe(0o700);
+
+      // For pods of another user in one group (fsGroup), or a backup job.
+      const shared = path.join(await folder(), "documents");
+      const store = new FileDocumentStore(shared, { fileMode: 0o640, directoryMode: 0o750 });
+      await createLargeFiles({ store, keepOriginals: ["log"] }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
+      expect(await mode(shared)).toBe(0o750);
+      for (const entry of await readdir(shared)) expect(await mode(path.join(shared, entry)), entry).toBe(0o640);
+    } finally {
+      process.umask(previous);
+    }
+  });
+});
+
+describe("sweeping many documents at once (P6)", () => {
+  /** Counts the reads of the file system running at the same time, and the most at once. */
+  function countReads(): { most: number; calls: number } {
+    const table = fsp as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
+    const methods = ["readFile", "stat", "lstat", "readdir"];
+    const real = Object.fromEntries(methods.map((method) => [method, table[method]!]));
+    const counted = { most: 0, calls: 0 };
+    let running = 0;
+    for (const method of methods) {
+      table[method] = function (this: unknown, ...args: unknown[]) {
+        running++;
+        counted.calls++;
+        counted.most = Math.max(counted.most, running);
+        return real[method]!.apply(this, args).finally(() => running--);
+      };
+    }
+    syncBuiltinESMExports();
+    restoreReads = () => {
+      for (const method of methods) table[method] = real[method]!;
+      syncBuiltinESMExports();
+    };
+    return counted;
+  }
+  let restoreReads: (() => void) | undefined;
+  afterEach(() => {
+    restoreReads?.();
+    restoreReads = undefined;
+  });
+
+  it("reads the metadata of 5,000 documents sweepConcurrency at a time, 16 by default", { timeout: 60_000 }, async () => {
+    const directory = await folder();
+    const now = Date.parse("2026-06-01T00:00:00Z");
+    // Written straight to the folder: 5,000 documents, of which 2,000 have expired.
+    const ids = Array.from({ length: 5_000 }, (_, i) => `doc_${i.toString(16).padStart(32, "0")}`);
+    for (let at = 0; at < ids.length; at += 250) {
+      await Promise.all(ids.slice(at, at + 250).flatMap((id, i) => {
+        const expiresAt = new Date(now + ((at + i) % 5 < 2 ? -1_000 : 60_000)).toISOString();
+        return [writeFile(path.join(directory, `${id}.json`), JSON.stringify({ id, expiresAt })), writeFile(path.join(directory, `${id}.txt`), "x")];
+      }));
+    }
+    const reads = countReads();
+    expect(await new FileDocumentStore(directory, { now: () => new Date(now) }).sweep()).toBe(2_000);
+    expect(reads.most).toBe(16);
+    expect(reads.calls).toBe(5_001); // the listing, then each metadata file once
+    restoreReads!();
+    expect(await readdir(directory)).toHaveLength(6_000);
+
+    const fewer = countReads();
+    expect(await new FileDocumentStore(directory, { now: () => new Date(now + 120_000), sweepConcurrency: 4 }).sweep()).toBe(3_000);
+    expect(fewer.most).toBe(4);
+    expect(await readdir(directory)).toEqual([]);
   });
 });

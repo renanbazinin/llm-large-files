@@ -701,7 +701,7 @@ refusing a whole-file read that would pass a ceiling of the question before it s
 
 ### The steps
 
-1. **Plan.** `files.prepare(documentIds, base, { owner, viewPages, wholeDocumentAnalysis, budget })`.
+1. **Plan.** `files.prepare(documentIds, base, { owner, scope, viewPages, wholeDocumentAnalysis, budget })`.
    `base` is the size of the rest of the request, `{ tokens, bytes }`: the system prompt and the
    conversation, with a margin for what frames them (`askWithFiles` adds 2,000 tokens and 8,000
    bytes). The documents are fitted into what the budget leaves. Pass `wholeDocumentAnalysis: false`
@@ -709,7 +709,9 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    `analyze_whole_document`, and the cards do not offer a whole-file read. The result is a
    `PreparedContext`:
    - `missing`: IDs that were never uploaded, were deleted, have expired, or belong to another
-     owner. Stop and ask for them again. `askWithFiles` throws `DocumentsNotFoundError` here.
+     owner or scope. Stop and ask for them again. `askWithFiles` throws `DocumentsNotFoundError`
+     here, unless its `onMissingDocuments` says to answer without them (the plan you got is already
+     made without them) or brings them back (plan again).
    - `blocks`: for each document, its whole text or its card. Put them at the start of the first
      user turn, in the order of your IDs.
    - `instruction`: the guide to the tools, for the system prompt. Empty when there is nothing to
@@ -721,7 +723,7 @@ refusing a whole-file read that would pass a ceiling of the question before it s
 2. **No tools needed?** When `plan.searchable` and `viewable` are both empty, every document is in
    the prompt: send one request without tools.
 3. **Tools.** `files.tools(prepared.plan.searchable, options)` gives a `ToolSet`. The options that
-   matter here: `generate` (a `GenerateText`, which turns on `analyze_whole_document`; without it,
+   matter here: `access` (the owner and scope of step 1), `generate` (a `GenerateText`, which turns on `analyze_whole_document`; without it,
    plan with `wholeDocumentAnalysis: false` in step 1), `viewPages` (pass `prepared.viewable`, and
    only when your loop sends files to the model), `signal`, `onProgress` (progress of whole-file
    reads, for every call; per call, see [`ToolCallHooks`](#progress-of-each-call-toolcallhooks)),
@@ -730,12 +732,14 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    searches belong to it. The full list is in the
    [library reference](../reference/library.md#tooloptions).
 
-   Pass `tools()` only metadata that came back for this user: `prepared.plan.searchable` and
-   `prepared.viewable` from `prepare(ids, base, { owner })`, or `getMeta(id, { owner })`. The tool
-   set takes no owner option: the model can reach every document it is given, and each call
-   compares the owner stored with the document with the `owner` of the metadata it was handed.
-   Metadata built from IDs the client sent, without the stored owner, reads nothing of a document
-   that has one: each call answers `doc_… is no longer available on the server. …`.
+   Pass `access: { owner, scope }`, new in 0.9.0: each call then asks the store for the document
+   with that owner and scope, and checks the ones the store holds against them, whatever the
+   metadata handed in says. A document of another owner or scope reads nothing: each call answers
+   `doc_… is no longer available on the server. …`. Under `requireOwner` or `requireScope`, `tools()`
+   throws without it. Without `access`, as before 0.9.0, each call compares the owner and scope
+   stored with the document with those of the metadata it was handed, so pass `tools()` only
+   metadata that came back for this user: `prepared.plan.searchable` and `prepared.viewable` from
+   `prepare(ids, base, { owner, scope })`, or `getMeta(id, { owner, scope })`.
 4. **Offer** `tools.declarations` in your provider's form. Gemini takes them as
    `functionDeclarations` (`toGeminiTools`), the OpenAI-compatible adapter sends each as
    `{ type: "function", function: declaration }`, and the Claude adapter as
@@ -866,6 +870,8 @@ export async function ask(question: string, documentIds: string[], owner: string
   const needsTools = prepared.plan.searchable.length > 0 || prepared.viewable.length > 0;
   const readPart = createGeminiGenerateText({ url: endpoint.url, headers: endpoint.headers });
   const tools = files.tools(prepared.plan.searchable, {
+    // The store's owner of each document is checked against this one on every call.
+    access: { owner },
     // Part reads of analyze_whole_document, counted with the chat's requests.
     generate: (request) => readPart({ ...request, onUsage: (used) => usage.add(MODEL, used) }),
     viewPages: prepared.viewable,
@@ -962,6 +968,10 @@ into. Fill it from your own request, as the sample above does:
 - `maxRequests`: what your ceiling on requests has left, for a whole-file read. It only limits how
   many parts refused as too large are read again as two halves: a read that needs more parts than
   this still makes all of them, the merges of their notes and an answer.
+- `maxWaitMs` (new in 0.9.0): the most a look at pages waits for its turn, when that is less than
+  the library's `pageLookWaitMs`. `askWithFiles` gives 0 to the looks of a turn after one was told
+  the server is busy (`onPagesBusy`, below), so that a wait that ends busy comes once in a turn. Do
+  the same in your loop.
 
 The defaults, the floors and the errors a call answers with are in the
 [tools reference](../reference/tools.md#toolcalllimits).
@@ -981,7 +991,14 @@ listeners for one call as the fourth argument of `executeWithFiles`
   once when it ends. `usage` is what the part reader passed to `onUsage` for that request, so you
   can show or count the cost of each read.
 
-Only `analyze_whole_document` calls them; the other tools ignore them.
+Only `analyze_whole_document` calls them; the other tools ignore them. Two more, new in 0.9.0,
+are called by any tool:
+
+- `onDocumentGone(documentId)`: the document was deleted or expired after you planned the request.
+  The call's result tells the model so. Tell the user, or take it off the chat.
+- `onPagesBusy(documentId)`: a look at pages waited longer than `pageLookWaitMs` for its turn
+  (`maxConcurrentPageLooks` of the library) and was not run. The result tells the model the server
+  is busy.
 
 ```ts
 import type { ToolCall, ToolCallHooks, ToolCallLimits, ToolOutput, ToolSet } from "llm-large-files";

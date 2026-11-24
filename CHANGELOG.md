@@ -36,6 +36,541 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.9.0 — not released yet
+
+One server process for every user and chat. Every store call carries the scope and the owner of
+the call, `FileDocumentStore` keeps the files of each chat in a folder of its own, documents can
+take your application's IDs, and the uploads your application keeps are read where they are
+instead of copied into the store. The upload handlers can save each upload where you keep it,
+record it in your database and hold large uploads on disk; errors are typed, and `errorInfoOf`
+puts them in your users' words. The text sent to the model is the same as in 0.8.2 for ordinary
+chats, so conversations keep the provider's prompt cache at the upgrade.
+[Upgrading to 0.9](docs/upgrading-0.9.md) takes an application from 0.8.x step by step, with a
+worked example of a chatbot on a shared volume.
+
+### Upgrading: what you need to change
+
+Code written for 0.8.2 compiles with 0.9.0, except in these cases
+([Does my code compile?](docs/upgrading-0.9.md#does-my-code-compile)):
+
+- `NoticeCode` has three new members, `"documents_missing"`, `"document_gone"` and
+  `"page_looks_busy"`, and `IngestErrorCode` one, `"exists"`. An exhaustive `switch` over either,
+  or a `Record` keyed by either, needs them.
+- `EventError.code` is now `IngestErrorCode | DocumentScopeErrorCode`: the `run.error` or
+  `ingest.error` of a scope error carries `"scope_missing"`, `"scope_invalid"` or
+  `"scope_required"`. Code that indexes a `Record<IngestErrorCode, …>` with it, or passes it where
+  an `IngestErrorCode` is expected, must check it first. A `switch` over it with a `never` check
+  needs `"exists"` and the three scope codes.
+- `LargeFiles.ingest` takes `IngestInput | IngestFromSource`. Code that reads `input.bytes` of its
+  argument fails with TS18048 or TS2532: a `LargeFiles` of your own whose `ingest` parameter is
+  inferred (`{ ...files, ingest: (input) => … }`), the calls of a spy or mock of `files.ingest`
+  (`spy.mock.calls[0][0].bytes`), and a value typed `Parameters<LargeFiles["ingest"]>[0]`. Code
+  that passes `input` to a function that takes `IngestInput` fails with TS2345. Narrow it:
+  `if (input.bytes)`, or `"source" in input`. Annotating `(input: IngestInput)` compiles too, but
+  only suits a wrapper that is never given a path: `createDocumentHandlers` gives one with
+  `uploadSpool` or `prepareUpload`.
+- A store of your own, or a subclass of `FileDocumentStore` or `MemoryDocumentStore`, whose method
+  takes a parameter of its own after those of 0.8 (`get(id, options?)`, `sweep(now?, dryRun?)`,
+  `readTextRange(id, start, end, signal?)`) fails with TS2322 or TS2416. The new `context` takes
+  that place, and the library passes it there. Put your parameter after `context`.
+- A subclass of `DocumentStoreError` that declares its own `status`, or of
+  `DocumentsNotFoundError` that declares its own `status` or `code`: these are now `503`, and `404`
+  and `"documents_missing"`.
+- A subclass of `IngestError`, `DocumentStoreError`, `DocumentsNotFoundError` or
+  `ModelRequestError` whose own static `is` does not fit `(value: unknown) => value is …` (one
+  that returns `boolean`, say) fails with TS2417: each of them has a static `is` now. Make yours
+  return `value is` your class, or rename it.
+- `fromGeminiContents` passed as a callback (`histories.map(fromGeminiContents)`) fails with
+  TS2345: its new second parameter would get the index. Write
+  `histories.map((contents) => fromGeminiContents(contents))`.
+- Code that reads the `messages` of an `AskGeminiOptions` back and reads `text` of a turn fails with
+  TS2339, and code that passes them where `Array<ChatTurn | ToolTurn>` is expected with TS2345:
+  `messages` is now `ChatMessage[]`, as `askWithFiles` takes it, and a turn may have `parts` instead
+  of `text`. Type the history `Array<ChatTurn | ToolTurn>`, or check `"text" in turn`.
+
+The other changes to the public types add exports, options, fields and optional parameters. Each
+`DocumentStore` method takes a last, optional `context`: a store whose methods take only the
+arguments of 0.8 still implements the interface. The new exports are under **New**.
+
+Some behavior is different. Check each point against your app:
+
+- **Node.js 22.12 or later.** `engines.node` is `>=22.12` (was `>=20.19`): Node 22.0 to 22.11 cannot
+  `require()` the package from CommonJS, which the docs promise. CI runs Node 22, 24 and 26, on
+  Ubuntu and Windows, and 22.12.0 on Ubuntu, where it also checks `require()` of every subpath of
+  the packed tarball. npm only warns (`EBADENGINE`) unless `engine-strict` is set, so an app on
+  Node 20 still installs, untested. There, an `unpdf` that cannot load pdf.js now throws its own
+  error, not "The unpdf installed cannot read PDF files on Node 20".
+  **What to do:** run Node 22.12 or later, and `@types/node` 22 or later in TypeScript projects.
+- **The upload handler answers 422 only for an `IngestError` (S12).** A plain `Error` from a
+  `LargeFiles` of your own, without a `status` or a system `code`, is answered 500
+  `{ "error": "Upload failed." }`: it was 422 with its message, which could name a database host.
+  A file of code `"unreadable"` gets fixed words ("This file could not be read. It may be damaged,
+  or not of the type its name says."), not its parser's or extractor's message. A model's error
+  thrown by an ingest of yours gets the status and words of `errorInfoOf`, not the provider's. A
+  `DocumentScopeError` is a 404 "This chat no longer exists." for `"scope_missing"`, and a 500 for
+  the other codes. Only the handler's own 413s (its size check, and `IngestError` `"too_large"`)
+  get the upload-limit message. `Content-Type` is no longer URI-decoded (`X-File-Type` still is).
+  **What to do:** throw `new IngestError(code, message)` for a file you refuse, as the
+  `ingestInProcess` recipe of [Deployment](docs/guides/deployment.md#uploads-and-ingest) now does. A
+  route of your own answers the same way with `uploadAnswerOf`
+  ([node](docs/reference/node.md#how-errors-are-answered)).
+- **A store that fails is a `DocumentStoreError`, answered 503.** A failed write of `files.ingest`
+  throws one with `operation: "write"` (code `"ETIMEDOUT"` for a write that did not end within
+  `ingestTimeoutMs`), a failed `files.delete` one with `"delete"`, a failed `files.sweep` one with
+  `"sweep"`. Before, the store's own error came out as it was; it is now the `cause`. The upload
+  handler answers a failed write 503 with `Retry-After: 5` (it was a 500), and `get` and `remove`
+  answer a store that fails 503 with `Retry-After: 5` (it was a 500, such as "The file could not be
+  looked up (EIO)."). The `ingest.error` event of a failed write has `name: "DocumentStoreError"`
+  and `status: 503`.
+  **What to do:** code that catches its own store error class reads `error.cause`. Log
+  `error.cause`: the handlers log nothing
+  ([Store failures](docs/upgrading-0.9.md#store-failures-are-documentstoreerror)).
+- **`DocumentStoreError` has `status: 503`, and `DocumentsNotFoundError` has `status: 404` and
+  `code: "documents_missing"`.** Their `run.error` events carry the status too.
+  **What to do:** code that takes any error with a numeric `status` for a model's error checks
+  these first: `DocumentStoreError.is(error)`, `DocumentsNotFoundError.is(error)`, or
+  `errorInfoOf(error)`.
+- **Every store call carries a context.** The library passes `{ scope, owner }` as the last argument
+  of every `DocumentStore` method. A wrapper or a subclass that passes only the ID on
+  (`super.getMeta(id)`, `(id) => inner.getMeta(id)`) still compiles, but drops it. Over a store that
+  keeps scopes apart, such a call does not find the documents stored in a scope. Over a
+  `FileDocumentStore` with `scopes`, every call but `sweep` throws a `DocumentScopeError`
+  `"scope_required"`. With `unscoped: "root"`, the documents go to the root folder without an error,
+  outside the chat's folder, so removing that folder does not erase them. And a `sweep` that drops
+  it sweeps every scope: `files.sweep({ scope })` removes the expired documents of every chat. A
+  store that ignores the context still keeps scopes apart for the library, through `meta.scope`,
+  and then needs application IDs that are unique in the whole store.
+  **What to do:** pass the context on (`super.getMeta(id, context)`), and run `documentStoreChecks`
+  of `llm-large-files/testing` on your store
+  ([Stores of your own](docs/upgrading-0.9.md#stores-of-your-own)).
+- **A store that writes the text before the record.** The storage guide's example
+  `BlobDocumentStore` wrote the text, then inserted the record under a unique key. When two servers
+  ingest one application's ID at the same moment, the ingest that loses has then written its text
+  over the winner's. The library now reads the winner's document as missing when the two texts
+  differ in length or lines; otherwise it serves the loser's text.
+  **What to do:** insert the record first, hidden from `getMeta` until the text is written, as the
+  example now does ([Example: object storage and a database](docs/guides/storage.md#example-object-storage-and-a-database)).
+  Two ingests of one ID that overlap then both fail with a 503 instead of storing the wrong text.
+  With an ID of its own for each upload, as `attach()` and the worked example make, none of this
+  happens ([Write the record before the text](docs/upgrading-0.9.md#write-the-record-before-the-text)).
+- **New fields in what you store.** `ingest` writes `metaVersion: 1` and `sha256` into every
+  `DocumentMeta`, and `scope` and `original` when it is given them. Every `ToolTurn` that
+  `askWithFiles` returns has `version: 1`.
+  **What to do:** tests that compare a meta or a round whole expect these fields. A schema that
+  refuses fields it does not know (a MongoDB `$jsonSchema` with `additionalProperties: false`, a
+  Mongoose schema in strict mode that throws) must allow them, for the metadata a store of yours
+  keeps and for the rounds you keep with each question: otherwise every ingest fails with a 503.
+  Change it before the first server of 0.9.0 starts
+  ([Allow the new fields](docs/upgrading-0.9.md#allow-the-new-fields)).
+- **Data written by a newer version is refused, not taken for missing.** Metadata with
+  `metaVersion` above 1 makes `getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles` and the
+  tools throw a `DocumentStoreError` of code `"NEWER_VERSION"`, so that your app does not ingest
+  the file again over newer data. A stored `ToolTurn` with `version` above 1 makes `askWithFiles`
+  throw a `TypeError`, before any request. Servers of 0.8 ignore both fields.
+  **What to do:** nothing now. While servers of 0.9 and a later version share a store, let such a
+  call be tried again on a newer server; catch the `TypeError` to ask again without the old rounds.
+- **Servers of 0.8 and 0.9 on one store.** In the flat layout of `FileDocumentStore`, servers of 0.8
+  read what 0.9.0 writes under the library's IDs, and ignore the new fields; 0.9.0 reads what 0.8
+  wrote. Servers of 0.8 do not see documents under an application's ID, nor the folders of a store
+  with `scopes`, nor an original kept by reference, and they do not check `meta.scope`.
+  **What to do:** upgrade first with your settings as they are. Turn on `scopes`, application IDs,
+  originals by reference, `requireOwner` and `requireScope` in a later deploy: on every server at
+  once, or with each chat kept on servers of one setting. Run the sweep from a server of 0.9.0
+  ([Several servers and rolling deploys](docs/upgrading-0.9.md#several-servers-and-rolling-deploys)).
+- **`requireOwner` and `requireScope`** (new, off by default) make `createDocumentHandlers` throw a
+  `TypeError` without `getOwner`, or without `getScope`. Under `requireOwner`, an owner of
+  `undefined` or `null` is answered 401 `{ "error": "Sign in first." }` on every route, and `""` a
+  500 "(empty owner)". Documents stored without an owner or a scope then read as missing: those of
+  0.8, and those that 0.5.0 stored with the owner `""`.
+  **What to do:** give `getOwner` and `getScope`, and turn them on once no server writes documents
+  without them ([Moving the documents of 0.8](docs/upgrading-0.9.md#moving-the-documents-of-08)).
+- **`FileDocumentStore` writes files `0600` and folders `0700`.** Before, `0666` and `0777` minus the
+  umask: `0664` and `0775` under the usual `0002`. Servers, sidecars, and backup or sweep jobs that
+  run as other users of one group (a Kubernetes `fsGroup`) read "The document store could not be
+  read (EACCES)".
+  **What to do:** for those, set `fileMode: 0o640` and `directoryMode: 0o750` on every store. Files
+  written before keep their modes: `chmod` them once to narrow them.
+- **`FileDocumentStore` follows no link at a document's file name**, except on Windows, which
+  cannot refuse one. A document whose `.json` or `.txt` file is a link (left by a migration or a
+  deduplication, say) reads as missing on Linux and macOS, and a kept copy (`.bin`) that is a link
+  as not kept.
+  **What to do:** replace such links with the files they point to before you upgrade.
+- **`FileDocumentStore.delete` returns true once the metadata is gone.** A text, index or original
+  it cannot remove is left for `sweep`; it used to throw. Removals are tried again for about 2.6 s
+  on `EPERM`, `EACCES` and `EBUSY`, as renames are.
+  **What to do:** for erasure, keep a sweep running, or remove the scope's folder. Tests that mock
+  `fs.rm` to make a removal fail must mock `unlink`.
+- **MIME types are cleaned.** `meta.mimeType` is a lowercased type/subtype without parameters
+  (`"Text/CSV; charset=x"` is stored as `"text/csv"`). A value that is not a valid type/subtype of at
+  most 127 characters, or holds anything but printable ASCII, is stored as
+  `application/octet-stream`.
+  **What to do:** compare `meta.mimeType` with the clean form.
+- **Looks at pages take turns.** In a library, one `view_pages` look runs at a time
+  (`maxConcurrentPageLooks: 1`), and the others wait up to 30 s (`pageLookWaitMs`). Past that the
+  model is told the server is busy, and the question gets a `"page_looks_busy"` notice. A look
+  holds its turn while its PDF is read for at most `ingestTimeoutMs`.
+  **What to do:** nothing. On a server with heap to spare, raise `maxConcurrentPageLooks`;
+  `Infinity` runs every look at once, as in 0.8.2 ([PDFs](docs/guides/pdfs.md#view_pages)).
+- **`fromGeminiContents` turns the library's tool rounds back into stored rounds**, and so does
+  `askGemini` with `contents`. Pointers and stand-ins then apply, as with `toolTurns`. The first
+  request is the same, byte for byte, for rounds that `geminiToolTurns` wrote. Rounds that 0.5.0
+  converted hold `tool_turns_left` in their responses: they are now sent without it, so such a
+  conversation misses the prompt cache once.
+  **What to do:** nothing. `{ rounds: false }` gives the output of 0.8. With `askGemini`, pass it as
+  `messages`: `askGemini({ …, messages: fromGeminiContents(contents, { rounds: false }) })`.
+- **Tests of the tool loop.** A first request that stored rounds make too large is shortened before
+  it is sent: a test sees a `"results_shortened"` step and one request fewer, not a refused request
+  and `"room_made"`. A result that its stand-in would not make smaller (a short grouped search, a
+  small `aggregate_table` result) stays whole. An error of an adapter of yours with a `status` and
+  no `kind`, as `httpError` of `llm-large-files/testing` makes, gets a `kind` in its `EventError`
+  (`"server"` for a 503), and is retried by that kind: a 429 of code `"insufficient_quota"` is a
+  quota, and is not sent again. The loop goes by that kind too: an `httpError(413)`, a 429 "Request
+  too large … tokens per min" or a 400 of code `context_length_exceeded` is an overflow it mends.
+  Older results are shortened and the request is sent again (`"room_made"`), or a first request is
+  planned again (`"replanned"`), so a test that expected the question to fail at once sees one more
+  request. Thrown plain data with a status is "Something went wrong." in its event.
+  **What to do:** update the tests that compare these whole.
+- **`isDocumentId` accepts application IDs.** It tests `APP_DOCUMENT_ID_PATTERN`, which the
+  library's `doc_` IDs match too.
+  **What to do:** to tell the library's IDs from yours, test `DOCUMENT_ID_PATTERN`.
+- **If you give documents your own IDs** (`IngestInput.id`, new): they reach the model, in what it
+  is sent of each document and in its tool calls, so they must hold no personal data. A taken ID is
+  an `IngestError` `"exists"` (409), and so is a second ingest of one ID while the first is under way
+  in the library. In a folder that `FileDocumentStore` shares with your files, an ingest under the
+  ID `report` writes over your `report.txt`.
+  **What to do:** use random IDs, or IDs with a prefix per tenant
+  ([Application IDs](docs/guides/storage.md#application-ids)).
+- **If you keep the uploads yourself:** `keepOriginals` still copies each kept file into the store.
+  With `original: { ref }` and `originals` (`fileOriginals(root)` of `llm-large-files/node`), the
+  store keeps no copy, and `view_pages` reads your file, checked against the size and SHA-256 it had
+  at ingest. The library never writes, moves or deletes it. Documents ingested before keep their
+  copy. A server of 0.8 finds no copy of such a file: its `view_pages` answers that the original is
+  no longer on the server.
+  **What to do:** remove the file with its chat
+  ([The file your application keeps](docs/guides/storage.md#the-file-your-application-keeps)).
+- **The text sent to the model** is that of 0.8.2 for ordinary chats. Text is new only when its case
+  happens: the line for documents left out under `onMissingDocuments: "drop"`, the busy answer of
+  `view_pages`, and its answers for a file kept by reference that changed and for a PDF the store
+  did not return in time. A document ingested under your ID is named by that ID. A right-to-left
+  PDF table ingested from 0.9.0 on can read in another order (LLF-037, under **Fixed**); documents
+  ingested before keep their text.
+  **What to do:** nothing.
+
+### New: what you can add
+
+**Owners, scopes and IDs**
+
+- **Scopes:** `IngestInput.scope`, `AccessOptions.scope`, `AskOptions.scope` (also in `askStream`
+  and `askGemini`) and `files.sweep({ scope })`, with the types `DocumentScope` and
+  `DocumentContext`. A document with a scope serves only a caller of the same scope
+  ([Scopes](docs/guides/storage.md#scopes)).
+- **`requireOwner` and `requireScope`** in `createLargeFiles`, both off: a call without an owner, or
+  without a scope, throws a `TypeError`. `files.access` says which are on
+  ([Storage](docs/guides/storage.md#requiring-an-owner-and-a-scope)).
+- **Application IDs:** `IngestInput.id`, `ifExists` (`"fail"` by default, or `"replace"`) and
+  `APP_DOCUMENT_ID_PATTERN` ([Application IDs](docs/guides/storage.md#application-ids)).
+- **A folder per user and chat:** `FileDocumentStore`'s `scopes` option
+  (`{ depth, folder, createScopeFolders, unscoped }`) keeps each scope's files in
+  `<root>/<user>/<chat>/.llm-large-files/`, under one library for the process. Also its options
+  `fileMode`, `directoryMode` and `sweepConcurrency`, the types `FileDocumentStoreOptions` and
+  `FileDocumentScopes`, and `isSafeScopeSegment` and `hashedScopeSegment`
+  ([Files in a folder per user or per chat](docs/guides/storage.md#files-in-a-folder-per-user-or-per-chat)).
+- **`MemoryDocumentStore`** keeps each scope's documents apart.
+- **`ToolOptions.access`:** `files.tools()` checks the owner and scope the store holds, not those
+  of the metadata it is given ([Your own loop](docs/guides/own-adapter-and-loop.md#your-own-loop)).
+
+**Ingest**
+
+- **Ingest from a path:** `files.ingest({ name, source: { path } })` (`IngestFromSource`,
+  `IngestSource`). The file is looked at with `lstat` at the call, and read once at its turn, so
+  ingests that wait hold none of their files: 100 ingests of 2 MB waiting for their turn held 73 MB
+  as paths, against 282 to 286 MB with their bytes
+  ([IngestFromSource](docs/reference/library.md#ingestfromsource)).
+- **Originals by reference:** `IngestInput.original: { ref }`, `LargeFilesOptions.originals`
+  (`OriginalsReader`, `OriginalReadContext`), and `fileOriginals(root)` in `llm-large-files/node`.
+  `meta.original` records the ref, the size and the SHA-256
+  ([Storage](docs/guides/storage.md#the-file-your-application-keeps)).
+- **`DocumentMeta.sha256`:** the SHA-256 of each upload, to find the same file twice in a chat. The
+  library does not dedupe.
+- **`Extractor.readsPath`**, with `ExtractInput.path`, `ExtractInput.maxUploadBytes` and
+  `ExtractedText.file`: an extractor that reads the file itself. `createIsolatedExtractors` sets it
+  ([Extractor](docs/reference/library.md#extractor)).
+
+**Upload handlers** (`llm-large-files/node`)
+
+- **`getScope(request)`:** the scope of each upload, get and delete
+  ([node](docs/reference/node.md#what-getscope-returns)).
+- **`onUploaded` and `onRemoved`:** record an upload in your database before it is answered, and a
+  removal after it. `{ answer }` joins the 201 and `ingest.finish.app`. Types `UploadedContext`,
+  `UploadedResult` and `RemovedContext`
+  ([hooks](docs/reference/node.md#the-hooks-onuploaded-and-onremoved)).
+- **`prepareUpload(request, { name, owner, scope })`:** the upload's ID, and a path where its body
+  is saved as it arrives, kept by reference with `original`. Types `PrepareUploadInfo` and
+  `PreparedUpload`, and `uploadFileMode` (`0o600`)
+  ([Web app](docs/guides/web-app.md#save-each-upload-where-you-keep-it-prepareupload)).
+- **`uploadSpool`** (`true`, or `UploadSpoolOptions`; off by default) and `maxSpooledUploadBytes`
+  (ten times `maxUploadBytes`): bodies over 1 MiB, or without a `Content-Length`, wait for their
+  ingest on disk ([spooling](docs/reference/node.md#spooling-uploadspool)).
+- **`uploadAnswerOf(error)`** and `UploadAnswer`: how the handlers answer an error, for a route of
+  your own ([node](docs/reference/node.md#how-errors-are-answered)).
+
+**Questions**
+
+- **`onMissingDocuments`** in `askWithFiles`, `askStream` and `askGemini`: `"throw"` (the default),
+  `"drop"`, or a function that can ingest them again (`{ retry: true }`, `{ replace }`). Also
+  `AskResult.missing`, and the types `MissingDocumentsAction` and `MissingDocumentsContext`
+  ([missing documents](docs/reference/ask.md#missing-documents)).
+- **Notices** `"documents_missing"`, `"document_gone"` and `"page_looks_busy"`, and `documentIds`
+  on the `notice` event ([events](docs/reference/events.md#noticecode-and-noticedisplay)).
+- **`maxConcurrentPageLooks`** (1) and **`pageLookWaitMs`** (30,000) in `createLargeFiles`. For
+  loops of your own: `ToolCallLimits.maxWaitMs`, and `ToolCallHooks.onDocumentGone` and
+  `onPagesBusy` ([library](docs/reference/library.md#largefilesoptions)).
+- **`fromGeminiContents(contents, { rounds })`** and `FromGeminiContentsOptions`
+  ([gemini](docs/reference/gemini.md#fromgeminicontentscontents-options)).
+- **`AskGeminiOptions.messages` takes what `askWithFiles` takes (`ChatMessage[]`):** plain turns,
+  stored tool rounds, and turns with parts, such as `fromGeminiContents(contents, { rounds: false })`
+  gives. It was `Array<ChatTurn | ToolTurn>` ([gemini](docs/reference/gemini.md#askgeminioptions)).
+
+**Errors and versions**
+
+- **`errorInfoOf(error)`**, with `ErrorInfo` and `ErrorCategory`: one record for any error of the
+  library, or its `EventError`: a category, a code, the HTTP status, whether to retry and after how
+  long, and an English message that is safe to show. One `switch` maps it to your users' language
+  ([Errors and reliability](docs/guides/errors-and-reliability.md#your-users-words-errorinfoof)).
+- **`DocumentScopeError`** (`"scope_required"`, `"scope_invalid"`, `"scope_missing"`) and
+  `DocumentScopeErrorCode`. `DocumentStoreError` takes `{ operation, code }`, and has `operation`
+  (`DocumentStoreOperation`). `IngestErrorCode` `"exists"` (409).
+- **A static `is(value)`** on `DocumentStoreError`, `DocumentScopeError`, `DocumentsNotFoundError`,
+  `IngestError` and `ModelRequestError`, which works across two copies of the package
+  ([errors](docs/reference/errors-and-retries.md#telling-errors-apart-across-copies-of-the-package)).
+- **`DOCUMENT_META_VERSION`** and **`TOOL_TURN_VERSION`**, and the fields `DocumentMeta.metaVersion`
+  and `ToolTurn.version` ([library](docs/reference/library.md#document_meta_version)).
+
+**Testing**
+
+- **`llm-large-files/testing`:** `fakeModel` (with `says`, `calls` and `httpError`), `fakeFetch`
+  (with `sse`), the test documents `utf8` and `serviceLog`, and `documentStoreChecks`, the checks a
+  store of your own must pass. It needs no test framework
+  ([reference](docs/reference/testing.md), [guide](docs/guides/testing.md)).
+
+One library for a chat server, with a folder per user and chat:
+
+```ts
+import { createLargeFiles, FileDocumentStore, hashedScopeSegment } from "llm-large-files";
+import { createDocumentHandlers } from "llm-large-files/node";
+
+const VOLUME = "/mnt/documents";
+
+export const files = createLargeFiles({
+  store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }), // <user>/<chat>/.llm-large-files/
+  keepOriginals: ["pdf"],
+  requireOwner: true,
+  requireScope: true,
+});
+
+// The scope is [hashedScopeSegment(userId), chatId]: a user ID may hold capitals or an "@", which
+// cannot name a folder. Make the folder <VOLUME>/<user>/<chat> when you create the chat: the store
+// makes only .llm-large-files inside it (createScopeFolders is off).
+export const documents = createDocumentHandlers(files, {
+  getOwner: (request) => userIdOf(request),
+  getScope: (request) => [hashedScopeSegment(userIdOf(request)!), chatIdOf(request)],
+});
+// Ask with the same owner and scope: askGemini({ files, endpoint, owner: userId, scope: [hashedScopeSegment(userId), chatId], … }).
+```
+
+`userIdOf` is your sign-in, and `chatIdOf` one of the user's own chats, as an ID that passes
+`isSafeScopeSegment`. To save each upload where you keep it and read it there, add
+`prepareUpload` and `originals`, as the
+[worked example](docs/upgrading-0.9.md#a-worked-example-a-hebrew-chatbot-on-gemini-mongodb-and-a-shared-volume)
+does.
+
+### Changed: what works differently
+
+**Storage**
+
+- One ID in two scopes is two documents everywhere, in memory too. The cache, the decoded pieces
+  and the documents being opened are kept per scope, and a copy is checked against the owner the
+  store holds. A delete or a re-ingest of an ID forgets its copies in every scope.
+- An owner or a scope of `null` from a store (MongoDB writes left-out fields that way) counts as
+  absent. Metadata that a store returns for another ID than the one asked for reads as missing. So
+  does a text read whole whose length or number of lines is not what its metadata says, and a text
+  read by range whose index, built again, does not match its metadata: the index is built again
+  when none is saved, or when the text does not end where the saved one says. A store that writes
+  the text and the metadata apart can give one document's metadata with another's text, when two
+  servers ingest one ID at the same moment. Before, a text read whole was not checked, and an index
+  built again from a text that did not match its metadata was used. A text of the same length and
+  lines is not caught. Opening a document through its saved index reads one byte across the end of
+  its text: one `readTextRange` call more.
+- The reads of a document's text (`get`, `readTextRange`, `getIndex`, and `putIndex` when an index
+  is built again) carry the caller's scope and the document's owner. `getMeta`, `getOriginal` and
+  `delete` carry the caller's ([Writing a store of your own](docs/guides/storage.md#writing-a-store-of-your-own)).
+- After a tool call or `prepare` reads a document by range, and after `getOriginal` or `view_pages`
+  reads an original, the library calls `getMeta` once more. The read is missing unless the store
+  still describes the same document, of the same owner and scope. A kept original must also have
+  the document's size and, for documents of 0.9.0 and later, its SHA-256.
+- `MemoryDocumentStore.getOriginal` returns a copy of the bytes (S7).
+- `FileDocumentStore.sweep` reads 16 files at once (`sweepConcurrency`): 5,000 documents took about
+  1.1 s instead of 2.5 s on a local SSD. It counts only the documents whose metadata it removed
+  itself, and follows no link. In a folder shared with your files, it removes files of no document
+  only under the library's IDs, or temporary files.
+- `FileDocumentStore` follows no link at a file name: such a document counts as missing. Windows
+  cannot refuse such a link, so there it is followed.
+
+**Ingest**
+
+- Every ingest hashes its upload with SHA-256, in 1 MB slices between other work: a few
+  milliseconds of CPU for each MB. 100 ingests of 2 MB logs took the same time in all as without it.
+- `createIsolatedExtractors` reads a file ingested from a path in its child process, and the
+  server reads none of it, unless the store keeps a copy (`keepOriginals` with a store that has
+  `putOriginal`, and no `original`).
+- `keepOriginals`, the acceptance of a scanned PDF and the offer of `view_pages` count a file kept
+  by reference when the library has `originals`.
+
+**Upload handlers**
+
+- `maxPendingUploadBytes` counts only the bodies held in memory: a body written to a file (the
+  spool, or the path of `prepareUpload`) takes no room of it.
+- `uploadIdleTimeoutMs` (30 s) also bounds each disk call for a body written to a file: the check
+  of the folders of a ref, the opening, each write and the closing. A volume that stops answering
+  fails the upload with 500 `{ "error": "Upload failed (ETIMEDOUT)." }` and gives its room back. A
+  removal of such a file is waited for no longer than that, and then goes on alone. On a slow
+  network volume, raise `uploadIdleTimeoutMs`: a close can wait for the writes the system held back.
+- An upload whose `request.body` holds an object with fields (`express.json()` in front) gets its
+  400 before the check of room.
+- An ingest of your own that sends `ingest.finish` and then fails ends the event stream with
+  `ingest.error`.
+- The `ingest.error` of the handlers names a store that failed (`"DocumentStoreError"`), documents
+  that are gone (`"DocumentsNotFoundError"`) and a scope error (`"DocumentScopeError"`, with its
+  code), and carries the `kind` of a model's error, so `errorInfoOf` reads it as the error.
+- `sseMessageOf` sends `missing` in the result of `run.finish` and in the partial of `run.error`.
+
+**Questions**
+
+- Stored rounds that would make the first request larger than its room in tokens are shortened
+  before it is sent, for every model, Claude included. The request is what 0.8.2 sent after the
+  provider refused it, without the refused request.
+- A function part kept in Gemini's own form is sized by the JSON of its call or response, a thought
+  signature included in bytes, not as media. A chat whose history is in `contents` may plan a file
+  as a card one question earlier.
+- A result is not replaced by a stand-in as large as itself or larger.
+- A tool call that finds a document gone during the question gives a `"document_gone"` notice.
+- With `eventResults: true`, the full `DocumentMeta` in events also holds `scope`, `sha256` and
+  `original`, with its ref, as `AskResult.plan` does. Keep such events on your server.
+
+**Errors**
+
+- A model's `EventError` always has its `kind`. An error with a `status` of 0 or 400 to 599 and no
+  `kind` of its own gets the one `classifyModelError` gives its status, message and code. The
+  library's own errors with a status (`DocumentStoreError`, `DocumentsNotFoundError`, `IngestError`,
+  `DocumentScopeError`) get none.
+- `withRetry` sends such an error again by that kind: a 429 of code `"insufficient_quota"` (a quota)
+  or a 429 "Request too large … tokens per min" (an overflow) is not sent again. Before, both were
+  sent again by their status. The library's own adapters do not change.
+- The loop acts on that kind too. For such an error of kind `"context_overflow"` (an
+  `httpError(413)`, a 429 for the tokens a minute, a 400 of code `context_length_exceeded`), it makes
+  the request smaller, plans the documents again, or reads a part of a whole-file read as two
+  halves, with the numbers its message gives, as for a `ModelRequestError` of that kind. Before, the
+  question failed. The message of an error that is not an `Error` (an SDK's own class) gives its
+  kind too, in its event as in the loop and `errorInfoOf`.
+- The `EventError` message of thrown plain data with a status, or of a status that is not a model's,
+  is "Something went wrong.".
+- An extractor's own subclass of `IngestError` is named `"IngestError"` in its `EventError`, and a
+  store's subclass of `DocumentStoreError` `"DocumentStoreError"`, so `errorInfoOf` reads their
+  events.
+
+**Release**
+
+- Each release publishes the tarball CI checked, byte for byte. A job without npm's identity token
+  builds, tests and packs it, then checks it as npm installs it: with and without the optional
+  dependencies, `import` and `require()` of every subpath, an ingest in a child process of
+  `createIsolatedExtractors`, a consumer compiled under NodeNext, Bundler and Node10 with
+  `skipLibCheck: false`, publint and arethetypeswrong. A second job, the only one with the token,
+  stages that file with `npm stage publish` and provenance
+  ([Publishing](docs/publishing.md#what-the-release-workflow-does)).
+- The package is type-checked without the DOM library (`lib: ["ES2023"]`), as a server app compiles:
+  its declarations need only `@types/node`.
+
+### Fixed
+
+**Access and storage**
+
+- **S3:** `files.tools()` given metadata read straight from the store (`await store.getMeta(id)`)
+  could read another user's document. With `access` it cannot, and `askWithFiles` always passes it.
+- **S12:** a `LargeFiles` of your own whose `ingest` threw a database driver's error sent that
+  error's host to the browser, in a 422. An error that your store gave its own `status` reached the
+  client with its message too; it is now the `cause` of a `DocumentStoreError`.
+- **A Node system error whose `code` is not a code** (a driver may put "db-prod.internal:27017"
+  there) gave that host in the upload answer, in its `ingest.error` and `run.error`, and in a tool
+  result sent to the model. A code is now told only when it reads as one: capitals, digits and `_`.
+- **S11:** an upload's MIME type with CRLF, U+202E, tag characters or 8 KB of text was stored as
+  given, and reached the metadata, the summaries, `ingest.finish` and logs. The handler also
+  URI-decoded a `Content-Type` such as `text/plain%0D%0A…` into a line break.
+- **S10:** `FileDocumentStore` files were readable by every user of the machine (`0664` under umask
+  `0002`).
+- **S8:** `FileDocumentStore.getMeta`, `get` and `getOriginal` threw when an expired document could
+  not be removed, on every try, for a document that was gone. They return undefined, and `sweep`
+  tries again.
+- **S9, LLF-027:** `files.delete` failed on Windows while another process held a file open for a
+  moment (`EBUSY`, `EPERM`), and threw when the metadata was gone but the text could not be removed.
+- **An ingest whose caller left during the store write** still stored the document, never cleaned
+  under `ttlMs: Infinity`. Once the writes end, what they stored is now removed, and `ingest` throws
+  `signal.reason`. With the upload handlers, a client that leaves before its ingest ends leaves
+  nothing stored, and `onUploaded` is not called.
+- **An owner of `null` from a store** read as missing in `getMeta`, and as open to all in the tools.
+- **LLF-055:** the docs said renames are tried again for about three seconds; the pauses add up to
+  2.63 s.
+- **LLF-022:** `examples/server.ts` listened on every interface, gave uploads no owner, so any
+  browser could read any upload by its ID, and kept chats by chat ID alone. It listens on 127.0.0.1
+  unless `HOST` is set, gives each browser a random `HttpOnly`, `SameSite=Strict` cookie as its
+  owner, runs with `requireOwner`, keeps chats by owner and chat, reads PDF and Office files with
+  `createIsolatedExtractors`, and says it is not for production as is. It also no longer crashes on
+  an unhandled rejection when the body of a chat request is cut off.
+
+**Questions**
+
+- A first request whose stored rounds were over the token limit was sent before anything was
+  shortened: one refused request per question on most models, and a failed question on Claude,
+  whose conversation may not be shortened.
+- Function parts in a `contents` history were sized as media: about 15,000 tokens short in a test
+  of two calls, so planning left too little room.
+- A stand-in could be larger than the result it replaced: 845 characters grew to 1,073, and 877 to
+  1,041.
+- Six looks at pages at once ran together: each about four times slower, and 352 MB more than one
+  look (P10).
+- A document that expired (`ttlMs`, 72 hours by default) failed the whole next question. With
+  `onMissingDocuments: "drop"`, the question is answered without it.
+- The docs gave `tool_turns_left` as the only reason why the first request of a follow-up misses
+  the prompt cache. Stored rounds also drop the model's thought signatures and thinking blocks: the
+  docs say so now, and the change in code waits for 0.10.0.
+
+**PDFs**
+
+- **LLF-037:** in a right-to-left PDF table (Hebrew, Arabic), a Latin name or number that pdf.js
+  gives as several items was written backwards: a city cell of "New" and "York" read "York New", a
+  model "AB" + "-12" read "-12AB", and "8,300" + ",000" read ",0008,300". Each run of words in a
+  cell now reads in its own direction, and the runs follow the direction of the table. A Hebrew
+  phrase in several items inside a left-to-right table, also reversed before, reads right too. A
+  number before its unit or currency ("16 GB", "1,000 USD") reads as before. Documents ingested
+  before keep their text: upload such a PDF again.
+
+**Uploads**
+
+- Without a `Content-Length`, an upload took `maxUploadBytes` of room until it was read, so two
+  filled the default `maxPendingUploadBytes`, and a third got a 503 while they arrived. With
+  `uploadSpool` they wait on disk, and three or more fit.
+- A client that left while `getOwner` ran, when a framework had already read the body
+  (`express.raw()` in front), was not noticed: its upload was ingested and stored for nobody. It now
+  stores nothing, as for a client that leaves later.
+
+**Docs**
+
+- [Deployment](docs/guides/deployment.md#memory-on-each-server) sized an ingest from figures
+  recorded before 0.6.0 (five to seven times the log above the upload), and gave 34 ms as its
+  longest stall, for a 99 MB log. Measured again on 0.9.0 with Node 22 on Linux, over a
+  `FileDocumentStore`, on a busy laptop: three and a half to five and a half times the log (135 MB
+  for 25 MB, 345 MB for 95 MB), and a longest stall of 56 to 64 ms for 25 MB and 0.23 to 0.36 s for
+  95 MB. The old figures stay in [Measurements](docs/measurements.md#the-server), marked as history.
+
 ## 0.8.2 — 2026-11-23
 
 Memory when many users upload at once. A review of how the library holds files found that every

@@ -1,5 +1,4 @@
-import { spawn } from "node:child_process";
-import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http";
+import { createServer, request as httpRequest, type Server } from "node:http";
 import { connect, type AddressInfo } from "node:net";
 import { mkdtemp, rm, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,20 +9,27 @@ import { afterEach, describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, DocumentsNotFoundError, FileDocumentStore, MemoryDocumentStore, type Extractor, type LargeFiles, type StoredDocument } from "llm-large-files";
 import { createDocumentHandlers } from "llm-large-files/node";
 import { fakeModel, says, utf8 } from "./fake-model.js";
+import { heldExtractor, until, uploadServer } from "./upload-server.js";
 
 setFlagsFromString("--expose-gc");
 const collectGarbage = runInNewContext("gc") as () => void;
 
 /**
- * The heap in use after full collections, once pending timers have run. Three, a turn of the loop
- * apart: on Node 20 one collection right after an ingest left 14 MB of its garbage for the next.
+ * The heap in use once full collections free nothing more: collected a turn of the loop apart,
+ * until ten in a row free less than 256 KB. An ingest's 14 MB of garbage outlived the first
+ * collection after it on Node 20, and the first three under coverage on Node 22. A meta that kept
+ * the text would keep the heap up until it is copied, however long this waits.
  */
 async function heapKept(): Promise<number> {
-  for (let round = 0; round < 3; round++) {
+  let used = Number.POSITIVE_INFINITY;
+  for (let round = 0, calm = 0; round < 60 && calm < 10; round++) {
     await new Promise((resolve) => setTimeout(resolve, 10));
     collectGarbage();
+    const now = process.memoryUsage().heapUsed;
+    calm = used - now < 256 * 1024 ? calm + 1 : 0;
+    used = now;
   }
-  return process.memoryUsage().heapUsed;
+  return used;
 }
 
 let directory: string | undefined;
@@ -40,38 +46,10 @@ async function folder(): Promise<string> {
   return directory;
 }
 
-/** Waits, a turn of the event loop at a time, until `ready` holds (at most about 5 s). */
-async function until(ready: () => boolean): Promise<void> {
-  for (let turn = 0; turn < 5_000 && !ready(); turn++) await new Promise((resolve) => setTimeout(resolve, 1));
-  expect(ready()).toBe(true);
-}
-
-/** A text extractor that holds each file until the test lets it go, and counts how many it holds at once. */
-function heldExtractor() {
-  const waiting: Array<() => void> = [];
-  const state = {
-    calls: 0,
-    running: 0,
-    most: 0,
-    names: [] as string[],
-    waiting,
-    releaseAll: () => waiting.splice(0).forEach((release) => release()),
-    releaseOne: () => waiting.shift()?.(),
-  };
-  const extract: Extractor = async (bytes, input) => {
-    state.calls++;
-    state.names.push(input.name);
-    state.running++;
-    state.most = Math.max(state.most, state.running);
-    await new Promise<void>((resolve) => waiting.push(resolve));
-    state.running--;
-    return { text: new TextDecoder().decode(bytes) };
-  };
-  return { state, extract };
-}
-
 describe("the meta that ingest returns (0.8.2)", () => {
-  it("does not keep the text in memory through the log's timestamps or the outline's headings", async () => {
+  // About 2 s with one test file at a time, 5.5 s beside the other files on a busy machine, and
+  // 16 s under coverage on a busy machine.
+  it("does not keep the text in memory through the log's timestamps or the outline's headings", { timeout: 60_000 }, async () => {
     const files = createLargeFiles({ store: new FileDocumentStore(await folder()) });
     // About 4 MB of a log in Hebrew: held, its text took about 8 MB of heap (two bytes a character).
     const log: string[] = [];
@@ -84,6 +62,10 @@ describe("the meta that ingest returns (0.8.2)", () => {
     for (const [name, text] of [["gateway.log", log.join("\n")], ["lease.md", markdown.join("\n")]] as const) {
       let meta = await files.ingest({ name, bytes: utf8(text) });
       expect(meta.format === "log" ? meta.logProfile?.firstTimestamp : meta.outline[0]?.title).toBeTruthy();
+      // Measured once for nothing first: under coverage on Node 24, 14 MB went only once this
+      // function had run again, whatever the meta was. A meta that kept the text is not caught on
+      // Node 24 anyway (its pieces do not hold the text there); the runs on Node 22 catch it (7 MB).
+      await heapKept();
       const holding = await heapKept();
       meta = JSON.parse(JSON.stringify(meta)) as typeof meta;
       const copied = await heapKept();
@@ -208,7 +190,9 @@ describe("maxConcurrentIngests (0.8.2)", () => {
     const third = await files.ingest({ name: "c.txt", bytes: utf8("c") });
     expect(third.name).toBe("c.txt");
     const errors = await Promise.all(hung);
-    expect((errors[0] as Error).message).toBe("The store did not finish writing a.txt within 300 ms.");
+    // A DocumentStoreError since 0.9.0, with the code ETIMEDOUT; what happened is its cause.
+    expect(errors[0]).toMatchObject({ name: "DocumentStoreError", operation: "write", code: "ETIMEDOUT", status: 503, message: "The document could not be stored (ETIMEDOUT). Try again." });
+    expect(((errors[0] as Error).cause as Error).message).toBe("The store did not finish writing a.txt within 300 ms.");
   }, 15_000);
 
   it("removes a document whose write ended after the ingest failed for it", async () => {
@@ -226,7 +210,7 @@ describe("maxConcurrentIngests (0.8.2)", () => {
       id = document.meta.id;
       return spy(document);
     };
-    await expect(files.ingest({ name: "a.txt", bytes: utf8("a") })).rejects.toThrow("The store did not finish writing a.txt within 150 ms.");
+    await expect(files.ingest({ name: "a.txt", bytes: utf8("a") })).rejects.toMatchObject({ code: "ETIMEDOUT", cause: new Error("The store did not finish writing a.txt within 150 ms.") });
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(id).toMatch(/^doc_/);
     expect(await store.getMeta(id!)).toBeUndefined();
@@ -245,21 +229,8 @@ describe("maxConcurrentIngests (0.8.2)", () => {
 });
 
 describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
-  async function start(handlerOptions: Parameters<typeof createDocumentHandlers>[1], maxUploadBytes = 4_000, store = new MemoryDocumentStore()) {
-    const held = heldExtractor();
-    const files = createLargeFiles({ store, extractors: { text: held.extract }, maxUploadBytes, maxConcurrentIngests: 10 });
-    const documents = createDocumentHandlers(files, handlerOptions);
-    server = createServer((request, response) => {
-      // As express.raw() leaves it: the body already read, in request.body.
-      const parsedSize = Number(request.headers["x-parsed-size"]);
-      if (parsedSize) (request as IncomingMessage & { body?: unknown }).body = Buffer.alloc(parsedSize, 120);
-      void documents.upload(request, response);
-    });
-    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
-    const url = `http://127.0.0.1:${(server!.address() as AddressInfo).port}/upload`;
-    const upload = (name: string, size: number) => fetch(url, { method: "POST", headers: { "X-File-Name": name }, body: "x".repeat(size) });
-    return { state: held.state, url, upload };
-  }
+  const start = (handlerOptions: Parameters<typeof createDocumentHandlers>[1], maxUploadBytes = 4_000, store = new MemoryDocumentStore()) =>
+    uploadServer(handlerOptions, maxUploadBytes, store, (made) => (server = made));
 
   it("answers 503 with Retry-After, before reading the body, an upload that would pass the limit", async () => {
     const { state, url, upload } = await start({ maxPendingUploadBytes: 1_000 });
@@ -412,37 +383,9 @@ describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
     const hung = [upload("a.txt", 1_000), upload("b.txt", 1_000)];
     await until(() => store.hung === 2);
     expect((await upload("c.txt", 1)).status).toBe(503);
-    // After the time limit they fail with the server's 500, and the room is back.
-    expect((await Promise.all(hung)).map((response) => response.status)).toEqual([500, 500]);
+    // After the time limit they fail with the store's 503 (a 500 before 0.9.0), and the room is back.
+    expect((await Promise.all(hung)).map((response) => response.status)).toEqual([503, 503]);
     expect((await upload("d.txt", 1)).status).toBe(201);
-  }, 15_000);
-
-  it("does not answer 408 a body that arrived while the server's thread was held", async () => {
-    const { state, url } = await start({ uploadIdleTimeoutMs: 200 });
-    const { port } = new URL(url);
-    // A client in a process of its own sends 10 bytes every 20 ms, 400 in all.
-    const client = spawn(process.execPath, ["-e", `
-      const socket = require("node:net").connect(${port}, "127.0.0.1", () => {
-        socket.write("POST /upload HTTP/1.1\\r\\nHost: x\\r\\nX-File-Name: steady.txt\\r\\nContent-Length: 400\\r\\n\\r\\n");
-        let sent = 0;
-        const timer = setInterval(() => { socket.write("x".repeat(10)); if (++sent === 40) clearInterval(timer); }, 20);
-      });
-      let answer = "";
-      socket.on("data", (chunk) => { answer += chunk; if (answer.includes("\\r\\n\\r\\n")) { process.stdout.write(answer.split("\\r\\n")[0]); socket.destroy(); } });
-    `]);
-    let status = "";
-    client.stdout.on("data", (chunk: Buffer) => (status += chunk.toString()));
-    // 250 ms in, this thread is held for 500 ms, inside a turn of the loop where I/O is read.
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    await new Promise<void>((resolve) => setImmediate(() => {
-      const heldUntil = performance.now() + 500;
-      while (performance.now() < heldUntil) { /* held */ }
-      resolve();
-    }));
-    await until(() => state.running === 1);
-    state.releaseAll();
-    await new Promise<void>((resolve) => client.on("exit", () => resolve()));
-    expect(status).toMatch(/^HTTP\/1\.1 201 /);
   }, 15_000);
 
   it("checks the option", () => {

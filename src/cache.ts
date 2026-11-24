@@ -4,12 +4,22 @@ import type { DocumentMeta } from "./types.js";
 export type Sized = { readonly memoryBytes: number };
 
 /**
- * What identifies the contents of a document. A document ID is never reused, but a store can be
- * restored from a backup or written by another program: a cached copy is used only while the
- * store still describes the same text.
+ * Whose a document is: its owner and its scope, as one string. Part of every version of a document
+ * kept in memory, so that a copy of one owner's or scope's document is never served to another.
+ */
+export function holderOf(meta: DocumentMeta): string {
+  return JSON.stringify([meta.owner ?? null, meta.scope ?? null]);
+}
+
+/**
+ * What identifies the contents of a document. An application's ID (0.9.0) is reused: a document is
+ * deleted and another stored under its ID, by another owner or in another scope, possibly within
+ * the same millisecond and with a text of the same size. A store can also be restored from a backup
+ * or written by another program. So a cached copy is used only while the store still describes the
+ * same text, of the same owner and scope.
  */
 export function documentVersion(meta: DocumentMeta): string {
-  return `${meta.createdAt}|${meta.textBytes}|${meta.characters}|${meta.lines}`;
+  return `${meta.createdAt}|${meta.textBytes}|${meta.characters}|${meta.lines}|${holderOf(meta)}`;
 }
 
 /**
@@ -102,6 +112,11 @@ export class DocumentCache<T extends Sized> {
 
   /** Drops every entry whose key starts with `prefix`: all the pieces of one document. */
   deletePrefix(prefix: string): void {
-    for (const key of [...this.entries.keys()]) if (key.startsWith(prefix)) this.delete(key);
+    this.deleteWhere((key) => key.startsWith(prefix));
+  }
+
+  /** Drops every entry whose key passes `test`: one document in every scope, with its pieces. */
+  deleteWhere(test: (key: string) => boolean): void {
+    for (const key of [...this.entries.keys()]) if (test(key)) this.delete(key);
   }
 }

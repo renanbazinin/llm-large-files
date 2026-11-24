@@ -12,7 +12,7 @@ on every server that ingests files:
 
 ```bash
 npm install jszip              # DOCX, PPTX and XLSX
-npm install unpdf              # PDF text (on Node 20 and 22, name a version: see below)
+npm install unpdf              # PDF text (on Node 22, name a version: see below)
 npm install @cantoo/pdf-lib    # PDF picture marks, page check, and view_pages
 ```
 
@@ -20,12 +20,11 @@ They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.
 and `@cantoo/pdf-lib` ^2.11.1.
 
 Not every `unpdf` runs on every Node. unpdf 2 asks for Node 24, and on Node 24 and later
-`npm install unpdf` installs it. On Node 20 and 22, install a version that runs there:
+`npm install unpdf` installs it. On Node 22, install a version that runs there:
 
 | Node | `unpdf` to install | Refused at the first PDF ([What is refused](#what-is-refused)) |
 |---|---|---|
-| 20 | 1.4.0, or 1.6.1 to 1.8.1: `npm install unpdf@1.7.0`. 1.7.0 is the last that does not ask for Node 22. | 1.5.0 to 1.6.0, which would stop the whole process; 1.9 and later, 2.x included, which cannot load pdf.js on Node 20 |
-| 22 | 1.4.0, or 1.6.1 or a later 1.x: `npm install unpdf@1` | 1.5.0 to 1.6.0 |
+| 22 | 1.4.0, or 1.6.1 or a later 1.x: `npm install unpdf@1` | 1.5.0 to 1.6.0, which would stop the whole process |
 | 24 and later | Any version from 1.4.0, 2.x included: `npm install unpdf` | None |
 
 The 12 test PDFs of the package give the same text, pages, picture marks and page cuts with every
@@ -257,11 +256,19 @@ all, and an XLSX was refused as a ZIP archive.
 
 `files.ingest` throws an [`IngestError`](../reference/library.md#ingesterror) whose message is
 meant for the user, with a `code` for your application. `createDocumentHandlers` answers it with
-HTTP 422 and that message, except a file over `maxUploadBytes`, which the upload route refuses
-before reading it all: HTTP 413, `The file is larger than the 100 MB upload limit.`
-([node reference](../reference/node.md)). For a damaged file the message is the reader's own, from
-pdf.js or jszip, and not written for a user, with the code `"unreadable"`: an application that
-wants friendlier wording maps the codes itself.
+HTTP 422 and that message, with two exceptions:
+
+- A file over `maxUploadBytes`, which the upload route refuses before reading it all: HTTP 413,
+  `The file is larger than the 100 MB upload limit.` ([node reference](../reference/node.md)).
+- A file of code `"unreadable"`: a damaged file, whose message is the reader's own (from pdf.js or
+  jszip, and not written for a user), a DOCX or XLSX without its main part, and an error of an
+  extractor of your own that the library does not know. Since 0.9.0 the upload route,
+  `uploadAnswerOf` and `errorInfoOf` answer it in fixed words: `This file could not be read. It may
+  be damaged, or not of the type its name says.` The message below stays on the error, for your
+  log.
+
+An application that wants other wording maps the codes itself
+([`errorInfoOf`](./errors-and-reliability.md#your-users-words-errorinfoof)).
 
 | What | Message |
 |---|---|
@@ -293,16 +300,14 @@ wants friendlier wording maps the codes itself.
 | A file that takes longer than `ingestTimeoutMs` to read (2 minutes by default) | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` |
 | A PDF without text on any page | See [Scanned PDFs](#scanned-pdfs). |
 | A PDF that needs a password to open | `This PDF is protected by a password, so it cannot be read. Open it, print it to a new PDF without the password, and attach that.` Until 0.8.0, `No password given`, the message of pdf.js. |
-| A damaged PDF | The message of pdf.js, such as `Invalid PDF structure.` |
-| A damaged DOCX, PPTX or XLSX, or one that is not a ZIP | The message of jszip, such as `Can't find end of central directory : is this a zip file ? …` |
-| A DOCX without `word/document.xml` | `This DOCX does not contain word/document.xml.` |
+| A damaged PDF | The message of pdf.js, such as `Invalid PDF structure.` Code `"unreadable"`: the upload route answers in fixed words (above). |
+| A damaged DOCX, PPTX or XLSX, or one that is not a ZIP | The message of jszip, such as `Can't find end of central directory : is this a zip file ? …` Code `"unreadable"`: the upload route answers in fixed words. |
+| A DOCX without `word/document.xml` | `This DOCX does not contain word/document.xml.` Code `"unreadable"`: the upload route answers in fixed words. |
 | A PPTX without slides | `This PPTX does not contain any slides.` |
-| An XLSX without `xl/workbook.xml`, or without sheets | `This XLSX does not contain xl/workbook.xml.`, `This XLSX does not contain any sheets with cells.` |
+| An XLSX without `xl/workbook.xml`, or without sheets | `This XLSX does not contain xl/workbook.xml.` (code `"unreadable"`: the upload route answers in fixed words), `This XLSX does not contain any sheets with cells.` |
 | A DOCX, PPTX or XLSX without `jszip` installed | `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | A PDF without `unpdf` installed | `Reading PDF files needs the optional dependency "unpdf".` |
 | A PDF, with `unpdf` 1.5.0 to 1.6.0 on Node 22 or 23, which would stop the whole process at the first PDF (0.5.0 did stop) | `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
-| The same on Node 20 | `The unpdf installed would stop the whole server at the first PDF file on Node 20, so PDF files are not read. Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.` |
-| A PDF, with `unpdf` 1.9 or later (2.x included) on Node 20, which cannot load pdf.js there | `The unpdf installed cannot read PDF files on Node 20 (Serverless PDF.js bundle could not be resolved: ReferenceError: Iterator is not defined). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` The part in parentheses is unpdf's own message: with unpdf 2 it is `PDF.js could not be resolved: ReferenceError: Iterator is not defined`. |
 
 A missing dependency, or an `unpdf` that does not run on your Node, is your server's fault, but it
 reaches the user as a 422, a file that cannot be read. Install the dependencies wherever the upload
@@ -422,8 +427,9 @@ the rebuilt rows 110 ([measurements](../measurements.md)).
 What it handles: empty cells, tables inside one column of a two-column page, right-to-left tables
 (the first column is the rightmost), tables printed sideways, rotated pages, footnote marks,
 headings that span columns, and cells whose text wraps onto several lines when the rows are visibly
-spaced apart. Text that is not a table (paragraphs, lists, columns of prose, justified text) is left
-as pdf.js gives it.
+spaced apart. A cell that mixes the two directions (a Latin name in a Hebrew table, a Hebrew phrase
+in an English one) keeps each run of words in its reading order. Text that is not a table
+(paragraphs, lists, columns of prose, justified text) is left as pdf.js gives it.
 
 It is cautious: where the evidence for a table is weak, the text stays as it was. So:
 
@@ -467,8 +473,9 @@ close that gap:
 
 1. **A line in the text that says where the pictures are.** It needs `@cantoo/pdf-lib`.
 2. **A tool, `view_pages`, that hands the model the real pages** as a small PDF, when it asks. It
-   needs `@cantoo/pdf-lib` and the uploaded file itself, which the store keeps when you list
-   `"pdf"` in `keepOriginals`.
+   needs `@cantoo/pdf-lib` and the uploaded file itself, which is kept when you list `"pdf"` in
+   `keepOriginals`: by the store, or, since 0.9.0, where your application keeps it
+   ([below](#view_pages-from-your-own-uploads)).
 
 ```ts
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
@@ -491,6 +498,7 @@ The options of this page, and where each is explained:
 | Option | Default | What it does |
 |---|---|---|
 | `keepOriginals` (`createLargeFiles`) | `[]`: no file kept | List `"pdf"` to keep the uploaded file, which `view_pages` and scanned PDFs need ([above](#pictures-in-pdfs)). |
+| `originals` (`createLargeFiles`) | none | Reads the uploads your application keeps, so the store keeps no copy ([`view_pages` from your own uploads](#view_pages-from-your-own-uploads)). New in 0.9.0. |
 | `scannedPdfPages` (`createLargeFiles`) | 30 | The most pages a PDF without text may have to be accepted, when PDFs are kept. 0 refuses every one ([Scanned PDFs](#scanned-pdfs)). |
 | `maxPdfPages`, `maxTextBytes`, `ingestTimeoutMs` (`createLargeFiles`) | 5,000 pages; 100 MB, or `maxUploadBytes` when that is larger; 120,000 ms | The most pages, text and time one file may take at ingest ([What is refused](#what-is-refused)). |
 | `tables`, `pictures` (`createPdfExtractor`) | `true` | Rebuild tables; write the line that marks a page with a picture ([PDF tables](#pdf-tables), [The line that marks a page](#the-line-that-marks-a-page)). |
@@ -659,6 +667,81 @@ block:
 A look runs on the server that answers the question, not where the file was ingested
 ([Deployment](./deployment.md#pages-of-pdfs)).
 
+**Looks take their turns** (new in 0.9.0). Looks share the thread of your server, so more of them
+at once do not finish sooner: six at once each took about four times as long, and held 352 MB more
+than one. So one look runs at a time in a library, over all its questions, and the others wait in
+order, before their PDF is loaded:
+
+| Option (`createLargeFiles`) | Default | What it does |
+|---|---|---|
+| `maxConcurrentPageLooks` | 1 | How many looks run at once. `Infinity` for no limit, as before 0.9.0. |
+| `pageLookWaitMs` | 30,000 | How long a look waits for its turn. Past it, it is not run. |
+
+A look that waited too long tells the model "report.pdf: The pages cannot be looked at right now;
+the server is busy. Answer from the text, or look again later.", and the question gets a
+`page_looks_busy` notice ([events](../reference/events.md#noticecode-and-noticedisplay)). A
+question that is stopped stops waiting at once, and loads nothing. A question stopped while its
+PDF is read gives the turn back at once, and no pages are cut for it.
+
+A look holds its turn while it reads the PDF from the store, for at most `ingestTimeoutMs` (2
+minutes by default). Past it, the turn goes back, the next look runs, and the model reads "The
+original file of report.pdf could not be read in time, so its pages cannot be shown. Answer from
+the text." Give your store's `getOriginal` a time limit of its own: the read goes on.
+
+How long a question can wait for turns:
+
+- A look waits at most `pageLookWaitMs` (30 s) for its turn. A wait that ends with "busy" happens
+  at most once in a tool turn: after a look of the turn was told the server is busy, the other
+  looks of that turn do not wait. Each runs if a turn is free at that moment, and is told the
+  server is busy if not.
+- A look that gets its turn may still have waited for it up to `pageLookWaitMs`. So when other
+  questions hold the turn all that time, a tool turn can wait up to `pageLookWaitMs` for each of its
+  looks: 8 looks of 30 s, 4 minutes, with the defaults (`callsPerTurn` 8), and a question waits that
+  in each tool turn that looks at pages.
+- Lower `pageLookWaitMs`, or raise `maxConcurrentPageLooks`, for a chat that must answer sooner.
+
+### `view_pages` from your own uploads
+
+New in 0.9.0. When your application keeps each upload anyway, the store need not keep a second
+copy of the PDF. Give the ingest where the file is (`original: { ref }`), and the library a reader
+of your uploads (`originals`): `fileOriginals(root)` of `llm-large-files/node` reads them from a
+folder.
+
+```ts
+import path from "node:path";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { fileOriginals } from "llm-large-files/node";
+
+const VOLUME = process.env.DOCUMENTS_DIR!;
+
+export const files = createLargeFiles({
+  store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }),
+  keepOriginals: ["pdf"],
+  originals: fileOriginals(VOLUME),
+});
+
+/** Ingests a PDF your upload route saved under <VOLUME>/<user>/<chat>/uploads/. */
+export function ingestSaved(userId: string, chatId: string, uploadId: string, name: string) {
+  const ref = `${userId}/${chatId}/uploads/${uploadId}`;
+  return files.ingest({ name, source: { path: path.join(VOLUME, ref) }, original: { ref }, owner: userId, scope: [userId, chatId], id: uploadId });
+}
+```
+
+- The model sees nothing of this: the ref is never in the prompt, the cards or the results.
+- A look reads the file through the reader, within its turn and its time, as it reads a copy from
+  the store. The metadata records the size and SHA-256 the file had at ingest, and the look
+  compares them. A file that has changed since (saved again under the same name, cut short, edited)
+  is not cut, and the model reads "report.pdf changed on the server since it was read. Attach it
+  again to look at its pages.": its pages would not match the text the model has. A file that is
+  gone reads as "The original file of report.pdf is no longer on the server, so its pages cannot
+  be shown. Answer from the text."
+- `files.delete` and the sweep never touch your upload. Remove it with its chat.
+- A scanned PDF is accepted with a ref as with a copy in the store ([Scanned PDFs](#scanned-pdfs)),
+  even over a store without `putOriginal`.
+- [Storage](./storage.md#keeping-the-uploaded-files) has the rules for the ref and a reader of your
+  own, and [Security](../security.md#originals-your-application-keeps) what `fileOriginals`
+  refuses.
+
 ### Limits and cost
 
 | Limit | Value | When it is reached |
@@ -785,7 +868,8 @@ refuses text before a tool result.
 
 The model gets `view_pages` for a PDF only when all of these hold:
 
-- `keepOriginals` lists `"pdf"`, and the store has `putOriginal` and `getOriginal`.
+- `keepOriginals` lists `"pdf"`, and the store has `putOriginal` and `getOriginal`, or (0.9.0)
+  the document was ingested with `original` and the library has `originals`.
   `FileDocumentStore` and `MemoryDocumentStore` have both. Documents ingested before you turned it
   on have no file kept: upload them again. `meta.originalKept` says whether a document has one.
 - Every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput`, not
@@ -827,7 +911,8 @@ export const files = createLargeFiles({
 });
 ```
 
-`scannedPdfPages` has an effect only when PDFs are kept, by a store that can keep them. A PDF with
+`scannedPdfPages` has an effect only when PDFs are kept: by a store that can keep them, or (0.9.0)
+by their ref, for an ingest with `original` in a library with `originals`. A PDF with
 text on any page is always accepted, however many of its pages are scans: those pages say that they
 have no text, and with the file kept the model can look at them.
 
@@ -879,13 +964,21 @@ What the library does with what you return:
 - A `text` file whose lines look like a log becomes `log`.
 
 An error you throw is the answer to the upload. `ingest` throws it as an `IngestError` with the
-same message (and your error as `cause`), and `createDocumentHandlers` answers 422 with its
-message, unless the error has a `status` (or `statusCode`) from 400 to 599: then it answers that
-status, with your message. A status of 413 is answered with the upload-limit message instead of
-yours. An error with a Node system `code` and `syscall` (from `fs` or a socket) is answered 500,
-`Upload failed (ENOENT).`, without its message. A value that is not an `Error`, such as a thrown
-string, is answered 500 too: `Upload failed.` Write messages a user can read, and give a status
-when the fault is on your side, such as an OCR service that is down.
+same message (and your error as `cause`), with the code its message gives
+([`ingestErrorCodeOf`](../reference/library.md#ingesterrorcodeofmessage)). `createDocumentHandlers`
+answers 422 with your message only when the message gives a code the library knows ("is protected
+by a password", say). Any other message gives code `"unreadable"`, and since 0.9.0 the answer is
+then 422 in fixed words: `This file could not be read. It may be damaged, or not of the type its
+name says.` Your message stays on the error, for your log ([what is refused](#what-is-refused)). To
+have your own words shown, throw `new IngestError(code, message)` with the code that fits
+([`Extractor`](../reference/library.md#extractor)).
+
+An error with a `status` (or `statusCode`) from 400 to 599 is answered with that status and your
+message. A status of 413 is answered with the upload-limit message instead of yours. An error with
+a Node system `code` and `syscall` (from `fs` or a socket) is answered 500, `Upload failed
+(ENOENT).`, without its message. A value that is not an `Error`, such as a thrown string, is
+answered 500 too: `Upload failed.` Write messages a user can read, and give a status when the fault
+is on your side, such as an OCR service that is down.
 
 ### Rules for a PDF extractor
 
@@ -900,7 +993,8 @@ built-in one does:
    `@cantoo/pdf-lib` counts another number, since a page number could then point at the wrong page.
    Without `pages`, that check is not made, and the card and the instruction give no page count.
 3. **Honour `input.scannedPages`.** The library sets it on every PDF it ingests when PDFs are kept
-   (`keepOriginals` lists `"pdf"` and the store has `putOriginal`) and `scannedPdfPages` is above 0.
+   (`keepOriginals` lists `"pdf"`, and the store has `putOriginal` or the ingest gives `original`
+   to a library with `originals`) and `scannedPdfPages` is above 0.
    It does not say that the file has no text: its value is `scannedPdfPages`, the most pages a PDF
    without any text may have. Unset, refuse a PDF in which you found no text. The library does not check
    this for you: page lines alone are text, so a scan your extractor lets through is stored even

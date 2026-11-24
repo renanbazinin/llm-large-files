@@ -77,7 +77,7 @@ describe("FileDocumentStore when a rename is refused for a moment (Windows)", ()
     expect(await tools.execute("read_document", { document_id: meta.id, start_line: 50, end_line: 50 })).toMatchObject({ text: expect.stringContaining("request 49 took 49ms") });
   });
 
-  it("gives up after about three seconds of tries, and leaves no file behind", { timeout: 30_000 }, async () => {
+  it("gives up after about 2.6 seconds of tries, and leaves no file behind", { timeout: 30_000 }, async () => {
     const dir = await folder();
     const files = createLargeFiles({ store: new FileDocumentStore(dir) });
     const targets = failRename(Number.POSITIVE_INFINITY, "EBUSY");

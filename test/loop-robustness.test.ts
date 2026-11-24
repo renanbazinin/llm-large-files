@@ -6,6 +6,7 @@ import {
   askWithFiles,
   classifyModelError,
   createLargeFiles,
+  errorInfoOf,
   errorKindOf,
   FINAL_ANSWER_WITHOUT_TOOLS,
   MemoryDocumentStore,
@@ -138,6 +139,24 @@ describe("sending again", () => {
       return "ok";
     }, { retry: quick() });
     expect({ result, runs }).toEqual({ result: "ok", runs: 3 });
+  });
+
+  // An adapter's error without a kind of its own was sent again by its status alone, while its
+  // events and errorInfoOf called it a quota (or a request too large), not to be retried.
+  it("reads the kind of an error without one from its status and code, as its events do", async () => {
+    const sentAgain = async (error: unknown) => {
+      let runs = 0;
+      await withRetry(async () => {
+        runs++;
+        throw error;
+      }, { retry: quick() }).catch(() => undefined);
+      return runs;
+    };
+    expect(await sentAgain(Object.assign(httpError(429, "Too many."), { code: "insufficient_quota" }))).toBe(1);
+    expect(await sentAgain(httpError(429, "Request too large for gpt-4o on tokens per min (TPM): Limit 30000, Requested 45237."))).toBe(1);
+    expect(await sentAgain(httpError(429, "Too many."))).toBe(4);
+    // Thrown plain data is not an adapter's error: it has no kind, and is sent again by its status.
+    expect(await sentAgain({ status: 429, code: "insufficient_quota", message: "Too many." })).toBe(4);
   });
 });
 
@@ -284,6 +303,93 @@ describe("a request larger than the model takes", () => {
     expect(result.budget.contextTokens).toBe(8_192);
   });
 
+  it("mends an overflow of an adapter of your own, an error with a status and no kind, as its events tell it", async () => {
+    // httpError(413), a 429 for the tokens a minute allows, and a 400 of code context_length_exceeded
+    // are of kind "context_overflow" in their events and errorInfoOf: the loop makes room for them too.
+    const tpm = "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.";
+    const refusals: Array<[string, () => Error, string]> = [
+      ["413", () => httpError(413), "The request was larger than the model takes: older tool results were shortened, and it was sent again"],
+      ["429 TPM", () => httpError(429, tpm), "The request was larger than the provider allows in a minute: older tool results were shortened, and it was sent again"],
+      ["400 code", () => Object.assign(new Error("Bad request"), { status: 400, code: "context_length_exceeded" }), "The request was larger than the model takes: older tool results were shortened, and it was sent again"],
+    ];
+    for (const [label, refusal, step] of refusals) {
+      const { files, meta } = await largeLog();
+      const read = (from: number) => ({ name: "read_document", args: { document_id: meta.id, start_line: from, end_line: from + 199 } });
+      const model = fakeModel([calls([read(1)]), calls([read(1_001)]), calls([read(2_001)]), calls([read(3_001)]), refusal(), says("Done.")]);
+      const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick() });
+      expect(result, label).toMatchObject({ answered: true, text: "Done." });
+      expect(model.requests, label).toHaveLength(6);
+      expect(result.steps, label).toContain(step);
+      expect(answersOf(model.requests.at(-1)!.messages)[0], label).toMatchObject({ dropped: true });
+    }
+  });
+
+  it("plans the documents again when the first request is refused by an adapter of your own, with a status and no kind", async () => {
+    const tpm = "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.";
+    const refusals: Array<[string, () => Error, string]> = [
+      ["413", () => httpError(413), "The first request was larger than the model takes: the files were planned again for a smaller window"],
+      ["429 TPM", () => httpError(429, tpm), "The first request was larger than the 30,000 tokens a minute that the provider allows: the files were planned again to fit it"],
+    ];
+    for (const [label, refusal, step] of refusals) {
+      const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
+      const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
+      let refused = 0;
+      const model = fakeModel([() => (refused++ === 0 ? refusal() : says("Answered."))]);
+      const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick() });
+      expect(model.requests, label).toHaveLength(2);
+      expect(result, label).toMatchObject({ answered: true, text: "Answered." });
+      expect(result.steps[0], label).toBe(step);
+    }
+  });
+
+  it("reads the message of an SDK's error that is not an Error the same way in the loop, its events and errorInfoOf", async () => {
+    // A class of its own, not a subclass of Error, with a status and OpenAI's words for the tokens a
+    // minute: an overflow for the loop, so a "context_overflow" in its request.end too, and the
+    // step names the minute.
+    class SdkError {
+      readonly status = 429;
+      readonly message = "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.";
+    }
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
+    let refused = 0;
+    // Thrown, not returned: fakeModel takes only an Error it is given for a refusal.
+    const model = fakeModel([() => {
+      if (refused++ === 0) throw new SdkError();
+      return says("Answered.");
+    }]);
+    const ends: unknown[] = [];
+    const result = await askWithFiles({
+      files, model, documentIds: [meta.id], messages: question("?"), retry: quick(),
+      onEvent: (event) => {
+        if (event.type === "request.end") ends.push(event);
+      },
+    });
+    expect(result).toMatchObject({ answered: true, text: "Answered." });
+    expect(result.steps[0]).toBe("The first request was larger than the 30,000 tokens a minute that the provider allows: the files were planned again to fit it");
+    expect(ends[0]).toMatchObject({ outcome: "error", error: { kind: "context_overflow", status: 429 } });
+    expect(errorInfoOf(new SdkError())).toMatchObject({ category: "model", code: "context_overflow" });
+  });
+
+  it("reports the provider's overflow when the document is gone, or the store fails, before the second plan", async () => {
+    // Since 0.9.0 DocumentsNotFoundError (404) and DocumentStoreError (503) have a status; neither is
+    // the model's error, so the first try's overflow is still the one reported, with its partial result.
+    for (const failure of ["deleted", "store"] as const) {
+      const store = new MemoryDocumentStore();
+      const files = createLargeFiles({ store, budget: { contextTokens: 200_000 } });
+      const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
+      const overflow = new ModelRequestError("This model's maximum context length is 8192 tokens. However, your messages resulted in 21000 tokens.", 400);
+      const model = fakeModel([async () => {
+        if (failure === "deleted") await files.delete(meta.id);
+        else store.getMeta = async () => { throw Object.assign(new Error("read failed"), { code: "EIO", syscall: "read" }); };
+        return overflow;
+      }]);
+      const error = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") }).catch((caught: unknown) => caught);
+      expect(error, failure).toBe(overflow);
+      expect(model.requests, failure).toHaveLength(1);
+    }
+  });
+
   it("is reported, with what the question found, for a model whose conversation may only grow", async () => {
     const { files, meta } = await largeLog();
     const usage = { inputTokens: 900, outputTokens: 10 };
@@ -326,6 +432,22 @@ describe("a request larger than the model takes", () => {
     // Two parts, each refused, then each read as two halves. The halves are not halved again.
     expect([...parts].sort()).toEqual(["1-1412", "1-2823", "1413-2823", "2824-3912", "2824-5000", "3913-5000"].sort());
     expect(answersOf(model.requests[1]!.messages)[0]).toMatchObject({ parts_read: 4, parts_with_relevant_content: 4, answer: "All errors are timeouts (L97)." });
+  });
+
+  it("reads a part as two halves when its refusal has a status and no kind (an SDK's error in a generateText of your own)", async () => {
+    const { files, meta } = await largeLog(5_000, { mapChunkTokens: 200_000 });
+    const parts: string[] = [];
+    const generateText: GenerateText = async ({ prompt }) => {
+      const lines = /lines (\d+)-(\d+)\./.exec(prompt);
+      if (!lines) return "All errors are timeouts (L97).";
+      parts.push(`${lines[1]}-${lines[2]}`);
+      if (Number(lines[2]) - Number(lines[1]) >= 2_000) throw httpError(413, "Request Entity Too Large");
+      return `Errors near (L${lines[1]}).`;
+    };
+    const model = fakeModel([calls([{ name: "analyze_whole_document", args: { document_id: meta.id, task: "List the errors." } }]), says("Done.")], { generateText });
+    await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick() });
+    expect([...parts].sort()).toEqual(["1-1412", "1-2823", "1413-2823", "2824-3912", "2824-5000", "3913-5000"].sort());
+    expect(answersOf(model.requests[1]!.messages)[0]).toMatchObject({ parts_read: 4, parts_with_relevant_content: 4 });
   });
 });
 
@@ -880,26 +1002,5 @@ describe("since the second review of these changes", () => {
     const model = fakeModel([says("Done.")]);
     await askWithFiles({ files, model, documentIds: [meta.id], messages: stored });
     expect(answersOf(model.requests[0]!.messages)[1]).toMatchObject({ already_shown: true });
-  });
-
-  it("checks the pointers of a long history in one pass", async () => {
-    const { files, meta } = await largeLog();
-    const stored: Array<Record<string, unknown>> = [{ role: "user", text: "Start." }];
-    for (let round = 0; round < 1_500; round++) {
-      const args = { document_id: meta.id, query: `term-${round}`, mode: "exact" };
-      stored.push({ role: "tools", calls: [
-        { name: "search_document", args, result: { document: "app.log", mode: "exact", total_matching_lines: 0, matches: [] } },
-        { name: "search_document", args, result: { already_shown: true, note: "Not run: this exact call was answered earlier in this conversation." } },
-        { name: "read_document", args: { document_id: meta.id, start_line: round + 1, end_line: round + 1 }, result: { document: "app.log", lines: `${round + 1}-${round + 1}`, total_lines: 5_000, text: "x" } },
-        { name: "read_document", args: { document_id: meta.id, start_line: 1, end_line: 1 }, result: { lines: "1-1", already_shown: true, note: "Not run: lines 1-1 are already shown." } },
-      ] });
-    }
-    stored.push({ role: "assistant", text: "Done." }, { role: "user", text: "And now?" });
-    const model = fakeModel([says("Done.")]);
-    const started = Date.now();
-    await askWithFiles({ files, model, documentIds: [meta.id], messages: stored as never });
-    expect(Date.now() - started).toBeLessThan(3_000);
-    // Every pointer still holds: its result is there.
-    expect(answersOf(model.requests[0]!.messages).filter((answer) => answer.dropped === true)).toEqual([]);
   });
 });

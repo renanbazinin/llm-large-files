@@ -20,23 +20,40 @@ import { askGemini } from "llm-large-files/gemini";
 // your sign-in session, never from the request body. `bytes`, `documentIds` and `messages` (an
 // array of `ChatTurn` and `ToolTurn`, which both calls take) are yours.
 const owner = userId;
+// New in 0.9.0, and optional: the chat the document belongs to. `chatId` comes from your session too.
+const scope = [userId, chatId];
 
-const meta = await files.ingest({ name: "app.log", bytes, owner });
-const current = await files.getMeta(meta.id, { owner });
-const original = await files.getOriginal(meta.id, { owner });
-const result = await askWithFiles({ files, model, documentIds, messages, owner });
-// askGemini passes `owner` on to askWithFiles.
-const geminiResult = await askGemini({ files, endpoint, documentIds, messages, owner });
-const deleted = await files.delete(meta.id, { owner });
+const meta = await files.ingest({ name: "app.log", bytes, owner, scope });
+const current = await files.getMeta(meta.id, { owner, scope });
+const original = await files.getOriginal(meta.id, { owner, scope });
+const result = await askWithFiles({ files, model, documentIds, messages, owner, scope });
+// askGemini passes `owner` and `scope` on to askWithFiles.
+const geminiResult = await askGemini({ files, endpoint, documentIds, messages, owner, scope });
+const deleted = await files.delete(meta.id, { owner, scope });
 ```
 
 A document that has an owner is used only by calls that pass that owner. A call with another
 owner, or with none, gets what it gets for a document that does not exist: `undefined`, `false`,
 `missing`, `DocumentsNotFoundError` or a 404 (the table is in
-[Storage](./guides/storage.md#how-ownership-works)).
+[Storage](./guides/storage.md#how-ownership-works)). A document that has a scope (new in 0.9.0) is
+used only by calls that pass the same scope, segment by segment, in the same way
+([Scopes](./guides/storage.md#scopes)). Every refusal reads as missing, never as forbidden.
 
 A caller cannot tell a document of another owner from one that never existed or has expired.
 `toDocumentSummary`, which the upload handlers answer with, leaves the owner out.
+
+**One exception: `ingest` with an application's ID says that the ID is taken.** New in 0.9.0. An
+ingest with `id` answers `IngestError` `"exists"` (409) when a document of that ID is there,
+whoever's it is. Over a store that ignores the context, every store written for 0.8 among them, that
+spans the whole store: a caller in one scope learns that an ID is used in another. It learns nothing
+else: not the owner, the name or the text. Make such IDs hard to guess: random ones, such as
+`` `up-${randomUUID().replaceAll("-", "")}` ``, or ones that start with the tenant's own prefix
+([Application IDs](./guides/storage.md#application-ids)).
+
+**`ifExists: "replace"` never replaces another owner's document.** A document of another owner or
+scope is refused with `"exists"`, even when its text seems to be gone, unless it has expired. A
+store or a wrapper that loses the context of one read would make a document that is there look
+gone: the library does not take that as leave to delete it.
 
 **An owner must be a string that is not empty.** `files.ingest` throws a `TypeError` for an owner
 of `""`, of spaces only, or `null`:
@@ -47,14 +64,66 @@ others whose IDs it has. From JavaScript, an owner that is neither a string nor 
 (the user object in place of its ID, `true`, `NaN`, an array) is refused with the same error. A
 number is accepted, as before. Only `ingest` and the upload handler refuse: calls that read with
 `owner: ""` work as before, so documents that 0.5.0 stored with that owner stay readable until
-they expire.
+they expire. Under `requireOwner` (below), every call refuses such an owner, and those documents
+can no longer be read.
 
 **A document ingested without an owner is open to every call that has its ID**, with an owner or
-without. Its ID then works like a password. An ID is `doc_` and 32 hex digits, a random UUID with
-122 random bits: it cannot be guessed, but it can leak. The ID of a document the model reads
-through tools is in its card and in the system instruction your model provider receives (so a
-model can repeat it in an answer), and IDs end up in your URLs, in browser storage and in logs.
-Give every document an owner.
+without. Its ID then works like a password. An ID the library makes is `doc_` and 32 hex digits, a
+random UUID with 122 random bits: it cannot be guessed, but it can leak. An ID your application
+gives (`IngestInput.id`, new in 0.9.0) may be guessed, if it counts up or follows a pattern, and
+`ingest` tells whether it is taken (above): use random IDs, or IDs with a prefix per tenant. The ID
+of a document the model reads through tools is in its card and in the system instruction your model
+provider receives (so a model can repeat it in an answer), and IDs end up in your URLs, in browser
+storage and in logs. So an ID must never hold personal data, and every document should have an
+owner.
+
+**Fail closed with `requireOwner` and `requireScope`.** New in 0.9.0, both off by default. With
+`createLargeFiles({ ..., requireOwner: true })`, every call must name an owner: `ingest`,
+`getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles`, `askStream`, `askGemini`, and
+`tools`, which then needs `access`. A call without one throws
+`TypeError("owner is required: requireOwner is on")` before the store is asked anything, and a
+document stored without an owner reads as missing. So a route that forgot the owner fails, instead
+of reaching every document stored without one. `requireScope` does the same for scopes
+(`"scope is required: requireScope is on"`); `files.sweep()` without a scope stays allowed. Turn on
+both where every document belongs to a signed-in user and a chat. A document a store gives back
+with the owner `null` (a MongoDB driver writes a field that was left out that way) counts as having
+no owner: open without `requireOwner`, missing with it.
+
+**A store that forgets the context fails closed, except under `unscoped: "root"`.** Every store
+call carries the owner and the scope (new in 0.9.0). A wrapper or a subclass that passes on only the
+ID (`super.getMeta(id)`) loses them. Over a store that keeps scopes apart, the documents then look
+missing; over a `FileDocumentStore` with scoped folders, every call but `sweep` throws a
+`DocumentScopeError`. With `scopes.unscoped: "root"`, which serves the documents of 0.8, nothing
+throws, even with `requireScope` on: the text and the metadata go to the root folder, outside the
+chat's folder, and removing the chat's folder does not erase them. Another chat still cannot read
+them: the library checks `meta.scope`. And a `sweep` that drops the context sweeps every chat:
+`files.sweep({ scope })` removes the expired documents of all of them.
+
+What the library checks is the metadata, against the caller: the owner and `meta.scope`. It asks
+`getMeta` before every use of a document. When `get` returns a document whose metadata is not the
+one `getMeta` described (another ID, owner, scope or version: a wrapper that keeps what `get` gave
+by ID, or a document replaced on another server in between), the document is missing for that call.
+So is a text of another length or number of lines than its metadata says, read whole or by range
+(new in 0.9.0): a store that writes the text and the metadata apart can give one document's
+metadata with another's text, when two servers ingest one ID at the same moment. A text of the same
+length and lines is not caught: give each upload an ID of its own.
+Bytes read by range and the original file carry no metadata: after they are read, the library asks
+`getMeta` again, and they are missing unless the store still describes the same document. That
+catches a document replaced while it was read. It cannot catch a store that answers `readTextRange`,
+`getIndex` or `getOriginal` with another document's bytes while its `getMeta` is right, such as a
+wrapper that keeps those answers by ID alone: such a store serves one scope's text to another. Pass
+the context on, and key any cache of those reads by it too, as
+[Writing a store of your own](./guides/storage.md#writing-a-store-of-your-own) shows.
+
+**One ID, one ingest at a time.** In one library, while an ingest stores an application's ID,
+another ingest of that ID is refused with `"exists"`, so two ingests cannot both find the ID free
+and mix one user's file with another's metadata. Across servers, the store is
+asked just before the writes too, but two servers can still write one ID at the same moment: the
+library takes them for one upload sent twice. Give each upload an ID of its own. When the writes,
+or the clean-up after a failed write, do not end in time, the ID stays refused in that library until they have ended. The clean-up after
+a failed write leaves a document whose metadata it finds under the ID. The parts of one that another
+server is still writing at that moment may be removed: one more reason to give each upload an ID of
+its own.
 
 What the owner should be (a user, or a user and a chat session), and how to keep a list of a
 session's documents, is in [Storage](./guides/storage.md). The owner stops one user from reaching
@@ -77,7 +146,10 @@ before its body is read: `{ "error": "Upload failed (empty owner)." }` when `get
 when it returns something that is neither a string nor a finite number, such as the user object in
 place of its ID. Nothing is logged. Where every upload needs a signed-in user, throw a 401 as
 below. Return `undefined` only where anonymous uploads are meant (`user?.id || undefined`). GET and
-DELETE pass such an owner on as before.
+DELETE pass such an owner on as before, except under `requireOwner`, where the library refuses it
+on every call: they answer `""` or spaces only with a 500 then, "The file could not be looked up
+(empty owner)." and "The file could not be deleted (empty owner).", without calling it, and `null`
+with a 401, as `undefined` (new in 0.9.0).
 
 ```ts
 import type { IncomingMessage } from "node:http";
@@ -96,6 +168,14 @@ export const documentHandlers = createDocumentHandlers(files, {
 });
 ```
 
+New in 0.9.0: with `requireOwner: true` in `createLargeFiles`, the library refuses every call
+without an owner, and the handlers follow. `createDocumentHandlers` throws a `TypeError` without
+`getOwner`, and answers an owner of `undefined` with a `401` `{ "error": "Sign in first." }`, on
+every route, before the body is read. A mistake that would store an upload open to anyone fails
+at once instead. `requireScope` works the same way with `getScope`, which gives the scope of a
+request (such as `[userId, chatId]`): a scope that is not valid, or none, is a `500` before the
+body is read.
+
 The routes, statuses and the rest of the upload flow are in [Web app](./guides/web-app.md) and the
 [node reference](./reference/node.md).
 
@@ -109,19 +189,26 @@ may use. `view_pages` has its own list: the PDFs whose original is kept (in a st
 that only its text was kept, any other is an unknown `document_id`.
 
 `askWithFiles` and `askGemini` make one tool set per question, from the plan that `prepare` made
-with the question's owner. You have nothing to do.
+with the question's owner and scope, and pass them to the tools as `access`. You have nothing to do.
 
-**`files.tools()` checks owners through the metadata it is given.** It has no owner option. On
-every call that reads a document's text or the pages of its PDF, it checks that the document is
-still in the store and has not expired, and compares the owner stored with the document with the
-`owner` of the `DocumentMeta` you passed for that ID. When they differ, the call answers
-`doc_… is no longer available on the server. Ask the user to attach the file again.`, as for a
-document that is gone, and `view_pages` shows no page. So metadata built from an ID a client sent,
-with no owner or another one, reads nothing of a document that has an owner. The check compares
-strings: metadata that carries the stored owner reads the document, wherever it came from, and a
-document stored without an owner is open to any metadata. (Before 0.6.0, `tools()` checked no
-owner.) In a tool loop of your own, give it only metadata that `prepare(ids, base, { owner })` or
-`getMeta(id, { owner })` returned, never objects built from IDs a client sent:
+**`files.tools(documents, { access })` checks the owner and scope the store holds.** New in 0.9.0.
+On every call that reads a document's text or the pages of its PDF, it asks the store for the
+document with the owner and scope of `access`, checks that it is still there and has not expired,
+and compares its stored owner and scope with `access`, as `getMeta(id, access)` does. When they
+differ, the call answers `doc_… is no longer available on the server. Ask the user to attach the
+file again.`, as for a document that is gone, and `view_pages` shows no page. The metadata handed
+in decides nothing: metadata read straight from the store for another user (such as
+`await store.getMeta(id)`) reads nothing with `access: { owner: "bob" }`. Under `requireOwner` or
+`requireScope`, `tools` throws without `access`.
+
+**Without `access`, `files.tools()` checks owners through the metadata it is given**, as before
+0.9.0. It compares the owner and scope stored with the document with those of the `DocumentMeta`
+you passed for that ID. So metadata built from an ID a client sent, with no owner or another one,
+reads nothing of a document that has an owner. But the check compares strings: metadata that
+carries the stored owner reads the document, wherever it came from, and a document stored without
+an owner is open to any metadata. (Before 0.6.0, `tools()` checked no owner.) In a tool loop of
+your own, pass `access`, and give `tools` only metadata that `prepare(ids, base, { owner, scope })`
+or `getMeta(id, { owner, scope })` returned, never objects built from IDs a client sent:
 
 ```ts
 import { DocumentsNotFoundError } from "llm-large-files";
@@ -129,9 +216,9 @@ import { DocumentsNotFoundError } from "llm-large-files";
 // Your own loop: `base` is the size of the rest of your request. The tools below have no
 // `generate`: `wholeDocumentAnalysis: false` keeps the instruction from naming
 // `analyze_whole_document`, and the cards from offering a whole-file read.
-const prepared = await files.prepare(documentIds, base, { owner, wholeDocumentAnalysis: false });
+const prepared = await files.prepare(documentIds, base, { owner, scope, wholeDocumentAnalysis: false });
 if (prepared.missing.length > 0) throw new DocumentsNotFoundError(prepared.missing);
-const tools = files.tools(prepared.plan.searchable);
+const tools = files.tools(prepared.plan.searchable, { access: { owner, scope } });
 ```
 
 Writing your own loop is covered in [Your own adapter and loop](./guides/own-adapter-and-loop.md),
@@ -401,6 +488,12 @@ U+FFFD. `meta.replacedCharacters` counts the U+FFFD, and the model is told of th
   (one hour by default). `FileDocumentStore`'s `sweep` throws nothing: a directory it cannot read
   gives 0, and a document it cannot remove is left for the next sweep. Watch the count it returns,
   and the volume, to know that expired files really go.
+- **A delete is done once the metadata is gone.** Since 0.9.0, `FileDocumentStore.delete` returns
+  true once it removed the metadata, and a text, index or original it could not remove then waits
+  for the sweep (before, it threw). Where the files must go for good (a user's erasure request),
+  remove the folder of the scope, or keep the sweep running. The sweep removes such leftovers in the
+  store's own folders (`scopes`), and in a folder it shares with your files only under the IDs the
+  library makes.
 - **A delete takes effect on every server that shares the store, from the next tool call on.**
   Every use of a document first asks the store whether it is still there. A copy kept in memory
   (within `cacheBytes`, 256 MB by default) is used only after that, and dropped when the document
@@ -410,25 +503,49 @@ U+FFFD. `meta.replacedCharacters` counts the U+FFFD, and the model is told of th
   later questions. Neither reaches the answers, steps and evidence you stored, your logs, or what
   your model provider keeps. To forget a document, also drop the tool rounds that name it from the
   stored conversation ([Conversations](./guides/conversations.md)).
-- **`FileDocumentStore` writes plain files** in one directory: `<id>.txt`, the text; `<id>.json`,
-  the metadata (owner, file name, MIME type, sizes, dates, outline headings and, for a log, its
-  message templates); `<id>.idx`, a line index; `<id>.bin`, the original with `keepOriginals`; and
-  `.tmp` files while it writes. Nothing is encrypted, and a delete removes the files without
+- **`FileDocumentStore` writes plain files** in one directory, or with `scopes` in a folder per
+  scope (`<directory>/<userId>/<chatId>/.llm-large-files/`): `<id>.txt`, the text; `<id>.json`,
+  the metadata (owner, scope, file name, MIME type, sizes, dates, outline headings and, for a log,
+  its message templates); `<id>.idx`, a line index; `<id>.bin`, the original with `keepOriginals`;
+  and `.tmp` files while it writes. Nothing is encrypted, and a delete removes the files without
   overwriting them. Use an encrypted volume, or write a `DocumentStore` over storage with encryption
   at rest ([Storage](./guides/storage.md)).
-- **No path traversal.** Only IDs that match `DOCUMENT_ID_PATTERN` (`doc_` and 32 lowercase hex
-  digits) reach the file system. File names never become paths.
+- **File modes.** Since 0.9.0, `FileDocumentStore` writes its files `0600` and makes its folders
+  `0700` (`fileMode`, `directoryMode`), minus the umask: only the user the server runs as can read
+  them. Before, they were `0666` and `0777` minus the umask, which gave files every user of the
+  machine could read (`0664` under the usual umask `0002`). On a volume shared by servers that run
+  as different users of one group (a Kubernetes `fsGroup`), set `fileMode: 0o640` and
+  `directoryMode: 0o750`, never more. Files written before 0.9.0 keep their modes: change them once
+  with `chmod` to narrow them.
+- **No path traversal.** File names are document IDs, and only IDs of the shape
+  `APP_DOCUMENT_ID_PATTERN` (lowercase letters, digits, `_` and `-`, and no name Windows keeps for
+  a device) reach the file system. With `scopes`, each segment of a scope names a folder, and must
+  pass `isSafeScopeSegment` (the same shape, no `.` or `..`), or the call is refused. A call checks
+  that the folder of its scope is where its path says inside the directory, so a link there, to
+  another chat or out of the volume, is refused, and `sweep` follows no link. Writes and deletes
+  check every time; a read takes a check made less than a second ago, so a link put in place of a
+  chat's folder is seen by reads within a second. `createScopeFolders` makes a scope's folders one
+  level at a time, and nothing where a link points. A read does not follow a link at a file name
+  either (`O_NOFOLLOW`), except on Windows, which has no such flag: there, only links in the
+  folders are refused. A store with `scopes` never makes the folder of a chat again once you
+  removed it, unless `createScopeFolders` is on
+  ([Storage](./guides/storage.md#files-in-a-folder-per-user-or-per-chat)).
+- **Your files beside the store's.** In the store's directory without `scopes`, or with
+  `scopes.folder` `""`, the names `<id>.json`, `.txt`, `.idx` and `.bin`, and their temporary
+  files, belong to the store for every ID it is given: an ingest writes over your file of such a
+  name. Keep your own files in a subfolder, or under other names.
 - `MemoryDocumentStore` keeps everything in the memory of one process, until it restarts. It is for
   tests and single-process demos. It copies the metadata it is given and the metadata it hands out,
   so deleting `owner` from what `ingest` or `getMeta` returned, before you send it to a browser,
-  changes nothing stored. (In 0.5.0 it opened the document to every owner.) The original it returns
-  is the stored bytes themselves: treat them as read-only.
+  changes nothing stored. (In 0.5.0 it opened the document to every owner.) Since 0.9.0, the
+  original it returns is a copy too.
 
 ## Original files
 
 With `keepOriginals` (for example `["pdf"]`), the uploaded file itself is stored next to its text
-(`<id>.bin` in `FileDocumentStore`). That is off by default, and a store without `putOriginal`
-keeps none. When you turn it on:
+(`<id>.bin` in `FileDocumentStore`), or, since 0.9.0, read back from where your application keeps it
+(`IngestInput.original`, [below](#originals-your-application-keeps)). That is off by default, and a
+store without `putOriginal` keeps no copy. When you turn it on:
 
 - **More is kept than before.** The text of a PDF leaves out its pictures, signatures, stamps and
   hidden layers; the file has them all, and its metadata (author, software, dates). Treat the store
@@ -448,6 +565,40 @@ keeps none. When you turn it on:
   question, as the text of the file already goes. A PDF that is encrypted only to restrict printing
   or copying is opened with an empty password, and the cut is not encrypted: the restriction does
   not travel with it. A PDF that needs a password to open is not shown.
+
+- **Its bytes are checked when they are read back.** Since 0.9.0 every document has `sha256`, the
+  SHA-256 of the upload: a copy the store gives back is used only when it has that size and
+  SHA-256, so a store that answers with another document's file of the same size is caught. The
+  metadata is asked for again once the bytes are read, so a document deleted and stored again
+  under its ID by another server meanwhile is not mixed up with it.
+
+### Originals your application keeps
+
+New in 0.9.0. With `IngestInput.original: { ref }` and `LargeFilesOptions.originals`, the store keeps
+no copy: the library records the ref with the file's size and SHA-256, and reads the file back
+through your reader.
+
+- **The ref never reaches the model,** nor a summary. It is in the metadata
+  (`meta.original.ref`), which you should not send to a browser: send `toDocumentSummary(meta)`.
+  An event holds it only with `eventResults: true`, in the full plan of `run.finish` and
+  `run.error`: keep such events on your server
+  ([events](./reference/events.md#documents-eventresults-and-eventresult)).
+- **Only the ref the store holds is read,** never one from metadata handed to `files.tools`: a
+  forged `original.ref` in a meta made by hand reads nothing it names.
+- **A changed file is not shown.** One of another size or SHA-256 than at ingest gives `undefined`
+  from `getOriginal`, and `view_pages` tells the model it changed and to attach it again: its pages
+  would not be those of the text the model has.
+- **`fileOriginals(root)` keeps refs inside `root`.** The ref is resolved under `root`, and must
+  stay inside it (`root` and a path separator before it): an absolute path elsewhere, or `..` that
+  climbs out, is a `TypeError`. A link at any level below `root` is not followed: the file's real
+  path must be the path the ref names, or it reads as missing. The file is opened without following
+  a link at its name, except on Windows. A folder swapped for a link between that check and the
+  read is not seen: keep the folders of the uploads writable only by your server. It reads at most
+  one byte past the size recorded, and only reads.
+- **It is still a file of the user.** `delete` and `sweep` never touch it: remove the upload with
+  its chat, and with the user's other data when the account is closed.
+- **The upload handler can write it.** `prepareUpload` gives the path and the ref, and the handler
+  saves the body there as it arrives, made new: [Files the upload handler writes](#files-the-upload-handler-writes).
 
 How `view_pages` works, and what to weigh before you keep originals, is in [PDFs](./guides/pdfs.md).
 
@@ -583,10 +734,11 @@ server that memory is the server's heap. Choose the isolation with care:
   `express.raw()`) has already read the body, it buffered it under its own `limit`: set that one
   too. `files.ingest` checks the bytes you give it, which are already in memory.
 - **Memory.** The handlers buffer the whole upload, up to `maxUploadBytes`, before reading its
-  text, and an ingest then holds several copies of the text at once (several times the size of the
-  text), in your server's heap. Since 0.8.2 the handlers hold uploads of at most
-  `maxPendingUploadBytes` at once (twice `maxUploadBytes`), and answer the others 503 before reading
-  their body; each library lets `maxConcurrentIngests` (2) ingests work at once, and queues the
+  text, unless it is written to a file (`uploadSpool`, or the `path` of `prepareUpload`, new in
+  0.9.0: [below](#files-the-upload-handler-writes)), and an ingest then holds several copies of the
+  text at once (several times the size of the text), in your server's heap. Since 0.8.2 the
+  handlers hold uploads of at most `maxPendingUploadBytes` at once in memory (twice
+  `maxUploadBytes`), and answer the others 503 before reading their body; each library lets `maxConcurrentIngests` (2) ingests work at once, and queues the
   others. A route of your own must bound the bodies it reads itself. The room of an upload is
   taken from its `Content-Length` before its body arrives, so a few clients that send headers and
   then trickle their bodies can hold all of it: `uploadIdleTimeoutMs` (30 s) frees the room of a
@@ -661,12 +813,15 @@ server that memory is the server's heap. Choose the isolation with care:
   on their documents (`viewPages: false`), or keep no PDF originals
   ([Reading PDFs for pages and pictures](#reading-pdfs-for-pages-and-pictures)).
 - **Stalls.** Ingest pauses for other requests about every 12 ms of its work: between the pages of
-  a PDF, as a DOCX or PPTX is unpacked, as a text file that is not UTF-8 is decoded, and in every
-  step after extraction, a line of megabytes included. In a measurement on one machine, the longest
-  stall of the event loop was 31 to 34 ms for a 99 MB log and 0.16 s for a 2,000-page PDF, against
-  1.9 to 2.0 s and 4.4 to 4.5 s with the ingest of 0.5.0
+  a PDF, as a DOCX or PPTX is unpacked, as a text file that is not UTF-8 is decoded, and in the
+  steps after extraction up to the store, a line of megabytes included. In a measurement of 0.6.0
+  on one machine, the longest stall of the event loop was 31 to 34 ms for a 99 MB log and 0.16 s for
+  a 2,000-page PDF, against 1.9 to 2.0 s and 4.4 to 4.5 s with the ingest of 0.5.0; 0.9.0 measured
+  0.23 to 0.36 s for a 95 MB log on a slower, busy machine
   ([Measurements](./measurements.md#the-server)). Some steps still hold the server, and neither the
   time limit nor a signal cuts them short:
+  - A text file in UTF-8, as it is decoded when its reading starts, and, over a
+    `FileDocumentStore`, as its text is written: about 2 to 4 ms for each MB.
   - A PDF page, for as long as pdf.js takes to read it: up to about 1.5 s for a page that passes
     the check in a small file, longer in a large file, and without limit when the page check does
     not run (without `@cantoo/pdf-lib`, on a file it cannot read or that declares more than 150,000
@@ -751,7 +906,8 @@ server that memory is the server's heap. Choose the isolation with care:
   count or log them apart, by user. `"out_of_memory"` and `"timeout"` from the child processes of
   `createIsolatedExtractors` can be such files too.
 - **Scanned PDFs** (no text at all) are refused, unless PDF originals are kept (`keepOriginals`
-  includes `"pdf"` and the store has `putOriginal`) and the file has at most `scannedPdfPages` pages
+  includes `"pdf"` and the store has `putOriginal`, or the ingest gives `original` and the library
+  has `originals`) and the file has at most `scannedPdfPages` pages
   (30 by default): their pages can then be shown.
 - **File names** are reduced at ingest to one printable line: the last path segment. Control
   characters, line and paragraph separators and text-direction controls become a space, and the
@@ -761,9 +917,29 @@ server that memory is the server's heap. Choose the isolation with care:
   characters, and is never cut in the middle of a character (`file` when nothing is left). An
   emoji of several characters, such as a flag, can lose its end at the cut. A name that an
   earlier version cut in the middle of a character is sent with U+FFFD in place of the half.
-- **The MIME type is the client's word.** The handlers take it from an `X-File-Type` header, or
-  from `Content-Type` unless that is `application/octet-stream`. The format is picked from the file
-  name first, then from it. It is stored, and returned in summaries: do not trust it.
+- **The MIME type is the client's word.** The handlers take it from an `X-File-Type` header, which
+  they URI-decode, or from `Content-Type` unless that is `application/octet-stream`. Since 0.9.0
+  `Content-Type` is taken as it came, not URI-decoded: before, `%0D%0A` in it became a line break
+  (S11). The format is picked from the file name first, then from it. It is stored, and returned in
+  summaries: do not trust it. Since 0.9.0 `ingest` keeps only its type and subtype, in lower case,
+  without parameters, for every caller, your own routes included: a value that is not a
+  type/subtype of RFC 9110 token characters of at most 127 characters, or that holds anything but
+  printable ASCII anywhere (a line break, U+202E or another text-direction control, a tag
+  character), is stored as `application/octet-stream`. Before, it was only trimmed, so a line
+  break, a direction override or 8 KB of it reached the metadata, the summaries, `ingest.finish`
+  and your logs. It is never sent to the model.
+- **A path is read as it is given.** `ingest({ source: { path } })` (new in 0.9.0) reads the file
+  at that path, which can be any file the process may read: never build it from what a client sends.
+  A link at the path is refused, not followed, and so is a folder, a pipe or a device. The file is
+  opened without following a link at its name (not on Windows), and read once, at most
+  `maxUploadBytes + 1` bytes, so a file that grew after it was looked at is refused. A relative
+  path is made absolute once, when `ingest` is called: a change of the working folder before the
+  ingest's turn, or the working folder of an isolated reader's child process, does not change which
+  file is read. It is not normalized as text: a `..` after a link, and a `/` at the end, are the
+  system's to resolve, as they are in an absolute path. So `fs.promises.realpath` (or
+  `fs.realpathSync.native`) of the path, relative or absolute, names the file the library reads.
+  `path.resolve`, `fs.realpath` and `fs.realpathSync` remove them as text first, and can name
+  another file: do not check a path with them. The library never writes, moves or deletes it.
 - **Text is cleaned.** Terminal escape sequences are removed, and so are control characters other
   than tab and line breaks, C1 (U+0080-U+009F) included, and the other characters listed in
   [Characters that show nothing](#characters-that-show-nothing). An `ESC ]` without its end on the
@@ -791,6 +967,51 @@ server that memory is the server's heap. Choose the isolation with care:
 
 Formats, optional dependencies and the messages of refused files are in [PDFs](./guides/pdfs.md);
 the upload routes in [Web app](./guides/web-app.md).
+
+### Files the upload handler writes
+
+New in 0.9.0. `createDocumentHandlers` writes no file unless it is asked to: by the `path` that
+`prepareUpload` returns, or by `uploadSpool`.
+
+- **Where.** The body of an upload goes to the absolute path `prepareUpload` returns, in your app's
+  folder, or to `<directory>/llf-upload-<random UUID>` of the spool (`os.tmpdir()` by default).
+  Nothing else is written by the handler. Build the path from IDs your server chose and checked (the
+  user, the chat, the upload), never from the file's name or another value the client sent.
+- **Modes.** A file is made with mode `0o600`, minus the umask of the process: only the server's
+  user can read it. `uploadFileMode` changes it for the files of `prepareUpload` (`0o640` lets a
+  group read them); the spool's files are always `0o600`. The handler makes no folder: the folders,
+  and their modes, are yours.
+- **Never through a link, never over a file.** Each file is opened with `"wx"` (`O_CREAT` with
+  `O_EXCL`): when anything is already at its name, a file or a link (even one that points nowhere),
+  the open fails and nothing is written. That upload is answered `409`, and what was there stays as
+  it is: it is never written through, truncated or removed. So the handler never follows a link at
+  the file's name. A link in a folder on the way is followed, except where `fileOriginals` would
+  not read through it: when the path of `prepareUpload` ends with the ref of its `original`
+  (`<root>/<ref>`), a link in a folder below that root is refused before anything is written
+  (`500` "Upload failed (ELOOP)."). Keep the folders of the uploads, and the spool, writable only
+  by your server.
+- **Removed when they are not needed.** A file of the spool is removed when its ingest ends,
+  whatever the end. A file of `prepareUpload` is removed when its upload fails (too large, stopped,
+  a client that left, a full disk, a disk that does not answer, a file refused, an ID taken,
+  `onUploaded` throwing), and is yours once its document is stored: the library never removes it,
+  even when the document is deleted or expires.
+  A removal that fails (a file another process holds open, on Windows) is tried three times, then
+  left. A server that stops in the middle of an upload leaves its file. Empty the spool when the
+  server starts: give each server process a spool folder of its own (an `emptyDir` or
+  `os.hostname()` gives one a pod: [Deployment](./guides/deployment.md#uploads-and-ingest) says how
+  to give one to each process), and let each empty only its own. Never empty a folder that several
+  servers share: it holds the uploads the others are still ingesting. The partial file of `prepareUpload` stays until a job of yours removes it
+  ([Stopping a server](./guides/deployment.md#stopping-a-server)).
+- **Bounded.** A body written to a file has the same limits as one in memory: `maxUploadBytes` and
+  `uploadIdleTimeoutMs`, which also bounds each call to the disk (a volume that stops answering is
+  a `500` "Upload failed (ETIMEDOUT).", and gives the upload's room back). `maxSpooledUploadBytes`
+  (ten times `maxUploadBytes`) bounds the spool's files at once. A full disk (`ENOSPC`, `EDQUOT`) is
+  answered `503`, and the file removed. The files of `prepareUpload` are bounded by your disk only.
+- **Not sent.** The path of a file and its ref are never in an answer, an event, a summary, or a
+  request to a model. A system error that names a path, such as Node's `ENOENT` for a folder that is
+  not there, is answered with its code only: `"Upload failed (ENOENT)."`.
+- **Not on a memory-backed volume.** A spool on a tmpfs (a Kubernetes `emptyDir` with
+  `medium: Memory`) counts against the pod's memory: [Deployment](./guides/deployment.md#uploads-and-ingest).
 
 ## Regex search
 
@@ -900,19 +1121,31 @@ Waits, retries and deadlines are explained in
 ## Storage errors
 
 A store's own errors can name paths and hosts. Reads reach users and models only as
-`DocumentStoreError`, whose message names neither, with the original error as its `cause`. Writes
-are passed on as they came, and the upload handler answers a write error that has neither a
-`status` (or `statusCode`) from 400 to 599 nor a Node system error's `code` and `syscall` with 500
-"Upload failed.", without the error's own message. A write error with such a status, such as an
-SDK's error with `statusCode`, is answered with that status and its own message, which can name a
-host. Two paths answer a store's write error 422 with its own message, so a database driver's host
-can reach the browser through them: an `ingest` of your own that throws a new error in place of the
-store's, as `ingestInProcess` in [Deployment](./guides/deployment.md#uploads-and-ingest) does, and a
-route of your own, as in [Web app](./guides/web-app.md#filesingest-and-its-errors). Give your
-store's write errors a status and a message of your own, and log the cause yourself, since the
-handlers log nothing: see [Storage](./guides/storage.md#errors) and the
-[node reference](./reference/node.md#uploadrequest-response). What to show a user is in
-[Errors and reliability](./guides/errors-and-reliability.md).
+`DocumentStoreError`, whose message names neither, with the original error as its `cause`. Since
+0.9.0 so do writes: a store that fails in `ingest`, `files.delete` or `files.sweep` is a
+`DocumentStoreError` of operation `"write"`, `"delete"` or `"sweep"`, with status 503, and the
+upload handler answers it 503 with that message. (Before, writes were passed on as they came, and a
+write error with a `status` of its own was answered with its own message, which could name a host.)
+The handler also adds `Retry-After: 5`.
+
+S12, closed in 0.9.0: the upload handler answered any `Error` without a status `422` with its
+message, as a file that could not be read. A `LargeFiles` of your own whose `ingest` threw a
+database driver's error (`MongoServerSelectionError: connect ECONNREFUSED mongo-prod.internal…:27017`)
+sent that host to the browser. Now only an `IngestError` is a `422` with its message, and an
+`IngestError` of code `"unreadable"` is told in fixed words: its message is a parser's, or that of
+an extractor of your own, which may name a host (an OCR service's). Any other error without a
+status is a `500` `{ "error": "Upload failed." }`, a system error adds only its code, and a model's
+error is told by its kind, never in the provider's words. The rule is
+`uploadAnswerOf` from `llm-large-files/node`: answer with it in a route of your own around
+`files.ingest` ([Web app](./guides/web-app.md#filesingest-and-its-errors)). An `ingest` of your own
+that refuses a file throws `new IngestError(code, message)`, as `ingestInProcess` in
+[Deployment](./guides/deployment.md#uploads-and-ingest) does. An error with a `status` of its own
+still keeps its message: give such errors words for users. Pass the `DocumentStoreError` on as it
+is, and log its `cause` yourself, since the handlers log nothing: see
+[Storage](./guides/storage.md#errors) and the
+[node reference](./reference/node.md#how-errors-are-answered). What to show a user, in your own
+words and language, is `errorInfoOf`'s job: see
+[Errors and reliability](./guides/errors-and-reliability.md#your-users-words-errorinfoof).
 
 ## What the library logs
 
@@ -960,7 +1193,8 @@ What you log is your choice, and some of what the library hands you holds user d
   browser ([Prompt injection](#prompt-injection)).
 - Set `ttlMs` to your data policy, run `sweep` on a schedule, and make your deletion rules cover
   stored `toolTurns` ([Storage and retention](#storage-and-retention)).
-- Keep the store on encrypted storage.
+- Keep the store on encrypted storage. With `FileDocumentStore`, keep the default file modes, or
+  `0o640` and `0o750` for one group ([Storage and retention](#storage-and-retention)).
 - Turn on `keepOriginals` only if you want `view_pages`, and knowing what it keeps
   ([Original files](#original-files)).
 - Set `limits` and a deadline, and log `usage` for failed questions too
@@ -968,6 +1202,9 @@ What you log is your choice, and some of what the library hands you holds user d
 - Keep the bound on uploads held at once (`maxPendingUploadBytes` of the handlers, or your own in a
   route of your own), limit uploads per user, and set the limit of any body parser in front of the
   handlers ([Uploads](#uploads)).
+- With `uploadSpool` or the `path` of `prepareUpload`, keep those folders writable only by your
+  server, on a disk rather than a tmpfs, and build each path from IDs your server chose
+  ([Files the upload handler writes](#files-the-upload-handler-writes)).
 - Keep the limits on one file (`maxTextBytes`, `maxPdfPages`, `ingestTimeoutMs`) as low as your
   users allow ([Uploads](#uploads)).
 - For untrusted uploads, parse them in a process of their own with a memory limit, not in a worker

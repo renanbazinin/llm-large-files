@@ -1,8 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createLargeFiles, FileDocumentStore, MemoryDocumentStore } from "llm-large-files";
+import { describe, expect, it, vi } from "vitest";
+import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, geminiApi } from "llm-large-files/gemini";
 import { grepSource, SearchableDocument } from "../src/search.js";
 
@@ -16,50 +13,7 @@ const trapped = (lines: number) => [
 ].join("\n");
 const SLOW = "(a|a)+$";
 
-let directory: string | undefined;
-afterEach(async () => {
-  if (directory) await rm(directory, { recursive: true, force: true });
-  directory = undefined;
-});
-
-/** Runs `work` and reports how long it took and how often a timer of another "request" got a turn meanwhile. */
-async function watched<T>(work: () => Promise<T>): Promise<{ value: T; ms: number; turns: number }> {
-  let turns = 0;
-  const beat = setInterval(() => turns++, 5);
-  const started = performance.now();
-  try {
-    const value = await work();
-    return { value, ms: performance.now() - started, turns };
-  } finally {
-    clearInterval(beat);
-  }
-}
-
 describe("a regex that cannot get past a line", () => {
-  it("stops the search at that line, long before the time limit, and keeps what was found", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
-    const meta = await files.ingest({ name: "app.log", bytes: bytes(trapped(300)) });
-    const tools = files.tools([meta]);
-    const { value, ms, turns } = await watched(() => tools.execute("search_document", { document_id: meta.id, query: SLOW, mode: "regex" }));
-    expect(value.note).toMatch(/stopped early/);
-    // The time limit of one search is 3 seconds. Two slices on the line, and it is over.
-    expect(ms).toBeLessThan(2_000);
-    // Other work ran while it searched.
-    expect(turns).toBeGreaterThan(0);
-    // The tool set still works.
-    expect((await tools.execute("search_document", { document_id: meta.id, query: "request 7 took", mode: "exact" })).total_matching_lines).toBe(1);
-  });
-
-  it("does the same for a document read by range", async () => {
-    directory = await mkdtemp(path.join(tmpdir(), "llf-limits-"));
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0, scanChunkBytes: 4_096, budget: { inlineTokens: 10 } });
-    const meta = await files.ingest({ name: "app.log", bytes: bytes(trapped(300)) });
-    const tools = files.tools([meta]);
-    const { value, ms } = await watched(() => tools.execute("search_document", { document_id: meta.id, query: SLOW, mode: "regex" }));
-    expect(value.note).toMatch(/stopped early/);
-    expect(ms).toBeLessThan(2_000);
-  });
-
   it("finds the same lines as before for a pattern that is not slow", async () => {
     const text = trapped(300);
     const document = new SearchableDocument({ meta: { id: "doc_x", name: "app.log" } as never, text });

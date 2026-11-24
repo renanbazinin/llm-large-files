@@ -11,6 +11,7 @@ import {
   classifyModelError,
   DEFAULT_FIRST_BYTE_TIMEOUT_MS,
   DEFAULT_IDLE_TIMEOUT_MS,
+  errorInfoOf,
   errorKindOf,
   isRetryableStatus,
   ModelRequestError,
@@ -18,7 +19,7 @@ import {
   retryAfterMs,
   withRetry,
 } from "llm-large-files";
-import type { EventError, IdleWaits, ModelErrorClass, ModelErrorKind, RetryNotice, RetryOptions, SseHooks } from "llm-large-files";
+import type { ErrorCategory, ErrorInfo, EventError, IdleWaits, ModelErrorClass, ModelErrorKind, RetryNotice, RetryOptions, SseHooks } from "llm-large-files";
 ```
 
 Contents:
@@ -27,6 +28,7 @@ Contents:
   [`ModelErrorClass`](#modelerrorclass),
   [`classifyModelError`](#classifymodelerrorstatus-message-signals),
   [`errorKindOf`](#errorkindoferror), [other error classes](#other-error-classes),
+  [`errorInfoOf`](#errorinfooferror) and [`ErrorInfo`](#errorinfo),
   [errors in events: `EventError`](#errors-in-events-eventerror)
 - Retries: [`withRetry`](#withretryrun-options), [`RetryOptions`](#retryoptions),
   [`RetryNotice`](#retrynotice), [retries in events](#retries-in-events),
@@ -53,6 +55,7 @@ declare class ModelRequestError extends Error {
   readonly retryAfterMs?: number;
   readonly limitTokens?: number;
   readonly requestedTokens?: number;
+  static is(value: unknown): value is ModelRequestError; // new in 0.9.0
 }
 ```
 
@@ -308,21 +311,164 @@ errorKindOf({ kind: "quota" });                                 // "quota": any 
 ### Other error classes
 
 The adapters' errors are `ModelRequestError`s, so `instanceof ModelRequestError` and
-`errorKindOf` work for all three. The three errors of the documents are not, and have no `kind`.
+`errorKindOf` work for all three. The four errors of the documents are not, and have no `kind`.
 
 | Class | Exported from | Extends | Fields of its own | Reference |
 |---|---|---|---|---|
 | `GeminiRequestError` | `llm-large-files/gemini` | `ModelRequestError` | none | [gemini.md](./gemini.md) |
 | `OpenAiRequestError` | `llm-large-files/openai` | `ModelRequestError` | `param`, `code` | [openai.md](./openai.md) |
 | `AnthropicRequestError` | `llm-large-files/anthropic` | `ModelRequestError` | `type` | [anthropic.md](./anthropic.md) |
-| `DocumentsNotFoundError` | `llm-large-files`, `llm-large-files/gemini` | `Error` | `ids` | [ask.md](./ask.md#documentsnotfounderror) |
-| `DocumentStoreError` | `llm-large-files` | `Error` | `code`, `syscall`, and the caught error as `cause` | [library.md](./library.md#documentstoreerror) |
-| `IngestError` | `llm-large-files` | `Error` | `code`, `status`, `retryAfterMs`, and the extractor's error as `cause`. New in 0.8.0 | [library.md](./library.md#ingesterror) |
+| `DocumentsNotFoundError` | `llm-large-files`, `llm-large-files/gemini` | `Error` | `ids`; `code` `"documents_missing"` and `status` 404, new in 0.9.0 | [ask.md](./ask.md#documentsnotfounderror) |
+| `DocumentStoreError` | `llm-large-files` | `Error` | `code`, `syscall`, and the caught error as `cause`; `operation` (`"read"`, `"write"`, `"delete"`, `"sweep"`) and `status` 503, new in 0.9.0 | [library.md](./library.md#documentstoreerror) |
+| `DocumentScopeError` | `llm-large-files` | `TypeError` | `code` (`"scope_required"`, `"scope_invalid"`, `"scope_missing"`). New in 0.9.0. The upload handlers answer `"scope_missing"` `404` "This chat no longer exists.", and the other two `500` | [library.md](./library.md#documentscopeerror) |
+| `IngestError` | `llm-large-files` | `Error` | `code`, `status`, `retryAfterMs`, and the extractor's error as `cause`. New in 0.8.0. Code `"exists"` (status 409) is new in 0.9.0 | [library.md](./library.md#ingesterror) |
+
+`DocumentStoreError` is the store failing: retry the call. `DocumentScopeError` is a scope the call
+should not have given, or should have: the same call fails again. The message of
+`DocumentStoreError` names its operation, never a path or a host:
+
+| `operation` | Message |
+|---|---|
+| `"read"` | `The document store could not be read (EIO). Try again.` |
+| `"write"` | `The document could not be stored (EIO). Try again.` |
+| `"delete"` | `The document could not be deleted (EIO). Try again.` |
+| `"sweep"` | `The document store could not be cleaned up (EIO). Try again.` |
+| code `"NEWER_VERSION"` | `The document was stored by a newer version of llm-large-files. Try again.` |
+
+The library throws `"read"` from every look-up, `"write"` from `files.ingest` (code `"ETIMEDOUT"`
+for a write that did not end within `ingestTimeoutMs`), `"delete"` from `files.delete` and
+`"sweep"` from `files.sweep`. Until 0.9.0 the errors of writes came out as the store threw them. A
+`DocumentScopeError` the store throws is never wrapped.
+
+#### Telling errors apart across copies of the package
+
+New in 0.9.0. Each of `ModelRequestError`, `DocumentsNotFoundError`, `DocumentStoreError`,
+`DocumentScopeError` and `IngestError` has a static `is(value)`. It is `true` for an error of that
+class, or of a class that extends it (`GeminiRequestError` for `ModelRequestError.is`), also when
+another copy of the package made it: two versions installed side by side, or one bundled into a
+dependency. `instanceof` is `false` then. `is` reads a mark that every copy puts on its errors
+(`Symbol.for`), so it never throws, and is `false` for an object that only has the same `name`.
+
+```ts
+import { DocumentsNotFoundError, DocumentStoreError, IngestError } from "llm-large-files";
+
+function statusOf(error: unknown): number {
+  if (IngestError.is(error) || DocumentStoreError.is(error) || DocumentsNotFoundError.is(error)) return error.status;
+  return 500;
+}
+```
+
+### errorInfoOf(error)
+
+```ts
+declare function errorInfoOf(error: unknown): ErrorInfo;
+```
+
+New in 0.9.0. What any error of the library means, in one record: its category and code, the HTTP
+status to answer with, whether to retry it, and an English message that is safe to show. Switch on
+`category` and `code` to show your own words, in your users' language. It is built on the rules of
+[`EventError`](#errors-in-events-eventerror): a model error is told by its kind, never in the
+provider's words.
+
+- It reads the errors of every copy of the package, by their brand (`IngestError.is` and the
+  others), like the [`is` methods](#telling-errors-apart-across-copies-of-the-package).
+- It also reads an [`EventError`](#errors-in-events-eventerror), the plain data of `run.error` and
+  `ingest.error`, so that a `map` of `writeSseEvents` can word a failed question: an `IngestError`'s
+  by its `code`, a `DocumentStoreError`'s and a `DocumentsNotFoundError`'s by their `name` (keeping
+  their message, which the library wrote), a `DocumentScopeError`'s by its `name` and `code`, a
+  model's by its `kind`, an `AbortError`'s, a `TypeError`'s and a `RangeError`'s by their name (the
+  `ingest.error` of a call `ingest` refused is `"input"`, as the error), and a Node system error's by the code in
+  the library's words for it ("The file could not be read from storage (ELOOP).", "Upload failed
+  (ELOOP)."). The `ingest.error` of the
+  [upload handlers](./node.md#upload-with-progress-accept-textevent-stream) is read the same way.
+- Plain data with none of these is `"unknown"`, never a model's error: a model's `EventError`
+  always has its `kind`, the kind its status, message and `code` give when the error had none of
+  its own (an error of an adapter of yours, or `httpError` of the testing helpers). Plain data
+  thrown, such as `{ status: 429, message }`, is not an adapter's error: it reads as
+  `"unknown"`, and so does its `EventError`, which has no `kind`. Its `status` is kept when it is
+  400 to 599 (the `ingest.error` of a hook of yours that threw a `409`), else 500, and it is
+  `retryable` for 429, 502, 503 and 504. Before, such data with a status was read as a model's
+  error: a store that failed (503) and a deleted chat (404) were "The model failed on its side" and
+  "The model refused the request".
+- The `message` of a model's `EventError` is kept when it is the library's own words for its kind
+  ("The model failed on its side (HTTP 503)."), whatever status they name: the upload handlers'
+  `ingest.error` names the provider's status in its message and the answer's (502) in `status`.
+  Any other words are replaced by the library's, from its kind and `status`.
+- It never throws. A value it cannot read is `"unknown"`.
+- `message` never holds a path, a host, a stack or a provider's words. Log the error itself, with
+  its `cause`, on the server.
+
+| Error | `category` | `code` | `status` | `retryable` | `message` |
+|---|---|---|---|---|---|
+| [`IngestError`](./library.md#ingesterror) | `"ingest"` | its code: `"too_large"`, `"busy"`… | its status: 422, 413, 409, 503 | `true` for `"busy"` only, with its `retryAfterMs` | its message; for `"unreadable"`, "This file could not be read. It may be damaged, or not of the type its name says.", since its own is a parser's |
+| [`DocumentStoreError`](./library.md#documentstoreerror) | `"store"` | its code, when it has one that reads as a code (capital letters, digits and `_`, as its message shows it): `"EIO"`, `"ETIMEDOUT"`, `"NEWER_VERSION"`. A driver may put a host in `code`: such a code is left out | 503 | `true`, `retryAfterMs` 5,000 | its message: "The document could not be stored (EIO). Try again." |
+| [`DocumentsNotFoundError`](./ask.md#documentsnotfounderror) | `"missing"` | `"documents_missing"` | 404 | `false` | its message, which names the IDs |
+| [`DocumentScopeError`](./library.md#documentscopeerror) `"scope_missing"` | `"missing"` | `"scope_missing"` | 404 | `false` | "This chat no longer exists." |
+| [`ModelRequestError`](#modelrequesterror), or an error with a `kind`, or an `Error` with a `status` of 0 or 400 to 599 and no `kind` (an adapter of your own) | `"model"` | its [kind](#modelerrorkind), from its status, message and `code` (`"insufficient_quota"` is `quota`) when it has none of its own | by kind: `context_overflow` 413, `rate_limit` 429, `quota` 503, `timeout` 504, `unreachable` and `server` 502, `auth` and `invalid` 500 | `true` for `rate_limit`, `timeout`, `unreachable` and `server`, with the provider's `retryAfterMs` when it named one | by kind and status: "The model was busy (HTTP 429)." |
+| An `AbortError` (a signal that aborted: the user left, the server stopped the question) | `"aborted"` | `"aborted"` | 503 | `true` | "It was stopped before it finished." |
+| A `TimeoutError` (`AbortSignal.timeout`, a deadline) | `"aborted"` | `"timeout"` | 504 | `true` | "It took too long, and was stopped. Try again." |
+| `DocumentScopeError` `"scope_invalid"` or `"scope_required"`, a `TypeError`, a `RangeError`, and their `EventError` | `"input"` | the scope error's code | 500 | `false` | "Something went wrong." It is a bug of the server, not something the user did. |
+| A Node system error (a `code` and a `syscall`), such as a path `ingest` does not read (`ELOOP`, `EISDIR`, `EINVAL`, `ENOENT`, `ETIMEDOUT`), and its `EventError` | `"unknown"` | its code: `"ENOSPC"`, when it reads as one (capitals, digits and `_`). A code that does not, such as a host, is left out | 500 | `false` | "Something went wrong (ENOSPC).", or "Something went wrong." without a code |
+| Plain data (an `EventError`) without a `kind`, and without a `code` or `name` of the rows above | `"unknown"` | none | its `status` when it is 400 to 599, else 500 | `true` for 429, 502, 503 and 504 | "Something went wrong." |
+| Anything else | `"unknown"` | none | 500 | `false` | "Something went wrong." |
+
+The statuses of model errors are those a server that asks a model for its user answers: the same as
+`toUserError` in [Errors and reliability](../guides/errors-and-reliability.md#putting-it-together-a-chat-route).
+The upload handlers answer with [`uploadAnswerOf`](./node.md#uploadansweroferror), which follows
+the same rules for the library's errors and keeps the message of an error with a status.
+
+#### Your own words, in one switch
+
+Switch on `category`, and on `code` where you want more detail. This one answers a Hebrew-speaking
+user; [Errors and reliability](../guides/errors-and-reliability.md#your-users-words-errorinfoof) has
+one for every code:
+
+```ts
+import { errorInfoOf } from "llm-large-files";
+
+export function hebrewMessage(error: unknown): string {
+  const info = errorInfoOf(error);
+  switch (info.category) {
+    case "ingest": return info.code === "too_large" ? "הקובץ גדול מדי." : "לא ניתן לקרוא את הקובץ.";
+    case "store": return "לא ניתן לגשת לקבצים כרגע. נסו שוב בעוד רגע.";
+    case "missing": return info.code === "scope_missing" ? "השיחה הזו כבר לא קיימת." : "אחד הקבצים כבר לא זמין. צרפו אותו שוב.";
+    case "model": return info.retryable ? "העוזר עמוס כרגע. נסו שוב בעוד דקה." : "העוזר אינו זמין כרגע.";
+    case "aborted": return "השאלה נעצרה.";
+    default: return "משהו השתבש. נסו שוב מאוחר יותר."; // "input", "unknown", and later categories
+  }
+}
+```
+
+### `ErrorInfo`
+
+```ts
+type ErrorCategory = "ingest" | "store" | "missing" | "model" | "aborted" | "input" | "unknown";
+
+type ErrorInfo = {
+  category: ErrorCategory;
+  code?: string;
+  status: number;
+  retryable: boolean;
+  retryAfterMs?: number;
+  message: string;
+};
+```
+
+New in 0.9.0. What [`errorInfoOf()`](#errorinfooferror) returns.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `category` | `ErrorCategory` | What kind of failure: a refused file, the store, documents or a chat that are gone, a model request, a stop, a mistake in the call, or anything else. A switch over every category must handle those a later version adds. |
+| `code` | `string`, optional | More precise than the category: an `IngestErrorCode`, a `ModelErrorKind`, `"documents_missing"`, a `DocumentScopeErrorCode`, `"aborted"` or `"timeout"`, or a system error's code. |
+| `status` | `number` | The HTTP status to answer with: 400 to 599. |
+| `retryable` | `boolean` | Whether the same call may work when it is made again, later. |
+| `retryAfterMs` | `number`, optional | How long to wait first, in milliseconds, when that is known. |
+| `message` | `string` | English words a user may see. Never a path, a host, a stack or a provider's words. |
 
 ### Errors in events: `EventError`
 
 ```ts
-type EventError = { message: string; kind?: ModelErrorKind; status?: number; name?: string; code?: IngestErrorCode };
+type EventError = { message: string; kind?: ModelErrorKind; status?: number; name?: string; code?: IngestErrorCode | DocumentScopeErrorCode };
 ```
 
 New in 0.7.0. An error as the events of a question or an ingest carry it ([events](./events.md)):
@@ -332,11 +478,11 @@ included: log that one.
 
 | Field | Type | What it holds |
 |---|---|---|
-| `message` | `string` | Words your users may see. A model error is told by its kind and status, never in the provider's words, which can name projects, hosts or keys: "The model was busy (HTTP 429).", "The model's quota has run out (HTTP 429).", "The model could not be reached.", "The model refused the key or token it was sent (HTTP 401)." A Node system error is told by its code ("The file could not be read from storage (ENOENT)."), a `DocumentStoreError` by its own message, which names only its code, and a store that failed to write in `ingest.error` as "The document could not be stored. Try again later.". The library's own errors (a refused file, `DocumentsNotFoundError`, an abort, the error a listener threw) keep their message, and so does any other `Error` without a `kind` or a numeric `status`, such as one an adapter or a token function of your own throws: give such errors a status, or words of your own. A value that is not an `Error` is "Something went wrong.". |
-| `kind` | [`ModelErrorKind`](#modelerrorkind), optional | For a model error: its kind, as [`errorKindOf`](#errorkindoferror) reads it. |
-| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. |
-| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"GeminiRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"IngestError"`… |
-| `code` | [`IngestErrorCode`](./library.md#ingesterror), optional | For a file `ingest` could not read: why (`"too_large"`, `"no_text"`, `"busy"`…). New in 0.8.0. |
+| `message` | `string` | Words your users may see. A model error is told by its kind and status, never in the provider's words, which can name projects, hosts or keys: "The model was busy (HTTP 429).", "The model's quota has run out (HTTP 429).", "The model could not be reached.", "The model refused the key or token it was sent (HTTP 401)." A Node system error is told by its code ("The file could not be read from storage (ENOENT)."), when the code reads as one (capitals, digits and `_`; since 0.9.0: a driver may put a host in `code`), a `DocumentStoreError` by its own message, which names only its code, and a store that failed to write in `ingest.error` as "The document could not be stored. Try again later." (with `name` `"DocumentStoreError"` and `status` 503 since 0.9.0). The library's own errors (a refused file, `DocumentsNotFoundError`, an abort, the error a listener threw) keep their message, and so does any other `Error` without a `kind` or a numeric `status`, such as one an adapter or a token function of your own throws: give such errors a status, or words of your own. A status that is not a model's (not 0 or 400 to 599), and plain data thrown with a status (`{ status: 429, message }`), are "Something went wrong.", as `errorInfoOf` reads them (since 0.9.0; before, a model's words). A value that is not an `Error` is "Something went wrong.". |
+| `kind` | [`ModelErrorKind`](#modelerrorkind), optional | For a model error: its kind, as [`errorKindOf`](#errorkindoferror) reads it. Since 0.9.0 also for an `Error` with a `status` of 0 or 400 to 599 and no `kind` of its own (an adapter of yours, `httpError` of the testing helpers): the kind its status, message and `code` give ([`classifyModelError`](#classifymodelerrorstatus-message-signals)), as its message is told and as `errorInfoOf` reads the error. Not for plain data thrown (an object of no class), and never for the library's own errors (`DocumentStoreError`, `DocumentsNotFoundError`, `IngestError`, `DocumentScopeError`). |
+| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also the status of the library's own errors: 503 for `DocumentStoreError`, 404 for `DocumentsNotFoundError`, and for an `IngestError` the status of every code but those of 422 (413, 409, 503). |
+| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"GeminiRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentStoreError"`, `"DocumentScopeError"`, `"IngestError"`, `"TypeError"`… Since 0.9.0 a store's own subclass of `DocumentStoreError` (one named `"BucketStoreError"`) is named `"DocumentStoreError"` here, and an extractor's own subclass of `IngestError` (one named `"OcrRefusal"`) `"IngestError"`, so that `errorInfoOf` reads them as a store's failure and a refused file. |
+| `code` | [`IngestErrorCode`](./library.md#ingesterror) or [`DocumentScopeErrorCode`](./library.md#documentscopeerror), optional | For a file `ingest` could not read: why (`"too_large"`, `"no_text"`, `"busy"`, `"exists"`…). New in 0.8.0. Since 0.9.0 also, with `name` `"DocumentScopeError"`, why a scope could not be used: `"scope_missing"` (the chat was deleted), `"scope_invalid"` or `"scope_required"`. A table typed `Record<IngestErrorCode, string>` must check the code before it looks it up. |
 
 To show your own words, map the error by `kind`, `status` or `name`, as you would the thrown one
 (see [Errors and reliability](../guides/errors-and-reliability.md)).
@@ -358,8 +504,9 @@ declare function withRetry<T>(run: () => Promise<T>, options?: {
 Runs `run`, and runs it again when it failed in a way that another try can mend. It is the rule
 `askWithFiles` and `askGemini` use for each chat request, and the whole-file part reads use for
 each part. It reads three fields of what `run` throws, so any error with them works, not only a
-`ModelRequestError`: `status` (a finite number), `kind` and `retryAfterMs`. `run` is called again
-as it is: build the request inside it.
+`ModelRequestError`: `status` (a finite number), `kind` and `retryAfterMs`. An error without a
+`kind` also has its `message` and `code` read, for the kind they give. `run` is called again as it
+is: build the request inside it.
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
@@ -375,7 +522,12 @@ What happens to an error, checked in this order:
 2. Its `kind` is `"quota"` or `"context_overflow"`: it is thrown. A wait does not mend a daily cap
    or an empty balance, and only a smaller request passes a limit of size, whatever its status
    (OpenAI's request larger than the tokens a minute allows comes as 429). 0.5.0, which had no
-   kinds, sent both again when their status was 0, 408, 409, 429 or 500 and more.
+   kinds, sent both again when their status was 0, 408, 409, 429 or 500 and more. An error without
+   a `kind` of its own that has a `status` of 0 or 400 to 599 (an adapter of yours, `httpError`)
+   has the kind [`classifyModelError`](#classifymodelerrorstatus-message-signals) gives its status,
+   message and `code`, as its events have it: a 429 of code `"insufficient_quota"` is a quota, and
+   is thrown. Plain data thrown (an object of no class) has no kind. New in 0.9.0: such an error
+   was sent again by its status, while its `retry` event and `errorInfoOf` called it not retryable.
 3. The provider said not to send it again: the adapter took note of Claude's
    `x-should-retry: false`. It is thrown, whatever its status. The note is internal: an error of
    your own cannot carry it.

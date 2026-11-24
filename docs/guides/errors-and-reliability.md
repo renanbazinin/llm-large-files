@@ -32,8 +32,9 @@ sees them:
   read whose parts all failed) returns its error to the model, which tries another way. Nothing is
   thrown. See [Failures inside tools](#failures-inside-tools).
 
-What is left for you: catch what the question throws, show your own words for it, keep what a
-failed question found, check `answered`, and set an overall deadline.
+What is left for you: catch what the question throws, show your own words for it (one switch over
+[`errorInfoOf`](#your-users-words-errorinfoof) does it), keep what a failed question found, check
+`answered`, and set an overall deadline.
 
 ## What a question can throw
 
@@ -41,7 +42,7 @@ failed question found, check `answered`, and set an overall deadline.
 
 | Error | When | Fields to use | `partialResultOf` |
 |---|---|---|---|
-| `DocumentsNotFoundError` | A document ID was never uploaded, has expired, was deleted, or belongs to another `owner`. Thrown before any model request. | `ids`: the IDs that are missing. | No |
+| `DocumentsNotFoundError` | A document ID was never uploaded, has expired, was deleted, or belongs to another `owner` or scope. Thrown before any model request, unless `onMissingDocuments` says to answer without it or brings it back (new in 0.9.0, [below](#documents-that-are-gone)). | `ids`: the IDs that are missing. | No |
 | `DocumentStoreError` | The store could not be read while the question planned its documents: a volume that did not answer, a database that is down. The documents are not gone, and the same question may work a moment later. | `code` (`EIO`, `EMFILE`) and `syscall` when a system error is behind it; `cause`, the error that was caught. | No |
 | `ModelRequestError`: a `GeminiRequestError`, `OpenAiRequestError` or `AnthropicRequestError` | A model request failed in a way that was not worth sending again, or still failed after the retries. A reply of HTTP 200 whose body is not JSON (a gateway's page in the model's place) is one too, of kind `invalid`, with status 200 and the `SyntaxError` as `cause`; it is not sent again. A reply of HTTP 200 whose body is empty is of kind `unreachable`, status 0, and is sent again first. | `kind`, `status` (0 when no answer came, or the reply stopped on its way), `retryAfterMs`, `limitTokens`, `requestedTokens`, `cause`. `OpenAiRequestError` adds `param` and `code`; `AnthropicRequestError` adds `type`. | Yes |
 | The reason of your `signal` | You stopped the question, or your deadline ran out. See [An overall deadline](#an-overall-deadline). | Test your signals, not the error. | Yes, for a reason that is an object |
@@ -78,12 +79,13 @@ Whose words each message is:
 
 Use `instanceof` for the classes, and `errorKindOf(error)` for the kind. `errorKindOf` reads the
 `kind` field of any error that has one, so it also works when two copies of the package are
-installed side by side, where `instanceof` fails. The four model error classes are all
-`ModelRequestError`.
+installed side by side, where `instanceof` fails; so do the classes' own `is(value)` methods, new
+in 0.9.0. The four model error classes are all `ModelRequestError`. Or let
+[`errorInfoOf`](#your-users-words-errorinfoof) tell them apart for you (new in 0.9.0).
 
 | Export | Entry point |
 |---|---|
-| `ModelRequestError`, `errorKindOf`, `classifyModelError`, `DocumentsNotFoundError`, `DocumentStoreError`, `partialResultOf` | `llm-large-files` |
+| `ModelRequestError`, `errorKindOf`, `classifyModelError`, `DocumentsNotFoundError`, `DocumentStoreError`, `partialResultOf`, `errorInfoOf` | `llm-large-files` |
 | `GeminiRequestError`, and `DocumentsNotFoundError` and `partialResultOf` again | `llm-large-files/gemini` |
 | `OpenAiRequestError` | `llm-large-files/openai` |
 | `AnthropicRequestError` | `llm-large-files/anthropic` |
@@ -341,7 +343,9 @@ How the client side cancels a streamed answer is in [Web app](./web-app.md).
 When the provider refuses a request as larger than the model takes (kind `context_overflow`), the
 loop does not give up at once. The same holds for a request larger than the tokens the provider
 lets through in a minute (OpenAI's and Groq's TPM, or a day's allowance): that allowance then
-stands for the window.
+stands for the window. Since 0.9.0 the loop reads the kind as the events report it: an error
+without a `kind` of its own that has a model's status (an adapter of your own, `httpError(413)`)
+has the kind `classifyModelError` gives its status, message and `code`.
 
 1. It takes the provider's count and window for the rest of the question, replaces tool results
    with stand-ins (those of all but the last three tool rounds, then all but the last two, then all
@@ -608,8 +612,8 @@ written for the user and a `code` for your app, when it cannot take a file: it i
 (`"no_text"`), is a gzip or ZIP archive (`"compressed"`), is binary (`"not_text"`), is an Office
 file of before 2007 or with a password (`"legacy_office"`), needs an optional dependency that is not
 installed (`jszip` for DOCX, PPTX and XLSX, `unpdf` for PDF) or an `unpdf` that runs on this Node
-(`"missing_dependency"`: the setup of the server, not the file, as in "The unpdf installed cannot
-read PDF files on Node 20 (…). …"), or is a PDF without a text layer (see [PDFs](./pdfs.md)). Show
+(`"missing_dependency"`: the setup of the server, not the file, as in "The unpdf installed would
+stop the whole server at the first PDF file on Node 22, …"), or is a PDF without a text layer (see [PDFs](./pdfs.md)). Show
 its message, or words of your own for its `code`. Until 0.8.0 it was a plain `Error`, with the same
 message. A text file is never refused for its encoding: one that is
 not UTF-8 is read in the encoding it was saved in, or as UTF-8 with the characters that are not
@@ -624,30 +628,163 @@ A file the parser cannot read (a damaged DOCX, PPTX, XLSX or PDF) throws an `Ing
 `"unreadable"` with the parser's message (jszip's, or that of pdf.js's `InvalidPDFException`), and
 the parser's error as `cause`; an extractor of your own that throws an `Error` gets the same, with
 the code its message gives. Those messages are not written for users: show "This file could not
-be read." for the code `"unreadable"`. With `createIsolatedExtractors`, a file whose reader ran out
+be read." for the code `"unreadable"`. Since 0.9.0 the upload handlers, `uploadAnswerOf` and
+`errorInfoOf` do: "This file could not be read. It may be damaged, or not of the type its name
+says.". With `createIsolatedExtractors`, a file whose reader ran out
 of memory or time is `"out_of_memory"` or `"timeout"`, readers that are all busy give `"busy"`,
 answered `503` with `Retry-After`, and a reader that could not start at all (a `childScript` that
 is not there) is not an `IngestError`, but an `Error` with `status` 500
 ([node reference](../reference/node.md#createisolatedextractorsoptions)).
 
-A store that fails while it writes throws its own error, as it came: its message may name a path or
-a host, so log it and show a general message. `createDocumentHandlers` answers a file it cannot take
-with 422 and the error's message, and a Node system error of the store (one with a `code` and a
-`syscall`) with 500 and only its code ("Upload failed (ENOSPC)."). Any other store error, one
-without a `status` (or `statusCode`) from 400 to 599, is answered 500 "Upload failed.", without its
-message, and so is a thrown value that is not an `Error`. The handlers log nothing: log the error in
-your store before you throw it. Two paths still answer a store's error 422 with its message, which
-may name a host: an `ingest` of your own that throws a new error in its place, as `ingestInProcess`
-in [Deployment](./deployment.md#uploads-and-ingest) does, and a route of your own, as in
-[Web app](./web-app.md#filesingest-and-its-errors). So a custom store should throw an error with a
-`status` and a message fit for the user (both are sent as they are): every path keeps that status.
-See [the node reference](../reference/node.md#uploadrequest-response).
+A store that fails while it writes is a `DocumentStoreError` since 0.9.0: operation `"write"` in
+`ingest` (code `"ETIMEDOUT"` for a write that did not end in time), `"delete"` in `files.delete`,
+`"sweep"` in `files.sweep`. Its status is 503, its message ("The document could not be stored
+(EIO). Try again.") names no path or host and can be shown, and the store's own error is `cause`:
+log that one. Before 0.9.0 the store's error came out as it was. The `ingest.error` event of a
+failed write says "The document could not be stored. Try again later.", with `name`
+`"DocumentStoreError"` and `status` 503 (new in 0.9.0), and `errorInfoOf` reads it as the error.
+`createDocumentHandlers` answers a
+file it cannot take (an `IngestError`) with 422 and the error's message (fixed words for
+`"unreadable"`), and a store that failed
+with 503, `Retry-After: 5` and the `DocumentStoreError`'s message (it was a 500). Since 0.9.0 any
+other error without a status is answered 500 "Upload failed.", without its message: a `LargeFiles`
+of your own whose `ingest` throws a plain `Error` no longer sends its words, which may name a host,
+as a 422 (S12). Throw `new IngestError(code, message)` for a file you refuse, as `ingestInProcess`
+in [Deployment](./deployment.md#uploads-and-ingest) does. A route of your own answers the same way
+with `uploadAnswerOf` from `llm-large-files/node` ([Web app](./web-app.md#filesingest-and-its-errors)).
+The handlers log nothing: log `error.cause`. See
+[the node reference](../reference/node.md#how-errors-are-answered).
 
 Every read of the store goes through the library: `prepare`, `getMeta`, `getOriginal`, the tools.
 What the store throws there becomes a `DocumentStoreError`, which does not mean the document is
 gone. A store's own `delete` and `sweep` pass on its error as it came. A document that is gone, or
 of another owner, is not an error of the store: `prepare` lists it in `missing`, and `askWithFiles`
-throws `DocumentsNotFoundError` for it. What a store must do is in [Storage](./storage.md).
+throws `DocumentsNotFoundError` for it, unless `onMissingDocuments` says otherwise (below). What a
+store must do is in [Storage](./storage.md).
+
+## Documents that are gone
+
+A document expires `ttlMs` after its upload (72 hours by default), and a chat can outlive it. By
+default the next question then fails whole, before any model request, with
+`DocumentsNotFoundError`. New in 0.9.0, `onMissingDocuments` settles it in the question
+([missing documents](../reference/ask.md#missing-documents)):
+
+| `onMissingDocuments` | What the question does |
+|---|---|
+| `"throw"` (the default) | Throws `DocumentsNotFoundError`, as before. |
+| `"drop"` | Answers without them. One line of the system instruction tells the model how many files are no longer available. `result.missing` lists their IDs; take them off the chat, and tell the user. |
+| A function | Gets the missing IDs, with the question's `owner`, `scope` and `signal`, and returns `"throw"`, `"drop"`, `{ retry: true }` after it ingested them again under the same IDs, or `{ replace: { [oldId]: newId } }`. A retry or a replace plans the question again once; an ID still missing then throws `DocumentsNotFoundError`. What it throws fails the question. |
+
+A document deleted while a question runs is not an error of the question: the tool tells the model
+it is no longer available, and the question gets a `document_gone` notice.
+
+## Your users' words: `errorInfoOf`
+
+New in 0.9.0. `errorInfoOf(error)` tells what any error of the library means, in one record: a
+`category`, a `code`, the HTTP `status` to answer with, whether it is `retryable` and after how
+long (`retryAfterMs`), and an English `message` that is safe to show. It never throws, and it reads
+the errors of another copy of the package too. Every row is in
+[the reference](../reference/errors-and-retries.md#errorinfooferror).
+
+| `category` | What failed | `code` |
+|---|---|---|
+| `"ingest"` | A file the library refused (`IngestError`). | Its `IngestErrorCode`: `"too_large"`, `"no_text"`, `"busy"`… |
+| `"store"` | The store, just now (`DocumentStoreError`). Retry. | The system error's code, when there is one. |
+| `"missing"` | Documents that are gone (`DocumentsNotFoundError`), or the chat's folder (`DocumentScopeError` `"scope_missing"`). | `"documents_missing"`, `"scope_missing"`. |
+| `"model"` | A model request (`ModelRequestError`). | Its [kind](#the-kind-of-a-model-error). |
+| `"aborted"` | A signal stopped it: the user left, or a deadline. | `"aborted"`, `"timeout"`. |
+| `"input"` | A mistake in the call: a bug of your server, not of the user. | A scope error's code. |
+| `"unknown"` | Anything else. | A system error's code. |
+
+One switch turns them into your users' words. A chatbot for Hebrew speakers:
+
+```ts
+import { errorInfoOf, type ErrorInfo } from "llm-large-files";
+
+/** What to answer a Hebrew-speaking user: the status, the words, and when to try again. */
+export function hebrewAnswer(error: unknown): { status: number; message: string; retryAfterMs?: number } {
+  const info = errorInfoOf(error);
+  return { status: info.status, message: hebrewMessage(info), ...(info.retryAfterMs !== undefined ? { retryAfterMs: info.retryAfterMs } : {}) };
+}
+
+function hebrewMessage(info: ErrorInfo): string {
+  switch (info.category) {
+    case "ingest":
+      switch (info.code) {
+        case "empty": return "הקובץ ריק.";
+        case "too_large": return "הקובץ גדול מדי.";
+        case "too_much_text": return "יש בקובץ יותר מדי טקסט.";
+        case "too_many_pages": return "יש בקובץ יותר מדי עמודים.";
+        case "not_text": return "לא ניתן לקרוא קובץ מסוג זה. צרפו קובץ טקסט, PDF, Word, PowerPoint או Excel.";
+        case "compressed": return "הקובץ דחוס. חלצו אותו וצרפו את הקובץ שבתוכו.";
+        case "legacy_office": return "זהו קובץ Office ישן או מוגן בסיסמה. שמרו אותו מחדש וצרפו שוב.";
+        case "encrypted": return "קובץ ה-PDF מוגן בסיסמה.";
+        case "no_text": return "לא נמצא טקסט בקובץ. ייתכן שזהו מסמך סרוק.";
+        case "busy": return "השרת עמוס כרגע. נסו שוב בעוד רגע.";
+        case "exists": return "הקובץ הזה כבר צורף.";
+        default: return "לא ניתן לקרוא את הקובץ.";
+      }
+    case "store":
+      return "לא ניתן לגשת לקבצים כרגע. נסו שוב בעוד רגע.";
+    case "missing":
+      return info.code === "scope_missing" ? "השיחה הזו כבר לא קיימת." : "אחד הקבצים כבר לא זמין. צרפו אותו שוב.";
+    case "model":
+      switch (info.code) {
+        case "context_overflow": return "השיחה ארוכה מדי. פתחו שיחה חדשה, או שאלו על פחות קבצים.";
+        case "rate_limit": return "העוזר עמוס כרגע. נסו שוב בעוד דקה.";
+        case "timeout": return "התשובה התעכבה יותר מדי. נסו שוב.";
+        case "unreachable":
+        case "server": return "לא ניתן לקבל תשובה כרגע. נסו שוב.";
+        default: return "העוזר אינו זמין כרגע.";
+      }
+    case "aborted":
+      return info.code === "timeout" ? "השאלה ארכה יותר מדי זמן ונעצרה. נסו שוב." : "השאלה נעצרה.";
+    default:
+      // "input", "unknown", and categories of a later version.
+      return "משהו השתבש. נסו שוב מאוחר יותר.";
+  }
+}
+```
+
+A page that renders these messages sets `dir="rtl"` on their element (or `dir="auto"`), so that a
+file name in Latin letters inside a sentence stays in its place.
+
+Use it where an error reaches your code: the `catch` of a question, and a route of your own that
+ingests files. It also reads the `error` of a `run.error` or `ingest.error` event, which is plain
+data (`EventError`), so a stream to the browser can carry the same words. It reads such data by its
+`code` (a refused file, a scope), its `name` (a store, documents or a scope) and its `kind` (a
+model). A model's error always has its `kind` there: an error of an adapter of your own that has a
+`status` (0, or 400 to 599) and no `kind` gets the kind its status, message and `code` give, as
+`errorInfoOf` gives it for the error itself (`"rate_limit"` for a 429, `"quota"` for a 429 of code
+`"insufficient_quota"`, `"server"` for a 503, `"auth"` for a 401). A system error's event (a path
+`ingest` could not read: "The file could not be read from storage (ELOOP).") gives its code, as the
+error does. Data with none of them
+is `"unknown"`, with its `status` kept when it is 400 to 599 (a hook of yours that threw a `409`),
+and `retryable` for 429, 502, 503 and 504:
+
+```ts
+import type { ServerResponse } from "node:http";
+import { askStream, errorInfoOf, type AskOptions } from "llm-large-files";
+import { sseMessageOf, writeSseEvents } from "llm-large-files/node";
+
+export async function streamInHebrew(res: ServerResponse, options: AskOptions): Promise<void> {
+  await writeSseEvents(res, askStream(options), {
+    map: (event) => sseMessageOf(event.type === "run.error"
+      ? { ...event, error: { ...event.error, message: hebrewMessage(errorInfoOf(event.error)) } }
+      : event),
+  });
+}
+```
+
+The upload handlers of `llm-large-files/node` answer in English. To answer in Hebrew there, ingest
+in a route of your own and answer with `hebrewAnswer(error)`, or word the `error` of the JSON answer
+and of `ingest.error` in the browser, by its status and `code`. The `ingest.error` of the handlers
+also has the `name` of a store that failed (`"DocumentStoreError"`) and of a scope error
+(`"DocumentScopeError"`, with `code` `"scope_missing"` for a deleted chat), and the `kind` of a
+model's error (a `ModelRequestError` that an ingest or a hook of yours threw). So `errorInfoOf`
+reads it as the handler answered the error, with the status of the JSON answer: a deleted chat is
+`"missing"` and 404, a model that was busy `"model"`, `"rate_limit"` and 429. The event has no
+`retryAfterMs`: the JSON answer sends the wait as `Retry-After`.
 
 ## Putting it together: a chat route
 
@@ -664,6 +801,7 @@ type Failure = { status: number; message: string; retryAfterSeconds?: number };
 
 /** What to tell the user about an error of a question, and the HTTP status to answer with. */
 export function toUserError(error: unknown): Failure {
+  // With onMissingDocuments: "drop", a question answers without its missing files instead.
   if (error instanceof DocumentsNotFoundError) {
     return { status: 404, message: "A file of this chat is no longer available. Attach it again." };
   }

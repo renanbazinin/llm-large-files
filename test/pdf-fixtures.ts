@@ -211,3 +211,42 @@ export function layeredPdf(): Uint8Array {
     pdfStream("", textLine("Page two, outside any layer.", 700)),
   ]);
 }
+
+/** The entries of a form XObject the size of a letter page, before its /Resources. */
+export const FORM = "/Type /XObject /Subtype /Form /BBox [0 0 612 792]";
+
+/** A page object, child of object 2, with these contents and resources. */
+export const pageObject = (contents: string, resources: string) => `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contents} /Resources ${resources} >>`;
+
+/**
+ * One page that paints a form, which paints the next form `fanout` times, `depth` deep. The last
+ * form shows a line of text. Objects: 1 catalog, 2 pages, 3 the page, 4 the font, 5 the content,
+ * 6 the form with text, then one form for each level. `split` writes the page's content in two
+ * streams, "q /" and "X Do Q"; `content` replaces the stream of the page's content.
+ */
+export function formsInForms(depth: number, fanout: number, { split = false, content }: { split?: boolean; content?: Uint8Array } = {}): Uint8Array {
+  const contents = split ? `[5 0 R ${7 + depth} 0 R]` : "5 0 R";
+  const objects: Array<string | Uint8Array> = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", pageObject(contents, `<< /XObject << /X ${6 + depth} 0 R >> >>`), HELVETICA, content ?? pdfStream("", split ? "q /" : "q /X Do Q")];
+  objects.push(pdfStream(`${FORM} /Resources << /Font << /F1 4 0 R >> >>`, textLine("Words painted many times.")));
+  for (let level = 1; level <= depth; level++) objects.push(pdfStream(`${FORM} /Resources << /XObject << /X ${5 + level} 0 R >> >>`, "q /X Do Q\n".repeat(fanout)));
+  if (split) objects.push(pdfStream("", "X Do Q"));
+  return pdfFromObjects(objects);
+}
+
+/**
+ * A one-page PDF with `count` more objects that each hold an array of `size` numbers: fewer objects
+ * than a count of `OBJECTS_PER_TICK` pauses for, each far slower to parse than a page. With
+ * `referred`, the page refers to them all (under a key of its own), so a cut of the page copies them.
+ */
+export function heavyPdf(count = 450, size = 1_200, referred = false): Uint8Array {
+  const numbers = `[${Array.from({ length: size }, (_, index) => index % 1_000).join(" ")}]`;
+  const references = referred ? ` /Heavy [${Array.from({ length: count }, (_, index) => `${6 + index} 0 R`).join(" ")}]` : "";
+  return pdfFromObjects([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [4 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+    HELVETICA,
+    `<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >>${references} >>`,
+    pdfStream("", textLine("A page among many large arrays.")),
+    ...Array.from({ length: count }, () => numbers),
+  ]);
+}

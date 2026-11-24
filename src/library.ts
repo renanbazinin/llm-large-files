@@ -1,29 +1,26 @@
-import { randomUUID } from "node:crypto";
-import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
+import { callerOf, checkMetaVersion, documentContext, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules, type Caller } from "./access.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
-import { DocumentStoreError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
-import { EventEmitter, eventErrorOf, newRunId, type IngestEvent, type IngestStage } from "./events.js";
-import { detectFormat, extractText } from "./extract.js";
+import type { IngestEvent } from "./events.js";
+import { ingestDocument, LONGEST_TIMER_MS, type IngestContext } from "./ingest.js";
 import { Limiter } from "./limiter.js";
-import { TimeSlicer } from "./pause.js";
-import { canBeReadWhole, CARD_LINES, documentToolsInstruction, formatBytes, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
-import { measureQuality, type TextQuality } from "./quality.js";
-import { DocumentGoneError, openRangedDocument, pieceKey, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
+import { canBeReadWhole, CARD_LINES, documentToolsInstruction, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
+import { DocumentGoneError, openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
 import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
-import { DOCUMENT_ID_PATTERN } from "./stores.js";
-import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
-import { measureText, prepareText, removeInvisible, sliceWhole, wellFormed } from "./text.js";
+import { TimeSlicer } from "./pause.js";
+import { checkScope } from "./scope.js";
+import { isSha256, sha256InSlices } from "./source.js";
+import { APP_DOCUMENT_ID_PATTERN } from "./stores.js";
+import { wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
-import { createDocumentTools } from "./tools.js";
+import { createDocumentTools, type PageLookTurns } from "./tools.js";
 import type {
   Budget,
+  DocumentContext,
   DocumentFormat,
   DocumentMeta,
+  DocumentScope,
   DocumentStore,
-  DocumentSummary,
-  ExtractedText,
-  ExtractProgress,
   Extractor,
   GenerateText,
   PreparedContext,
@@ -32,6 +29,7 @@ import type {
 } from "./types.js";
 
 export { DEFAULT_BUDGET } from "./budget.js";
+export { checkOwner, cleanFileName, cleanMimeType, NEVER_EXPIRES, toDocumentSummary } from "./ingest.js";
 
 export type LargeFilesOptions = {
   /** Where extracted text is kept: `new FileDocumentStore(dir)`, `new MemoryDocumentStore()`, or your own. */
@@ -71,11 +69,19 @@ export type LargeFilesOptions = {
   /** Override or add text extractors per format. */
   extractors?: Partial<Record<DocumentFormat, Extractor>>;
   /**
-   * Formats whose uploaded file is kept in the store next to its text, for example `["pdf"]`.
-   * Empty by default: a kept file takes disk space, up to the upload limit, until the document
-   * expires. A store without `putOriginal` keeps none.
+   * Formats whose uploaded file is kept, for example `["pdf"]`, so that `view_pages` can show its
+   * pages: as a copy in the store, next to its text (`putOriginal`), or, for an ingest with
+   * `IngestInput.original`, where the application keeps it (`originals`). Empty by default: a kept
+   * file takes disk space, up to the upload limit, until the document expires. A store without
+   * `putOriginal` keeps no copies.
    */
   keepOriginals?: DocumentFormat[];
+  /**
+   * Reads the uploaded files that the application keeps itself (`IngestInput.original`), in place
+   * of a copy in the store: `fileOriginals(root)`, of "llm-large-files/node", reads them from a
+   * folder. A file read back is checked against the size and SHA-256 it had at ingest. New in 0.9.0.
+   */
+  originals?: OriginalsReader;
   /**
    * A PDF without any text (a scan) has nothing to search, and was always refused. When its
    * original is kept, its pages can be shown to the model instead, so one of up to this many pages
@@ -118,8 +124,62 @@ export type LargeFilesOptions = {
    * not finish sooner. `Infinity` for no limit (as before 0.8.2). Defaults to 2. New in 0.8.2.
    */
   maxConcurrentIngests?: number;
+  /**
+   * How many looks at pages (`view_pages`) run at once in this library, over all its questions.
+   * The others wait their turn, in order, before the PDF is loaded. A look parses the whole PDF on
+   * the one thread the questions share: more at once do not finish sooner, they only hold more
+   * memory (six at once held 352 MB more than one). `Infinity` for no limit (as before 0.9.0).
+   * Defaults to 1. A look reads its PDF from the store within `ingestTimeoutMs` (2 minutes when
+   * that is 0): past it, the turn goes back and the model is told that the file could not be read
+   * in time. New in 0.9.0.
+   */
+  maxConcurrentPageLooks?: number;
+  /**
+   * How long a look at pages waits for its turn, in milliseconds. Past it, the model is told that
+   * the server is busy and to answer from the text, and the question gets a "page_looks_busy"
+   * notice. `Infinity` waits without end; 0 does not wait. Defaults to 30,000. New in 0.9.0.
+   */
+  pageLookWaitMs?: number;
+  /**
+   * Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `prepare`,
+   * `askWithFiles` (and `askStream`, `askGemini`), and `tools`, which then needs `access`. A call
+   * without one throws a TypeError ("owner is required: requireOwner is on"), and a document stored
+   * without an owner reads as missing. For a server where every document belongs to a signed-in
+   * user: a call that forgot the owner fails, rather than sees every document without one.
+   * Defaults to false. New in 0.9.0.
+   */
+  requireOwner?: boolean;
+  /**
+   * The same for scopes (`DocumentScope`): every call must name its scope, and a document stored
+   * without one reads as missing. `sweep` without a scope is still allowed: it is upkeep of the
+   * store, not a user's access. Defaults to false. New in 0.9.0.
+   */
+  requireScope?: boolean;
   /** Clock override, for tests. */
   now?: () => Date;
+};
+
+/**
+ * Reads the uploaded files that the application keeps itself (`LargeFilesOptions.originals`). New
+ * in 0.9.0.
+ */
+export type OriginalsReader = {
+  /**
+   * The bytes of the file at `ref` (`IngestInput.original.ref`), or undefined when it is not
+   * there. `context` is that of the call (its scope and owner), with the document's `id`, and
+   * `bytes`, the size the file had at ingest: a reader may stop one byte past it, as a file of
+   * another size has changed. What it throws is passed on as a `DocumentStoreError` (operation
+   * "read"), with its error as `cause`, as a store's errors are.
+   */
+  read(ref: string, context: OriginalReadContext): Promise<Uint8Array | undefined>;
+};
+
+/** What `OriginalsReader.read` is told of the call. New in 0.9.0. */
+export type OriginalReadContext = DocumentContext & {
+  /** The ID of the document whose file is read. */
+  readonly id: string;
+  /** The size of the file when it was ingested. */
+  readonly bytes: number;
 };
 
 export type IngestInput = {
@@ -144,10 +204,63 @@ export type IngestInput = {
   onEvent?: (event: IngestEvent) => void;
   /** The `runId` of those events. Defaults to one made for the ingest ("ing_…"). */
   runId?: string;
+  /**
+   * The document's ID, chosen by the application, such as the ID of its upload: lowercase letters,
+   * digits, "_" and "-", up to 64 characters, starting with a letter or a digit
+   * (`APP_DOCUMENT_ID_PATTERN`). Another ID is a TypeError. The model sees it, so it must hold no
+   * personal data. Without it, an ID is made ("doc_" and 32 hex digits), as before. New in 0.9.0.
+   */
+  id?: string;
+  /**
+   * What to do when a document with `id` is already stored, as the store sees it for this scope.
+   * "fail" (the default) throws an `IngestError` with code "exists" (status 409). "replace"
+   * deletes it, then stores the new one: only a document of the same owner and scope; another is
+   * "exists" too, even when its text is gone, unless it has expired. Over a store that keeps no
+   * scopes apart, the check spans every scope, so one chat cannot write over another's document.
+   * While an ingest of this library stores `id`, another ingest of it is "exists", whatever this
+   * says. New in 0.9.0.
+   */
+  ifExists?: "fail" | "replace";
+  /**
+   * Where the document belongs, such as [userId, chatId] (`DocumentScope`). It is passed to every
+   * store call, and kept in `DocumentMeta.scope`: only a caller of the same scope may use the
+   * document. A scope that is not valid is a `DocumentScopeError`. New in 0.9.0.
+   */
+  scope?: DocumentScope;
+  /**
+   * Where the application keeps the uploaded file: `ref`, up to 1,024 characters, such as a path
+   * under the folder of `fileOriginals`. When the format is kept (`keepOriginals`), the library
+   * reads the file from there (`LargeFilesOptions.originals`) instead of keeping a copy in the
+   * store, and records `DocumentMeta.original`: the ref, and the size and SHA-256 of the file, to
+   * tell when it has changed. The ref is never sent to the model, nor in a summary. An event holds
+   * it only with `AskOptions.eventResults: true`, in the full plan of `run.finish` and `run.error`.
+   * Without `LargeFilesOptions.originals`, it is a TypeError. The library never writes, moves or
+   * deletes the file: `delete` leaves it. New in 0.9.0.
+   */
+  original?: { ref: string };
 };
 
-/** Access options. When a document has an owner, only that owner can use it. */
-export type AccessOptions = { owner?: string };
+/** A file to ingest from where it is, rather than from bytes in memory (`IngestFromSource`). New in 0.9.0. */
+export type IngestSource = { path: string };
+
+/**
+ * An ingest of a file from a path: `IngestInput` with `source` in place of `bytes`. Before the
+ * ingest's turn, the path is looked at with `lstat`, and nothing of it is read: a link is refused,
+ * not followed, and so is anything that is not a file; an empty file, or one larger than
+ * `maxUploadBytes`, is refused at once. When its name and type say nothing of its format, only the
+ * parts of it that tell are read (its first KB; for a ZIP its first 64 KB and its last MB). At its
+ * turn the file is read once, up to `maxUploadBytes + 1` bytes, so that one that has grown is
+ * refused, and its bytes are let go once its text is read. An extractor that reads paths
+ * (`Extractor.readsPath`, as the isolated readers do) reads it instead, and the server does not.
+ * The library never writes, moves or deletes the file. New in 0.9.0.
+ */
+export type IngestFromSource = Omit<IngestInput, "bytes"> & { source: IngestSource; bytes?: never };
+
+/**
+ * Access options. When a document has an owner, only that owner can use it. `scope`, new in 0.9.0:
+ * the scope of the caller; a document stored with a scope serves only a caller with the same one.
+ */
+export type AccessOptions = { owner?: string; scope?: DocumentScope };
 
 export type PrepareOptions = AccessOptions & {
   /**
@@ -171,6 +284,14 @@ export type PrepareOptions = AccessOptions & {
 };
 
 export type ToolOptions = {
+  /**
+   * Who uses these tools. With it, every call of the tools asks the store for the document with
+   * this owner and scope, and checks the owner and scope the store holds against them: metadata
+   * made by hand, or handed in for another user, reads nothing. Without it, as before 0.9.0: each
+   * document is checked against the owner and scope it was handed in with. `askWithFiles` always
+   * passes it. Under `requireOwner` or `requireScope` it is required. New in 0.9.0.
+   */
+  access?: AccessOptions;
   /** Enables `analyze_whole_document`, which reads the entire file in parts. */
   generate?: GenerateText;
   /** Progress of whole-document reads, for status messages. */
@@ -214,17 +335,37 @@ export interface LargeFiles {
   budgetFor(overrides?: Partial<Budget>, limits?: ModelLimits): Budget;
   readonly maxUploadBytes: number;
   /**
-   * Extracts, normalizes, profiles, and stores a file. Throws a user-readable Error on bad input.
-   * A store that fails to write throws its own error, as it is: log it, and do not show its
-   * message to a user, as it may name a path, a host or a bucket.
+   * What the library requires of every call (`requireOwner`, `requireScope`), for code that serves
+   * it, such as the upload handlers. Optional, so that a `LargeFiles` of your own still compiles.
+   * New in 0.9.0.
    */
-  ingest(input: IngestInput): Promise<DocumentMeta>;
+  readonly access?: { readonly requireOwner: boolean; readonly requireScope: boolean };
+  /**
+   * Extracts, normalizes, profiles, and stores a file: from its bytes (`IngestInput`), or from a
+   * path (`IngestFromSource`, new in 0.9.0). Throws a user-readable Error on bad input.
+   * A store that fails to write is a `DocumentStoreError` (operation "write", status 503) since
+   * 0.9.0, with the store's own error as `cause`: log that one, and do not show its message to a
+   * user, as it may name a path, a host or a bucket. A path that is not there, a link or a folder
+   * is an error with the `code` of a system error (ENOENT, ELOOP, EISDIR), passed on as it is.
+   */
+  ingest(input: IngestInput | IngestFromSource): Promise<DocumentMeta>;
   getMeta(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
-  /** The uploaded file itself, when it was kept (see `keepOriginals`). Treat the bytes as read-only. */
+  /**
+   * The uploaded file itself, when it was kept (see `keepOriginals`): from the store, or from where
+   * the application keeps it (`IngestInput.original`, read by `LargeFilesOptions.originals`). Treat
+   * the bytes as read-only. Undefined too when, once the bytes are read, the store no longer
+   * describes the same document, or the bytes are not those of the upload: of another size, or
+   * another SHA-256 (0.9.0).
+   */
   getOriginal(id: string, access?: AccessOptions): Promise<Uint8Array | undefined>;
+  /** Deletes a document. A store that fails is a `DocumentStoreError` (operation "delete") since 0.9.0. */
   delete(id: string, access?: AccessOptions): Promise<boolean>;
-  /** Removes expired documents from the store. Returns how many were removed. */
-  sweep(): Promise<number>;
+  /**
+   * Removes expired documents from the store: those of `scope`, or of every scope without one.
+   * Returns how many were removed. A store that fails is a `DocumentStoreError` (operation
+   * "sweep") since 0.9.0.
+   */
+  sweep(options?: { scope?: DocumentScope }): Promise<number>;
   /**
    * Plans one model request: which documents go in whole and which become searchable cards.
    * `base` is the size of everything else in the request (messages, system prompt, other files).
@@ -234,70 +375,12 @@ export interface LargeFiles {
   tools(documents: DocumentMeta[], options?: ToolOptions): ToolSet;
 }
 
+/**
+ * Whether `value` has the shape of a document ID: one the library makes ("doc_" and 32 hex digits),
+ * or one an application may give (`APP_DOCUMENT_ID_PATTERN`, since 0.9.0), which the library's fit too.
+ */
 export function isDocumentId(value: unknown): value is string {
-  return typeof value === "string" && DOCUMENT_ID_PATTERN.test(value);
-}
-
-/** The fields of a document that are safe to return to a browser. */
-export function toDocumentSummary(meta: DocumentMeta): DocumentSummary {
-  return {
-    id: meta.id,
-    name: meta.name,
-    mimeType: meta.mimeType,
-    format: meta.format,
-    bytes: meta.bytes,
-    lines: meta.lines,
-    estimatedTokens: meta.estimatedTokens,
-    ...(meta.pages ? { pages: meta.pages } : {}),
-    ...(meta.encoding ? { encoding: meta.encoding } : {}),
-    ...(meta.replacedCharacters ? { replacedCharacters: meta.replacedCharacters } : {}),
-    expiresAt: meta.expiresAt,
-  };
-}
-
-/** An encoding's name as TextDecoder gives it ("windows-1255"): an extractor of your own may name another. */
-const ENCODING_NAME = /^[a-z0-9][a-z0-9._:-]{0,39}$/i;
-
-/**
- * Whether the name is an older encoding, as `DocumentMeta.encoding` records: not UTF-8 or UTF-16,
- * under any of their names ("utf8", "unicode"). The model is told the file is not in UTF-8.
- */
-function olderEncoding(name: unknown): name is string {
-  if (typeof name !== "string" || !ENCODING_NAME.test(name)) return false;
-  let known: string;
-  try {
-    known = new TextDecoder(name).encoding;
-  } catch {
-    // A name TextDecoder does not know: the extractor read the file itself.
-    return true;
-  }
-  return known !== "utf-8" && known !== "utf-16le" && known !== "utf-16be";
-}
-
-/** How the text of a file was read, as its extractor said, in the fields of `DocumentMeta`. */
-function readingOf(extracted: ExtractedText): Pick<DocumentMeta, "encoding" | "replacedCharacters"> {
-  const { encoding, replacedCharacters } = extracted;
-  return {
-    ...(olderEncoding(encoding) ? { encoding } : {}),
-    ...(typeof replacedCharacters === "number" && Number.isSafeInteger(replacedCharacters) && replacedCharacters > 0 ? { replacedCharacters } : {}),
-  };
-}
-
-/**
- * A file name as one printable line: the last path segment. Control characters, line and paragraph
- * separators, and text-direction controls (the marks of right-to-left text included) become a space.
- * Names are shown to the model and in UIs, so a name must not be able to start a new line of the
- * prompt, or disguise its extension. Most characters that show nothing are removed (tag characters,
- * zero-width spaces); the variation selectors and joiners that scripts and emoji need are kept, and
- * can still carry data a person does not see.
- */
-export function cleanFileName(raw: string): string {
-  const base = raw.split(/[\\/]/).at(-1) ?? "";
-  // Control characters, line and paragraph separators, and text-direction controls become a space.
-  const spaced = base.replace(/[\p{Cc}\p{Zl}\p{Zp}\p{Bidi_Control}]+/gu, " ");
-  const name = removeInvisible(spaced).replace(/\s+/g, " ").trim();
-  // At most 255 characters, never half of an emoji. A flag cut short loses the tags left of it.
-  return (name.length > 255 ? removeInvisible(sliceWhole(name, 255)) : name) || "file";
+  return typeof value === "string" && APP_DOCUMENT_ID_PATTERN.test(value);
 }
 
 /**
@@ -311,42 +394,41 @@ function wholeName(meta: DocumentMeta): DocumentMeta {
 }
 
 /**
- * Refuses an owner that every caller without a user would share: an empty string (what
- * `user?.id ?? ""` gives), one of spaces only, or null. Undefined is no owner. A number is let
- * through, as before, for JavaScript code that passes numeric user IDs.
- */
-export function checkOwner(owner: unknown): void {
-  if (owner === undefined || (typeof owner === "string" && owner.trim() !== "") || (typeof owner === "number" && Number.isFinite(owner))) return;
-  throw new TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.");
-}
-
-/**
  * A read of the store. Whatever it throws is passed on as a `DocumentStoreError`: a store that
  * could not be read is not a document that is gone, and its own error names paths or hosts.
  */
-async function reading<T>(read: () => Promise<T>): Promise<T> {
-  try {
-    return await read();
-  } catch (error) {
-    throw error instanceof DocumentStoreError ? error : new DocumentStoreError(error);
-  }
+function reading<T>(read: () => Promise<T>): Promise<T> {
+  return storeCall("read", read);
 }
 
-/**
- * The `expiresAt` of a document that never expires (`ttlMs: Infinity`): the last instant of the
- * year 9999. A date, so that every comparison, and a server of an older version, reads it as any other.
- */
-export const NEVER_EXPIRES = "9999-12-31T23:59:59.999Z";
+/** The key a caller's copy of a document is kept under in memory: the key of its scope, then the ID. */
+const documentKey = (caller: Caller, id: string) => `${caller.key}\u0000${id}`;
 
-function allowed(meta: DocumentMeta, access: AccessOptions | undefined): boolean {
-  return meta.owner === undefined || meta.owner === access?.owner;
+/** A caller with no owner and no scope. */
+const NO_CALLER: Caller = Object.freeze({ context: storeContext(undefined, undefined), key: "" });
+
+/**
+ * What `view_pages` answers for a file the application keeps (`IngestInput.original`) that is no
+ * longer the one that was ingested. New in 0.9.0.
+ */
+const changedOriginal = (file: string) => `${file} changed on the server since it was read. Attach it again to look at its pages.`;
+
+/**
+ * Where the application keeps the uploaded file of a document (`DocumentMeta.original`), when its
+ * metadata says so in the shape the library writes. Undefined for one kept in the store, and for
+ * one written by hand in another shape, which reads as missing.
+ */
+function refOf(meta: DocumentMeta): { ref: string; bytes: number; sha256: string } | undefined {
+  const original: unknown = meta.original;
+  if (typeof original !== "object" || original === null) return undefined;
+  const { ref, bytes, sha256 } = original as { ref?: unknown; bytes?: unknown; sha256?: unknown };
+  return typeof ref === "string" && ref.length > 0 && typeof bytes === "number" && Number.isSafeInteger(bytes) && bytes >= 0 && isSha256(sha256)
+    ? { ref, bytes, sha256 }
+    : undefined;
 }
 
 /** Default for `cacheBytes`. */
 export const DEFAULT_CACHE_BYTES = 256 * 1024 * 1024;
-/** The refusal of a file whose text is larger than `maxTextBytes`. */
-const tooMuchText = (name: string, maxTextBytes: number) =>
-  new Error(`${name} holds more than ${formatBytes(maxTextBytes)} of text, more than is kept from one file. Split it, and attach the part you need.`);
 
 /** Default for `maxPdfPages`. */
 export const DEFAULT_MAX_PDF_PAGES = 5_000;
@@ -354,186 +436,13 @@ export const DEFAULT_MAX_PDF_PAGES = 5_000;
 export const DEFAULT_MAX_TEXT_BYTES = 100 * 1024 * 1024;
 /** Default for `ingestTimeoutMs`: 2 minutes. */
 export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
-/** The longest a Node.js timer waits: a longer one fires at once. A limit past it is no limit. */
-const LONGEST_TIMER_MS = 2 ** 31 - 1;
-
-/** `value` copied through JSON: new strings, none of them a piece of a larger one. */
-function jsonCopy<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-/** `work`, or the error `late` makes once `ms` have passed without it settling. */
-function settleWithin<T>(work: Promise<T>, ms: number, late: () => Error): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeUp = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(late()), ms);
-  });
-  return Promise.race([work, timeUp]).finally(() => clearTimeout(timer));
-}
-
-/**
- * The turn of one ingest (`maxConcurrentIngests`). It is given back when the ingest ends; when the
- * ingest gave up on work that goes on (an extractor that does not stop on the signal, such as a
- * PDF being parsed when its caller left), once that work ends, or `capMs` later when it does not.
- * (Store writes that do not end fail the ingest after `capMs`: see `ingestFile`.)
- */
-class IngestSlot {
-  private released = false;
-  private timer: ReturnType<typeof setTimeout> | undefined;
-
-  constructor(private readonly release: () => void, private readonly capMs: number) {}
-
-  private readonly free = () => {
-    if (this.released) return;
-    this.released = true;
-    clearTimeout(this.timer);
-    this.release();
-  };
-
-  /**
-   * Gives the turn back `capMs` from now at the latest. The timer keeps the process alive: work
-   * that never ends may hold nothing that does, and ingests waiting for the turn would be lost.
-   */
-  limit(): void {
-    if (this.released || this.timer !== undefined) return;
-    this.timer = setTimeout(this.free, this.capMs);
-  }
-
-  /** The ingest is over: the turn goes back now, or once `abandoned` ends (`capMs` at the latest). */
-  end(abandoned?: Promise<unknown>): void {
-    if (!abandoned) return this.free();
-    abandoned.then(this.free, this.free);
-    this.limit();
-  }
-}
-
-/** A time limit in the words of a message: "500 ms", "45 s", "2 min". */
-function formatDuration(ms: number): string {
-  if (ms < 1_000) return `${Math.max(1, Math.round(ms))} ms`;
-  if (ms < 120_000) return `${Number((ms / 1_000).toFixed(1))} s`;
-  return `${Number((ms / 60_000).toFixed(1))} min`;
-}
-
-/**
- * The signal one ingest runs under: aborted when the caller's is, or when `timeoutMs` has passed
- * (with an error that says the file took too long). `dispose` stops the timer.
- */
-function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; dispose(): void } {
-  const controller = new AbortController();
-  const onAbort = () => controller.abort(caller!.reason);
-  if (caller?.aborted) controller.abort(caller.reason);
-  else caller?.addEventListener("abort", onAbort, { once: true });
-  const timer = timeoutMs > 0 && timeoutMs <= LONGEST_TIMER_MS
-    ? setTimeout(() => controller.abort(new Error(`${name} took too long to read (more than ${formatDuration(timeoutMs)}). Split it, or save it as plain text, and attach that.`)), timeoutMs)
-    : undefined;
-  return {
-    signal: controller.signal,
-    dispose() {
-      clearTimeout(timer);
-      caller?.removeEventListener("abort", onAbort);
-    },
-  };
-}
-
-/**
- * `work`, or the signal's reason as soon as it is aborted: an extractor of your own that does not
- * look at the signal is no longer waited for (though the work it does cannot be stopped).
- */
-function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason);
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
-    signal.addEventListener("abort", onAbort, { once: true });
-    work.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
-  });
-}
-
-/** The message of `ingest.error` when the store failed to write the document. */
-const STORE_WRITE_FAILED = "The document could not be stored. Try again later.";
-
-/** The least time between two `ingest.progress` events of one stage, in milliseconds: a slice of `TimeSlicer`. */
-const PROGRESS_MS = 12;
-
-type ProgressUnit = Extract<IngestEvent, { type: "ingest.progress" }>["unit"];
-const EXTRACT_STAGES = new Set<unknown>(["extract", "check", "pictures", "decode"]);
-const EXTRACT_UNITS = new Set<unknown>(["pages", "parts", "bytes"]);
-const isCount = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
-
-/** What `ingest.start` says of an ingest, worked out from whatever it was given: the checks come after it. */
-function startOf(input: IngestInput | undefined): { name: string; format: DocumentFormat; bytes: number } {
-  try {
-    const name = typeof input?.name === "string" ? cleanFileName(input.name) : "";
-    const mimeType = (typeof input?.mimeType === "string" ? input.mimeType.trim() : "") || "application/octet-stream";
-    const bytes = input?.bytes?.byteLength;
-    return { name, format: detectFormat(name, mimeType), bytes: isCount(bytes) ? bytes : 0 };
-  } catch {
-    return { name: "", format: "text", bytes: 0 };
-  }
-}
-
-type HeldProgress = { done: number; total: number | undefined; unit: ProgressUnit; sent: boolean };
-
-/**
- * Sends the `ingest.progress` events of one ingest: at most one every `PROGRESS_MS` for each stage,
- * however the stages take turns, then the last progress of each stage when the stages end (`end`).
- * A progress that completes its stage goes out at once, the first time, so that stages that run one
- * after the other end in that order. Made only when someone listens.
- */
-class IngestProgress {
-  /** Each stage that reported, in the order it first did: when it last sent, and its last progress. */
-  private readonly stages = new Map<IngestStage, { sentAt: number; completed: boolean; last: HeldProgress }>();
-  /** Set once a stage after the extractor's began: an extract stage is not reported again. */
-  private extractOver = false;
-
-  constructor(private readonly events: EventEmitter<IngestEvent>) {}
-
-  report(stage: IngestStage, done: number, total: number | undefined, unit: ProgressUnit): void {
-    if (!EXTRACT_STAGES.has(stage)) this.extractOver = true;
-    const last: HeldProgress = { done, total, unit, sent: false };
-    let state = this.stages.get(stage);
-    if (!state) {
-      state = { sentAt: Number.NEGATIVE_INFINITY, completed: false, last };
-      this.stages.set(stage, state);
-    }
-    state.last = last;
-    const now = performance.now();
-    const completes = !state.completed && total !== undefined && done >= total;
-    if (completes) state.completed = true;
-    if (completes || now - state.sentAt >= PROGRESS_MS) {
-      state.sentAt = now;
-      this.send(stage, last);
-    }
-  }
-
-  /** The progress an extractor reported (`ExtractInput.onProgress`). One of your own may send anything: what does not fit is left out. */
-  extracted(progress: ExtractProgress): void {
-    if (this.extractOver) return;
-    const stage = progress?.stage ?? "extract";
-    if (!EXTRACT_STAGES.has(stage) || !EXTRACT_UNITS.has(progress?.unit) || !isCount(progress?.done)) return;
-    this.report(stage, progress.done, isCount(progress.total) ? progress.total : undefined, progress.unit);
-  }
-
-  /** The stages so far are over: the last progress of each, when it was held back, goes out, in the order they began. */
-  end(): void {
-    const held = [...this.stages].filter(([, state]) => !state.last.sent);
-    this.stages.clear();
-    for (const [stage, state] of held) this.send(stage, state.last);
-  }
-
-  private send(stage: IngestStage, last: HeldProgress): void {
-    last.sent = true;
-    this.events.emit({
-      type: "ingest.progress",
-      stage,
-      done: last.done,
-      ...(last.total !== undefined ? { total: last.total } : {}),
-      unit: last.unit,
-    });
-  }
-}
 
 /** Default for `wholeDocumentBytes`. */
 export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
+/** Looks at pages that run at once in a library, unless `maxConcurrentPageLooks` says otherwise. */
+const DEFAULT_PAGE_LOOKS = 1;
+/** How long a look at pages waits for its turn, unless `pageLookWaitMs` says otherwise. */
+const DEFAULT_PAGE_LOOK_WAIT_MS = 30_000;
 
 /**
  * A number option as it was given, or `fallback` when it was left out. NaN, which
@@ -564,40 +473,65 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const now = options.now ?? (() => new Date());
   const { store } = options;
   const cacheBytes = Math.max(0, numberOption("cacheBytes", options.cacheBytes, DEFAULT_CACHE_BYTES));
-  /** Documents ready to search, and decoded pieces of documents read by range, in one memory budget. */
+  /** What every call must name (`requireOwner`, `requireScope`). */
+  const rules: AccessRules = Object.freeze({ requireOwner: options.requireOwner === true, requireScope: options.requireScope === true });
+  /**
+   * Documents ready to search, and decoded pieces of documents read by range, in one memory budget.
+   * Each is kept under the key of the caller's scope and the document's ID (`documentKey`): one ID
+   * in two scopes is two documents, and the copy of one is never served to the other. Its version
+   * (`documentVersion`) holds the document's owner and scope too, so a copy is not served to
+   * another owner either, once another document is stored under the same ID.
+   */
   const cache = new DocumentCache<Sized>(
     cacheBytes,
     Math.max(0, Math.trunc(numberOption("cacheSize", options.cacheSize, Number.POSITIVE_INFINITY))),
   );
-  /** Forgets everything kept of a document: the document, and its pieces. */
+  /** Forgets everything kept of the document of one key (`documentKey`): the document, and its pieces. */
+  const forgetKey = (key: string) => {
+    cache.delete(key);
+    cache.deletePrefix(pieceKey(key, 0).slice(0, -1));
+  };
+  /** Whether `key` is that of document `id`, or of one of its pieces, in any scope. */
+  const keyOfId = (key: string, id: string) => {
+    const rest = key.slice(key.indexOf("\u0000") + 1);
+    return rest === id || rest.startsWith(`${id}#`);
+  };
+  /**
+   * Forgets everything kept of document `id`, in every scope: it was deleted, or written again.
+   * In a store that keeps no scopes apart, the copies of all scopes are of that one document.
+   */
   const forget = (id: string) => {
-    cache.delete(id);
-    cache.deletePrefix(pieceKey(id, 0).slice(0, -1));
+    cache.deleteWhere((key) => keyOfId(key, id));
+    for (const key of rebuildIndex) if (keyOfId(key, id)) rebuildIndex.delete(key);
   };
   /** Documents being opened, so that calls arriving together open each one once. */
   const opening = new Map<string, Promise<DocumentSource | undefined>>();
-  /** The store, when large documents can be read from it by range rather than loaded whole. */
-  const ranged: RangeStore | undefined = typeof store.readTextRange === "function" ? {
-    readTextRange: (id, start, end) => reading(() => store.readTextRange!(id, start, end)),
-    ...(store.getIndex ? { getIndex: (id: string) => reading(() => store.getIndex!(id)) } : {}),
-    ...(store.putIndex ? { putIndex: (id: string, index: Uint8Array) => store.putIndex!(id, index) } : {}),
-  } : undefined;
+  /**
+   * The store, to read the text of a document by range rather than load it whole: each call carries
+   * `context`: the caller's scope, and the document's owner when it has one (`documentContext`).
+   */
+  const rangeStore = (context: DocumentContext): RangeStore => ({
+    readTextRange: (id, start, end) => reading(() => store.readTextRange!(id, start, end, context)),
+    ...(store.getIndex ? { getIndex: (id: string) => reading(() => store.getIndex!(id, context)) } : {}),
+    ...(store.putIndex ? { putIndex: (id: string, index: Uint8Array) => store.putIndex!(id, index, context) } : {}),
+  });
   /** The uploaded file of a document, when the store keeps such files. */
-  const loadOriginal = store.getOriginal ? (id: string) => reading(() => store.getOriginal!(id)) : undefined;
+  const loadOriginal = (id: string, context: DocumentContext) => reading(() => store.getOriginal!(id, context));
   const wholeDocumentBytes = Math.max(0, numberOption("wholeDocumentBytes", options.wholeDocumentBytes, DEFAULT_WHOLE_DOCUMENT_BYTES));
-  /** Documents whose saved index did not match their text: the next opening builds it from the text. */
+  /** Documents (by `documentKey`) whose saved index did not match their text: the next opening builds it from the text. */
   const rebuildIndex = new Set<string>();
   const scan: ScanSettings = {
     chunkBytes: Math.max(1, Math.trunc(numberOption("scanChunkBytes", options.scanChunkBytes, 1024 * 1024, true))),
     limiter: new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentScans", options.maxConcurrentScans, 4)))),
-    onBroken: (id) => {
-      rebuildIndex.add(id);
-      forget(id);
+    onBroken: (key) => {
+      rebuildIndex.add(key);
+      forgetKey(key);
     },
     pieces: {
       get: (key, version) => cache.get(key, version) as CachedPiece | undefined,
-      // A piece belongs to its document: it is not one of the `cacheSize` documents, and leaves with it.
-      set: (key, version, piece) => cache.set(key, version, piece, key.slice(0, key.indexOf("#"))),
+      // A piece belongs to its document: it is not one of the `cacheSize` documents, and leaves with
+      // it. The document's key is all before the last "#", which no ID holds, and no scope key either.
+      set: (key, version, piece) => cache.set(key, version, piece, key.slice(0, key.lastIndexOf("#"))),
       // A quarter of the cache: a few documents can be kept, and no one pushes out all the rest.
       maxDocumentBytes: cacheBytes / 4,
     },
@@ -607,349 +541,253 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   const ingests = new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentIngests", options.maxConcurrentIngests, 2))));
   /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
   const slotCapMs = ingestTimeoutMs > 0 && ingestTimeoutMs <= LONGEST_TIMER_MS ? ingestTimeoutMs : DEFAULT_INGEST_TIMEOUT_MS;
+  /**
+   * The looks at pages of every question of this library take their turns (`maxConcurrentPageLooks`).
+   * A look reads its original within the time the library gives its store calls (`slotCapMs`).
+   */
+  const pageLooks: PageLookTurns = {
+    limiter: new Limiter(Math.max(1, Math.trunc(numberOption("maxConcurrentPageLooks", options.maxConcurrentPageLooks, DEFAULT_PAGE_LOOKS)))),
+    waitMs: Math.max(0, numberOption("pageLookWaitMs", options.pageLookWaitMs, DEFAULT_PAGE_LOOK_WAIT_MS)),
+    holdMs: slotCapMs,
+  };
 
   const scannedPdfPages = Math.max(0, Math.trunc(numberOption("scannedPdfPages", options.scannedPdfPages, 30)));
-  /** Whether the uploaded file of a document of this format is kept. */
-  const keeps = (format: DocumentFormat) => keepOriginals.has(format) && typeof options.store.putOriginal === "function";
+  const { originals } = options;
+  if (originals !== undefined && (typeof originals !== "object" || originals === null || typeof originals.read !== "function")) {
+    throw new TypeError("originals must be an object with a read(ref, context) method, such as fileOriginals(root) gives.");
+  }
+  /**
+   * Whether the uploaded file of a document of this format is kept: by its ref (`IngestInput.original`),
+   * which `originals` reads back, or as a copy in the store (`putOriginal`).
+   */
+  const keeps = (format: DocumentFormat, byRef: boolean) => keepOriginals.has(format) && (byRef ? originals !== undefined : typeof store.putOriginal === "function");
+  /**
+   * Whether the original of a document, which its metadata says is kept, can be read: by its ref,
+   * through `originals`, or from the store (`getOriginal`).
+   */
+  const readable = (meta: DocumentMeta) => (meta.original !== undefined && meta.original !== null ? originals !== undefined : typeof store.getOriginal === "function");
+  /** Whether `view_pages` can show the pages of a document: a PDF whose original is kept, and can be read. */
+  const viewableMeta = (meta: DocumentMeta) => meta.format === "pdf" && meta.originalKept === true && readable(meta);
+  /** What `ingest` (src/ingest.ts) needs of this library. */
+  const ingestContext: IngestContext = {
+    store,
+    now,
+    ttlMs,
+    maxUploadBytes,
+    maxTextBytes,
+    maxPdfPages,
+    ingestTimeoutMs,
+    scannedPdfPages,
+    // Read at each ingest, as before the move: an application may set them after.
+    get extractors() {
+      return options.extractors;
+    },
+    ingests,
+    slotCapMs,
+    keeps,
+    readsRefs: originals !== undefined,
+    forget,
+    rules,
+    ingesting: new Set<string>(),
+  };
 
   /**
-   * The document as the store describes it now: undefined when it was never there, has been
-   * deleted (by this server or another one sharing the store), or has expired.
+   * The document as the store describes it now, asked with the caller's context: undefined when it
+   * was never there, has been deleted (by this server or another one sharing the store), or has
+   * expired. Whether the caller may use it is `metaFor`'s to say.
    */
-  async function currentMeta(id: string): Promise<DocumentMeta | undefined> {
+  async function currentMeta(id: string, caller: Caller): Promise<DocumentMeta | undefined> {
     if (!isDocumentId(id)) return undefined;
-    const meta = await reading(() => store.getMeta(id));
+    const meta = metaOf(await reading(() => store.getMeta(id, caller.context)), id);
+    if (meta) checkMetaVersion(meta);
     if (!meta || Date.parse(meta.expiresAt) <= now().getTime()) {
-      forget(id);
+      forgetKey(documentKey(caller, id));
       return undefined;
     }
     return wholeName(meta);
   }
 
+  /** The document, when `caller` may use it: one of another owner or scope is missing, not forbidden. */
+  async function metaFor(id: string, caller: Caller): Promise<DocumentMeta | undefined> {
+    const meta = await currentMeta(id, caller);
+    return meta && mayUse(meta, caller, rules) ? meta : undefined;
+  }
+
   /**
-   * A document ready to read and search. The store is asked first, every time: a kept copy is
-   * used only while the store still has the same document. `known` is metadata just read from
-   * the store, to save asking twice.
+   * A document ready to read and search, for `caller`, who may use it. The store is asked first,
+   * every time: a kept copy is used only while the store still has the same document. `known` is
+   * metadata just read from the store and checked, to save asking twice.
    */
-  async function load(id: string, known?: DocumentMeta): Promise<DocumentSource | undefined> {
-    const meta = known ?? await currentMeta(id);
+  async function load(id: string, caller: Caller, known?: DocumentMeta): Promise<DocumentSource | undefined> {
+    const meta = known ?? await metaFor(id, caller);
     if (!meta) return undefined;
+    const key = documentKey(caller, id);
     const version = documentVersion(meta);
-    const cached = cache.get(id, version) as DocumentSource | undefined;
+    const cached = cache.get(key, version) as DocumentSource | undefined;
     if (cached && !cached.broken) return cached;
-    const key = `${id}|${version}`;
-    let pending = opening.get(key);
+    const opened = `${key}|${version}`;
+    let pending = opening.get(opened);
     if (!pending) {
-      pending = open(id, meta).finally(() => opening.delete(key));
-      opening.set(key, pending);
+      pending = open(id, meta, caller, key).finally(() => opening.delete(opened));
+      opening.set(opened, pending);
     }
     const document = await pending;
-    if (document) cache.set(id, version, document);
+    if (document) cache.set(key, version, document);
     return document;
   }
 
-  /** Reads a document from the store: its index, to read it by range, or all of it. */
-  async function open(id: string, meta: DocumentMeta): Promise<DocumentSource | undefined> {
-    if (ranged && meta.textBytes > wholeDocumentBytes) {
-      const rebuild = rebuildIndex.delete(id);
-      return openRangedDocument(ranged, meta, scan, { ignoreSavedIndex: rebuild });
+  /**
+   * Reads a document from the store: its index, to read it by range, or all of it. `meta` is what
+   * `metaFor` found for `caller`. The reads carry the caller's scope, and the document's owner when it
+   * has one (`documentContext`): the copy is kept for every caller of the scope.
+   */
+  async function open(id: string, meta: DocumentMeta, caller: Caller, key: string): Promise<DocumentSource | undefined> {
+    const context = documentContext(meta, caller);
+    if (typeof store.readTextRange === "function" && meta.textBytes > wholeDocumentBytes) {
+      const rebuild = rebuildIndex.delete(key);
+      return openRangedDocument(rangeStore(context), meta, scan, { ignoreSavedIndex: rebuild, key });
     }
-    const stored = await reading(() => store.get(id));
-    if (!stored) return undefined;
-    const named = wholeName(stored.meta);
-    return new SearchableDocument(named === stored.meta ? stored : { ...stored, meta: named });
+    const stored = await reading(() => store.get(id, context));
+    // Another document is not this one: the metadata `get` gives must be of this ID, owner and
+    // scope, and of the version `meta` is (not one deleted and stored again since, by another
+    // server, nor one a store of your own gave from the wrong scope). And the text must be the one
+    // that metadata describes, of its length and its number of lines: a store that writes the text
+    // and the metadata apart can give one document's metadata with another's text (two servers that
+    // ingest one ID at once, a file read between two writes). A document read by range is checked
+    // too: its index against the metadata, and the end of its text against its index
+    // (openRangedDocument). Missing, as for a caller who may not use it.
+    const found = stored ? metaOf(stored.meta, id) : undefined;
+    if (!stored || !found || !mayUse(found, caller, rules) || documentVersion(found) !== documentVersion(meta)) return undefined;
+    if (typeof stored.text !== "string" || stored.text.length !== found.characters) return undefined;
+    const named = wholeName(found);
+    const document = new SearchableDocument(named === stored.meta ? stored : { ...stored, meta: named });
+    return document.lineCount === found.lines ? document : undefined;
+  }
+
+  /**
+   * The uploaded file of document `id`, which `meta`, checked for `caller`, says is kept: read from
+   * where the application keeps it (`meta.original`, through `originals`), or from the store. Another
+   * server may delete the document and store another under its ID while the bytes are read: so the
+   * store is asked again once they are. "missing" unless it still describes the same document, of
+   * the same owner and scope, and the bytes are the size of the file that was ingested, and have its
+   * SHA-256 when it is known (0.9.0): a store that gives back other bytes of the same size is caught
+   * too. "changed" for a file kept by the application that is no longer the one that was ingested:
+   * of another size or another SHA-256.
+   */
+  async function originalOf(id: string, caller: Caller, meta: DocumentMeta): Promise<Uint8Array | "missing" | "changed"> {
+    const kept = refOf(meta);
+    let read: Uint8Array | undefined;
+    if (kept) {
+      if (!originals) return "missing";
+      const context: OriginalReadContext = Object.freeze({ ...caller.context, id, bytes: kept.bytes });
+      read = await reading(() => originals.read(kept.ref, context));
+    } else {
+      if (meta.original !== undefined && meta.original !== null) return "missing";
+      if (!store.getOriginal) return "missing";
+      read = await loadOriginal(id, caller.context);
+    }
+    if (!read) return "missing";
+    const bytes = read;
+    const after = await metaFor(id, caller);
+    if (!after || documentVersion(after) !== documentVersion(meta)) return "missing";
+    // The SHA-256 of a file of up to the upload limit is taken a slice at a time.
+    const same = async (sha256: string) => await sha256InSlices(bytes, new TimeSlicer()) === sha256;
+    if (kept) return bytes.byteLength === kept.bytes && await same(kept.sha256) ? bytes : "changed";
+    if (bytes.byteLength !== meta.bytes) return "missing";
+    return typeof meta.sha256 === "string" && !await same(meta.sha256) ? "missing" : bytes;
+  }
+
+  /**
+   * Whether `document`, which a call of `caller` has just read, is still the one the store describes
+   * for `caller`. A document loaded whole was checked as it was read (see `open`). The bytes of one
+   * read by range carry nothing to check them by, and another server, or this one, may delete the
+   * document and store another under its ID while they are read, or between the look-up and the
+   * reads: so the store is asked again once they are, as `originalOf` does. When it no longer
+   * describes the same document, of the same owner and scope, what was read may be another's: the
+   * copy kept of it, read from the store too, is forgotten, and the read is missing.
+   */
+  async function stillOpened(document: DocumentSource, caller: Caller): Promise<boolean> {
+    if (!(document instanceof RangedDocument)) return true;
+    const after = await metaFor(document.meta.id, caller);
+    if (after && documentVersion(after) === documentVersion(document.meta)) return true;
+    forgetKey(documentKey(caller, document.meta.id));
+    return false;
   }
 
   /**
    * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
    * by now. A copy found to disagree with the store is opened again once.
    */
-  async function block(id: string, meta: DocumentMeta, whole: boolean, viewable: boolean, wholeRead: WholeRead): Promise<string | undefined> {
+  async function block(id: string, meta: DocumentMeta, caller: Caller, whole: boolean, viewable: boolean, wholeRead: WholeRead): Promise<string | undefined> {
     for (let attempt = 0; attempt < 2; attempt++) {
-      const document = await load(id, attempt === 0 ? meta : undefined);
+      const document = await load(id, caller, attempt === 0 ? meta : undefined);
       if (!document) return undefined;
+      let text: string;
       try {
-        return whole
+        text = whole
           ? renderInline(document.meta, await document.readText())
           : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead);
       } catch (error) {
         // The text is gone while its metadata is still there (removed outside the library): the
         // same as missing. It was a plain Error, which failed the whole question.
         if (error instanceof DocumentGoneError) return undefined;
-        if (!document.broken) {
-          // Deleted between the look-up and the read: the same as missing.
-          if (!await currentMeta(id)) return undefined;
-          throw error;
-        }
-      }
-    }
-    return undefined;
-  }
-
-  async function metaFor(id: string, access: AccessOptions | undefined): Promise<DocumentMeta | undefined> {
-    const meta = await currentMeta(id);
-    return meta && allowed(meta, access) ? meta : undefined;
-  }
-
-  /**
-   * The work of `ingest`, once the file is named: `detected` is the format its name and type say.
-   * `progress` is given when someone listens to the events of the ingest. `storeFailed` is called
-   * when the store fails to write the document, whatever it throws.
-   */
-  async function ingestFile(
-    input: IngestInput,
-    name: string,
-    mimeType: string,
-    detected: DocumentFormat,
-    progress: IngestProgress | undefined,
-    storeFailed: () => void,
-    work: { abandoned?: Promise<unknown> },
-  ): Promise<DocumentMeta> {
-    let format = detected;
-    const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
-    // Each long step works in slices, with pauses for other requests: one large upload no longer
-    // holds the whole server while it is read.
-    const slicer = new TimeSlicer(signal);
-    let pages: number | undefined;
-    let reading: ReturnType<typeof readingOf>;
-    let text: string;
-    let wrapped: number;
-    let lines: string[];
-    let measured: Awaited<ReturnType<typeof measureText>>;
-    let outline: DocumentMeta["outline"];
-    let logProfile: DocumentMeta["logProfile"];
-    let quality: TextQuality = {};
-    let index: Awaited<ReturnType<typeof buildTextIndexInSlices>> | undefined;
-    try {
-      signal.throwIfAborted();
-      // In a function of its own, so that the text as extracted is let go once it is prepared:
-      // the steps after it hold only the prepared text.
-      const read = async () => {
-        // What an extractor of your own reports once it has settled (from a timer, a worker) is
-        // not reported: the stages after it have begun.
-        let extracting = true;
-        let extracted: ExtractedText;
-        try {
-          // Kept, so that an ingest that stops waiting for it (its time is up, its caller left)
-          // keeps its turn until the extractor is done too: it still holds memory.
-          const extraction = extractText(input.bytes, {
-            name,
-            mimeType,
-            format,
-            // A scan is worth storing only if its pages can be shown later: that needs the file itself.
-            ...(format === "pdf" && keeps(format) && scannedPdfPages > 0 ? { scannedPages: scannedPdfPages } : {}),
-            signal,
-            maxTextBytes,
-            maxPages: maxPdfPages,
-            ...(progress ? { onProgress: (report: ExtractProgress) => { if (extracting) progress.extracted(report); } } : {}),
-          }, options.extractors);
-          work.abandoned = extraction;
-          extracted = await untilAborted(extraction, signal);
-          work.abandoned = undefined;
-        } finally {
-          extracting = false;
-        }
-        progress?.end();
-        // A character is at least one byte: a text this long is too large whatever it holds.
-        if (extracted.text.length > maxTextBytes) throw tooMuchText(name, maxTextBytes);
-        await slicer.pauseNow();
-        return { pages: extracted.pages, reading: readingOf(extracted), ...await prepareText(extracted.text, slicer, progress && ((done, total) => progress.report("prepare", done, total, "characters"))) };
-      };
-      ({ pages, reading, text, wrapped, lines } = await read());
-      progress?.end();
-      if (!text.trim()) throw new Error(`${name} did not contain any text.`);
-      if (format === "text" && looksLikeLog(lines)) format = "log";
-      measured = await measureText(text, slicer);
-      if (measured.utf8 > maxTextBytes) throw tooMuchText(name, maxTextBytes);
-      outline = await buildOutlineInSlices(lines, format, slicer);
-      logProfile = format === "log" ? await buildLogProfileInSlices(lines, slicer) : undefined;
-      quality = await measureQuality(lines, format, slicer);
-      // The line index, so that the text can be read by range: a few bytes a line, built from the
-      // UTF-8 bytes the store writes. Kept by any store that can keep it, even one this library
-      // then loads whole, so that switching to reading by range finds it ready.
-      index = typeof store.putIndex === "function"
-        ? await buildTextIndexInSlices(text, slicer, progress && ((done, total) => progress.report("index", done, total, "characters")))
-        : undefined;
-      progress?.end();
-      signal.throwIfAborted();
-    } finally {
-      dispose();
-    }
-    const created = now();
-    const expires = created.getTime() + ttlMs;
-    const keepOriginal = keeps(format);
-    // A copy: the outline's headings and the log's timestamps are pieces of the text, and a piece
-    // keeps the whole text in memory as long as it is held. A meta an application kept held its
-    // text: 25 MB of heap for a log of 10 MB in Hebrew, 194 MB for one of 100 MB. Copied through
-    // JSON, as a store that keeps it as JSON gives it back.
-    const meta: DocumentMeta = jsonCopy<DocumentMeta>({
-      id: `doc_${randomUUID().replaceAll("-", "")}`,
-      ...(input.owner !== undefined ? { owner: input.owner } : {}),
-      name,
-      mimeType,
-      format,
-      bytes: input.bytes.byteLength,
-      textBytes: measured.utf8,
-      jsonBytes: measured.json,
-      characters: text.length,
-      lines: lines.length,
-      estimatedTokens: measured.tokens,
-      wrappedLines: wrapped,
-      ...(pages ? { pages } : {}),
-      ...reading,
-      ...(keepOriginal ? { originalKept: true } : {}),
-      outline,
-      ...(logProfile ? { logProfile } : {}),
-      ...quality,
-      createdAt: created.toISOString(),
-      // Never, for a time to live without end (or one that runs past what a date can hold).
-      expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
-    });
-    const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && index.textBytes === meta.textBytes
-      ? serializeTextIndex(index)
-      : undefined;
-    // Each write is reported once done. What the listener of the events throws is not the store's failure.
-    const writes = (keepOriginal ? 1 : 0) + (savedIndex ? 1 : 0) + 1;
-    let written = 0;
-    let listenerFailed: { error: unknown } | undefined;
-    const wrote = (last: boolean) => {
-      if (!progress) return;
-      try {
-        progress.report("store", ++written, writes, "parts");
-        if (last) progress.end();
-      } catch (error) {
-        listenerFailed = { error };
+        if (document.broken) continue;
+        // Deleted between the look-up and the read: the same as missing.
+        if (!await metaFor(id, caller)) return undefined;
         throw error;
       }
-    };
-    // The files first, the document last: a document is there once its metadata is.
-    const storing = (async () => {
-      if (keepOriginal) {
-        await store.putOriginal!(meta.id, input.bytes);
-        wrote(false);
-      }
-      if (savedIndex) {
-        await store.putIndex!(meta.id, savedIndex);
-        wrote(false);
-      }
-      await store.put({ meta, text });
-      wrote(true);
-    })();
-    try {
-      // A store that does not answer fails the ingest after `slotCapMs`: it held the ingest's turn,
-      // and the upload handler's room for the file, for as long as it did not answer.
-      await settleWithin(storing, slotCapMs, () => new Error(`The store did not finish writing ${name} within ${formatDuration(slotCapMs)}.`));
-    } catch (error) {
-      // Do not leave a file of up to the upload limit, or a part of one, behind for a document
-      // that does not exist: once the writes have ended, when they have not yet. The removal is not
-      // waited for longer than the writes were.
-      const removal = storing.then(() => store.delete(meta.id), () => store.delete(meta.id)).catch(() => undefined);
-      await settleWithin(removal, slotCapMs, () => new Error("")).catch(() => undefined);
-      if (listenerFailed?.error !== error) {
-        noteStoreWriteFailure(error);
-        storeFailed();
-      }
-      throw error;
+      return await stillOpened(document, caller) ? text : undefined;
     }
-    return meta;
+    return undefined;
   }
 
   return {
     budget,
     budgetFor,
     maxUploadBytes,
+    access: rules,
 
-    async ingest(input) {
-      // The events first, so that every ingest that throws, even on what it was given, ends with ingest.error.
-      // What the caller's listener throws is passed on as it is, not told as a file that could not be read.
-      let listenerFailure: { error: unknown } | undefined;
-      const listener = input?.onEvent;
-      const events = new EventEmitter<IngestEvent>(input?.runId ?? newRunId("ing"), listener && ((event: IngestEvent) => {
-        try {
-          listener(event);
-        } catch (error) {
-          listenerFailure ??= { error };
-          throw error;
-        }
-      }));
-      let storeFailed = false;
-      try {
-        if (events.active) events.emit({ type: "ingest.start", ...startOf(input) });
-        checkOwner(input.owner);
-        const name = cleanFileName(input.name);
-        const mimeType = input.mimeType?.trim() || "application/octet-stream";
-        // A file whose name and type say nothing is known by its bytes: a PDF, an Office file, a page.
-        const format = detectFormat(name, mimeType, input.bytes instanceof Uint8Array ? input.bytes : undefined);
-        // Progress is worked out only for someone who listens.
-        const progress = events.active ? new IngestProgress(events) : undefined;
-        let meta: DocumentMeta;
-        try {
-          // Refused at once, without waiting for a turn.
-          if (input.bytes.byteLength === 0) throw new Error(`${name} is empty.`);
-          if (input.bytes.byteLength > maxUploadBytes) {
-            throw new Error(`${name} is larger than the ${formatBytes(maxUploadBytes)} upload limit.`);
-          }
-          // Its turn (`maxConcurrentIngests`): a caller that gives up while it waits gets its own
-          // reason, as it would once the work had begun. (An ingest started inside another of this
-          // library, by an extractor of your own, waits for a turn like any other. Telling it apart
-          // with AsyncLocalStorage made pdf.js about five times slower on Node 22, for every PDF.)
-          const slot = new IngestSlot(await ingests.acquire(input.signal), slotCapMs);
-          const work: { abandoned?: Promise<unknown> } = {};
-          try {
-            meta = await ingestFile(input, name, mimeType, format, progress, () => (storeFailed = true), work);
-          } finally {
-            slot.end(work.abandoned);
-          }
-        } catch (error) {
-          // A store that failed, and a caller that gave up (its own reason), are passed on as they
-          // are; a file that could not be read is told with a code.
-          if (storeFailed || (input.signal?.aborted && error === input.signal.reason) || isStoreWriteFailure(error) || (listenerFailure && error === listenerFailure.error)) throw error;
-          throw toIngestError(error);
-        }
-        try {
-          events.emit({ type: "ingest.finish", document: toDocumentSummary(meta) });
-        } catch (error) {
-          // The caller never gets the id: the document goes, as on a throw of the listener a moment earlier.
-          await store.delete(meta.id).catch(() => undefined);
-          forget(meta.id);
-          throw error;
-        }
-        return meta;
-      } catch (error) {
-        // A store's own error may name a host or a path, whatever it is: the event, which a browser
-        // may see, says only that the document could not be stored.
-        events.emit({ type: "ingest.error", error: storeFailed ? { message: STORE_WRITE_FAILED } : eventErrorOf(error) });
-        throw error;
-      }
+    ingest(input) {
+      return ingestDocument(ingestContext, input);
     },
 
-    getMeta: metaFor,
+    async getMeta(id, access) {
+      return metaFor(id, callerOf(access, rules));
+    },
 
     async getOriginal(id, access) {
-      const meta = await metaFor(id, access);
-      return meta?.originalKept ? loadOriginal?.(id) : undefined;
+      const caller = callerOf(access, rules);
+      const meta = await metaFor(id, caller);
+      if (!meta?.originalKept || !readable(meta)) return undefined;
+      const original = await originalOf(id, caller, meta);
+      return original instanceof Uint8Array ? original : undefined;
     },
 
     async delete(id, access) {
-      if (!await metaFor(id, access)) return false;
+      const caller = callerOf(access, rules);
+      if (!await metaFor(id, caller)) return false;
       forget(id);
-      return options.store.delete(id);
+      return storeCall("delete", () => store.delete(id, caller.context));
     },
 
-    async sweep() {
-      return options.store.sweep?.(now()) ?? 0;
+    async sweep(sweepOptions) {
+      // Upkeep of the store, not a user's access: allowed without a scope under `requireScope`.
+      const scope = checkScope(sweepOptions?.scope ?? undefined);
+      if (typeof store.sweep !== "function") return 0;
+      return storeCall("sweep", () => store.sweep!(now(), storeContext(scope, undefined)));
     },
 
     async prepare(ids, base, access) {
+      const caller = callerOf(access, rules);
       const budget = budgetFor(access?.budget);
       const analysis = access?.wholeDocumentAnalysis !== false;
       const unique = [...new Set(ids)];
       let documents: DocumentMeta[] = [];
       const missing: string[] = [];
       for (const id of unique) {
-        // A document owned by someone else is reported as missing, not as forbidden, and is not
-        // read at all.
-        const meta = await metaFor(id, access);
+        // A document of another owner or scope is reported as missing, not as forbidden, and is
+        // not read at all.
+        const meta = await metaFor(id, caller);
         if (meta) documents.push(meta);
         else missing.push(id);
       }
@@ -959,15 +797,13 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
         const plan = planDocuments(documents, budget, base);
         const inline = new Set(plan.inline.map((meta) => meta.id));
         // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
-        const viewable = access?.viewPages && store.getOriginal
-          ? documents.filter((meta) => meta.format === "pdf" && meta.originalKept)
-          : [];
+        const viewable = access?.viewPages ? documents.filter(viewableMeta) : [];
         const shown = new Set(viewable.map((meta) => meta.id));
         const blocks = new Map<string, string>();
         const gone: string[] = [];
         for (const meta of documents) {
           const wholeRead = !analysis ? "not_offered" : canBeReadWhole(meta, budget) ? "offered" : "too_large";
-          const text = await block(meta.id, meta, inline.has(meta.id), shown.has(meta.id), wholeRead);
+          const text = await block(meta.id, meta, caller, inline.has(meta.id), shown.has(meta.id), wholeRead);
           if (text === undefined) gone.push(meta.id);
           else blocks.set(meta.id, text);
         }
@@ -983,30 +819,51 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
 
     tools(documents, toolOptions = {}) {
-      const { viewPages, budget: overrides, ...rest } = toolOptions;
+      const { viewPages, budget: overrides, access, ...rest } = toolOptions;
+      // Without `access`, the owner and scope of each document are those it was handed in with: a
+      // library that requires them takes them only from the caller.
+      if (access === undefined && (rules.requireOwner || rules.requireScope)) {
+        throw new TypeError(rules.requireOwner ? OWNER_REQUIRED : SCOPE_REQUIRED);
+      }
+      const asker = access !== undefined ? callerOf(access, rules) : undefined;
       const budget = budgetFor(overrides);
-      const viewable = (loadOriginal ? (viewPages === true ? documents : viewPages || []) : [])
-        .filter((meta) => meta.format === "pdf" && meta.originalKept);
-      // The owner each document was handed in with. The store's owner is checked against it on
-      // every call, so metadata built from an ID alone cannot read another owner's document: such
-      // a document is answered as no longer available, as `getMeta` reports it missing.
-      const handedOwner = new Map<string, string | undefined>([...documents, ...viewable].map((meta) => [meta.id, meta.owner]));
-      const mayUse = (meta: DocumentMeta) => meta.owner === undefined || (handedOwner.has(meta.id) && meta.owner === handedOwner.get(meta.id));
+      // Which PDFs can be looked at, by the metadata handed in: each look reads the metadata the
+      // store holds, and the file it names, not the one handed in.
+      const viewable = (viewPages === true ? documents : viewPages || []).filter(viewableMeta);
+      // Without `access`, as before 0.9.0: the owner and scope each document was handed in with.
+      // The store is asked with them, and the owner and scope it holds are checked against them on
+      // every call, so metadata built from an ID alone cannot read another owner's document: such a
+      // document is answered as no longer available, as `getMeta` reports it missing. A handed scope
+      // that is not valid reads nothing.
+      const handed = new Map<string, Caller | undefined>(asker ? [] : [...documents, ...viewable].map((meta) => [meta.id, handedCaller(meta)]));
+      const callerFor = (id: string): Caller | undefined => asker ?? (handed.has(id) ? handed.get(id) : NO_CALLER);
       // The metadata the store holds now, not that of a copy kept in memory.
       const checkedLoad = async (id: string) => {
-        const meta = await currentMeta(id);
-        return meta && mayUse(meta) ? load(id, meta) : undefined;
+        const caller = callerFor(id);
+        const meta = caller && await metaFor(id, caller);
+        return meta ? load(id, caller, meta) : undefined;
       };
-      const checkedOriginal = loadOriginal && (async (id: string) => {
-        const meta = await currentMeta(id);
-        return meta && mayUse(meta) ? loadOriginal(id) : undefined;
+      const checkedOriginal = (store.getOriginal || originals) && (async (id: string) => {
+        const caller = callerFor(id);
+        const meta = caller && await metaFor(id, caller);
+        if (!meta || !readable(meta)) return undefined;
+        const original = await originalOf(id, caller, meta);
+        // A file the application keeps that has changed since it was ingested: its pages are not
+        // those of the text the model has, and the model is told so.
+        if (original === "changed") throw new Error(changedOriginal(meta.name));
+        return original === "missing" ? undefined : original;
       });
       return createDocumentTools({
         load: checkedLoad,
+        // Once a call has read a document by range: the store is asked again (`stillOpened`).
+        checkRead: async (document) => {
+          const caller = callerFor(document.meta.id);
+          return caller !== undefined && await stillOpened(document, caller);
+        },
         documentIds: documents.map((meta) => meta.id),
         names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, wellFormed(meta.name)])),
         budget,
-        ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal } : {}),
+        ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal, pageLooks } : {}),
         // `analyze_whole_document` is declared only when it can read at least one of the documents.
         wholeReads: documents.some((meta) => canBeReadWhole(meta, budget)),
         // `aggregate_table` only when one may hold a table.
@@ -1015,4 +872,13 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
       });
     },
   };
+
+  /** The caller a document was handed to `tools` for (without `access`): its owner and scope. Undefined for a scope that is not valid. */
+  function handedCaller(meta: DocumentMeta): Caller | undefined {
+    try {
+      return callerOf({ owner: meta.owner, scope: meta.scope }, rules);
+    } catch {
+      return undefined;
+    }
+  }
 }

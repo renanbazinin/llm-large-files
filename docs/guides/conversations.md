@@ -32,8 +32,8 @@ The rules:
 - **A `native` part goes unchanged to every model of the question**: a Gemini part to `gemini()`, a
   Chat Completions content part to `openAiCompatible()`, a Messages API block to `anthropic()`.
   With an [explorer model](./explorer-model.md) of another provider, both models get it, so both
-  must read it. A native part that also has `text` is sized by that text; one without is sized by
-  the length of its JSON, as media.
+  must read it. A native part that also has `text` is counted in tokens by that text, and in bytes
+  by the larger of that text and its JSON; one without is sized by the length of its JSON, as media.
 
 Annotate the array as `ChatMessage[]`. Without the annotation TypeScript widens `role` to
 `string`, and the array is not accepted as `messages`.
@@ -66,12 +66,11 @@ const messages: ChatMessage[] = [
 const second = await askWithFiles({ files, model, documentIds, messages });
 ```
 
-`askGemini` takes the conversation in one of two options. `messages` takes plain turns and stored
-tool rounds (`Array<ChatTurn | ToolTurn>`), and no native parts. `contents` takes Gemini
-`contents`, native parts included, and converts them with `fromGeminiContents`
-([below](#gemini-contents)). When both are given, `contents` is used. For native parts and stored
-tool rounds in one history, call `askWithFiles` with `gemini(endpoint)`, as above; an explorer
-model is then passed as `explorer` ([Explorer model](./explorer-model.md)).
+`askGemini` takes the conversation in one of two options. `messages` takes what `askWithFiles`
+takes (`ChatMessage[]`): plain turns, stored tool rounds and, since 0.9.0, turns with native parts,
+such as the chart's turn above. Before 0.9.0 it took only `Array<ChatTurn | ToolTurn>`. `contents` takes
+Gemini `contents`, native parts included, and converts them with `fromGeminiContents`
+([below](#gemini-contents)). When both are given, `contents` is used.
 
 Every field of these types is in the reference: [`askWithFiles(options)`](../reference/ask.md#askwithfilesoptions)
 and the rest of [ask.md](../reference/ask.md).
@@ -103,12 +102,18 @@ tool calls of one model turn, each with what its tool returned:
   `tool_turns_left`, the tool turns the question had left then. A stand-in does not.
 - **`tool_turns_left` is stored, and not sent again.** When you pass the rounds back in a later
   question, the results go to the model without it: its count was of the turns their own question
-  had left, and a model could take a 0 there for its own. So the first request of a follow-up
-  differs from the requests of the question before it, from that question's first tool round on.
-  The provider's prompt cache misses from there, once in each follow-up question, in its first
-  request; the rounds of older questions were already sent without the count and still match, and
+  had left, and a model could take a 0 there for its own.
+- **So the first request of a follow-up differs from the requests of the question before it**,
+  from that question's first tool round on, for two reasons. The results are sent without
+  `tool_turns_left`. And the model turns of the round are sent as their calls alone: within its own
+  question a round went back with the model's own form of its turn (Gemini's thought signatures,
+  Claude's thinking blocks), and a stored round has none ([below](#what-toolturns-holds)). Either
+  one alone makes the provider's prompt cache miss from there, once in each follow-up question, in
+  its first request. The rounds of older questions were already sent that way and still match, and
   the documents and cards before the rounds are still read from the cache
-  ([Costs and limits](./costs-and-limits.md#prompt-caching)).
+  ([Costs and limits](./costs-and-limits.md#prompt-caching)). Before 0.9.0 these pages named
+  `tool_turns_left` alone; keeping the count in the results would not save the miss for a model
+  that thinks. Keeping the raw turns is planned for 0.10.0.
 - Calls that were not run are there too, with an `error`: for example refused for lack of room,
   past `limits.callsPerTurn`, or whose arguments could not be read. So are pointers to results already
   shown ([Repeated calls](#repeated-calls-in-a-follow-up)).
@@ -118,6 +123,7 @@ tool calls of one model turn, each with what its tool returned:
   them." }`.
 - **No provider's own form.** A stored round has no thought signatures, thinking blocks or other
   raw parts of the model turn. Any adapter can be given it, and builds the turn from the calls.
+  That is one of the two reasons the prompt cache misses once in a follow-up (above).
 - Only the rounds of this question. The stored rounds you passed in `messages` are not repeated.
 - With an explorer model they are the explorer's rounds. Its words are not kept.
 - They are there when `answered` is false, and in `partialResultOf(error)` when the question failed.
@@ -261,7 +267,11 @@ its own in some ways, and not in others.
   whole, which the model reaches only through the tools.
 - **It shortens old tool results.** When the results of a new turn do not fit, the results of all
   but the last three tool rounds are replaced by short stand-ins, then all but the last two, then
-  all but the last one. Stored rounds of earlier questions are the oldest, so they go first. A
+  all but the last one. Stored rounds of earlier questions are the oldest, so they go first.
+  Since 0.9.0 this is done before the first request too, when the stored rounds make it larger
+  than its room in tokens (the loop's estimate, which the recovery from a refused request uses
+  too; a request is not shortened for its bytes alone): the first request goes out shortened,
+  instead of being refused by the provider and sent again. A
   stand-in keeps the document and the lines or pages that were shown, and tells the model to read
   them again if it needs them:
 
@@ -270,7 +280,9 @@ its own in some ways, and not in others.
   ```
 
   Errors and results under 700 characters are left as they are, except a `view_pages` result
-  that showed pages: it is always replaced, and its pages go with it. A whole-file read keeps the
+  that showed pages: it is always replaced, and its pages go with it. Since 0.9.0 a result that
+  its stand-in would not make smaller is left as it is too, such as a search counted by group with
+  a few short groups. A whole-file read keeps the
   first 6,000 characters of its answer. `steps` then holds "Older tool results were shortened to
   make room in the request".
 - **It stops running tools when nothing fits.** A call that cannot get 1,500 characters of room is
@@ -285,10 +297,12 @@ its own in some ways, and not in others.
 What it does not do:
 
 - **It never shortens a text turn**, a question or an answer, and never touches native parts.
-- **It never shortens anything for an append-only model.** When a model of the question declares
-  `appendOnly` (Claude does: [Claude](./anthropic.md)), no turn is rewritten during the question, and
-  old results are not replaced by stand-ins. The check of stored pointers at the start of a
-  question ([below](#repeated-calls-in-a-follow-up)) still runs.
+- **It never shortens anything of the question for an append-only model.** When a model of the
+  question declares `appendOnly` (Claude does: [Claude](./anthropic.md)), no turn is rewritten
+  during the question, and its results are not replaced by stand-ins. The check of stored pointers
+  at the start of a question ([below](#repeated-calls-in-a-follow-up)) still runs, and since 0.9.0
+  so does the shortening of stored rounds before the first request: they hold no thinking blocks,
+  and nothing of the question was sent yet. Before, such a question failed on Claude.
 - **It does not change your stored rounds.** Stand-ins exist in the requests of one question. The
   `toolTurns` it returns are the new rounds as the model last had them.
 
@@ -435,17 +449,36 @@ export async function next(files: LargeFiles, endpoint: GeminiEndpoint, document
 - `geminiToolTurns` gives, for each round, a `model` turn of `functionCall` parts and a `user` turn
   of `functionResponse` parts. A call's `id` is in both when it has one. Each result is given
   without its `tool_turns_left`, as the loop sends the rounds of an earlier question. `contents`
-  that 0.5.0 converted keep it, and are sent as they are.
-- `fromGeminiContents` makes a `"user"` turn a user turn and a `"model"` turn an assistant turn. A
-  text part is text. A text part with more fields (a `thoughtSignature`) is kept whole as a native
-  part, sized by its text. Every other part is a native part, as it is: an image, an inline PDF,
-  and the `functionCall` and `functionResponse` parts of earlier questions.
+  that 0.5.0 converted keep it; from 0.9.0 their rounds are sent without it (below).
+- `fromGeminiContents` makes a `"user"` turn a user turn and a `"model"` turn an assistant turn,
+  and the rounds that `geminiToolTurns` wrote stored rounds again (below). A text part is text. A
+  text part with more fields (a `thoughtSignature`) is kept whole as a native part: its tokens are
+  counted from its text, and its bytes from the whole part. Every other part is a native part, as
+  it is: an image, an inline PDF, and the `functionCall` and `functionResponse` parts of your own
+  functions.
 
-So stored rounds in `contents` reach Gemini unchanged: the request is the same as with `messages`
-and `ToolTurn`s. The loop does not see them as tool rounds, though. It cannot shorten them to make
-room, does not point a repeated call to them, and sizes them only roughly, as media. No helper
-turns Gemini function calls back into `ToolTurn`s. Where you can, keep `toolTurns` as the JSON they
-are, and pass them in `messages`.
+Since 0.9.0, `contents` and `messages` with `ToolTurn`s behave alike. `fromGeminiContents` turns
+the rounds `geminiToolTurns` wrote back into stored rounds: a `model` turn of `functionCall` parts
+of the library's tools, followed by the `user` turn of their `functionResponse` parts. For the
+rounds that `geminiToolTurns` wrote, the request is the same, byte for byte, as before. But now
+the loop can shorten them to make room, point a
+repeated call to them, and size them as it sizes `toolTurns`. Before, it saw them as plain parts:
+a repeated search was run again, nothing could be shortened, and they were sized as media, about
+15,000 tokens short for a round of two calls.
+
+- A turn of your own functions, or one with a thought signature or a file in a response, stays as
+  it is. Its tokens are counted from the JSON of its calls and responses, and its bytes from the
+  whole parts, a thought signature included.
+- A round at the end of `contents`, with no turn after it, stays as it is too. Its responses are
+  the turn the model answers, as when your application ran the tools in a loop of its own and
+  hands the conversation over.
+- `fromGeminiContents(contents, { rounds: false })` keeps every turn as its parts, as 0.8 did.
+  With `askGemini`, pass it as `messages`.
+- The stored rounds come back without `tool_turns_left`, as stored `ToolTurn`s are sent. The
+  rounds that `geminiToolTurns` wrote never had it. Rounds that 0.5.0 converted have it in their
+  responses: from 0.9.0 they are lifted too, and sent without it, and a call without `args` is
+  sent with `args: {}`. Such a conversation misses the prompt cache once, in its first request
+  after the upgrade, from that round on.
 
 ### Chat Completions messages
 
@@ -581,11 +614,20 @@ the explorer's calls and results, built in its own form ([Explorer model](./expl
 
 - **Pass the same `owner` with every question.** A document ingested with another owner is treated
   as missing. The owner is a string that is not empty: `ingest` refuses `""`, which
-  `user?.id ?? ""` gives a caller who is not signed in. How to choose the owner (a user, or a user
-  and a session) is in [Storage](./storage.md#how-ownership-works).
+  `user?.id ?? ""` gives a caller who is not signed in. How to choose the owner is in
+  [Storage](./storage.md#how-ownership-works).
+- **Pass the chat as `scope`**, new in 0.9.0: `scope: [userId, sessionId]` at ingest and with every
+  question. A document of another chat is then treated as missing, even one of the same user
+  ([Scopes](./storage.md#scopes)).
+- **Give the documents IDs of your own** (`IngestInput.id`, new in 0.9.0), such as the ID of the
+  upload. The stored rounds (`toolTurns`) name the documents by ID. A file ingested again under the
+  same ID (from the upload you kept, once it expired) is found by those rounds and by the session
+  record as it is: nothing to rewrite. With the IDs the library makes, each ingest gives a new ID,
+  and the rounds keep naming the old one.
 - **Keep the documents with the conversation, not with one message.** Pass all of them in
   `documentIds` on every question. They are planned again each time.
-- **A document that is gone stops the question before any model request.** One that expired, was
+- **A document that is gone is settled before any model request**, by `onMissingDocuments`
+  ([below](#documents-that-are-gone)). By default the question stops: one that expired, was
   deleted, or belongs to another owner raises `DocumentsNotFoundError`, with the IDs in `.ids` and
   the message "A document is no longer available: doc_…. Upload it again." `partialResultOf` gives
   undefined for it: nothing was asked.
@@ -598,25 +640,48 @@ the explorer's calls and results, built in its own form ([Explorer model](./expl
   document: its expiry (`ttlMs` of `createLargeFiles`) and `files.delete`. Your rules for keeping and
   deleting data must cover them ([Security](../security.md), [Storage](./storage.md)).
 
-With the session sample above, documents that are gone can be taken off the session, and the user
-asked for them again:
+### Documents that are gone
+
+A chat often lives longer than its documents: they expire after `ttlMs` (72 hours by default), or
+are deleted. Before 0.9.0 the next question then failed whole with `DocumentsNotFoundError`, and
+the application caught it, took the IDs off the chat and asked again. Since 0.9.0
+`onMissingDocuments` does it in the question ([missing documents](../reference/ask.md#missing-documents)):
+
+- `"drop"` answers without them. The model is told, in one line of the system instruction, how many
+  files are no longer available, so it can say so when the question needs them. `result.missing`
+  lists their IDs, and a `documents_missing` notice names them, for the page.
+- A function can ingest them again, from the uploads you kept, under the same IDs, and return
+  `{ retry: true }`; or under new IDs, and return `{ replace: { [oldId]: newId } }`. The question is
+  then planned again, once, with them.
+
+With the session sample above, the files that are gone are taken off the chat, and the user is told:
 
 ```ts
-import { DocumentsNotFoundError } from "llm-large-files";
+import { askGemini } from "llm-large-files/gemini";
 
-// `ask` and `sessions` are those of the session sample above.
-/** Asks the question, or says which files must be attached again. */
-export async function askOrExplain(sessionId: string, userId: string, question: string, onText: (delta: string) => void, signal: AbortSignal): Promise<string | undefined> {
-  try {
-    await ask(sessionId, userId, question, onText, signal);
-    return undefined;
-  } catch (error) {
-    if (!(error instanceof DocumentsNotFoundError)) throw error;
-    await sessions.updateOne({ _id: sessionId, userId }, { $pull: { documentIds: { $in: error.ids } } });
-    return error.ids.length === 1 ? "A file of this chat is no longer available. Please attach it again." : `${error.ids.length} files of this chat are no longer available. Please attach them again.`;
-  }
+// `files`, `endpoint`, `sessions`, `turns` and `historyOf` are those of the session sample above.
+/** Asks the question without the files that are gone. Returns what to tell the user about them. */
+export async function askWithoutGone(sessionId: string, userId: string, question: string, onText: (delta: string) => void, signal: AbortSignal): Promise<string | undefined> {
+  const session = await sessions.findOne({ _id: sessionId, userId });
+  if (!session) throw new Error("No such chat.");
+  const earlier = await turns.find({ sessionId }).sort({ index: 1 }).toArray();
+  const result = await askGemini({
+    files, endpoint, owner: userId, documentIds: session.documentIds, messages: historyOf(earlier, question),
+    onMissingDocuments: "drop", onText, signal,
+  });
+  if (!result.missing) return undefined;
+  await sessions.updateOne({ _id: sessionId, userId }, { $pull: { documentIds: { $in: result.missing } } });
+  return result.missing.length === 1 ? "A file of this chat is no longer available. Please attach it again." : `${result.missing.length} files of this chat are no longer available. Please attach them again.`;
 }
 ```
+
+- Keep its turn as the sample above does: `result.toolTurns` and the answer.
+- With your own IDs ([above](#owners-and-documents-across-turns)), the uploads you keep can bring
+  a file back instead: the sample under [missing documents](../reference/ask.md#missing-documents)
+  ingests each one again from its upload and returns `{ retry: true }`.
+- A tool call that finds a document gone during the question (deleted while the question ran)
+  answers the model that it is no longer available, and the question gets a `document_gone`
+  notice ([events](../reference/events.md#noticecode-and-noticedisplay)).
 
 ## Related pages
 

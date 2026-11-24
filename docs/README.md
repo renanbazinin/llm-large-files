@@ -123,7 +123,8 @@ Each term links to the page that explains it. The defaults and limits are on tho
 - **Document**: a file after `files.ingest()`: its extracted text, which the tools read by line
   number, and its metadata (`DocumentMeta`), kept in the store under an ID the library makes
   (`doc_` and 32 hex characters). It expires after `ttlMs`. The uploaded file itself is kept only
-  for the formats in `keepOriginals`. See [storage](./guides/storage.md).
+  for the formats in `keepOriginals`: in the store, or where your application keeps it (0.9.0). See
+  [storage](./guides/storage.md).
 - **Evidence**: `AskResult.evidence`, one entry for each tool call that showed the model part of a
   document: which document, and which lines or pages, as ranges (`Evidence`). A whole-file read is
   marked `whole: true`. Keep it with the answer for citations or an audit trail. See
@@ -223,13 +224,15 @@ One task each, with samples:
 - [An explorer model](./guides/explorer-model.md): a second, cheaper model that explores the
   documents while another answers: who does what, what changes for your app, cost, any pair of
   providers.
-- [Web app](./guides/web-app.md): uploads (`createDocumentHandlers`, direct `ingest`, the
-  browser), answers and progress streamed over server-sent events, cancelling.
+- [Web app](./guides/web-app.md): uploads (`createDocumentHandlers`, its hooks, saving each upload
+  in the chat's folder, spooling to disk, direct `ingest`, the browser), answers and progress
+  streamed over server-sent events, cancelling.
 - [Conversations](./guides/conversations.md): the message format, keeping tool turns, history
   across requests and servers, staying inside the window, converters, pointers for repeated calls,
   mixing providers.
 - [Storage](./guides/storage.md): the `DocumentStore` contract and writing your own, the built-in
-  stores, owners and a layout per user and per session, retention, original files, the cache.
+  stores, owners and a layout per user and per session, retention, original files (a copy in the
+  store, or the uploads your application keeps), the cache.
 - [Deployment](./guides/deployment.md): several servers, memory sizing, sweeps, proxies and
   timeouts for streams, rolling upgrades, Node.js and ESM.
 - [Errors and reliability](./guides/errors-and-reliability.md): every error and its kind and what
@@ -242,8 +245,9 @@ One task each, with samples:
   and OCR.
 - [Your own adapter and loop](./guides/own-adapter-and-loop.md): writing or wrapping a
   `ModelAdapter`, your own loop with `prepare()` and `tools()`, `parseSseJson`, `withRetry`.
-- [Testing an integration](./guides/testing.md): tests without a real model: a scripted model, the
-  real adapters with a fake `fetch`, errors, expiry and owners, and a few cheap live tests.
+- [Testing an integration](./guides/testing.md): tests without a real model: a scripted model and
+  the real adapters with a fake `fetch` (both from `llm-large-files/testing`), errors, expiry and
+  owners, and a few cheap live tests.
 
 ## Reference by module
 
@@ -260,7 +264,8 @@ import from.
 | `llm-large-files/gemini` | [Gemini](./reference/gemini.md) | `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()` and the other Gemini exports |
 | `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
-| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses; `createIsolatedExtractors`, files read in child processes; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
+| `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses, `prepareUpload` and `uploadSpool`; `createIsolatedExtractors`, files read in child processes; `fileOriginals`, the uploads your application keeps, read back by their ref; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
+| `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents; `documentStoreChecks`, the checks of a store of your own |
 
 ## Internals and measurements
 
@@ -281,8 +286,12 @@ headings, each pointing to its new home.
 - [Publishing](./publishing.md): releasing a version to npm.
 - [Contributing](https://github.com/renanbazinin/llm-large-files/blob/main/CONTRIBUTING.md): how to work on the code and its tests.
 
-## Changelog
+## Changelog and upgrading
 
 [CHANGELOG.md](../CHANGELOG.md) says what changed in each version. From 0.6.0 on, each version
 starts with what you must change when you upgrade, then what you can add, what works differently
 and what was fixed.
+
+[Upgrading to 0.9](./upgrading-0.9.md) takes an application from 0.8.x to 0.9.0: what no longer
+compiles, behavior to check, stores of your own, servers of two versions on one store, and a worked
+example of a chatbot with a folder per user and chat on a shared volume.

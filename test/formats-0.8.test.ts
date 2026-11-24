@@ -406,11 +406,4 @@ describe("hostile spreadsheets and pages", () => {
     const huge = `<worksheet ${S}><sheetData><row r="1"><c t="inlineStr"><is><t>${"x".repeat(3_000)}</t></is></c></row></sheetData></worksheet>`;
     await expect(extractText(await workbook(huge), { name: "h.xlsx", mimeType: "", format: "xlsx", maxTextBytes: 1_000 })).rejects.toThrow(/more text than is kept/);
   });
-
-  it("indents lists nested thousands deep by a few levels only", async () => {
-    const started = performance.now();
-    const text = await htmlToText("<ul><li>x".repeat(20_000));
-    expect(performance.now() - started).toBeLessThan(5_000);
-    expect(Math.max(...text.split("\n").map((line) => line.length))).toBeLessThan(20);
-  });
 });

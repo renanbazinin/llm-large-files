@@ -3,57 +3,68 @@
 // formats, its optional peers: unpdf for PDF, jszip for DOCX and PPTX, @cantoo/pdf-lib for the
 // pages of a PDF.
 //
+// NOT FOR PRODUCTION AS IS. It is a demo: there is no sign-in. Each browser gets a random owner in
+// a cookie, so that two browsers cannot read each other's files, but anyone who has that cookie is
+// that owner. Chats are kept in memory. Put your own sign-in in getOwner, and keep the chats in your
+// database. It listens on 127.0.0.1 only, unless HOST is set.
+//
 //   npm install
 //   npm run build
-//   GEMINI_API_KEY=... node examples/server.ts      →  http://localhost:3000
+//   GEMINI_API_KEY=... node examples/server.ts      →  http://127.0.0.1:3000
 //
 // GEMINI_MODEL picks the model. GEMINI_EXPLORER_MODEL is optional: a second model that searches
-// and reads the files, so that GEMINI_MODEL only writes the answer.
+// and reads the files, so that GEMINI_MODEL only writes the answer. HOST and PORT change where it
+// listens (HOST=0.0.0.0 for every interface: only behind your own sign-in).
 //
 // Runs on Node 22.18+ or 24 (built-in TypeScript type stripping).
-import { createServer, type IncomingMessage } from "node:http";
+import { randomBytes } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { setInterval } from "node:timers";
-import { askStream, createLargeFiles, FileDocumentStore, partialResultOf, type EventError, type ToolTurn } from "llm-large-files";
+import { fileURLToPath } from "node:url";
+import {
+  askStream,
+  createLargeFiles,
+  FileDocumentStore,
+  partialResultOf,
+  type DocumentStore,
+  type EventError,
+  type LargeFiles,
+  type ModelAdapter,
+  type ToolTurn,
+} from "llm-large-files";
 import { gemini, geminiApi, type ChatTurn } from "llm-large-files/gemini";
-import { createDocumentHandlers, sseMessageOf, writeSseEvents } from "llm-large-files/node";
+import { createDocumentHandlers, createIsolatedExtractors, sseMessageOf, writeSseEvents, type IsolatedExtractors } from "llm-large-files/node";
 
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) throw new Error("Set GEMINI_API_KEY.");
-const endpoint = geminiApi({
-  apiKey,
-  model: process.env.GEMINI_MODEL ?? "gemini-3.8-flash",
-  // Unset or empty, there is no explorer: the one model searches, reads and answers.
-  explorerModel: process.env.GEMINI_EXPLORER_MODEL,
-});
-const model = gemini(endpoint);
-// A second model for the requests that use tools, when the endpoint names one.
-const explorer = endpoint.explorerUrl && endpoint.explorerUrl !== endpoint.url ? gemini({ url: endpoint.explorerUrl, headers: endpoint.headers }) : undefined;
+/** Where the demo listens: 127.0.0.1 unless HOST is set, port 3000 unless PORT is. */
+export function demoAddress(env: NodeJS.ProcessEnv = process.env): { host: string; port: number } {
+  return { host: env.HOST || "127.0.0.1", port: Number(env.PORT) || 3000 };
+}
 
-// keepOriginals lets the model look at the pages of an uploaded PDF (charts, photos, scans). It
-// needs the optional dependency @cantoo/pdf-lib, and keeps each PDF on disk until it expires.
-const files = createLargeFiles({ store: new FileDocumentStore(".data/large-files"), keepOriginals: ["pdf"] });
-// An expired document, and its PDF, stay on disk until they are looked up again or swept.
-setInterval(() => files.sweep().catch(console.error), 60 * 60 * 1000).unref();
-// In a real app, return the signed-in user's ID so uploads stay private to them.
-const getOwner = (_request: IncomingMessage) => undefined;
-// An upload sent with `Accept: text/event-stream` is answered with its progress, then its summary (in `document`).
-const documents = createDocumentHandlers(files, { getOwner });
+/**
+ * The library of the demo. PDF and Office files are read in child processes, each with a memory
+ * limit and a kill timer, so that a file built to exhaust a server is refused and the server goes
+ * on. keepOriginals lets the model look at the pages of an uploaded PDF (charts, photos, scans): it
+ * needs the optional dependency @cantoo/pdf-lib, and keeps each PDF in the store until it expires.
+ * requireOwner: every call must name its owner, so that no document is ever anyone's.
+ */
+export function demoLibrary(store: DocumentStore = new FileDocumentStore(".data/large-files")): { files: LargeFiles; isolated: IsolatedExtractors } {
+  const isolated = createIsolatedExtractors();
+  const files = createLargeFiles({ store, keepOriginals: ["pdf"], extractors: isolated.extractors, requireOwner: true });
+  return { files, isolated };
+}
 
-// Each chat's turns, its tool rounds among them, stay on the server: a follow-up question then
-// needs no new search, and the page never handles them. This Map is for the demo only: it lives
-// in memory, keeps the latest questions of the latest chats, and two questions sent at once in one
-// chat each keep only their own turns. In a real app, keep the turns in your database.
-const chats = new Map<string, Array<ChatTurn | ToolTurn>>();
-const CHATS_KEPT = 1_000;
-const QUESTIONS_KEPT = 20;
-function remember(chatId: string, turns: Array<ChatTurn | ToolTurn>): void {
-  // Only the latest questions of a chat are kept, each with its tool rounds and its answer.
-  const questions = turns.flatMap((turn, index) => (turn.role === "user" ? [index] : []));
-  const kept = questions.length > QUESTIONS_KEPT ? turns.slice(questions[questions.length - QUESTIONS_KEPT]) : turns;
-  chats.delete(chatId);
-  chats.set(chatId, kept);
-  // The chat used longest ago goes first.
-  if (chats.size > CHATS_KEPT) chats.delete(chats.keys().next().value!);
+/** The cookie that holds the demo's owner: 32 random hex digits, made when the page is loaded. */
+const OWNER_COOKIE = "demo-owner";
+const OWNER_SHAPE = /^[0-9a-f]{32}$/;
+
+/** The owner of a request: its cookie, when it has one of the right shape. In a real app, your sign-in. */
+function ownerOf(request: IncomingMessage): string | undefined {
+  for (const pair of (request.headers.cookie ?? "").split(";")) {
+    const [name, value] = pair.trim().split("=");
+    if (name === OWNER_COOKIE && value !== undefined && OWNER_SHAPE.test(value)) return value;
+  }
+  return undefined;
 }
 
 type ChatBody = { chatId: string; question: string; documentIds: string[] };
@@ -105,45 +116,85 @@ function userMessage(error: EventError): string {
   }
 }
 
-createServer(async (request, response) => {
-  const url = new URL(request.url ?? "/", "http://localhost");
-  if (request.method === "POST" && url.pathname === "/api/documents") return documents.upload(request, response);
-  if (request.method === "DELETE" && url.pathname.startsWith("/api/documents/")) {
-    return documents.remove(request, response, url.pathname.split("/").pop()!);
+function sendJson(response: ServerResponse, status: number, value: unknown): void {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify(value));
+}
+
+/** The demo's server, not yet listening: the page, the upload routes and the chat route. */
+export function createDemoServer({ files, model, explorer }: { files: LargeFiles; model: ModelAdapter; explorer?: ModelAdapter }): Server {
+  // An upload sent with `Accept: text/event-stream` is answered with its progress, then its summary
+  // (in `document`). A request without the cookie is answered 401 "Sign in first.", before its
+  // body is read: the library requires an owner.
+  const documents = createDocumentHandlers(files, { getOwner: ownerOf });
+
+  // Each chat's turns, its tool rounds among them, stay on the server: a follow-up question then
+  // needs no new search, and the page never handles them. They are kept by owner and chat, so that
+  // nobody reads another's chat by its ID. This Map is for the demo only: it lives in memory, keeps
+  // the latest questions of the latest chats, and two questions sent at once in one chat each keep
+  // only their own turns. In a real app, keep the turns in your database.
+  const chats = new Map<string, Array<ChatTurn | ToolTurn>>();
+  const CHATS_KEPT = 1_000;
+  const QUESTIONS_KEPT = 20;
+  function remember(key: string, turns: Array<ChatTurn | ToolTurn>): void {
+    // Only the latest questions of a chat are kept, each with its tool rounds and its answer.
+    const questions = turns.flatMap((turn, index) => (turn.role === "user" ? [index] : []));
+    const kept = questions.length > QUESTIONS_KEPT ? turns.slice(questions[questions.length - QUESTIONS_KEPT]) : turns;
+    chats.delete(key);
+    chats.set(key, kept);
+    // The chat used longest ago goes first.
+    if (chats.size > CHATS_KEPT) chats.delete(chats.keys().next().value!);
   }
-  if (request.method === "POST" && url.pathname === "/api/chat") {
-    const body = await chatBody(request);
-    if ("error" in body) {
-      response.writeHead(body.status, { "Content-Type": "application/json" });
-      return response.end(JSON.stringify({ error: body.error }));
+
+  async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const url = new URL(request.url ?? "/", "http://localhost");
+    const id = /^\/api\/documents\/([^/]+)$/.exec(url.pathname)?.[1];
+    if (request.method === "POST" && url.pathname === "/api/documents") return documents.upload(request, response);
+    if (id !== undefined && request.method === "GET") return documents.get(request, response, id);
+    if (id !== undefined && request.method === "DELETE") return documents.remove(request, response, id);
+    if (request.method === "POST" && url.pathname === "/api/chat") {
+      const owner = ownerOf(request);
+      if (!owner) return sendJson(response, 401, { error: "Sign in first." });
+      const body = await chatBody(request);
+      if ("error" in body) return sendJson(response, body.status, { error: body.error });
+      const key = `${owner}/${body.chatId}`;
+      const history = chats.get(key) ?? [];
+      const asked: ChatTurn = { role: "user", text: body.question };
+      const stream = askStream({ files, model, explorer, messages: [...history, asked], documentIds: body.documentIds, owner });
+      // The page gets every event as sseMessageOf sends it, an error in the app's own words. The
+      // stream is passed as it is, so that the question stops as soon as the page goes away.
+      await writeSseEvents(response, stream, {
+        map: (event) => sseMessageOf(event.type === "run.error" ? { ...event, error: { ...event.error, message: userMessage(event.error) } } : event),
+      });
+      try {
+        const result = await stream.result;
+        // The answer is kept only when there is one: the model would read an error message as its own words.
+        remember(key, [...history, asked, ...result.toolTurns, ...(result.answered ? [{ role: "model" as const, text: result.text }] : [])]);
+      } catch (error) {
+        // A question stopped because the page went away is no error of the server's.
+        if ((error as Error | undefined)?.name !== "AbortError") console.error(error);
+        // What the question found before it failed is kept too, so asking again does not search again.
+        remember(key, [...history, asked, ...(partialResultOf(error)?.toolTurns ?? [])]);
+      }
+      return;
     }
-    const history = chats.get(body.chatId) ?? [];
-    const asked: ChatTurn = { role: "user", text: body.question };
-    const owner = getOwner(request);
-    const stream = askStream({
-      files, model, explorer, messages: [...history, asked], documentIds: body.documentIds,
-      ...(owner ? { owner } : {}),
-    });
-    // The page gets every event as sseMessageOf sends it, an error in the app's own words. The
-    // stream is passed as it is, so that the question stops as soon as the page goes away.
-    await writeSseEvents(response, stream, {
-      map: (event) => sseMessageOf(event.type === "run.error" ? { ...event, error: { ...event.error, message: userMessage(event.error) } } : event),
-    });
-    try {
-      const result = await stream.result;
-      // The answer is kept only when there is one: the model would read an error message as its own words.
-      remember(body.chatId, [...history, asked, ...result.toolTurns, ...(result.answered ? [{ role: "model" as const, text: result.text }] : [])]);
-    } catch (error) {
-      // A question stopped because the page went away is no error of the server's.
-      if ((error as Error | undefined)?.name !== "AbortError") console.error(error);
-      // What the question found before it failed is kept too, so asking again does not search again.
-      remember(body.chatId, [...history, asked, ...(partialResultOf(error)?.toolTurns ?? [])]);
-    }
-    return;
+    // The page gives a browser without the cookie an owner of its own: HttpOnly, so that no script
+    // reads it, and SameSite=Strict, so that no other site's page sends it.
+    const headers: Record<string, string> = { "Content-Type": "text/html; charset=utf-8" };
+    if (!ownerOf(request)) headers["Set-Cookie"] = `${OWNER_COOKIE}=${randomBytes(16).toString("hex")}; HttpOnly; SameSite=Strict; Path=/`;
+    response.writeHead(200, headers);
+    response.end(PAGE);
   }
-  response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  response.end(PAGE);
-}).listen(3000, () => console.log("Open http://localhost:3000"));
+
+  return createServer((request, response) => {
+    // A request that fails (a chat body cut off on its way) must not stop the server.
+    route(request, response).catch((error: unknown) => {
+      console.error(error);
+      if (!response.headersSent) sendJson(response, 500, { error: "Something went wrong." });
+      else response.destroy();
+    });
+  });
+}
 
 // The page sets only textContent from what the server sends: no file name, label or answer is read as HTML.
 const PAGE = `<!doctype html>
@@ -247,3 +298,37 @@ ask.onclick = async () => {
   });
 };
 </script>`;
+
+/** Whether this file is the script Node was started with (`node examples/server.ts`), not a module imported by a test. */
+function isMain(): boolean {
+  const started = process.argv[1];
+  if (!started) return false;
+  try {
+    return realpathSync(started) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isMain()) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Set GEMINI_API_KEY.");
+  const endpoint = geminiApi({
+    apiKey,
+    model: process.env.GEMINI_MODEL ?? "gemini-3.8-flash",
+    // Unset or empty, there is no explorer: the one model searches, reads and answers.
+    explorerModel: process.env.GEMINI_EXPLORER_MODEL,
+  });
+  // A second model for the requests that use tools, when the endpoint names one.
+  const explorer = endpoint.explorerUrl && endpoint.explorerUrl !== endpoint.url ? gemini({ url: endpoint.explorerUrl, headers: endpoint.headers }) : undefined;
+  const { files, isolated } = demoLibrary();
+  // An expired document, and its PDF, stay on disk until they are looked up again or swept.
+  setInterval(() => files.sweep().catch(console.error), 60 * 60 * 1000).unref();
+  const { host, port } = demoAddress();
+  const server = createDemoServer({ files, model: gemini(endpoint), ...(explorer ? { explorer } : {}) });
+  server.listen(port, host, () => console.log(`Open http://${host.includes(":") ? `[${host}]` : host}:${port}`));
+  process.once("SIGTERM", () => {
+    server.close();
+    void isolated.close();
+  });
+}

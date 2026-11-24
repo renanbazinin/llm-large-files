@@ -152,7 +152,6 @@ Every other option goes to `askWithFiles` as it is. What `askGemini` cannot do:
 | An explorer with other headers, or of another provider | No: the same headers (with `vertexAi()` or `geminiApi()`, the same project, location and key too) | `explorer`: any adapter |
 | Different waits, `fetch` or `toolFilePlacement` for each model | No: one value for both | Each adapter its own |
 | A part reader of your own ([below](#whole-file-reads-in-parts)) | No | Yes |
-| Turns with native parts in `messages` | Use `contents` | `{ role, parts: [{ text }, { native }] }` |
 
 Start with `askGemini`. Move to `askWithFiles` when you need a row of this table:
 
@@ -572,8 +571,9 @@ does.
 
 ## Gemini history stored as contents
 
-`askGemini` takes plain turns and stored tool rounds in `messages`, or your own Gemini `contents`
-(with images and inline PDFs) in `contents`; given both, `contents` is used. The last turn must be
+`askGemini` takes `messages` as `askWithFiles` does (`ChatMessage[]`: plain turns, stored tool
+rounds, turns with native parts; since 0.9.0), or your own Gemini `contents` (with images and inline
+PDFs) in `contents`; given both, `contents` is used. The last turn must be
 the user's. Document text and cards are added at the start of the first user turn, and your array
 is not changed. `fromGeminiContents(contents)` turns `contents` into `messages` for `askWithFiles`,
 and `geminiToolTurns(result.toolTurns)` gives the tool rounds of a question as `contents`, to store
@@ -593,10 +593,13 @@ history.push(...geminiToolTurns(result.toolTurns), ...(result.answered ? [{ role
 Store no model turn for a question that was not answered
 ([Conversations](./conversations.md#storing-a-conversation-and-asking-the-next-question)).
 
-Rounds kept this way are sent as they are. Passed as `toolTurns` in `messages` instead, they stay
-rounds the loop knows: a repeated call is answered with a pointer to its earlier result, and old
-results can be shortened when room runs short. What to store and how to keep a conversation inside
-the window: [Conversations](./conversations.md).
+Rounds kept this way are sent as they are. Since 0.9.0 they are also rounds the loop knows, as
+`toolTurns` in `messages` are: `fromGeminiContents` turns the rounds `geminiToolTurns` wrote back
+into stored rounds, so a repeated call is answered with a pointer to its earlier result, old results
+can be shortened when room runs short, and the rounds are sized as they are. Before, they were
+plain parts, sized as media, and a repeated search ran again. Function turns of your own stay as
+they are. What to store and how to keep a conversation inside the window:
+[Conversations](./conversations.md#gemini-contents).
 
 ## A production setup
 

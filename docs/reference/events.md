@@ -296,6 +296,7 @@ outcome that says so.
 | `code` | [`NoticeCode`](#noticecode-and-noticedisplay) | What happened. |
 | `message` | `string` | One line of plain text, word for word what the callback got when there was one. |
 | `display` | [`NoticeDisplay`](#noticecode-and-noticedisplay) | Where it went in the callbacks: `"activity"`, `"step"` or `"none"`. |
+| `documentIds` | `string[]`, optional | The documents the notice is about: those left out (`"documents_missing"`), the one found gone (`"document_gone"`), the one whose pages were not looked at (`"page_looks_busy"`). New in 0.9.0. |
 
 #### `run.finish`
 
@@ -407,8 +408,16 @@ to `onStep` and `AskResult.steps`, `"none"` to neither. The `"none"` notices are
 | `"budget_reached"` | none | `limits.inputTokens` or `limits.requests` was reached, so no more tools run, or the answer is not asked for again. Once a question. | "No more tools: the question reached its limit of input tokens or requests." |
 | `"no_room"` | none | There is no room left in the conversation for another tool result. Once a question. | "There is no room left in this conversation for another tool result." |
 | `"blocked"` | none | The provider refused the prompt (`AskResult.blockReason`). | "The provider refused the prompt: SAFETY." |
+| `"documents_missing"` | none | Documents of `documentIds` were missing, and the question is answered without them (`onMissingDocuments: "drop"`, see [missing documents](./ask.md#missing-documents)). Before the `plan` event, once a question. `documentIds` names them; `AskResult.missing` lists them too. New in 0.9.0. | "1 of the attached files is no longer available: the question is answered without it." |
+| `"document_gone"` | none | A tool call found a document gone during the question: deleted or expired since it was planned. The model was told so in the call's result ("‹id› is no longer available on the server. Ask the user to attach the file again."). Once for each document. `documentIds` names it. New in 0.9.0. | "app.log is no longer available on the server." |
+| `"page_looks_busy"` | none | A look at pages waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`, [library](./library.md#largefilesoptions)) and was not run. The model was told the server is busy. `documentIds` names the PDF. New in 0.9.0. | "The pages of report.pdf were not looked at: the server was busy with other looks at pages." |
 
 The messages are written for people and may change between versions. Test `code`, not `message`.
+
+New codes come with new versions: 0.9.0 added `"documents_missing"`, `"document_gone"` and
+`"page_looks_busy"`. In TypeScript, a `switch` over `NoticeCode` that must handle every code (one
+with a `never` check in its `default`) no longer compiles until it handles them. Give such a switch
+a `default` that shows nothing, or the message.
 
 ### How the callbacks map to events
 
@@ -434,20 +443,25 @@ An error in an event is plain data, safe to send to a browser:
 | Field | Type | What it holds |
 |---|---|---|
 | `message` | `string` | A message your users may see. |
-| `kind` | `ModelErrorKind`, optional | For a model error: what kind it is (`errorKindOf`): `"rate_limit"`, `"timeout"`, `"auth"`… |
-| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. |
-| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"IngestError"`… |
-| `code` | `IngestErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. |
+| `kind` | `ModelErrorKind`, optional | For a model error: what kind it is (`errorKindOf`): `"rate_limit"`, `"timeout"`, `"auth"`… Since 0.9.0 also for an error with a `status` (0, or 400 to 599) and no `kind` of its own, such as one an adapter of yours throws: the kind its status gives (`classifyModelError`). So a model's error always has its kind. Plain data thrown (`{ status: 429, message }`) gets none. |
+| `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also 503 for a `DocumentStoreError` and 404 for a `DocumentsNotFoundError`. |
+| `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentScopeError"`, `"IngestError"`… Since 0.9.0 a subclass of `DocumentStoreError` or of `IngestError` with a name of its own is named `"DocumentStoreError"` or `"IngestError"` here, so that `errorInfoOf` reads it as its class. |
+| `code` | `IngestErrorCode` or `DocumentScopeErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. Since 0.9.0 also the code of a [`DocumentScopeError`](./library.md#documentscopeerror), with `name` `"DocumentScopeError"`: `"scope_missing"` when the chat was deleted. |
 
 How `message` is written:
 
-- **A model error** (one with a `kind` or a numeric `status`) is told by its kind and status, in
+- **A model error** (one with a `kind`, or an error with a `status` of 0 or 400 to 599, other than
+  the library's own errors and plain data thrown) is told by its kind and status, in
   the library's words: "The model was busy (HTTP 429).", "The model failed on its side (HTTP
   503).", "The model refused the key or token it was sent (HTTP 401).". The provider's own words
   can name projects, hosts or keys: they stay on the error that is thrown, for your logs.
 - **A storage error** (`DocumentStoreError`) is told by its own message, which names only the
-  code. **A Node system error** (one with a `code` and a `syscall`) is told as "The file could not
-  be read from storage (ENOENT).".
+  code, and so is a `DocumentsNotFoundError`, which names the IDs. **A Node system error** (one with a `code` and a `syscall`) is told as "The file could not
+  be read from storage (ENOENT).". Since 0.9.0 its code is told only when it reads as one
+  (capitals, digits and `_`): a driver may put a host in `code`.
+- **Another `status`** (not 0 or 400 to 599), and plain data thrown with a status
+  (`{ status: 429, message }`), is told as "Something went wrong.", as `errorInfoOf` reads it.
+  New in 0.9.0: such an error was told in a model's words ("The model was busy (HTTP 429).").
 - **Any other `Error`** is told by its message as it is written: the library's own refusals and
   messages ("app.log is empty."), and the reason of an abort. That includes errors your own code
   throws: an adapter, an extractor or a listener of your own. Keep secrets out of their messages,
@@ -455,16 +469,19 @@ How `message` is written:
 - **Anything that is not an `Error`** is told as "Something went wrong.".
 
 An [`IngestError`](./library.md#ingesterror) is told by its message, with `name: "IngestError"` and
-its `code`, and with its `status` only for `"too_large"` (413) and `"busy"` (503): that status is the
-answer of an upload, not of a model, and the others are all 422. Until 0.8.0 the same refusals were
+its `code`, and with its `status` only for `"too_large"` (413), `"exists"` (409, new in 0.9.0) and
+`"busy"` (503): that status is the answer of an upload, not of a model, and the others are all 422. Until 0.8.0 the same refusals were
 plain `Error`s, and their events said `name: "Error"`; a test that expects that needs
-`"IngestError"`. A store that failed, an abort and a listener that threw have no `code`.
+`"IngestError"`. A [`DocumentScopeError`](./library.md#documentscopeerror) is told by its message, with
+`name: "DocumentScopeError"` and its `code` (new in 0.9.0). A store that failed, an abort and a
+listener that threw have no `code`.
 
 Where errors appear: `retry.error`, `request.end.error`, `run.error.error` and `ingest.error.error`
 are `EventError`s. `tool.end.error` is a string: the error the model was sent, or, for a call
 ended because its turn failed, the `message` of the turn's error. An ingest whose store failed to
 write the document says only "The document could not be stored. Try again later.", whatever the
-store threw.
+store threw. Since 0.9.0 that error also has `name: "DocumentStoreError"` and `status: 503`, so it
+reads as the error `ingest` throws.
 
 To show your own words, map the error by `kind` and `name`, as `examples/server.ts` does in its
 `userMessage`, and the error of an ingest by `code`. [Errors and reliability](../guides/errors-and-reliability.md) says what each kind
@@ -478,8 +495,11 @@ text of the documents:
 - `tool.end` has no `result`;
 - the result in `run.finish` and `run.error` has no `toolTurns`, and its `plan` names each
   document as a [`DocumentRef`](#plan) (id, name, format, estimated tokens, pages) instead of its
-  full `DocumentMeta`, which holds the `owner`, the headings of the outline and, for a log, the
-  templates of its most frequent lines.
+  full `DocumentMeta`, which holds the `owner`, the `scope` (such as `[userId, chatId]`), the
+  `sha256` of the file, the `original` with its `ref` (where your application keeps the file), the
+  headings of the outline and, for a log, the templates of its most frequent lines.
+
+`missing` (new in 0.9.0) is there as in `AskResult`: the IDs of the documents left out.
 
 ```ts
 type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
@@ -766,9 +786,9 @@ The events of `files.ingest`, through `IngestInput.onEvent`:
 
 | `type` | Fields | When |
 |---|---|---|
-| `ingest.start` | `name: string`, `format: DocumentFormat`, `bytes: number` | Always first, before the input is checked. `name` is the file name as it will be stored; `format` is what the name and type say (a text file can still become a log); `bytes` is the size of the file. |
+| `ingest.start` | `name: string`, `format: DocumentFormat`, `bytes: number` | Always first, before the input is checked. `name` is the file name as it will be stored; `format` is what the name and type say (a text file can still become a log); `bytes` is the size of the file. For a file ingested from a path ([`IngestFromSource`](./library.md#ingestfromsource), new in 0.9.0), the size `lstat` gives, before any of the file is read; 0 when the path cannot be looked at. |
 | `ingest.progress` | `stage: IngestStage`, `done: number`, `total?: number`, `unit: "pages" \| "parts" \| "bytes" \| "characters"` | How far a stage is. `total` is absent when it is not known. See [Stages and units](#stages-and-units). |
-| `ingest.finish` | `document: DocumentSummary` | Always last when the document is stored. `document` is [`toDocumentSummary(meta)`](./library.md#documentsummary): the summary an upload's `201` holds, without `owner`. |
+| `ingest.finish` | `document: DocumentSummary`, `app?: Record<string, unknown>` | Always last when the document is stored. `document` is [`toDocumentSummary(meta)`](./library.md#documentsummary): the summary an upload's `201` holds, without `owner`. `app` is set only by the upload handler of `llm-large-files/node`: the `answer` its `onUploaded` returned (new in 0.9.0). `files.ingest` never sets it. |
 | `ingest.error` | `error: EventError` | Always last when the ingest throws: a refusal, an abort, a store that failed, or a listener that threw. |
 
 Each event also has `seq`, `runId` and `time`. Nothing comes after `ingest.finish` or
@@ -825,16 +845,23 @@ events when the request's `Accept` header names `text/event-stream` itself: not 
 not only through a wildcard such as `*/*` or `text/*`.
 
 1. The checks that answer with an HTTP error come first, as before, in JSON: a missing name
-   (`400`), an owner that `getOwner` refused or that is not allowed (its status, or `500`), a body
+   (`400`), an owner that `getOwner` refused or that is not allowed (its status, `401` or `500`), a
+   scope that `getScope` refused or that is not valid (its status, or `500`; new in 0.9.0), a body
    another middleware already parsed (`400`), and a file larger than `maxUploadBytes` (`413`).
 2. Then it answers `200` with Server-Sent Events, written by `writeSseEvents`: `ingest.start`,
    `ingest.progress`…, and last one of:
-   - `ingest.finish`, whose `document` is the summary a `201` would hold;
+   - `ingest.finish`, whose `document` is the summary a `201` would hold, and whose `app` is the
+     `answer` of `onUploaded` (new in 0.9.0). It is sent once `onUploaded` is done;
    - `ingest.error`, whose `error` is `{ message, status }`, the message and status a JSON answer
      would have: `422` with the reason for a file that cannot be read ("empty.txt is empty."),
-     `500` "Upload failed." for a store that failed, and so on, as in the
+     `503` "The document could not be stored. Try again." for a store that failed (since 0.9.0),
+     `500` "Upload failed (ENOSPC)." for a Node system error, with its code when it reads as one,
+     `500` "Upload failed." for any other error, what `onUploaded` threw, and so on, as in the
      [node reference](./node.md#uploadrequest-response). For a file that could not be read, it also
-     has `code`, the `IngestError` code (`"empty"`, `"busy"`…; new in 0.8.0).
+     has `code`, the `IngestError` code (`"empty"`, `"busy"`…; new in 0.8.0). Since 0.9.0, a store
+     that failed also has `name` `"DocumentStoreError"`, and a scope error `name`
+     `"DocumentScopeError"` and its `code` (`"scope_missing"`, 404, for a deleted chat), so that
+     [`errorInfoOf`](./errors-and-retries.md#errorinfooferror) reads it.
 3. When the client goes away, the ingest stops and nothing is stored.
 
 It always ends with `ingest.finish` or `ingest.error`, even with a `LargeFiles` of your own whose
@@ -941,6 +968,8 @@ executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallL
 type ToolCallHooks = {
   onProgress?: ProgressListener;
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
+  onDocumentGone?: (documentId: string) => void; // new in 0.9.0
+  onPagesBusy?: (documentId: string) => void; // new in 0.9.0
 };
 type ToolRequestStart = { purpose: "part" | "merge" | "final"; detail: string };
 type ToolRequestHandle = {
@@ -954,8 +983,12 @@ type ToolRequestEnd = { outcome: "ok" | "error"; usage?: GenerateUsage; error?: 
 |---|---|---|
 | `onProgress` | `ProgressListener` | Progress of this call, in place of `ToolOptions.onProgress` for it: `{ kind: "map" \| "reduce", message, done, total }`. |
 | `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle` | Called as each model request of this call starts, with its `purpose` and `detail` (`"part 3 of 12"`, `"first half of part 3 of 12"`, `"round 2: 1 of 4"`, `"the answer"`). The handle you return is told of each retry of that request, and once of its end, with the usage its part reader reported (summed over its sends) and, on an error, the error. |
+| `onDocumentGone` | `(documentId: string) => void` | Called when the document the call names is no longer in the store: deleted or expired since it was planned, or not the caller's. The call's result is the error the model is told. `askWithFiles` makes it a `"document_gone"` notice. New in 0.9.0. |
+| `onPagesBusy` | `(documentId: string) => void` | Called when a look at pages (`view_pages`) waited longer than `pageLookWaitMs` for its turn and was not run. The call's result is the error the model is told. `askWithFiles` makes it a `"page_looks_busy"` notice. New in 0.9.0. |
 
-Only `analyze_whole_document` uses them; the other tools ignore them, and `view_pages` too.
+`onProgress` and `onRequest` are used only by `analyze_whole_document`; the other tools ignore
+them, and `view_pages` too. `onDocumentGone` is called by every tool, and `onPagesBusy` by
+`view_pages`.
 `execute()` takes no hooks. A `ToolSet` of your own may take the fourth argument and ignore it;
 code that implements `ToolSet` for 0.6.0 still compiles. Do not throw from the hooks: a throw
 becomes a failed part, or the tool's error result, as a throw of `ToolOptions.onProgress` does.

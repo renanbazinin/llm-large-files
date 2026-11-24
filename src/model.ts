@@ -1,6 +1,7 @@
 // The contract between the tool loop (`askWithFiles`) and a model provider. An adapter turns a
 // neutral request into the provider's own, sends it, and reads the reply back. Everything else
 // (planning, tools, limits, retries, usage, the forced answer) is the loop's, once, for every provider.
+import { brand, branded } from "./errors.js";
 import type { GenerateText, ToolDeclaration, ToolFile, ToolResult } from "./types.js";
 
 /**
@@ -15,7 +16,8 @@ export type ToolAnswer = { call: ToolCall; result: ToolResult; files?: ToolFile[
 
 /**
  * One piece of a message: plain text, or something in the provider's own form (an image, an inline
- * PDF) that only its adapter reads. A native part may carry the text it holds, to be sized by.
+ * PDF) that only its adapter reads. A native part may carry the text it holds: its tokens are
+ * counted from that text, and its bytes from the larger of the text and the part's JSON.
  */
 export type ModelPart = { text: string; native?: undefined } | { native: unknown; text?: string };
 
@@ -40,8 +42,15 @@ export type ChatTurn = { role: "user" | "assistant" | "model"; text: string };
  * A round of tool use as an application stores it between a question and its answer
  * (`AskResult.toolTurns`): plain JSON. Passed back in `messages`, the model sees in a later
  * question what its tools returned in an earlier one, and does not have to search again.
+ *
+ * `version` is the version of this shape: `TOOL_TURN_VERSION` (1) on the rounds of 0.9.0 and later,
+ * absent on those of earlier versions. It is never sent to the model. `askWithFiles` refuses a
+ * round of a higher version, which a newer version of the package made, with a `TypeError`.
  */
-export type ToolTurn = { role: "tools"; calls: Array<ToolCall & { result: ToolResult }> };
+export type ToolTurn = { role: "tools"; version?: number; calls: Array<ToolCall & { result: ToolResult }> };
+
+/** The version of `ToolTurn` this package writes, and the highest it reads. New in 0.9.0. */
+export const TOOL_TURN_VERSION = 1;
 
 /**
  * A result of a stored tool round, as it is sent again in a later question: without
@@ -347,6 +356,9 @@ export function classifyModelError(status: number, message: string, signals: { c
   return { kind: "invalid" };
 }
 
+const MODEL_REQUEST_ERROR = Symbol.for("llm-large-files.ModelRequestError");
+const DOCUMENTS_NOT_FOUND_ERROR = Symbol.for("llm-large-files.DocumentsNotFoundError");
+
 /**
  * A model request that failed: the provider answered with an HTTP error, or could not be reached
  * (`status` 0). `retryAfterMs` is the wait the provider asked for, when it named one. `kind` says
@@ -380,7 +392,23 @@ export class ModelRequestError extends Error {
       if (found.requestedTokens) this.requestedTokens = found.requestedTokens;
     }
   }
+
+  /**
+   * Whether `value` is a `ModelRequestError` (or one of its kinds, such as `GeminiRequestError`),
+   * made by this copy of the package or another one. New in 0.9.0.
+   */
+  static is(value: unknown): value is ModelRequestError {
+    return branded(value, MODEL_REQUEST_ERROR);
+  }
 }
+brand(ModelRequestError, MODEL_REQUEST_ERROR);
+
+/**
+ * A status of a model's error: 0 (no answer came) or an HTTP error, 400 to 599. `errorInfoOf`, the
+ * events, `modelFailureReason` and the retry policy tell the kind of an error without one of its
+ * own (an adapter of your own, `httpError`) from such a status.
+ */
+export const isModelStatus = (status: unknown): status is number => typeof status === "number" && (status === 0 || (status >= 400 && status <= 599));
 
 /** The kind of a model error, when it has one: a `ModelRequestError`'s, or that of an error with the same field. */
 export function errorKindOf(error: unknown): ModelErrorKind | undefined {
@@ -389,23 +417,59 @@ export function errorKindOf(error: unknown): ModelErrorKind | undefined {
 }
 
 /**
+ * What a model's error is, as its events and `errorInfoOf` tell it: its own `kind`, with its own
+ * `limitTokens` and `requestedTokens`; or, for an error without a kind that has a model's status
+ * (an adapter of your own, `httpError`), what `classifyModelError` gives its status, message and
+ * `code`, with the numbers of an overflow its message gives. Undefined for an error with neither,
+ * and for thrown plain data, which is not an adapter's error. The retry policy and the loop act on
+ * this kind: the loop makes a request smaller, plans the documents again, or reads a part of a
+ * whole-file read as two halves, for a "context_overflow".
+ */
+export function modelErrorOf(error: unknown): { kind: unknown; limitTokens?: number; requestedTokens?: number } | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const { kind, limitTokens, requestedTokens } = error as { kind?: unknown; limitTokens?: number; requestedTokens?: number };
+  if (kind !== undefined) return { kind, limitTokens, requestedTokens };
+  const { status, message, code } = error as { status?: unknown; message?: unknown; code?: unknown };
+  if (!isModelStatus(status)) return undefined;
+  const proto: unknown = Object.getPrototypeOf(error);
+  if (proto === Object.prototype || proto === null) return undefined;
+  return classifyModelError(status, typeof message === "string" ? message : "", { code: typeof code === "string" ? code : undefined });
+}
+
+/**
  * For a request refused as larger than the tokens a minute (or a day) of the provider allows, not
  * than the model's window: that period. Undefined for any other error.
  */
 export function rateAllowanceOf(error: unknown): "minute" | "day" | undefined {
-  if (errorKindOf(error) !== "context_overflow" || !(error instanceof Error)) return undefined;
-  const period = RATE_TOO_SMALL.exec(error.message)?.[1];
+  if (modelErrorOf(error)?.kind !== "context_overflow") return undefined;
+  // modelErrorOf found an object: its message is read whatever its class, as modelErrorOf reads it.
+  const { message } = error as { message?: unknown };
+  if (typeof message !== "string") return undefined;
+  const period = RATE_TOO_SMALL.exec(message)?.[1];
   if (period === undefined) return undefined;
   return period.toLowerCase() === "day" ? "day" : "minute";
 }
 
-/** Some document IDs were never uploaded, have expired, or belong to another owner. */
+/**
+ * Some document IDs were never uploaded, have expired, or belong to another owner. `code` and
+ * `status` are new in 0.9.0.
+ */
 export class DocumentsNotFoundError extends Error {
+  readonly code: "documents_missing" = "documents_missing";
+  /** The HTTP status to answer with. */
+  readonly status: 404 = 404;
+
   constructor(readonly ids: string[]) {
     super(`${ids.length === 1 ? "A document is" : `${ids.length} documents are`} no longer available: ${ids.join(", ")}. Upload ${ids.length === 1 ? "it" : "them"} again.`);
     this.name = "DocumentsNotFoundError";
   }
+
+  /** Whether `value` is a `DocumentsNotFoundError`, made by this copy of the package or another one. New in 0.9.0. */
+  static is(value: unknown): value is DocumentsNotFoundError {
+    return branded(value, DOCUMENTS_NOT_FOUND_ERROR);
+  }
 }
+brand(DocumentsNotFoundError, DOCUMENTS_NOT_FOUND_ERROR);
 
 const EMPTY_USAGE: ModelUsage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, thoughtTokens: 0 };
 

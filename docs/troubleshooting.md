@@ -91,9 +91,9 @@ What each error and `kind` means, and what to tell your user, is in
 ### `require("llm-large-files")` throws `ERR_REQUIRE_ESM`
 
 **Cause.** The package is an ES module only. CommonJS code can load it with `require()` only on the
-Node versions that load ES modules that way by default: 20.19 and later in Node 20, 22.12 and later
-in Node 22, and 23 and later. Node 21 and Node 22.0 to 22.11 refuse. The library needs Node 20.19
-or later in any case.
+Node versions that load ES modules that way by default: 22.12 and later in Node 22, and 23 and
+later. Node 22.0 to 22.11 refuse. The library needs Node 22.12 or later in any case (20.19 until
+0.9.0).
 
 **Fix.** Upgrade Node, or load the package from CommonJS with `await import("llm-large-files")`
 (and `import("llm-large-files/gemini")` and so on for the other entry points). In TypeScript this
@@ -123,10 +123,9 @@ as `devDependencies` and left out of the production install, or missing from the
 bundle you deploy.
 
 **Fix.** Install them as dependencies of the application that runs the upload route and the
-questions: `npm install jszip unpdf @cantoo/pdf-lib` on Node 24 and later. On Node 20 and 22, name
-a version of `unpdf` that runs there: `npm install jszip unpdf@1 @cantoo/pdf-lib` on Node 22, and
-`npm install jszip unpdf@1.7.0 @cantoo/pdf-lib` on Node 20 (see
-[below](#a-pdf-upload-fails-the-unpdf-installed-cannot-read-pdf-files-or-would-stop-the-whole-server)).
+questions: `npm install jszip unpdf @cantoo/pdf-lib` on Node 24 and later. On Node 22, name a
+version of `unpdf` that runs there: `npm install jszip unpdf@1 @cantoo/pdf-lib` (see
+[below](#a-pdf-upload-fails-the-unpdf-installed-would-stop-the-whole-server)).
 Install `@cantoo/pdf-lib` before PDFs are uploaded: without it nothing fails at upload, but the
 text of a PDF is written without the line that marks a page with a picture
 (`[Picture on this page. This text cannot show it.]`), and a document keeps the text it was
@@ -134,41 +133,35 @@ ingested with.
 
 See [PDFs and other formats](./guides/pdfs.md).
 
-### A PDF upload fails: "The unpdf installed cannot read PDF files" or "would stop the whole server"
+### A PDF upload fails: "The unpdf installed would stop the whole server"
 
-`files.ingest` throws one of these, and the upload handler answers `422` with it:
+`files.ingest` throws this, and the upload handler answers `422` with it:
 
-- `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.`
-- `The unpdf installed would stop the whole server at the first PDF file on Node 20, so PDF files are not read. Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 24 or later.`
-- `The unpdf installed cannot read PDF files on Node 20 (Serverless PDF.js bundle could not be resolved: ReferenceError: Iterator is not defined). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.`
-  The text in brackets is unpdf's own message, and differs between its versions.
+`The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.`
 
 The number is the major version of the Node that runs the server. DOCX, PPTX and text files are
 read as before.
 
-**Cause.** The version of `unpdf` that is installed cannot read PDFs on this version of Node, and
-0.6.0 checks it before it reads a PDF:
+**Cause.** unpdf 1.5.0 to 1.6.0 load a pdf.js that calls `Promise.try`, which Node 22 does not
+have. In 0.5.0 the first PDF stopped the whole process, with a `TypeError` that nothing could
+catch. Since 0.6.0 the library checks it before it reads a PDF.
 
-- unpdf 1.5.0 to 1.6.0 load a pdf.js that calls `Promise.try`, which Node 20 and 22 do not have. In
-  0.5.0 the first PDF stopped the whole process, with a `TypeError` that nothing could catch.
-- unpdf 1.9 and later, 2.x included, load a pdf.js that needs Node 22. On Node 20, every PDF failed
-  with unpdf's message alone.
+unpdf 2 asks for Node 24, and on Node 24 a plain `npm install unpdf` installs it. A pdf.js that
+cannot be loaded for another reason fails with unpdf's own message. (Until 0.9.0, on Node 20, that
+failure came as `The unpdf installed cannot read PDF files on Node 20 (…)`. Node 20 is no longer
+supported.)
 
-unpdf 2 asks for Node 24, and on Node 24 a plain `npm install unpdf` installs it. On Node 22 and
-later, a pdf.js that cannot be loaded for another reason fails with unpdf's message, as before.
-
-**Fix.** Install the `unpdf` that runs on your Node, or move to the Node the message names:
+**Fix.** Install the `unpdf` that runs on your Node, or move to Node 24:
 
 | Node | `unpdf` to install |
 |---|---|
-| 20 | 1.4.0, or 1.6.1 to 1.8.1: `npm install unpdf@1.7.0`. 1.7.0 is the last that does not ask for Node 22. |
 | 22 | 1.4.0, or 1.6.1 or a later 1.x: `npm install unpdf@1`. |
 | 24 and later | Any version from 1.4.0, 2.x included: `npm install unpdf`. |
 
 If the server loads pdf.js when it starts, as [Deployment](./guides/deployment.md#uploads-and-ingest)
-shows, an `unpdf` that cannot load pdf.js on that Node (1.9 and later on Node 20) makes the start
-fail instead. With unpdf 1.5.0 to 1.6.0 on Node 20 or 22, pdf.js loads and the server starts: PDFs
-are then refused at upload, with one of the `would stop the whole server` messages above.
+shows, an `unpdf` that cannot load pdf.js on that Node makes the start fail instead. With unpdf
+1.5.0 to 1.6.0 on Node 22, pdf.js loads and the server starts: PDFs are then refused at upload,
+with the message above.
 
 See [PDFs and other formats](./guides/pdfs.md#formats).
 
@@ -265,16 +258,25 @@ New in 0.8.2. `createDocumentHandlers` answers `503` with `Retry-After: 5`, befo
 **Cause.** The handlers already hold uploads, and this one would bring them past
 `maxPendingUploadBytes` (twice `maxUploadBytes`, 200 MB by default). An upload is held from the
 reading of its body to the end of its ingest, and its room is taken from its `Content-Length`
-before its body arrives. Many users sending files at once, or a few clients that send their
-headers and then their bodies slowly, fill it.
+before its body arrives (`maxUploadBytes` for a body sent without a `Content-Length`, until it is
+read: two such uploads fill the default room). Many users sending files at once, or a few clients
+that send their headers and then their bodies slowly, fill it. With `uploadSpool` (new in 0.9.0),
+the same answer comes when the spool's files reach `maxSpooledUploadBytes`.
 
 **Fix.** Send the file again after `Retry-After` seconds, as the browser code in
 [Web app](./guides/web-app.md#upload-from-the-browser) does. To take more at once, raise
-`maxPendingUploadBytes` and size the server for it (each upload under way takes about five to seven
-times its size while it is ingested; ingests take turns, `maxConcurrentIngests`). Put a proxy that
-reads whole bodies before passing them on in front, so that slow clients hold no room. "The server
-is reading other files right now." is the other `503`: the readers of `createIsolatedExtractors`
-are busy ([Node reference](./reference/node.md#uploadrequest-response)).
+`maxPendingUploadBytes` and size the server for it (each upload under way takes about three and a
+half to five and a half times its size while it is ingested over a `FileDocumentStore`,
+[measurements](./measurements.md#the-server); ingests take turns, `maxConcurrentIngests`). Put a
+proxy that reads whole bodies before passing them on in front, so that slow clients hold no room.
+Or take the bodies off the heap: `uploadSpool` writes the larger ones, and those without a
+`Content-Length`, to temporary files, and `maxPendingUploadBytes` then counts only the bodies kept
+in memory ([Deployment](./guides/deployment.md#uploads-and-ingest)).
+"The server is reading other files right now." is another `503`: the readers of
+`createIsolatedExtractors` are busy ([Node reference](./reference/node.md#uploadrequest-response)).
+So is "The server has no room for this file right now. Try again later." (new in 0.9.0, with
+`Retry-After: 30`): the disk the body was written to, the spool's or the folder of
+`prepareUpload`, is full.
 
 ### `408`: "The upload stopped arriving: nothing came for 30 s. Send it again."
 
@@ -282,6 +284,22 @@ New in 0.8.2. **Cause.** The body of an upload stopped arriving for `uploadIdleT
 the client's connection stalled, or a proxy held the body. The connection is closed. **Fix.** Send
 the file again. For users on slow or unsteady links, raise `uploadIdleTimeoutMs` of
 `createDocumentHandlers`.
+
+### `500`: "Upload failed (ETIMEDOUT)." or "Upload failed (ELOOP)."
+
+New in 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`).
+
+- **"ETIMEDOUT".** A call to the disk (checking the folders of a path with a ref, opening the file,
+  a write, closing it) did not end within `uploadIdleTimeoutMs` (30 s): the volume stopped
+  answering, such as a network volume whose server is gone. The upload's room is given back, and
+  the file is removed once the volume answers. **Fix.** Check the volume. A slow network volume can
+  take long to close a file it held writes for: raise `uploadIdleTimeoutMs`.
+- **"ELOOP".** `prepareUpload` gave a path that ends with the ref of its `original`, and a folder
+  between that root and the file is a link. `fileOriginals` would never read the file back through
+  it, so nothing is written. **Fix.** Replace the link with the folder itself, or mount the other
+  disk there. The root itself may be a link.
+
+See [saving the body](./reference/node.md#saving-the-body-prepareupload).
 
 ### `400`: "Name the file with an X-File-Name header or a ?name= query parameter."
 
@@ -324,7 +342,10 @@ others. 0.5.0 accepted it.
   an array.
 
 A numeric owner is accepted, as before. `get`, `remove` and questions that pass the owner `""` work
-as before, so documents that 0.5.0 stored with that owner stay readable until they expire.
+as before, so documents that 0.5.0 stored with that owner stay readable until they expire. Under
+`requireOwner` the library refuses that owner on every call: `get` and `remove` then answer
+"The file could not be looked up (empty owner)." and "The file could not be deleted (empty owner).",
+also `500` (new in 0.9.0).
 
 **Fix.** Return the user's ID, not the user object. Where every upload needs a signed-in user,
 throw an error with `status: 401` for a request without one. Only where anonymous uploads are
@@ -350,7 +371,7 @@ handler answers `422` with its message. The common ones:
 | `report.txt is empty.` | A file of 0 bytes. |
 | `report.docx did not contain any text.` | Nothing left once read: a DOCX of pictures, a file of blank lines. |
 | `This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.` | A scan, while PDFs are not kept. |
-| `The unpdf installed would stop the whole server at the first PDF file on Node 22, …` or `The unpdf installed cannot read PDF files on Node 20 (…). …` | Any PDF, while the `unpdf` installed cannot run on this Node. See [above](#a-pdf-upload-fails-the-unpdf-installed-cannot-read-pdf-files-or-would-stop-the-whole-server). |
+| `The unpdf installed would stop the whole server at the first PDF file on Node 22, …` | Any PDF, while the `unpdf` installed cannot run on this Node. See [above](#a-pdf-upload-fails-the-unpdf-installed-would-stop-the-whole-server). |
 | `This PDF has 6,200 pages, more than the 5,000 read from one file. Split it, and attach the part you need.` | A PDF of more than `maxPdfPages` pages (5,000 by default). Refused before any page is read. |
 | `This PDF holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | A PDF whose text passes `maxTextBytes` (100 MB by default, or `maxUploadBytes` when that is larger). |
 | `notes.txt holds more than 100 MB of text, more than is kept from one file. Split it, and attach the part you need.` | The same, from the text extractor or one of your own: a UTF-16 file can grow by half in UTF-8. |
@@ -390,9 +411,12 @@ below 2 minutes ("45 s"), in minutes from there ("2 min").
 **Cause.** One `ingest` (extracting the text, its line index and its profile) took longer than
 `ingestTimeoutMs`, 120,000 ms by default. Most often: a PDF with many pages that are slow to read;
 an extractor of your own that waits on a slow service, such as OCR of a long scan; or a server
-busy with other ingests, which each take their share of the same process. Nothing is stored.
+busy with other ingests, which each take their share of the same process. A file read from a path
+(`source: { path }`, an upload of `prepareUpload` or of the spool) gets the same message when its
+volume stops answering while the file is read. Nothing is stored.
 
-**Fix.** For a file that is slow to read, the user splits it, or saves it as plain text. For OCR or
+**Fix.** For a file read from a path, check its volume first: the file may be fine. For a file
+that is slow to read, the user splits it, or saves it as plain text. For OCR or
 another slow extractor of your own, raise `ingestTimeoutMs` (0 sets no limit), run the ingest in a
 background job ([Web app](./guides/web-app.md#long-ingests-in-the-background)), and pass
 `input.signal` on to the service it calls, so that the request stops at the limit too. Bound the
@@ -523,7 +547,10 @@ handler's `get` answers `404` with `This file is no longer available.` for the s
 **Fix.** Pass the same `owner` to the question as to the upload: the value `getOwner` returned for
 the same user. Use a store that every server shares and that outlives a restart. Show the user which
 files to attach again: `error.ids` names the IDs, and your chat knows their file names. A
-document's `expiresAt` says when it goes.
+document's `expiresAt` says when it goes. Since 0.9.0 a question can go on without them:
+`onMissingDocuments: "drop"` answers from the other files and lists the missing ones in
+`result.missing`, and a function can ingest them again from uploads you kept
+([missing documents](./reference/ask.md#missing-documents)).
 
 See [Storage](./guides/storage.md) and
 [`DocumentsNotFoundError`](./reference/ask.md#documentsnotfounderror).
@@ -658,7 +685,8 @@ only what the answering model wrote.
 **Cause.** The model gets `view_pages` for a PDF only when all of these hold:
 
 - `keepOriginals` lists `"pdf"`, and the store has `putOriginal` and `getOriginal`
-  (`FileDocumentStore` and `MemoryDocumentStore` have both);
+  (`FileDocumentStore` and `MemoryDocumentStore` have both), or (0.9.0) the document was ingested
+  with `original: { ref }` and the library has `originals`;
 - the document was ingested after that: one ingested before has no file kept
   (`meta.originalKept` is not `true`);
 - every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput`, not
@@ -676,6 +704,19 @@ does not see them.
 look fails: install it ([above](#a-pdf-docx-or-pptx-upload-fails-needs-the-optional-dependency)).
 
 See [PDFs and other formats](./guides/pdfs.md).
+
+### `view_pages` says a file "changed on the server since it was read"
+
+The model reads `report.pdf changed on the server since it was read. Attach it again to look at its
+pages.`, and `files.getOriginal` gives `undefined`.
+
+**Cause.** The document was ingested with `original: { ref }` (0.9.0), and the file at that ref is
+no longer the one that was ingested: its size or SHA-256 differs from `meta.original`. It was saved
+again under the same name, cut short by a copy that failed, or edited. Its pages would not match the
+text the model has, so none are shown.
+
+**Fix.** Keep each upload under a name of its own, and never write over a file a document names.
+To use the new file, ingest it again (`ifExists: "replace"` under the same `id`).
 
 ### Whole-file reads never happen, or are refused
 
@@ -1052,9 +1093,11 @@ Look at `result.usage`: `inputTokens`, `cachedInputTokens` (read from the provid
 - **`documentPlacement: "last"`.** The documents then move to the latest turn, and a prompt cache
   cannot reuse them: keep the default, `"first"`.
 - **The first request of a follow-up question.** The tool rounds of an earlier question are sent
-  again without their `tool_turns_left` (since 0.6.0), so that request reads the cache only up to
-  the tool rounds of the question before it: the documents, the cards and the turns before those
-  rounds still hit. The later requests of the question hit as before.
+  again without their `tool_turns_left` (since 0.6.0), and as their calls alone: a stored round
+  keeps no thought signatures or thinking blocks, which the requests of its own question sent
+  back. Either one makes that request read the cache only up to the tool rounds of the question
+  before it: the documents, the cards and the turns before those rounds still hit. The later
+  requests of the question hit as before.
 - **The first request after the upgrade to 0.6.0.** The tool guide, the descriptions of
   `search_document` and `analyze_whole_document`, and the frame of every file sent whole changed,
   so the first request of each conversation reads from the cache at most what comes before the
@@ -1171,12 +1214,14 @@ See [Security](./security.md) and [Tools](./reference/tools.md).
 ### `DocumentStoreError`: "The document store could not be read (EIO). Try again."
 
 Thrown by a question, `files.getMeta`, `files.getOriginal`, and by `files.delete` when the look-up
-fails (a failure of the store's own `delete` comes as the store's error). When the error behind it
-has no `code`, the message has none. Inside a question's tool call, the model gets it as the
-call's error, and `steps` shows
-`… — failed: The document store could not be read (EIO). Try again.`. The upload
-handler's `get` and `remove` answer `500` with `The file could not be looked up (EIO).` or
-`The file could not be deleted (EIO).`.
+fails. When the error behind it has no `code`, the message has none. Inside a question's tool call,
+the model gets it as the call's error, and `steps` shows
+`… — failed: The document store could not be read (EIO). Try again.`. The upload handler's `get`
+and `remove` answer `503` with that message (since 0.9.0; they answered `500`). Since 0.9.0 the
+errors of writes are `DocumentStoreError`s too, with their own messages: "The document could not be
+stored (EIO). Try again." from `files.ingest`, "The document could not be deleted (EIO). Try
+again." from the store's own `delete`, "The document store could not be cleaned up (EIO). Try
+again." from `files.sweep`.
 
 **Cause.** The store failed while it was read: a network volume that did not answer, too many open
 files, a database that is down. The documents are not gone.
@@ -1186,6 +1231,31 @@ them to upload again. Log `error.cause`, the store's own error, and `error.code`
 
 See [`DocumentStoreError`](./reference/library.md#documentstoreerror) and
 [Storage](./guides/storage.md).
+
+### "The document store could not be read (EACCES)" after an upgrade to 0.9.0
+
+Uploads work on the server that took them, and every other server, or a backup or sweep job,
+answers `EACCES` for the new documents.
+
+**Cause.** Since 0.9.0, `FileDocumentStore` writes files `0600` and folders `0700`: only the user
+that wrote them can read them. The servers or the job run as different users.
+
+**Fix.** Run them all as one user. Or, for users of one group (a Kubernetes `fsGroup`), give every
+store `fileMode: 0o640` and `directoryMode: 0o750`, and change the files written since the upgrade
+once with `chmod`. See [Deployment](./guides/deployment.md#a-shared-store).
+
+### `DocumentScopeError`: "The scope no longer exists."
+
+An upload into a chat fails with a `DocumentScopeError` of code `"scope_missing"`. The upload
+handler answers it `404` `{ "error": "This chat no longer exists." }`.
+
+**Cause.** The store is a `FileDocumentStore` with `scopes`, and the folder of the chat is gone:
+your application removed it when the chat was deleted, or never made it. The store makes its own
+folder in a chat's folder, never the chat's folder itself, unless `createScopeFolders` is on.
+
+**Fix.** For a deleted chat, nothing: tell the user the chat no longer exists. For a new chat, make
+its folder (`mkdir` with `recursive: true`) when the chat starts, or set `createScopeFolders: true`.
+See [Storage](./guides/storage.md#files-in-a-folder-per-user-or-per-chat).
 
 ### Documents are found on one server and missing on another
 
@@ -1214,29 +1284,38 @@ try again.
 
 See [Storage](./guides/storage.md) and [`DocumentStore`](./reference/library.md#documentstore).
 
-### `500`: "Upload failed.", or `422` with your database's message
+### `503`: "The document could not be stored. Try again.", or `500` "Upload failed."
 
-**Cause.** A store write that fails is thrown as it came, not as a `DocumentStoreError`. The upload
-handler answers it `500` with `{ "error": "Upload failed." }` when it has no `status` (or
-`statusCode`) from 400 to 599 and is not a Node system error with `code` and `syscall`. Its message
-is your database's own and may name its host, so it is not sent, and the handlers log nothing.
+**Cause.** A store write that fails is a `DocumentStoreError` since 0.9.0 (it was thrown as it
+came, and answered `500` "Upload failed."). The upload handler answers it `503` with its message,
+"The document could not be stored (ENOSPC). Try again." when the store's error has a code, and
+`Retry-After: 5`. Your database's own message is its `cause`, and may name its host, so it is not
+sent, and the handlers log nothing.
 
-Two paths answer it `422` with your database's message instead, as a file that cannot be read: an
-`ingest` of your own that throws a new error in its place, as `ingestInProcess` in
-[Deployment](./guides/deployment.md#uploads-and-ingest) does, and a route of your own, as in
-[Web app](./guides/web-app.md#filesingest-and-its-errors). Every case is in the
-[node reference](./reference/node.md#uploadrequest-response).
+An `ingest` of your own that throws a new error in its place, without a status, gets `500`
+"Upload failed." since 0.9.0. Before, it got `422` with that error's message, which could name your
+database's host (S12). Every case is in the [node reference](./reference/node.md#how-errors-are-answered).
 
-**Fix.** In a store of your own, log a write that fails, and throw an error with a `status` (a
-`503`, say) whose message is fit for a user. An `ingest` of your own must copy that status, and a
-system error's `code` and `syscall`, onto the error it throws, as `ingestInProcess` in
-[Deployment](./guides/deployment.md#uploads-and-ingest) does.
+**Fix.** Log `error.cause` where you catch it, and fix the storage. An `ingest` of your own must
+pass the `DocumentStoreError` on as it is, or rebuild it, as `ingestInProcess` in
+[Deployment](./guides/deployment.md#uploads-and-ingest) does. A route of your own answers it with
+`uploadAnswerOf` ([Web app](./guides/web-app.md#filesingest-and-its-errors)).
+
+### `500` "Upload failed." for a file your own `ingest` refused
+
+**Cause.** Since 0.9.0, the upload handler answers `422` only an `IngestError`. A `LargeFiles` of
+your own whose `ingest` throws a plain `Error` for a file it refuses gets `500` "Upload failed.",
+without its message, which could name a host.
+
+**Fix.** Throw `new IngestError(code, message)` (exported from `llm-large-files`), with a message
+written for the user. Its code says why: `"unreadable"`, `"too_large"`, `"no_text"`…
 
 See [Storage](./guides/storage.md) and [`llm-large-files/node` reference](./reference/node.md).
 
-### `500`: "Upload failed (ENOSPC)."
+### `503`: "The document could not be stored (ENOSPC). Try again."
 
-**Cause.** The disk of a `FileDocumentStore` is full. Expired documents are removed when they are
+**Cause.** The disk of a `FileDocumentStore` is full. (Before 0.9.0 the answer was `500` "Upload
+failed (ENOSPC).".) Expired documents are removed when they are
 next looked up, or by `files.sweep()`: one that nobody asks for again stays on disk until a sweep.
 Kept originals (`keepOriginals`) take space up to the upload limit each, until they expire.
 

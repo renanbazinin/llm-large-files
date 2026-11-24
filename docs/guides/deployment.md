@@ -57,7 +57,8 @@ this:
   metadata must be able to read the text.
 - **The text is kept byte for byte.** `readTextRange` reads UTF-8 byte offsets that the line index
   computed at ingest. A text that changed is noticed ("The stored text of … did not match its
-  index. Try the call again.") and its index is built again.
+  index. Try the call again.") and its index is built again. A text of another length or number of
+  lines than its metadata says then reads as missing.
 - **`undefined` means "not there", and nothing else.** A read that failed (a timeout, a volume that
   does not answer) must throw: the library passes it on as `DocumentStoreError` instead of telling
   the user that the file is gone.
@@ -79,7 +80,18 @@ The built-in stores:
   [Sweeping expired documents](#sweeping-expired-documents)).
 
   It needs a file system whose rename is atomic and that shows each server the files of the
-  others: an NFS share (Amazon EFS, Google Filestore, Azure Files over NFS) or similar. Two caveats:
+  others: an NFS share (Amazon EFS, Google Filestore, Azure Files over NFS) or similar. Every server
+  opens its own `FileDocumentStore` over the same directory, with the same options (`scopes` above
+  all), and one library per process: then `maxConcurrentIngests`, `cacheBytes` and
+  `maxConcurrentScans` hold for the whole server, whatever the number of chats
+  ([Storage](./storage.md#files-in-a-folder-per-user-or-per-chat)).
+
+  Since 0.9.0 it writes files `0600` and folders `0700`: only the user that wrote them can read
+  them. Run every server, and any job that reads the volume (a backup, a sweep job), as the same
+  user. If they run as different users of one group, as pods with a shared `fsGroup` in Kubernetes
+  do, set `fileMode: 0o640` and `directoryMode: 0o750` on every store: a server that cannot read a
+  file another one wrote answers "The document store could not be read (EACCES)". The umask of the
+  process still applies. Two caveats:
 
   - An NFS client may remember for a while that a file did not exist (its negative lookup cache).
     A question sent to another server right after an upload can then find the document missing.
@@ -100,13 +112,15 @@ The built-in stores:
 | Searches of documents read by range | Tens of MB each at their peak (60 to 80 MB for a search of a log of 95 MB on Windows; 49 MB above the process for one of 100 MB on Linux, [measurements](../measurements.md#the-server)): `scanChunkBytes` (1 MB) of text read, decoded and lowercased, the next piece read ahead, and what the pieces leave until the next collection | `maxConcurrentScans` (4) per `LargeFiles`. The others wait, and those waiting for the same file share one pass over it |
 | Decoded pieces of a document read by range | Up to its whole decoded text | Kept within `cacheBytes`, and only for a document whose decoded text takes at most a quarter of it |
 | An upload | The body, buffered whole, from the reading of the body to the end of its ingest. 100 uploads of 2 MB sent at once held 190 MB | `maxUploadBytes` (100 MB by default) for one; `maxPendingUploadBytes` of `createDocumentHandlers` (twice `maxUploadBytes`) for all those the handlers hold, the others answered 503 before their body is read. A route of your own must bound them itself (below) |
-| An ingest | Five to seven times the file above the uploaded bytes at its peak (below): several copies of the text at once (below), and what the parsers of PDF, DOCX, PPTX and XLSX take while they read. `maxConcurrentIngests` (2 by default) of them at once in a `LargeFiles`; the others wait, holding only their upload. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing in the server bounds what the parsers build or unpack: read PDF and Office files with `createIsolatedExtractors`, in child processes with a heap limit of their own, or ingest in a process of its own with a memory limit of its own (below) |
+| An ingest | About three and a half to five and a half times the file above the uploaded bytes at its peak, for a plain-text log over a `FileDocumentStore` (below): several copies of the text at once (below), and what the parsers of PDF, DOCX, PPTX and XLSX take while they read. `maxConcurrentIngests` (2 by default) of them at once in a `LargeFiles`; the others wait, holding only their upload. A crafted PDF can make them take far more: one of 732 bytes ran a heap of 512 MB out of memory, and one of 1.6 KB took 1.6 GB of memory outside the heap, with 20 MB of heap, for a stream that unpacks to 512 MB ([Security](../security.md#uploads)) | `maxTextBytes` bounds the text (100 MB by default). Nothing in the server bounds what the parsers build or unpack: read PDF and Office files with `createIsolatedExtractors`, in child processes with a heap limit of their own, or ingest in a process of its own with a memory limit of its own (below) |
 | A look at the pages of a PDF (`view_pages`) | The whole original, read and parsed: about twice the size of the file, plus 1 to 1.6 KB for each object in it (about 300 MB for a 100 MB file of photos, 700 MB for 54 MB of 330,000 objects). A crafted file can take far more: a look at a PDF of 8 MB that is one array of numbers took 422 to 427 MB of heap, one of 16 MB ran a heap of 512 MB out of memory, and one at the PDF of 1.6 KB above took 1.1 GB outside the heap. What `@cantoo/pdf-lib` keeps after a look adds up from file to file, until the server restarts | Refused for a file that declares more than 1,000,000 objects, or more objects than about 60% of the free heap can hold. A crafted file of few objects passes that check. Ingested in a process of its own (below), with `@cantoo/pdf-lib` installed, a file that needs more than that process's heap fails there and is not stored; one that fits is parsed again by each look, which takes more than its ingest did (232 to 244 MB for that file of 8 MB). For the documents of users you do not trust, `viewPages: false`, or no PDF originals |
 | A question in flight | Its conversation, and each request it builds: up to `maxRequestBytes` (10 MB by default) of JSON, the pages it was shown included as base64 | The budget ([Costs and limits](./costs-and-limits.md)) |
 
 Measured peaks are in [Measurements](../measurements.md#the-server): an ingest of a plain-text log
-takes about five to seven times the log above the uploaded bytes, and eight searches at once take
-little more than one.
+over a `FileDocumentStore` takes about three and a half to five and a half times the log above the
+uploaded bytes (135 MB for a log of 25 MB, 345 MB for one of 95 MB, measured on 0.9.0 with Node 22),
+and eight searches at once take little more than one. (Before 0.6.0 an ingest took five to seven
+times the log.)
 
 Other formats were not measured for memory. PDF text is extracted by pdf.js, which reads the whole
 file, and with `@cantoo/pdf-lib` installed the file is parsed a second time, before pdf.js reads a
@@ -121,17 +135,17 @@ Set the heap limit of Node yourself: about three quarters of the memory of the c
 everything runs in one process, less when files are read in child processes
 (`createIsolatedExtractors`) or ingest runs in a process of its own: each has a heap of its own. The
 limit is more than the flag. `--max-old-space-size` sets the old generation, and Node adds its young
-generation above it: 48 MB on Node 20 and 22, 192 MB on Node 24, and 96 MB on Node 26.
+generation above it: 48 MB on Node 22, 192 MB on Node 24, and 96 MB on Node 26.
 `v8.getHeapStatistics().heap_size_limit` gives the sum. For three quarters of 2 GB, a limit of
 1,536 MB:
 
 | Node | Flag for a heap limit of 1,536 MB | What `--max-old-space-size=1536` gives |
 |---|---|---|
-| 20 and 22 | `NODE_OPTIONS=--max-old-space-size=1488` | 1,584 MB |
+| 22 | `NODE_OPTIONS=--max-old-space-size=1488` | 1,584 MB |
 | 24 | `NODE_OPTIONS=--max-old-space-size=1344` | 1,728 MB, 84% of 2 GB |
 | 26 | `NODE_OPTIONS=--max-old-space-size=1440` | 1,632 MB |
 
-Checked with `heap_size_limit` on Node 20.19, 22.12, 24.19 and 26.13. Upload bodies and files read
+Checked with `heap_size_limit` on Node 22.12, 24.19 and 26.13. Upload bodies and files read
 from the store are `Buffer`s, which live outside the heap and need the rest. The check that refuses
 a PDF too large to cut pages from compares it with the free heap, so a heap set to fit the
 container makes that check right.
@@ -139,9 +153,9 @@ container makes that check right.
 A worker thread does not get a heap limit of its own when the process has one: a
 `--max-old-space-size` on the command line or in `NODE_OPTIONS` replaces the
 `resourceLimits.maxOldGenerationSizeMb` of every worker. With `--max-old-space-size=1024`, a worker
-given 512 MB had the process's limit: 1,072 MB on Node 20 and 22, 1,216 MB on Node 24, 1,120 MB on
+given 512 MB had the process's limit: 1,072 MB on Node 22, 1,216 MB on Node 24, 1,120 MB on
 Node 26. Setting `execArgv: []` or `env` on the worker did not change it. A forked process does get
-its own: one forked with `execArgv: ["--max-old-space-size=512"]` had 560 MB on Node 20 and 22,
+its own: one forked with `execArgv: ["--max-old-space-size=512"]` had 560 MB on Node 22,
 704 MB on Node 24 and 608 MB on Node 26, with `NODE_OPTIONS=--max-old-space-size=1024` in the
 environment it inherits or without it.
 
@@ -151,13 +165,13 @@ numbers of the last column:
 
 | Node | Main heap of 1 GB | Heap of 512 MB for the child that reads a file |
 |---|---|---|
-| 20 and 22 | `--max-old-space-size=976` | `--max-old-space-size=464`, `maxHeapMb: 464` |
+| 22 | `--max-old-space-size=976` | `--max-old-space-size=464`, `maxHeapMb: 464` |
 | 24 | `--max-old-space-size=832` | `--max-old-space-size=320`, `maxHeapMb: 320` |
 | 26 | `--max-old-space-size=928` | `--max-old-space-size=416`, `maxHeapMb: 416` |
 
 The flags 1024 and 512 give heap limits of 1,216 and 704 MB on Node 24: 1,920 MB, which leaves
 about 128 MB of the container for the upload, its copy, files read from the store and two Node
-processes. On Node 20 and 22 they give 1,072 and 560 MB.
+processes. On Node 22 they give 1,072 and 560 MB.
 
 ```ts
 // large-files.ts: created once per process and imported by every route.
@@ -174,6 +188,7 @@ export const files = createLargeFiles({
   store: new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents"),
   extractors: isolated.extractors,   // PDF, DOCX, PPTX and XLSX
   keepOriginals: ["pdf"],            // view_pages: a look reads the whole PDF into this heap
+  maxConcurrentPageLooks: 1,         // the default: one look at a time, the others wait their turn
   cacheBytes: 256 * 1024 * 1024,     // the default
   maxConcurrentScans: 4,             // the default
   maxConcurrentIngests: 2,           // the default: the others wait their turn
@@ -183,9 +198,9 @@ export const files = createLargeFiles({
 
 | Where 2 GB go | |
 |---|---|
-| The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF, and the ingests: the text and its copies (an ingest of a 95 MB log fitted in a heap of 256 MB) |
+| The main heap, 1 GB | The cache (256 MB), the questions in flight, a look at the pages of a PDF, and the ingests: the text and its copies (an ingest of a 95 MB log fitted in a heap of 256 MB, and in 0.9.0 with Node 22 in one of 192) |
 | One PDF or Office file at a time, read in a child process with a heap of 512 MB | What the parsers take. A process takes about 50 MB more for Node itself |
-| Outside the heaps | The upload being read (up to 100 MB) and its copy sent to the child process, files read from the store, Node itself. Also what the PDF parsers unpack, which no heap limit bounds: a crafted PDF of 1.6 KB took 1.6 GB at ingest and 1.1 GB at a look, far more than this row has left. For uploads you do not trust, ingest in a container of its own, and do not offer `view_pages` on their documents |
+| Outside the heaps | The upload being read (up to 100 MB; while it waits for its turn, none with `uploadSpool`) and its copy sent to the child process, files read from the store, Node itself. Also what the PDF parsers unpack, which no heap limit bounds: a crafted PDF of 1.6 KB took 1.6 GB at ingest and 1.1 GB at a look, far more than this row has left. For uploads you do not trust, ingest in a container of its own, and do not offer `view_pages` on their documents |
 
 Raise `cacheBytes` to spend memory on speed: at 1 GB, the decoded pieces of an ASCII log of up to
 about 125 MB are kept between searches. Lower `maxUploadBytes` if large uploads are not needed:
@@ -193,12 +208,14 @@ an ingest is one of the largest single uses of memory.
 
 ### Uploads and ingest
 
-`createDocumentHandlers` reads the whole upload into memory before it calls `ingest`. It refuses a
-body whose `Content-Length` is over `maxUploadBytes` before reading it, and stops reading one that
-grows past it (HTTP 413). Node's own `server.requestTimeout` (300,000 ms by default) ends an upload
+By default `createDocumentHandlers` reads the whole upload into memory before it calls `ingest`.
+Since 0.9.0 it can write the body to a file as it arrives instead, and ingest it from there: the
+path `prepareUpload` gives, or a temporary file of the spool (`uploadSpool`, below). Either way it
+refuses a body whose `Content-Length` is over `maxUploadBytes` before reading it, and stops reading
+one that grows past it (HTTP 413). Node's own `server.requestTimeout` (300,000 ms by default) ends an upload
 that takes longer than five minutes to arrive: raise it for users on slow links.
 
-Since 0.8.2 the handlers hold uploads of at most `maxPendingUploadBytes` at once (twice
+Since 0.8.2 the handlers hold uploads of at most `maxPendingUploadBytes` at once in memory (twice
 `maxUploadBytes` by default), and answer one that would pass it 503 with `Retry-After: 5` before
 reading its body. The room of an upload is taken before its body arrives, from its `Content-Length`
 (or `maxUploadBytes` when it declares none), so a client that sends headers and then nothing, or
@@ -209,9 +226,89 @@ body before it passes the request on (nginx does by default, `proxy_request_buff
 arrive at once and none of this happens; otherwise, limit the connections of each client at the
 proxy.
 
+**Spooling uploads to disk.** New in 0.9.0. With `uploadSpool`, the handlers write each body over
+`minBytes` (1 MiB), and each body sent without a `Content-Length`, to a temporary file as it
+arrives, and ingest it from its path. So a body is not held in memory while it waits for its turn:
+the ingest reads it once, at its turn. The file is made new with mode `0o600`,
+and removed once the ingest ends, whatever the end. `maxSpooledUploadBytes` (ten times
+`maxUploadBytes`, 1 GB by default) bounds the files at once, and a full disk (`ENOSPC`) is answered
+503 with `Retry-After`. `maxPendingUploadBytes` then counts only the bodies kept in memory: in
+memory, a body without a `Content-Length` takes `maxUploadBytes` of room until it is read, so two
+of them filled the default room, and a third was refused 503 while they arrived.
+
+```ts
+const documents = createDocumentHandlers(files, {
+  getOwner: userIdOf,
+  uploadSpool: { directory: "/var/spool/uploads" }, // this server's own folder, on a disk: not a tmpfs
+});
+```
+
+- **Put the spool on a disk.** A Kubernetes `emptyDir` with `medium: Memory` is a tmpfs: what is
+  written there counts against the pod's memory limit, and spooling there saves nothing. So does a
+  `/tmp` that is a tmpfs, as in some images, and `os.tmpdir()` is the default directory. Point
+  `directory` at a disk-backed `emptyDir` (no `medium`), or at a folder on the shared volume, with
+  room for `maxSpooledUploadBytes`.
+- **Give each server process a spool folder of its own.** A server that stops in the middle of an
+  upload leaves its file (named `llf-upload-` and a UUID). The name does not say which server
+  wrote it. So each server empties its own folder when it starts, and no other. A disk-backed
+  `emptyDir` is one pod's already, and goes with the pod: the simplest choice. On the shared
+  volume, make a folder for each pod, such as `path.join("/data/spool", os.hostname())` (a pod's
+  hostname is its name). A pod that is replaced gets a new name, and leaves its folder behind:
+  remove the folders of pods that are no longer running (the names of the running pods tell which;
+  a folder without recent files may be an idle server's). Both give one folder a pod or a host,
+  which is enough with one server process in each. With several (`node:cluster`, PM2 in cluster
+  mode), add a number that each process keeps across its restarts, such as PM2's
+  `NODE_APP_INSTANCE`, or one the primary passes to each worker it forks:
+  `` path.join(dir, `${os.hostname()}-${process.env.NODE_APP_INSTANCE ?? 0}`) ``. Never empty a
+  folder that several servers share: the uploads still arriving or waiting for their turn lose
+  their files, and fail with `500` `{ "error": "Upload failed (ENOENT)." }`.
+- **It costs a write and a read.** Each spooled upload is written once, and read once at its turn.
+  On a network volume, that is the price of taking it off the heap.
+- **A volume that stops answering.** Each call to the disk (opening the file, each write, closing
+  it) is waited for no longer than `uploadIdleTimeoutMs` (30 s). Past it, the upload is answered
+  `500` `{ "error": "Upload failed (ETIMEDOUT)." }`, and its room is given back. The file is removed
+  at once, or once the volume answers. On a network volume, closing a file can wait for the writes
+  the system held back: on a slow one, raise `uploadIdleTimeoutMs`. The same holds for the `path`
+  of `prepareUpload`, and for the check of its folders with a ref. The removal of the file, once
+  the ingest ends, is waited for no longer either: the upload is answered, its room is given back,
+  and the removal goes on alone. The ingest's look at the file before its turn, and its read at its
+  turn, are waited for no longer than `ingestTimeoutMs` (2 minutes by default). Past it, the look
+  is answered `500` `{ "error": "Upload failed (ETIMEDOUT)." }`. The read fails as a file that took
+  too long to read: `422`, code `"timeout"`. Until then, the upload holds its room. With
+  `ingestTimeoutMs: 0`, the look still stops at 2 minutes, but the read waits until the client
+  leaves.
+- **Saving the upload where you keep it.** When your app keeps each upload anyway, `prepareUpload`
+  gives its path, and the body is written there instead, once, and kept by reference
+  ([Web app](./web-app.md#save-each-upload-where-you-keep-it-prepareupload)). Such a body takes no
+  room of either limit: it is on your volume, and stays.
+
+**Ingest from a path.** New in 0.9.0. Code that saves an upload to disk before it ingests it (to
+keep it, or to take it off the heap while it waits) can give `files.ingest` the path in place of the
+bytes ([`IngestFromSource`](../reference/library.md#ingestfromsource)). A relative path is made
+absolute when `ingest` is called. The path is looked at with `lstat` then, which refuses an empty
+file or one over `maxUploadBytes` at once. That look is given up on when the caller's `signal`
+aborts, and fails after `ingestTimeoutMs` when the volume does not answer. The file is read when
+the ingest's turn comes (`maxConcurrentIngests`): once, and at most `maxUploadBytes + 1` bytes.
+The bytes are let go as soon as the extractor returns: they are not held while the text is
+prepared and stored, unless the store keeps a copy (`keepOriginals` with a store that has
+`putOriginal`, and no `original`). So ingests that wait for their turn hold none of their files. Measured
+on Node 22 with 100 ingests of 2 MB logs waiting behind one that held the turn: the process held
+73 MB (RSS) with paths, against 282 to 286 MB with the bytes given, 200 MB of which were the
+uploads. With all 100 run, two at a time (the default), the peak was 159 to 160 MB with paths,
+against 265 to 277 MB, in the same time. With `createIsolatedExtractors`, a PDF or Office file at a
+path is read by its child process, and the server reads none of it (below), unless the store keeps
+a copy of it (as above): the server then reads it, and sends the bytes to the child.
+The library never writes, moves or deletes the file: remove it once it is ingested, or keep it and
+let `view_pages` read it from there ([Storage](./storage.md#keeping-the-uploaded-files)). Never
+build the path from what a client sends.
+
 An ingest runs in your server's process, a slice at a time. It pauses for other requests about
 every 12 ms of its work, so an answer streaming on the same server waits a fraction of a second,
-not seconds: the longest stall measured was 34 ms for a 99 MB log and 0.16 s for a 2,000-page
+not seconds. Two steps of a text file still run in one block, each as long as the file is large:
+the decoding of a UTF-8 file when its reading starts, and, over a `FileDocumentStore`, the writing
+of its text. On 0.9.0 with Node 22, on a busy laptop, the longest stall was 56 to 64 ms for a log
+of 25 MB and 0.23 to 0.36 s for one of 95 MB, about 2 to 4 ms for each MB. 0.6.0 measured 34 ms
+for a 99 MB log over a `MemoryDocumentStore` on Windows with Node 24, and 0.16 s for a 2,000-page
 PDF, where 0.5.0 held the server for 2.0 s and 4.5 s ([measured](../measurements.md#the-server)).
 A text file in an older encoding is decoded a megabyte at a time, and a line of megabytes is
 cleaned in pieces of 256K characters: one line of 30 MB with a control character between its
@@ -238,8 +335,8 @@ await import("@cantoo/pdf-lib");
 await (await import("unpdf")).getResolvedPDFJS();
 ```
 
-`getResolvedPDFJS()` rejects when the `unpdf` installed cannot load pdf.js on this Node (unpdf 1.9
-and later on Node 20), and the server then does not start: install the version for your Node
+`getResolvedPDFJS()` rejects when the `unpdf` installed cannot load pdf.js on this Node, and the
+server then does not start: install the version for your Node
 ([PDFs and other formats](./pdfs.md#formats)).
 
 What it does not do is keep its memory apart. The text and its copies, and what pdf.js,
@@ -280,7 +377,9 @@ end after the time limit. Four ways to bound that:
 
 **Child processes for the parsers.** With the `extractors` of `createIsolatedExtractors`, each PDF,
 DOCX, PPTX or XLSX file is copied to a child process, read there by the built-in extractor, and its
-text sent back; the text is then normalized, profiled, indexed and stored in your server, as
+text sent back; a file ingested from a path is not copied: since 0.9.0 the child reads it from its
+path, within `maxUploadBytes`, and nothing of it waits in the server for a child (unless the store
+keeps a copy of it: `keepOriginals`, a store with `putOriginal`, and no `original`); the text is then normalized, profiled, indexed and stored in your server, as
 before. Text files, HTML included, are read in the server, in slices. What a file can do from there:
 
 - run its child out of memory: the child stops, and the file is refused with an `IngestError` of
@@ -322,35 +421,40 @@ itself is the isolation:
 
 ```ts
 // ingest-process.ts: one ingest, in a process of its own, forked by documents.ts below.
-import { createLargeFiles, FileDocumentStore, type IngestInput } from "llm-large-files";
+import {
+  createLargeFiles, DocumentScopeError, DocumentStoreError, FileDocumentStore, IngestError,
+  type DocumentScopeErrorCode, type DocumentStoreOperation, type IngestErrorCode, type IngestFromSource, type IngestInput,
+} from "llm-large-files";
 
 const files = createLargeFiles({
   store: new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents"),
   keepOriginals: ["pdf"],
 });
 
+/** What the server needs to answer an error as createDocumentHandlers does: never a path or a host. */
+export type IngestFailure =
+  | { kind: "ingest"; code: IngestErrorCode; message: string; retryAfterMs?: number } // a file refused: its words are for the user
+  | { kind: "store"; operation: DocumentStoreOperation; code?: string } // the store failed: a 503 to try again
+  | { kind: "scope"; code: DocumentScopeErrorCode }
+  | { kind: "status"; status: number; message: string } // an error with a status, such as a 503 of an OCR service
+  | { kind: "other" }; // anything else: a 500 "Upload failed.", without its message
+
+function failureOf(error: unknown): IngestFailure {
+  if (IngestError.is(error)) return { kind: "ingest", code: error.code, message: error.message, ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}) };
+  if (DocumentStoreError.is(error)) return { kind: "store", operation: error.operation, ...(error.code ? { code: error.code } : {}) };
+  if (DocumentScopeError.is(error)) return { kind: "scope", code: error.code };
+  const { status } = (error ?? {}) as { status?: unknown };
+  if (error instanceof Error && typeof status === "number" && status >= 400 && status <= 599) return { kind: "status", status, message: error.message };
+  console.error("The ingest failed", error); // its own words, for your log only
+  return { kind: "other" };
+}
+
 process.once("message", async (message) => {
   try {
-    process.send!({ meta: await files.ingest(message as IngestInput) });
+    // The path of the file (`source`): this process reads it itself. Bytes only for a body a framework read.
+    process.send!({ meta: await files.ingest(message as IngestInput | IngestFromSource) });
   } catch (error) {
-    const { code, syscall, status, statusCode } = (error ?? {}) as { code?: unknown; syscall?: unknown; status?: unknown; statusCode?: unknown };
-    const httpStatus = typeof status === "number" ? status : typeof statusCode === "number" ? statusCode : undefined;
-    process.send!({
-      failed: error instanceof Error ? {
-        message: error.message,
-        // What createDocumentHandlers answers by: a status (a 503 from your store or an OCR service),
-        // or the code and syscall of a failure of the store (500). Without either, a 422 with this
-        // message, even for an error of your store (below).
-        ...(httpStatus !== undefined ? { status: httpStatus } : {}),
-        ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : {}),
-      } : {
-        // Not an Error: its code and syscall when it has both, or else a 500 with no message.
-        // createDocumentHandlers answers it as it does without this process: with the code, or with
-        // { "error": "Upload failed." }.
-        message: "",
-        ...(typeof code === "string" && typeof syscall === "string" ? { code, syscall } : { status: 500 }),
-      },
-    });
+    process.send!({ failed: failureOf(error) });
   }
 });
 ```
@@ -361,21 +465,33 @@ takes any `LargeFiles`, so the rest stays as it is:
 ```ts
 // documents.ts: the upload routes. Each ingest runs in a process of its own, one at a time on this server.
 import { fork } from "node:child_process";
-import type { DocumentMeta, IngestInput } from "llm-large-files";
+import { DocumentScopeError, DocumentStoreError, IngestError, type DocumentMeta, type IngestFromSource, type IngestInput } from "llm-large-files";
 import { createDocumentHandlers } from "llm-large-files/node";
 import { files } from "./large-files.js";
 import { userIdOf } from "./auth.js"; // your sign-in
+import type { IngestFailure } from "./ingest-process.js";
 
 const INGESTS_AT_ONCE = 1;
 let running = 0;
 
-type IngestReply = { meta?: DocumentMeta; failed?: { message: string; code?: string; syscall?: string; status?: number } };
+type IngestReply = { meta?: DocumentMeta; failed?: IngestFailure };
 
-function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
+/** The process's failure as the error createDocumentHandlers answers: an IngestError is the only 422. */
+function errorOf(failed: IngestFailure): Error {
+  switch (failed.kind) {
+    case "ingest": return new IngestError(failed.code, failed.message, failed.retryAfterMs !== undefined ? { retryAfterMs: failed.retryAfterMs } : {});
+    case "store": return new DocumentStoreError(new Error("The store failed in the ingest process."), { operation: failed.operation, ...(failed.code ? { code: failed.code } : {}) });
+    case "scope": return new DocumentScopeError(failed.code);
+    case "status": return Object.assign(new Error(failed.message), { status: failed.status });
+    default: return new Error("The ingest process failed."); // answered 500 "Upload failed."
+  }
+}
+
+function ingestInProcess(input: IngestInput | IngestFromSource): Promise<DocumentMeta> {
   if (input.signal?.aborted) return Promise.reject(input.signal.reason);
   if (running >= INGESTS_AT_ONCE) {
-    // An error with a status is answered with that status and its message.
-    return Promise.reject(Object.assign(new Error("The server is reading other files. Try again in a minute."), { status: 503 }));
+    // Answered 503, with Retry-After.
+    return Promise.reject(new IngestError("busy", "The server is reading other files. Try again in a minute.", { retryAfterMs: 60_000 }));
   }
   running++;
   return new Promise<DocumentMeta>((resolve, reject) => {
@@ -384,7 +500,7 @@ function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
       // flag (the table above has the flags of other versions). This flag wins over a
       // --max-old-space-size in NODE_OPTIONS, which the child inherits.
       execArgv: ["--max-old-space-size=320"],
-      serialization: "advanced", // the bytes go as they are, not as JSON
+      serialization: "advanced", // bytes, when there are any, go as they are, not as JSON
     });
     let reply: IngestReply | undefined;
     let timedOut = false;
@@ -408,13 +524,10 @@ function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
       running--;
       if (reply?.meta) resolve(reply.meta);
       else if (input.signal?.aborted) reject(input.signal.reason);
-      // With a status, that status and message (a 503 from your store or an OCR service); with a
-      // code and a syscall, a failure of the store (500); otherwise a file that cannot be read
-      // (422), even when the error came from your store (below).
-      else if (reply?.failed) reject(Object.assign(new Error(reply.failed.message), reply.failed));
-      else if (timedOut) reject(new Error(`${input.name} took too long to read.`));
+      else if (reply?.failed) reject(errorOf(reply.failed));
+      else if (timedOut) reject(new IngestError("timeout", `${input.name} took too long to read.`));
       // Out of memory, or crashed: that process is gone, and this server goes on.
-      else reject(new Error(`${input.name} could not be read on this server.`));
+      else reject(new IngestError("out_of_memory", `${input.name} could not be read on this server.`));
     };
     child.once("message", (message) => {
       reply = message as IngestReply;
@@ -425,27 +538,40 @@ function ingestInProcess(input: IngestInput): Promise<DocumentMeta> {
       child.kill();
       settle();
     });
-    // The bytes are copied to the process. A signal cannot be sent: the process has its own
-    // ingestTimeoutMs, and is killed when this one aborts.
+    // With the spool, the message holds the path of the file, not its bytes: the process reads it.
+    // The handler removes the file once this promise settles, after the process is gone. A signal
+    // cannot be sent: the process has its own ingestTimeoutMs, and is killed when this one aborts.
     const { signal: _signal, ...message } = input;
     child.send(message);
   });
 }
 
-export const documents = createDocumentHandlers({ ...files, ingest: ingestInProcess }, { getOwner: userIdOf });
+export const documents = createDocumentHandlers({ ...files, ingest: ingestInProcess }, {
+  getOwner: userIdOf,
+  // Every body to a file of the spool, so that only its path goes to the process.
+  uploadSpool: { directory: "/var/spool/uploads", minBytes: 0 },
+});
 ```
 
 Checked on Node 24: with `NODE_OPTIONS=--max-old-space-size=1024` on the server and a heap of 48 MB
 for the child, a 2,000-page PDF ran the child out of memory; the upload was answered "book.pdf
 could not be read on this server.", and the next upload was ingested.
 
-The error that `ingestInProcess` rebuilds from the process's reply is a new `Error`, so
-`createDocumentHandlers` cannot tell a store that failed to write from a file that cannot be read.
-Given `files` itself, it answers a store's error that has no status, and no `code` and `syscall`,
-with 500 `{ "error": "Upload failed." }`. Through this process, it answers that error 422 with the
-store's own message, which may name a database host. Give your store's errors a status and a
-message of your own, as [Storage](./storage.md#errors) shows: the process passes the status on. A
-thrown value that is not an `Error` gets the same answer with the process as without it.
+Since 0.9.0 the server sends the process the path of the upload, not its bytes: with
+`uploadSpool` and `minBytes: 0`, every body the handler reads is written to a file of the spool, and
+`ingest` gets `source: { path }`. The process reads the file itself, so the upload is neither held
+in the server while the process starts nor copied over the IPC channel. The process runs as the
+server's user, so it can read the spool's `0o600` files. A body a framework already read
+(`express.raw()`) still comes as bytes, and is copied. The handler removes the file once the
+promise of `ingestInProcess` settles, which is after the process exited.
+
+Since 0.9.0 `createDocumentHandlers` answers `422` only an `IngestError`, and any other error
+without a status `500` "Upload failed.", without its message (S12). So the server rebuilds the
+error the process caught by its kind: an `IngestError` with its code and message, a
+`DocumentStoreError` (`503`, `Retry-After: 5`) with its operation and code, never the store's own
+words. The process logs the errors it cannot pass on. Until 0.9.0 this recipe rebuilt a plain
+`Error`, which the handler answered `422` with its message: a store's own message, which may name a
+database host.
 
 A process stopped by its limit or its timeout may leave the files of a document that was never
 finished. `FileDocumentStore` removes them at the first sweep after they are an hour old. One
@@ -466,6 +592,14 @@ declares, not what they take: a crafted file that a process of its own ingested 
 chat server out of memory at its first look, or take memory outside the heap. And what
 `@cantoo/pdf-lib` keeps after each look adds up from file to file: files of 9 KB ran a heap of 1 GB
 out of memory at the seventh look ([Security](../security.md#reading-pdfs-for-pages-and-pictures)).
+Since 0.9.0 one look runs at a time in a library (`maxConcurrentPageLooks`, 1 by default), over
+all its questions: the others wait, before their PDF is loaded, for up to `pageLookWaitMs` (30 s),
+and then the model is told the server is busy. So the heap holds one parsed PDF at a time, not one
+for each question that looks. Raise it only with the heap to match: six looks at once took 352 MB
+more than one, and did not finish sooner. A look holds its turn while it reads the PDF from the
+store, for at most `ingestTimeoutMs` (2 minutes by default). Past it, the turn goes back and the
+model is told the file could not be read in time. The read itself goes on: give your store's
+`getOriginal` a time limit of its own, shorter than that, when it reads over a network.
 For the documents of users you do not trust, do not offer `view_pages` (`viewPages: false`), or keep
 no PDF originals. To offer it anyway, run each of their questions, the whole tool loop, in a process
 you fork, with its own heap and memory limits. What the model is told when pages cannot be shown,
@@ -481,17 +615,24 @@ documents it removed, or 0 for a store without one.
 
 `FileDocumentStore.sweep` also removes the files of uploads that were never finished, once they are
 `orphanAgeMs` old (one hour by default): younger ones may be an upload in progress on another
-server ([Storage](./storage.md#filedocumentstore)).
+server ([Storage](./storage.md#filedocumentstore)). It reads `sweepConcurrency` files at once, 16 by
+default. With `scopes`, `files.sweep()` walks the folders of every scope (exactly `depth` levels,
+following no link), and `files.sweep({ scope })` sweeps the folder of one chat.
 
 **Where to run it.** On one server, or from a scheduled job. Running it on every server is safe
 with `FileDocumentStore`, since removing a file that another sweep just removed is no error, but
-each server then lists the whole directory and reads every metadata file. A job of its own:
+each server then lists the whole directory (with `scopes`, every chat's folder) and reads every
+metadata file. Run it from one server, or take a lease first (a document in MongoDB with an expiry
+that one server holds at a time). A job of its own runs as the user of the servers, or in their
+group with the modes above. Give it the options of the servers' store:
 
 ```ts
 // sweep.ts: run every hour by a scheduled job (cron, a Kubernetes CronJob, Cloud Scheduler).
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 
-const files = createLargeFiles({ store: new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents") });
+// The options of the servers' store: here, a folder per user and chat.
+const store = new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents", { scopes: { depth: 2 } });
+const files = createLargeFiles({ store });
 const removed = await files.sweep();
 console.log(`Removed ${removed} expired documents.`);
 ```
@@ -599,11 +740,65 @@ export function stopOnSigterm(server: Server, graceMs = 25_000): void {
 ```
 
 Abort with an `Error`, as here, not a string: `partialResultOf` needs an object to look the
-question up by. An upload cut by the restart leaves files that the sweep removes an hour later.
-With [`createIsolatedExtractors`](../reference/node.md#createisolatedextractorsoptions), call
+question up by. With
+[`createIsolatedExtractors`](../reference/node.md#createisolatedextractorsoptions), call
 `isolated.close()` when the grace period ends, next to `stopping.abort`: it kills its child
 processes, and refuses the files still waiting or being read as `"busy"` (503 "The server is
 shutting down. Try again in a moment.").
+
+An upload cut by the restart, or by a server killed past its grace period or out of memory, can
+leave files of three kinds:
+
+- **The store's.** The files of `FileDocumentStore` for a document that was never finished. The
+  sweep removes them once they are an hour old.
+- **The spool's.** A server empties its own spool folder when it starts. A container restarted in
+  its pod (after an OOM kill, say) has the same hostname and folder, and empties it. A pod that is
+  replaced gets a new hostname, so its folder on the shared volume stays until you remove it. An
+  `emptyDir` goes with its pod ([Uploads and ingest](#uploads-and-ingest)).
+- **The partial file at the `path` of `prepareUpload`.** Nothing removes it: the sweep removes only
+  the store's files, and no document refers to it. A record of your own that `prepareUpload` wrote
+  for it stays too. Remove such files with a job of your own, now and then: each file of `uploads/`
+  older than any upload takes, whose document is not stored (`files.getMeta(id, { owner, scope })`
+  gives `undefined`). An upload takes up to `server.requestTimeout` (5 minutes) for its body, then
+  its wait for a turn, `ingestTimeoutMs` (2 minutes) and your `onUploaded`: an hour leaves room.
+
+```ts
+// remove-cut-uploads.ts: run now and then, for each chat (a CronJob, or a timer on one server).
+import { readdir, rm, stat } from "node:fs/promises";
+import path from "node:path";
+import type { LargeFiles } from "llm-large-files";
+
+/** Longer than any upload takes: its body, its wait for a turn, its ingest and onUploaded. */
+const CUT_AFTER_MS = 60 * 60_000;
+
+/**
+ * Removes the files of <user>/<chat>/uploads that no stored document has: those of uploads cut by a
+ * killed server, and those of documents deleted or expired.
+ */
+export async function removeCutUploads(files: LargeFiles, volume: string, user: string, chat: string): Promise<void> {
+  const folder = path.join(volume, user, chat, "uploads");
+  // A chat without the folder (one made before 0.9.0) has nothing to remove.
+  for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isFile()) continue;
+    const file = path.join(folder, entry.name);
+    // Still arriving, or waiting for its ingest; or removed meanwhile (by onRemoved).
+    const info = await stat(file).catch(() => undefined);
+    if (!info || Date.now() - info.mtimeMs < CUT_AFTER_MS) continue;
+    // Its document is stored: the file is the document's, and yours.
+    if (await files.getMeta(entry.name, { owner: user, scope: [user, chat] })) continue;
+    await rm(file, { force: true });
+  }
+}
+```
+
+Each file is named by its document's ID, as in the examples of
+[`prepareUpload`](../reference/node.md#saving-the-body-prepareupload). The folder holds only those
+files: anything else in it an hour old, with no document of its name, goes too. A file is kept only
+while its document is stored, so the file of a document that was deleted or has expired goes as
+well. That fits an app that keeps each file as long as its document, as the
+[upgrade guide's example](../upgrading-0.9.md) does (`ttlMs: Infinity`, and `onRemoved` removes the
+file). An app that keeps its files longer should look up its own record of the upload (the one
+`prepareUpload` or `onUploaded` wrote) instead of `getMeta`.
 
 After a restart the cache is empty: the first tool calls read their documents from the store again,
 and a thinking model's first whole-file read in the new process may spend one request finding the
@@ -622,6 +817,13 @@ same conversations.
   8% more in JSON. One ingested before 0.4.0 has no index: it is built the first time the document
   is used, and saved for the other servers. Upgrading from 0.3.x has notes of its own in
   [the 0.4.0 entry of the changelog](https://github.com/renanbazinin/llm-large-files/blob/v0.5.0/CHANGELOG.md#040---2026-11-12).
+- **Documents of 0.9.0.** In the flat layout, 0.9.0 keeps the names and fields of 0.8, so servers of
+  0.8 read the documents 0.9.0 writes under the IDs the library makes, and ignore the new fields.
+  They do not read a document under an application's ID, nor the folders of a store with `scopes`:
+  they answer such documents as missing, and the user is asked for the file again. Upgrade every
+  server at once, or keep each chat on servers of one version until the rollout ends. Files that
+  0.9.0 writes are `0600`: servers of 0.8 that run as another user cannot read them either.
+  [Upgrading to 0.9](../upgrading-0.9.md#several-servers-and-rolling-deploys) has the steps.
 - **A document keeps what the version that ingested it extracted**: its text, outline and log
   profile. A better extractor applies to files uploaded after the upgrade. A text file in an older
   encoding that 0.5.0 stored holds U+FFFD where 0.6.0 reads its letters, and text that 0.5.0
@@ -629,8 +831,10 @@ same conversations.
   again to get the new reading. A document that 0.5.0 stored with the owner `""` stays readable
   with that owner until it expires.
 - **Conversations.** `toolTurns` are plain JSON, and their type (`ToolTurn`) has not changed since
-  they appeared in 0.5.0. Both versions read the ones the other stored. 0.6.0 sends the rounds of
-  an earlier question without their `tool_turns_left`
+  they appeared in 0.5.0, but for `version`, which 0.9.0 adds to the rounds it makes. Both versions
+  read the ones the other stored: a version before 0.9.0 ignores `version`, and 0.9.0 refuses a
+  round whose `version` is above 1, made by a later version, with a `TypeError`. 0.6.0 sends the
+  rounds of an earlier question without their `tool_turns_left`
   ([Conversations](./conversations.md#what-toolturns-holds)).
 - **Provider caches.** The tool guide in the system instruction, the descriptions of
   `analyze_whole_document` and `search_document`, and the frame lines of a file sent whole changed
@@ -647,19 +851,16 @@ same conversations.
 
 ## Node.js, ESM and `require()`
 
-- **Node.js 20.19 or newer** (`engines` in `package.json`). The tests run on Node 20, 22 and 24,
-  and again with unpdf 1.7.0 on Node 20, the newest 1.x on Node 22 and 24, and the newest 2.x on
-  Node 24. Pick the `unpdf` for your Node ([PDFs and other formats](./pdfs.md#formats)).
+- **Node.js 22.12 or newer** (`engines` in `package.json`; 20.19 until 0.9.0). The tests run on
+  Node 22, 24 and 26, and again with the newest unpdf 1.x on Node 22 and 24, and the newest 2.x on
+  Node 24 and 26. Pick the `unpdf` for your Node ([PDFs and other formats](./pdfs.md#formats)).
 - **The package is ESM only.** It has `"type": "module"` and an `exports` map with `types` and
   `default`; there is no CommonJS build. An ESM application imports it as it is.
-- **A CommonJS application can `require()` it** on Node 20.19 and newer in the 20 line, and on Node
-  22.12 and newer: those load an ES module with `require()`, and the library has no top-level
-  `await`. On Node 22.0 to 22.11, load it with `import()` from an async function: a CommonJS file
-  has no top-level `await`, so write `const { createLargeFiles } = await import("llm-large-files");`
-  inside `async function main() { ... }`.
+- **A CommonJS application can `require()` it**: Node 22.12 and newer load an ES module with
+  `require()`, and the library has no top-level `await`.
 
   ```js
-  // CommonJS, Node 20.19+ or 22.12+
+  // CommonJS
   const { createLargeFiles, FileDocumentStore } = require("llm-large-files");
   const { askGemini, vertexAi } = require("llm-large-files/gemini");
   const { createDocumentHandlers } = require("llm-large-files/node");
@@ -703,14 +904,14 @@ optional peer dependencies. Add the ones you need to the `dependencies` of your 
 
 | Package | Version | Needed for | Without it |
 |---|---|---|---|
-| `unpdf` | `^1.4.0 \|\| ^2.0.0`, in a version that runs on your Node: 1.7.0 on Node 20, a 1.x from 1.6.1 on Node 22, any on Node 24 and later ([PDFs](./pdfs.md#formats)) | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`). A version that does not run on your Node is refused too, with a message that says what to install: `The unpdf installed cannot read PDF files on Node 20 (…). Install unpdf 1.7.0 (npm install unpdf@1.7.0), or run Node 22 or later.` |
+| `unpdf` | `^1.4.0 \|\| ^2.0.0`, in a version that runs on your Node: a 1.x from 1.6.1 on Node 22, any on Node 24 and later ([PDFs](./pdfs.md#formats)) | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`). A version that would stop the server on your Node is refused too, with a message that says what to install: `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
 | `jszip` | `^3.10.0` | DOCX, PPTX and XLSX | The upload is refused: `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | `@cantoo/pdf-lib` | `^2.11.1` | `view_pages`, the check of PDF pages that would hold the server, and the marks on PDF pages that show a picture | `view_pages` answers the model `report.pdf: Showing PDF pages needs the optional dependency "@cantoo/pdf-lib".` (with the file's name), and PDFs are ingested without the check and without the marks, with no error |
 
 The last one fails quietly at ingest, so an image without it ingests PDFs differently from your
 machine, and lets through the pages the check would refuse. On Node 24 and later,
-`npm install unpdf` installs unpdf 2, which does not run on Node 20: for an image on Node 20 or 22,
-name the version in your `dependencies`. Check at startup that the image has what your application
+`npm install unpdf` installs unpdf 2, which asks for Node 24: for an image on Node 22, name the
+version in your `dependencies`. Check at startup that the image has what your application
 uses:
 
 ```ts

@@ -1,10 +1,10 @@
 // What a question or an ingest does while it runs, as typed data in order. The callbacks of
 // earlier versions (onText, onActivity, onStep) still get the same strings, at the same moments.
 import type { AskResult } from "./ask.js";
-import { DocumentStoreError, IngestError, type IngestErrorCode } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
-import type { ModelErrorKind, ModelReply, ModelUsage, ToolTurn } from "./model.js";
+import { classifyModelError, DocumentsNotFoundError, isModelStatus, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
 import type { DocumentFormat, DocumentMeta, DocumentSummary, ToolResult } from "./types.js";
 
 /** What every event carries. */
@@ -35,7 +35,10 @@ export type EventError = {
    * code only.
    */
   message: string;
-  /** For a model error: what kind it is (`errorKindOf`). */
+  /**
+   * For a model error: what kind it is (`errorKindOf`). Since 0.9.0 also for an error with a status
+   * (0, or 400 and more) and no kind of its own: the kind its status gives (`classifyModelError`).
+   */
   kind?: ModelErrorKind;
   /** For an HTTP error: its status. 0 when no answer came. */
   status?: number;
@@ -43,9 +46,11 @@ export type EventError = {
   name?: string;
   /**
    * For a file `ingest` could not read: why, as `IngestError.code` ("too_large", "no_text",
-   * "busy"…), so a page can say it in its own words. New in 0.8.0.
+   * "busy"…), so a page can say it in its own words. New in 0.8.0. Since 0.9.0 also the code of a
+   * scope that cannot be used (`DocumentScopeError`, `name` "DocumentScopeError"): "scope_missing"
+   * when the chat was deleted.
    */
-  code?: IngestErrorCode;
+  code?: IngestErrorCode | DocumentScopeErrorCode;
 };
 
 /**
@@ -93,7 +98,15 @@ export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_ru
  * - "calls_not_run": a turn had more calls than `limits.callsPerTurn`;
  * - "budget_reached": `limits.inputTokens` or `limits.requests` was reached, so no more tools run;
  * - "no_room": there is no room left in the conversation for another tool result;
- * - "blocked": the provider refused the prompt (`AskResult.blockReason`).
+ * - "blocked": the provider refused the prompt (`AskResult.blockReason`);
+ * - "documents_missing": documents of `documentIds` were missing, and the question is answered
+ *   without them (`AskOptions.onMissingDocuments` "drop"; `AskResult.missing`). New in 0.9.0;
+ * - "document_gone": a tool call found a document gone during the question (deleted or expired
+ *   since it was planned). The model was told so in the call's result. New in 0.9.0;
+ * - "page_looks_busy": a look at pages waited its turn (`maxConcurrentPageLooks`) longer than
+ *   `pageLookWaitMs`, and was not run. The model was told so in the call's result. New in 0.9.0.
+ *
+ * A switch over every code must handle the codes added in a later version.
  */
 export type NoticeCode =
   | "searching_instead"
@@ -106,7 +119,10 @@ export type NoticeCode =
   | "calls_not_run"
   | "budget_reached"
   | "no_room"
-  | "blocked";
+  | "blocked"
+  | "documents_missing"
+  | "document_gone"
+  | "page_looks_busy";
 
 /**
  * Where a notice went in the callbacks of earlier versions: "activity" to `onActivity`, "step" to
@@ -125,8 +141,9 @@ export type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
   toolTurns?: ToolTurn[];
   /**
    * Which documents went in whole and which were searched, named as `DocumentRef`s: their full
-   * `DocumentMeta` (owner, outline headings, the commonest lines of a log) is left out unless
-   * `eventResults` is true. The returned result has the full plan.
+   * `DocumentMeta` (owner, scope, the SHA-256 and the ref of the original, outline headings, the
+   * commonest lines of a log) is left out unless `eventResults` is true. The returned result has
+   * the full plan.
    */
   plan: { inline: Array<DocumentRef | DocumentMeta>; searchable: Array<DocumentRef | DocumentMeta> };
 };
@@ -252,7 +269,17 @@ export type AskEvent =
       /** The result itself. Only with `AskOptions.eventResults: true`: it holds document text. */
       result?: ToolResult;
     })
-  | (EventBase & { type: "notice"; code: NoticeCode; message: string; display: NoticeDisplay })
+  | (EventBase & {
+      type: "notice";
+      code: NoticeCode;
+      message: string;
+      display: NoticeDisplay;
+      /**
+       * The documents the notice is about: those left out ("documents_missing"), the one found gone
+       * ("document_gone"), the one whose pages were not looked at ("page_looks_busy"). New in 0.9.0.
+       */
+      documentIds?: string[];
+    })
   /** Always last when the question returns. Nothing comes after it. */
   | (EventBase & { type: "run.finish"; result: EventResult })
   /**
@@ -280,7 +307,15 @@ export type IngestEvent =
       unit: "pages" | "parts" | "bytes" | "characters";
     })
   /** Always last when the ingest stores the document. */
-  | (EventBase & { type: "ingest.finish"; document: DocumentSummary })
+  | (EventBase & {
+      type: "ingest.finish";
+      document: DocumentSummary;
+      /**
+       * What the upload handler's `onUploaded` returned as `answer`, for the page: only in the
+       * event the handler sends, never in the events of `files.ingest`. New in 0.9.0.
+       */
+      app?: Record<string, unknown>;
+    })
   /** Always last when the ingest throws (a refusal or an abort included). */
   | (EventBase & { type: "ingest.error"; error: EventError });
 
@@ -303,15 +338,32 @@ export function newRunId(prefix = "run"): string {
 export function eventErrorOf(error: unknown, message?: string): EventError {
   // It never throws: an error whose fields throw when read (a getter, a proxy) is told plainly.
   try {
-    const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown };
-    if (error instanceof IngestError) {
-      // Its status is the upload's answer, not a model's.
-      return { message: message ?? error.message, name: error.name, code: error.code, ...(error.code === "busy" || error.code === "too_large" ? { status: error.status } : {}) };
+    const record = (typeof error === "object" && error !== null ? error : {}) as { kind?: unknown; status?: unknown; name?: unknown; code?: unknown };
+    if (IngestError.is(error)) {
+      // Its status is the upload's answer, not a model's. A subclass of a name of its own (an
+      // extractor's) is told by the name errorInfoOf reads, as a store's own DocumentStoreError is.
+      return { message: message ?? error.message, name: "IngestError", code: error.code, ...(error.status !== 422 ? { status: error.status } : {}) };
+    }
+    // Its code tells a deleted chat from a scope the server gave wrong (errorInfoOf).
+    if (DocumentScopeError.is(error)) {
+      return { message: message ?? userMessageOf(error), name: "DocumentScopeError", ...(typeof error.code === "string" ? { code: error.code } : {}) };
     }
     const out: EventError = { message: message ?? userMessageOf(error) };
+    const own = DocumentStoreError.is(error) ? "DocumentStoreError" : DocumentsNotFoundError.is(error) ? "DocumentsNotFoundError" : undefined;
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
+    else if (isModelStatus(record.status) && own === undefined && !isPlainData(record)) {
+      // A model's error without a kind of its own (an adapter of yours, `httpError`): the kind its
+      // status gives, as its message is told, so that a model's EventError always has its kind.
+      // Plain data thrown is not an adapter's error, as errorInfoOf reads it. The message is read
+      // from any class, an Error or not (an SDK's own), as errorInfoOf and the loop read it.
+      const { code, message: text } = record as { code?: unknown; message?: unknown };
+      out.kind = classifyModelError(record.status, typeof text === "string" ? text : "", { code: typeof code === "string" ? code : undefined }).kind;
+    }
     if (typeof record.status === "number") out.status = record.status;
-    if (typeof record.name === "string" && record.name) out.name = record.name;
+    // A store's own subclass of DocumentStoreError, of a name of its own, is told by the name
+    // errorInfoOf reads, as the upload handlers tell it.
+    if (own !== undefined) out.name = own;
+    else if (typeof record.name === "string" && record.name) out.name = record.name;
     return out;
   } catch {
     return { message: message ?? SOMETHING_WENT_WRONG };
@@ -320,19 +372,32 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
 
+/** Data, not an error: an object of no class, as an `EventError` is, or one parsed from JSON. */
+export function isPlainData(value: object): boolean {
+  const proto: unknown = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 /**
  * A message for users: a model error by its kind and status, a storage error by its code, the
  * library's own errors (refusals, a stop) as they are written, and anything that is not an
  * `Error` as "Something went wrong."
  */
 function userMessageOf(error: unknown): string {
-  if (error instanceof DocumentStoreError) return error.message;
+  // The library's own errors with a status (503, 404) are not model errors: their words are safe.
+  if (DocumentStoreError.is(error) || DocumentsNotFoundError.is(error)) return (error as Error).message;
   if (typeof error !== "object" || error === null) return SOMETHING_WENT_WRONG;
   const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; message?: unknown };
-  // A model error: the provider's words stay on the error.
-  if (typeof record.kind === "string" || typeof record.status === "number") return modelFailureReason(error);
-  // A system error (ENOENT, EACCES…): its message names paths of the server.
-  if (typeof record.code === "string" && typeof record.syscall === "string") return `The file could not be read from storage (${record.code}).`;
+  // A model error, as eventErrorOf gives it a kind: the provider's words stay on the error.
+  if (typeof record.kind === "string" || (isModelStatus(record.status) && !isPlainData(record))) return modelFailureReason(error);
+  // Any other status (thrown plain data, a status no model answers with) is not a model's, and the
+  // words that came with it may be anyone's: errorInfoOf tells it so too.
+  if (typeof record.status === "number") return SOMETHING_WENT_WRONG;
+  // A system error (ENOENT, EACCES…): its message names paths of the server. Its code is told only
+  // when it reads as one: a driver may put a host in it.
+  if (typeof record.code === "string" && typeof record.syscall === "string") {
+    return `The file could not be read from storage${isErrorCode(record.code) ? ` (${record.code})` : ""}.`;
+  }
   if (!(error instanceof Error) && !(typeof DOMException !== "undefined" && error instanceof DOMException)) return SOMETHING_WENT_WRONG;
   return typeof record.message === "string" && record.message ? record.message : SOMETHING_WENT_WRONG;
 }

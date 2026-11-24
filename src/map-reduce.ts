@@ -1,6 +1,6 @@
 import { safeErrorMessage } from "./errors.js";
 import { until } from "./http.js";
-import { classifyModelError, errorKindOf, type ModelErrorKind } from "./model.js";
+import { classifyModelError, errorKindOf, isModelStatus, modelErrorOf, type ModelErrorKind } from "./model.js";
 import { noTextReason } from "./output-limit.js";
 import { statusOf, withRetry, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes } from "./text.js";
@@ -117,7 +117,7 @@ export function modelFailureReason(error: unknown): string {
     if (noText !== undefined) return `The model returned no text${PLAIN_REASON.test(noText) ? ` (${noText})` : ""}.`;
     const status = httpStatusOf(error);
     let kind: unknown = errorKindOf(error);
-    if (!knownKind(kind) && status !== undefined && (status === 0 || status >= 400)) {
+    if (!knownKind(kind) && isModelStatus(status)) {
       const code = (error as { code?: unknown } | null)?.code;
       kind = classifyModelError(status, error instanceof Error ? error.message : "", { code: typeof code === "string" ? code : undefined }).kind;
     }
@@ -384,7 +384,7 @@ export async function analyzeWholeDocument(options: {
       return [{ from, to, text, read: true }];
     } catch (error) {
       if (signal?.aborted) throw error;
-      if (!halved && to > from && errorKindOf(error) === "context_overflow" && halvings > 0) {
+      if (!halved && to > from && modelErrorOf(error)?.kind === "context_overflow" && halvings > 0) {
         halvings--;
         const middle = Math.floor((from + to) / 2);
         return [
