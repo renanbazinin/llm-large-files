@@ -849,7 +849,7 @@ Not released yet. Everything here ran on 2026-11-24 on the Gemini API (`geminiAp
 there was no project, so Model Armor, `LANGUAGE` and labels were not seen. The cached share of a
 request is recorded here, never used as a gate. The release gate of 0.10.0 is the live gates of
 packages P1 and T below, over the same requests: the eval replay matches each request of the
-release to its recording byte for byte.
+release to its recording byte for byte, keys and project IDs aside.
 
 ### The live session on the Gemini API
 

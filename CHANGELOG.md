@@ -398,7 +398,8 @@ await chats.updateOne({ _id: chatId }, {
   whole-file reads and items by T's (at c1fbbb5)
   ([Measurements](docs/measurements.md#tables-sent-whole-p1s-live-gate)). Each of its 96
   recordings (48 cases on 2 models) replays against 0.10.0, so 0.10.0 sends the requests that were
-  recorded live, byte for byte (T4; [Testing](docs/guides/testing.md#the-librarys-own-evals)).
+  recorded live, byte for byte but for keys and project IDs (T4;
+  [Testing](docs/guides/testing.md#the-librarys-own-evals)).
 
 ### Fixed
 
