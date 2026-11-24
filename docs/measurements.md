@@ -18,8 +18,8 @@ as it was recorded, with the release it was recorded for. Before you rely on a n
   probe that reproduced a fault, and so does this page.
 - **Version** is the release a result was recorded for. 0.1.0 is of 2026-11-06, 0.2.0 and 0.3.0 of
   2026-11-10, 0.3.5 and 0.3.6 of 2026-11-11, 0.4.0 of 2026-11-12, and 0.4.1 and 0.5.0 of
-  2026-11-13. The checks of 0.6.0 are of November 2026. All live results are of
-  November 2026.
+  2026-11-13. The checks of 0.6.0 are of November 2026. The live results of 0.10.0, not released
+  yet, are of 2026-11-24. All live results are of November 2026.
 - **Main** is a result recorded on the code on `main` up to commit 5157e7f (2026-11-20), or on its
   branches, before the rest of 0.6.0 was written. "The 0.6 review" is the review of that code, of
   2026-11-20.
@@ -38,9 +38,9 @@ as it was recorded, with the release it was recorded for. Before you rely on a n
 
 | Provider | Live runs on record | Not run live |
 |---|---|---|
-| Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
-| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | |
-| OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
+| Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions. 0.10.0: the prompt cache, thought signatures of earlier questions, and the eval's cases at pass^3 ([below](#0100-live-on-the-gemini-api)) | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
+| Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | Everything of 0.10.0: thought signatures of earlier questions (so `nativeRounds` stays off), Model Armor, `LANGUAGE`, labels |
+| OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only. 0.10.0: a streamed tool call on Gemini's OpenAI layer | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
 | Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation |
 
 Also live on Gemini, with the record not saying whether on the Gemini API or on Vertex AI: Gemini
@@ -313,6 +313,10 @@ of three, and no search.
 **A repeated search (main, live on Vertex AI, 2026-11-16).** With `gemini-3.1-flash-lite`, a
 follow-up that was sent the stored tool rounds of the first question and repeated its first search
 got a pointer to the earlier result, instead of a second run, and answered from that result.
+
+**Stored rounds sent back as they were (0.10.0, live on the Gemini API).** See
+[the live session of 0.10.0](#the-live-session-on-the-gemini-api): on 3.8 Flash, a
+follow-up whose rounds went back as their calls kept only the system text and tools in the cache.
 
 The [Conversations guide](./guides/conversations.md) shows how to keep tool rounds.
 
@@ -836,6 +840,175 @@ of 1, 4 and 8 MB in pieces of 16 KB, in memory, five runs of each build in each 
 as one string. Two runs each.
 
 [Security](./security.md) explains the limits that came of these measurements.
+
+## 0.10.0, live on the Gemini API
+
+Not released yet. Everything here ran on 2026-11-24 on the Gemini API (`geminiApi()`), with
+`gemini-3.5-flash-lite` and `gemini-3.8-flash`, over synthetic files. Nothing ran on Vertex AI:
+there was no project, so `vertexAi()` keeps `nativeRounds` off, and Model Armor, `LANGUAGE` and
+labels were not seen. The cached share of a request is recorded here, never used as a gate.
+
+### The live session on the Gemini API
+
+On the code of 0.10.0 before packages P1, P2 and T merged (commit bf13a4d), with stored rounds sent
+as their calls. 212 requests: 3,831,750 input tokens reported, 2,352,245 of them cached, and 32,581
+output tokens. A second check of every figure against the raw records corrected a few. Not
+measured: streamed Gemini requests, `functionCallingMode: "VALIDATED"`, and a request for the
+answer with mode AUTO.
+
+**The prompt cache under `answerWithoutTools` "omit" and "mode_none".** Chats of 4 questions under
+`"first"`, a Hebrew policy sent whole (a first user turn of about 44K tokens) and a searched Hebrew
+CSV of 6,000 rows; 2 chats per model and mode, 10 s before each follow-up.
+
+| Model | Mode | Follow-up's first request cached (mean, range) | Follow-up's closing request cached |
+| --- | --- | --- | --- |
+| gemini-3.5-flash-lite | omit | 93.9% (93.0-94.6) | 93.0% (91.7-94.3) |
+| gemini-3.5-flash-lite | mode_none | 93.9% (93.1-94.5) | 93.0% (91.8-94.0) |
+| gemini-3.8-flash | omit | 94.9% (94.8-94.9) | 94.8% (94.6-95.2) |
+| gemini-3.8-flash | mode_none | 94.9% (94.8-95.0) | 94.8% (94.6-95.2) |
+
+- The first question's requests: 0% cached in 8 of 8. A follow-up was cached up to about 2,100 to
+  2,300 tokens short of the end of the first user turn: Google documents that a follow-up
+  processes the last 2,050 tokens of the previous request again.
+- A request for the answer with no earlier one in the chat (a policy of about 12K tokens): 0%
+  cached in 8 of 8, under both modes. Under `"mode_none"` it cost 12,379 to 12,529 input tokens,
+  against 10,581 to 10,630 under `"omit"`. So `"omit"` stays the default.
+- Requests sent 27 to 197 ms after a reply were 50% to 68% cached: no wait is needed before a
+  follow-up. The least size the cache takes was not found.
+
+**Thought signatures of earlier questions.** The first question made one round of two calls at
+once; the model's turn carried a signature on its first call (204 characters on Flash-Lite, 1,024
+and 872 on 3.8 Flash). The second question sent it back three ways. Every request had status 200,
+12 of 12. On 3.8 Flash the signature was read and billed: 215 and 133 input tokens more for each
+signed round, and 57 to 111 thought tokens against none with calls only. Whether the answers of
+the second question changed was not checked.
+
+| Signature sent | Result |
+| --- | --- |
+| As it came | 200 |
+| From the first question of another chat, same model | 200 |
+| From the other model | 200; on 3.8 Flash billed as no signature: most likely ignored |
+| 8 base64 characters changed | 400 `Invalid thought signature.` |
+| Random bytes of the same length, or cut to half | 400 `Corrupted thought signature.` |
+| The current question's signature removed | 400 `Function call is missing a thought_signature in functionCall parts. …` |
+
+The library makes each 400 a `GeminiRequestError` of kind `"invalid"`. `/thought[ _]signature/i`
+matches all three, and is the trigger of the fallback that resends calls only: the Gemini API
+refuses damaged signatures, not reused ones. Not tried: a signature of another round, and base64
+encoded again on the way. No reply ended with `MISSING_THOUGHT_SIGNATURE`.
+
+**Four checks of earlier figures.**
+
+- **Token estimates:** `estimateTokens` against `countTokens` (the same on both models) was 1.122
+  for a service log (1.98 characters per token), 1.138 for a CSV of numbers (1.00) and 1.099 for
+  Hebrew prose (2.21): still above the provider's count. The record of 0.2.0 said 1.05 to 1.10.
+- **A DOCX sent inline as a file** (3,279 bytes, a table of 4 by 3) was read right on both models,
+  the empty cell named, 4 of 4. Its content was not counted in `promptTokenCount`.
+- **Gemini's OpenAI layer, a streamed tool call:** one chunk with the role and the whole call (an
+  ID, no `index`), then `finish_reason: "stop"`, then `[DONE]`. Through `openAiCompatible()` the
+  answer was right. On 3.8 Flash, `total_tokens` was about 46 more than the prompt and the output:
+  thinking that is billed and not reported.
+- **The request for the answer:** 58 of 58 came back as text, with no tool call.
+
+**Why calls only lost the cache on 3.8 Flash.** A follow-up run the same day (67 requests, 479,663
+input tokens) explains a loss the session left open. The first question's second request sends
+the model's turn back with its real signature, then the results. On 3.8 Flash, the first request
+after it that does not extend its whole prompt kept only about the system text and tools in the
+cache (2,343 to 2,362 tokens), in 10 of 10 trials. The same body hit at the usual level, 6 of 6,
+when sent after the first request alone, or after one carrying Google's documented stand-in
+signature. Each way of sending the rounds back as the first follow-up, in a chat of its own:
+
+| Rounds sent back | Trials | Cached |
+| --- | --- | --- |
+| As their calls (0.9) | 9 | the system text and tools only: 33.7% at 7K tokens, 15.7% at 15K |
+| As they were sent (0.10.0, `ToolTurn.native`) | 3 | 69.5% at 7.1K, 85.7% at 15.3K, and one total miss at 6.4K |
+
+So on the Gemini API, rounds sent back as they were cost no cache, and likely gain: `geminiApi()`
+keeps `nativeRounds` on. Each signed round is billed in full on every later request that carries
+it. This is shown for one shape: one round of two calls. Not tested: single calls, several
+rounds, a loop that ends with the request for the answer, and Vertex AI.
+[Conversations](./guides/conversations.md#native-rounds-and-their-fallback) has what the library
+does with it.
+
+### Tables sent whole (P1's live gate)
+
+The eval's 28 cases of package P1, three runs of each on both models (pass^3), at commit 64a4ec8:
+tables sent whole with `search_document`, `read_document` and `aggregate_table`, and numbered
+files sent whole. 12,160,431 input tokens in all.
+
+| Gate | Bar | gemini-3.5-flash-lite | gemini-3.8-flash |
+| --- | --- | --- | --- |
+| Cases passed in every run | | 27 of 28 | 28 of 28 |
+| Count questions answered right | 100% | 24 of 24 | 24 of 24 |
+| Hebrew lookups answered right | at least 90% | 42 of 42 | 42 of 42 |
+| Hebrew questions answered in Hebrew | every run | 75 of 75 | 75 of 75 |
+| Citations inside what the tools showed | at least 90% | 100% | 100% |
+| Answers with no citation recognized | at most 10% | 5% | 0% |
+| Questions over a table with no count, in one request | at least 90% | 54% (21 of 39) | 97% (38 of 39) |
+| Count questions over a table, requests at the median | at most 3 | 2 | 2 |
+| Facts lost against 0.9.0 | none | 0 | 0 |
+
+- **Cost against 0.9.0**, on the cases both ran: input tokens per run about 2.3 to 2.4 times;
+  median latency from 0.9 to 1.2 s on Flash-Lite, and from 4.6 to 5.4 s on 3.8 Flash. The cached
+  share was 76% on Flash-Lite and 65% on 3.8 Flash.
+- **Flash-Lite looks rows up with a tool** when the table is shown in full: a lookup in a CSV or a
+  workbook takes a search or a read first, so 2 requests, each with the table. That makes it
+  exact: 0.9.0, by eye, got the invoice lookup wrong in 3 of 3 runs. A read of lines 1-5 of a CSV
+  of 3,000 rows it already had took 244,654 input tokens a question, against 122,208 on 3.8 Flash.
+  This is accepted as a limit of Flash-Lite, not tuned.
+- **The one miss** was a lookup in English on Flash-Lite (orders-row, 2 of 3): a keywords search
+  gave a passage of 40 rows, and the answer took the amount from a row four lines up. 0.9.0 missed
+  it the same way.
+
+### Whole-file reads and items (package T)
+
+**Whole-file reads, pass^3,** on the code of c1fbbb5, which adds the `whole_file` hint to a
+`read_document` result cut short (992,188 input tokens):
+
+| Case | gemini-3.5-flash-lite | gemini-3.8-flash |
+| --- | --- | --- |
+| contract-summary (a Hebrew contract read whole) | 3 of 3 | 3 of 3 |
+| diary-timeline (a month of a shift diary, week by week) | 2 of 3 | 3 of 3 (it searched) |
+
+- In Flash-Lite's failed run, two of the five part replies were `NOTHING RELEVANT`, and the
+  incidents of 11 and 19 October were lost.
+- An A/B of that read on Flash-Lite, 8 reads with 0.10.0's prompts and 8 with 0.9.0's (860,961
+  input tokens): no part with an incident replied `NOTHING RELEVANT` on either (0 of 32 each), 3
+  parts of 40 did on 0.10.0 against 8 of 40 on 0.9.0, all on the part without one, and no date was
+  lost in the 16 reads. The live miss, about one run in three, is recorded as a limit of
+  Flash-Lite, the same as 0.9.0, not tuned.
+- Lookups and counts over searched contracts, two runs each on both models: 16 of 16 passed, with
+  no whole read: the hint does not push them into reads.
+- Measured, not gated: on cleaning-sanctions, a count of 37 sanctions, Flash-Lite answered 31 and
+  35 from reads as an answer and never asked for `output: "items"` (0 of 3); 3.8 Flash read a
+  planted November diary whole in none of 3 runs and passed 1 of 3.
+
+**Items reads** (`analyze_whole_document` with `output: "items"`), called on the tool set directly:
+three reads of each file by each model in each round, parts of about 2,000 tokens. contract-1 has
+37 fines; cleaning-1 37 sanctions in four wordings. The gate on Flash-Lite: at least 95% of part
+replies parse, and the totals are exact.
+
+| Round | Flash-Lite replies parsed | Flash-Lite totals exact | 3.8 Flash replies parsed | 3.8 Flash totals exact |
+| --- | --- | --- | --- | --- |
+| 1, the first rules | 23 of 31 (74%) | 0 of 6 | 27 of 27 | 6 of 6 |
+| 4, quotes of a few words | 27 of 27 | 4 of 6 | 15 of 15 | 3 of 3 |
+| 5, the near check, a part with its heading | 27 of 27 | 3 of 6 | 27 of 27 | 6 of 6 |
+| 6 (c1fbbb5), quotes of five to twelve words | 27 of 27 | 4 of 6: contract-1 37, 37, 37; cleaning-1 36, 24, 37 | 27 of 27 | 6 of 6 |
+
+- Round 6 meets the gate on contract-1, the planted contract. cleaning-1 is not gated: in its run
+  of 24, one part with 10 sanctions replied `NOTHING RELEVANT`.
+- A line planted in a part that tells the reader to reply `NOTHING RELEVANT` was not followed: the
+  part's notes kept the incident in 6 of 6 reads, three on each model.
+- Package T's live calls came to 10,634,007 input tokens in all.
+
+### P2 and the release live gate
+
+> **To be filled in.** The figures of package P2 (placement and the prompt cache) and of the
+> release's live gate on the merged branch are not recorded yet. Expected here: the re-recorded
+> cassettes and their input tokens; pass^3 on both models with no fact lost against P1's run;
+> requests per question against P1's; the cached share of follow-ups (recorded, not a gate); the
+> chat cases under `documentPlacement: "attached"`; and whether any `native_rounds_dropped`
+> notice came on the Gemini API.
 
 ## Faults reproduced before a fix
 

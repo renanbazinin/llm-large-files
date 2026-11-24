@@ -6,7 +6,8 @@ context window**.
 Your users upload a 50 MB log or a 900-page book. Your model connector accepts 10 MB per request
 and 1M tokens of context. This package bridges the gap:
 
-- **Files that fit** go into the prompt whole.
+- **Files that fit** go into the prompt whole, with their lines numbered. A table sent whole still
+  gets tools, so its counts and sums are exact.
 - **Files that don't** become a short summary card, and the model gets tools to **search**,
   **read line ranges**, or **read the whole file in parts** (map-reduce). Answers cite line numbers.
 - **Pictures in a PDF** are not in its text. The model can **look at the real pages** when it
@@ -99,9 +100,11 @@ withClaude.answered;  // false when the last reply had no text (a blocked prompt
 withClaude.usage;     // { requests: 5, inputTokens: 32662, cachedInputTokens: 6086, outputTokens: 750, thoughtTokens: 0, byModel: { … } }
 withClaude.evidence;  // [{ tool: "read_document", documentId, document: "app.log", lines: [[34100, 34110]] }, …]
 withClaude.toolTurns; // pass these back in `messages`, between this question and its answer: a follow-up then needs no new search
+withClaude.userTurn;  // store it as the question's turn, and pass withClaude.placement with the next question: the start of the requests stays the same (new in 0.10.0)
 ```
 
-How to keep a chat's history, tool turns included, across requests and servers:
+How to keep a chat's history, tool turns included, across requests and servers, and keep the
+provider's prompt cache from one question to the next:
 [Conversations](docs/guides/conversations.md).
 
 Every model gets the same loop. A failed request is sent again when another try can help (a lost
@@ -114,7 +117,8 @@ text is asked for again, a repeated call gets a pointer to the result already sh
 each file is read whole at most once a question.
 
 A question that fails throws `DocumentsNotFoundError` for a file that expired, was deleted, or
-belongs to another `owner`, `DocumentStoreError` when the store cannot be read, or a
+belongs to another `owner`, `DocumentStoreError` when the store cannot be read or does not answer
+within 30 s (`storeTimeoutMs`), or a
 `ModelRequestError` whose `kind` (`"rate_limit"`, `"quota"`, `"timeout"`, `"context_overflow"`, …)
 tells you what to show the user. `partialResultOf(error)` gives what it found and paid for:
 [Errors and reliability](docs/guides/errors-and-reliability.md).
@@ -256,13 +260,15 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 |---|---|
 | **Formats** | Text, Markdown, logs (UTF-8 and UTF-16, and Hebrew, Arabic, Cyrillic, Japanese and Western European text in its older encoding), JSON/JSONL, CSV/TSV, HTML (the text a browser shows), DOCX (headings, clause numbers, tables, notes and comments), PPTX (slides in show order, tables, speaker notes), XLSX (every sheet, a line per row, with its row number), PDF (text layer, with tables rebuilt so empty cells stay empty; pages with a picture are marked, and the model can look at the pages themselves; scans of up to 30 pages when PDFs are kept) |
 | **Logs** | Detected automatically; the card shows level counts, the time range, and the most frequent errors grouped by shape (`timeout after <n>ms to <ip>`) |
-| **Books and documents** | An outline of headings with line numbers, including Markdown, "Chapter 12", numbered sections, and Hebrew chapter titles |
-| **Counting** | Exact counts of matching lines, per hour, per code or per message shape, in one search; exact sums, averages and groups over the rows of a CSV, an Excel sheet or a table of a document with `aggregate_table`, which reads every row and runs no code |
+| **Books and documents** | An outline of headings with line numbers, including Markdown, "Chapter 12", numbered sections, and Hebrew chapter titles; for a PDF, Hebrew included, the lines set in larger type (new in 0.10.0) |
+| **Counting** | Exact counts of matching lines, per hour, per code or per message shape, in one search; exact sums, averages and groups over the rows of a CSV, an Excel sheet or a table of a document with `aggregate_table`, which reads every row and runs no code. Since 0.10.0 a table small enough to be sent whole gets these tools too |
+| **Citations** | Answers cite line numbers, of files sent whole too (numbered since 0.10.0); `result.citations` checks each against what the tools showed, Hebrew forms ("שורה 12") included |
 | **Every language** | Search finds a Hebrew word with any prefix letter, words written with or without accents, quotes or gershayim either way; regex `\w` and `\b` know every script |
 | **Limits** | One budget covers tokens *and* request bytes, so files fit both your context window and your connector's payload limit. It assumes 1M tokens and 10 MB: set `budget.contextTokens` for your model's window (an adapter's `contextTokens` can only make it smaller) |
-| **Reliability** | Retries, waits on a silent model, recovery from a request too large, error kinds: see [Errors and reliability](docs/guides/errors-and-reliability.md) |
+| **Reliability** | Retries, waits on a silent model, recovery from a request too large, error kinds, answers that say when a filter or the output limit stopped them, and a time limit on every store call, so a network volume that hangs does not hold a server: see [Errors and reliability](docs/guides/errors-and-reliability.md) |
 | **Models** | Gemini and Vertex AI, any OpenAI-compatible endpoint, Claude, or an adapter of your own. Two models of different providers can share a question |
-| **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and input tokens |
+| **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and input tokens; since 0.10.0 every question has a ceiling on input tokens by default |
+| **Prompt cache** | The start of a chat's requests stays the same from one question to the next, so the provider's cache keeps serving it; with `documentPlacement: "attached"`, an upload adds text only to the newest turn (since 0.10.0): see [Prompt caching](docs/guides/costs-and-limits.md#prompt-caching) |
 | **Privacy** | Documents can belong to an `owner`; other users can't plan, read, or delete them |
 | **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused when the checks recognize them, with a code (`"hostile"`); ingest pauses for other requests between pages and slices. Not every hostile file is refused, and some steps hold the server for a while: read untrusted uploads in child processes with `createIsolatedExtractors`, which refuses a file that runs out of memory or time while the server goes on ([Security](docs/security.md#uploads)) |
 | **Storage** | In memory, on disk with expiry, or your own store (Redis, S3, a database) |
@@ -271,7 +277,9 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 
 With `gemini-3.8-flash` on the Gemini API, a 5 MB log of about 1.27M tokens, over the 1M window,
 got the right root cause of an outage, citing the right lines, in about 60 s over 11 tool calls.
-Every live result with its date, model and setup, and what has not been run live, such as the
+For 0.10.0, an eval of Hebrew and English questions ran three times each on `gemini-3.5-flash-lite`
+and `gemini-3.8-flash`: counts over tables sent whole were right in 24 of 24 on both. Every live
+result with its date, model and setup, and what has not been run live, such as the
 Claude adapter: [Measurements](docs/measurements.md).
 
 ## Documentation
@@ -309,6 +317,7 @@ Reference, one page per module:
 - [`llm-large-files/testing`](docs/reference/testing.md): `fakeModel` and `fakeFetch`, for your tests (new in 0.9.0).
 
 [Changelog](CHANGELOG.md): what each version changed, and what to change in your code when you upgrade.
+[Upgrading to 0.10](docs/upgrading-0.10.md) takes an application from 0.9.0 step by step.
 
 Also: [How it works](docs/how-it-works.md), [Security](docs/security.md),
 [Troubleshooting](docs/troubleshooting.md) and [Measurements](docs/measurements.md). For

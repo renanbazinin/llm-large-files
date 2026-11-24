@@ -36,6 +36,544 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.10.0 — not released yet
+
+Counts that are right, a cost that is bounded, and a prompt cache that holds, for a chatbot on
+Gemini. Tables sent whole get exact counts, files sent whole get line numbers, every question has a
+ceiling on input tokens by default, and the start of a chat's requests stays the same from one
+question to the next. Answers say how they ended, a store that stops answering no longer holds a
+question or a server, Gemini requests take fields of your own, and a PDF whose headings are set in
+larger type, Hebrew included, gets an outline. The text sent to the model changes on purpose, all
+at once: each chat misses the provider's prompt cache once at the upgrade.
+[Upgrading to 0.10](docs/upgrading-0.10.md) takes an application from 0.9.0 step by step, with the
+Hebrew chatbot of the 0.9 guide carried over.
+
+### Upgrading: what you need to change
+
+Code written for 0.9.0 compiles with 0.10.0, except in these cases
+([Does my code compile?](docs/upgrading-0.10.md#does-my-code-compile)):
+
+- `NoticeCode` has four new members, `"answer_filtered"`, `"answer_cut"`, `"placement_changed"`
+  and `"native_rounds_dropped"`; `ToolOutcome` one, `"redacted"`; and `ModelReply.finish` one,
+  `"other"` (also in the new `AskResult.finish`). An exhaustive `switch` over any of them, or a
+  `Record` keyed by it, needs them.
+- The plan of `run.finish` and `run.error` (`EventResult.plan`) holds
+  `Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">`, and the result
+  of `eventResults: true` leaves those fields out at run time too. Code that reads them there fails
+  with TS2339. Read them from `AskResult.plan`.
+- `createLargeFiles` returns `CreatedLargeFiles`, a `LargeFiles` whose `stats()` and `toolsFor()`
+  are required. A value typed `ReturnType<typeof createLargeFiles>` and made by hand (a mock), or a
+  variable whose type was inferred from it and that you later give a `LargeFiles` of your own,
+  fails with TS2322. Type it `LargeFiles`.
+- `DocumentHandlers` has a required `stats()`. A `DocumentHandlers` made by hand (a mock) fails
+  with TS2741.
+- `LargeFiles` has two new optional methods, `stats` and `toolsFor`. A `LargeFiles` of your own
+  with a member of either name and another type fails with TS2322 or TS2416. Rename it.
+- A subclass of `UsageMeter` whose `add` takes a parameter of its own after `usage` fails with
+  TS2416: `add(model, usage, estimatedInputTokens?)` takes that place. Put yours after it.
+- `openAiToolTurns` passed as a callback (`histories.map(openAiToolTurns)`) fails with TS2345: its
+  new second parameter would get the index. Write
+  `histories.map((turns) => openAiToolTurns(turns))`.
+
+The other changes to the public types add exports, options, fields and optional members.
+`ChatTurn.documentIds` and `notes`, `ToolTurn.native`, `ModelCapabilities.nativeRounds`,
+`ExtractedText.headings`, `ToolSet.wholeReadsLeft` and the new `PreparedContext` fields are
+optional, so an adapter, an extractor, a tool set or a `LargeFiles` of your own still compiles. The
+type of `askGemini`'s options is now `Omit<AskOptions, "model" | "explorer" | "messages"> &
+GeminiOwnOptions`: no field was removed, and every option of `askWithFiles` reaches the loop. No
+export was removed or renamed. The new exports are under **New**.
+
+Some behavior is different. Check each point against your app:
+
+- **One prompt-cache miss for each chat at the upgrade.** The text sent changes once, for every
+  chat with files: files sent whole are numbered (`12| `); the system text holds a fixed tool guide
+  that names no file, where 0.9's named the searched files; each group of blocks starts with header
+  lines (a file's name, its `document_id`, "shown in full below" or "searched with the tools"); the
+  line of files left out (`onMissingDocuments: "drop"`) moves from the system text into the
+  question's turn; a table sent whole gets three tool declarations and a guide line; tool results
+  lose `tool_turns_left` (except Claude's), and the last tool turn gets a note that is not stored;
+  `analyze_whole_document` is declared with two more arguments, `output` and `labels`; the closing
+  request after files shown in full ends with `FINAL_ANSWER_WITH_FILES`; stored rounds go back in
+  the model's own form on the Gemini API, Claude and OpenAI-compatible servers; and on a card, a
+  size between 999,500 and 999,999 tokens reads "1.0M", and one between 1,048,064 and 1,048,575
+  bytes "1 MB", as it does in `get_document_overview` (LLF-059). After that one miss, question N+1's first request
+  extends question N's last request, byte for byte.
+  **What to do:** nothing; the first question of each chat after the deploy costs its full input.
+  Keep the start the same as **Placement** below says
+  ([Prompt caching](docs/guides/costs-and-limits.md#prompt-caching)).
+- **A ceiling on input tokens by default.** A question that sets no `limits.inputTokens` stops
+  calling tools once what it spent, its next tool request and the answer would pass the larger of
+  `DEFAULT_INPUT_TOKENS` (1,000,000) and `toolTurns` times the estimate of its first request, plus
+  room for the whole-file reads it may make. It looks ahead before each tool request, and a request
+  that reports no input counts by its estimate. A question of four tool turns over a 3 MB log uses
+  less than half of it.
+  **What to do:** nothing, or set your own ceiling. `limits: { inputTokens: Infinity }` gives 0.9's
+  behavior ([The default ceiling](docs/guides/costs-and-limits.md#the-default-ceiling)).
+- **At most 2 whole-file reads per question**, over all its documents. A third is refused with its
+  reason. **What to do:** `limits: { wholeReadsPerQuestion: Infinity }` gives 0.9's rule.
+- **Tables sent whole get tools** (`inlineTables: "tools"`, the default of `askWithFiles` and
+  `askGemini`). A CSV, an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with a table of
+  at least 3 `| cell |` rows that is sent whole gets `search_document`, `read_document` and
+  `aggregate_table`, and the question runs the tool loop. A question with no count stays at one
+  request when the model answers at once; a count takes about 3, each sending the table again; at
+  most, about `toolTurns` times the first request (about 1.5M input tokens for a CSV of 3,000
+  invoices), bounded by the ceiling. Live, input tokens on the eval's cases shared with 0.9.0 were
+  about 2.3 to 2.4 times 0.9.0's, and counts were right in 24 of 24 on both models
+  ([Measurements](docs/measurements.md#tables-sent-whole-p1s-live-gate)). Gemini 3.5 Flash-Lite
+  looks a row up with a tool even when the table is shown in full: 21 of 39 questions with no count
+  took one request (Gemini 3.8 Flash: 38 of 39), so a lookup takes 2, each sending the table. This
+  is recorded, not tuned. Limits sized for 0.9's one request (`toolTurns: 1`, `requests: 1`, an
+  `inputTokens` between one and two requests with the table) leave no tool turn: such a question
+  makes 0.9's one request, without tools.
+  **What to do:** nothing, or `inlineTables: "text"` for 0.9's cost and counts by eye
+  ([Tables sent whole](docs/guides/costs-and-limits.md#tables-sent-whole)).
+- **Files sent whole are numbered** (`numberInline: true`, the default of `askWithFiles` and
+  `askGemini`), so that answers cite their lines: about 8% to 16% more tokens for each file, and a
+  file at the edge of `inlineTokens` may become a card. A question with no tool declared gets the
+  line `Cite line numbers like (report.docx L12).`.
+  **What to do:** nothing, or `numberInline: false` to send them as 0.9 did.
+- **`AskResult.evidence` lists each file sent whole first**, as
+  `{ tool: "inline", documentId, document, lines: [[1, n]], whole: true }`, with no `callId`.
+  **What to do:** code that counts tool calls from evidence, or maps it to `tool.end`, skips the
+  entries without a `callId`.
+- **Placement: what you store with each question.** To keep the start of the requests the same,
+  `askWithFiles` returns `result.userTurn` (the question's turn as it was sent: your text,
+  `documentIds` and own fields, with the library's `notes`), `result.toolTurns` with each round's
+  `native` (a few KB a round), and `result.placement`, a `PlacementState` for the chat. Without
+  them nothing fails: a turn stored without its notes changes once, and a question without a state
+  is planned afresh, as in 0.9.
+  **What to do:** store `result.userTurn` in place of your own copy of the turn, keep `toolTurns`
+  as they are, and pass `result.placement` as `placement` with the next question
+  ([Placement across questions](docs/guides/conversations.md#placement-across-questions)).
+- **The library reads `notes` and `documentIds` on the user turns you pass.** The notes of an
+  earlier turn are sent to the model, and `documentIds` places blocks under
+  `documentPlacement: "attached"`. A value that is not a list of strings (`null` aside) is a
+  `TypeError`, and so is `documentIds` on a turn in parts form. A `documentPlacement` other than
+  `"first"`, `"last"`, `"attached"` or `null` is a `TypeError` (0.9 read such values as `"first"`),
+  and so is `"attached"` with `askGemini`'s `contents`.
+  **What to do:** rename fields of your own of those names on stored turns before you upgrade.
+- **Strict schemas.** A MongoDB `$jsonSchema` with `additionalProperties: false`, or a strict
+  Mongoose schema, refuses `native` in a stored round, `documentIds` and `notes` in a stored turn,
+  and the fields of `PlacementState` (`version`, `head`, `inline`, `cards`, `tools`,
+  `stubbedThrough`, `nativeRefused`, `filesGone`). A schema default of `false` or a stored `null`
+  for `nativeRefused` or `filesGone` reads as not set.
+  **What to do:** allow them before the first server of 0.10.0 starts
+  ([Allow the new fields](docs/upgrading-0.10.md#allow-the-new-fields)).
+- **A chat keeps the tools it declared.** A later question whose files are all sent whole declares
+  them and runs the tool loop, where 0.9 made one request without tools. A call of a tool that the
+  chat never declared is answered "Unknown tool" (0.9 ran an undeclared `aggregate_table` or
+  `analyze_whole_document`). The loop now answers any unknown tool itself ("Unknown tool “x”.
+  The tools are: …"), with outcome `"refused"`, where the tool set returned an `"error"`.
+  **What to do:** nothing.
+- **Stored rounds go back in the model's own form.** `nativeRounds` defaults to the `capabilities`
+  of the adapter a round goes back to: `geminiApi()`, `anthropic()` and `openAiCompatible()` send
+  their own turns back (thought signatures, thinking blocks, `reasoning_content`); `vertexAi()`
+  keeps it off, since no live check has run on Vertex AI. Each signed round sent again is billed:
+  133 to 215 input tokens a round on Gemini 3.8 Flash. A provider that refuses old signatures gets
+  the request once more with calls only, a `native_rounds_dropped` notice, and
+  `placement.nativeRefused` for the chat. With Claude, a follow-up still differs from the first
+  stored round, as in 0.9. With `askGemini`, `contents` and an explorer of another model, signed
+  rounds go to both models as calls only. DeepSeek's thinking mode with tools also asks for the
+  reasoning of earlier answers, which the library does not keep yet
+  ([DeepSeek](docs/guides/openai-compatible.md#deepseek)).
+  **What to do:** nothing, or `nativeRounds: false` for 0.9's calls-only rounds
+  ([Native rounds](docs/guides/conversations.md#native-rounds-and-their-fallback)).
+- **Stand-ins in batches.** The results of old rounds become stand-ins only once less than 15% of
+  the room is free, and then until 40% is, before the first request too. `placement.stubbedThrough`
+  carries the boundary to the next question. Planning counts earlier rounds at their stand-in size
+  and keeps room for the tool declarations, the guide, the header lines and the cards, so a file at
+  the edge of the window may be planned the other way.
+  **What to do:** nothing. Tests that count stand-ins see more of them.
+- **What the opt-outs do not give back.** `inlineTables: "text"`, `numberInline: false`,
+  `documentPlacement: "first"` (the default) and `nativeRounds: false` each give 0.9's bytes for
+  what they cover. With all four, these stay: the header lines, the fixed guide and the line of
+  files left out in the question's turn; results without `tool_turns_left` and the last-turn note;
+  the `whole_file` hint of a `read_document` result cut short, and the `cite` line and `filter_note`
+  of `aggregate_table`; the declaration of `analyze_whole_document` and the card sizes of LLF-059;
+  the tools a chat keeps; the room planning keeps, with stored rounds counted at their stand-in
+  size; and stand-ins in batches
+  ([What has a way back](docs/upgrading-0.10.md#going-back-to-09s-text)).
+- **Rolling deploys.** Servers of 0.9 read what 0.10.0 stores and ignore `native`, `documentIds`,
+  `notes` and the placement, so nothing fails, but a chat answered by 0.9 and 0.10 servers in turn
+  misses the prompt cache on every switch.
+  **What to do:** deploy every server at once, or route each chat to one version until the rollout
+  ends ([Rolling deploys](docs/upgrading-0.10.md#rolling-deploys)).
+- **Store calls have a time limit.** A `getMeta`, a read of a text, its index or its original, or a
+  `delete` that does not end within `storeTimeoutMs` (30 s) fails with a `DocumentStoreError` of
+  code `"ETIMEDOUT"` (503, to retry), where it hung. In a question, a store call that times out,
+  in a tool call or in a part of a whole-file read too, ends it with `run.error`: `execute` and
+  `executeWithFiles` throw it, where they returned an error result, and a page look at a hung
+  original is that error, where the model was told the file could not be read in time. While
+  `maxStuckStoreCalls` calls of the process are stuck past their limit (half of
+  `UV_THREADPOOL_SIZE`: 2 by default), store calls fail at once with code `"STORE_STUCK"` (503).
+  **What to do:** on servers that use a network volume, set `UV_THREADPOOL_SIZE=32`. Raise
+  `storeTimeoutMs` for a slow store, or set 0 for none
+  ([A store that stops answering](docs/guides/deployment.md#a-store-that-stops-answering)).
+- **Transient system errors are 503 and retryable.** `ETIMEDOUT`, `ECONNRESET`, `ECONNREFUSED`,
+  `EPIPE`, `EAI_AGAIN`, `EAGAIN`, `EBUSY`, `EMFILE`, `ENFILE`, `ESTALE`, `EHOSTUNREACH` and
+  `ENETUNREACH` are 503 with `Retry-After: 5` in `errorInfoOf` and the upload handlers, and
+  `ENOSPC` and `EDQUOT` 503 with 30 s. They were 500, not to retry: "Upload failed (ETIMEDOUT)." is
+  now a 503. A path upload whose read does not answer within `ingestTimeoutMs` is such an
+  `ETIMEDOUT`, not the `IngestError` `"timeout"` (422) it was.
+  **What to do:** tell users to try again when `errorInfoOf(error).retryable` is true
+  ([Transient errors](docs/guides/errors-and-reliability.md#transient-errors-a-store-or-a-disk-that-does-not-answer)).
+- **Gemini errors inside a stream, or in a reply of HTTP 200, are retried.** One with no numeric
+  code gets the status of its `google.rpc` name (`UNAVAILABLE` 503, `RESOURCE_EXHAUSTED` 429,
+  `DEADLINE_EXCEEDED` 504, 500 for a name it does not know), and a transient one is sent again up to
+  `retry.retries` times (3), unless text was already shown. It had status 200 and was not sent
+  again. A daily quota is still `"quota"`, and not sent again.
+  **What to do:** nothing.
+- **Part reads that run out of time** are a `ModelRequestError` of kind `"timeout"` and status 0
+  in every adapter, sent again once after the first wait of `retry`. Before, it was the timer's
+  abort error, with no status. `timeoutMs: 0` now sets no limit; it aborted every part read at once.
+  **What to do:** nothing; `gemini({ timeoutMs })` and `askGemini`'s `timeoutMs` set the limit
+  ([Part reads](docs/guides/errors-and-reliability.md#part-reads-have-a-time-limit-of-their-own)).
+- **Filtered and cut answers say so.** `result.finish` tells how the answer ended, an
+  `answer_filtered` or `answer_cut` notice comes before `run.finish`, and a reply that a filter or
+  another reason that asking again cannot mend ended (`finish` `"filtered"` or `"other"`) is not
+  asked for again: 2 requests, where 0.9 made 4. Gemini's `MODEL_ARMOR` and the image filters are
+  now `"filtered"`, and `OTHER`, `LANGUAGE` and four more `"other"`; they gave no finish.
+  **What to do:** switch on `answerInfoOf(result)` for the message to show. With
+  `filteredAnswer: "drop"`, take back streamed text when the notice has `discardText`
+  ([Filtered and cut answers](docs/guides/errors-and-reliability.md#filtered-and-cut-answers)).
+- **A PDF ingested from 0.10.0 on** whose text gives fewer than 3 headings gets an outline from its
+  lines set at least 15% larger than its body, when 3 or more of them are found in its text. Its
+  card gains an "Outline" block, `get_document_overview` lists it, and search hits gain `section`.
+  A PDF with a title alone keeps the card and hits of 0.9. Documents already stored keep their
+  metadata until they are ingested again; `metaVersion` stays 1. A wrapper around the built-in PDF
+  extractor that returns only `text` and `pages` keeps the 0.9 outline.
+  **What to do:** pass `headings` on in such a wrapper (`{ ...extracted, text }`)
+  ([PDF outline](docs/guides/pdfs.md#pdf-outline)).
+- **Tests that compare results, events or requests whole.** Results have no `tool_turns_left`
+  (but Claude's), and the request of the last tool turn ends with a note. `usage` gains
+  `estimatedInputTokens` and `unmeasuredRequests` when a request reports no input. The built-in
+  adapters' `capabilities` gain `nativeRounds`, and replies `responseId` and `responseModel` where
+  the provider gives them. A malformed call on the last tool turn now gets a closing request: one
+  request more (LLF-048). A refused call of an unknown tool gets no `onActivity` line.
+  `run.finish` carries `placement` and `userTurn` (`sseMessageOf` leaves them out).
+  **What to do:** update the tests that compare these whole.
+
+### New: what you can add
+
+**Answers and costs**
+
+- **How an answer ended:** `AskResult.finish`, the notices `"answer_filtered"` and `"answer_cut"`,
+  `AskOptions.filteredAnswer` (`"keep"` or `"drop"`, with `discardText` on the notice), and
+  `answerInfoOf(result)` with `AnswerInfo`: one value to switch on, `"filtered"`, `"cut"`,
+  `"blocked"`, `"language"` (Gemini's `LANGUAGE`, not a filter), `"no_answer"` or `"other"`
+  ([Filtered and cut answers](docs/guides/errors-and-reliability.md#filtered-and-cut-answers)).
+- **Citations checked:** `AskResult.citations` and `checkCitations` (`CitationCheck`). They read
+  "(name L12)", ranges, "line N", "Row N", and the Hebrew "שורה N" and "שורות N-M", and check each
+  against what the tools showed; a workbook's rows are unchecked (S3,
+  [CitationCheck](docs/reference/ask.md#citationcheck)).
+- **`onToolResult`** (`ToolResultContext`, `ToolResultVerdict`): see each tool result before the
+  model does, and keep it, replace it (outcome `"redacted"`) or refuse it
+  ([Security](docs/security.md#tool-results-ontoolresult)).
+- **Limits:** `limits.wholeReadsPerQuestion` and `DEFAULT_INPUT_TOKENS`; `UsageTotals`
+  `estimatedInputTokens` and `unmeasuredRequests`, and `UsageMeter.add(model, usage,
+  estimatedInputTokens?)` ([Costs and limits](docs/guides/costs-and-limits.md#the-limits-of-a-question)).
+- **Response IDs:** `ModelReply.responseId` and `responseModel` from Gemini, OpenAI-compatible
+  servers and Claude, on `request.end` too.
+
+**Tables and line numbers**
+
+- `AskOptions.inlineTables` (`"tools"` by default) and `AskOptions.numberInline` (`true` by
+  default), also in `askGemini`. For loops of your own, `PrepareOptions.inlineTables` and
+  `numberInline` (off by default) and `PreparedContext.toolable`
+  ([Numbered lines and tables sent whole](docs/how-it-works.md#numbered-lines-and-tables-sent-whole)).
+- `FINAL_ANSWER_WITH_FILES`, the closing note after files shown in full, from `llm-large-files` and
+  `llm-large-files/gemini`.
+
+**A start of the requests that stays the same**
+
+- `PlacementState`, `PLACEMENT_STATE_VERSION`, `AskOptions.placement` and `AskResult.placement`
+  ([PlacementState](docs/reference/library.md#placementstate)).
+- `AskResult.userTurn`, `ChatTurn.documentIds`, `ChatTurn.notes`, and
+  `documentPlacement: "attached"`: each document's block at the turn that attached it
+  ([`documentPlacement: "attached"`](docs/guides/conversations.md#documentplacement-attached)).
+- `AskOptions.nativeRounds`, `ToolTurn.native` and `ModelCapabilities.nativeRounds`.
+- The notices `"placement_changed"` and `"native_rounds_dropped"`.
+- For loops of your own: `prepared.guide`, `prepared.listing` and `prepared.placement`,
+  `PrepareOptions.placement` and `reserve`, `ToolOptions.declare` and `inline`,
+  `declarationsFor(names)` and `ToolName`
+  ([A start of the request that stays the same](docs/guides/own-adapter-and-loop.md#a-start-of-the-request-that-stays-the-same)).
+
+The chat of a Hebrew chatbot on Vertex AI and MongoDB, with the start of its requests kept:
+
+```ts
+import { answerInfoOf, hashedScopeSegment, type ChatTurn } from "llm-large-files";
+import { askGemini, vertexAi } from "llm-large-files/gemini";
+
+const turn: ChatTurn = { role: "user", text: question, documentIds: newlyAttachedIds };
+const result = await askGemini({
+  files,
+  endpoint: vertexAi({ project, location: "global", model, accessToken }), // accessToken({ refresh })
+  body: { labels: { app: "chatbot", team: "hr" } }, // billing labels: no user IDs
+  documentIds: chat.documentIds,
+  messages: [...chat.messages, turn], // stored turns with documentIds and notes, rounds with native
+  documentPlacement: "attached",
+  placement: chat.placement, // the PlacementState of the last answer
+  owner: userId,
+  scope: [hashedScopeSegment(userId), chatId],
+  onMissingDocuments: "drop",
+  filteredAnswer: "drop",
+});
+const info = answerInfoOf(result); // complete, or why not: one switch for the Hebrew message
+await chats.updateOne({ _id: chatId }, {
+  $set: { placement: result.placement },
+  $push: { messages: { $each: [result.userTurn, ...result.toolTurns, { role: "assistant", text: result.text }] } },
+});
+```
+
+**Whole-file reads and tools**
+
+- `analyze_whole_document` with `output: "items"` and `labels`: items judged by meaning, each
+  checked against its line, and counted by code (`total_items`, `counts_by_label`, `items`,
+  `unverified_items`, `parts_failed`, `parts_cut_short`; M9,
+  [Items](docs/reference/tools.md#items-output-items)).
+- `notes_left_out` on a whole-read result, and `whole_file` on a `read_document` result cut short
+  of its range when a whole read would run.
+- `ToolCallHooks.signal` (I9) and `ToolSet.wholeReadsLeft(documentId)`.
+
+**Gemini and Vertex AI**
+
+- `gemini()` and `askGemini` take `body`, `analysisBody` and `functionCallingMode` (`"AUTO"` or
+  `"VALIDATED"`), and `timeoutMs` for part reads; `askGemini` also `explorerBody`. Types
+  `GeminiRequestFields` and `GeminiOwnOptions` (A5,
+  [Fields of your own](docs/guides/vertex-and-gemini.md#fields-of-your-own-safety-settings-labels-and-more)).
+- `answerWithoutTools` in `gemini()` and `askGemini`: `"omit"` (the default) or `"mode_none"` for
+  the request of the answer (NEW-answer-request-tools).
+- `vertexAi({ headers, host, apiKey })` (`VertexAiOptions`); `apiKey` is Vertex AI express mode
+  (NEW-vertex-endpoint-options).
+- `accessToken({ refresh })` and a `HeaderSource` that takes a context: after a 401, the request is
+  sent once more with a fresh token. `GeminiEndpoint.refreshable` and `GeminiEndpoint.nativeRounds`
+  ([Access tokens](docs/guides/vertex-and-gemini.md#access-tokens-for-vertex-ai)).
+- `fromGeminiContents(contents, { model })`, and `geminiToolTurns` writes a round's own signed
+  turn.
+- `openAiToolTurns(turns, { native })` writes DeepSeek's `reasoning_content`.
+
+**Operations**
+
+- `storeTimeoutMs` (30,000), `sweepTimeoutMs` and `maxStuckStoreCalls` in `createLargeFiles`, and
+  the `DocumentStoreError` codes `"ETIMEDOUT"` and `"STORE_STUCK"`
+  ([Deployment](docs/guides/deployment.md#a-store-that-stops-answering)).
+- `AccessOptions.signal`: ends the caller's own wait for the store.
+- `files.stats()` (`LargeFilesStats`) and `handlers.stats()` (`DocumentHandlerStats`): counters for
+  metrics, alerts and readiness, read without a store call
+  ([files.stats()](docs/reference/library.md#filesstats)).
+- `files.toolsFor(ids, options)` (I6), and the type `CreatedLargeFiles`.
+- `sseMessageOf` sends `finish` and `citations` in `run.finish`.
+
+**PDFs**
+
+- `ExtractedText.headings`: a PDF's lines set larger than its body, with page, level and title,
+  and `skip`, how many lines above it on its page read the same (a contents list). The built-in
+  extractor returns them; an extractor of your own may too
+  ([PDF outline](docs/guides/pdfs.md#pdf-outline)).
+
+### Changed: what works differently
+
+**Costs and limits**
+
+- The ceiling on input tokens looks ahead before each tool request. A whole-file read is priced
+  before it starts by what its requests send: its numbered lines, its prompts, its merges, and the
+  heading line a part starts under. An items read is priced at its parts, with a frame of 650
+  tokens.
+- A reply ended by a reason that asking again cannot mend (`"filtered"`, `"other"`) is neither
+  nudged nor asked for again as the answer, and one with no text ends the question without a
+  closing request.
+- The room for tool results is shared in tokens, at each document's own characters per token. A
+  result that would still pass the room is cut before the model gets it, in call order.
+- A question that is stopped ends at once, even while `files.prepare`, a tool call or
+  `onToolResult` waits on a store that hangs.
+
+**Tables, numbers and citations**
+
+- A file counts as having a table when it has 3 rows of one table.
+- `aggregate_table`: a filter that orders a column (`>`, `>=`, `<`, `<=`) against a value that
+  names another column compares the two cells of each row, and says so in `filter_note`. A column
+  letter works in every table. Over a table sent whole, a grouped result ends with a `cite` line.
+- With an explorer, a question in which nothing is searched or viewed is run by the answering model
+  alone.
+- In a chat with no text tool, the citation line comes with its first file placed and stays, also
+  once its files are all gone (`placement.filesGone`).
+
+**Placement and the prompt cache**
+
+- Stored rounds are planned at their stand-in size, with the documents of the state pinned: a file
+  sent whole stays whole while it fits, and one that no longer fits becomes a card, with a
+  `placement_changed` notice and a note in the question's turn.
+- Stand-ins are made in batches (start below 15% free, stop at 40%), in place of shortening all
+  but the last three rounds, then two, then one.
+- The tool set of a chat only grows, in a fixed order. A question that ends without declarations
+  adds no tools.
+- The text tools read every file sent whole; `analyze_whole_document` still refuses them. With
+  `placement`, a table's `document_id` is in its header line, not its frame line.
+- A file uploaded again under its name has "it replaces doc_…, an earlier file of the same name"
+  on its header line, when both are in the question's `documentIds`.
+- The guide's line for items says a summary or a timeline keeps the default output.
+- The fallback for refused signatures resends once with calls only on an HTTP 400 that names a
+  thought signature, on Claude's "Invalid `signature` in `thinking` block" (from the API's
+  wording, not seen live), and on Gemini's `MISSING_THOUGHT_SIGNATURE`.
+
+**Whole-file reads, search and tools**
+
+- Part reads send the part first and the task last, with the heading line the part starts under
+  first, and their system text marks the part as file content. Merges and the read's answer send
+  their notes first and the task last (M8).
+- `analyze_whole_document` keeps 0.9.0's description word for word: items are told in `output`
+  only. A new description made Gemini 3.5 Flash-Lite skip whole reads.
+- The item check counts a quote near its named line as verified (up to one letter in five
+  differs), finds a clause's line by the number it starts with, and repairs short `\u` escapes. The
+  rule asks for five to twelve words of the line, copied exactly.
+- A whole read with more parts than `ToolCallLimits.maxRequests` is refused before any request; one
+  given `maxRequests` stops merging at it (`notes_left_out`, or `notes_only` when no request is left
+  for the answer). A whole read that could read no part is not tried again, even when
+  `maxWholeDocumentReads` is above 1.
+- With `declare`, a tool set answers only the declared tools. `ToolSet.resultCharacters` is 600 for
+  a name the tool set does not answer.
+- Exact search counts past 1,000,000 matching lines, within the time of a regex search (P8).
+  Keyword search keeps its top passages in a heap (P9).
+- Measured live: Gemini 3.5 Flash-Lite's timeline of a diary read whole lost a date in about one
+  run in three, when a part replied `NOTHING RELEVANT`. An A/B with 0.9.0, 8 reads each, lost no
+  date on either. This is recorded as a limit of Flash-Lite, not tuned
+  ([Measurements](docs/measurements.md#whole-file-reads-and-items-package-t)).
+
+**Gemini and other providers**
+
+- A Gemini part read stopped by a filter or for an `"other"` reason is flagged as incomplete.
+- A Vertex AI 401 with a token from a function is sent once more with a fresh token, in chat
+  requests, part reads and the explorer. A second 401 is the error; a refresh that throws keeps the
+  401 as the error, with the refresh's error as its `cause`.
+- A non-streamed Gemini reply that is a list of chunks is read chunk by chunk, and an error inside
+  a stream carries its `retryDelay`.
+- `timeoutMs: 0` sets no limit in `openAiCompatible()` and `anthropic()` too.
+- Vertex AI keeps `nativeRounds` off: no live check of old signatures has run on Vertex AI. The
+  Gemini API has it on: on 3.8 Flash, a follow-up whose rounds went back as calls kept only the
+  system text and tools in the cache.
+
+**Storage and operations**
+
+- Deletes of one library run one at a time, and one time limit covers a whole delete.
+- `FileDocumentStore` writes a text longer than 1 Mi UTF-16 units in slices: a 50 MB put held the
+  event loop for 379 ms, and now for about 20 ms, with the same bytes.
+- `FileDocumentStore` claims a removal by renaming the metadata to a name of its own, and counts
+  only its own removals.
+- The upload handlers' calls to the disk past `uploadIdleTimeoutMs`, and ingest's store calls past
+  `ingestTimeoutMs`, count as stuck. At the limit, a sweep and ingest's store calls are refused too;
+  ingest's clean-up removal is not.
+
+**PDFs**
+
+- The outline of a PDF from type sizes: levels 1 to 3 from the sizes used by several headings, and
+  a title or cover line set larger than all of them is level 1. Not headings: table rows (a gap of
+  more than 3 times the type size between pieces), running headers and footers (numbered ones only
+  when on more than half the pages), lines over 120 characters, and lines with fewer than 3 letters
+  or more digits than letters. A PDF with 3 or more text-rule headings keeps its outline, and the
+  text of a PDF does not change.
+
+**Release**
+
+- The release workflow runs by hand as a dry run, the default: it builds and checks the tarball on
+  any branch or tag, then runs `npm publish --dry-run` in a job with no identity token
+  ([Publishing](docs/publishing.md#a-dry-run-of-the-release-workflow), LO-6).
+- An eval suite of 48 Hebrew and English cases (in `evals/`, not published) replays its recorded
+  requests on every pull request. Every prompt change of this version was gated on it live, on
+  Gemini 3.5 Flash-Lite and 3.8 Flash (T4; [Testing](docs/guides/testing.md#the-librarys-own-evals)).
+
+### Fixed
+
+**Questions and costs**
+
+- **No ceiling by default, and a set one overshot (L7):** a runaway question made 13 requests and
+  about 6.9M input tokens; a ceiling of 500,000 let 1,219,683 through, and never tripped when the
+  provider reported no usage.
+- **L1:** results over tables of numbers took 2.22 times their room.
+- **LLF-048:** on the last tool turn, the remark of a reply whose tool call could not be read was
+  taken for the answer.
+- **LLF-049:** calls of unknown tools took room, and shortened earlier results.
+- **LLF-058:** a whole-file read that had failed was priced again, instead of refused with its
+  reason.
+- **N12:** a whole-file read passed `limits.requests`: 40 requests against 32, 42 through
+  `askWithFiles`.
+- **A6, NEW-filtered-answer:** a reply that Gemini ended with `MODEL_ARMOR`, `OTHER`, `LANGUAGE` or
+  another reason the library did not know cost 4 requests and gave no finish, and a filtered or
+  cut answer read as complete ("The employee's medical leave was", `answered: true`).
+- **LO-7:** with `eventResults`, event plans held owner, scope, sha256 and original at run time.
+- `alreadyShown` could point to a result that `onToolResult` replaced.
+
+**Tables and citations**
+
+- **NEW-inline-table-tools:** a CSV of 3,000 Hebrew invoices went whole with no tools, and its 750
+  late invoices were counted by eye. Live, counts over tables were right in 24 of 24 on both
+  models.
+- **L12:** files sent whole had no line numbers, citation line or evidence.
+- **LLF-059:** card sizes read "1024 KB" and "1000K"; they read "1 MB" and "1.0M".
+- **LLF-061:** `describe()` of a `read_document` call left out an end line given as a string
+  (`"250"`), which the tool reads: it now says "lines 1-250".
+
+**The prompt cache**
+
+- **HL2-1:** an upload rewrote the start of every later request: the tool guide in the system text
+  named the files. The line of files left out (`onMissingDocuments: "drop"`) was in the system
+  text too, and cost a miss on its question and on the next.
+- **G-09, L3:** a file sent whole flipped to a card as a chat grew (a 45K-token runbook, at 4
+  stored questions on a window of 128K): planning counted the stored rounds in full.
+- **HL2-2:** stand-ins shortened all but the last three rounds, then two, then one, at each turn
+  that ran short, and rewrote the start each time: 15 rewrites in a test chat, 2 in batches.
+- **L15-ext:** a follow-up missed the cache from its first stored round: rounds went back without
+  their thought signatures, and with `tool_turns_left` taken out.
+- **L2, part 1:** planning left out the size of the tool declarations (about 2,000 tokens for all
+  six), the cards and the guide, so a file was planned whole with too little room left for them.
+
+**Providers**
+
+- **LLF-018:** a Gemini error in a stream or a reply of HTTP 200 with no numeric code had status
+  200; a part read whose body of HTTP 200 held an error reported "The model returned no text".
+- **LLF-034:** an OpenAI call without an ID got an ID in its tool message that the call itself did
+  not have.
+- **LLF-035:** a stream without `index` that repeated the ID on every piece made one call per piece.
+- **LLF-036:** an aborted part read waited for another question's request: 1.5 s after an abort at
+  50 ms, now 51 ms.
+- **LLF-056, A11:** the time limit of a Gemini part read (180 s) could not be changed, and a part
+  read failed after 6 minutes; a timeout was not of kind `"timeout"`.
+- **LLF-057:** Gemini encoded tool files with its own base64, beside the shared cache.
+- A Gemini part read whose body was a list of chunks kept only the first chunk, and missed an error
+  in a later one.
+- A part read's time limit did not end the wait for a `fetch` that ignores its signal, in all three
+  adapters.
+- **A2, in part:** the tool rounds of an earlier question went back to DeepSeek without their
+  `reasoning_content`. They keep it now, in native rounds and with `openAiToolTurns(turns,
+  { native })`. DeepSeek also asks for the reasoning of earlier answers, which waits for 0.10.x: the
+  guide says to turn thinking off for chat requests in a chat of several questions.
+
+**Storage and operations**
+
+- **NEW-store-call-timeout:** a store that did not answer held a question, `files.delete`, the
+  DELETE route and the upload handler's rollback delete forever.
+- **Four stuck calls froze a pod:** with the default thread pool, every file call and DNS look-up of
+  the process waited.
+- On Windows, two sweeps could count one document twice, and two deletes of one document could both
+  return true.
+
+**PDFs**
+
+- **An unnumbered Hebrew PDF had no outline** (HARNESS-LESSONS item 4): Hebrew has no capitals, and
+  pdf.js gives no blank lines. A Hebrew lease now gets its title, sections and subsections, and the
+  isolated child returns the same outline as the server.
+
+**Docs**
+
+- **A1:** the OpenAI recipe uses `reasoning_effort: "none"`, which tool calls on GPT-5.4 and later
+  need through Chat Completions.
+
+In all, this version fixes LLF-018, -034, -035, -036, -048, -049, -056, -057, -058, -059 and
+-061. It closes the roadmap items A2 (in part), A5, A6, A11, G-09, HL2-1, HL2-2, I6
+(`files.toolsFor`), I9 (`ToolCallHooks.signal`), L1, L2 part 1, L3, L7, L12, L15-ext, M8, M9, N12,
+P8, P9, S3 (the citation check), T4, the leftovers of 0.9.0 (LO-1 to LO-7),
+NEW-answer-request-tools, NEW-filtered-answer, NEW-inline-table-tools, NEW-store-call-timeout and
+NEW-vertex-endpoint-options, and the Hebrew PDF outline (HARNESS-LESSONS item 4).
+
 ## 0.9.0 — 2026-11-24
 
 One server process for every user and chat. Every store call carries the scope and the owner of
