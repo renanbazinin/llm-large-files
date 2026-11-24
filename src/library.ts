@@ -400,7 +400,8 @@ export type ToolOptions = {
   declare?: readonly ToolName[];
   /**
    * The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in
-   * full. New in 0.10.0. Not read yet.
+   * full, and `aggregate_table` says, for a filter that compares two columns, that their rows are
+   * shown above. New in 0.10.0.
    */
   inline?: readonly string[];
 };

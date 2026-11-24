@@ -224,11 +224,30 @@ function splitCsvLine(line: string, separator: string, carry?: { fields: string[
   return { fields, open: false, field: "" };
 }
 
-/** A column a request names, resolved against the header: its index, and the part of a date to group by. */
-type ColumnRef = { index: number; name: string; datePart?: DatePart };
+/**
+ * A column a request names, resolved against the header: its index, the part of a date to group
+ * by, and whether it was named by its letter ("C").
+ */
+type ColumnRef = { index: number; name: string; datePart?: DatePart; byLetter?: boolean };
 
-/** Finds a column by its header name (ignoring case and spaces), its letter ("C"), or its number ("3"). */
-function columnOf(header: string[], given: string, letters: boolean): ColumnRef {
+/**
+ * The number of a column named by its letters ("C" is 3, "AA" is 27), or undefined when `name` is
+ * not one to three letters A to Z.
+ */
+function letterNumber(name: string): number | undefined {
+  if (!/^[A-Z]{1,3}$/i.test(name)) return undefined;
+  let number = 0;
+  for (const letter of name.toUpperCase()) number = number * 26 + letter.charCodeAt(0) - 64;
+  return number;
+}
+
+/**
+ * Finds a column by its header name (ignoring case and spaces), the lower name of a joined header
+ * when only one column has it, its letter ("C"), or its number ("3"). A letter or a number names a
+ * column only when no column has that name. Until 0.10.0 a letter named a column only in a sheet
+ * with no header, though the tool's description says it works in every table.
+ */
+function columnOf(header: string[], given: string): ColumnRef {
   let name = given.trim();
   let datePart: DatePart | undefined;
   const part = /:(year|month|day)$/i.exec(name);
@@ -246,17 +265,66 @@ function columnOf(header: string[], given: string, letters: boolean): ColumnRef 
       throw new Error(`${JSON.stringify(sliceWhole(name, 80))} names ${lower.length} columns of this table: ${lower.map((at) => JSON.stringify(header[at])).join(", ")}. Name one of them in full.`);
     }
   }
-  if (index === -1 && letters && /^[A-Z]{1,3}$/i.test(name)) {
-    let number = 0;
-    for (const letter of name.toUpperCase()) number = number * 26 + letter.charCodeAt(0) - 64;
-    if (number <= header.length) index = number - 1;
+  let byLetter = false;
+  if (index === -1) {
+    const number = letterNumber(name);
+    if (number !== undefined && number <= header.length) {
+      index = number - 1;
+      byLetter = true;
+    }
   }
   if (index === -1 && /^\d+$/.test(name) && Number(name) >= 1 && Number(name) <= header.length) index = Number(name) - 1;
   if (index === -1) {
     const listed = header.slice(0, 40).map((column) => JSON.stringify(column)).join(", ");
     throw new Error(`No column ${JSON.stringify(sliceWhole(name, 80))} in this table. Its columns are: ${listed}${header.length > 40 ? ", …" : ""}.`);
   }
-  return { index, name: header[index]!, ...(datePart ? { datePart } : {}) };
+  return { index, name: header[index]!, ...(datePart ? { datePart } : {}), ...(byLetter ? { byLetter } : {}) };
+}
+
+/** The filters that order a column against a value: a value that names a column makes no sense to them. */
+const ORDER_OPS: ReadonlySet<FilterOp> = new Set(["<", "<=", ">", ">="]);
+
+/**
+ * A filter that orders a column against another column of the table (`> "Q1 / Budget"`):
+ * aggregate_table compares the cells of a column with a value, never with the cells of another
+ * column, and such a filter matched no row, with no word of why. Its message says what to do
+ * instead; the tool adds where the rows are. New in 0.10.0.
+ */
+export class ColumnsComparedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ColumnsComparedError";
+  }
+}
+
+/**
+ * The columns the value of a filter names, when the filter orders its column against it (`>`,
+ * `>=`, `<`, `<=`) and the value is not a number: the column of that full name, else the columns
+ * whose lower name (of a joined header) it is, else the column of that letter when the filter's own
+ * column was named by its letter ("C" > "B"). Empty for any other filter: `=`, `!=` and the text
+ * filters may well look for a value that is also a column's name ("Department" != "Total").
+ */
+function columnsNamedBy(header: string[], filter: { op: FilterOp; value: string; number: number | undefined }, column: ColumnRef): number[] {
+  if (!ORDER_OPS.has(filter.op) || filter.number !== undefined) return [];
+  const wanted = valueKey(filter.value);
+  if (!wanted) return [];
+  const full = header.flatMap((name, at) => (valueKey(name) === wanted ? [at] : []));
+  if (full.length) return full;
+  const lower = header.flatMap((name, at) => (valueKey(name.split(" / ").at(-1) ?? "") === wanted ? [at] : []));
+  if (lower.length) return lower;
+  const number = column.byLetter ? letterNumber(filter.value.trim()) : undefined;
+  return number !== undefined && number <= header.length ? [number - 1] : [];
+}
+
+/** The error of a filter whose value names columns of the table (`columnsNamedBy`). */
+function columnsCompared(header: string[], column: ColumnRef, filter: { op: FilterOp; value: string }, named: number[]): ColumnsComparedError {
+  const value = sliceWhole(filter.value.trim(), 80);
+  const names = named.slice(0, 10).map((at) => JSON.stringify(header[at]));
+  const which = named.length === 1
+    ? valueKey(header[named[0]!]!) === valueKey(value) ? "is a column of this table" : `names a column of this table, ${names[0]}`
+    : `names ${named.length} columns of this table: ${names.join(", ")}${named.length > 10 ? ", …" : ""}`;
+  const other = named.length === 1 ? JSON.stringify(header[named[0]!]) : JSON.stringify(value);
+  return new ColumnsComparedError(`A filter compares a column with a value, and ${JSON.stringify(value)} ${which}. aggregate_table cannot compare two columns of a row. To count the rows where ${JSON.stringify(column.name)} ${filter.op} ${other}, read the rows and compare their cells.`);
 }
 
 type Metric = { name: string; op: AggregateOp; column?: ColumnRef };
@@ -353,9 +421,12 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
       if (!FILTER_OPS.includes(filter.op)) throw new Error(`A filter's op must be one of ${FILTER_OPS.map((op) => `"${op}"`).join(", ")}.`);
       const value = filter.value === undefined || filter.value === null ? "" : String(filter.value);
       if (value === "" && filter.op !== "empty" && filter.op !== "not_empty" && filter.op !== "=" && filter.op !== "!=") throw new Error(`The filter on ${JSON.stringify(filter.column)} needs a value.`);
-      return { column: columnOf(columns, String(filter.column ?? ""), letters), op: filter.op, value, number: parseNumber(value), key: valueKey(value) };
+      const resolved: Filter = { column: columnOf(columns, String(filter.column ?? "")), op: filter.op, value, number: parseNumber(value), key: valueKey(value) };
+      const named = columnsNamedBy(columns, resolved, resolved.column);
+      if (named.length) throw columnsCompared(columns, resolved.column, resolved, named);
+      return resolved;
     });
-    groupColumns = (request.groupBy ?? []).map((name) => columnOf(columns, String(name), letters));
+    groupColumns = (request.groupBy ?? []).map((name) => columnOf(columns, String(name)));
     metrics = metricsGiven.map((given) => {
       const text = String(given).trim();
       const [rawOp, ...rest] = text.split(":");
@@ -364,7 +435,7 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
       const columnName = rest.join(":").trim();
       if (op === "count") return { name: "count", op };
       if (!columnName) throw new Error(`The metric "${op}" needs a column: "${op}:<column>".`);
-      const column = columnOf(columns, columnName, letters);
+      const column = columnOf(columns, columnName);
       return { name: `${op}:${column.name}`, op, column };
     });
     notNumbers = metrics.map(() => 0);

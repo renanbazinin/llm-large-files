@@ -1,6 +1,6 @@
 import { safeErrorMessage } from "./errors.js";
 import { until } from "./http.js";
-import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
+import { aggregateTable, ColumnsComparedError, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
 import { analyzeWholeDocument, listWholeDocumentItems, MAX_ITEM_LABELS, MAX_LABEL_CHARACTERS, NothingReadError, storeGaveUp, type WholeItemsResult } from "./map-reduce.js";
 import { cutPdfPages, type PageCut } from "./pdf-pages.js";
@@ -874,7 +874,8 @@ export function createDocumentTools(options: {
   declare?: readonly ToolName[];
   /**
    * The IDs of documents sent whole in the prompt: `analyze_whole_document` refuses them, as the
-   * model has every line of them already. New in 0.10.0.
+   * model has every line of them already, and `aggregate_table` says where their rows are. New in
+   * 0.10.0.
    */
   inline?: readonly string[];
 }): ToolSet {
@@ -1177,7 +1178,13 @@ export function createDocumentTools(options: {
       const limit = limitOf(limits);
       const document = await documentFor(args, signal);
       const request = aggregateRequest(args);
-      const result = await aggregateTable(document, request, signal);
+      // A table sent whole is shown in full above, with its line numbers (since 0.10.0).
+      const shownInFull = inline.has(document.meta.id);
+      const result = await aggregateTable(document, request, signal).catch((error: unknown) => {
+        // A filter that compares two columns: the rows to compare are above, or read_document gives them.
+        if (error instanceof ColumnsComparedError) throw new ColumnsComparedError(`${error.message} ${shownInFull ? "The table is shown in full above, with its line numbers: compare the cells of each row there, and cite the lines of the rows you count." : "read_document gives the rows, with their line numbers."}`);
+        throw error;
+      });
       const groups = result.groups.map((group) => ({
         ...(Object.keys(group.key).length > 0 ? { group: group.key } : {}),
         ...group.values,

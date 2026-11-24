@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateTable, csvSeparator, parseNumber, pipeCells } from "../src/aggregate.js";
+import { aggregateTable, ColumnsComparedError, csvSeparator, parseNumber, pipeCells } from "../src/aggregate.js";
 import { SearchableDocument } from "../src/search.js";
 import type { DocumentFormat } from "../src/types.js";
 
@@ -103,6 +103,50 @@ describe("aggregateTable", () => {
   });
 });
 
+describe("a filter whose value names a column (0.10.0)", () => {
+  // The budget of the evals, short: a title row, then a header of two rows, as Flash-Lite counted it.
+  const BUDGET = [
+    "## Sheet 1: תקציב", "Columns: | A |", "Row 1: | תקציב מחלקות 2026 |",
+    "Row 2: | מחלקה | רבעון 1 |  | רבעון 2 |  |", "Row 3: |  | תקציב | ביצוע | תקציב | ביצוע |",
+    "Row 4: | רכש | 150 | 105 | 160 | 120 |", "Row 5: | כספים | 187 | 195 | 201 | 190 |", "Row 6: | שיווק | 261 | 284 | 283 | 249 |",
+  ].join("\n");
+
+  it("refuses a filter that orders a column against another column, and says to read the rows", async () => {
+    // It matched no row before, with no word of why: Flash-Lite then counted by eye, and missed one.
+    const named = aggregateTable(doc("xlsx", BUDGET), { filters: [{ column: "רבעון 1 / ביצוע", op: ">", value: "רבעון 1 / תקציב" }] });
+    await expect(named).rejects.toThrow(ColumnsComparedError);
+    await expect(named).rejects.toThrow('A filter compares a column with a value, and "רבעון 1 / תקציב" is a column of this table. aggregate_table cannot compare two columns of a row. To count the rows where "רבעון 1 / ביצוע" > "רבעון 1 / תקציב", read the rows and compare their cells.');
+    // A lower name of a joined header, of two columns.
+    await expect(aggregateTable(doc("xlsx", BUDGET), { filters: [{ column: "רבעון 1 / ביצוע", op: "<=", value: "תקציב" }] })).rejects.toThrow('"תקציב" names 2 columns of this table: "רבעון 1 / תקציב", "רבעון 2 / תקציב". aggregate_table cannot compare two columns of a row. To count the rows where "רבעון 1 / ביצוע" <= "תקציב", read the rows');
+    // Letters for both: "C" is the column, "B" the other one.
+    await expect(aggregateTable(doc("xlsx", BUDGET), { filters: [{ column: "C", op: ">", value: "B" }] })).rejects.toThrow('"B" names a column of this table, "רבעון 1 / תקציב". aggregate_table cannot compare two columns of a row. To count the rows where "רבעון 1 / ביצוע" > "רבעון 1 / תקציב", read the rows');
+    // In a CSV file too, ignoring case and spaces.
+    await expect(aggregateTable(doc("csv", "Item,Budget,Actual\nA,10,12\nB,10,8\n"), { filters: [{ column: "Actual", op: ">=", value: " budget " }] })).rejects.toThrow('"budget" is a column of this table.');
+  });
+
+  it("keeps a filter whose value is a column's name only by chance: equality, text, a number, a letter for a named column", async () => {
+    const table = "Department,Total,Grade\nSales,10,A\nTotal,30,C\nSupport,20,B\n";
+    // A summary row whose label is also a column's name.
+    expect((await aggregateTable(doc("csv", table), { filters: [{ column: "Department", op: "!=", value: "Total" }] })).rowsMatched).toBe(2);
+    expect((await aggregateTable(doc("csv", table), { filters: [{ column: "Department", op: "contains", value: "total" }] })).rowsMatched).toBe(1);
+    // A letter is a value when the column is named by its name: grades from B on.
+    expect((await aggregateTable(doc("csv", table), { filters: [{ column: "Grade", op: ">=", value: "B" }] })).rowsMatched).toBe(2);
+    // A number is a value, even where years name the columns.
+    expect((await aggregateTable(doc("pdf", "| Region | 2024 | 2025 |\n| East | 10 | 12 |\n| West | 5 | 6 |"), { filters: [{ column: "2025", op: ">", value: 2024 }] })).rowsMatched).toBe(0);
+  });
+
+  it("names a column by its letter in a table with a header too, as the tool's description says", async () => {
+    // "No column \"C\"" before, in every table but a sheet with no header.
+    const sheet = await aggregateTable(doc("xlsx", BUDGET), { metrics: ["sum:C"] });
+    expect(sheet.groups[0]!.values).toEqual({ "sum:רבעון 1 / ביצוע": 584 });
+    const csv = await aggregateTable(doc("csv", CSV), { metrics: ["sum:D"], filters: [{ column: "a", op: "=", value: "West" }] });
+    expect(csv.groups[0]!.values).toEqual({ "sum:Revenue": 800 });
+    // A column of that name comes first, and a letter past the last column is no column.
+    expect((await aggregateTable(doc("csv", "B,A\n1,2\n"), { metrics: ["sum:A"] })).groups[0]!.values).toEqual({ "sum:A": 2 });
+    await expect(aggregateTable(doc("csv", CSV), { metrics: ["sum:E"] })).rejects.toThrow('No column "E" in this table.');
+  });
+});
+
 describe("the aggregate_table tool", () => {
   const SALES = ["Region,Month,Revenue", ...Array.from({ length: 3_000 }, (_, index) => `${["East", "West", "North"][index % 3]},2026-0${1 + (index % 6)}-01,${100 + (index % 7)}`)].join("\n");
 
@@ -145,6 +189,14 @@ describe("the aggregate_table tool", () => {
     expect((await tools.execute("aggregate_table", { document_id: meta.id, metrics: ["sum:Profit"] })).error).toMatch(/^No column "Profit" in this table\. Its columns are: "Region", "Month", "Revenue"\.$/);
     expect((await tools.execute("aggregate_table", { document_id: meta.id, filters: [{ column: "Region", op: "like", value: "E" }] })).error).toMatch(/A filter's op must be one of/);
     expect((await tools.execute("aggregate_table", { document_id: meta.id, group_by: "Region" })).error).toBeUndefined();
+  });
+
+  it("says where the rows of a filter that compares two columns are: above for a table sent whole, else read_document", async () => {
+    const { files, meta } = (await both())[0]!;
+    const call = { document_id: meta.id, filters: [{ column: "Revenue", op: ">", value: "Month" }] };
+    const refusal = 'A filter compares a column with a value, and "Month" is a column of this table. aggregate_table cannot compare two columns of a row. To count the rows where "Revenue" > "Month", read the rows and compare their cells.';
+    expect((await files.tools([meta], { inline: [meta.id] }).execute("aggregate_table", call)).error).toBe(`${refusal} The table is shown in full above, with its line numbers: compare the cells of each row there, and cite the lines of the rows you count.`);
+    expect((await files.tools([meta]).execute("aggregate_table", call)).error).toBe(`${refusal} read_document gives the rows, with their line numbers.`);
   });
 
   it("cites the header and each group's first rows, and keeps the groups when shortened", async () => {

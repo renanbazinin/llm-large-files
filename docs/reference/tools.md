@@ -494,7 +494,8 @@ The tables it reads:
 
 A column is named as in the header (case and spaces ignored), by its letter (`C`) or number (`3`),
 or by the lower part of a joined header ("הכנסות" for "פברואר / הכנסות") when only one column has
-it. Numbers are read as people write them: `1,234.5`, `-12`, `(1,200)` for a negative, `₪4,750`,
+it. A letter or a number names a column only when no column has that name; until 0.10.0 a letter
+named one only in a sheet with no header. Numbers are read as people write them: `1,234.5`, `-12`, `(1,200)` for a negative, `₪4,750`,
 `$ 12.00`, `12%` (12), `1 234`, `12,5` (a decimal comma), `1.234,56`. A sum or average leaves out
 cells that are not numbers, and says how many (`values_not_numbers`); `min` and `max` of ISO dates
 compare them as text. Up to 10,000 groups are counted one by one; rows of further groups are
@@ -536,6 +537,17 @@ Errors say what to change: "No column \"Profit\" in this table. Its columns are:
 names 3 columns of this table: …. Name one of them in full.", "No table \"Budget\" in this file: it
 has 3 sheets…", "This file has no table to aggregate…". `evidence` cites the header line and each
 group's lines; a result dropped to make room keeps its largest 30 groups.
+
+A filter compares the cells of a column with a value, never with another column. A filter that
+orders a column (`>`, `>=`, `<`, `<=`) against a value that is not a number and names a column (its
+full name, the lower part of a joined header, or a letter when the filter's own column is a letter
+too: `C` > `B`) is refused, since 0.10.0: "A filter compares a column with a value, and \"Q1 /
+Budget\" is a column of this table. aggregate_table cannot compare two columns of a row. To count
+the rows where \"Q1 / Actual\" > \"Q1 / Budget\", read the rows and compare their cells." Then, for a
+table sent whole, "The table is shown in full above, with its line numbers: compare the cells of each
+row there, and cite the lines of the rows you count.", and otherwise "read_document gives the rows,
+with their line numbers." Before, such a filter matched no row, and said nothing of why. `=`, `!=`
+and the text filters keep a value that is also a column's name ("Department" != "Total").
 
 ## `read_document`
 
