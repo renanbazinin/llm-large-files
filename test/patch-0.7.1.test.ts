@@ -58,7 +58,8 @@ describe("LLF-040: what a refusal showed lasts for the rest of the question", ()
       const from = 1 + (turn - 1) * 50;
       return calls([{ name: "read_document", args: { document_id: meta.id, start_line: from, end_line: from + 49 } }], { usage: { inputTokens: tokens } });
     }]);
-    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick(), limits: { toolTurns: 40 } });
+    // No ceiling on input tokens: 30 tool turns near the window pass the default one of 0.10.0.
+    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick(), limits: { toolTurns: 40, inputTokens: Infinity } });
     expect(result.answered).toBe(true);
     expect(refusals).toBe(1);
     expect(roundsOf(model.requests.at(-1)!.messages).length).toBeGreaterThan(0);

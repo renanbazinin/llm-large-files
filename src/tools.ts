@@ -2,7 +2,7 @@ import { safeErrorMessage } from "./errors.js";
 import { until } from "./http.js";
 import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
-import { analyzeWholeDocument, NothingReadError } from "./map-reduce.js";
+import { analyzeWholeDocument, listWholeDocumentItems, MAX_ITEM_LABELS, MAX_LABEL_CHARACTERS, NothingReadError, storeGaveUp, type WholeItemsResult } from "./map-reduce.js";
 import { cutPdfPages, type PageCut } from "./pdf-pages.js";
 import type { Limiter } from "./limiter.js";
 import { DocumentGoneError } from "./ranged.js";
@@ -10,7 +10,7 @@ import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type Document
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
 import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
-import type { Budget, GenerateText, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolOutput, ToolResult, ToolSet } from "./types.js";
+import type { Budget, GenerateText, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolName, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
 /** Matching lines an exact or regex search shows: the default, and the most a call may ask for. */
@@ -47,7 +47,7 @@ export const TOOL_NAMES = {
   analyze: "analyze_whole_document",
   view: "view_pages",
   aggregate: "aggregate_table",
-} as const;
+} as const satisfies Record<string, ToolName>;
 
 const documentId = { type: "string" as const, description: "The document_id from the file's card." };
 
@@ -93,12 +93,18 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
   },
   analyze: {
     name: TOOL_NAMES.analyze,
+    // 0.9.0's words, kept: with a sentence on items here, Gemini Flash-Lite stopped choosing the
+    // read for a full summary. What items do is said in the description of `output` alone.
     description: "Read an entire large file in parts and answer a task that needs all of it, such as a full summary, a timeline, or items that must be judged by meaning. To count or list lines that contain a word, an ID or a pattern, use search_document in exact or regex mode instead: its count is exact, and this can miss items. Slow and costly: prefer search_document and read_document for specific questions.",
     parameters: {
       type: "object",
       properties: {
         document_id: documentId,
         task: { type: "string", description: "What to find or produce from the whole file, stated completely." },
+        // "answer" is named for a summary and a timeline: told that items list things, Flash-Lite
+        // chose them for a timeline of events, whose items explain nothing, and lost events.
+        output: { type: "string", enum: ["answer", "items"], description: "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label." },
+        labels: { type: "array", items: { type: "string" }, description: `output "items" only: the kinds of item to label each one with, such as ["penalty", "deadline"]. Up to ${MAX_ITEM_LABELS}, each up to ${MAX_LABEL_CHARACTERS} characters.` },
       },
       required: ["document_id", "task"],
     },
@@ -148,6 +154,20 @@ const DECLARATIONS: Record<keyof typeof TOOL_NAMES, ToolDeclaration> = {
   },
 };
 
+/** The keys of `DECLARATIONS` in the order a tool set declares them. */
+const DECLARATION_ORDER = ["search", "read", "overview", "aggregate", "analyze", "view"] as const satisfies ReadonlyArray<keyof typeof TOOL_NAMES>;
+
+/**
+ * The declarations of the tools `names`, in the order a tool set declares them (search, read,
+ * overview, aggregate, analyze, view), whatever the order of `names`: those `files.tools(…,
+ * { declare: names })` gives. For planning the size of a request before the tools are made. A name
+ * that is not a tool's is left out. New in 0.10.0.
+ */
+export function declarationsFor(names: readonly ToolName[]): ToolDeclaration[] {
+  const wanted = new Set<string>(names);
+  return DECLARATION_ORDER.filter((key) => wanted.has(TOOL_NAMES[key])).map((key) => DECLARATIONS[key]);
+}
+
 /** Says so when a tool that returns files is run through `execute`, which has nowhere to put them. */
 const FILES_NOT_DELIVERED = "The pages could not be shown: this application does not pass files from tools to the model. Answer from the text.";
 
@@ -168,6 +188,64 @@ function flag(value: unknown): boolean {
 }
 
 const INCOMPLETE_ANALYSIS = "Incomplete: the model's output limit was reached, so some relevant items are missing from this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file.";
+
+/** The note of a read that stopped merging at the question's limit on model requests (N12, new in 0.10.0). */
+const notesLeftOutNote = (leftOut: number, relevant: number): string =>
+  `Incomplete: this read reached the question's limit on model requests before it could combine the notes of every part, so the notes of ${leftOut} of the ${relevant} relevant parts are not in this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file.`;
+
+/** The items a read that lists them shows in its result; `total_items` counts them all. */
+const MAX_SHOWN_ITEMS = 50;
+
+/** The `labels` of a read that lists items, as the model sent them: up to `MAX_ITEM_LABELS`, each up to `MAX_LABEL_CHARACTERS`. */
+function itemLabels(value: unknown): string[] | undefined {
+  const list = stringList(value, "labels")?.map((label) => label.trim()).filter(Boolean);
+  if (!list || list.length === 0) return undefined;
+  const distinct = [...new Set(list)];
+  if (distinct.length > MAX_ITEM_LABELS || distinct.some((label) => [...label].length > MAX_LABEL_CHARACTERS)) {
+    throw new Error(`labels takes up to ${MAX_ITEM_LABELS} labels, each up to ${MAX_LABEL_CHARACTERS} characters.`);
+  }
+  return distinct;
+}
+
+/** A task as a note quotes it: ending in a stop, so that the sentence after it starts as one. */
+const quotedTask = (task: string): string => {
+  const trimmed = task.trim();
+  return /[.!?…:;]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
+};
+
+/** The sentence of a note on the items a result shows, when not all of them: as `itemsResult` and `fitItems` write it. */
+const itemsShown = (shown: number, cut: boolean): string =>
+  `The first ${shown} ${plural(shown, "item")} ${shown === 1 ? "is" : "are"} shown${cut ? ", to stay within the size limit" : ""}; total_items counts them all.`;
+const ITEMS_SHOWN = /The first \d+ items? (?:is|are) shown(?:, to stay within the size limit)?; total_items counts them all\.\s*/;
+
+/**
+ * The result of a read that lists items (`output: "items"`): the totals, counted by code from the
+ * items each part listed and checked against its lines, and the first items in the order of the file.
+ */
+function itemsResult(file: string, task: string, read: WholeItemsResult): ToolResult {
+  const shown = read.items.slice(0, MAX_SHOWN_ITEMS);
+  const more = read.items.length - shown.length;
+  const notes = [
+    // With items listed and none found on its line, the note on those that are not counted follows.
+    ...(read.items.length === 0 ? [read.unverified > 0 ? `No item was found on its line for: ${quotedTask(task)}` : `No part of ${file} listed an item for: ${quotedTask(task)}`] : []),
+    ...(more > 0 ? [itemsShown(shown.length, false)] : []),
+    ...(read.unverified > 0 ? [`${read.unverified} listed ${plural(read.unverified, "item")} ${read.unverified === 1 ? "is" : "are"} not counted: ${read.unverified === 1 ? "its" : "their"} quote is not on the line ${read.unverified === 1 ? "it names" : "they name"}, nor on just one other line of the part.`] : []),
+    ...(read.failedParts > 0 ? [`${read.failedParts} ${plural(read.failedParts, "part")} could not be read (${read.firstFailure ?? "see the notes"}), so items may be missing: tell the user the count may be incomplete.`] : []),
+    ...(read.truncatedParts > 0 ? [`${read.truncatedParts} ${plural(read.truncatedParts, "part")} listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete.`] : []),
+  ];
+  return {
+    document: file,
+    total_items: read.items.length,
+    ...(Object.keys(read.countsByLabel).length > 0 ? { counts_by_label: read.countsByLabel } : {}),
+    items: shown.map(({ line, label, value, quote }) => ({ line, ...(label !== undefined ? { label } : {}), ...(value !== undefined ? { value } : {}), quote })),
+    ...(more > 0 ? { more_items: more } : {}),
+    unverified_items: read.unverified,
+    parts_read: read.parts,
+    ...(read.failedParts > 0 ? { parts_failed: read.failedParts } : {}),
+    ...(read.truncatedParts > 0 ? { parts_cut_short: read.truncatedParts } : {}),
+    ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
+  };
+}
 
 function text(value: unknown, name: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required.`);
@@ -211,9 +289,12 @@ function fit(result: ToolResult, listKey: string | null, limit: number): ToolRes
 
 /**
  * The result of a whole-document read within `limit` characters: its answer is cut at the end,
- * and says so, rather than the result being cut as JSON, which loses what the other fields say.
+ * and says so, rather than the result being cut as JSON, which loses what the other fields say. A
+ * read that lists items (`output: "items"`, new in 0.10.0) loses items from the end of its list,
+ * and keeps its counts.
  */
 export function fitAnswer(result: ToolResult, limit: number): ToolResult {
+  if (JSON.stringify(result).length > limit && typeof result.answer !== "string" && Array.isArray(result.items) && result.items.length > 0) return fitItems(result, limit);
   if (JSON.stringify(result).length <= limit || typeof result.answer !== "string") return fit(result, null, limit);
   const answer = result.answer;
   const cutAt = (keep: number): ToolResult => ({
@@ -231,6 +312,33 @@ export function fitAnswer(result: ToolResult, limit: number): ToolResult {
     else high = middle - 1;
   }
   return fit(cutAt(low), null, limit);
+}
+
+/**
+ * The result of a read that lists items within `limit` characters: items are dropped from the end of
+ * its list, at least one kept, `more_items` counts every item not shown, and the note says how many
+ * are shown. Its counts stay whole. A result cut before (`askWithFiles` fits a result again to the
+ * room left) is cut the same way, from what it still shows.
+ */
+function fitItems(result: ToolResult, limit: number): ToolResult {
+  const items = result.items as unknown[];
+  const total = typeof result.total_items === "number" ? result.total_items : items.length;
+  const others = typeof result.note === "string" ? result.note.replace(ITEMS_SHOWN, "").trim() : "";
+  const build = (kept: number): ToolResult => {
+    const more = total - kept;
+    const out: ToolResult = {};
+    // The fields in their order, with more_items after the items.
+    for (const [key, value] of Object.entries(result)) {
+      if (key === "more_items" || key === "note") continue;
+      out[key] = key === "items" ? items.slice(0, kept) : value;
+      if (key === "items" && more > 0) out.more_items = more;
+    }
+    out.note = [itemsShown(kept, true), others].filter(Boolean).join(" ");
+    return out;
+  };
+  let kept = items.length;
+  while (kept > 1 && JSON.stringify(build(kept)).length > limit) kept--;
+  return fit(build(kept), null, limit);
 }
 
 /**
@@ -570,6 +678,8 @@ export function alreadyShown(call: { name: string; args: Record<string, unknown>
   const { result } = earlier;
   if (earlier.call.name !== call.name || earlier.call.args.document_id !== call.args.document_id) return undefined;
   if (result.dropped === true || result.already_shown === true || typeof result.error === "string" || result.truncated === true) return undefined;
+  // A result the application replaced (`onToolResult`, since 0.10.0) does not hold what the call returns.
+  if (result.redacted === true) return undefined;
   // A search stored by 0.7.0 with case_sensitive or whole_word as text or 1 ("true", 1): 0.7.0 read
   // those as off, 0.8.0 as on, so the call made now would not return what was stored.
   if (stored && call.name === TOOL_NAMES.search && [earlier.call.args.case_sensitive, earlier.call.args.whole_word].some((value) => value !== undefined && value !== true && value !== false && flag(value))) return undefined;
@@ -642,8 +752,13 @@ export function toolResultSummary(label: string, result: ToolResult): string {
     const groups = typeof result.total_groups === "number" ? `, ${result.total_groups.toLocaleString("en-US")} ${plural(result.total_groups, "group")}` : "";
     return ` — ${result.rows_matched.toLocaleString("en-US")} ${plural(result.rows_matched, "row")}${groups}`;
   }
+  if (typeof result.total_items === "number" && typeof result.parts_read === "number") {
+    const unverified = typeof result.unverified_items === "number" && result.unverified_items > 0 ? `, ${result.unverified_items.toLocaleString("en-US")} not counted` : "";
+    const incomplete = result.parts_failed || result.parts_cut_short ? ", incomplete" : "";
+    return ` — ${result.total_items.toLocaleString("en-US")} ${plural(result.total_items, "item")} in ${result.parts_read} ${plural(result.parts_read, "part")}${unverified}${incomplete}`;
+  }
   if (typeof result.parts_read === "number") {
-    const incomplete = result.notes_only ? ", notes only" : result.notes_cut_short || result.answer_cut_short ? ", incomplete" : "";
+    const incomplete = result.notes_only ? ", notes only" : result.notes_cut_short || result.notes_left_out || result.answer_cut_short ? ", incomplete" : "";
     return ` — ${result.parts_read} ${plural(result.parts_read, "part")}, ${String(result.parts_with_relevant_content ?? 0)} relevant${incomplete}`;
   }
   // A read reports its range only when it was cut short of what was asked.
@@ -752,21 +867,48 @@ export function createDocumentTools(options: {
    * `aggregate_table` is then declared. A call of it is answered either way. Defaults to false.
    */
   tables?: boolean;
+  /**
+   * Declare exactly these tools, in the order of `declarationsFor`, in place of those the documents
+   * call for. A declared tool that cannot run answers each call with its reason. New in 0.10.0.
+   */
+  declare?: readonly ToolName[];
+  /**
+   * The IDs of documents sent whole in the prompt: `analyze_whole_document` refuses them, as the
+   * model has every line of them already, and `aggregate_table` says how to cite their lines. New in
+   * 0.10.0.
+   */
+  inline?: readonly string[];
 }): ToolSet {
   const allowed = new Set(options.documentIds);
   const viewable = new Set(options.loadOriginal ? options.viewableIds ?? [] : []);
   const names = new Map<string, string>(Object.entries(options.names ?? {}));
+  const inline = new Set(options.inline ?? []);
+  const declared = options.declare ? new Set<string>(options.declare) : undefined;
   // The text tools are left out only when there are pages to look at and no document to search.
   const textTools = allowed.size > 0 || viewable.size === 0;
-  const declarations = [
+  const declarations = options.declare ? declarationsFor(options.declare) : [
     ...(textTools ? [DECLARATIONS.search, DECLARATIONS.read, DECLARATIONS.overview, ...(options.tables ? [DECLARATIONS.aggregate] : []), ...(options.generate && options.wholeReads !== false ? [DECLARATIONS.analyze] : [])] : []),
     ...(viewable.size > 0 ? [DECLARATIONS.view] : []),
   ];
   const known = new Set(declarations.map((declaration) => declaration.name));
-  // Answered for any document, declared or not: a model may know the tool from earlier in the conversation.
-  if (textTools) known.add(TOOL_NAMES.aggregate);
-  // Not declared for files that are all too large for it, but still answered: with the reason, not "unknown tool".
-  if (textTools && options.generate) known.add(TOOL_NAMES.analyze);
+  // With `declare`, the tool set answers the tools it declares and no other: a call of one it does
+  // not declare (a whole-file read, many requests) is not run.
+  if (!declared) {
+    // Answered for any document, declared or not: a model may know the tool from earlier in the conversation.
+    if (textTools) known.add(TOOL_NAMES.aggregate);
+    // Not declared for files that are all too large for it, but still answered: with the reason, not "unknown tool".
+    if (textTools && options.generate) known.add(TOOL_NAMES.analyze);
+  }
+  /**
+   * Why a declared tool cannot run in this tool set, when it cannot: each call of it answers with
+   * this. A caller may declare a tool (`ToolOptions.declare`) that has nothing to work on here.
+   */
+  const cannotRun = (name: string): string | undefined => {
+    if (!declared?.has(name)) return undefined;
+    if (name === TOOL_NAMES.aggregate && !options.tables) return "No attached file has a table: aggregate_table needs one.";
+    if (name === TOOL_NAMES.view && viewable.size === 0) return "No attached file has pages to look at: view_pages needs a PDF whose original file is kept. Answer from the text.";
+    return undefined;
+  };
   const cap = options.budget.toolResultCharacters;
   /** The cap on the result of one call: the tool set's own, or the room its caller has left when that is less. */
   const limitOf = (limits: ToolCallLimits, own = cap): number => {
@@ -796,13 +938,54 @@ export function createDocumentTools(options: {
   const wholeReads = new Map<string, number>();
   /** Why the last whole-document read of a document failed, when no part of it could be read. */
   const failedWholeReads = new Map<string, string>();
+  const wholeReadsDeclared = declarations.some((declaration) => declaration.name === TOOL_NAMES.analyze);
+  /**
+   * What a `read_document` result cut short of its range by the size limit adds (`whole_file`), as
+   * the lines it shows of the file from `start` (`shown`, or none whole when `cut`: the text of the
+   * first line was cut): that `analyze_whole_document` reads all of it. Gemini Flash-Lite and Flash
+   * read a contract to summarize in ranges of about 16 lines, and answered from those
+   * (`evals/results/0100-t-live-3.md`). Only when this tool set declares the read and would run it on
+   * the file, by the estimate of its parts: a part reader, a file not sent whole, a read of it left,
+   * and its parts within `maxMapChunks` and within the requests the call says a whole read may make
+   * (`limits.maxRequests`), the checks the read makes before it sends a part (`partsToRead`). The
+   * parts are `estimateParts`'s, without the margin `canBeReadWhole` gives the estimate. The read
+   * counts its own, and at a border may count one more than the estimate: then it is refused, before
+   * it sends a request. `askWithFiles` gives a read 0 requests when the question would not start a
+   * whole read of its file on the next turn, the first the model can call it on (its ceilings on
+   * input tokens and requests, with that turn's request counted, its whole reads made). New in 0.10.0.
+   */
+  const wholeFileHint = (document: DocumentSource, start: number, shown: number, cut: boolean, limits: ToolCallLimits): string | undefined => {
+    const id = document.meta.id;
+    if (!wholeReadsDeclared || !options.generate || inline.has(id) || failedWholeReads.has(id) || (wholeReads.get(id) ?? 0) >= maxWholeReads) return undefined;
+    const requests = typeof limits.maxRequests === "number" && !Number.isNaN(limits.maxRequests) ? limits.maxRequests : Number.POSITIVE_INFINITY;
+    // Every part is one request.
+    if (requests < 1) return undefined;
+    const parts = estimateParts(document.meta, options.budget);
+    // Metadata that does not give its size (a record an application kept in part): as `canBeReadWhole`, not held back.
+    if (Number.isFinite(parts) && (parts > options.budget.maxMapChunks || parts > requests)) return undefined;
+    const total = document.lineCount.toLocaleString("en-US");
+    const fitting = cut
+      ? `Not even one line fits here: the text of line ${start.toLocaleString("en-US")} is cut.`
+      : `Only ${shown.toLocaleString("en-US")} ${shown === 1 ? "line fits" : "lines fit"} here.`;
+    return `${fitting} To read all ${total} lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document.`;
+  };
   // When no limit is given with a call: three eighths of a request, so that two looks still fit.
   const defaultFileBytes = Math.floor((options.budget.maxRequestBytes - REQUEST_BYTES_MARGIN) * 3 / 8);
 
   /** The documents the calls under way loaded, by the arguments of the call: checked once it ends (`checkRead`). */
   const loaded = new WeakMap<object, Set<DocumentSource[]>>();
 
-  async function documentFor(args: Record<string, unknown>): Promise<DocumentSource> {
+  /**
+   * The signal of one call: the tool set's, joined with the call's own (`ToolCallHooks.signal`, new
+   * in 0.10.0) when it has one. The call's own ends that call alone.
+   */
+  const signalOf = (hooks: ToolCallHooks): AbortSignal | undefined => {
+    const own = hooks.signal;
+    if (!own) return options.signal;
+    return options.signal ? AbortSignal.any([options.signal, own]) : own;
+  };
+
+  async function documentFor(args: Record<string, unknown>, signal: AbortSignal | undefined): Promise<DocumentSource> {
     const id = text(args.document_id, "document_id");
     // Scope check: a model can only reach files attached to this conversation.
     if (!allowed.has(id)) {
@@ -812,7 +995,8 @@ export function createDocumentTools(options: {
         ? `Unknown document_id ${shownId(id)}. No attached file is read with this tool in this conversation.`
         : `Unknown document_id ${shownId(id)}. Use one of: ${usable.join(", ")}${allowed.size > 20 ? ", …" : ""}.`);
     }
-    const document = await options.load(id);
+    // A load that hangs does not hold a call that was stopped.
+    const document = await until(options.load(id), signal);
     if (!document) throw gone(id);
     for (const reads of loaded.get(args) ?? []) reads.push(document);
     names.set(id, document.meta.name);
@@ -822,10 +1006,10 @@ export function createDocumentTools(options: {
   /**
    * Waits for the turn of a look at pages of `file`, for at most `pageLookWaitMs`, or the call's
    * `maxWaitMs` when that is less. Returns the function that gives the turn back. Past the wait, a
-   * `PagesBusyError`. The wait ends at once when the tool set is stopped, with the reason it was
-   * stopped for.
+   * `PagesBusyError`. The wait ends at once when the call is stopped (`signal`), with the reason it
+   * was stopped for.
    */
-  async function pageLookTurn(id: string, file: string, limits: ToolCallLimits): Promise<() => void> {
+  async function pageLookTurn(id: string, file: string, limits: ToolCallLimits, signal: AbortSignal | undefined): Promise<() => void> {
     const turns = options.pageLooks;
     if (!turns) return () => undefined;
     const waited = new AbortController();
@@ -834,9 +1018,9 @@ export function createDocumentTools(options: {
     const timer = waitMs <= LONGEST_WAIT_MS ? setTimeout(() => waited.abort(), waitMs) : undefined;
     timer?.unref?.();
     try {
-      return await turns.limiter.acquire(options.signal ? AbortSignal.any([options.signal, waited.signal]) : waited.signal);
+      return await turns.limiter.acquire(signal ? AbortSignal.any([signal, waited.signal]) : waited.signal);
     } catch (error) {
-      if (options.signal?.aborted || !waited.signal.aborted) throw error;
+      if (signal?.aborted || !waited.signal.aborted) throw error;
       throw new PagesBusyError(id, file);
     } finally {
       clearTimeout(timer);
@@ -845,10 +1029,10 @@ export function createDocumentTools(options: {
 
   /**
    * The original file of a look, read while the look holds its turn: for at most `holdMs`, and
-   * only while the tool set runs. A read given up on goes on, but holds no turn.
+   * only while the call runs. A read given up on goes on, but holds no turn.
    */
-  async function originalOf(id: string, file: string): Promise<Uint8Array | undefined> {
-    const reading = until(options.loadOriginal!(id), options.signal);
+  async function originalOf(id: string, file: string, signal: AbortSignal | undefined): Promise<Uint8Array | undefined> {
+    const reading = until(options.loadOriginal!(id), signal);
     const holdMs = options.pageLooks?.holdMs;
     if (holdMs === undefined || !(holdMs <= LONGEST_WAIT_MS)) return reading;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -864,10 +1048,11 @@ export function createDocumentTools(options: {
     }
   }
 
-  const handlers: Record<string, (args: Record<string, unknown>, limits: ToolCallLimits, hooks: ToolCallHooks) => Promise<ToolResult>> = {
-    async [TOOL_NAMES.search](args, limits) {
+  /** The tools that return JSON. `signal` is the call's (`signalOf`). */
+  const handlers: Record<string, (args: Record<string, unknown>, limits: ToolCallLimits, hooks: ToolCallHooks, signal: AbortSignal | undefined) => Promise<ToolResult>> = {
+    async [TOOL_NAMES.search](args, limits, _hooks, signal) {
       const limit = limitOf(limits);
-      const document = await documentFor(args);
+      const document = await documentFor(args, signal);
       const query = text(args.query, "query");
       const mode = args.mode === "exact" || args.mode === "regex" ? args.mode : "keywords";
       // Page numbers are added only for a PDF whose pages can be looked at: they are what
@@ -885,7 +1070,7 @@ export function createDocumentTools(options: {
       if (mode === "keywords") {
         if (groupBy) throw new Error("group_by counts the lines of an exact or regex search: use mode \"exact\" or \"regex\".");
         const topK = integer(args.max_results, 5, 1, 10);
-        const ranked = await rankSource(document, query, topK, options.signal, ranged ? range : undefined);
+        const ranked = await rankSource(document, query, topK, signal, ranged ? range : undefined);
         const texts = await Promise.all(ranked.map((passage) => document.readLines(passage.from, passage.to)));
         return fit({
           document: document.meta.name,
@@ -916,7 +1101,7 @@ export function createDocumentTools(options: {
           maxResults: integer(args.max_results, DEFAULT_GREP_RESULTS, 1, MAX_GREP_RESULTS),
           contextLines: integer(args.context_lines, 0, 0, 5),
           ...(regex ? { timeLimitMs: Math.min(REGEX_TIME_LIMIT_MS, regexLeft), regexClock } : {}),
-          ...(options.signal ? { signal: options.signal } : {}),
+          ...(signal ? { signal } : {}),
           ...(ranged ? { fromLine: range.from, toLine: range.to } : {}),
           ...(order === "last" ? { order } : {}),
           ...(groupBy ? { groupBy } : {}),
@@ -962,9 +1147,9 @@ export function createDocumentTools(options: {
       }, "matches", limit);
     },
 
-    async [TOOL_NAMES.read](args, limits) {
+    async [TOOL_NAMES.read](args, limits, _hooks, signal) {
       const limit = limitOf(limits);
-      const document = await documentFor(args);
+      const document = await documentFor(args, signal);
       const total = document.lineCount;
       const start = integer(args.start_line, 1, 1, total);
       const end = integer(args.end_line, start + DEFAULT_READ_LINES - 1, start, Math.min(total, start + MAX_READ_LINES - 1));
@@ -979,21 +1164,28 @@ export function createDocumentTools(options: {
         body = numberLines(read.slice(0, to - start + 1), start);
       }
       const pages = viewable.has(document.meta.id) ? document.pagesOfLines(start, to) : undefined;
-      return {
+      const cut = !fits(body);
+      const result: ToolResult = {
         document: document.meta.name,
         lines: `${start}-${to}`,
         ...(pages ? { pages } : {}),
         total_lines: total,
-        text: fits(body) ? body : sliceWhole(body, Math.floor((limit - 500) / 2)),
+        text: cut ? sliceWhole(body, Math.floor((limit - 500) / 2)) : body,
         // One line longer than the room: its text was cut, so the lines are not all shown.
-        ...(fits(body) ? {} : { text_cut: true }),
+        ...(cut ? { text_cut: true } : {}),
         ...(to < total ? { next_start_line: to + 1 } : { note: "End of file." }),
       };
+      // Cut short of the range asked by the size limit: the way to all of the file, when there is
+      // one. Left out when it would take the result past its cap.
+      const hint = to < end ? wholeFileHint(document, start, to - start + 1, cut, limits) : undefined;
+      if (!hint) return result;
+      const hinted = { ...result, whole_file: hint };
+      return JSON.stringify(hinted).length <= limit ? hinted : result;
     },
 
-    async [TOOL_NAMES.overview](args, limits) {
+    async [TOOL_NAMES.overview](args, limits, _hooks, signal) {
       const limit = limitOf(limits);
-      const document = await documentFor(args);
+      const document = await documentFor(args, signal);
       const { meta, lineCount } = document;
       const tail = Math.max(1, lineCount - 19);
       // Counting the parts means reading the whole text, for a number that only says how costly a
@@ -1018,11 +1210,11 @@ export function createDocumentTools(options: {
       }, "outline", limit);
     },
 
-    async [TOOL_NAMES.aggregate](args, limits) {
+    async [TOOL_NAMES.aggregate](args, limits, _hooks, signal) {
       const limit = limitOf(limits);
-      const document = await documentFor(args);
+      const document = await documentFor(args, signal);
       const request = aggregateRequest(args);
-      const result = await aggregateTable(document, request, options.signal);
+      const result = await aggregateTable(document, request, signal);
       const groups = result.groups.map((group) => ({
         ...(Object.keys(group.key).length > 0 ? { group: group.key } : {}),
         ...group.values,
@@ -1046,24 +1238,40 @@ export function createDocumentTools(options: {
         ...(result.repeatedHeaders > 0 ? { repeated_header_rows: result.repeatedHeaders } : {}),
         ...(result.distinctCapped ? { distinct_note: "count_distinct stopped telling values apart after 1,000,000 in all: its counts are lower bounds. Filter, or group by fewer values." } : {}),
         ...(result.irregularRows > 0 ? { irregular_rows: result.irregularRows, irregular_note: "Rows with values past the header's columns: check columns and header_rows." } : {}),
+        // A filter whose value named a column compared two cells of each row (since 0.10.0): said, so that no one takes it for a value.
+        ...(result.compared ? { filter_note: result.compared.map((one) => `Each row's ${JSON.stringify(one.column)} was compared with its own ${JSON.stringify(one.with)} (${one.op}), as the filter's value names that column.`).join(" ") } : {}),
       };
       const note = groups.length < result.totalGroups
         ? { note: `${groups.length} of the ${result.totalGroups} groups are shown, ${request.orderBy === "key" ? "in the order of their values" : "the largest first"}. Raise limit, or filter, for the others.` }
         : {};
-      return fit({ ...base, ...note, groups }, "groups", limit);
+      // Over a table shown in full, Flash-Lite answered with the count alone, citing no line: the
+      // result says how to cite the lines it lists, with the file's name (since 0.10.0).
+      const firstLines = groups[0]?.lines ?? [];
+      const cite = inline.has(document.meta.id) && firstLines.length > 0
+        ? { cite: `Cite the lines listed in your answer, like (${document.meta.name} ${firstLines.map((line) => `L${line}`).join(", ")}).` }
+        : {};
+      return fit({ ...base, ...note, groups, ...cite }, "groups", limit);
     },
 
-    async [TOOL_NAMES.analyze](args, limits, hooks) {
+    async [TOOL_NAMES.analyze](args, limits, hooks, signal) {
       if (!options.generate) throw new Error("Whole-document analysis is not enabled.");
-      const document = await documentFor(args);
+      // A document sent whole is not read again in parts: the model has every line of it.
+      const asked = text(args.document_id, "document_id");
+      if (inline.has(asked)) throw new Error(`${names.get(asked) ?? shownId(asked)} is shown in full above: answer from it, and use search_document or aggregate_table for exact counts.`);
+      const document = await documentFor(args, signal);
       const task = text(args.task, "task");
+      const items = args.output === "items";
+      // Read before the count is taken: a call with labels it cannot use is no read.
+      const labels = items ? itemLabels(args.labels) : undefined;
       // A read of the whole file is many model requests. A model that asks for it again, with the
       // task put another way, is told to use what it has. The count is taken before the read
       // starts, so that two calls in one turn do not both pass.
       const id = document.meta.id;
       const reads = wholeReads.get(id) ?? 0;
-      if (reads >= maxWholeReads) {
-        const failure = failedWholeReads.get(id);
+      const failure = failedWholeReads.get(id);
+      // A read that could read no part is not tried again, whatever the cap: another would most
+      // likely fail the same way, and `wholeReadsLeft` says 0 for it.
+      if (reads >= maxWholeReads || failure !== undefined) {
         throw new Error(maxWholeReads === 0
           ? `Whole-file reads are turned off for this question. Use search_document and read_document on ${document.meta.name}.`
           : failure !== undefined
@@ -1072,20 +1280,21 @@ export function createDocumentTools(options: {
             : `${document.meta.name} was already read whole for this question${maxWholeReads > 1 ? ` ${maxWholeReads} times` : ""}, and is not read whole again. Use the answer of that read, or search_document and read_document for the details.`);
       }
       wholeReads.set(id, reads + 1);
+      const read = {
+        document,
+        task,
+        generate: options.generate,
+        budget: options.budget,
+        // The call's own listener, when it has one, in place of the tool set's.
+        onProgress: hooks.onProgress ?? options.onProgress,
+        ...(hooks.onRequest ? { onRequest: hooks.onRequest } : {}),
+        signal,
+        ...(options.retry ? { retry: options.retry } : {}),
+        ...(typeof limits.maxRequests === "number" && Number.isFinite(limits.maxRequests) ? { maxRequests: limits.maxRequests } : {}),
+      };
       let result;
       try {
-        result = await analyzeWholeDocument({
-          document,
-          task,
-          generate: options.generate,
-          budget: options.budget,
-          // The call's own listener, when it has one, in place of the tool set's.
-          onProgress: hooks.onProgress ?? options.onProgress,
-          ...(hooks.onRequest ? { onRequest: hooks.onRequest } : {}),
-          signal: options.signal,
-          ...(options.retry ? { retry: options.retry } : {}),
-          ...(typeof limits.maxRequests === "number" && Number.isFinite(limits.maxRequests) ? { maxRequests: limits.maxRequests } : {}),
-        });
+        result = items ? await listWholeDocumentItems({ ...read, ...(labels ? { labels } : {}) }) : await analyzeWholeDocument(read);
       } catch (error) {
         // Parts were sent and none could be read: that read is counted, since another would most
         // likely fail the same way. Anything else (too many parts, a store that could not be read)
@@ -1097,25 +1306,35 @@ export function createDocumentTools(options: {
         throw error;
       }
       failedWholeReads.delete(id);
+      const room = limitOf(limits, Math.max(cap, ANALYSIS_RESULT_CHARACTERS));
+      if ("items" in result) return fitAnswer(itemsResult(document.meta.name, task, result), room);
       const notesCutShort = result.truncatedParts + result.truncatedMerges;
+      const cutNote = notesCutShort ? " Some of them were cut off at the output limit, so they are incomplete: tell the user." : "";
       return fitAnswer({
         document: document.meta.name,
         parts_read: result.parts,
         parts_with_relevant_content: result.relevantParts,
         ...(result.failedParts ? { parts_that_failed: result.failedParts } : {}),
         ...(notesCutShort ? { notes_cut_short: notesCutShort } : {}),
+        ...(result.notesLeftOut ? { notes_left_out: result.notesLeftOut } : {}),
         ...(result.answerTruncated ? { answer_cut_short: true } : {}),
-        ...(result.answerFailed !== undefined ? { notes_only: true } : {}),
+        ...(result.answerFailed !== undefined || result.answerSkipped ? { notes_only: true } : {}),
         ...(result.answerFailed !== undefined
-          ? { note: `The last step of this read, which writes one answer from the notes of the parts, failed (${result.answerFailed}). The answer is those notes: answer from them.${notesCutShort ? " Some of them were cut off at the output limit, so they are incomplete: tell the user." : ""}` }
-          : notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
+          ? { note: `The last step of this read, which writes one answer from the notes of the parts, failed (${result.answerFailed}). The answer is those notes: answer from them.${cutNote}` }
+          : result.answerSkipped
+            ? { note: `This read reached the question's limit on model requests before its last step, which writes one answer from the notes of the parts. The answer is those notes: answer from them.${cutNote}` }
+            : result.notesLeftOut
+              ? { note: notesLeftOutNote(result.notesLeftOut, result.relevantParts) }
+              : notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
         answer: result.answer,
-      }, limitOf(limits, Math.max(cap, ANALYSIS_RESULT_CHARACTERS)));
+      }, room);
     },
   };
 
   /** `view_pages`: the pages as one small PDF, next to a short JSON result. */
-  async function viewPages(args: Record<string, unknown>, limits: ToolCallLimits): Promise<ToolOutput> {
+  async function viewPages(args: Record<string, unknown>, limits: ToolCallLimits, signal: AbortSignal | undefined): Promise<ToolOutput> {
+    const reason = cannotRun(TOOL_NAMES.view);
+    if (reason) throw new Error(reason);
     const id = text(args.document_id, "document_id");
     // The same scope check as the text tools, on its own list: a PDF can be looked at without
     // being searchable, and the other way round.
@@ -1124,7 +1343,7 @@ export function createDocumentTools(options: {
         ? `The pages of ${names.get(id) ?? id} cannot be shown: only its text was kept. Answer from the text.`
         : `Unknown document_id ${shownId(id)}. Use the document_id of an attached PDF.`);
     }
-    const document = await options.load(id);
+    const document = await until(options.load(id), signal);
     if (!document) throw gone(id);
     const file = document.meta.name;
     names.set(id, file);
@@ -1143,13 +1362,13 @@ export function createDocumentTools(options: {
     // look that waits holds none of its bytes, and the memory left is looked at then (`cutPdfPages`).
     // A question stopped while its original is read gives the turn back at once, and so does a
     // read that takes longer than the library allows its store calls (`holdMs`).
-    const release = await pageLookTurn(id, file, limits);
+    const release = await pageLookTurn(id, file, limits, signal);
     let cut: PageCut | undefined;
     try {
-      options.signal?.throwIfAborted();
-      const original = await originalOf(id, file);
+      signal?.throwIfAborted();
+      const original = await originalOf(id, file, signal);
       // Stopped while the original was read: no pages are cut for a question that has left.
-      options.signal?.throwIfAborted();
+      signal?.throwIfAborted();
       if (original) {
         try {
           cut = await cutPdfPages(original, from, Math.min(asked, from + mostPages - 1), maxBytes, total);
@@ -1162,7 +1381,7 @@ export function createDocumentTools(options: {
     }
     if (!cut) {
       // The document may have gone while the look waited for its turn: that is told as such.
-      if (!await options.load(id)) throw gone(id);
+      if (!await until(options.load(id), signal)) throw gone(id);
       throw new Error(`The original file of ${file} is no longer on the server, so its pages cannot be shown. Answer from the text.`);
     }
     const pages = pageRange(cut.from, cut.to);
@@ -1193,32 +1412,51 @@ export function createDocumentTools(options: {
     return { error: safeErrorMessage(error) };
   };
 
+  /**
+   * True for an error the call throws rather than tells the model: the call, or the tool set, was
+   * stopped; or the store did not answer in time, or was not asked because too many store calls are
+   * stuck (since 0.10.0), which ends the question with an error and shows the model nothing.
+   */
+  const thrown = (error: unknown, signal: AbortSignal | undefined): boolean => signal?.aborted === true || storeGaveUp(error);
+
   async function execute(name: string, args: Record<string, unknown>, limits: ToolCallLimits = {}, hooks: ToolCallHooks = {}): Promise<ToolResult> {
     if (!known.has(name)) return { error: `Unknown tool ${unknownToolName(name)}.` };
     // The pages are a file, and this method returns only JSON. Saying that pages are attached
     // with nothing attached would be worse than saying that they could not be shown.
-    if (name === TOOL_NAMES.view) return { error: FILES_NOT_DELIVERED };
+    if (name === TOOL_NAMES.view) return { error: cannotRun(name) ?? FILES_NOT_DELIVERED };
+    const reason = cannotRun(name);
+    if (reason) return { error: reason };
+    const signal = signalOf(hooks);
     // The documents this call loads (`documentFor`), by its arguments: calls given the same object
     // at once each note them all.
     const reads: DocumentSource[] = [];
     const calls = typeof args === "object" && args !== null ? loaded.get(args) ?? new Set<DocumentSource[]>() : undefined;
     if (calls) loaded.set(args, calls.add(reads));
+    /**
+     * Asks the store, once the call has ended, whether each document it read is still the one it
+     * loaded. A call with a signal of its own ends when it aborts, even while this store call hangs.
+     */
     const checkReads = async () => {
-      for (const document of reads) if (options.checkRead && !await options.checkRead(document)) throw gone(document.meta.id);
+      const checking = (async () => {
+        for (const document of reads) if (options.checkRead && !await options.checkRead(document)) throw gone(document.meta.id);
+      })();
+      await (hooks.signal ? until(checking, signal) : checking);
     };
     try {
       let result: ToolResult;
       try {
-        result = await handlers[name]!(args, limits, hooks);
+        // A call with a signal of its own ends when it aborts, even in a store call that hangs.
+        const running = handlers[name]!(args, limits, hooks, signal);
+        result = await (hooks.signal ? until(running, signal) : running);
       } catch (error) {
-        if (options.signal?.aborted) throw error;
+        if (thrown(error, signal)) throw error;
         await checkReads();
         throw error;
       }
       await checkReads();
       return result;
     } catch (error) {
-      if (options.signal?.aborted) throw error;
+      if (thrown(error, signal)) throw error;
       return failure(error, args, hooks);
     } finally {
       calls?.delete(reads);
@@ -1229,15 +1467,26 @@ export function createDocumentTools(options: {
     declarations,
     has: (name) => known.has(name),
     execute: (name, args) => execute(name, args),
-    resultCharacters: (name) => (name === TOOL_NAMES.analyze ? Math.max(cap, ANALYSIS_RESULT_CHARACTERS) : name === TOOL_NAMES.view ? LEAST_RESULT_CHARACTERS : cap),
+    // A name the tool set does not answer, a declared tool that cannot run, and a whole-file read
+    // with no part reader each get an error of a few words: no more room is kept for them.
+    resultCharacters: (name) => (!known.has(name) || cannotRun(name) !== undefined || (name === TOOL_NAMES.analyze && !options.generate) ? LEAST_RESULT_CHARACTERS
+      : name === TOOL_NAMES.analyze ? Math.max(cap, ANALYSIS_RESULT_CHARACTERS) : name === TOOL_NAMES.view ? LEAST_RESULT_CHARACTERS : cap),
     async executeWithFiles(name, args, limits = {}, hooks = {}) {
       if (name !== TOOL_NAMES.view || !known.has(name)) return { result: await execute(name, args, limits, hooks), files: [] };
+      const signal = signalOf(hooks);
       try {
-        return await viewPages(args, limits);
+        const running = viewPages(args, limits, signal);
+        return await (hooks.signal ? until(running, signal) : running);
       } catch (error) {
-        if (options.signal?.aborted) throw error;
+        if (thrown(error, signal)) throw error;
         return { result: failure(error, args, hooks), files: [] };
       }
+    },
+    wholeReadsLeft(documentId) {
+      // None for a document this tool set cannot read whole: no part reader, not one of its
+      // documents, or one sent whole; none once a read of it could read no part.
+      if (!options.generate || !allowed.has(documentId) || inline.has(documentId) || failedWholeReads.has(documentId)) return 0;
+      return Math.max(0, maxWholeReads - (wholeReads.get(documentId) ?? 0));
     },
     describe(name, args) {
       const id = typeof args.document_id === "string" ? args.document_id : "";
@@ -1256,9 +1505,12 @@ export function createDocumentTools(options: {
         return `Search ${file} (${mode}) for “${sliceWhole(String(args.query ?? ""), 80)}”${where}${how}`;
       }
       if (name === TOOL_NAMES.read) {
-        const start = integer(args.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
-        const end = typeof args.end_line === "number" && args.end_line >= start ? `-${Math.trunc(args.end_line)}` : "";
-        return `Read ${file} lines ${start}${end}`;
+        // The lines as the tool reads them (`requestedLines`): an end sent as text ("250") too, and
+        // never past the most lines one read shows. The end is shown when the call gave one, not
+        // before the start.
+        const [start, end] = requestedLines(args);
+        const given = args.end_line !== undefined && args.end_line !== null && args.end_line !== "" && Number(args.end_line) >= start;
+        return `Read ${file} lines ${start}${given ? `-${end}` : ""}`;
       }
       if (name === TOOL_NAMES.overview) return `Overview of ${file}`;
       if (name === TOOL_NAMES.aggregate) {
@@ -1275,7 +1527,7 @@ export function createDocumentTools(options: {
         const table = request.table !== undefined && request.table !== "" ? ` (${typeof request.table === "number" ? `table ${request.table}` : request.table})` : "";
         return sliceWhole(`Aggregate ${file}${table}: ${metrics}${by}${where}`, 200);
       }
-      if (name === TOOL_NAMES.analyze) return `Read all of ${file} for “${sliceWhole(String(args.task ?? ""), 100)}”`;
+      if (name === TOOL_NAMES.analyze) return `Read all of ${file} for “${sliceWhole(String(args.task ?? ""), 100)}”${args.output === "items" ? ", as a list of items" : ""}`;
       return name;
     },
   };

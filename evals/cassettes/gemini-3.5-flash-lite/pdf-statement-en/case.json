@@ -1,0 +1,65 @@
+{
+ "case": "pdf-statement-en",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 2400",
+     "status": "pass"
+    },
+    {
+     "fact": "says 03/01 (3 January)",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 2314,
+   "cachedInputTokens": 0,
+   "outputTokens": 53,
+   "thoughtTokens": 0,
+   "ms": 559,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 4127,
+     "ms": 552,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2314,
+      "cachedInputTokens": 0,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the bank statement (\"דף חשבון ינואר.pdf\"), the salary was credited on **03/01**, in the amount of **2,400.00 ש\"ח** (statement-1 L5)."
+  }
+ ],
+ "passed": true
+}

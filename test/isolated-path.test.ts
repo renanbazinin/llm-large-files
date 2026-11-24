@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "../src/index.js";
-import { numberedPdf } from "./pdf-fixtures.js";
+import { hebrewLease, numberedPdf } from "./pdf-fixtures.js";
 
 /** Each opening of a file by the server (this process), as node:fs/promises makes it. */
 const reads = vi.hoisted(() => ({ opened: [] as string[] }));
@@ -82,6 +82,25 @@ describe("isolated readers and paths", () => {
       // The text the server would have read.
       const local = await createLargeFiles({ store: new MemoryDocumentStore() }).ingest({ name: "report.pdf", bytes: pdf });
       expect({ ...meta, id: "", createdAt: "", expiresAt: "" }).toEqual({ ...local, id: "", createdAt: "", expiresAt: "" });
+    } finally {
+      await isolated.close();
+    }
+  }, 60_000);
+
+  it("carry a PDF's headings back from the child: the outline is the one the server makes (0.10.0)", async () => {
+    const isolated = node.createIsolatedExtractors({ concurrency: 1 });
+    try {
+      const pdf = hebrewLease();
+      const at = path.join(directory, "lease.pdf");
+      await writeFile(at, pdf);
+      const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: isolated.extractors });
+      const fromPath = await files.ingest({ name: "lease.pdf", source: { path: at } });
+      const fromBytes = await files.ingest({ name: "lease.pdf", bytes: pdf });
+      const local = await createLargeFiles({ store: new MemoryDocumentStore() }).ingest({ name: "lease.pdf", bytes: pdf });
+      expect(local.outline).toHaveLength(8);
+      expect(local.outline[0]).toEqual({ line: 3, level: 1, title: "חוזה שכירות בלתי מוגנת" });
+      expect(fromPath.outline).toEqual(local.outline);
+      expect(fromBytes.outline).toEqual(local.outline);
     } finally {
       await isolated.close();
     }

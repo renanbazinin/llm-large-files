@@ -337,7 +337,8 @@ export const documents = createDocumentHandlers(files, {
 - **It stays once the document is stored,** and `onUploaded` is told its `path`. **It is removed
   when the upload fails**, whatever the reason: too large, a body that stops, a browser that leaves
   before the ingest ends, a full disk (`503` with `Retry-After`), a disk that does not answer within
-  `uploadIdleTimeoutMs` (`500` "Upload failed (ETIMEDOUT)."), a file that cannot be read, an ID
+  `uploadIdleTimeoutMs` (`503` "Upload failed (ETIMEDOUT)." with `Retry-After: 5`, a `500` before
+  0.10.0), a file that cannot be read, an ID
   that is taken, or `onUploaded` throwing. A server that is killed in the middle of an upload
   cannot remove it, and nothing else does: remove such files with a job of your own
   ([Deployment](./deployment.md#stopping-a-server)).
@@ -367,7 +368,8 @@ const documents = createDocumentHandlers(files, {
   removed once the ingest ends, whatever the end. `onUploaded` runs after, without a path.
 - **Room.** `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the spool's files at once:
   past it, and on a full disk, the upload gets `503` with `Retry-After`. A disk that does not answer
-  within `uploadIdleTimeoutMs` gets `500` "Upload failed (ETIMEDOUT).", and gives the room back.
+  within `uploadIdleTimeoutMs` gets `503` "Upload failed (ETIMEDOUT)." with `Retry-After: 5` (a
+  `500` before 0.10.0), and gives the room back.
   `maxPendingUploadBytes` then counts only the bodies held in memory, so several uploads sent
   without a `Content-Length` no longer fill it.
 - **Where.** On a disk, not a memory-backed folder, which would take the memory back
@@ -422,8 +424,8 @@ a body another middleware already parsed, `401` "Sign in first." under `requireO
 chat no longer exists." for a chat whose folder is gone, `413` over `maxUploadBytes`, `422` for a
 file that cannot be read, `409` "A file is already saved for this upload." when a file is already at the
 path of `prepareUpload`, `503` with `Retry-After` when the server holds as many uploads as it
-takes at once, its readers are busy, its disk is full, or the store failed (send the file again
-after `Retry-After` seconds), `408` for a body that stopped arriving, an error's own status (400 to 599) from
+takes at once, its readers are busy, its disk is full or does not answer, or the store failed
+(send the file again after `Retry-After` seconds), `408` for a body that stopped arriving, an error's own status (400 to 599) from
 `getOwner`, `getScope`, `prepareUpload`, `onUploaded` or an extractor, and `500` for a failure of the server, among
 them `Upload failed (empty owner).`, `Upload failed (owner is not a string).`,
 `Upload failed (invalid scope).` and `Upload failed.`. `get` answers `404` for a document this owner
@@ -912,8 +914,10 @@ What to know about the stream:
   [when the text streams](#when-the-text-streams).
 - **The callbacks still work.** Pass `onText`, `onActivity` and `onStep` too, and they get what they
   always did. Each `notice` event says where its message went in the callbacks (`display`).
-- **Evidence names its call.** Each entry of `result.evidence` has a `callId` ("call_3"): the call
-  whose `tool.end` carries the same entry. A list of sources can point back to the list of tools.
+- **Evidence names its call.** Each entry of `result.evidence` that a tool call made has a
+  `callId` ("call_3"): the call whose `tool.end` carries the same entry. A list of sources can
+  point back to the list of tools. Since 0.10.0 the list starts with the files sent whole
+  (`tool: "inline"`), which have no `callId`: skip them when you look for the call.
 - **A listener that throws ends the question** with that error, as a callback that throws always
   did. `askStream` gives each event to the stream before your own `onEvent`, so the stream still
   gets the last one. Changed in 0.7.0: a throw from `onActivity` or `onEvent` while a whole-file

@@ -222,6 +222,7 @@ describe("Claude through the Messages API", () => {
       calls: [{ id: "toolu_7", name: "read_document", args: { document_id: "doc_1", start_line: 96, end_line: 98 } }],
       raw: [thinking, text("Looking at it."), call],
       finishReason: "tool_use",
+      responseId: "msg_1",
       usage: { inputTokens: 710, cachedInputTokens: 700, outputTokens: 44, thoughtTokens: 0 },
       providerUsage: { input_tokens: 10, cache_read_input_tokens: 700, cache_creation_input_tokens: 0, output_tokens: 44 },
     });

@@ -1,0 +1,160 @@
+{
+ "n": 3,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "9f2706689d36c3e8",
+  "bytes": 19292,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3097 chars #aa6d670c"
+      },
+      {
+       "text": "70 chars #8eaab04c"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #7705136d",
+        "id": "call_4874626590441524379"
+       },
+       "thoughtSignature": "204 chars #cada7339"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_4874626590441524379",
+        "response": "{4 keys} #f70df02c"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #a2c30d00",
+        "id": "25 chars #3478e7b2"
+       },
+       "thoughtSignature": "204 chars #3579355b"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "25 chars #3478e7b2",
+        "response": "{6 keys} #d0216e86"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1987 chars #27f71cef"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"According to\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4935,\"candidatesTokenCount\": 2,\"totalTokenCount\": 4937,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4935}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"_UYFa4_pNISrkdUP2u6asQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" the HR policy (policy-1 L31), an employee with 8 or more years of seniority\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4935,\"candidatesTokenCount\": 23,\"totalTokenCount\": 4958,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4935}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"_UYFa4_pNISrkdUP2u6asQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" gets **24** vacation days per year.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4935,\"candidatesTokenCount\": 33,\"totalTokenCount\": 4968,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4935}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"_UYFa4_pNISrkdUP2u6asQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRN73P3kb4pX/B3wuKnIgGNAsoZaBukEWvaVMefo68Q6b1U/aI6/fH6z2eAPHTJPlh94DwEyi888GGpR+NQh9WWJd0MKkIKo2K5nPo7BrG8ABFUvICVd8ggVOO+5p6aDA4/4zHIaDFFsgTsl74HqiEGqLYaPJUe8mYibRrvRoIA5oKJJNxsAtbhvLxBt57Nn\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4935,\"candidatesTokenCount\": 33,\"totalTokenCount\": 4968,\"cachedContentTokenCount\": 2016,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4935}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2016}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"_UYFa4_pNISrkdUP2u6asQo\"}\r\n\r\n"
+  ]
+ }
+}

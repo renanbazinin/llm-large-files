@@ -1,0 +1,75 @@
+{
+ "n": 6,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "f354b07ef6727945",
+  "bytes": 32314,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "20027 chars #032264d2"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 32768
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "להלן ריכוז המידע הרלוונטי מחלק זה (שורות 647–967):\n\n### אירוע חריג\n* **תקלת מיזוג והתחממות בחדר ה-UPS:**\n  * **תחילת האירוע:** 17 בנובמבר 2026, שעה 03:20 (L702).\n  * **תיאור האירוע:** התראת חום בחדר ה-UPS – מזגן 3 הפסיק לעבוד, והטמפרטורה עלתה ל-34 מעלות (L702).\n  * **טיפול ביניים:** בשעה 03:45 (משמרת לילה) הופעל מזגן נייד בחדר ה-UPS, והטמפרטורה החלה לרדת (L704).\n  * **סיום האירוע:** 17 בנובמבר 2026, שעה 11:15 (משמרת בוקר) – טכנאי המיזוג תיקן את מזגן 3, והמזגן הנייד פונה (L717).\n\n---\n\n### פעילות שגרתית ותחזוקות מתוכננות (15–23 בנובמבר 2026)\n* **תחזוקה מתוכננת שוטפת:**\n  * ביצוע תחזוקה מתוכננת במזגן 2 על ידי טכנאי מיזוג בכל משמרת (בוקר, ערב ולילה).\n  * התקנת עדכוני תוכנה מתוכננים על שרתי הדואר באופן מחזורי.\n  * שליחת הודעות למשתמשים על חלון התחזוקה של יום שישי.\n* **פעילות שגרתית:**\n  * החלפת קלטות גיבוי והעברתן לכספת.\n  * בדיקות גנרטור שבועיות (עברו כסדרן) ומעקב רציף אחר מלאי סולר (נע בין 74% ל-94%).\n  * בדיקות לחץ במערכת כיבוי האש בגז (נמצא תקין).\n  * סבבי בדיקות בחדר השרתים (טמפרטורה יציבה של 20 מעלות, תקין).\n  * בדיקות עומס בלוחות החשמל (תקין/רגיל).\n  * בדיקת מצלמות אבטחה (כולן מקליטות).\n  * ניקוי מסנני אוויר במזגנים (בסבבים: 1-2, 2-3, 3-4, 4-5).\n  * עדכון תיעוד כבילה בארונות רשת (ארונות 2, 5, 8).\n  * קבלת משלוחי דיסקים ורישום במלאי.\n  * סבבי ניקיון בחדר הציוד והעברת משמרות תקינה ללא משימות פתוחות.",
+        "thoughtSignature": "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"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12196,
+    "candidatesTokenCount": 721,
+    "totalTokenCount": 14288,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12196
+     }
+    ],
+    "thoughtsTokenCount": 1371,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "zXcFa6L7D4Pvxs0PnqPD4Ag"
+  }
+ }
+}

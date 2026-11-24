@@ -1,0 +1,306 @@
+{
+ "case": "contract-summary",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "whole-read",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 45 days",
+     "status": "pass"
+    },
+    {
+     "fact": "says four hours",
+     "status": "pass"
+    },
+    {
+     "fact": "number 48000",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 15,
+   "inputTokens": 39102,
+   "cachedInputTokens": 4054,
+   "outputTokens": 17727,
+   "thoughtTokens": 0,
+   "ms": 30283,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 37,
+    "supported": 37,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "get_document_overview",
+    "analyze_whole_document"
+   ],
+   "reads": 0,
+   "wholeReads": 1,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5575,
+     "ms": 638,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3656,
+      "cachedInputTokens": 0,
+      "outputTokens": 22,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 6492,
+     "ms": 796,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4582,
+      "cachedInputTokens": 0,
+      "outputTokens": 79,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 1 of 5",
+     "callId": "call_2",
+     "ms": 2029,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2091,
+      "cachedInputTokens": 0,
+      "outputTokens": 762,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_4",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 2 of 5",
+     "callId": "call_2",
+     "ms": 4344,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2130,
+      "cachedInputTokens": 0,
+      "outputTokens": 907,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_5",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 3 of 5",
+     "callId": "call_2",
+     "ms": 4162,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2102,
+      "cachedInputTokens": 0,
+      "outputTokens": 874,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_6",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 4 of 5",
+     "callId": "call_2",
+     "ms": 4164,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2111,
+      "cachedInputTokens": 0,
+      "outputTokens": 920,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_7",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 5 of 5",
+     "callId": "call_2",
+     "ms": 1520,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 1005,
+      "cachedInputTokens": 0,
+      "outputTokens": 528,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_8",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "round 1: 1 of 3",
+     "callId": "call_2",
+     "ms": 2767,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 1817,
+      "cachedInputTokens": 0,
+      "outputTokens": 1335,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_9",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "round 1: 2 of 3",
+     "callId": "call_2",
+     "ms": 3254,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 1946,
+      "cachedInputTokens": 0,
+      "outputTokens": 1419,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_10",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "round 1: 3 of 3",
+     "callId": "call_2",
+     "ms": 1414,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 669,
+      "cachedInputTokens": 0,
+      "outputTokens": 539,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_11",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "round 2: 1 of 2",
+     "callId": "call_2",
+     "ms": 4785,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2885,
+      "cachedInputTokens": 0,
+      "outputTokens": 2424,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_12",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "round 2: 2 of 2",
+     "callId": "call_2",
+     "ms": 1409,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 669,
+      "cachedInputTokens": 0,
+      "outputTokens": 559,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_13",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "round 3: 1 of 1",
+     "callId": "call_2",
+     "ms": 5277,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3114,
+      "cachedInputTokens": 0,
+      "outputTokens": 2635,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_14",
+     "role": "reader",
+     "purpose": "final",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "the answer",
+     "callId": "call_2",
+     "ms": 6264,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2777,
+      "cachedInputTokens": 0,
+      "outputTokens": 2832,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_15",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 9545,
+     "ms": 4897,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7548,
+      "cachedInputTokens": 4054,
+      "outputTokens": 1892,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "להלן סיכום מלא של חוזה שירותי התחזוקה מס' 2026/114 שנחתם בין חברת אורן מערכות בע\"מ (\"המזמין\") לבין חברת קור-טק שירותים בע\"מ (\"הספק\"):\n\n---\n\n### א. התחייבויות הספק\n* **מתן שירותי תחזוקה וזמינות:**\n  * החזקת מלאי חלקי חילוף זמין לשירות המפעל בקריית גת.\n  * הגעת טכנאי למחסן באשדוד בתוך 4 שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה.\n  * ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון ומסירת דוח על הביקור.\n  * ביצוע עבודות במפעל בקריית גת שמחייבות השבתה רק בתיאום מראש עם מנהל האתר.\n* **ניהול וכוח אדם:**\n  * מינוי מנהל לקוח אחד שירכז את הקשר מול המזמין.\n  * ביטוח עובדי הספק בביטוח חבות מעבידים ובביטוח צד שלישי.\n* **כללי:**\n  * שמירה בסוד של כל מידע שהגיע אליהם במסגרת ההתקשרות.\n  * כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים.\n\n---\n\n### ב. התחייבויות המזמין\n* תשלום התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין.\n* ביצוע ביקורת על איכות השירות בכל עת, בתיאום מראש.\n\n---\n\n### ג. מקרים שבהם הספק משלם קנסות (ובאילו סכומים)\nהחוזה כולל מגוון רחב של קנסות (המתייחסים לאתרים שונים, חלקם אינם מפורטים בחובות השירות המקוריות):\n\n1. **איחור בתגובה לקריאת שירות דחופה:**\n   * במרכז הלוגיסטיקה בחולון: 1,000 ש\"ח לכל מקרה (L7).\n   * במפעל בקריית גת: 22,000 ש\"ח לכל מקרה (L71).\n   * במחסן באשדוד: 19,000 ש\"ח לכל מקרה (L134).\n   * במשרדים בתל אביב: 16,000 ש\"ח לכל מקרה (L198).\n2. **השבתת מערכת הקירור מעבר ל-4 שעות:**\n   * במפעל בקריית גת: 4,500 ש\"ח לכל מקרה (L18).\n   * במחסן באשדוד: 1,500 ש\"ח לכל מקרה (L81).\n   * במשרדים בתל אביב: 22,500 ש\"ח לכל מקרה (L145).\n3. **אי עמידה בזמני התיקון:**\n   * במשרדים בתל אביב: 2,750 ש\"ח לכל מקרה (L12).\n   * בסניף בחיפה: 23,750 ש\"ח לכל מקרה (L76).\n   * במרכז הלוגיסטיקה בחולון: 20,750 ש\"ח לכל מקרה (L140).\n4. **אי הגשת דוח תחזוקה חודשי במועד:**\n   * בסניף בחיפה: 6,250 ש\"ח לכל מקרה (L23).\n   * במרכז הלוגיסטיקה בחולון: 3,250 ש\"ח לכל מקרה (L87).\n5. **החלפת טכנאי ללא הודעה מוקדמת:**\n   * בסניף בחיפה: 2,000 ש\"ח לכל מקרה (L155).\n   * במשרדים בתל אביב: 5,000 ש\"ח לכל מקרה (L92).\n   * במחסן באשדוד: 8,000 ש\"ח לכל מקרה (L28).\n6. **שימוש בחלקי חילוף שאינם מקוריים:**\n   * במחסן באשדוד: 3,750 ש\"ח לכל מקרה (L161).\n   * במפעל בקריית גת: 6,750 ש\"ח לכל מקרה (L97).\n   * במרכז הלוגיסטיקה בחולון: 9,750 ש\"ח לכל מקרה (L34).\n7. **הפרת הוראות בטיחות באתר:**\n   * במרכז הלוגיסטיקה בחולון: 5,500 ש\"ח לכל מקרה (L166).\n   * בסניף בחיפה: 8,500 ש\"ח לכל מקרה (L102).\n   * במשרדים בתל אביב: 11,500 ש\"ח לכל מקרה (L39).\n8. **אובדן ציוד של המזמין:**\n   * במשרדים בתל אביב: 7,250 ש\"ח לכל מקרה (L171).\n   * במחסן באשדוד: 10,250 ש\"ח לכל מקרה (L108).\n   * במפעל בקריית גת: 13,250 ש\"ח לכל מקרה (L44).\n9. **אי ביצוע תחזוקה מונעת במועד:**\n   * במפעל בקריית גת: 9,000 ש\"ח לכל מקרה (L177).\n   * במרכז הלוגיסטיקה בחולון: 12,000 ש\"ח לכל מקרה (L113).\n   * בסניף בחיפה: 15,000 ש\"ח לכל מקרה (L49).\n10. **עבודה ללא אישור כניסה בתוקף:**\n    * בסניף בחיפה: 10,750 ש\"ח לכל מקרה (L182).\n    * במשרדים בתל אביב: 13,750 ש\"ח לכל מקרה (L118).\n    * במחסן באשדוד: 16,750 ש\"ח לכל מקרה (L55).\n11. **אי תיעוד קריאת שירות במערכת:**\n    * במחסן באשדוד: 12,500 ש\"ח לכל מקרה (L187).\n    * במפעל בקריית גת: 15,500 ש\"ח לכל מקרה (L124).\n    * במרכז הלוגיסטיקה בחולון: 18,500 ש\"ח לכל מקרה (L60).\n12. **השארת פסולת באתר לאחר העבודה:**\n    * במרכז הלוגיסטיקה בחולון: 14,250 ש\"ח לכל מקרה (L193).\n    * בסניף בחיפה: 17,250 ש\"ח לכל מקרה (L129).\n13. **סעיפים מיוחדים נוספים:**\n    * דליפת מידע של לקוחות המזמין באחריות הספק: **48,000 ש\"ח** (בנוסף לכל סעד אחר) (L150).\n    * איחור באספקת חלקי חילוף: **5% מערך ההזמנה** לכל שבוע איחור (L65)."
+  }
+ ],
+ "passed": true
+}

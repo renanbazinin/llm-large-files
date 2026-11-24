@@ -1,0 +1,106 @@
+{
+ "case": "orders-refunds-searched",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 500",
+     "status": "pass"
+    },
+    {
+     "fact": "number 127550 ±1",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 9958,
+   "cachedInputTokens": 2335,
+   "outputTokens": 258,
+   "thoughtTokens": 122,
+   "ms": 7275,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table",
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5012,
+     "ms": 1920,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3067,
+      "cachedInputTokens": 0,
+      "outputTokens": 114,
+      "thoughtTokens": 60
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 5161,
+     "ms": 2204,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3299,
+      "cachedInputTokens": 1047,
+      "outputTokens": 55,
+      "thoughtTokens": 15
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 5419,
+     "ms": 3054,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3592,
+      "cachedInputTokens": 1288,
+      "outputTokens": 89,
+      "thoughtTokens": 47
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the data in `orders.csv`:\n\n* **Number of refunded orders:** 500\n* **Total amount of refunded orders:** 127,550.00"
+  }
+ ],
+ "passed": true
+}

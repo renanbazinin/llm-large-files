@@ -1,0 +1,90 @@
+{
+ "case": "invoices-lookup",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says בוטל",
+     "status": "pass"
+    },
+    {
+     "fact": "number 22046.34",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 244586,
+   "cachedInputTokens": 118726,
+   "outputTokens": 89,
+   "thoughtTokens": 0,
+   "ms": 3046,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 134217,
+     "ms": 1950,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122214,
+      "cachedInputTokens": 0,
+      "outputTokens": 37,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 134365,
+     "ms": 1060,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122372,
+      "cachedInputTokens": 118726,
+      "outputTokens": 52,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "הסטטוס של חשבונית מספר 1234 הוא **בוטל** והסכום שלה הוא **22,046.34** (שורה 1235 ב-\"חשבוניות.csv\")."
+  }
+ ],
+ "passed": true
+}

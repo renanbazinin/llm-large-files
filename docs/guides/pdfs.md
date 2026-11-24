@@ -72,8 +72,10 @@ pieces than 0.5.0 split it, which moves the lines after it. Since 0.8.0 the text
 (NFC): "e" and a combining accent become "é". Every format but log, JSON and CSV gets an outline
 from its headings: Markdown `#` lines (`## Slide N` and `## Sheet N: name` among them; not in a
 fenced code block, nor the comments of a text file that reads as code), chapter and numbered section
-lines, and short lines in capitals. `meta.pages` is the number of pages of a PDF, of slides of a
-PPTX and of sheets of an XLSX. [How it works](../how-it-works.md) follows ingest from there.
+lines, and short lines in capitals; a PDF whose text gives fewer than 3 of these, from the lines set
+in larger type than its body, when there are 3 or more ([PDF outline](#pdf-outline), new in
+0.10.0). `meta.pages` is the number of pages of a PDF, of slides of a PPTX and of sheets of an
+XLSX. [How it works](../how-it-works.md) follows ingest from there.
 
 ### Text encodings
 
@@ -414,6 +416,7 @@ Figure 3: sales by region.
 - With `@cantoo/pdf-lib` installed, a page that shows a picture or a drawing gets the second line
   ([The line that marks a page](#the-line-that-marks-a-page)).
 - Tables are rebuilt as rows of cells ([PDF tables](#pdf-tables)).
+- The lines set in larger type than the body are the outline ([PDF outline](#pdf-outline)).
 
 ### PDF tables
 
@@ -464,6 +467,87 @@ text. All three default to `true`
 alone, `@cantoo/pdf-lib` still reads each PDF at ingest, for the page check, and the first PDF of a
 process loads it, in one block of about 0.4 s. With `pictures: false` and `checkPages: false`,
 ingest does not use it at all ([Deployment](./deployment.md#uploads-and-ingest)).
+
+### PDF outline
+
+The card and `get_document_overview` give the model an outline, headings with their line numbers,
+and a search hit names the heading above it (`section`). The rules that find headings in a text
+seldom find any in a PDF: pdf.js gives no blank line between paragraphs, and Hebrew has no capitals,
+so an unnumbered Hebrew contract had no outline. Since 0.10.0 the PDF extractor finds the lines set
+in larger type than the body, from the size pdf.js gives each piece of text, and `ingest` makes them
+the outline of a PDF whose text gives fewer than 3 headings, when 3 or more of them are found in the
+stored text. One or two are not an outline: a PDF with a title alone keeps the card and search hits
+of 0.9.0. The card of a lease then starts its outline with:
+
+```text
+Outline (8 of 8 headings):
+  L3 חוזה שכירות בלתי מוגנת
+  L6   הצדדים לחוזה
+  L9     פרטי השוכר
+  L16   תקופת השכירות
+```
+
+- The body is the size most of the text is set in, table rows aside. A heading is a line at least
+  15% larger, with three quarters of its characters in that size: the title, Word's Heading 1 and
+  Heading 2 (16 and 13 points over 11), the `h1` to `h3` of a page printed by Chrome.
+- A table row is a line with a gap of more than 3 times its type size between two of its pieces:
+  cells, or a label and its value, whether the table was rebuilt or not (two columns, or
+  `tables: false`). It counts for neither the body nor the headings, so a statement whose table is
+  set smaller than its notes does not make its notes headings.
+- Its level comes from its size. The sizes of several headings rank from the largest: 1, 2, then 3
+  for all smaller ones. A size of one heading only, larger than all of those (a title, the lines of
+  a cover page), is level 1, and the ranks then start at 2: a cover does not flatten the sections
+  and subsections under it.
+- Each heading is a line of the stored text, and points to it: `read_document` from that line
+  starts at the heading. A heading set on several lines in a row is one entry, at its first line.
+  A line above it on its page that reads the same (a contents list, a running header in small type)
+  is passed over.
+- Not headings: a line of more than 120 characters, or of fewer than 3 letters, or with more digits
+  than letters (a bare amount, a date in digits, a page number); a table row; a running header or
+  footer, which is a line found on 3 pages or more, or on 2 pages and at least half of them.
+- A line that differs from those of other pages only by its numbers ("עמוד 3 מתוך 10", "Annual
+  Report page 7") is a page number, and not a heading, when it is found on at least half of the
+  pages, does not count up on one page (the same number in a page's header and its footer is one
+  page number), and does not count as section numbers do. Section numbers count
+  headings: each is the one before with one number 1 more, with pages without one between some of
+  them ("פרק 1" to "פרק 5" on the odd pages). A page number counts pages, and skips those it is
+  missing from: a header on the odd pages only reads "page 1", "page 3". Numbered headings several
+  to a page ("Article 1" to "Article 18", 3 to a page; "סעיף 1" to "סעיף 20", 2 to a page above
+  their titles) are always kept.
+- No outline from sizes when more than 30% of the text is set larger than the body: the sizes then
+  mark something else.
+
+It adds no line to the text: the text of a PDF, its reads and its pages are those of 0.9.0, and its
+search hits the same but for the `section` they now name. What it does not find: a heading in bold
+type of the body's size (pdf.js does not say which text is bold), a heading less than 15% larger
+than the body (Word's Heading 3, 12 points over 11), a heading repeated on 3 pages or more,
+numbered chapters one to a page on pages in a row that are at least half the document ("Chapter 1"
+to "Chapter 4" on pages 1 to 4 of 6: they count as a page number does), and headings a PDF keeps
+only in its bookmarks or tags. What it can take for a heading: any other short line set large, such
+as a caption, a date written with its month's name, or a total with its label ("Total due
+12,500.00"); the header cell of a table that is not rebuilt when pdf.js gives it as a line of its
+own; and a header row set large whose cells are closer than 3 times its type size, as in a narrow
+table of two columns ("Field" and "Value"), which does not read as a table row. A PDF whose text
+gives 3 headings or more (lines that start with `#`) keeps the outline of its text.
+
+A PDF ingested before 0.10.0 keeps the outline it was given, most often none, until it is uploaded
+again; the metadata does not say where an outline came from. The outline from sizes comes in
+`ExtractedText.headings`: to keep the outline of the text alone, drop them in a wrapper.
+
+```ts
+import { createLargeFiles, defaultExtractors, FileDocumentStore, type Extractor } from "llm-large-files";
+
+// The outline of 0.9.0: from the text alone.
+const pdfWithoutSizes: Extractor = async (bytes, input) => {
+  const { headings, ...extracted } = await defaultExtractors.pdf(bytes, input);
+  return extracted;
+};
+
+export const files = createLargeFiles({
+  store: new FileDocumentStore("./data/large-files"),
+  extractors: { pdf: pdfWithoutSizes },
+});
+```
 
 ## Pictures in PDFs
 
@@ -962,6 +1046,10 @@ What the library does with what you return:
   your extractor stored as U+FFFD. Both reach the card, the frame of a file sent whole, and
   `toDocumentSummary` ([Text encodings](#text-encodings)).
 - A `text` file whose lines look like a log becomes `log`.
+- `headings`, for a PDF, become its outline when its text gives fewer than 3 headings and 3 or more
+  of them are found ([PDF outline](#pdf-outline)): each is looked for among the lines of its page,
+  after the line `--- Page N ---`, by its text without spaces, past the `skip` lines of its page
+  that read the same. New in 0.10.0.
 
 An error you throw is the answer to the upload. `ingest` throws it as an `IngestError` with the
 same message (and your error as `cause`), with the code its message gives
@@ -1057,7 +1145,8 @@ const pdfWithOcr: Extractor = async (bytes, input) => {
   // Nothing recognized in a PDF without any text: the built-in rules decide. It is refused, or
   // accepted when its pages can be shown.
   if (filled === 0 && blank === extracted.pages) return builtIn(bytes, input);
-  return { text, pages: extracted.pages };
+  // The rest as the built-in extractor returned it: `pages`, and the headings of the outline.
+  return { ...extracted, text };
 };
 
 export const files = createLargeFiles({
@@ -1068,10 +1157,10 @@ export const files = createLargeFiles({
 ```
 
 What this keeps: the page lines, so search results still give page numbers; `pages`; the rebuilt
-tables and the picture marks of the pages that had text; and the picture line over a scanned page,
-since the model can still look at it to check a stamp or a signature. Only PDFs with a page without
-text go to the OCR service, and only those pages change. A scan of any length is accepted once OCR
-found text in it.
+tables, the picture marks and the outline from type sizes of the pages that had text; and the
+picture line over a scanned page, since the model can still look at it to check a stamp or a
+signature. Only PDFs with a page without text go to the OCR service, and only those pages change. A
+scan of any length is accepted once OCR found text in it.
 
 OCR runs inside `files.ingest`, so the upload waits for it, and it counts toward `ingestTimeoutMs`
 (2 minutes by default). For long scans, raise `ingestTimeoutMs` (0 sets no limit), run ingest in a

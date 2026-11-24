@@ -1,0 +1,106 @@
+{
+ "case": "log-deploy",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 4.18.2",
+     "status": "pass"
+    },
+    {
+     "fact": "says 10:05",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 18133,
+   "cachedInputTokens": 8789,
+   "outputTokens": 446,
+   "thoughtTokens": 264,
+   "ms": 8958,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5817,
+     "ms": 2612,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3683,
+      "cachedInputTokens": 0,
+      "outputTokens": 77,
+      "thoughtTokens": 42
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 9517,
+     "ms": 2275,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7124,
+      "cachedInputTokens": 3703,
+      "outputTokens": 47,
+      "thoughtTokens": 15
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 9703,
+     "ms": 4032,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7326,
+      "cachedInputTokens": 5086,
+      "outputTokens": 322,
+      "thoughtTokens": 207
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "The payments service version **4.18.2** was deployed.\n\n* **Deploy start time:** `2026-11-12T10:05:00.000Z` (payments-service.log L30000)\n* **Log entry:**  \n  `2026-11-12T10:05:00.000Z INFO [deployer] deploy of payments-service version 4.18.2 started`"
+  }
+ ],
+ "passed": true
+}

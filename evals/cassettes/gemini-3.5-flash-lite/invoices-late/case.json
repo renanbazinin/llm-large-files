@@ -1,0 +1,86 @@
+{
+ "case": "invoices-late",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "count",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 750",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 244618,
+   "cachedInputTokens": 118726,
+   "outputTokens": 85,
+   "thoughtTokens": 0,
+   "ms": 3157,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 134216,
+     "ms": 1910,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122214,
+      "cachedInputTokens": 0,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 134380,
+     "ms": 1095,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122404,
+      "cachedInputTokens": 118726,
+      "outputTokens": 32,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "ישנן **750** חשבוניות בסטטוס 'באיחור' בקובץ (חשבוניות.csv L4)."
+  }
+ ],
+ "passed": true
+}

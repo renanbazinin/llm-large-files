@@ -87,7 +87,10 @@ describe("the tools of one question", () => {
     expect((search.matches as Array<{ line: number }>).at(-1)!.line).toBe(lastInfo);
     // Room larger than the tool's own cap changes nothing.
     expect((await tools.executeWithFiles("read_document", read, { maxResultCharacters: 1_000_000 })).result).toEqual(whole);
-    expect(tools.resultCharacters("analyze_whole_document")).toBe(40_000);
+    // A whole-file read may answer at more length, with a part reader. Without one, this tool set
+    // does not answer the call, and keeps the least room for its error (since 0.10.0, LLF-049).
+    expect(files.tools([log], { generate: async () => "" }).resultCharacters("analyze_whole_document")).toBe(40_000);
+    expect(tools.resultCharacters("analyze_whole_document")).toBe(600);
   });
 
   it("read a document whole once, and count a read that was refused for its size as none", async () => {

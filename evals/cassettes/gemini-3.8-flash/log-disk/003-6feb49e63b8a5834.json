@@ -1,0 +1,153 @@
+{
+ "n": 3,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "6feb49e63b8a5834",
+  "bytes": 13158,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "63 chars #eaa3d4a1"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #54e84427",
+        "id": "25 chars #4f4828da"
+       },
+       "thoughtSignature": "436 chars #f277884d"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #4f4828da",
+        "response": "{5 keys} #f736e6a4"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #479590d2",
+        "id": "call_5396741753736132881"
+       },
+       "thoughtSignature": "308 chars #f4b22559"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_5396741753736132881",
+        "response": "{6 keys} #7444d609"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Based on the log (L11340):\\n\\n* **Node:** `db-2`\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4629,\"candidatesTokenCount\": 23,\"totalTokenCount\": 4749,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4629}],\"thoughtsTokenCount\": 97,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2nUFa9awFqHpnsEP4JmDqQc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"* **Disk usage:** **95%** full (mount path: `/var/lib/postgres`)\\n\\n\\u003e \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4629,\"candidatesTokenCount\": 47,\"totalTokenCount\": 4773,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4629}],\"thoughtsTokenCount\": 97,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2nUFa9awFqHpnsEP4JmDqQc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"`2026-11-12T08:47:15.000Z\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4629,\"candidatesTokenCount\": 72,\"totalTokenCount\": 4798,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4629}],\"thoughtsTokenCount\": 97,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2nUFa9awFqHpnsEP4JmDqQc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" WARN [node-monitor] disk usage 95% on node db-2 (/var/lib/postgres\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4629,\"candidatesTokenCount\": 96,\"totalTokenCount\": 4822,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4629}],\"thoughtsTokenCount\": 97,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2nUFa9awFqHpnsEP4JmDqQc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \")`\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4629,\"candidatesTokenCount\": 97,\"totalTokenCount\": 4823,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4629}],\"thoughtsTokenCount\": 97,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2nUFa9awFqHpnsEP4JmDqQc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"ErsDCrgDAWkUfRMtGusAEi2vH5bpLhz/NjDYU2iTZJ8XM3OVYsCFLPQTftuDzRJr4YinLM5igl1vbMEr/VJpubADAmfNtM4+LRKDxEh3FOrAJ+IeG+9nxpId7RsOTfhJ34FD6gWTBlsKrHG1C30zlByoIc6ra6k8k/WKg2qFToLXdNQ/RBdjV7B2JvcqQWwN2p0HY4c8NjAyv1iBDgb31HNTdhMH0V9fzHc3x1RVvzZa6QseSYLHdr554wNaJ4yK/nHBBDw5N2UJUmR+/gerKybRSwyQ1YP8QW3ZOiVBS2fCNwou68/D+aPsBTxJ+MgBYk8iTNT7NlzRaSfJdwsVieiwVgrq7kH+ANdjRE9d6kBL5sq4DqGBBYoRVBUoNHRjD15d3Dnrk9MY2R/M3Dny3xsXLi1P+2Z3wiLsHvdE9u3evJU2ptaKjraOg0BHWj70XNYVgGqt/7aThhxLeaouTWZ3wXNXX+40wTCBaLmNED/gXai5JJx52o3bsTGLEiCqyr5pe80DVrJSfty2taFOGen9aA+tQGavWYjBiQDPsFlxCFJiKxTW0/cQF3hd6dSjkrYub4opOwrTq+rDJyM=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4683,\"candidatesTokenCount\": 97,\"totalTokenCount\": 4877,\"cachedContentTokenCount\": 1704,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4683}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 1704}],\"thoughtsTokenCount\": 97,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2nUFa9awFqHpnsEP4JmDqQc\"}\r\n\r\n"
+  ]
+ }
+}

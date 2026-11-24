@@ -1,0 +1,90 @@
+{
+ "case": "sales-hebrew",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 32133",
+     "status": "pass"
+    },
+    {
+     "fact": "number 22",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 6424,
+   "cachedInputTokens": 0,
+   "outputTokens": 82,
+   "thoughtTokens": 0,
+   "ms": 1413,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5063,
+     "ms": 621,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3132,
+      "cachedInputTokens": 0,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 5205,
+     "ms": 757,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3292,
+      "cachedInputTokens": 0,
+      "outputTokens": 29,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "סך ההכנסות של אזור East הוא **32,133**, ויש לו **22** שורות."
+  }
+ ],
+ "passed": true
+}

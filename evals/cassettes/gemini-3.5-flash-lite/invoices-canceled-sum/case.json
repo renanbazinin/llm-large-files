@@ -1,0 +1,86 @@
+{
+ "case": "invoices-canceled-sum",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "count",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 18775396.6 ±1",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 244636,
+   "cachedInputTokens": 118726,
+   "outputTokens": 106,
+   "thoughtTokens": 0,
+   "ms": 2991,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 134217,
+     "ms": 1803,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122214,
+      "cachedInputTokens": 0,
+      "outputTokens": 55,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 134400,
+     "ms": 1039,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122422,
+      "cachedInputTokens": 118726,
+      "outputTokens": 51,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "הסכום הכולל של החשבוניות בסטטוס 'בוטל' הוא **18,775,396.6** (מתוך 750 חשבוניות בסטטוס זה)."
+  }
+ ],
+ "passed": true
+}

@@ -6,10 +6,10 @@ import { retryAfterMs } from "../retry.js";
 import { idleWatch, noteCutReply, readJson, streamedReply, type IdleWatch } from "../http.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
-import { finishOfGemini, geminiFailure, GeminiRequestError, notJson, silent, unreachable } from "./errors.js";
-import { createGeminiGenerateText, geminiFunctionResponseTurns, usageOfGemini, type GeminiContent, type GeminiPart, type GeminiToolFilePlacement } from "./generate.js";
+import { errorBodyOf, finishOfGemini, geminiFailure, GeminiRequestError, notJson, silent, statusOfError, unreachable } from "./errors.js";
+import { createGeminiGenerateText, discard, geminiFunctionResponseTurns, usageOfGemini, type GeminiContent, type GeminiPart, type GeminiRequestFields, type GeminiToolFilePlacement } from "./generate.js";
 
-export type { GeminiContent, GeminiPart };
+export type { GeminiContent, GeminiPart, GeminiRequestFields };
 
 /** What Gemini bills for one PDF page it is shown (measured: 520 to 532). */
 export const GEMINI_PAGE_TOKENS = 530;
@@ -35,6 +35,36 @@ export type GeminiModelOptions = {
   /** Names the model in usage totals. Defaults to the model in the URL. */
   id?: string | undefined;
   /**
+   * More fields for the body of every chat request, the request for the answer included:
+   * `safetySettings`, `labels` (Vertex AI), `serviceTier`, `cachedContent`, and so on. Merged last,
+   * after the library's. New in 0.10.0.
+   */
+  body?: GeminiRequestFields | undefined;
+  /**
+   * More fields for the body of a whole-document part read, given the output limit it is sent with.
+   * Merged last. Its `generationConfig` is `analysisConfig`. New in 0.10.0.
+   */
+  analysisBody?: ((maxOutputTokens: number) => GeminiRequestFields) | undefined;
+  /**
+   * The mode of `functionCallingConfig` in a request that offers tools: "AUTO" (the default), or
+   * "VALIDATED", in which Gemini checks each call against the declaration of its tool. It is sent
+   * only with tools. New in 0.10.0.
+   */
+  functionCallingMode?: "AUTO" | "VALIDATED" | undefined;
+  /**
+   * The longest time, in milliseconds, that one part read of a whole-file read may take, its whole
+   * reply included. Defaults to 180,000; 0 sets none. A part past it is sent again once, and is
+   * then reported as "The model took too long to answer". New in 0.10.0.
+   */
+  timeoutMs?: number | undefined;
+  /**
+   * How the request that must be answered in text says so. "omit" (the default) declares no tools:
+   * Gemini can ignore mode NONE and keep calling them. "mode_none" keeps the tools and sends
+   * `functionCallingConfig` mode NONE, so that the request starts as the ones before it did; a tool
+   * call that still comes back is asked for again once. New in 0.10.0.
+   */
+  answerWithoutTools?: "omit" | "mode_none" | undefined;
+  /**
    * The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count:
    * a model that thinks sends nothing until it has thought, and a reply that is not streamed comes
    * whole at the end. A request that gets nothing for that long is aborted and sent again, once.
@@ -56,13 +86,16 @@ type Body = {
   generationConfig?: Record<string, unknown>;
   tools?: unknown[];
   toolConfig?: unknown;
+  [key: string]: unknown;
 };
 
 type Chunk = {
   candidates?: Array<{ finishReason?: string; content?: { parts?: GeminiPart[] } }>;
   usageMetadata?: Record<string, unknown>;
   promptFeedback?: { blockReason?: string };
-  error?: { message?: string; code?: unknown };
+  error?: { message?: string; code?: unknown; status?: unknown; details?: unknown };
+  responseId?: unknown;
+  modelVersion?: unknown;
 };
 
 /** The model a Generate Content URL names: ".../models/gemini-3.8-flash:generateContent". */
@@ -204,11 +237,13 @@ export function geminiToolTurns(turns: ToolTurn[]): GeminiContent[] {
 /**
  * A Gemini model for `askWithFiles`. `endpoint` says where it is: `geminiApi()`, `vertexAi()`, or
  * your own URLs and headers for a gateway. Its `explorerUrl` is not used here: an explorer is a
- * model of its own, `gemini(geminiApi({ apiKey, model: "the-explorer" }))`.
+ * model of its own, `gemini(geminiApi({ apiKey, model: "the-explorer" }))`. A `refreshable`
+ * endpoint gets one more try, with headers asked for with `{ refresh: true }`, after a 401.
  */
-export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "headers">, options: GeminiModelOptions = {}): ModelAdapter {
+export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "headers" | "refreshable">, options: GeminiModelOptions = {}): ModelAdapter {
   const fetchImpl = options.fetch ?? fetch;
   const placement = options.toolFilePlacement ?? "inside";
+  const refreshable = endpoint.refreshable === true;
   // The turns of a tool round are built once: its pages are megabytes of base64.
   const built = new WeakMap<ModelToolRound, GeminiContent[]>();
   const roundTurns = (round: ModelToolRound): GeminiContent[] => {
@@ -222,17 +257,23 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
     return turns;
   };
   const toContents = (messages: ModelMessage[]): GeminiContent[] => messages.flatMap((message) => (message.role === "tools" ? roundTurns(message) : textTurn(message)));
-  const bodyOf = (request: ModelRequest): Body => ({
-    contents: toContents(request.messages),
-    ...(request.system ? { systemInstruction: { parts: [{ text: request.system }] } } : {}),
-    ...(options.generationConfig ? { generationConfig: options.generationConfig } : {}),
-    // A request that must be answered in text declares no tools at all: Gemini can ignore
-    // functionCallingConfig mode NONE and keep calling them.
-    ...(request.tools?.length && request.toolChoice !== "none" ? {
-      tools: [{ functionDeclarations: request.tools }],
-      toolConfig: { functionCallingConfig: { mode: "AUTO" } },
-    } : {}),
-  });
+  const bodyOf = (request: ModelRequest): Body => {
+    const mustAnswer = request.toolChoice === "none";
+    // A request that must be answered in text declares no tools at all, by default: Gemini can
+    // ignore functionCallingConfig mode NONE and keep calling them. With "mode_none" it keeps
+    // them, so that it starts as the requests before it did.
+    const declare = Boolean(request.tools?.length) && (!mustAnswer || options.answerWithoutTools === "mode_none");
+    return {
+      contents: toContents(request.messages),
+      ...(request.system ? { systemInstruction: { parts: [{ text: request.system }] } } : {}),
+      ...(options.generationConfig ? { generationConfig: options.generationConfig } : {}),
+      ...(declare ? {
+        tools: [{ functionDeclarations: request.tools }],
+        toolConfig: { functionCallingConfig: { mode: mustAnswer ? "NONE" : options.functionCallingMode ?? "AUTO" } },
+      } : {}),
+      ...options.body,
+    };
+  };
 
   return {
     id: options.id ?? modelOf(endpoint.url),
@@ -248,33 +289,49 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
       headers: endpoint.headers,
       fetchImpl,
       ...(options.analysisConfig ? { generationConfig: options.analysisConfig } : {}),
+      ...(options.analysisBody ? { body: options.analysisBody } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      ...(refreshable ? { refreshable } : {}),
     }),
 
     async send(request: ModelRequest, hooks: SendHooks = {}): Promise<ModelReply> {
       const stream = Boolean(hooks.onText && endpoint.streamUrl);
       // Headers are asked for with each request: an access token may have been renewed since the last.
       const headers = await resolveHeaders(endpoint);
+      const body = JSON.stringify(bodyOf(request));
       const watch = idleWatch(hooks.signal, { firstByteTimeoutMs: options.firstByteTimeoutMs, idleTimeoutMs: options.idleTimeoutMs });
       // A request the watch aborted got nothing back for the whole wait: that is no failed connection.
       const lost = (error: unknown) => (watch.expired ? silent(watch.waitedMs) : unreachable(error));
-      try {
-        let response: Response;
+      const post = async (sent: Record<string, string>): Promise<Response> => {
         try {
-          response = await fetchImpl(stream ? endpoint.streamUrl! : endpoint.url, {
-            method: "POST",
-            headers,
-            body: JSON.stringify(bodyOf(request)),
-            signal: watch.signal,
-          });
+          return await fetchImpl(stream ? endpoint.streamUrl! : endpoint.url, { method: "POST", headers: sent, body, signal: watch.signal });
         } catch (error) {
           if (hooks.signal?.aborted) throw error;
           throw lost(error);
         }
-        // The headers are no piece of the reply: a server may send them at once and then think.
-        if (!response.ok) {
-          const data = await response.json().catch(() => null);
-          throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `Gemini returned HTTP ${response.status}.`);
+      };
+      /** The error of a response that is not OK, from its body. */
+      const failureOf = async (response: Response, cause?: unknown): Promise<GeminiRequestError> => {
+        const data = await response.json().catch(() => null);
+        return geminiFailure(response.status, data, retryAfterMs(response.headers, errorBodyOf(data)), `Gemini returned HTTP ${response.status}.`, cause);
+      };
+      try {
+        let response = await post(headers);
+        // A token that was refused may be one a cache kept past its time: one more try, with
+        // headers asked for anew. A second 401 is the error.
+        if (response.status === 401 && refreshable) {
+          let fresh: Record<string, string>;
+          try {
+            fresh = await resolveHeaders(endpoint, { refresh: true });
+          } catch (error) {
+            // No new token came: the refusal is the error, and why none came is its cause.
+            throw await failureOf(response, error);
+          }
+          discard(response);
+          response = await post(fresh);
         }
+        // The headers are no piece of the reply: a server may send them at once and then think.
+        if (!response.ok) throw await failureOf(response);
         return await readReply(response, stream, hooks, watch, lost);
       } finally {
         watch.stop();
@@ -291,10 +348,16 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
     let finishReason: string | undefined;
     let blockReason: string | undefined;
     let usage: Record<string, unknown> | undefined;
+    let responseId: string | undefined;
+    let responseModel: string | undefined;
     const take = (chunk: Chunk) => {
-      if (chunk.error?.message) {
-        throw geminiFailure(typeof chunk.error.code === "number" ? chunk.error.code : response.status, chunk, undefined, chunk.error.message);
+      // An error inside a reply of HTTP 200: its status is its own code, or that of its
+      // google.rpc name ("UNAVAILABLE" is 503), so that a busy server is tried again.
+      if (chunk.error && typeof chunk.error === "object") {
+        throw geminiFailure(statusOfError(chunk.error), chunk, retryAfterMs(undefined, chunk), typeof chunk.error.message === "string" && chunk.error.message ? chunk.error.message : "Gemini reported an error.");
       }
+      if (typeof chunk.responseId === "string" && chunk.responseId) responseId = chunk.responseId;
+      if (typeof chunk.modelVersion === "string" && chunk.modelVersion) responseModel = chunk.modelVersion;
       if (chunk.promptFeedback?.blockReason) blockReason = chunk.promptFeedback.blockReason;
       const candidate = chunk.candidates?.[0];
       for (const part of candidate?.content?.parts ?? []) {
@@ -345,7 +408,9 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
         for (const chunk of Array.isArray(data) ? data : [data]) take(chunk);
       }
     } else {
-      take(await readJson<Chunk>(response, () => Boolean(hooks.signal?.aborted), lost, watch, notTheReply));
+      // A gateway may give the reply as a list of chunks, as Gemini does without `alt=sse`.
+      const data = await readJson<Chunk | Chunk[]>(response, () => Boolean(hooks.signal?.aborted), lost, watch, notTheReply);
+      for (const chunk of Array.isArray(data) ? data : [data]) take(chunk);
     }
     const finish = finishOfGemini(finishReason);
     return {
@@ -355,6 +420,8 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
       ...(finishReason ? { finishReason } : {}),
       ...(finish ? { finish } : {}),
       ...(blockReason ? { blockReason } : {}),
+      ...(responseId ? { responseId } : {}),
+      ...(responseModel ? { responseModel } : {}),
       ...(usage ? { usage: usageOfGemini(usage), providerUsage: usage } : {}),
     };
   }

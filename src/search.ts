@@ -6,6 +6,12 @@ import { composed, foldCase, LineIndex, sliceWhole } from "./text.js";
 import type { DocumentMeta, StoredDocument } from "./types.js";
 
 const MAX_OCCURRENCES_PER_TERM = 200_000;
+/**
+ * Past this many matching lines, an exact search goes on counting them within the time of a regex
+ * search (`REGEX_TIME_LIMIT_MS`, or the search's own `timeLimitMs`), and stops when that is up. It
+ * keeps no more of them than before: the lines it shows, and the last one. Until 0.10.0 it stopped
+ * here, and a count of 1,200,000 lines read 1,000,000, a lower bound.
+ */
 const MAX_EXACT_MATCHES = 1_000_000;
 const MAX_PHRASE_PASSAGES = 10_000;
 /** The most time one regex search may spend matching. */
@@ -599,6 +605,8 @@ class LineSearch {
   private batch?: { lines: Int32Array; columns: Int32Array; keys: Array<string | undefined> };
   /** Exact mode: the scan of the piece that stopped at the end of a time slice. */
   private exactLeft?: ExactScan;
+  /** Exact mode: true once `MAX_EXACT_MATCHES` lines were counted, and the scan goes on within a time limit. */
+  private pastCap = false;
   /** The lines looked at: matches outside them are neither counted nor shown. */
   private readonly fromLine: number;
   private readonly toLine: number;
@@ -635,7 +643,7 @@ class LineSearch {
     }
     // A plain exact search runs to the end, in slices with pauses: its time follows the text, and its
     // count must be whole. Only the work that grows with each occurrence (a whole-word check, a group
-    // key) has a limit, as a regex search does.
+    // key) has a limit, as a regex search does; and the lines past `MAX_EXACT_MATCHES` (`scanExact`).
     this.timeLeft = settings.timeLimitMs ?? (settings.regex ? REGEX_TIME_LIMIT_MS : settings.wholeWord || settings.groupBy ? EXACT_TIME_LIMIT_MS : Number.POSITIVE_INFINITY);
     this.lastOnes = settings.order === "last";
     if (settings.groupBy) {
@@ -842,9 +850,11 @@ class LineSearch {
         const lineText = lines.line(local);
         this.record(line, at - lines.startOf(local), lineText, this.groups?.keyOf(lineText, undefined));
         if (this.done) break;
-        if (this.total >= MAX_EXACT_MATCHES) {
-          this.stop();
-          break;
+        if (this.total >= MAX_EXACT_MATCHES && !this.pastCap) {
+          // The count goes on, within the time of a regex search from here: a plain exact search
+          // has no limit of its own, and the lines past this many cost a step each.
+          this.pastCap = true;
+          this.timeLeft = Math.min(this.timeLeft, this.settings.timeLimitMs ?? REGEX_TIME_LIMIT_MS);
         }
       }
       at = next >= text.length ? -1 : this.find(text, next);
@@ -1153,6 +1163,55 @@ export function queryTerms(query: string): string[] {
 export type RankedPassage = { from: number; to: number; score: number };
 
 /**
+ * The `count` entries of `scores` with the highest score, best first, of those `keep` keeps: what a
+ * stable sort by score, then a slice, gives (of two equal scores, the one met first comes first),
+ * with a heap of `count` entries in place of a sort of all of them. A keyword search of a large
+ * file scores tens of thousands of passages and shows 10 at most. New in 0.10.0 (P9).
+ */
+export function topScored<K>(scores: Iterable<readonly [K, number]>, count: number, keep: (key: K) => boolean = () => true): Array<[K, number]> {
+  const most = Math.max(0, Math.trunc(count));
+  if (most === 0) return [];
+  // A heap with the worst entry kept at its root: the lowest score, and of equal scores the one met last.
+  const heap: Array<{ key: K; score: number; order: number }> = [];
+  const worse = (left: (typeof heap)[number], right: (typeof heap)[number]) => left.score < right.score || (left.score === right.score && left.order > right.order);
+  const swap = (at: number, other: number) => {
+    const entry = heap[at]!;
+    heap[at] = heap[other]!;
+    heap[other] = entry;
+  };
+  let order = 0;
+  for (const [key, score] of scores) {
+    if (!keep(key)) continue;
+    const entry = { key, score, order: order++ };
+    if (heap.length < most) {
+      heap.push(entry);
+      for (let at = heap.length - 1; at > 0;) {
+        const parent = (at - 1) >> 1;
+        if (!worse(heap[at]!, heap[parent]!)) break;
+        swap(at, parent);
+        at = parent;
+      }
+      continue;
+    }
+    // An entry met later is worse than one met earlier with the same score: it takes the place of
+    // the worst only with a higher score.
+    if (!(score > heap[0]!.score)) continue;
+    heap[0] = entry;
+    for (let at = 0; ;) {
+      const left = 2 * at + 1;
+      const right = left + 1;
+      let worst = at;
+      if (left < heap.length && worse(heap[left]!, heap[worst]!)) worst = left;
+      if (right < heap.length && worse(heap[right]!, heap[worst]!)) worst = right;
+      if (worst === at) break;
+      swap(at, worst);
+      at = worst;
+    }
+  }
+  return heap.sort((left, right) => right.score - left.score || left.order - right.order).map(({ key, score }) => [key, score]);
+}
+
+/**
  * BM25 over fixed passages, computed at query time from substring hits, over a document fed a
  * piece at a time (pieces start at passage starts). No index to build or store, works for any
  * language, and a term also matches longer words ("timeout" → "timeouts").
@@ -1276,15 +1335,12 @@ class PassageRank {
     }
     if (this.phrase) for (const passage of this.phrase.passages) scores.set(passage, (scores.get(passage) ?? 0) * 1.5 + 1);
     const range = this.range;
-    return [...scores.entries()]
-      .filter(([passage]) => {
-        if (!range) return true;
-        const { from, to } = this.rangeOf(passage);
-        return to >= range.from && from <= range.to;
-      })
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, topK)
-      .map(([passage, score]) => ({ ...this.rangeOf(passage), score: Math.round(score * 100) / 100 }));
+    const inRange = (passage: number) => {
+      if (!range) return true;
+      const { from, to } = this.rangeOf(passage);
+      return to >= range.from && from <= range.to;
+    };
+    return topScored(scores, topK, inRange).map(([passage, score]) => ({ ...this.rangeOf(passage), score: Math.round(score * 100) / 100 }));
   }
 
   private passageOf(line: number): number {

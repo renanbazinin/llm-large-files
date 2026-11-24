@@ -1,0 +1,64 @@
+{
+ "case": "policy-travel-en",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 2.35",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 7231,
+   "cachedInputTokens": 0,
+   "outputTokens": 296,
+   "thoughtTokens": 238,
+   "ms": 38879,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 9735,
+     "ms": 38876,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7231,
+      "cachedInputTokens": 0,
+      "outputTokens": 296,
+      "thoughtTokens": 238
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "According to section 6.1 of the policy, the travel reimbursement rate for a private car is **2.35 NIS per kilometer**, based on a monthly report in the system (מדיניות משאבי אנוש 2026.docx L47)."
+  }
+ ],
+ "passed": true
+}

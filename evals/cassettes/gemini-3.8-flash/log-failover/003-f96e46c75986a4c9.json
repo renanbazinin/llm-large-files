@@ -1,0 +1,156 @@
+{
+ "n": 3,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "f96e46c75986a4c9",
+  "bytes": 15852,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "63 chars #636dbb45"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #5754481e",
+        "id": "call_8719790365139569352"
+       },
+       "thoughtSignature": "564 chars #9b938558"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_8719790365139569352",
+        "response": "{4 keys} #ea3f5a16"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #12c125ef",
+        "id": "call_8835959852043158980"
+       },
+       "thoughtSignature": "344 chars #47e599b6"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_8835959852043158980",
+        "response": "{5 keys} #9b16c7f0"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Based on the log file, the database fail\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6210,\"candidatesTokenCount\": 9,\"totalTokenCount\": 6434,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6210}],\"thoughtsTokenCount\": 215,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wHUFa9DbNq2E7M8PyoGzwQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"over timestamps are:\\n\\n- **Started:** `2026-11-12T09:31\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6210,\"candidatesTokenCount\": 35,\"totalTokenCount\": 6460,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6210}],\"thoughtsTokenCount\": 215,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wHUFa9DbNq2E7M8PyoGzwQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \":10.000Z`  \\n  *(Line 21880: `WARN [db-monitor]\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6210,\"candidatesTokenCount\": 63,\"totalTokenCount\": 6488,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6210}],\"thoughtsTokenCount\": 215,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wHUFa9DbNq2E7M8PyoGzwQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" database failover started: primary db-1 unreachable`)*\\n- **Completed:** `2026-1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6210,\"candidatesTokenCount\": 87,\"totalTokenCount\": 6512,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6210}],\"thoughtsTokenCount\": 215,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wHUFa9DbNq2E7M8PyoGzwQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"1-12T09:34:52.000Z`  \\n  *(Line\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6210,\"candidatesTokenCount\": 111,\"totalTokenCount\": 6536,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6210}],\"thoughtsTokenCount\": 215,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wHUFa9DbNq2E7M8PyoGzwQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 22768: `INFO [db-monitor] database failover completed: db-2 is now\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6210,\"candidatesTokenCount\": 135,\"totalTokenCount\": 6560,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6210}],\"thoughtsTokenCount\": 215,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wHUFa9DbNq2E7M8PyoGzwQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" primary`)*\\n\\nThe entire failover took **3 minutes and 42 seconds**.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6210,\"candidatesTokenCount\": 153,\"totalTokenCount\": 6578,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6210}],\"thoughtsTokenCount\": 215,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wHUFa9DbNq2E7M8PyoGzwQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"ErcGCrQGAWkUfRMNkYh0CRjDk838ySygHsmOnOJBYxG8jyf0LWhT/EE35k0uOR32bN48aGfFGoJp1SOoyoNIQ0hWV9MKZaPdBxEjwKr9OtLWeJHKbPeCMJxEno2BsEuUjL0m99T20TySPF4FYx2LOyJj3tTnToiawZuWXNqKPIsi1Z2PbkygNPtNLqNrttexf5PwQ0MtGyZ+uwbFAk+lJ/urkTA7H5ZmOU1EIw2BnAtyh0p6Qsl53JDqRIVgaNcyPtrg7eQVYhQJnjHTDhdSrEQVEAw9YsC84+aG/27no8O94UhQijepgF8trMciv62QU7jBsVW83cA83w/TJ8RvPw0AaY0glrLPwdC3vdI7FElY9NAnr3d6uWbyIf8CORRjKPUjJC5VCL5N8raEb8BJVFMizYCw49ypzZ2cTVKxd03kQ4/wvYNFKHkpgexaV0B9PoMTn07uZ4VgQzy20jVpmyqwT2JVpNxUPlWllVdJPbTphkCJsC61ao+oOxFMKxGdzaj12ac2Xbejy+byQ1Bl1Ftx254KZvFkn87y9Uh+lo7Kow9IIvOyDsXf7wWMB6y53iOT66k5fpZUmN2R5PnHGnk5maDk+cHLqLTiYwfI9r+gnHGCMWEWRL7Brcl2gRqRQH1XIPGWvXQ35rIHDjscuueqwEeFojRvHlY1pHJQEegfeziMZ5h2EfbWcfgKow52lHgvkS+JthHiwERqGviqpIoWP3V745CIYgL1D27i2Z61Y42sjysoucRXGvtRpOopo6cMvZBoAh/3kMYyAKMoFov+8xBY8vJAT5thMFW1pcNRnn2r5I+CjD2KIz652BIoW5+AKJShO1aCZeWXEI6q59tNpQNrTmU8082V5KSDLk7/RfUI4Rw338XCBBWmRAX9V4rVQMuVhsTh7csGFU57P+twGLPWk5gLQiC+zBKJhjmeqboT+28c9NvUZeF/MSnRuqqroegtdaNjXnlc/Z6L03A6dK1MOQshae8XAmW1qfvB20c8KDkJKnRmKJZT3aZF+fljjLwlwqPQ+LSazu84tcgzImWXAySRgZumaeF1eSf0S5UU0Qpi9+cwKZ5R6fGhlbOS7ch8eNGsrw==\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6283,\"candidatesTokenCount\": 153,\"totalTokenCount\": 6651,\"cachedContentTokenCount\": 3991,\"prompt",
+   "TokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6283}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3991}],\"thoughtsTokenCount\": 215,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wHUFa9DbNq2E7M8PyoGzwQs\"}\r\n\r\n"
+  ]
+ }
+}

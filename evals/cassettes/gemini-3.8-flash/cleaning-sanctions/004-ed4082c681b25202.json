@@ -1,0 +1,75 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "ed4082c681b25202",
+  "bytes": 6969,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "4096 chars #e4815dbb"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 32768
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "Relevant clauses where money is paid by or deducted from the supplier due to breach/delay (Part 1, lines 1-48):\n\n1. **Line 7 (סעיף 3):** \"המזמין רשאי לקזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה.\" – סכום: 810 ש\"ח.\n2. **Line 11 (סעיף 7):** \"המזמין רשאי לקזז 1,490 ש\"ח מכל תשלום לספק בגין החלפת עובד ניקיון ללא הודעה.\" – סכום: 1,490 ש\"ח.\n3. **Line 15 (סעיף 11):** \"המזמין רשאי לקזז 2,170 ש\"ח מכל תשלום לספק בגין אי ניקוי השירותים בקומה לפי הלוח.\" – סכום: 2,170 ש\"ח.\n4. **Line 20 (סעיף 16):** \"בגין אי פינוי פסולת בסוף היום ישלם הספק למזמין קנס בסך 3,020 ש\"ח.\" – סכום: 3,020 ש\"ח.\n5. **Line 24 (סעיף 20):** \"בגין איחור של יותר משעה בתחילת משמרת הניקיון ישלם הספק למזמין קנס בסך 3,700 ש\"ח.\" – סכום: 3,700 ש\"ח.\n6. **Line 28 (סעיף 24):** \"בגין עבודה ללא תג עובד ישלם הספק למזמין קנס בסך 4,380 ש\"ח.\" – סכום: 4,380 ש\"ח.\n7. **Line 32 (סעיף 28):** \"בגין נזק לרהוט במהלך הניקיון ישלם הספק למזמין קנס בסך 360 ש\"ח.\" – סכום: 360 ש\"ח.\n8. **Line 36 (סעיף 32):** \"בגין שימוש בחומרי ניקוי שלא אושרו ישלם הספק למזמין קנס בסך 1,040 ש\"ח.\" – סכום: 1,040 ש\"ח.\n9. **Line 41 (סעיף 37):** \"בגין החלפת עובד ניקיון ללא הודעה ישלם הספק למזמין פיצוי מוסכם בסך 1,890 ש\"ח, ללא צורך בהוכחת נזק.\" – סכום: 1,890 ש\"ח.\n10. **Line 45 (סעיף 41):** \"בגין אי ניקוי השירותים בקומה לפי הלוח ישלם הספק למזמין פיצוי מוסכם בסך 2,570 ש\"ח, ללא צורך בהוכחת נזק.\" – סכום: 2,570 ש\"ח.",
+        "thoughtSignature": "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"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2203,
+    "candidatesTokenCount": 768,
+    "totalTokenCount": 3928,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2203
+     }
+    ],
+    "thoughtsTokenCount": 957,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "r4UFa_3iE73sxs0P9PLyqQY"
+  }
+ }
+}

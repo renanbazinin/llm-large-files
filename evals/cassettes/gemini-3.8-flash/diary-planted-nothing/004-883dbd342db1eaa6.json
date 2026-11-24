@@ -1,0 +1,75 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "883dbd342db1eaa6",
+  "bytes": 32353,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19979 chars #05289609"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 32768
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "להלן תמצית המידע הרלוונטי מחלק 1 (שורות 1–325):\n\n### תקופה מכוסה\n- **1 בנובמבר 2026 – 8 בנובמבר 2026** (השבוע הראשון של החודש ותחילת השבוע השני).\n\n### פעילות שגרתית ותחזוקות מתוכננות\nבמהלך השבוע מתבצע סבב קבוע ומחזורי של משימות תחזוקה ובדיקות שגרתיות בכל המשמרות (לילה, בוקר, ערב):\n- בדיקת מצלמות אבטחה והקלטה תקינה (למשל L5, L20, L35).\n- ניקוי תקופתי של מסנני אוויר במזגנים (מזגנים 1–5 לסירוגין) (למשל L6, L21, L36).\n- קבלת משלוחי דיסקים ורישום במלאי (למשל L7, L22, L37).\n- עדכון תיעוד כבילה בארונות תקשורת (ארונות 2, 5, 8) על ידי טכנאי רשת (למשל L8, L23, L38).\n- בדיקת לוחות חשמל ועומסים (למשל L9, L24, L39).\n- סבבי ניקיון בחדר הציוד (למשל L10, L25, L40).\n- שליחת הודעות למשתמשים על חלון התחזוקה של יום שישי (למשל L11, L26, L41).\n- בדיקת מלאי סולר לגנרטור (נע בין 74% ל-94%) (למשל L12, L27, L42).\n- סבבי בדיקה בחדר שרתים (טמפרטורה יציבה של 20 מעלות, תקין) (למשל L13, L28, L43).\n- בדיקת לחץ במערכת כיבוי אש בגז (תקין) (למשל L14, L29, L44).\n- בדיקות שבועיות של הגנרטור (עוברות כסדרן) (למשל L15, L30, L48).\n- החלפת קלטות גיבוי והעברתן לכספת (למשל L16, L31, L49).\n- התקנת עדכוני תוכנה מתוכננים על שרתי הדואר (למשל L17, L32, L50).\n- תחזוקה מתוכננת במזגן 2 על ידי טכנאי מיזוג (למשל L19, L34, L52).\n\n---\n\n### אירוע חריג: תקלה בספק כוח בארון 12\n- **מועד התחלה:** יום חמישי, 5 בנובמבר 2026, שעה 01:50 (משמרת לילה) (L181).\n- **מה קרה:** מערכת הניטור התריעה שאחד מספקי הכוח בארון 12 כבה. השרתים בארון עברו לפעול על ספק הגיבוי (L181).\n- **מועד סיום וטיפול:** יום חמישי, 5 בנובמבר 2026, שעה 09:30 (משמרת בוקר) (L194).\n- **אופן הטיפול:** טכנאי היצרן הגיע והחליף את ספק הכוח התקול בארון 12, והבדיקות עברו בהצלחה (L194).",
+        "thoughtSignature": "EukiCuYiAWkUfROHN0gtlTu2uh67fxtXgFl8QqquKWiykbBxGFODqU57AwhqExCrh2uToMBmujUH6VRn51ekgwT3Q129A3tKkSXLYVwaU0aiOc8V1hG3fykYyoJxSWZU2zF33gKbXx7Ff0ScYV3J4SZrNzyr2K5+fKsgqvoOw6L1WKd3OV2c3q01JCC75LRQHz0D+ugO/84nnHAkuVDHHiDtDRZhYEtdZk5A6Pqy9YHTkXPV8SQxKYGVdA5jzLkFO2J37mBqjMM1IXq9ETwZjUhR/ptV4VPQMHKJaFuIOovgsgTv2KcJDwel2/Cogmlu9qoT0YL2j84qbQD5ZkmRSb1Nqby2j5lEscdtoLCunlE4nCyeXXaDB191WZ26wojVLzOCIoEq7l3q0A6jWL0NkNkOPudUkhgcBZl4iZ2sOVPPO8D4a2yQh8oTqmRjj+p6/kRTiMLdhcmoEcHew7jIIdOIj9gAzrk3tIuXRDB4GKFxUrQs08x0hUFfWGFEwBAsdblSZlvvb3XKuCKBUd8cVGsZKCnS5K8mnAi4Svz9Gdi+V2VksPX9GvCG9ZF0BWU8sVPSuq30uukv24w4CAV+BD3QDWi4lnFKcUGBIx5FHC2+a/7l9UImF3Y+wQAdqEyaAZyGXPmjfqO/t1+yv9//BPOsWX7Rhq4YRkyBEtLs/S80qfa7OgdCpkRJ0fS0ZkJkAcSbYwpWrU8SjTmmGj7e2PhtHZZ6ZpC4+aWVT6oUHngmmwJfe1xTJTpRyuTeK53B87eYX8AU+nlRnV4MsJd6pRdNqFihu6ZHlWXEgK6jBtYxiJVVhzjJisnmBhqfjsRGuTsa/U/mvIYwJGU4SNdZcwIKTXnXGRX9dl3+tZiGepzzv4vZ9GaDvwzUcwxxgquQhntVm+9y22WyImopmQqdgqDKu5FNI5tl3uyTzEaC5VP77gzFhyIl2QISO7l1OhaDOnURygAeTqoWjn1XSYk5QNcndIvLr6DQlq9kJkwUoYlpGW22q+/oeItIhqyL+wvSzNZE2QTxhFL7FPZBP5eHQqTPzX9gU+UTFx4dboMP7b2PK1mYr087mdMO7uA6GnGXxrnd7oJQpkGOj1pcDJq1BZTVEz5qXhFtgf7ZdlDaNCUNUYsmNnURvoHxzmES57EsNULLUeEXl4pAJY/WrK9R05SEE9FK/VEb8IK5u6T5kM6uwj601pdN63500BdcsiEskPyPBa6T0Xcjs5VLg8XsJ45p/rGVJkRLyhngrcnISXLVzXu60gFrEIwi/FnDveYFsryRl+3x5TGCI5rDZsBBptsM7OuJcnNx8997yi5lwGzEqXM3GlLHv8MlKp2Oep7hlhaJ1XHnb6Si77Ml/sBcSrN6MG088qSrDebssv51Q4kGlcYxCG97Wu9znorSy7q60610G3TsP4Uo+uX78g+iaLKhBF+o5EWXZgHW5Bv+VV8Sca3VA1oGHctntuWuOCOtmIHAmC/m7GFjf1leT6vVSf1tdRG+YVbmvaYewOMK8n7Dn1stpHpi2CnXXpkABmrFzG8WqQIqfUkRtMjPf80z1J6V4CjCyprokr7zes6I5EpGzlAqI6tBsC3eNo1inPixjZ27Nji7+xM61kO05R8NgoywCe5PFdwWuqwylT0AlblfW10q0LH460Lmb8qlpBS0AcfEyNVGgoUhO5lySQQJqGRBkHBG3fBjyOu2zvUooafO3l3+adkqAVEVemWsHgZ+XMKUk3SuL6l5DGE2J4jiPei0P/bSew2pKpY9sR44e4jqzPL8XBHOcEmUIIDRBjmgBvvIn0uDmkmDjXvKnvNMDmjpslVwQw6KmrFKYEecTtHDp8uIGumH6v/fFx2UdP2Exew/AecluGCHMcmwcUBf5qM1y5eU4PAD0RsuGgicUoUOLytFOPy7Fdj8Uq6I2mAxIS0IHpByfD+lMqu7EB9KDY0YE+k5+hGfujmDVchoy8iQC37V5qSN9VJm2iL+zc2ZkwkUeRWcdk433gMu+nXMeO5yYUoeGfURl46hpk05S4EJzF9HxMHT3bZqyUgmQ6Iy6vPF3umpXIwXdBvHMvoDORITScR5f8ZolAmQhzEWHMVAjNObEoFsTVhVVL3yeBgB4w4T/v7kMwtFrqm5JnPTmH46UDaJzkZczDVbGsiMFDJzHcXQMXJPG/IZ4tZcM4qCR/Ib+f05hF4G8K6F9Vx9KuR9vNEh2Lay0UFhAE8sLC0awHGDVrEXudncUNWTqSthju48+923YzhXcMvDUBKY8GUYwL7ZKPizC4A/0E6f6JVAZo0mH9atDVXSIHbTQ6/QKxCqhVlCs/lDhhBYuQLReznH842NWUyq1HzerQ1e02Rw5FFUeJtpdTOnfeu7vWkzYo2+aCnRkg1VSSjiEHRoK6+j5BrOsUF6A7Q2rC5dVryNpjPEQrXq3UqAllFkc0C+ohNCZrTDzfFwHiTv2bd2HfIAJ7x7wqe8tBC2lTv/wEcws5a8MipObBcEm3N3J8+tTdMQmONyRi1ai2JxeKYLJY8OEKGiV1mLBQvvOLvK6BiCoXnaIK3INU77QZk/JLU+f0F98GHc1WAenn4qYTjTo/SEd9f4jThu6vY1WTTT4SHjWd4lHUdMIEKfiuUO/8oCp7zottdIdQGE/1yUv49pEOuDgCjKDNLDfoS/313PdK4wJUWqbpovlxx3CPF0bDOD26LLUlNZzmanj140MaQRJGOKTu780uxvfu9BUrq2cXa6IZd7bHW7QHRf+mmpJIYaewLsfd66zD5IGDGKmmeOMQEQkbVMaYWkWrIoHiLv72yXE993bFypjcTciqSzwEwn46N6XgZpSSJkKxsWgSWEnhioNFCcS/TkyFAGx+mEB7aoHr8VFaKv9iQJLsXgbN4Nle62mlmV+Ib/hVbcyjs+fMGihKBD1vq9VE7QTrbXkyTdOnv/ErWgTN3hFyNi2rcnHSAs1oLIzxZkDO4F5m+Y2BZOYxe6jeqs//lQpOVI+glF8UOhdqpmaluPEnLlYC2Euyk0XCgD5NSDlzA8gqYegKqcULY/e+0aBnOU7K6OcunX5xa4e5tBEVdw7JMyhlXW5QJ7k6Hn7udRdgMUW0jCRQkMkPB6UBS/QB3rJF1KA8+xF39V+tFPsm3ku3GCUIp1/X+stpQNJXLQc/F82hUhK3Bl8eB2fcMzHOtT9AGglll9ZYGkV2SD/DKUxXSnLv47r3aKI1SqyYvGcUz5zk+5EDas2/69nIxAWSI4rBK5lQS0G4Cc+kJsukBtO/j4AxzRAVaZOv1rCHsafM1hWxhFFKXgLwyuO8UYW30m7KcajN3FoDfF4Avy3QCCmYwd9KmJBcQbHoUIYNwO7VJP1txlTuxAbj1tiloPolANUwCRAmn1mYqT7Hv+KmKXPGV5MVi3/ZlskAX+TAbm9FYXzdfEt2xDsfxSb1d3mufb1zLjpQNDY4jUBqTr9L3gjEvSX2IHoziQ77cvwstixNJe/wJ1tzfLQMZxPpFGDQrZ1UZqO4U80vPJFUw8jLJ2rvJaZwrJW4AyJmFIJy0pcO0T7irMZZ813rLSzV428GpDLPpaUolMKCJ6DRl+ruKPATaMXI5XRlcvzJTe49hSCvJlw7CrqjpRNP6+EbpkhZNd3DxoiSqaXQyJif7gioXt/0CeURUJ6NVhvdN0ce/0ze8gTXqMj14811FdI/JCamtF4XifTxJYNoJKcphmimuW8EhhMt3D+V/QgA9cD/NW1s7Dez2xkOUmThbCPZ47wh0bKCo0Dm4d20vGiS/9Ss0SvDzrgBMRkvIDsbZ0Y9DDw7gLBEYNQIxvWLIdpzwWZVG+mNZU16MMiAViRtaVyQMQesB0zJ4SePUoeYB56hHBIoQEXSG5zqcorH9PdcPcLxMnXl5HqKbf18r6GOQDvbJbxWDpJ3cZyG10XJ23wVYqaMlqZUwQ5X21yGEHGCn5MvpKBcu2zMu7HPmqp3gobIhm/iaoNjGxf5EePte3e9LQAGMx55r7r18xgVz9EgTfZhdcSxMwm394aD7wD3hFBoGK4+W4Up8Cww13aw6AKt4gqKG2L9OeOI/PofPKobMe/++ShNyx/0kyEGlAQUU97Okm6JLTRE4XHHYY8P53CVcvxPzrPf8+rf78JhSilKFVsZTdqB88XVB3Q6b3mdHjJFkdABpud9fsTy8ePwR0JnZs5tN+TXu1Zoml8Hwj2+qOx7HnSPIHzwLkicalCSAB7u1iE/sX8icTxMePBJgRjS6NalNQIWdQlahx+LjrnG04Fh2rwhw7CXSzPIgYDJz9VnFVpB3ooY9QzSO+ZVuViHiMsS6MyQ/3bwBZcKujkOaiT9ba4AdH4TgPvg7agIvN+3mYH9bpEmJ+2cnJu9z8SZdcYeQWX/q4kl3IfU8k5DWdye/yaPwLhjLbfIH87cm4KEnatb+2hHlmltzMnPUdjSztf2GpcItZFCTYUEqCSTwV2dAZCUPNmStbkLablQo62eJoeVqgHeEg0LlYxc2keXASTOjGGvpKBveRNT8Ua6yOMl1SJ1+toCeUP48anH5GvOSJREFT6zFCaMKTIdzaSB8ydCTvtx1+AnuOAd4PHpXLZnVF0gDWNN01fXWLNvAUFVBUAFB5fgAUwC1VZJgoEFOKcW75OC7wg8EEm/GIx3/a3Q1Z9r6kjmqAqH2KUQu8m8ALNpiavkj6ZDVyVE3faHBMG+E9RnY5IzUHJQdp38WkvsJ9AEM4QPVI1AQPik4DNSUE/QTbiG6+8Qw0iPew4p6b9qp7QmdlpGrsxDh4RvPc7yGNWkQFXUXbU7sIdOhrBH/fJf2dusDPqxWbLG2lKFgIcSNQBQCFXodyk6tQP/IgYiJK09ceZBIY7Pw6r2KLPxbjBP7xybtP1gywaIS1Q+G7iRB9JD1dQjEWuRnjOaPp3ddwOvJKQ4FLh9YqN6yv8xzWQYdBcDZFyKzmzYL6TxbgR/EBgWvzNX8p7FRvN4+pD6jxzWqplp8QE45vXJ0XWfVIt4vlQOaGB2b+jNOvtVd51xujryxlZC9CsCv7RlrzCXkg8Ewlh0UJNnCeLbfXwkAMDWo5afHSadQmpxKxR1E6neMws7oXkq+3YUJehqeY+WzWXb8DHpcqJ6B30mBhVIsVPKOthKZu3LjGzT7qXaE5+byJDMhNa4akLz0wDrfro6anZapukIHSX/cMV4FbzgEpPl/LbVA+Rz6YN3QzQE3U8+Omm8jJPj6aD3p8EKK+iu7EMUCP6Nbylj1eizJEuWUAPJIYoxLCkU2TS2BSchQw0nCuddiHCa2ful2a0hU7h0SC3nkdy9bbSXkAN3ImTnNgjdmMhMmr7gKO1nDri6wooe/DJC4Ddt4elq8c5ocNxCF+mZoBNev8VgY8CcRAG9eO24CiM9F6eoYCcG9GISeLh7ZVW6CieaDA/h1FXV13kGCzcamfzgZzS1sib3DXrhinj6tQVOesOvzgmfrrS5aw51HBLgW4htK72r421rhd/3yur069h+z2iqKdWcdSaxyJnazrbRM1Be9NoD2QY8LjTtapYpE+EsnJ2vktdEaouBYRc/3Yje7HLJMNf6SVDB8cBOmNgnl+s+z3H4kfW3FLvVzr+tATWZNoZzwtQAXUN4eMMSb4Mzlh79WFmeLf67FYpTchGhlVIvuPQD69ou3EQxzuNG/iKhgmRxS3FvmWZrGKK3We3N80WePOjrjJ2aswT+t3FHUL+Zng+IXKV25EALUYlqjSqYk4mOAAA+9BMszuKu+c35otbfjkhLd0GHdqnwQWV8j5RRKCHHv7U09ssw3GblFRBY2BBcByORDxr9gM8eAF4t3bMSoW44VLoKnflCU5+pVy5a4/t8QF+iIST36X4QNEXRGmspaiLB69bCdXpkQTSJJ8fG4FAjiAHDqNHlb0z3shCcPc/BEECBzRNfoVy4uFzZ6mWfxnbvEP4VRqjOnJRIHgONOZGPa20iDXYwc="
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12148,
+    "candidatesTokenCount": 905,
+    "totalTokenCount": 14580,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12148
+     }
+    ],
+    "thoughtsTokenCount": 1527,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "zXcFa5TpDoa9kdUPjrSu8Qg"
+  }
+ }
+}

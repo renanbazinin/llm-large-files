@@ -1,0 +1,1265 @@
+{
+ "title": "Evals: P1's fix, a quick live check on Flash-Lite",
+ "notes": [
+  "Live, gemini-3.5-flash-lite, 3 runs of each case, at 5ddab09: `cite` over a table sent whole, and a",
+  "filter whose value names a column refused with \"read the rows\". Superseded by afbfb60",
+  "(`0100-p1-fix-quick.md`). budget-count passed its fact in 3 of 3 runs, but only because \"23.\"",
+  "numbers the last item of its list: every run listed the right 23 departments, and the answers began",
+  "with 25, 22 and 23. It counted by eye, in 5 or 6 requests."
+ ],
+ "runs": [
+  {
+   "case": "budget-count",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 23",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 6,
+     "inputTokens": 32464,
+     "cachedInputTokens": 10108,
+     "outputTokens": 1210,
+     "thoughtTokens": 0,
+     "ms": 5987,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 23,
+      "supported": 23,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table",
+      "aggregate_table",
+      "search_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5731,
+       "ms": 1086,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3856,
+        "cachedInputTokens": 0,
+        "outputTokens": 51,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 5838,
+       "ms": 628,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3976,
+        "cachedInputTokens": 0,
+        "outputTokens": 62,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 6017,
+       "ms": 546,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4164,
+        "cachedInputTokens": 0,
+        "outputTokens": 32,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 7230,
+       "ms": 571,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5535,
+        "cachedInputTokens": 2019,
+        "outputTokens": 46,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 5,
+       "estimatedInputTokens": 8578,
+       "ms": 627,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7028,
+        "cachedInputTokens": 4044,
+        "outputTokens": 46,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_6",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 6,
+       "estimatedInputTokens": 9358,
+       "ms": 2471,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7905,
+        "cachedInputTokens": 4045,
+        "outputTokens": 973,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "ברבעון 1, הביצוע היה גבוה מהתקציב ב**25** מחלקות (מתוך 48 מחלקות בסך הכל). \n\nלהלן פירוט המחלקות שבהן הביצוע ברבעון 1 היה גבוה מהתקציב:\n\n1. **רכש - מרכז** (תקציב: 187, ביצוע: 195) (budget-1 L7)\n2. **כספים - צפון** (תקציב: 261, ביצוע: 284) (budget-1 L9)\n3. **כספים - דרום** (תקציב: 335, ביצוע: 373) (budget-1 L11)\n4. **שיווק - דרום** (תקציב: 446, ביצוע: 461) (budget-1 L14)\n5. **מכירות - מרכז** (תקציב: 170, ביצוע: 200) (budget-1 L16)\n6. **משאבי אנוש - צפון** (תקציב: 244, ביצוע: 289) (budget-1 L18)\n7. **משאבי אנוש - מרכז** (תקציב: 281, ביצוע: 288) (budget-1 L19)\n8. **מערכות מידע - צפון** (תקציב: 355, ביצוע: 377) (budget-1 L21)\n9. **מערכות מידע - דרום** (תקציב: 429, ביצוע: 466) (budget-1 L23)\n10. **לוגיסטיקה - דרום** (תקציב: 190, ביצוע: 204) (budget-1 L26)\n11. **שירות לקוחות - מרכז** (תקציב: 264, ביצוע: 293) (budget-1 L28)\n12. **הנדסה - צפון** (תקציב: 338, ביצוע: 382) (budget-1 L30)\n13. **הנדסה - מרכז** (תקציב: 375, ביצוע: 381) (budget-1 L31)\n14. **בקרת איכות - צפון** (תקציב: 449, ביצוע: 470) (budget-1 L33)\n15. **בקרת איכות - דרום** (תקציב: 173, ביצוע: 209) (budget-1 L35)\n16. **משפטית - דרום** (תקציב: 284, ביצוע: 297) (budget-1 L38)\n17. **ביטחון - מרכז** (תקציב: 358, ביצוע: 386) (budget-1 L40)\n18. **תפעול - צפון** (תקציב: 432, ביצוע: 475) (budget-1 L42)\n19. **תפעול - מרכז** (תקציב: 469, ביצוע: 474) (budget-1 L43)\n20. **פיתוח עסקי - צפון** (תקציב: 193, ביצוע: 213) (budget-1 L45)\n21. **פיתוח עסקי - דרום** (תקציב: 267, ביצוע: 302) (budget-1 L47)\n22. **הדרכה - דרום** (תקציב: 378, ביצוע: 390) (budget-1 L50)\n23. **אחזקה - מרכז** (תקציב: 452, ביצוע: 479) (budget-1 L52)"
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "budget-count",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 23",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 5,
+     "inputTokens": 24932,
+     "cachedInputTokens": 10100,
+     "outputTokens": 1083,
+     "thoughtTokens": 0,
+     "ms": 4513,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 24,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table",
+      "aggregate_table",
+      "read_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5731,
+       "ms": 582,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3856,
+        "cachedInputTokens": 0,
+        "outputTokens": 57,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 5844,
+       "ms": 525,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3982,
+        "cachedInputTokens": 0,
+        "outputTokens": 68,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 6029,
+       "ms": 581,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4176,
+        "cachedInputTokens": 2014,
+        "outputTokens": 33,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 8240,
+       "ms": 531,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6413,
+        "cachedInputTokens": 4046,
+        "outputTokens": 26,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 5,
+       "estimatedInputTokens": 8323,
+       "ms": 2277,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6505,
+        "cachedInputTokens": 4040,
+        "outputTokens": 899,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "בדיקה של הנתונים בכל המחלקות (שורות 6 עד 51) מעלה כי הביצוע ברבעון 1 היה גבוה מהתקציב ב-**22** מחלקות. \n\nלהלן פירוט המחלקות שבהן הביצוע ברבעון 1 עלה על התקציב:\n1. **רכש - מרכז** (שורה 7: תקציב 187, ביצוע 195)\n2. **כספים - צפון** (שורה 9: תקציב 261, ביצוע 284)\n3. **כספים - דרום** (שורה 11: תקציב 335, ביצוע 373)\n4. **שיווק - דרום** (שורה 14: תקציב 446, ביצוע 461)\n5. **מכירות - מרכז** (שורה 16: תקציב 170, ביצוע 200)\n6. **משאבי אנוש - צפון** (שורה 18: תקציב 244, ביצוע 289)\n7. **משאבי אנוש - מרכז** (שורה 19: תקציב 281, ביצוע 288)\n8. **מערכות מידע - צפון** (שורה 21: תקציב 355, ביצוע 377)\n9. **מערכות מידע - דרום** (שורה 23: תקציב 429, ביצוע 466)\n10. **לוגיסטיקה - דרום** (שורה 26: תקציב 190, ביצוע 204)\n11. **שירות לקוחות - מרכז** (שורה 28: תקציב 264, ביצוע 293)\n12. **הנדסה - צפון** (שורה 30: תקציב 338, ביצוע 382)\n13. **הנדסה - מרכז** (שורה 31: תקציב 375, ביצוע 381)\n14. **בקרת איכות - צפון** (שורה 33: תקציב 449, ביצוע 470)\n15. **בקרת איכות - דרום** (שורה 35: תקציב 173, ביצוע 209)\n16. **משפטית - דרום** (שורה 38: תקציב 284, ביצוע 297)\n17. **ביטחון - מרכז** (שורה 40: תקציב 358, ביצוע 386)\n18. **תפעול - צפון** (שורה 42: תקציב 432, ביצוע 475)\n19. **תפעול - מרכז** (שורה 43: תקציב 469, ביצוע 474)\n20. **פיתוח עסקי - צפון** (שורה 45: תקציב 193, ביצוע 213)\n21. **פיתוח עסקי - דרום** (שורה 47: תקציב 267, ביצוע 302)\n22. **הדרכה - דרום** (שורה 50: תקציב 378, ביצוע 390)\n23. **אחזקה - מרכז** (שורה 52: תקציב 452, ביצוע 479)\n\n*(הערה: סך הכל נמצאו 23 מחלקות בהן הביצוע היה גבוה מהתקציב).*"
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "budget-count",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 3,
+   "language": "he",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 23",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 5,
+     "inputTokens": 23879,
+     "cachedInputTokens": 8072,
+     "outputTokens": 1150,
+     "thoughtTokens": 0,
+     "ms": 4941,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 23,
+      "supported": 23,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table",
+      "aggregate_table",
+      "search_document",
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5731,
+       "ms": 769,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3856,
+        "cachedInputTokens": 0,
+        "outputTokens": 51,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 5838,
+       "ms": 528,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3976,
+        "cachedInputTokens": 0,
+        "outputTokens": 62,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 6017,
+       "ms": 529,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4164,
+        "cachedInputTokens": 2014,
+        "outputTokens": 33,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 7215,
+       "ms": 519,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5382,
+        "cachedInputTokens": 2018,
+        "outputTokens": 34,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 5,
+       "estimatedInputTokens": 8316,
+       "ms": 2578,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6501,
+        "cachedInputTokens": 4040,
+        "outputTokens": 970,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "בדיקת הנתונים ברבעון 1 מראה שבטיפול ב-**23 מחלקות** הביצוע היה גבוה מהתקציב (כלומר, עמודת \"ביצוע\" גדולה מעמודת \"תקציב\" ברבעון 1):\n\n1. **רכש - מרכז** (תקציב: 187, ביצוע: 195) (budget-1 L7)\n2. **כספים - צפון** (תקציב: 261, ביצוע: 284) (budget-1 L9)\n3. **כספים - דרום** (תקציב: 335, ביצוע: 373) (budget-1 L11)\n4. **שיווק - דרום** (תקציב: 446, ביצוע: 461) (budget-1 L14)\n5. **מכירות - מרכז** (תקציב: 170, ביצוע: 200) (budget-1 L16)\n6. **משאבי אנוש - צפון** (תקציב: 244, ביצוע: 289) (budget-1 L18)\n7. **משאבי אנוש - מרכז** (תקציב: 281, ביצוע: 288) (budget-1 L19)\n8. **מערכות מידע - צפון** (תקציב: 355, ביצוע: 377) (budget-1 L21)\n9. **מערכות מידע - דרום** (תקציב: 429, ביצוע: 466) (budget-1 L23)\n10. **לוגיסטיקה - דרום** (תקציב: 190, ביצוע: 204) (budget-1 L26)\n11. **שירות לקוחות - מרכז** (תקציב: 264, ביצוע: 293) (budget-1 L28)\n12. **הנדסה - צפון** (תקציב: 338, ביצוע: 382) (budget-1 L30)\n13. **הנדסה - מרכז** (תקציב: 375, ביצוע: 381) (budget-1 L31)\n14. **בקרת איכות - צפון** (תקציב: 449, ביצוע: 470) (budget-1 L33)\n15. **בקרת איכות - דרום** (תקציב: 173, ביצוע: 209) (budget-1 L35)\n16. **משפטית - דרום** (תקציב: 284, ביצוע: 297) (budget-1 L38)\n17. **ביטחון - מרכז** (תקציב: 358, ביצוע: 386) (budget-1 L40)\n18. **תפעול - צפון** (תקציב: 432, ביצוע: 475) (budget-1 L42)\n19. **תפעול - מרכז** (תקציב: 469, ביצוע: 474) (budget-1 L43)\n20. **פיתוח עסקי - צפון** (תקציב: 193, ביצוע: 213) (budget-1 L45)\n21. **פיתוח עסקי - דרום** (תקציב: 267, ביצוע: 302) (budget-1 L47)\n22. **הדרכה - דרום** (תקציב: 378, ביצוע: 390) (budget-1 L50)\n23. **אחזקה - מרכז** (תקציב: 452, ביצוע: 479) (budget-1 L52)"
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "budget-sum-en",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "en",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 15508",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 3,
+     "inputTokens": 12092,
+     "cachedInputTokens": 0,
+     "outputTokens": 132,
+     "thoughtTokens": 0,
+     "ms": 2268,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table",
+      "aggregate_table"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5723,
+       "ms": 936,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3847,
+        "cachedInputTokens": 0,
+        "outputTokens": 41,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 5853,
+       "ms": 647,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3985,
+        "cachedInputTokens": 0,
+        "outputTokens": 42,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 6096,
+       "ms": 614,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4260,
+        "cachedInputTokens": 0,
+        "outputTokens": 49,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "התקציב הכולל לרבעון 2 של כל המחלקות יחד הוא **15,508 אלפי ש\"ח** (15,508,000 ש\"ח)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "budget-sum-en",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "en",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 15508",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 3,
+     "inputTokens": 12062,
+     "cachedInputTokens": 2015,
+     "outputTokens": 139,
+     "thoughtTokens": 0,
+     "ms": 1837,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table",
+      "aggregate_table"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5723,
+       "ms": 644,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3847,
+        "cachedInputTokens": 0,
+        "outputTokens": 32,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 5842,
+       "ms": 516,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3973,
+        "cachedInputTokens": 0,
+        "outputTokens": 36,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 6079,
+       "ms": 634,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4242,
+        "cachedInputTokens": 2015,
+        "outputTokens": 71,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "התקציב הכולל לרבעון 2 של כל המחלקות יחד הוא **15,508 אלפי ש\"ח** (15,508,000 ש\"ח) (תקציב מחלקות 2026.xlsx L6-L51)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "budget-sum-en",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 3,
+   "language": "en",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 15508",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 3,
+     "inputTokens": 12062,
+     "cachedInputTokens": 2015,
+     "outputTokens": 123,
+     "thoughtTokens": 0,
+     "ms": 1638,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table",
+      "aggregate_table"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5723,
+       "ms": 515,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3847,
+        "cachedInputTokens": 0,
+        "outputTokens": 32,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 5842,
+       "ms": 519,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3973,
+        "cachedInputTokens": 0,
+        "outputTokens": 36,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 6079,
+       "ms": 590,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4242,
+        "cachedInputTokens": 2015,
+        "outputTokens": 55,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "The total Q2 budget of all departments together is **15,508 thousand NIS** (15,508,000 NIS) (תקציב מחלקות 2026.xlsx L6–L51)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "deck-slide",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says slide 2",
+       "status": "pass"
+      },
+      {
+       "fact": "number 1200",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 2038,
+     "cachedInputTokens": 0,
+     "outputTokens": 61,
+     "thoughtTokens": 0,
+     "ms": 586,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 3884,
+       "ms": 575,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2038,
+        "cachedInputTokens": 0,
+        "outputTokens": 61,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "טבלת העמידה ביעדים מופיעה ב**שקף 2** (deck-1 L6-12).\n\nהיעד של **אזור הצפון** היה **1,200 אלפי ש\"ח** (deck-1 L9)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "deck-slide",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says slide 2",
+       "status": "pass"
+      },
+      {
+       "fact": "number 1200",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 2038,
+     "cachedInputTokens": 0,
+     "outputTokens": 70,
+     "thoughtTokens": 0,
+     "ms": 544,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 3884,
+       "ms": 536,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2038,
+        "cachedInputTokens": 0,
+        "outputTokens": 70,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "טבלת העמידה ביעדים מופיעה ב**שקף 2** (deck-1 L6-12).\n\nהיעד של אזור הצפון היה **1,200 אלפי ש\"ח** (1.2 מיליון ש\"ח) (deck-1 L9)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "deck-slide",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 3,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says slide 2",
+       "status": "pass"
+      },
+      {
+       "fact": "number 1200",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 2038,
+     "cachedInputTokens": 0,
+     "outputTokens": 73,
+     "thoughtTokens": 0,
+     "ms": 723,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 3884,
+       "ms": 718,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2038,
+        "cachedInputTokens": 0,
+        "outputTokens": 73,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "טבלת העמידה ביעדים מופיעה ב**שקף 2** (deck-1 L6-12).\n\nהיעד של אזור הצפון היה **1,200 אלפי ש\"ח** (1,200,000 ש\"ח) (deck-1 L9)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "sales-east",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "en",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 32133",
+       "status": "pass"
+      },
+      {
+       "fact": "number 22",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 66611,
+     "cachedInputTokens": 30665,
+     "outputTokens": 104,
+     "thoughtTokens": 0,
+     "ms": 1617,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 3,
+      "supported": 3,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 38208,
+       "ms": 888,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 33207,
+        "cachedInputTokens": 0,
+        "outputTokens": 53,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 38387,
+       "ms": 692,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 33404,
+        "cachedInputTokens": 30665,
+        "outputTokens": 51,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "The total revenue for the East region is **32,133**, and there are **22** rows for the East region (sales-2026.xlsx L55, L108, L161)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "sales-east",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "en",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 32133",
+       "status": "pass"
+      },
+      {
+       "fact": "number 22",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 66611,
+     "cachedInputTokens": 61339,
+     "outputTokens": 204,
+     "thoughtTokens": 0,
+     "ms": 1933,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 22,
+      "supported": 22,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 38208,
+       "ms": 979,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 33207,
+        "cachedInputTokens": 30674,
+        "outputTokens": 53,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 38387,
+       "ms": 927,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 33404,
+        "cachedInputTokens": 30665,
+        "outputTokens": 151,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "The total revenue of the East region is **32,133**, and there are **22** East rows in the sales data (sales-2026.xlsx L55, L108, L161, L214, L267, L320, L373, L424, L477, L532, L585, L638, L691, L744, L797, L850, L903, L956, L1009, L1062, L1113, L1166)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "sales-east",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 3,
+   "language": "en",
+   "kinds": [
+    "count",
+    "inline-table"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 32133",
+       "status": "pass"
+      },
+      {
+       "fact": "number 22",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 66611,
+     "cachedInputTokens": 61339,
+     "outputTokens": 204,
+     "thoughtTokens": 0,
+     "ms": 1725,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 22,
+      "supported": 22,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "aggregate_table"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 38208,
+       "ms": 681,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 33207,
+        "cachedInputTokens": 30674,
+        "outputTokens": 53,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 38387,
+       "ms": 1005,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 33404,
+        "cachedInputTokens": 30665,
+        "outputTokens": 151,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "The total revenue for the East region is **32,133**, and there are **22** East rows in the sales data (sales-2026.xlsx L55, L108, L161, L214, L267, L320, L373, L424, L477, L530, L585, L636, L689, L744, L797, L850, L903, L956, L1009, L1060, L1113, L1166)."
+    }
+   ],
+   "passed": true
+  }
+ ]
+}

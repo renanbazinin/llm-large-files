@@ -1,0 +1,82 @@
+{
+ "case": "invoices-customer-en",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "count",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 15",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 244612,
+   "cachedInputTokens": 118726,
+   "outputTokens": 92,
+   "thoughtTokens": 0,
+   "ms": 3127,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 3,
+    "supported": 3,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 134211,
+     "ms": 1997,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122208,
+      "cachedInputTokens": 0,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 134383,
+     "ms": 998,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122404,
+      "cachedInputTokens": 118726,
+      "outputTokens": 39,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "There are 15 invoices belonging to the customer 'לקוח 17' (חשבוניות.csv L18, L229, L440, etc.)."
+  }
+ ],
+ "passed": true
+}

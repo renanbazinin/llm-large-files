@@ -1,0 +1,65 @@
+{
+ "case": "orders-row",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says pending",
+     "status": "pass"
+    },
+    {
+     "fact": "number 93.7",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 70028,
+   "cachedInputTokens": 0,
+   "outputTokens": 173,
+   "thoughtTokens": 131,
+   "ms": 3743,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 80161,
+     "ms": 3722,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 70028,
+      "cachedInputTokens": 0,
+      "outputTokens": 173,
+      "thoughtTokens": 131
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "For order **41877**, the details are as follows:\n\n- **Status:** pending\n- **Amount:** $93.70 (orders.csv L1880)"
+  }
+ ],
+ "passed": true
+}

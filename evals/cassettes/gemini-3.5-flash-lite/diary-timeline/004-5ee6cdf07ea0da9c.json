@@ -1,0 +1,81 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "5ee6cdf07ea0da9c",
+  "bytes": 32037,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19855 chars #54280b00"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- **יום שני, 19 באוקטובר 2026**:\n  - 09:30 (L801): צוות אבטחת המידע זיהה התחברות חשודה מחוץ לארץ לחשבון של עובדת במחלקת הכספים. החשבון ננעל והסיסמה אופסה.\n  - 10:15 (L804): נבדקו כל הפעולות שנעשו מהחשבון בשבוע האחרון.\n  - 11:00 (L806): הבדיקה הסתיימה: לא הוצא מידע, והחשבון נפתח מחדש עם אימות דו-שלבי.",
+        "thoughtSignature": "EpYBCpMBAWkUfRO7YKWsP4sKp7Rac6L8uq6/9r/LWPvkYvxa5DOdYTCInnNbffmwbvLY4mbGPQlnf3KVxiZjxQ18OuDIXXcaSBBE0ptrMztFO+ALwIJiNchxothZEwZq1CkpoJJl9poWNzm9yf8vmC56TIXllBUVVdWC4Z9cU9L5N8PmI5eDTcCM4hBM+CacT8d5JOM3/NMg"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12130,
+    "candidatesTokenCount": 168,
+    "totalTokenCount": 12298,
+    "cachedContentTokenCount": 8167,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12130
+     }
+    ],
+    "cacheTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 8167
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "E0cFa6qUJ9Hvxs0Piu6FuA4"
+  }
+ }
+}

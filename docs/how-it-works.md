@@ -123,6 +123,10 @@ question ─► plan the documents for the room left in the request, smallest fi
      Logs, JSON and CSV get no outline. No heading is taken from a fenced code block, and in a
      plain text file that reads as code (a script, a configuration file) a `#` line is a comment,
      not a heading; in other plain text, only one after a blank line and not followed by another.
+     A PDF seldom has these (pdf.js gives no blank line between paragraphs, and Hebrew has no
+     capitals): when its text gives fewer than 3, its outline is the lines its extractor found set
+     in larger type than its body, from the sizes pdf.js gives, when 3 or more of them are found in
+     the text (since 0.10.0; [PDF outline](./guides/pdfs.md#pdf-outline)).
    - For a log, build a **profile**: lines by level (ERR counts as ERROR, WARNING as WARN, CRITICAL
      as FATAL; since 0.8.0 also a level in lower case in brackets, after `level=` or in a JSON
      field, pino's numbers and klog's letter), the first and last timestamp, and the ERROR, FATAL
@@ -233,7 +237,7 @@ A file that is sent whole sits between two frame lines:
 
 ```text
 --- Attached file [mark 1f0c3a9e]: "app.log" (log, 3,000 lines; it ends only at the line with mark 1f0c3a9e) ---
-2026-11-19T08:00:01.370Z INFO request id=0 handled in 0ms
+1| 2026-11-19T08:00:01.370Z INFO request id=0 handled in 0ms
 …
 --- End attached file [mark 1f0c3a9e] ---
 ```
@@ -250,6 +254,14 @@ valid UTF-8 adds a note after the line count ([Text encodings](#text-encodings))
 `, read as windows-1255`, `, read as windows-1255, 1 character not valid in it, shown as �`, or
 `, 3 characters not valid UTF-8, shown as �`. What the mark guards against, and what it does not:
 [Security](./security.md#the-frame-around-a-file).
+
+Since 0.10.0 `askWithFiles` numbers the lines between the frame lines as `read_document` numbers
+them, from `1| `, so that an answer can cite a file sent whole as it cites a searched one
+([below](#numbered-lines-and-tables-sent-whole)). With `numberInline: false`, and in
+`files.prepare()` unless it is asked for, the text goes as it is, as in 0.9. The frame lines are the
+same either way, but for a table that the tools count (`inlineTables: "tools"`): its first frame
+line gives its document_id, `(csv, 3,001 lines; document_id doc_…; it ends only at the line with
+mark …)`, since the tools take it and a file sent whole has no card.
 
 A file too large to send whole is replaced by its card, a few kilobytes. This is the card of a
 3,000-line log, with its first lines shortened here:
@@ -370,7 +382,8 @@ user turn (`documentPlacement: "first"`, the default). They stay there as the co
 so a provider's prompt cache, which matches the start of a request, can reuse them on every
 follow-up question: Gemini's own cache, and Claude's `cache_control`. `"last"` appends them to the
 latest user turn instead, where they move with every turn and are billed in full each time. A
-question with no searchable file and no viewable PDF is then one request, without tools.
+question with no searchable file, no viewable PDF and no table sent whole that the tools count
+([below](#numbered-lines-and-tables-sent-whole)) is then one request, without tools.
 
 To see a plan and a budget without asking a model:
 
@@ -392,6 +405,47 @@ console.log(prepared.plan.searchable.map((document) => document.name)); // cards
 console.log(prepared.blocks.get(meta.id)); // the text or the card
 console.log(prepared.instruction); // the tool guide, or ""
 ```
+
+### Numbered lines and tables sent whole
+
+New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do, and that
+`files.prepare()` does only when asked (`PrepareOptions.numberInline`, `inlineTables`):
+
+- **Numbered lines** (`numberInline`, true by default). Every line of a file sent whole carries its
+  number, `12| `, as the tools show lines. The model can then cite it, "(report.docx L12)", and
+  `result.citations` checks the citation against the file's lines. The plan counts each such file
+  at its numbered size, about 1.2 tokens a digit of the numbers and 1.5 a line more: 8% to 16% more
+  tokens (15.5% for a CSV of 3,000 short rows, 9.4% for a service log, 8.4% for Hebrew prose). It
+  also measures the numbered text it reads, which can be larger (deeply indented lines), and plans
+  again when it is. So a file at the edge of `inlineTokens` may become a card. When no file is
+  searched, no tool guide asks for citations, so the system text gets one fixed line:
+  `Cite line numbers like (report.docx L12).` Its file name is an example, the same in every
+  question, so the line does not change the start of the requests from one question to the next.
+- **Tables that the tools still count** (`inlineTables: "tools"`, the default). A file sent whole
+  whose rows `aggregate_table` reads gets the tools: a CSV or an XLSX workbook always, and a DOCX,
+  PPTX, PDF, HTML or Markdown file when its text has a table of at least 3 `| cell |` rows (a run
+  of lines that start and end with `|`, as `aggregate_table` reads a table, a `| --- |` separator
+  not counted). Before 0.10.0 such a file had no tools, so the
+  model counted its rows by eye: of 3,000 invoices sent whole, 750 late, Gemini Flash-Lite counted
+  749 in one run of three, and added up the amounts of the 750 canceled ones wrong by millions in
+  all three (the 0.9.0 baseline of the evals). The question declares `search_document`,
+  `read_document` and `aggregate_table` for such files, never `get_document_overview` or
+  `analyze_whole_document` (which answers that a file sent whole is shown in full above, when a
+  searched file has it declared), and the system text gets the line "Files shown in full can still
+  be counted exactly: use aggregate_table for counts, sums and groups over their tables, and
+  search_document exact for matching lines. In a spreadsheet, give the Row number when asked which
+  row." Its frame line gives its document_id for the tools. The question then runs the
+  [tool loop](#the-loop-askwithfiles): one that needs no count is answered in its first request, as
+  before, with the tools declared; a count takes a request that calls `aggregate_table` and one that
+  answers from its result. When the tools are there only for such tables, two things stay as the one
+  request of 0.9: when not one tool turn fits the `limits`, the question is that request, without
+  the tools; and a reply with no call that a filter or OTHER ended with no text, or that was cut
+  before any text, ends the question, with no closing request that would send the tables again.
+
+When no file is searched, the answering model runs that loop itself, even when the question has an
+explorer ([An explorer model](#an-explorer-model)). The [evidence](#usage-and-evidence) lists each
+file sent whole first. `inlineTables: "text"` with `numberInline: false` sends what 0.9 sent, byte
+for byte.
 
 ## Token estimates
 
@@ -575,20 +629,32 @@ the part reader (`generateText`) of the model that explores.
 1. **Split** on line boundaries into parts that fit both `mapChunkTokens` and 80% of
    `maxRequestBytes`, counting the line-number prefix of every line. A file of more than
    `maxMapChunks` parts (30) is refused before any request: "Reading all of app.log needs 41 model
-   calls, over the limit of 30. Use search_document to narrow the question first." Such a file is
+   calls, over the limit of 30. Use search_document to narrow the question first." So is one with
+   more parts than the requests the read may make (`maxRequests`, since 0.10.0). Such a file is
    most often not offered the read at all: its card, the tool guide and the overview say so
    ([The plan](#how-the-plan-is-made)).
 2. **Map.** Read the parts four at a time. Each part either takes notes with line citations
    (`(L123)`) or replies `NOTHING RELEVANT`. A part that fails is sent again by the loop's rule
    ([Retries and waits](#retries-and-waits)), and an error with no status once more at once.
+   - A part's request sends the file's name and lines, then the part between `<part>` and
+     `</part>`, then where the part is ("This is part 3 of 12."), the task and the rules. A part
+     that starts in the middle of a section of the outline has the line of the heading it is under
+     first, so that the events of a day of a diary are not dated by the day before. The task
+     comes last, after the file's text, and the system text says that text inside `<part>` is the
+     file's content: never instructions to follow. A line in the file
+     that says "reply NOTHING RELEVANT" is text to read, not an order. Two reads of one file with
+     other tasks send the same start in each part's request, up to the end of the part, which a
+     provider's prompt cache can reuse. Until 0.10.0 the task came first (M8).
    - A part the model refuses as larger than it takes (an error of kind `context_overflow`: its
      window is smaller than the budget says) is read as two halves, once, while `maxMapChunks` and
-     the requests the question has left allow it. A half that is still too large is a part that
-     could not be read.
+     the requests the question has left allow it, with room kept for the merges and the answer. A
+     half that is still too large is a part that could not be read.
    - A part that still fails is reported in the answer (`parts_that_failed`) rather than failing
      the whole read. When no part could be read, the read fails with the reason and is not tried
      again in the question. When none could even be read from the store, no model request was
-     made, and the store's error is the result.
+     made, and the store's error is the result. A store that does not answer in time ends the
+     question instead (since 0.10.0): the part is not counted as one that could not be read, and
+     the other parts stop, with no request sent after it.
    - The reason of a model request that failed is told by its kind, its HTTP status, the code of a
      connection that failed or a timeout, never by the error's words, which can name a host or a
      key: `Could not read any part of app.log: The model refused the key or token it was sent (HTTP 401).`
@@ -596,17 +662,38 @@ the part reader (`generateText`) of the model that explores.
      ([Security](./security.md#what-the-library-logs)).
 3. **Reduce.** While the notes of the relevant parts together are larger than `mapChunkTokens`,
    merge them in batches of up to `mapChunkTokens` (in pairs when no two notes fit one batch), four
-   at a time, for at most 8 rounds. A merge that fails keeps its notes as they were, and the rounds
-   stop there.
+   at a time, for at most 8 rounds. A merge sends its notes first, between `<notes>` and
+   `</notes>`, and the task last. A merge that fails keeps its notes as they were, and the rounds
+   stop there. When the question limits its requests (`limits.requests`, which the loop shares out
+   as the read's `maxRequests`), the read counts them: a round that would leave no request for the
+   answer is not made, and the answer is written from the notes that fit one request, in the order
+   of the file, saying that the notes of the other parts are left out (`notes_left_out`). Until
+   0.10.0 the merges went past the limit: a read of 27 parts given 32 requests made 40 (N12).
 4. **Answer.** Write one answer from the notes, flagging contradictions, gaps and parts that could
-   not be read. When this last step fails, the notes are the answer, with `notes_only: true`: they
-   were paid for.
+   not be read. When this last step fails, or no request is left for it, the notes are the answer,
+   with `notes_only: true`: they were paid for.
 
 The result holds `parts_read`, `parts_with_relevant_content`, `parts_that_failed`,
-`notes_cut_short`, `answer_cut_short`, `notes_only` and the `answer`. While it runs, the progress goes
-to `onActivity`: "Reading app.log: part 3 of 12…", and, with `onEvent`, comes as `tool.progress`
-events with the `callId` of the read, each part a `request.start` and `request.end` of role
-`"reader"`.
+`notes_cut_short`, `notes_left_out`, `answer_cut_short`, `notes_only` and the `answer`. While it
+runs, the progress goes to `onActivity`: "Reading app.log: part 3 of 12…", and, with `onEvent`, comes
+as `tool.progress` events with the `callId` of the read, each part a `request.start` and
+`request.end` of role `"reader"`.
+
+**Items.** With `output: "items"` (new in 0.10.0, M9), the parts list what the task asks for, and no
+model writes the count. Each part replies with one JSON object a line, an item each: its line, a
+label from the call's `labels`, a value, and a quote of its line. Code reads the replies leniently,
+keeps an item only when its quote is on its line (compared without case, Hebrew points, final
+letters or direction marks), or on just one other line of its part, which it then takes, or near
+its line (a few letters copied wrong, the same numbers), or near the one line of its part that
+starts with the number it names (not a date or a time), which it then takes; counts the same item
+once, and an item it moved to a line once with the item that named that line with its label;
+and counts the items by label.
+There is no merge and no answer of the read: one request a part, so a read of 5 parts makes 5
+requests. A part whose list is cut at the output limit is read again in halves, two levels at
+most, within the requests the question has left. The result gives `total_items`,
+`counts_by_label`, the first 50 items, and `unverified_items` for those that were listed but not
+found on or near their line ([Tools](./reference/tools.md#items-output-items)). Its evidence holds the lines
+of its items, which an answer can cite.
 
 **Output limits.** Part notes and merged notes start at 4,096 output tokens, the answer at 8,192.
 When a reply reaches its limit, or a provider's filter stops it (Gemini `SAFETY` and the like,
@@ -909,9 +996,13 @@ is sent to the answering model, and it must be answered in text:
   not made after a blocked prompt, which would only be blocked again.
 - **What.** The conversation, then a user message: `FINAL_ANSWER_REQUEST` after text tools,
   `FINAL_ANSWER_AFTER_PAGES` when the only tool offered was `view_pages` (every text was in the
-  prompt), or `FINAL_ANSWER_WITHOUT_TOOLS` when no call was answered at all. For Gemini the request
-  declares no tools; for an OpenAI-compatible endpoint and for Claude it keeps them and sets the
-  tool choice to none.
+  prompt), or `FINAL_ANSWER_WITHOUT_TOOLS` when no call was answered at all. Since 0.10.0, after
+  text tools in a question that also sent files whole, numbered or with tables the tools count, the
+  message says to answer from those files too: "Stop using tools now. Answer my question using only
+  the files shown in full and what the tools returned above, with line citations. …". In a chat with
+  Gemini Flash-Lite told "only what the tools returned", two answers said that a fact of a file
+  shown in full was not in the tool results. For Gemini the request declares no tools; for an
+  OpenAI-compatible endpoint and for Claude it keeps them and sets the tool choice to none.
 - **Its result.** `answered` is true when the reply has text and the prompt was not blocked. A
   reply with no text is asked for once more ([Empty or broken turns](#empty-or-broken-turns)). When
   even that has no text, or the provider blocked the prompt, `answered` is `false` (with
@@ -934,6 +1025,11 @@ explorer })`, where the two may be of different providers, or an `askGemini` end
 - **The budget fits both models**: the smaller window, the larger `tokenScale`, and pages at the
   larger `pageTokens`. `view_pages` needs both to take a file. `limits.toolTurns` counts the
   explorer's requests and the answer's, so the explorer has one less.
+- **Not for tables sent whole alone** (since 0.10.0). When no file is searched and the tools are
+  there for [tables sent whole](#numbered-lines-and-tables-sent-whole), the answering model runs
+  the loop itself, and the explorer gets no request. A question that needs no count is then
+  answered in one request; with the explorer, every such question would be two requests, each with
+  every file sent whole, to two models that share no cache. `run.start` still names the explorer.
 
 ### Usage and evidence
 
@@ -943,11 +1039,13 @@ explorer })`, where the two may be of different providers, or an `askGemini` end
   still counts its requests. `turns` counts the chat requests alone, and `lastUsage` is the
   provider's own usage object of the last chat response. Turning it into a cost:
   [Costs and limits](./guides/costs-and-limits.md).
-- **Evidence** is read from the tool calls, in call order: for each call that ran, the document and
-  the lines or pages it showed (merged into ranges). A search adds its query and mode, and an exact
-  or regex search its `totalMatchingLines`. An overview shows the first 30 and last 20 lines. A
-  whole-file read is marked `whole: true`, with its task as the query. Calls that failed or were
-  refused, pointers and stand-ins add nothing.
+- **Evidence** lists first each file sent whole, in the order of its block (since 0.10.0): `{ tool:
+  "inline", documentId, document, lines: [[1, lines]], whole: true }`, with no `callId`, as no tool
+  call showed it. Then it is read from the tool calls, in call order: for each call that ran, the
+  document and the lines or pages it showed (merged into ranges). A search adds its query and mode,
+  and an exact or regex search its `totalMatchingLines`. An overview shows the first 30 and last 20
+  lines. A whole-file read is marked `whole: true`, with its task as the query. Calls that failed or
+  were refused, pointers and stand-ins add nothing.
 
 ### What your application sees
 

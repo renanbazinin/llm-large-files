@@ -1,0 +1,92 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "9a5f572b22d627ac",
+  "bytes": 27220,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12074 chars #2cd3f701"
+      },
+      {
+       "text": "38 chars #e43d8437"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "451 chars #11558a3f"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 1,\"totalTokenCount\": 7256,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי מדיניות משאבי אנוש 2026, עובד במשרה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 21,\"totalTokenCount\": 7276,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מלאה זכאי ל-18 ימי חופשה בתשלום בכל שנה קלנדרית,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 45,\"totalTokenCount\": 7300,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" כאשר מספר ימי החופשה עולה עם הוותק בהתאם לפירוט הבא:\\n\\n*\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 69,\"totalTokenCount\": 7324,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **ותק של 1-4 שנים:** 18 ימי חופשה (policy-1 L2\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 93,\"totalTokenCount\": 7348,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"8)\\n* **ותק של 5 שנים:** 19 ימי חופשה (policy-1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 117,\"totalTokenCount\": 7372,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" L29)\\n* **ותק של 6-7 שנים:** 21 ימי חופשה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 141,\"totalTokenCount\": 7396,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \", כולל יום בחירה אחד (policy-1 L30)\\n* **ותק של 8 שנים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 166,\"totalTokenCount\": 7421,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ומעלה:** 24 ימי חופשה (policy-1 L31)\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 186,\"totalTokenCount\": 7441,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRP/DhaaPj/WAQldSESrV97WGq4zPVi9l3SH5VpxpXTvFi8XFvNAD5KB/RregYwgiHgpREi+YBbYBwoTKyy7BAQj1yP5IrraXPc5+JOFTjn7QaJkmHQ9U4c0qKw9k98x+eGpNaiENCMkJWF2CDuA9bnJYKsIyzuhfeHkI/qPBQusZ8AtSSPQOjzW+Bbcm95d\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7255,\"candidatesTokenCount\": 186,\"totalTokenCount\": 7441,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7255}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"y3QFa9C7JPfPvdIPnLKFsA8\"}\r\n\r\n"
+  ]
+ }
+}

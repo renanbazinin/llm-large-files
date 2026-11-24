@@ -52,8 +52,9 @@ export async function ask(userId: string, documentIds: string[], question: strin
       toolTurns: 8,           // at most 8 chat requests, the answer included, plus one when the answer comes back without text
       callsPerTurn: 6,        // at most 6 tool calls run in one turn
       wholeDocumentReads: 1,  // each document is read whole once at most (the default)
-      inputTokens: 1_500_000, // no more tools once the question has used this many input tokens
+      inputTokens: 1_500_000, // no more tools once the next request and the answer would pass this many input tokens
       requests: 30,           // chat requests and part reads together
+      wholeReadsPerQuestion: 2, // at most 2 whole-file reads in all (the default)
     },
   });
   console.log(result.turns, result.usage);
@@ -66,7 +67,8 @@ export async function ask(userId: string, documentIds: string[], question: strin
 | `toolTurns` | 12 | Chat requests of the question: the answer and the second tries after an empty or broken turn included. The second try of the answer itself, when it came back without text, can be one request past it. | The last request must be answered in text (`toolChoice: "none"`; Gemini gets no tools declared, the other adapters keep them listed). |
 | `callsPerTurn` | 8 | Tool calls of one model turn that are run. | Each call past it is answered "Not run: one turn runs at most 8 tool calls. Send this call again if you still need it." |
 | `wholeDocumentReads` | 1 | Whole-file reads of each document. | A read past it is answered with an error that tells the model to use the answer it already has. 0 refuses every read. |
-| `inputTokens` | none | Input tokens of the question: every chat request and part read, of every model. | No more tools run: the next request is the answer. A whole-file read that would pass it is refused before it starts. |
+| `wholeReadsPerQuestion` | 2 | Whole-file reads of the question, over all its documents. New in 0.10.0. | A read past it is refused: "Not run: one question makes at most 2 whole-file reads, and this one has made them. Use search_document and read_document on app.log." |
+| `inputTokens` | [the default ceiling](#the-default-ceiling) | Input tokens of the question: every chat request and part read, of every model, by the provider's count, or by the library's estimate when a request reports none. | When the next tool request and the answer would pass it, no more tools run: the next request is the answer. A whole-file read that would pass it is refused before it starts. |
 | `requests` | none | Answered requests of the question: chat requests and part reads together. | Once one request is left, no more tools run, and that request is the answer. A whole-file read that would pass it is refused before it starts. |
 
 **No limit throws.** A question that reaches a limit ends with a request for the answer, written
@@ -81,38 +83,78 @@ true when the reply has text and was not refused.
   the model was told not to make. The note "Your last reply had no text. No tool can be called in
   this reply: write the answer now, in text, from what is above." goes at the end of that one
   request. It is one of the two second tries a question may make, and it can be one request past
-  `toolTurns`. It is not made after a refusal, a filter or a reply cut off at the output limit with
-  nothing in it, nor once `requests` or `inputTokens` is reached: those two are never passed by
-  it. With `toolTurns: 8`, a question makes at most 9 answered chat requests; to cap them exactly,
-  set `requests`.
+  `toolTurns`. It is not made after a refusal, a filter, another reason that asking again does
+  not mend (`finish: "other"`, such as Gemini's `OTHER` or `LANGUAGE`) or a reply cut off at the
+  output limit with nothing in it, nor when it would pass `requests` or the ceiling of input
+  tokens: it is sent only while a request is left of `requests`, and while what the question spent
+  and that request, as the loop estimates it, stay within the ceiling. With `toolTurns: 8`, a
+  question makes at most 9 answered chat requests; to cap them exactly, set `requests`.
 - Each tool result carries `tool_turns_left`, so the model can see its turns run out and stop
   searching in time. The results of an earlier question, passed back in `messages`, are sent
   without it ([Conversations](./conversations.md#what-toolturns-holds)).
 - A model that answers in text before a limit is reached ends the question there.
-- The result does not say that a limit ended the question, and `steps` has no line for it. When
-  `result.turns` reaches `toolTurns`, the model was most likely still calling tools when its turns
-  ran out. `result.usage` shows how close the question came to `inputTokens` and `requests`.
+- The result does not say that a limit ended the question, and `steps` has no line for it. A
+  `budget_reached` notice says it once when `inputTokens` or `requests` stopped the tools
+  ([events](../reference/events.md#noticecode-and-noticedisplay)). When `result.turns` reaches
+  `toolTurns`, the model was most likely still calling tools when its turns ran out.
+  `result.usage` shows how close the question came to `inputTokens` and `requests`.
 - With an explorer model, the limits count the work of both models together. The answer is always
   a request of its own, so the explorer has at most `toolTurns − 1` requests
   ([explorer model](./explorer-model.md)).
 - `maxToolTurns` and `maxToolCallsPerTurn` of `askGemini` are `toolTurns` and `callsPerTurn` under
   their names from before 0.5.0. When both are given, `limits` wins.
 
-### `inputTokens` and `requests` are checked between turns
+### The default ceiling
 
-- **They are checked before each tool turn**, against what the question has used so far. The
-  request that crosses `inputTokens` has already been sent: its tool calls run, and then the answer
-  is asked for. So a question can pass `inputTokens` by about two requests: the one that crossed
-  it, and the answer, which reads everything the tools returned. Set the ceiling that far below
-  what must not be passed.
+New in 0.10.0: a question that sets no `inputTokens` still has a ceiling. One runaway question, a
+model that reads eight more pieces of a log in every turn and never answers on its own, made 13
+requests and about 6.9 million input tokens with no ceiling. A default bounds what one question can
+cost when nobody set a ceiling. It is the larger of these two, with room for whole-file reads added:
+
+- [`DEFAULT_INPUT_TOKENS`](../reference/ask.md#default_input_tokens): 1,000,000;
+- `toolTurns` times the estimate of the question's first request. A long conversation makes the
+  first request large, and every tool request carries it again: the ceiling grows with it.
+
+**The room for whole-file reads** is as many reads as the question may make (`wholeReadsPerQuestion`,
+and `wholeDocumentReads` of each document that can be read whole), each at the price of the dearest
+of those documents (see [below](#the-ceiling-looks-ahead)). It is 0 when no document of the question
+can be read whole, or `analyze_whole_document` is not offered. So a read of a 1.77 MB log in parts of
+60,000 tokens, about 1.5 million input tokens, runs under the default; a third read in one question
+does not (`wholeReadsPerQuestion`).
+
+Typical questions are far below it: four tool turns over a 3 MB log use less than half of
+1,000,000, and make the same requests as with no ceiling. `limits: { inputTokens: Infinity }` gives
+the behavior of 0.9: no ceiling.
+
+### The ceiling looks ahead
+
+- **It is checked before each tool request**, looking ahead: what the question has spent, the tool
+  request about to be sent and the request for the answer after it, as the loop estimates them now
+  (raised by what the provider reported for the requests before). When the three would pass the
+  ceiling, no tool request is made, and the next request is the answer. So a question spends at most
+  about one request past its ceiling: the answer's, with the results of the last tool turn in it.
+  The answer's second try, after a reply without text, looks ahead the same way: it is not made when
+  it would pass the ceiling. In 0.9 the ceiling was checked after the fact: a ceiling of 500,000 let
+  1,219,683 tokens through.
+- **A request that reports no input is counted by its estimate.** An OpenAI-compatible server that
+  sends no usage, a provider that reports an input of 0, or a part reader of your own that does not
+  call `onUsage`: the loop adds its estimate of that request to `usage.estimatedInputTokens`, and
+  counts it in `usage.unmeasuredRequests`. The ceiling counts both: `usage.inputTokens +
+  usage.estimatedInputTokens`. In 0.9 such a question never reached its ceiling.
 - **`requests` keeps one request for the answer**, so the answer stays within it.
-- **A whole-file read is reckoned before it starts.** In input tokens, it is the size of the file
-  in the tokens of the model that reads it. In requests, it is its parts, one merge of their notes,
-  its answer, and the answer of the question. A read that does not fit what is left is not run, and
-  costs nothing. The model gets the reason, for example: "Not run: reading all of app.log takes
-  about 2,400,000 input tokens, and 900,000 are left of the 1,500,000 this question may use. Use
-  search_document and read_document." Reads let through in the same turn share what is left. A read
-  whose notes need more than one merge can pass `requests` by those merges.
+- **A whole-file read is priced before it starts.** In input tokens, by what its requests send: the
+  file's lines with their numbers, the prompt of each part, the merges of their notes and the read's
+  own answer, in the tokens of the model that reads it. That is about 10% more than the file itself
+  for a log, and more again when its notes need merges. In requests, it is its parts, one merge of
+  their notes, its answer, and the answer of the question. A read that does not fit what is left is
+  not run, and costs nothing. The model gets the reason, for example: "Not run: reading all of
+  app.log takes about 2,400,000 input tokens, and 900,000 are left of the 1,500,000 this question may
+  use. Use search_document and read_document." Reads let through in the same turn share what is
+  left. A read whose notes need more than one merge can pass `requests` by those merges.
+- **A read that failed is not priced again.** When a whole-file read of a document sent its parts
+  and could read none of them, a second call for it is answered by the tool with that reason ("The
+  whole-file read of app.log failed earlier in this question (…), and is not tried again."), not
+  with its price.
 - **A request that failed and was sent again counts once**, as it does in `usage`.
 
 ### Tools you can leave out
@@ -375,7 +417,10 @@ What each provider's numbers become:
   have billed it: a stream cut off half-way, or a wait on a silent model that ran out. Your
   provider's bill is the record; `usage` is a close account of it.
 - **A request without usage counts with 0 tokens**: an OpenAI-compatible server that sends no
-  usage, or a part reader of your own that does not call `onUsage`.
+  usage, or a part reader of your own that does not call `onUsage`. Since 0.10.0 its input is
+  counted apart, by the library's estimate: `estimatedInputTokens`, in each model's own tokens,
+  and `unmeasuredRequests`. Both are absent when every request reported its input. The ceiling of
+  the question counts them; your cost accounting may too, as an estimate.
 - **`byModel` is keyed by the adapter's `id`.** For `gemini()` that is the model named in the URL
   (`"gemini-3.8-flash"`); for `openAiCompatible()` and `anthropic()`, the `model` option; for any of
   them, the `id` option when you set it. A part read counts under the model that read it: the
@@ -509,7 +554,8 @@ export async function answer(sessions: Sessions, userId: string, sessionId: stri
 ### An allowance per user
 
 To keep a user within an allowance, turn what the user has left into `limits.inputTokens` of the
-next question. Keep a margin: a question can pass its ceiling by about two requests.
+next question. Keep a margin: a question can pass its ceiling by about one request, the answer's
+([The ceiling looks ahead](#the-ceiling-looks-ahead)).
 
 ```ts
 import { askGemini } from "llm-large-files/gemini";
@@ -517,7 +563,7 @@ import { askGemini } from "llm-large-files/gemini";
 // files and endpoint as in the first sample. spentThisMonth: the user's input tokens this month,
 // from your records. userId, documentIds and messages are yours.
 const allowance = 50_000_000; // input tokens a month: your own figure
-const margin = 2_000_000;     // about two requests of a 1M-token window
+const margin = 1_000_000;     // about one request of a 1M-token window
 const left = allowance - spentThisMonth;
 if (left <= margin) throw new Error("You have used this month's allowance.");
 
@@ -588,8 +634,10 @@ totals do not have. More on wrapping an adapter: [your own adapter and loop](./o
 
 What bounds it:
 
-- `limits.wholeDocumentReads` (1 per document by default), `wholeDocumentAnalysis: false`, and
-  `limits.inputTokens` and `limits.requests`, which refuse a read that would pass them.
+- `limits.wholeDocumentReads` (1 per document by default), `limits.wholeReadsPerQuestion` (2 in
+  all by default, new in 0.10.0), `wholeDocumentAnalysis: false`, and `limits.inputTokens` and
+  `limits.requests`, which refuse a read that would pass them. The default ceiling leaves room for
+  the reads the question may make ([the default ceiling](#the-default-ceiling)).
 - With your own loop, the same cap is `maxWholeDocumentReads` of `files.tools()`
   (`MAX_WHOLE_DOCUMENT_READS`, 1, by default), counted per tool set: make one for each question
   ([your own adapter and loop](./own-adapter-and-loop.md)).
@@ -607,12 +655,15 @@ What bounds it:
 Each chat request sends everything before it. One tool result may be up to `toolResultCharacters`
 (24,000 characters, about 12,000 tokens of a log), up to 8 run in a turn, and every result stays in
 the requests until the answer. Text tool results may fill the window up to
-`contextTokens − reservedTokens / 2`: 968,000 tokens with the default budget. So the bound with the
-defaults is 12 requests of up to about 968,000 tokens each, about 11.6 million input tokens, plus a
-whole-file read of each document searched. A question of a few searches and reads is far from that
-bound: [measurements](../measurements.md) has live numbers.
+`contextTokens − reservedTokens / 2`: 968,000 tokens with the default budget. So with no ceiling
+the bound is 12 requests of up to about 968,000 tokens each, about 11.6 million input tokens, plus a
+whole-file read of each document searched. Since 0.10.0 the default ceiling stops the tools near
+1,000,000 input tokens (one request past it at most, and room for the whole-file reads the question
+may make). A question of a few searches and reads is far from either: [measurements](../measurements.md)
+has live numbers.
 
-What bounds it: `limits.toolTurns` and `limits.callsPerTurn`; `limits.inputTokens`;
+What bounds it: `limits.toolTurns` and `limits.callsPerTurn`; `limits.inputTokens`, by default
+since 0.10.0;
 `budget.toolResultCharacters` (smaller results, though the model may then need more reads); and an
 explorer model, which makes these requests at its own price.
 
@@ -646,6 +697,46 @@ repeats cheaper ([below](#prompt-caching)).
   sent whole can take several when the document is searched.
 - Name in `documentIds` only the documents a question is about. Each one named is planned: sent
   whole, or given a card.
+- Since 0.10.0 their lines are numbered (`numberInline`), so that the answer can cite them: about
+  8% to 16% more tokens for each file sent whole (15.5% for a CSV of short rows, 9.4% for a service
+  log, 8.4% for Hebrew prose). A file at the edge of `inlineTokens` may become a card for it.
+  `numberInline: false` sends them as 0.9 did.
+
+### Tables sent whole
+
+Since 0.10.0 a table sent whole (a CSV, an XLSX workbook, a file with `| cell |` rows) gets
+`search_document`, `read_document` and `aggregate_table` (`inlineTables: "tools"`, the default), so
+that counts and sums over it are exact, not made by eye. What a question costs then:
+
+- **A question that needs no count** stays at one request when the model answers at once, as it
+  does when the answer is in the table it sees. The request is a little larger, by the three tool
+  declarations and one line of the system text (about 1,500 tokens). Some models look the row up
+  with a tool anyway, which takes 2 requests: in the live checks of 0.10.0, Flash-Lite did so for
+  about half of these questions, and Flash rarely
+  ([measurements](../measurements.md#tables-sent-whole-p1s-live-gate)). A reply that ends with no
+  text and no call, and not by a filter or the output limit, is asked again once with a note, as in
+  any question: one request more, with the table.
+- **A count** takes about 3 requests: one that calls `aggregate_table` (or an exact search), one
+  that answers from its result, and sometimes one more call. Each sends the table again. For a CSV
+  of 3,000 invoices (113,000 estimated tokens, 131,000 with its lines numbered), one request of 0.9
+  becomes about three of 131,000 tokens each: about 400,000 input tokens by the library's estimate.
+  Requests two and three start as the first did, so a provider whose cache matches that start
+  (Gemini's implicit cache on Vertex AI) bills most of them at the cached price.
+- **With an explorer**, a question in which no file is searched and a table sent whole gets the
+  tools is run by the answering model alone: the explorer would send every file sent whole again,
+  to a model that does not share the other's cache.
+- **At most**, a model that goes on calling tools uses the question's ceiling: by default about
+  `toolTurns` times its first request (`DEFAULT_INPUT_TOKENS`, 1,000,000, at least). For the CSV of
+  3,000 invoices that is 11 requests of about 134,000 tokens, about 1.5M input tokens, where
+  `"text"` makes one request of 133,000. `limits.inputTokens` or `limits.toolTurns` bound it.
+- **Limits sized for 0.9.** A count needs room for about three requests with the table. A ceiling
+  (`limits.inputTokens`) or `limits.requests` sized for 0.9's one request leaves no tool turn, and
+  so does `limits.toolTurns: 1`: such a question is then the one request of `"text"`, without the
+  tools, and its counts are made by eye again.
+
+To keep the cost of 0.9 for such questions, at the price of counts made by eye, pass
+`inlineTables: "text"`. A lower `inlineTokens` sends the table as a card instead: its requests are
+small, and the model reads it only through the tools.
 
 ### An explorer model
 
@@ -685,6 +776,9 @@ What the library changes:
 
 - A document that went whole can become a card as the history grows (above). The tool guide, which
   names the files that are searched, changes with it.
+- The tools declared follow the files of the question. Since 0.10.0 a table sent whole gets three
+  of them and a line of the system text ([Tables sent whole](#tables-sent-whole)), so a table
+  added to a chat whose files were all sent whole adds tools to its requests.
 - Within a question, when room runs short, older tool results are replaced by short stand-ins. The
   request changes from the first round replaced. A model whose conversation may only grow (Claude)
   has nothing of the question replaced. Since 0.9.0 the stored rounds of earlier questions are
@@ -702,7 +796,7 @@ What the library changes:
   questions were already sent that way, and still match. The documents and cards before them are
   still read from the cache. Pages up to 0.8.2 named `tool_turns_left` alone; with a model that
   thinks, the signatures make the miss on their own. Keeping the model's own turns is planned for
-  0.10.0.
+  a later version.
 - An upgrade that changes the library's prompts misses the cache once in each conversation. 0.6.0
   changed the tool guide, the descriptions of `search_document` and `analyze_whole_document`, and
   the frame lines of a file sent whole. The first request after the upgrade shares with what 0.5.0
@@ -712,7 +806,9 @@ What the library changes:
   instruction. For a question whose files are all sent whole, it is your own system text, and
   `view_pages` with its guide when the pages of a PDF can be looked at. From then on the frame of a
   document is the same in every request
-  ([Deployment](./deployment.md#servers-of-two-versions)).
+  ([Deployment](./deployment.md#servers-of-two-versions)). 0.10.0 changes the text again: files
+  sent whole are numbered, a table sent whole gets tools, and `analyze_whole_document` is declared
+  with two more arguments ([Upgrading to 0.10](../upgrading-0.10.md)).
 
 The adapters:
 

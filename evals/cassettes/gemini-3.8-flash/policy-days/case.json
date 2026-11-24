@@ -1,0 +1,134 @@
+{
+ "case": "policy-days",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 18",
+     "status": "pass"
+    },
+    {
+     "fact": "number 21",
+     "status": "pass"
+    },
+    {
+     "fact": "cites policy-1 at \"18 ימי חופשה\"",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 7255,
+   "cachedInputTokens": 0,
+   "outputTokens": 835,
+   "thoughtTokens": 635,
+   "ms": 7787,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 3,
+    "supported": 3,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 9759,
+     "ms": 7780,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7255,
+      "cachedInputTokens": 0,
+      "outputTokens": 835,
+      "thoughtTokens": 635
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי מדיניות החברה:\n\n* **ימי חופשה שנתית:** עובד במשרה מלאה זכאי לבסיס של **18 ימי חופשה** בתשלום בשנה קלנדרית (עבור ותק של 1–4 שנים), כאשר מספר הימים עולה עם הוותק עד ל-24 ימים עבור 8 שנות ותק ומעלה (מדיניות משאבי אנוש 2026.docx L17, L27–L31).\n* **הגשת בקשה לחופשה של שבוע:** מכיוון שמדובר בחופשה של יותר משלושה ימי עבודה, יש להגיש את הבקשה במערכת לפחות **21 ימים** לפני תחילת החופשה (מדיניות משאבי אנוש 2026.docx L19)."
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says נועה ברק",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 7475,
+   "cachedInputTokens": 5209,
+   "outputTokens": 272,
+   "thoughtTokens": 216,
+   "ms": 4657,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 9999,
+     "ms": 4652,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7475,
+      "cachedInputTokens": 5209,
+      "outputTokens": 272,
+      "thoughtTokens": 216
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "אם המנהל הישיר נעדר, הבקשה מאושרת על ידי מנהלת משאבי האנוש, **נועה ברק** (מדיניות משאבי אנוש 2026.docx L21)."
+  }
+ ],
+ "passed": true
+}

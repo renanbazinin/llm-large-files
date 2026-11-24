@@ -1,0 +1,146 @@
+{
+ "case": "contract-largest-en",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 48000",
+     "status": "pass"
+    },
+    {
+     "fact": "number 148",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 5,
+   "inputTokens": 30104,
+   "cachedInputTokens": 16847,
+   "outputTokens": 1107,
+   "thoughtTokens": 848,
+   "ms": 18950,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "search_document",
+    "read_document",
+    "read_document"
+   ],
+   "reads": 2,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5524,
+     "ms": 2712,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3605,
+      "cachedInputTokens": 0,
+      "outputTokens": 110,
+      "thoughtTokens": 70
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 7847,
+     "ms": 4831,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6158,
+      "cachedInputTokens": 3622,
+      "outputTokens": 140,
+      "thoughtTokens": 99
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 7930,
+     "ms": 2321,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6347,
+      "cachedInputTokens": 4124,
+      "outputTokens": 60,
+      "thoughtTokens": 24
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 4,
+     "estimatedInputTokens": 8369,
+     "ms": 2244,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6811,
+      "cachedInputTokens": 4318,
+      "outputTokens": 52,
+      "thoughtTokens": 16
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_5",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 5,
+     "estimatedInputTokens": 8728,
+     "ms": 6830,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7183,
+      "cachedInputTokens": 4783,
+      "outputTokens": 745,
+      "thoughtTokens": 639
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "הקנס הגבוה ביותר בחוזה הוא בסך **48,000 ש\"ח**, והוא מופיע ב**סעיף 148** (שורה 150):\n\n> **\"148. בגין דליפת מידע של לקוחות המזמין באחריות הספק ישלם הספק למזמין קנס בסך 48,000 ש\"ח, בנוסף לכל סעד אחר.\"**"
+  }
+ ],
+ "passed": true
+}

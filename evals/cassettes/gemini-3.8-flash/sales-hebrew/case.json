@@ -1,0 +1,130 @@
+{
+ "case": "sales-hebrew",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 32133",
+     "status": "pass"
+    },
+    {
+     "fact": "number 22",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 4,
+   "inputTokens": 14144,
+   "cachedInputTokens": 4112,
+   "outputTokens": 360,
+   "thoughtTokens": 146,
+   "ms": 8482,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 1,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table",
+    "read_document",
+    "aggregate_table"
+   ],
+   "reads": 1,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5063,
+     "ms": 2064,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3132,
+      "cachedInputTokens": 0,
+      "outputTokens": 118,
+      "thoughtTokens": 59
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 5209,
+     "ms": 2041,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3357,
+      "cachedInputTokens": 1111,
+      "outputTokens": 64,
+      "thoughtTokens": 30
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 5487,
+     "ms": 1888,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3666,
+      "cachedInputTokens": 1345,
+      "outputTokens": 63,
+      "thoughtTokens": 17
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 4,
+     "estimatedInputTokens": 5777,
+     "ms": 2447,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3989,
+      "cachedInputTokens": 1656,
+      "outputTokens": 115,
+      "thoughtTokens": 40
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "עבור אזור **East** בגיליון Sales:\n\n* **סך כל ההכנסות (Revenue):** 32,133\n* **מספר השורות (עסקאות):** 22 שורות (לדוגמה: שורה 55, 108, 161)."
+  }
+ ],
+ "passed": true
+}

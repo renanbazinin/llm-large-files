@@ -1,0 +1,87 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "6a079565ef2c6caf",
+  "bytes": 27137,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12074 chars #2cd3f701"
+      },
+      {
+       "text": "70 chars #a0bef3c2"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 1,\"totalTokenCount\": 7232,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa6WYC_KgkdUPyZOdkA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי מדיניות משאבי אנוש 2026, החזר הוצאות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 21,\"totalTokenCount\": 7252,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa6WYC_KgkdUPyZOdkA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" נסיעה ברכב פרטי הוא **2.35 ש\\\"ח לכל קילומטר**, לפי דיווח ח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 49,\"totalTokenCount\": 7280,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa6WYC_KgkdUPyZOdkA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ודשי במערכת (policy-1 L47).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 62,\"totalTokenCount\": 7293,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa6WYC_KgkdUPyZOdkA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNNPhaiQoJGobtK9SQxcyw4D4pLbF9yRxoJbFw2j8Rm2QILfD5Mu2Ty0ipagsfk2Vh+LMPoPH6g+RKfslmxe9Cw6URu1YR69L07+CFYMtOTuJ/bSO2CaChecJYnKoR+OEfj8BMVVfFg9Z8+suZyjygYfVMunM5NW0uhNuygaNjgrBrFUIfOCN6dQM4BMa4i\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 62,\"totalTokenCount\": 7293,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa6WYC_KgkdUPyZOdkA8\"}\r\n\r\n"
+  ]
+ }
+}

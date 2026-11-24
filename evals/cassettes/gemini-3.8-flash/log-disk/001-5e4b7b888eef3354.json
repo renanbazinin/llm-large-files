@@ -1,0 +1,94 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "5e4b7b888eef3354",
+  "bytes": 10345,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "63 chars #eaa3d4a1"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"search_document\",\"args\": {\"document_id\": \"log-1\",\"mode\": \"exact\",\"query\": \"disk\"},\"id\": \"call_14205315778558404082\"},\"thoughtSignature\": \"EsQCCsECAWkUfROxIjIwG2lL6azUdBenuY7SvqUTdi27RjIAeXql/cVer8vwUn1+56EUXzhT6uIb8K3q05+4jmpE1lyLUUBiLRQk5uuRgD+10V4LuwiR8vw/ND5Q5sVXWbmBSkCUm9Ob0rnpUNbHJr8Fl+LXMT0JnDS7kIMRK9DS/yniS/3Tu1JbL6cdHastkmxW4pb4qhDks1IQ+o0MOj/5MqbClIiG+mejQUXhyQxhtD22gZDWWghvF8UfpBgSzNRyIhEAOALmiS6GVE9oERPq/Zz+S8sIeR4x+kC5HgyoGwObe4e0FfvobvUDQuRuP8Pm4P2tmXnkPhdSDNiRLdya8t1WcALh1Ko/U4PdAjvlPogALZ7gj3zG22jwx2O2ZBiWKKc7lEdtunhBrhelPygV9t1id/wSG4TU3mGOiFkVOj6Ov9hw\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3681,\"candidatesTokenCount\": 32,\"totalTokenCount\": 3749,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3681}],\"thoughtsTokenCount\": 36,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"1XUFa86gCcmG28oP_o-_2QY\"}\r\n",
+   "\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3681,\"candidatesTokenCount\": 32,\"totalTokenCount\": 3749,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3681}],\"thoughtsTokenCount\": 36,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"1XUFa86gCcmG28oP_o-_2QY\"}\r\n\r\n"
+  ]
+ }
+}

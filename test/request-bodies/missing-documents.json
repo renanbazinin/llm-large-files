@@ -1,0 +1,388 @@
+{
+  "fixture": "missing-documents",
+  "cases": [
+    {
+      "name": "drop: the gone file is left out, and the system text says so",
+      "requests": [
+        {
+          "to": "fake-model",
+          "body": {
+            "system": "Some attached files are too large for your context: \"app.log\" (document_id log-1).\nYou see only a summary card for each. Read them through the tools:\n- search_document finds lines (exact or regex) or the most relevant passages (keywords).\n- To count or list what can be matched as text (a word, an ID, an error code, a log level, a pattern), use search_document in exact or regex mode: its total_matching_lines is exact.\n- To count per group (per hour or day, per error code or ID with a regex group, per message shape), pass group_by: one call gives every count. For more matches than a result shows, search again from its next_from_line, or with order \"last\" for the last ones.\n- Search for the bare form of a word: a search matches inside longer words, so \"timeout\" also finds \"timeouts\", and a Hebrew word without its prefix letters (חוזה, not בחוזה) finds every form of it.\n- read_document reads a line range. Read around search hits before you rely on them.\n- get_document_overview returns the outline, log profile, and the start and end of a file.\nYou have a limited number of tool turns. Call several tools in the same turn when the searches do not depend on each other, and answer as soon as you have enough evidence.\nBase your answer on text you actually read. Cite line numbers like (app.log L1203). If the tools did not find something, say so rather than guessing.\n\n1 of the attached files is no longer available; say so if the question needs it.",
+            "messages": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "--- Attached file [mark 8e17e7fc]: \"notes.md\" (markdown, 4 lines; it ends only at the line with mark 8e17e7fc) ---\n1| # Notes\n2| \n3| The code word is heron.\n4| The nightly import runs at 02:00 UTC.\n--- End attached file [mark 8e17e7fc] ---\n\n--- Large attached file: app.log ---\ndocument_id: log-1\nlog · 433 KB · 5,000 lines · about 326K tokens\nThis file is NOT in your context. Use the document tools to search it and to read line ranges.\nLog levels: INFO 4,568, WARN 381, ERROR 51\nTime range: 2026-11-12T08:00:00.250Z → 2026-11-12T08:20:50.000Z\nMost frequent problems (count, first line):\n  [ERROR ×2, L1552] ERROR [worker-<n>] req=<n>c<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×2, L3104] ERROR [worker-<n>] req=<n>a<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L97] ERROR [worker-<n>] req=f<n>c<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L194] ERROR [worker-<n>] req=e<n>a<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L291] ERROR [worker-<n>] req=d<n>f<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L388] ERROR [worker-<n>] req=cc<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L485] ERROR [worker-<n>] req=bf<n>c<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L582] ERROR [worker-<n>] req=b<n>ea<n> GET /api/v<n>/orders/<n> took <n>ms\nFirst lines:\n  1| 2026-11-12T08:00:00.250Z INFO [worker-1] req=9e3779b1 GET /api/v2/orders/1 took 37ms\n  2| 2026-11-12T08:00:00.500Z INFO [worker-2] req=3c6ef362 GET /api/v2/orders/2 took 74ms\n  3| 2026-11-12T08:00:00.750Z INFO [worker-3] req=daa66d13 GET /api/v2/orders/3 took 111ms\n  4| 2026-11-12T08:00:01.000Z INFO [worker-4] req=78dde6c4 GET /api/v2/orders/4 took 148ms\n  5| 2026-11-12T08:00:01.250Z INFO [worker-5] req=17156075 GET /api/v2/orders/5 took 185ms\n  6| 2026-11-12T08:00:01.500Z INFO [worker-6] req=b54cda26 GET /api/v2/orders/6 took 222ms\n  7| 2026-11-12T08:00:01.750Z INFO [worker-7] req=538453d7 GET /api/v2/orders/7 took 259ms\n  8| 2026-11-12T08:00:02.000Z INFO [worker-0] req=f1bbcd88 GET /api/v2/orders/8 took 296ms\n  9| 2026-11-12T08:00:02.250Z INFO [worker-1] req=8ff34739 GET /api/v2/orders/9 took 333ms\n  10| 2026-11-12T08:00:02.500Z INFO [worker-2] req=2e2ac0ea GET /api/v2/orders/10 took 370ms\n  11| 2026-11-12T08:00:02.750Z INFO [worker-3] req=cc623a9b GET /api/v2/orders/11 took 407ms\n  12| 2026-11-12T08:00:03.000Z INFO [worker-4] req=6a99b44c GET /api/v2/orders/12 took 444ms\n  13| 2026-11-12T08:00:03.250Z WARN [worker-5] req=08d12dfd GET /api/v2/orders/13 took 481ms\n  14| 2026-11-12T08:00:03.500Z INFO [worker-6] req=a708a7ae GET /api/v2/orders/14 took 518ms\n  15| 2026-11-12T08:00:03.750Z INFO [worker-7] req=4540215f GET /api/v2/orders/15 took 555ms\n  16| 2026-11-12T08:00:04.000Z INFO [worker-0] req=e3779b10 GET /api/v2/orders/16 took 592ms\n  17| 2026-11-12T08:00:04.250Z INFO [worker-1] req=81af14c1 GET /api/v2/orders/17 took 629ms\n  18| 2026-11-12T08:00:04.500Z INFO [worker-2] req=1fe68e72 GET /api/v2/orders/18 took 666ms\n  19| 2026-11-12T08:00:04.750Z INFO [worker-3] req=be1e0823 GET /api/v2/orders/19 took 703ms\n  20| 2026-11-12T08:00:05.000Z INFO [worker-4] req=5c5581d4 GET /api/v2/orders/20 took 740ms\n  21| 2026-11-12T08:00:05.250Z INFO [worker-5] req=fa8cfb85 GET /api/v2/orders/21 took 777ms\n  22| 2026-11-12T08:00:05.500Z INFO [worker-6] req=98c47536 GET /api/v2/orders/22 took 814ms\n  23| 2026-11-12T08:00:05.750Z INFO [worker-7] req=36fbeee7 GET /api/v2/orders/23 took 851ms\n  24| 2026-11-12T08:00:06.000Z INFO [worker-0] req=d5336898 GET /api/v2/orders/24 took 888ms\n  25| 2026-11-12T08:00:06.250Z INFO [worker-1] req=736ae249 GET /api/v2/orders/25 took 25ms\n--- End large attached file: app.log ---"
+                  },
+                  {
+                    "text": "How many errors?"
+                  }
+                ]
+              }
+            ],
+            "tools": [
+              {
+                "name": "search_document",
+                "description": "Search a large attached file. mode \"keywords\" returns the most relevant passages for a question; \"exact\" finds the lines that contain the text; \"regex\" finds the lines that match a JavaScript regular expression (\\w and \\b know the letters of every language). For exact and regex, total_matching_lines counts every matching line, and the result shows the first max_results of them and the last one; search again from next_from_line for the ones after those shown, or with order \"last\" for the last ones. To count by group (per hour or day, per error code, per message shape), pass group_by: the result then counts each group, and shows no lines. from_line and to_line search part of the file. Results include line numbers to read further with read_document.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "document_id": {
+                      "type": "string",
+                      "description": "The document_id from the file's card."
+                    },
+                    "query": {
+                      "type": "string",
+                      "description": "Keywords, exact text, or a regex, depending on mode."
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "keywords",
+                        "exact",
+                        "regex"
+                      ],
+                      "description": "Defaults to keywords."
+                    },
+                    "max_results": {
+                      "type": "integer",
+                      "description": "Up to 50 for exact/regex (default 20), up to 200 groups with group_by (default 50), up to 10 passages for keywords (default 5)."
+                    },
+                    "context_lines": {
+                      "type": "integer",
+                      "description": "exact/regex only: lines to show before and after each match, 0-5."
+                    },
+                    "case_sensitive": {
+                      "type": "boolean",
+                      "description": "exact/regex only. Defaults to false."
+                    },
+                    "from_line": {
+                      "type": "integer",
+                      "description": "Search only from this line on (1-based). Pass a result's next_from_line to see the matches after those it shows."
+                    },
+                    "to_line": {
+                      "type": "integer",
+                      "description": "Search only up to this line."
+                    },
+                    "order": {
+                      "type": "string",
+                      "enum": [
+                        "first",
+                        "last"
+                      ],
+                      "description": "exact/regex only: \"last\" shows the last max_results matching lines (in file order) instead of the first. Defaults to \"first\"."
+                    },
+                    "group_by": {
+                      "type": "string",
+                      "enum": [
+                        "capture",
+                        "minute",
+                        "hour",
+                        "day",
+                        "shape"
+                      ],
+                      "description": "exact/regex only: count the matching lines by group instead of showing them. \"capture\": by the text of the regex's first (group); \"minute\", \"hour\", \"day\": by the timestamp on the line; \"shape\": by the line with its numbers, IDs and quoted values taken out."
+                    },
+                    "whole_word": {
+                      "type": "boolean",
+                      "description": "exact only: match the text only as a whole word, not inside a longer one. Defaults to false."
+                    }
+                  },
+                  "required": [
+                    "document_id",
+                    "query"
+                  ]
+                }
+              },
+              {
+                "name": "read_document",
+                "description": "Read a range of lines from a large attached file, with line numbers. Up to 600 lines per call; long results are cut and tell you where to continue.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "document_id": {
+                      "type": "string",
+                      "description": "The document_id from the file's card."
+                    },
+                    "start_line": {
+                      "type": "integer",
+                      "description": "First line to read (1-based)."
+                    },
+                    "end_line": {
+                      "type": "integer",
+                      "description": "Last line to read. Defaults to start_line + 199."
+                    }
+                  },
+                  "required": [
+                    "document_id",
+                    "start_line"
+                  ]
+                }
+              },
+              {
+                "name": "get_document_overview",
+                "description": "Get the full outline (headings with line numbers), log profile (levels, time range, most frequent errors), and the first and last lines of a large attached file.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "document_id": {
+                      "type": "string",
+                      "description": "The document_id from the file's card."
+                    }
+                  },
+                  "required": [
+                    "document_id"
+                  ]
+                }
+              }
+            ],
+            "toolChoice": "auto"
+          }
+        },
+        {
+          "to": "fake-model",
+          "body": {
+            "system": "Some attached files are too large for your context: \"app.log\" (document_id log-1).\nYou see only a summary card for each. Read them through the tools:\n- search_document finds lines (exact or regex) or the most relevant passages (keywords).\n- To count or list what can be matched as text (a word, an ID, an error code, a log level, a pattern), use search_document in exact or regex mode: its total_matching_lines is exact.\n- To count per group (per hour or day, per error code or ID with a regex group, per message shape), pass group_by: one call gives every count. For more matches than a result shows, search again from its next_from_line, or with order \"last\" for the last ones.\n- Search for the bare form of a word: a search matches inside longer words, so \"timeout\" also finds \"timeouts\", and a Hebrew word without its prefix letters (חוזה, not בחוזה) finds every form of it.\n- read_document reads a line range. Read around search hits before you rely on them.\n- get_document_overview returns the outline, log profile, and the start and end of a file.\nYou have a limited number of tool turns. Call several tools in the same turn when the searches do not depend on each other, and answer as soon as you have enough evidence.\nBase your answer on text you actually read. Cite line numbers like (app.log L1203). If the tools did not find something, say so rather than guessing.\n\n1 of the attached files is no longer available; say so if the question needs it.",
+            "messages": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "--- Attached file [mark 8e17e7fc]: \"notes.md\" (markdown, 4 lines; it ends only at the line with mark 8e17e7fc) ---\n1| # Notes\n2| \n3| The code word is heron.\n4| The nightly import runs at 02:00 UTC.\n--- End attached file [mark 8e17e7fc] ---\n\n--- Large attached file: app.log ---\ndocument_id: log-1\nlog · 433 KB · 5,000 lines · about 326K tokens\nThis file is NOT in your context. Use the document tools to search it and to read line ranges.\nLog levels: INFO 4,568, WARN 381, ERROR 51\nTime range: 2026-11-12T08:00:00.250Z → 2026-11-12T08:20:50.000Z\nMost frequent problems (count, first line):\n  [ERROR ×2, L1552] ERROR [worker-<n>] req=<n>c<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×2, L3104] ERROR [worker-<n>] req=<n>a<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L97] ERROR [worker-<n>] req=f<n>c<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L194] ERROR [worker-<n>] req=e<n>a<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L291] ERROR [worker-<n>] req=d<n>f<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L388] ERROR [worker-<n>] req=cc<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L485] ERROR [worker-<n>] req=bf<n>c<n> GET /api/v<n>/orders/<n> took <n>ms\n  [ERROR ×1, L582] ERROR [worker-<n>] req=b<n>ea<n> GET /api/v<n>/orders/<n> took <n>ms\nFirst lines:\n  1| 2026-11-12T08:00:00.250Z INFO [worker-1] req=9e3779b1 GET /api/v2/orders/1 took 37ms\n  2| 2026-11-12T08:00:00.500Z INFO [worker-2] req=3c6ef362 GET /api/v2/orders/2 took 74ms\n  3| 2026-11-12T08:00:00.750Z INFO [worker-3] req=daa66d13 GET /api/v2/orders/3 took 111ms\n  4| 2026-11-12T08:00:01.000Z INFO [worker-4] req=78dde6c4 GET /api/v2/orders/4 took 148ms\n  5| 2026-11-12T08:00:01.250Z INFO [worker-5] req=17156075 GET /api/v2/orders/5 took 185ms\n  6| 2026-11-12T08:00:01.500Z INFO [worker-6] req=b54cda26 GET /api/v2/orders/6 took 222ms\n  7| 2026-11-12T08:00:01.750Z INFO [worker-7] req=538453d7 GET /api/v2/orders/7 took 259ms\n  8| 2026-11-12T08:00:02.000Z INFO [worker-0] req=f1bbcd88 GET /api/v2/orders/8 took 296ms\n  9| 2026-11-12T08:00:02.250Z INFO [worker-1] req=8ff34739 GET /api/v2/orders/9 took 333ms\n  10| 2026-11-12T08:00:02.500Z INFO [worker-2] req=2e2ac0ea GET /api/v2/orders/10 took 370ms\n  11| 2026-11-12T08:00:02.750Z INFO [worker-3] req=cc623a9b GET /api/v2/orders/11 took 407ms\n  12| 2026-11-12T08:00:03.000Z INFO [worker-4] req=6a99b44c GET /api/v2/orders/12 took 444ms\n  13| 2026-11-12T08:00:03.250Z WARN [worker-5] req=08d12dfd GET /api/v2/orders/13 took 481ms\n  14| 2026-11-12T08:00:03.500Z INFO [worker-6] req=a708a7ae GET /api/v2/orders/14 took 518ms\n  15| 2026-11-12T08:00:03.750Z INFO [worker-7] req=4540215f GET /api/v2/orders/15 took 555ms\n  16| 2026-11-12T08:00:04.000Z INFO [worker-0] req=e3779b10 GET /api/v2/orders/16 took 592ms\n  17| 2026-11-12T08:00:04.250Z INFO [worker-1] req=81af14c1 GET /api/v2/orders/17 took 629ms\n  18| 2026-11-12T08:00:04.500Z INFO [worker-2] req=1fe68e72 GET /api/v2/orders/18 took 666ms\n  19| 2026-11-12T08:00:04.750Z INFO [worker-3] req=be1e0823 GET /api/v2/orders/19 took 703ms\n  20| 2026-11-12T08:00:05.000Z INFO [worker-4] req=5c5581d4 GET /api/v2/orders/20 took 740ms\n  21| 2026-11-12T08:00:05.250Z INFO [worker-5] req=fa8cfb85 GET /api/v2/orders/21 took 777ms\n  22| 2026-11-12T08:00:05.500Z INFO [worker-6] req=98c47536 GET /api/v2/orders/22 took 814ms\n  23| 2026-11-12T08:00:05.750Z INFO [worker-7] req=36fbeee7 GET /api/v2/orders/23 took 851ms\n  24| 2026-11-12T08:00:06.000Z INFO [worker-0] req=d5336898 GET /api/v2/orders/24 took 888ms\n  25| 2026-11-12T08:00:06.250Z INFO [worker-1] req=736ae249 GET /api/v2/orders/25 took 25ms\n--- End large attached file: app.log ---"
+                  },
+                  {
+                    "text": "How many errors?"
+                  }
+                ]
+              },
+              {
+                "role": "tools",
+                "calls": [
+                  {
+                    "id": "c1",
+                    "name": "search_document",
+                    "args": {
+                      "document_id": "log-1",
+                      "query": "ERROR",
+                      "mode": "exact",
+                      "max_results": 3
+                    }
+                  }
+                ],
+                "answers": [
+                  {
+                    "call": {
+                      "id": "c1",
+                      "name": "search_document",
+                      "args": {
+                        "document_id": "log-1",
+                        "query": "ERROR",
+                        "mode": "exact",
+                        "max_results": 3
+                      }
+                    },
+                    "result": {
+                      "document": "app.log",
+                      "mode": "exact",
+                      "total_matching_lines": 51,
+                      "note": "4 of the 51 matching lines are shown: the first 3 and the last (line 4947). To see the ones in between, search again with from_line 292, or count them with group_by.",
+                      "next_from_line": 292,
+                      "matches": [
+                        {
+                          "line": 97,
+                          "text": "2026-11-12T08:00:24.250Z ERROR [worker-1] req=f3051c11 GET /api/v2/orders/97 took 889ms"
+                        },
+                        {
+                          "line": 194,
+                          "text": "2026-11-12T08:00:48.500Z ERROR [worker-2] req=e60a3822 GET /api/v2/orders/194 took 878ms"
+                        },
+                        {
+                          "line": 291,
+                          "text": "2026-11-12T08:01:12.750Z ERROR [worker-3] req=d90f5433 GET /api/v2/orders/291 took 867ms"
+                        },
+                        {
+                          "line": 4947,
+                          "text": "2026-11-12T08:20:36.750Z ERROR [worker-3] req=6a049763 GET /api/v2/orders/4947 took 339ms"
+                        }
+                      ],
+                      "tool_turns_left": 10
+                    },
+                    "files": []
+                  }
+                ],
+                "raw": {
+                  "own": [
+                    "search_document"
+                  ]
+                }
+              }
+            ],
+            "tools": [
+              {
+                "name": "search_document",
+                "description": "Search a large attached file. mode \"keywords\" returns the most relevant passages for a question; \"exact\" finds the lines that contain the text; \"regex\" finds the lines that match a JavaScript regular expression (\\w and \\b know the letters of every language). For exact and regex, total_matching_lines counts every matching line, and the result shows the first max_results of them and the last one; search again from next_from_line for the ones after those shown, or with order \"last\" for the last ones. To count by group (per hour or day, per error code, per message shape), pass group_by: the result then counts each group, and shows no lines. from_line and to_line search part of the file. Results include line numbers to read further with read_document.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "document_id": {
+                      "type": "string",
+                      "description": "The document_id from the file's card."
+                    },
+                    "query": {
+                      "type": "string",
+                      "description": "Keywords, exact text, or a regex, depending on mode."
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "keywords",
+                        "exact",
+                        "regex"
+                      ],
+                      "description": "Defaults to keywords."
+                    },
+                    "max_results": {
+                      "type": "integer",
+                      "description": "Up to 50 for exact/regex (default 20), up to 200 groups with group_by (default 50), up to 10 passages for keywords (default 5)."
+                    },
+                    "context_lines": {
+                      "type": "integer",
+                      "description": "exact/regex only: lines to show before and after each match, 0-5."
+                    },
+                    "case_sensitive": {
+                      "type": "boolean",
+                      "description": "exact/regex only. Defaults to false."
+                    },
+                    "from_line": {
+                      "type": "integer",
+                      "description": "Search only from this line on (1-based). Pass a result's next_from_line to see the matches after those it shows."
+                    },
+                    "to_line": {
+                      "type": "integer",
+                      "description": "Search only up to this line."
+                    },
+                    "order": {
+                      "type": "string",
+                      "enum": [
+                        "first",
+                        "last"
+                      ],
+                      "description": "exact/regex only: \"last\" shows the last max_results matching lines (in file order) instead of the first. Defaults to \"first\"."
+                    },
+                    "group_by": {
+                      "type": "string",
+                      "enum": [
+                        "capture",
+                        "minute",
+                        "hour",
+                        "day",
+                        "shape"
+                      ],
+                      "description": "exact/regex only: count the matching lines by group instead of showing them. \"capture\": by the text of the regex's first (group); \"minute\", \"hour\", \"day\": by the timestamp on the line; \"shape\": by the line with its numbers, IDs and quoted values taken out."
+                    },
+                    "whole_word": {
+                      "type": "boolean",
+                      "description": "exact only: match the text only as a whole word, not inside a longer one. Defaults to false."
+                    }
+                  },
+                  "required": [
+                    "document_id",
+                    "query"
+                  ]
+                }
+              },
+              {
+                "name": "read_document",
+                "description": "Read a range of lines from a large attached file, with line numbers. Up to 600 lines per call; long results are cut and tell you where to continue.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "document_id": {
+                      "type": "string",
+                      "description": "The document_id from the file's card."
+                    },
+                    "start_line": {
+                      "type": "integer",
+                      "description": "First line to read (1-based)."
+                    },
+                    "end_line": {
+                      "type": "integer",
+                      "description": "Last line to read. Defaults to start_line + 199."
+                    }
+                  },
+                  "required": [
+                    "document_id",
+                    "start_line"
+                  ]
+                }
+              },
+              {
+                "name": "get_document_overview",
+                "description": "Get the full outline (headings with line numbers), log profile (levels, time range, most frequent errors), and the first and last lines of a large attached file.",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "document_id": {
+                      "type": "string",
+                      "description": "The document_id from the file's card."
+                    }
+                  },
+                  "required": [
+                    "document_id"
+                  ]
+                }
+              }
+            ],
+            "toolChoice": "auto"
+          }
+        }
+      ]
+    },
+    {
+      "name": "drop: no file is left, a plain chat",
+      "requests": [
+        {
+          "to": "fake-model",
+          "body": {
+            "system": "Be brief.\n\n1 of the attached files is no longer available; say so if the question needs it.",
+            "messages": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "What was the old total?"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "replace: the gone file ingested again under a new ID",
+      "requests": [
+        {
+          "to": "fake-model",
+          "body": {
+            "system": "Cite line numbers like (report.docx L12).",
+            "messages": [
+              {
+                "role": "user",
+                "parts": [
+                  {
+                    "text": "--- Attached file [mark 8e17e7fc]: \"notes.md\" (markdown, 4 lines; it ends only at the line with mark 8e17e7fc) ---\n1| # Notes\n2| \n3| The code word is heron.\n4| The nightly import runs at 02:00 UTC.\n--- End attached file [mark 8e17e7fc] ---\n\n--- Attached file [mark be0eec9f]: \"old.txt\" (text, 1 line; it ends only at the line with mark be0eec9f) ---\n1| The new total is 9.\n--- End attached file [mark be0eec9f] ---"
+                  },
+                  {
+                    "text": "What is the total?"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

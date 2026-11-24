@@ -1,0 +1,91 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "815a7c1d0caead47",
+  "bytes": 27126,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12074 chars #2cd3f701"
+      },
+      {
+       "text": "33 chars #5ee0f125"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"להל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 2,\"totalTokenCount\": 7236,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ן סיכום קצר של פרק ימי המחלה בנוהל (`מדיניות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 22,\"totalTokenCount\": 7256,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" משאבי אנוש 2026.docx` L32-L40):\\n\\n* **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 47,\"totalTokenCount\": 7281,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"צבירה:** עובד צובר 1.5 ימי מחלה לכל חודש עבודה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 71,\"totalTokenCount\": 7305,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מלא, עד לתקרה של 90 ימים (סעיף 4.1).\\n* **אישור\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 97,\"totalTokenCount\": 7331,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" רפואי:** יש להמציא אישור רפואי החל מהיום השלישי להיעדר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 123,\"totalTokenCount\": 7357,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ות (סעיף 4.2).\\n* **פדיון:** ימי מחלה אינם נפדים בכ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 149,\"totalTokenCount\": 7383,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"סף בסיום ההעסקה (סעיף 4.4).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 165,\"totalTokenCount\": 7399,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNAL5HULZOG1ytLYCwD1mY0mYHuup94FScmRM2DgEFjZjUe/cy03wwE4mU7e1XHw79u4hrM1loWsJISEMWjE4GsaI5JvjxnEVnxYl/ZflWN9wB/gdAsGBf0RuUNWTcQGpFCyxnLykBfPYIThV6u/TXbyTEZuTDJxpKzO2BJtzShiGXN91c7b4OKBN+yVoqF\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 165,\"totalTokenCount\": 7399,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uXQFa_HvL9mN7M8PlIys-Ak\"}\r\n\r\n"
+  ]
+ }
+}

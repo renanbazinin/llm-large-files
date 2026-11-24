@@ -1,0 +1,69 @@
+{
+ "case": "deck-slide",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says slide 2",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1200",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 2038,
+   "cachedInputTokens": 0,
+   "outputTokens": 61,
+   "thoughtTokens": 0,
+   "ms": 619,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 3884,
+     "ms": 616,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2038,
+      "cachedInputTokens": 0,
+      "outputTokens": 61,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "טבלת העמידה ביעדים מופיעה ב**שקף 2** (Slide 2).\n\nהיעד של אזור הצפון היה **1,200 אלפי ש\"ח** (1,200,000 ש\"ח)."
+  }
+ ],
+ "passed": true
+}

@@ -2,6 +2,7 @@ import { decodeText, plainText } from "./decode.js";
 import { html } from "./html.js";
 import { TimeSlicer } from "./pause.js";
 import { layoutPage, plainPageText, type LayoutBox, type PdfTextItem } from "./pdf-layout.js";
+import { PdfHeadingFinder } from "./pdf-outline.js";
 import { findPicturePages, parsePdf, type PageGeometry } from "./pdf-pictures.js";
 import { checkPageWork, HeavyPage } from "./pdf-work.js";
 import { formatBytes } from "./plan.js";
@@ -268,6 +269,8 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
     const textLimit = Math.min(maxTextBytes, mostDrawn);
     const texts: string[] = [];
     const geometry: PageGeometry[] = [];
+    // The lines set larger than the body: the outline of a PDF whose text gives few headings (0.10.0).
+    const headingFinder = new PdfHeadingFinder();
     /** The page objects read so far: a page tree that lists one page twice is refused. */
     const seen = new Set<string>();
     // pdf.js reads a page through promises that never let a timer or another request run: other
@@ -287,6 +290,7 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
       const content = await page.getTextContent();
       const items = (content.items as unknown[]).filter((item): item is PdfTextItem => typeof (item as PdfTextItem).str === "string");
       const transform = page.getViewport({ scale: 1 }).transform as number[];
+      headingFinder.addPage(number, items);
       let text = "";
       let found: LayoutBox[] = [];
       if (tables) {
@@ -325,7 +329,8 @@ export function createPdfExtractor(options: PdfExtractorOptions = {}): Extractor
     signal?.throwIfAborted();
     looked.rethrow();
     const pages = texts.map((text, index) => `--- Page ${index + 1} ---\n${pictured?.[index] ? `${PICTURE_ON_PAGE}\n` : ""}${text ? ownLines(text) : PAGE_WITHOUT_TEXT}`);
-    return { text: pages.join("\n\n"), pages: document.numPages };
+    const headings = headingFinder.headings();
+    return { text: pages.join("\n\n"), pages: document.numPages, ...(headings.length > 0 ? { headings } : {}) };
   };
 }
 

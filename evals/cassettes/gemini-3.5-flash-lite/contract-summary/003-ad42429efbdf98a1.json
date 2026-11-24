@@ -1,0 +1,74 @@
+{
+ "n": 3,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "ad42429efbdf98a1",
+  "bytes": 7050,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "4061 chars #9ce36450"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "להלן סיכום הנתונים הרלוונטיים מתוך חלק 1 של המסמך בהתאם למשימה:\n\n**מה הספק מתחייב לעשות:**\n* להחזיק מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L4, L14, L24).\n* להגיע למחסן באשדוד בתוך 4עות מקריאה דחופה, ובתוך יומיים מקריאה רגילה (L6, L16, L26, L36, L46).\n* לשמור בסוד כל מידע שהגיע אליו במסגרת ההתקשרות (L8, L38).\n* לתאם מראש עם מנהל האתר כל עבודה במפעל בקריית גת שמחייבת השבתה (L9, L19, L27, L29 - נוסח דומה).\n* למנות מנהל לקוח אחד שירכז את הקשר עם המזמין (L11, L21, L31, L41).\n* לבטח את עובדיו בביטוח חבות מעבידים ובביטוח צד שלישי (L17, L27, L37, L47).\n* לבצע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון, ולמסור דוח על הביקור (L22, L32, L42).\n\n**מה המזמין מתחייב לעשות:**\n* לשלם את התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L3, L13, L33, L43).\n\n**בילו מקרים הספק משלם קנס ובאילו סכומים:**\n* איחור בתגובה לקריאת שירות דחופה במרכז הלוגיסטיקה בחולון: 1,000 ש\"ח לכל מקרה (L7).\n* אי עמידה בזמני התיקון שנקבעו בנספח השירות במשרדים בתל אביב: 2,750 ש\"ח לכל מקרה (L12).\n* השבתת מערכת הקירור מעבר ל-4 שעות במפעל בקריית גת: 4,500 ש\"ח לכל מקרה (L18).\n* אי הגשת דוח תחזוקה חודשי במועד בסניף בחיפה: 6,250 ש\"ח לכל מקרה (L23).\n* החלפת טכנאי ללא הודעה מוקדמת במחסן באשדוד: 8,000 ש\"ח לכל מקרה (L28).\n* שימוש בחלקי חילוף שאינם מקוריים במרכז הלוגיסטיקה בחולון: 9,750 ש\"ח לכל מקרה (L34).\n* הפרת הוראות הבטיחות באתר במשרדים בתל אביב: 11,500 ש\"ח לכל מקרה (L39).\n* אובדן ציוד של המזמין במפעל בקריית גת: 13,250 ש\"ח לכל מקרה (L44).",
+        "thoughtSignature": "EpYBCpMBAWkUfRMGXIrCHs2TRIvua2zetVgwaPPSqUF7dLUAZN241qrzGgRZd7CB/yHbbrtWxC/NPZVpI4RUY85cLci673Sjo/+mNvdCBY+C99qvU4DfrkbSwttawI+LwUlJ1RL+e3tCRG/tDeBMRIt68AhCfgXiCkBLfpNcLXvM8twBnuYnWDBVr5A+DfOuKB4LHjlCXS5c"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2091,
+    "candidatesTokenCount": 762,
+    "totalTokenCount": 2853,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2091
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "EEcFa-fgDaCg3boPpK-Y4A8"
+  }
+ }
+}

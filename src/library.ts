@@ -1,12 +1,18 @@
-import { callerOf, checkMetaVersion, documentContext, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules, type Caller } from "./access.js";
+import {
+  callerOf, checkMetaVersion, checkStuck, documentContext, isTimeLimit, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, storeTimeout,
+  stuckCalls, type AccessRules, type Caller,
+} from "./access.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
 import { DocumentCache, documentVersion, type Sized } from "./cache.js";
+import type { DocumentStoreOperation } from "./errors.js";
 import type { IngestEvent } from "./events.js";
+import { until } from "./http.js";
 import { ingestDocument, LONGEST_TIMER_MS, type IngestContext } from "./ingest.js";
 import { Limiter } from "./limiter.js";
-import { canBeReadWhole, CARD_LINES, documentToolsInstruction, planDocuments, renderCard, renderInline, TABLE_FORMATS, type WholeRead } from "./plan.js";
-import { DocumentGoneError, openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
-import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
+import { canBeReadWhole, TABLE_FORMATS } from "./plan.js";
+import { prepareDocuments, type PrepareContext } from "./prepare.js";
+import { openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
+import { SearchableDocument, type DocumentSource } from "./search.js";
 import { TimeSlicer } from "./pause.js";
 import { checkScope } from "./scope.js";
 import { isSha256, sha256InSlices } from "./source.js";
@@ -25,6 +31,7 @@ import type {
   GenerateText,
   PreparedContext,
   ProgressListener,
+  ToolName,
   ToolSet,
 } from "./types.js";
 
@@ -155,6 +162,36 @@ export type LargeFilesOptions = {
    * store, not a user's access. Defaults to false. New in 0.9.0.
    */
   requireScope?: boolean;
+  /**
+   * The most time one store call may take, in milliseconds: a look-up of a document (`getMeta`), a
+   * read of its text (whole, or a range of it), of its index or of its original, and a delete.
+   * Past it, the call fails with a `DocumentStoreError` of code "ETIMEDOUT" (status 503): the call
+   * itself goes on, as nothing can stop it, and counts as stuck until it ends. A call inside a
+   * question's tool call ends the question. Defaults to 30,000; 0 sets no limit, and so does a time
+   * past what a timer can wait. Keep it above the time your store takes to read the largest text
+   * loaded whole (`wholeDocumentBytes`). `ingest` keeps its own limits (`ingestTimeoutMs`), past
+   * which its store calls count as stuck too, and `sweep` has `sweepTimeoutMs`. New in 0.10.0.
+   */
+  storeTimeoutMs?: number;
+  /**
+   * How many calls of this process may be stuck (past their time limit, and not ended) before every
+   * new store call of this library, those of `ingest` included, fails at once, without calling the
+   * store, with code "STORE_STUCK" (status 503). A store call is stuck past `storeTimeoutMs`, and
+   * one of `ingest` past the time it gives its store calls (`ingestTimeoutMs`, 2 minutes when that
+   * is 0). The count is the process's, as the threads of libuv are: a store call that does not
+   * answer holds one of them, and with all of them held every file call and DNS look-up of the
+   * process waits. Defaults to half of `UV_THREADPOOL_SIZE` (4 when it is not set), read when the
+   * library is made as libuv reads it (an empty value, 0, or one without leading digits is 1
+   * thread), and at least 1: 2 by default, 16 with 32 threads. `Infinity` refuses nothing. New in
+   * 0.10.0.
+   */
+  maxStuckStoreCalls?: number;
+  /**
+   * The most time one `sweep` may take, in milliseconds: past it, `sweep` fails with a
+   * `DocumentStoreError` of code "ETIMEDOUT", and the sweep goes on. A sweep never counts as a stuck
+   * call. Defaults to 0: no limit. New in 0.10.0.
+   */
+  sweepTimeoutMs?: number;
   /** Clock override, for tests. */
   now?: () => Date;
 };
@@ -260,7 +297,17 @@ export type IngestFromSource = Omit<IngestInput, "bytes"> & { source: IngestSour
  * Access options. When a document has an owner, only that owner can use it. `scope`, new in 0.9.0:
  * the scope of the caller; a document stored with a scope serves only a caller with the same one.
  */
-export type AccessOptions = { owner?: string; scope?: DocumentScope };
+export type AccessOptions = {
+  owner?: string;
+  scope?: DocumentScope;
+  /**
+   * Ends this caller's waits for the store, with the signal's reason: never a store call that other
+   * callers wait on too (one opening of a document serves every caller of its scope), and never the
+   * store call itself, which nothing can stop. Read by `getMeta`, `getOriginal`, `delete`,
+   * `prepare`, `toolsFor`, and `tools` with `access`. New in 0.10.0.
+   */
+  signal?: AbortSignal;
+};
 
 export type PrepareOptions = AccessOptions & {
   /**
@@ -281,6 +328,20 @@ export type PrepareOptions = AccessOptions & {
    * `wholeDocumentAnalysis: false`.
    */
   wholeDocumentAnalysis?: boolean;
+  /**
+   * Number the lines of the documents sent whole, as the tools number them ("12| text"), and plan
+   * them at that size. Defaults to false here, so that `prepare` gives the blocks of 0.9;
+   * `askWithFiles` asks for true unless `AskOptions.numberInline` is false. A value that is not
+   * true or false is a TypeError. New in 0.10.0.
+   */
+  numberInline?: boolean;
+  /**
+   * "tools": list the documents sent whole whose tables the tools can count in `toolable`, with
+   * their document_id in the first line of their block; "text": as in 0.9. Defaults to "text"
+   * here; `askWithFiles` asks for "tools" unless `AskOptions.inlineTables` is "text". Another value
+   * is a TypeError. New in 0.10.0.
+   */
+  inlineTables?: "tools" | "text";
 };
 
 export type ToolOptions = {
@@ -322,6 +383,19 @@ export type ToolOptions = {
    * PDFs that are not searched because their text is already in the prompt.
    */
   viewPages?: boolean | DocumentMeta[];
+  /**
+   * Declare exactly these tools, in the order the tool set declares them (search, read, overview,
+   * aggregate, analyze, view), in place of those the documents call for. A call of a tool that is
+   * not declared is not run, and a declared tool that cannot run (aggregate_table with no table,
+   * view_pages with no page to show) answers each call with its reason. `askWithFiles` declares
+   * the tools a question over a table sent whole needs. New in 0.10.0.
+   */
+  declare?: readonly ToolName[];
+  /**
+   * The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in
+   * full, and `aggregate_table` says how to cite their lines (`cite`). New in 0.10.0.
+   */
+  inline?: readonly string[];
 };
 
 export interface LargeFiles {
@@ -373,7 +447,49 @@ export interface LargeFiles {
   prepare(ids: string[], base: { tokens: number; bytes: number }, options?: PrepareOptions): Promise<PreparedContext>;
   /** Tools scoped to these documents. Pass `generate` to enable whole-document analysis. */
   tools(documents: DocumentMeta[], options?: ToolOptions): ToolSet;
+  /**
+   * Counters for metrics and alerts, read without a store call and without waiting. Optional, so
+   * that a `LargeFiles` of your own still compiles; the one `createLargeFiles` makes has it. New in
+   * 0.10.0.
+   */
+  stats?(): LargeFilesStats;
+  /**
+   * Looks each ID up for `options.access`, as `getMeta` does, then makes the tools for the
+   * documents found (`tools`, with `access`): `missing` lists the others, those of another owner or
+   * scope included. A repeated ID counts once. Optional, so that a `LargeFiles` of your own still
+   * compiles; the one `createLargeFiles` makes has it. New in 0.10.0.
+   */
+  toolsFor?(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>;
 }
+
+/** What `files.stats()` counts: plain numbers, for metrics and alerts. New in 0.10.0. */
+export type LargeFilesStats = {
+  /** Ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). */
+  ingests: { active: number; waiting: number };
+  /** Scans of whole documents read by range, and those waiting their turn (`maxConcurrentScans`). */
+  scans: { active: number; waiting: number };
+  /** Looks at pages, and those waiting their turn (`maxConcurrentPageLooks`). */
+  pageLooks: { active: number; waiting: number };
+  /**
+   * What is kept in memory: its bytes, how many entries (documents, and pieces of documents read by
+   * range), and the most bytes they may take (`cacheBytes`).
+   */
+  cache: { bytes: number; entries: number; maxBytes: number };
+  /**
+   * Calls of this process that ran past their time limit and have not settled: the store calls of
+   * every library (past `storeTimeoutMs`, or for `ingest` past `ingestTimeoutMs`), and the calls to
+   * the disk of the upload handlers (`uploadIdleTimeoutMs`).
+   */
+  stuckStoreCalls: number;
+  /** This library's limit on them (`maxStuckStoreCalls`). */
+  maxStuckStoreCalls: number;
+};
+
+/**
+ * What `createLargeFiles` returns: a `LargeFiles` whose `stats` and `toolsFor` are always there, so
+ * that `files.stats()` needs no `?.`. New in 0.10.0.
+ */
+export type CreatedLargeFiles = LargeFiles & { stats(): LargeFilesStats; toolsFor: NonNullable<LargeFiles["toolsFor"]> };
 
 /**
  * Whether `value` has the shape of a document ID: one the library makes ("doc_" and 32 hex digits),
@@ -391,14 +507,6 @@ export function isDocumentId(value: unknown): value is string {
 function wholeName(meta: DocumentMeta): DocumentMeta {
   const name = wellFormed(meta.name);
   return name === meta.name ? meta : { ...meta, name };
-}
-
-/**
- * A read of the store. Whatever it throws is passed on as a `DocumentStoreError`: a store that
- * could not be read is not a document that is gone, and its own error names paths or hosts.
- */
-function reading<T>(read: () => Promise<T>): Promise<T> {
-  return storeCall("read", read);
 }
 
 /** The key a caller's copy of a document is kept under in memory: the key of its scope, then the ID. */
@@ -439,6 +547,26 @@ export const DEFAULT_INGEST_TIMEOUT_MS = 120_000;
 
 /** Default for `wholeDocumentBytes`. */
 export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
+/** Default for `storeTimeoutMs`: 30 seconds. */
+export const DEFAULT_STORE_TIMEOUT_MS = 30_000;
+
+/**
+ * Default for `maxStuckStoreCalls`: half of the threads of libuv's pool, and at least 1. The pool
+ * is read from `UV_THREADPOOL_SIZE` as libuv reads it (`atoi`): 4 when it is not set; its leading
+ * digits ("32abc" is 32); 1 thread for a value without them or for 0 ("", "x", "0"), which a
+ * template with an empty value gives; 1,024 at most, and for a value below 0, which libuv reads as
+ * a number without a sign, past the most.
+ */
+function defaultMaxStuck(): number {
+  const value = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.UV_THREADPOOL_SIZE;
+  let pool = 4;
+  if (value !== undefined) {
+    const given = Number.parseInt(value, 10);
+    pool = Number.isNaN(given) || given === 0 ? 1 : given < 0 ? 1_024 : Math.min(1_024, given);
+  }
+  return Math.max(1, Math.floor(pool / 2));
+}
+
 /** Looks at pages that run at once in a library, unless `maxConcurrentPageLooks` says otherwise. */
 const DEFAULT_PAGE_LOOKS = 1;
 /** How long a look at pages waits for its turn, unless `pageLookWaitMs` says otherwise. */
@@ -457,7 +585,7 @@ function numberOption(name: string, value: unknown, fallback: number, finite = f
   return value;
 }
 
-export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
+export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles {
   /** The fields the application set. The others follow the context window, whichever it is for a request. */
   const ownBudget = givenBudget(options.budget);
   const budget: Budget = resolveBudget(ownBudget);
@@ -504,19 +632,45 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     cache.deleteWhere((key) => keyOfId(key, id));
     for (const key of rebuildIndex) if (keyOfId(key, id)) rebuildIndex.delete(key);
   };
+  /** The most time one store call may take (`storeTimeoutMs`): 0 for no limit. */
+  const storeTimeoutMs = Math.max(0, numberOption("storeTimeoutMs", options.storeTimeoutMs, DEFAULT_STORE_TIMEOUT_MS));
+  /** The most time one sweep may take (`sweepTimeoutMs`): 0 for no limit. */
+  const sweepTimeoutMs = Math.max(0, numberOption("sweepTimeoutMs", options.sweepTimeoutMs, 0));
+  /** While this many calls of the process are stuck, store calls of this library fail at once (`maxStuckStoreCalls`). */
+  const maxStuckStoreCalls = Math.max(1, Math.trunc(numberOption("maxStuckStoreCalls", options.maxStuckStoreCalls, defaultMaxStuck())));
+  /**
+   * A call of the store, within `storeTimeoutMs`, refused at once while too many calls of the
+   * process are stuck. `signal` ends the caller's wait, never the call: a call that other callers
+   * wait on too (an opening of a document) is given none.
+   */
+  const timed = <T>(operation: DocumentStoreOperation, call: () => Promise<T>, signal?: AbortSignal): Promise<T> => (
+    storeCall(operation, call, { timeoutMs: storeTimeoutMs, maxStuck: maxStuckStoreCalls, signal })
+  );
+  /**
+   * A read of the store. Whatever it throws is passed on as a `DocumentStoreError`: a store that
+   * could not be read is not a document that is gone, and its own error names paths or hosts.
+   */
+  const reading = <T>(read: () => Promise<T>, signal?: AbortSignal): Promise<T> => timed("read", read, signal);
   /** Documents being opened, so that calls arriving together open each one once. */
   const opening = new Map<string, Promise<DocumentSource | undefined>>();
   /**
    * The store, to read the text of a document by range rather than load it whole: each call carries
    * `context`: the caller's scope, and the document's owner when it has one (`documentContext`).
+   * A document read by range is shared by every caller of its scope: its reads have a time limit,
+   * and no caller's signal.
    */
   const rangeStore = (context: DocumentContext): RangeStore => ({
     readTextRange: (id, start, end) => reading(() => store.readTextRange!(id, start, end, context)),
     ...(store.getIndex ? { getIndex: (id: string) => reading(() => store.getIndex!(id, context)) } : {}),
-    ...(store.putIndex ? { putIndex: (id: string, index: Uint8Array) => store.putIndex!(id, index, context) } : {}),
+    ...(store.putIndex ? { putIndex: (id: string, index: Uint8Array) => timed("write", () => store.putIndex!(id, index, context)) } : {}),
   });
   /** The uploaded file of a document, when the store keeps such files. */
-  const loadOriginal = (id: string, context: DocumentContext) => reading(() => store.getOriginal!(id, context));
+  const loadOriginal = (id: string, context: DocumentContext, signal?: AbortSignal) => reading(() => store.getOriginal!(id, context), signal);
+  /**
+   * Removals of documents (`delete`) take their turns, one at a time: a store that does not answer
+   * then holds one thread of the pool for them, not one for each.
+   */
+  const removals = new Limiter(1);
   const wholeDocumentBytes = Math.max(0, numberOption("wholeDocumentBytes", options.wholeDocumentBytes, DEFAULT_WHOLE_DOCUMENT_BYTES));
   /** Documents (by `documentKey`) whose saved index did not match their text: the next opening builds it from the text. */
   const rebuildIndex = new Set<string>();
@@ -584,6 +738,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     },
     ingests,
     slotCapMs,
+    maxStuck: maxStuckStoreCalls,
     keeps,
     readsRefs: originals !== undefined,
     forget,
@@ -598,7 +753,7 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
    */
   async function currentMeta(id: string, caller: Caller): Promise<DocumentMeta | undefined> {
     if (!isDocumentId(id)) return undefined;
-    const meta = metaOf(await reading(() => store.getMeta(id, caller.context)), id);
+    const meta = metaOf(await reading(() => store.getMeta(id, caller.context), caller.signal), id);
     if (meta) checkMetaVersion(meta);
     if (!meta || Date.parse(meta.expiresAt) <= now().getTime()) {
       forgetKey(documentKey(caller, id));
@@ -616,7 +771,9 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   /**
    * A document ready to read and search, for `caller`, who may use it. The store is asked first,
    * every time: a kept copy is used only while the store still has the same document. `known` is
-   * metadata just read from the store and checked, to save asking twice.
+   * metadata just read from the store and checked, to save asking twice. One opening serves every
+   * caller of the scope who asks meanwhile: its reads have time limits, and each caller stops
+   * waiting for it when its own signal aborts, which leaves the others waiting (0.10.0).
    */
   async function load(id: string, caller: Caller, known?: DocumentMeta): Promise<DocumentSource | undefined> {
     const meta = known ?? await metaFor(id, caller);
@@ -628,12 +785,16 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     const opened = `${key}|${version}`;
     let pending = opening.get(opened);
     if (!pending) {
-      pending = open(id, meta, caller, key).finally(() => opening.delete(opened));
+      // Kept once opened, whether or not a caller still waits for it.
+      pending = open(id, meta, caller, key)
+        .then((document) => {
+          if (document) cache.set(key, version, document);
+          return document;
+        })
+        .finally(() => opening.delete(opened));
       opening.set(opened, pending);
     }
-    const document = await pending;
-    if (document) cache.set(key, version, document);
-    return document;
+    return until(pending, caller.signal);
   }
 
   /**
@@ -680,11 +841,11 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
     if (kept) {
       if (!originals) return "missing";
       const context: OriginalReadContext = Object.freeze({ ...caller.context, id, bytes: kept.bytes });
-      read = await reading(() => originals.read(kept.ref, context));
+      read = await reading(() => originals.read(kept.ref, context), caller.signal);
     } else {
       if (meta.original !== undefined && meta.original !== null) return "missing";
       if (!store.getOriginal) return "missing";
-      read = await loadOriginal(id, caller.context);
+      read = await loadOriginal(id, caller.context, caller.signal);
     }
     if (!read) return "missing";
     const bytes = read;
@@ -715,30 +876,102 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
   }
 
   /**
-   * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
-   * by now. A copy found to disagree with the store is opened again once.
+   * Removes a document from the store (`store.delete`), in the removals' turn (`removals`). The turn
+   * and the store call are waited for until `deadline` aborts (the delete's time limit, which they
+   * share), or the caller's signal does; the turn is then held until the store call ends, even past
+   * its time limit. The store call counts as stuck once it has itself run `storeTimeoutMs`.
    */
-  async function block(id: string, meta: DocumentMeta, caller: Caller, whole: boolean, viewable: boolean, wholeRead: WholeRead): Promise<string | undefined> {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const document = await load(id, caller, attempt === 0 ? meta : undefined);
-      if (!document) return undefined;
-      let text: string;
-      try {
-        text = whole
-          ? renderInline(document.meta, await document.readText())
-          : renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead);
-      } catch (error) {
-        // The text is gone while its metadata is still there (removed outside the library): the
-        // same as missing. It was a plain Error, which failed the whole question.
-        if (error instanceof DocumentGoneError) return undefined;
-        if (document.broken) continue;
-        // Deleted between the look-up and the read: the same as missing.
-        if (!await metaFor(id, caller)) return undefined;
-        throw error;
-      }
-      return await stillOpened(document, caller) ? text : undefined;
+  async function removal(call: () => Promise<boolean>, signal: AbortSignal | undefined, deadline: AbortSignal): Promise<boolean> {
+    checkStuck("delete", maxStuckStoreCalls);
+    if (signal?.aborted) throw signal.reason;
+    if (deadline.aborted) throw deadline.reason;
+    const waits = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    let release: () => void;
+    try {
+      release = await removals.acquire(waits);
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason;
+      throw deadline.aborted ? deadline.reason : error;
     }
-    return undefined;
+    let started = false;
+    try {
+      return await timed("delete", () => {
+        started = true;
+        let running: Promise<boolean>;
+        try {
+          running = Promise.resolve(call());
+        } catch (error) {
+          running = Promise.reject(error);
+        }
+        running.then(release, release);
+        return running;
+      }, waits);
+    } finally {
+      if (!started) release();
+    }
+  }
+
+  /** What planning a request (`prepareDocuments`, src/prepare.ts) needs of this library. */
+  const planning: PrepareContext = { callerOf: (access) => callerOf(access, rules), metaFor, load, stillOpened, budgetFor, viewableMeta, rules };
+
+  /** `files.tools`: the tools for `documents`. */
+  function tools(documents: DocumentMeta[], toolOptions: ToolOptions = {}): ToolSet {
+    const { viewPages, budget: overrides, access, ...rest } = toolOptions;
+    // Without `access`, the owner and scope of each document are those it was handed in with: a
+    // library that requires them takes them only from the caller.
+    if (access === undefined && (rules.requireOwner || rules.requireScope)) {
+      throw new TypeError(rules.requireOwner ? OWNER_REQUIRED : SCOPE_REQUIRED);
+    }
+    // The tool set's signal ends its waits for the store too, unless `access` has a signal of its own.
+    // It is taken as it is, as before 0.10.0 (an object made like an AbortSignal too): only
+    // `access.signal`, new in 0.10.0, must be an AbortSignal (`callerOf`).
+    const signal = access?.signal ?? toolOptions.signal;
+    const asker = access !== undefined ? withSignal(callerOf(access, rules), signal) : undefined;
+    const budget = budgetFor(overrides);
+    // Which PDFs can be looked at, by the metadata handed in: each look reads the metadata the
+    // store holds, and the file it names, not the one handed in.
+    const viewable = (viewPages === true ? documents : viewPages || []).filter(viewableMeta);
+    // Without `access`, as before 0.9.0: the owner and scope each document was handed in with.
+    // The store is asked with them, and the owner and scope it holds are checked against them on
+    // every call, so metadata built from an ID alone cannot read another owner's document: such a
+    // document is answered as no longer available, as `getMeta` reports it missing. A handed scope
+    // that is not valid reads nothing.
+    const handed = new Map<string, Caller | undefined>(asker ? [] : [...documents, ...viewable].map((meta) => [meta.id, handedCaller(meta, signal)]));
+    const noCaller = signal ? { ...NO_CALLER, signal } : NO_CALLER;
+    const callerFor = (id: string): Caller | undefined => asker ?? (handed.has(id) ? handed.get(id) : noCaller);
+    // The metadata the store holds now, not that of a copy kept in memory.
+    const checkedLoad = async (id: string) => {
+      const caller = callerFor(id);
+      const meta = caller && await metaFor(id, caller);
+      return meta ? load(id, caller, meta) : undefined;
+    };
+    const checkedOriginal = (store.getOriginal || originals) && (async (id: string) => {
+      const caller = callerFor(id);
+      const meta = caller && await metaFor(id, caller);
+      if (!meta || !readable(meta)) return undefined;
+      const original = await originalOf(id, caller, meta);
+      // A file the application keeps that has changed since it was ingested: its pages are not
+      // those of the text the model has, and the model is told so.
+      if (original === "changed") throw new Error(changedOriginal(meta.name));
+      return original === "missing" ? undefined : original;
+    });
+    return createDocumentTools({
+      load: checkedLoad,
+      // Once a call has read a document by range: the store is asked again (`stillOpened`).
+      checkRead: async (document) => {
+        const caller = callerFor(document.meta.id);
+        return caller !== undefined && await stillOpened(document, caller);
+      },
+      documentIds: documents.map((meta) => meta.id),
+      names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, wellFormed(meta.name)])),
+      budget,
+      ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal, pageLooks } : {}),
+      // `analyze_whole_document` is declared only when it can read at least one of the documents.
+      wholeReads: documents.some((meta) => canBeReadWhole(meta, budget)),
+      // `aggregate_table` only when one may hold a table.
+      tables: documents.some((meta) => TABLE_FORMATS.has(meta.format)),
+      ...rest,
+    });
   }
 
   return {
@@ -765,120 +998,81 @@ export function createLargeFiles(options: LargeFilesOptions): LargeFiles {
 
     async delete(id, access) {
       const caller = callerOf(access, rules);
-      if (!await metaFor(id, caller)) return false;
-      forget(id);
-      return storeCall("delete", () => store.delete(id, caller.context));
+      // One time limit for the whole delete: the look-up (which keeps its own, and its error of a
+      // read), then the wait for the removals' turn and the store's delete. Before, the turn and the
+      // delete had one each: with a slow delete before it, a delete answered after twice the limit.
+      const deadline = new AbortController();
+      const timer = isTimeLimit(storeTimeoutMs) ? setTimeout(() => deadline.abort(storeTimeout("delete", storeTimeoutMs)), storeTimeoutMs) : undefined;
+      try {
+        if (!await metaFor(id, caller)) return false;
+        forget(id);
+        return await removal(() => store.delete(id, caller.context), caller.signal, deadline.signal);
+      } finally {
+        clearTimeout(timer);
+      }
     },
 
     async sweep(sweepOptions) {
       // Upkeep of the store, not a user's access: allowed without a scope under `requireScope`.
       const scope = checkScope(sweepOptions?.scope ?? undefined);
       if (typeof store.sweep !== "function") return 0;
-      return storeCall("sweep", () => store.sweep!(now(), storeContext(scope, undefined)));
+      // Within its own time limit, and never counted as stuck: a sweep of a large volume may take
+      // long. It is refused, as other calls are, while too many calls are stuck.
+      return storeCall("sweep", () => store.sweep!(now(), storeContext(scope, undefined)), { timeoutMs: sweepTimeoutMs, maxStuck: maxStuckStoreCalls, counts: false });
     },
 
-    async prepare(ids, base, access) {
-      const caller = callerOf(access, rules);
-      const budget = budgetFor(access?.budget);
-      const analysis = access?.wholeDocumentAnalysis !== false;
-      const unique = [...new Set(ids)];
-      let documents: DocumentMeta[] = [];
+    // The options go on whole: planning (src/prepare.ts) reads the ones it knows.
+    prepare(ids, base, prepareOptions) {
+      return prepareDocuments(planning, ids, base, prepareOptions);
+    },
+
+    tools,
+
+    stats() {
+      // Counters only: no store call, no turn waited for.
+      return {
+        ingests: ingests.load,
+        scans: scan.limiter.load,
+        pageLooks: pageLooks.limiter.load,
+        cache: { bytes: cache.bytes, entries: cache.size, maxBytes: cacheBytes },
+        stuckStoreCalls: stuckCalls(),
+        maxStuckStoreCalls,
+      };
+    },
+
+    async toolsFor(ids, toolOptions) {
+      const access: unknown = toolOptions?.access;
+      if (typeof access !== "object" || access === null) throw new TypeError("toolsFor needs options.access: the owner and scope of the caller, such as { owner: userId }.");
+      if (!Array.isArray(ids)) throw new TypeError("toolsFor needs an array of document IDs.");
+      const caller = withSignal(callerOf(toolOptions.access, rules), toolOptions.access.signal ?? toolOptions.signal);
+      const found: DocumentMeta[] = [];
       const missing: string[] = [];
-      for (const id of unique) {
-        // A document of another owner or scope is reported as missing, not as forbidden, and is
-        // not read at all.
+      // One look-up at a time: a store that does not answer holds one thread of the pool, not one for each ID.
+      for (const id of new Set<string>(ids)) {
         const meta = await metaFor(id, caller);
-        if (meta) documents.push(meta);
+        if (meta) found.push(meta);
         else missing.push(id);
       }
-      // Planning needs only the metadata. The text is read for the documents sent whole, and the
-      // first lines for the others. One that is gone by then is missing, and the plan is made again.
-      for (;;) {
-        const plan = planDocuments(documents, budget, base);
-        const inline = new Set(plan.inline.map((meta) => meta.id));
-        // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
-        const viewable = access?.viewPages ? documents.filter(viewableMeta) : [];
-        const shown = new Set(viewable.map((meta) => meta.id));
-        const blocks = new Map<string, string>();
-        const gone: string[] = [];
-        for (const meta of documents) {
-          const wholeRead = !analysis ? "not_offered" : canBeReadWhole(meta, budget) ? "offered" : "too_large";
-          const text = await block(meta.id, meta, caller, inline.has(meta.id), shown.has(meta.id), wholeRead);
-          if (text === undefined) gone.push(meta.id);
-          else blocks.set(meta.id, text);
-        }
-        if (gone.length === 0) {
-          // A whole-document read is named only when the tools have it, and one of the files is
-          // small enough for it.
-          const wholeReads = analysis && plan.searchable.some((meta) => canBeReadWhole(meta, budget));
-          return { plan, blocks, instruction: documentToolsInstruction(plan.searchable, viewable, wholeReads), missing, viewable };
-        }
-        missing.push(...gone);
-        documents = documents.filter((meta) => !gone.includes(meta.id));
-      }
-    },
-
-    tools(documents, toolOptions = {}) {
-      const { viewPages, budget: overrides, access, ...rest } = toolOptions;
-      // Without `access`, the owner and scope of each document are those it was handed in with: a
-      // library that requires them takes them only from the caller.
-      if (access === undefined && (rules.requireOwner || rules.requireScope)) {
-        throw new TypeError(rules.requireOwner ? OWNER_REQUIRED : SCOPE_REQUIRED);
-      }
-      const asker = access !== undefined ? callerOf(access, rules) : undefined;
-      const budget = budgetFor(overrides);
-      // Which PDFs can be looked at, by the metadata handed in: each look reads the metadata the
-      // store holds, and the file it names, not the one handed in.
-      const viewable = (viewPages === true ? documents : viewPages || []).filter(viewableMeta);
-      // Without `access`, as before 0.9.0: the owner and scope each document was handed in with.
-      // The store is asked with them, and the owner and scope it holds are checked against them on
-      // every call, so metadata built from an ID alone cannot read another owner's document: such a
-      // document is answered as no longer available, as `getMeta` reports it missing. A handed scope
-      // that is not valid reads nothing.
-      const handed = new Map<string, Caller | undefined>(asker ? [] : [...documents, ...viewable].map((meta) => [meta.id, handedCaller(meta)]));
-      const callerFor = (id: string): Caller | undefined => asker ?? (handed.has(id) ? handed.get(id) : NO_CALLER);
-      // The metadata the store holds now, not that of a copy kept in memory.
-      const checkedLoad = async (id: string) => {
-        const caller = callerFor(id);
-        const meta = caller && await metaFor(id, caller);
-        return meta ? load(id, caller, meta) : undefined;
-      };
-      const checkedOriginal = (store.getOriginal || originals) && (async (id: string) => {
-        const caller = callerFor(id);
-        const meta = caller && await metaFor(id, caller);
-        if (!meta || !readable(meta)) return undefined;
-        const original = await originalOf(id, caller, meta);
-        // A file the application keeps that has changed since it was ingested: its pages are not
-        // those of the text the model has, and the model is told so.
-        if (original === "changed") throw new Error(changedOriginal(meta.name));
-        return original === "missing" ? undefined : original;
-      });
-      return createDocumentTools({
-        load: checkedLoad,
-        // Once a call has read a document by range: the store is asked again (`stillOpened`).
-        checkRead: async (document) => {
-          const caller = callerFor(document.meta.id);
-          return caller !== undefined && await stillOpened(document, caller);
-        },
-        documentIds: documents.map((meta) => meta.id),
-        names: Object.fromEntries([...documents, ...viewable].map((meta) => [meta.id, wellFormed(meta.name)])),
-        budget,
-        ...(checkedOriginal && viewable.length > 0 ? { viewableIds: viewable.map((meta) => meta.id), loadOriginal: checkedOriginal, pageLooks } : {}),
-        // `analyze_whole_document` is declared only when it can read at least one of the documents.
-        wholeReads: documents.some((meta) => canBeReadWhole(meta, budget)),
-        // `aggregate_table` only when one may hold a table.
-        tables: documents.some((meta) => TABLE_FORMATS.has(meta.format)),
-        ...rest,
-      });
+      return { tools: tools(found, toolOptions), missing };
     },
   };
 
-  /** The caller a document was handed to `tools` for (without `access`): its owner and scope. Undefined for a scope that is not valid. */
-  function handedCaller(meta: DocumentMeta): Caller | undefined {
+  /**
+   * The caller a document was handed to `tools` for (without `access`): its owner and scope, and the
+   * tool set's signal. Undefined for a scope that is not valid: only that reads as missing.
+   */
+  function handedCaller(meta: DocumentMeta, signal: AbortSignal | undefined): Caller | undefined {
+    let caller: Caller;
     try {
-      return callerOf({ owner: meta.owner, scope: meta.scope }, rules);
+      caller = callerOf({ owner: meta.owner, scope: meta.scope }, rules);
     } catch {
       return undefined;
     }
+    return withSignal(caller, signal);
   }
+}
+
+/** `caller`, whose waits for the store end when `signal` aborts. */
+function withSignal(caller: Caller, signal: AbortSignal | undefined): Caller {
+  return signal === undefined ? caller : { ...caller, signal };
 }

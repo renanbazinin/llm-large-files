@@ -720,8 +720,27 @@ refusing a whole-file read that would pass a ceiling of the question before it s
      bytes of the inline text.
    - `viewable`: the PDFs whose pages `view_pages` can show, because their uploaded file is kept
      (`keepOriginals`). Empty unless you pass `viewPages: true` and the store keeps originals.
-2. **No tools needed?** When `plan.searchable` and `viewable` are both empty, every document is in
-   the prompt: send one request without tools.
+   - New in 0.10.0: `toolable`, with `inlineTables: "tools"`. `instruction` and the blocks stay
+     those of 0.9 unless you ask for `numberInline` or `inlineTables`.
+
+   Two options of 0.10.0 change the text, and are off unless you ask for them:
+   - `numberInline: true` numbers the lines of each file sent whole as the tools number them
+     (`12| `), so that the model can cite its lines as it cites those of a searched file. The file is
+     planned by its numbered size, about 8% to 16% more tokens, so a file at the edge of
+     `inlineTokens` may become a card. `instruction` asks for citations only when a file is
+     searched. When none is (no tools, a table shown in full, a PDF whose pages can be looked at),
+     add `Cite line numbers like (report.docx L12).` to the system text after it.
+   - `inlineTables: "tools"` lists in `toolable` the files sent whole whose tables the tools can
+     count: a CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with a table of at
+     least 3 `| cell |` rows. Give them to `tools` with the searched files, so that a count over a
+     table shown in full is exact (`aggregate_table`), not done by eye. The block of each gives its
+     document_id in its first frame line, since the tools take it and it has no card.
+     `instruction` does not say that these tables can be counted. When `toolable` is not empty,
+     add after it the line `askWithFiles` adds: `Files shown in full can still be counted exactly:
+     use aggregate_table for counts, sums and groups over their tables, and search_document exact
+     for matching lines. In a spreadsheet, give the Row number when asked which row.`
+2. **No tools needed?** When `plan.searchable` and `viewable` are both empty, and `toolable` is
+   empty or not set, every document is in the prompt: send one request without tools.
 3. **Tools.** `files.tools(prepared.plan.searchable, options)` gives a `ToolSet`. The options that
    matter here: `access` (the owner and scope of step 1), `generate` (a `GenerateText`, which turns on `analyze_whole_document`; without it,
    plan with `wholeDocumentAnalysis: false` in step 1), `viewPages` (pass `prepared.viewable`, and
@@ -786,6 +805,7 @@ import {
   FINAL_ANSWER_REQUEST,
   jsonBytes,
   retryAfterMs,
+  TOOL_NAMES,
   toolResultSummary,
   UsageMeter,
   withRetry,
@@ -916,7 +936,9 @@ export async function ask(question: string, documentIds: string[], owner: string
         maxResultCharacters: Math.floor((tokensLeft * 2) / Math.min(calls.length, MAX_CALLS)),
         maxFileBytes: Math.floor(((budget.maxRequestBytes - sentBytes - 1_000_000) * 3) / 4), // base64: four bytes for three
         maxPages: pagesLeft,
-        maxRequests: MAX_REQUESTS - usage.totals.requests - 1, // for a whole-file read; one is kept for the answer
+        // For a whole-file read, one is kept for the answer. A read_document call points at a whole
+        // read the model can make on its next turn at the earliest: that turn's request is kept too.
+        maxRequests: MAX_REQUESTS - usage.totals.requests - (call.name === TOOL_NAMES.read ? 2 : 1),
       });
       console.log(`${label}${toolResultSummary(label, output.result)}`);
       if (output.files.length > 0) {
@@ -965,9 +987,14 @@ into. Fill it from your own request, as the sample above does:
 - `maxFileBytes`: the room left in your request for the pages of this call, times 3/4 when files go
   as base64.
 - `maxPages`: the pages the question may still show. Lower it as the pages add up.
-- `maxRequests`: what your ceiling on requests has left, for a whole-file read. It only limits how
-  many parts refused as too large are read again as two halves: a read that needs more parts than
-  this still makes all of them, the merges of their notes and an answer.
+- `maxRequests`: what your ceiling on requests has left, for a whole-file read. Since 0.10.0 a read
+  with more parts than this is refused before any request, and makes its merges within it; before,
+  it only limited how many parts refused as too large were read again as two halves. Give it to
+  `read_document` calls too, as the sample does (since 0.10.0): a read cut short of its range
+  points at a whole read of its file (`whole_file`) only when the file's parts are within it. The
+  model can call that read on its next turn at the earliest: `askWithFiles` keeps that turn's
+  request out of what it gives a `read_document` call, and gives 0 when it would not run a whole
+  read on that turn. Do the same in your loop.
 - `maxWaitMs` (new in 0.9.0): the most a look at pages waits for its turn, when that is less than
   the library's `pageLookWaitMs`. `askWithFiles` gives 0 to the looks of a turn after one was told
   the server is busy (`onPagesBusy`, below), so that a wait that ends busy comes once in a turn. Do

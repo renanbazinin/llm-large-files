@@ -1,0 +1,86 @@
+{
+ "case": "log-disk",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says db-2",
+     "status": "pass"
+    },
+    {
+     "fact": "number 95",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 8549,
+   "cachedInputTokens": 0,
+   "outputTokens": 74,
+   "thoughtTokens": 0,
+   "ms": 1050,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5814,
+     "ms": 462,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3681,
+      "cachedInputTokens": 0,
+      "outputTokens": 26,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 7099,
+     "ms": 583,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4868,
+      "cachedInputTokens": 0,
+      "outputTokens": 48,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the logs (`payments-service.log` L11340), high disk usage was reported on node **db-2**, where the disk was **95%** full (`/var/lib/postgres`)."
+  }
+ ],
+ "passed": true
+}

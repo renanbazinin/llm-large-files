@@ -1,5 +1,6 @@
 // A plain completion on a model that may think its output limit away: shared by the part readers
 // of every adapter.
+import { until } from "./http.js";
 
 /**
  * A model that thinks counts its thoughts in its output limit. Asked for 4,096 tokens of notes on
@@ -63,7 +64,8 @@ export type LimitedReply = {
  * was learned is kept under `model` (a URL, or a URL and a model name): later requests start with
  * the larger limit, and a model that refused it (HTTP 400, but not for a request too large for the
  * window with it) is not asked for it again, nor is one whose window, or allowance a minute, is no
- * larger than that limit. Requests that arrive while the first one to a model is on its way wait for it.
+ * larger than that limit. Requests that arrive while the first one to a model is on its way wait for it,
+ * until their own signal aborts.
  */
 export async function completeWithinLimit(model: string, maxOutputTokens: number, send: (limit: number) => Promise<LimitedReply>, options: {
   signal?: AbortSignal | undefined;
@@ -77,7 +79,8 @@ export async function completeWithinLimit(model: string, maxOutputTokens: number
   if (!answered.has(model)) {
     const first = firstRequests.get(model);
     if (first) {
-      await first;
+      // The first request may be another question's: this one's abort ends the wait at once.
+      await until(first, signal);
       signal?.throwIfAborted();
     } else {
       firstRequests.set(model, new Promise<void>((resolve) => {

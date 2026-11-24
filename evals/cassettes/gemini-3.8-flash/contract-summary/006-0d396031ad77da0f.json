@@ -1,0 +1,75 @@
+{
+ "n": 6,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "0d396031ad77da0f",
+  "bytes": 7316,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "4262 chars #a311379d"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "להלן תמצית המידע מתוך שורות 140–183 בחלוקה לנושאי המשימה:\n\n### 2. התחייבויות הספק\n* **מנהל לקוח:** מינוי מנהל לקוח אחד שירכז את הקשר עם המזמין (L141, L151, L181).\n* **מרכז הלוגיסטיקה בחולון:** ביצוע ביקור תחזוקה חודשי ומסירת דוח על הביקור (L142, L152, L162, L172).\n* **המפעל בקריית גת:** \n  * החזקת מלאי חלקי חילוף זמין לשירות המפעל (L144, L154, L164, L174).\n  * תיאום מראש עם מנהל האתר לגבי כל עבודה המחייבת השבתה (L149, L159, L169, L179).\n* **המחסן באשדוד – זמני הגעת טכנאי:** הגעה תוך 4 שעות מקריאה דחופה, ותוך יומיים מקריאה רגילה (L146, L156, L176).\n* **ביטוחים:** עריכת ביטוח חבות מעבידים וביטוח צד שלישי לעובדיו (L147, L157, L167).\n\n### 3. זכויות והתחייבויות המזמין\n* **תנאי תשלום:** תשלום התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L143, L153, L163, L173, L183).\n* **ביקורת:** זכות לבצע ביקורת על איכות השירות בכל עת בתיאום מראש (L160, L170, L180).\n\n### 4. התחייבויות הדדיות\n* **סודיות:** חובת שמירת סודיות הדדית לגבי כל מידע שנמסר במסגרת ההתקשרות (L148, L158, L168, L178).\n* **שינויים בהסכם:** כל שינוי בהיקף השירות מחייב מסמך בכתב ובחתימת שני הצדדים (L165, L175).\n\n### 5. סעיפי קנסות\n* **אי עמידה בזמני תיקון** (לפי נספח השירות) **במרכז הלוגיסטיקה בחולון:** 20,750 ש\"ח לכל מקרה (L140).\n* **השבתת מערכת הקירור** מעבר ל-4 שעות **במשרדים בתל אביב:** 22,500 ש\"ח לכל מקרה (L145).\n* **דליפת מידע של לקוחות המזמין** באחריות הספק: 48,000 ש\"ח (בנוסף לכל סעד אחר; לא צוין אתר ספציפי) (L150).\n* **החלפת טכנאי ללא הודעה מוקדמת בסניף בחיפה:** 2,000 ש\"ח לכל מקרה (L155).\n* **שימוש בחלקי חילוף שאינם מקוריים במחסן באשדוד:** 3,750 ש\"ח לכל מקרה (L161).\n* **הפרת הוראות הבטיחות באתר במרכז הלוגיסטיקה בחולון:** 5,500 ש\"ח לכל מקרה (L166).\n* **אובדן ציוד של המזמין במשרדים בתל אביב:** 7,250 ש\"ח לכל מקרה (L171).\n* **אי ביצוע תחזוקה מונעת במועד במפעל בקריית גת:** 9,000 ש\"ח לכל מקרה (L177).\n* **עבודה ללא אישור כניסה בתוקף בסניף בחיפה:** 10,750 ש\"ח לכל מקרה (L182).",
+        "thoughtSignature": "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"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2245,
+    "candidatesTokenCount": 1026,
+    "totalTokenCount": 4454,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2245
+     }
+    ],
+    "thoughtsTokenCount": 1183,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "wIQFa_quKLTsxs0PkKuzyQk"
+  }
+ }
+}

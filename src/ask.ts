@@ -1,6 +1,7 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
 import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type DocumentRef, type EventResult, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
+import { checkCitations, type CitationCheck } from "./citations.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
@@ -11,6 +12,7 @@ import {
   laterResult,
   modelErrorOf,
   rateAllowanceOf,
+  reportsInput,
   TOOL_TURN_VERSION,
   UsageMeter,
   type ChatMessage,
@@ -26,7 +28,8 @@ import {
   type UsageTotals,
 } from "./model.js";
 import { DocumentStoreError } from "./errors.js";
-import { estimateParts, REQUEST_BYTES_MARGIN } from "./plan.js";
+import { canBeReadWhole, estimateParts, inlineInstruction, questionTools, REQUEST_BYTES_MARGIN } from "./plan.js";
+import { preparedHere } from "./prepare.js";
 import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
 import {
@@ -42,10 +45,17 @@ import {
   toolResultSummary,
   unknownToolName,
 } from "./tools.js";
-import type { Budget, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import { wholeReadCost } from "./whole-cost.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
+/**
+ * The same, when files were also sent whole and the tools can read them or their lines are
+ * numbered (`inlineTables`, `numberInline`): what they say is part of the answer too, not only what
+ * the tools returned. New in 0.10.0. Not exported from the package.
+ */
+export const FINAL_ANSWER_WITH_FILES = "Stop using tools now. Answer my question using only the files shown in full and what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
 /** The same, when the only tool was `view_pages`: the text of the files is in the prompt, not in tool results. */
 export const FINAL_ANSWER_AFTER_PAGES = "Stop using tools now. Answer my question from the text of the files and the pages you looked at. Say plainly what you could not see or find. Answer in the language of my question.";
 /**
@@ -58,6 +68,16 @@ export const FINAL_ANSWER_WITHOUT_TOOLS = "Answer my question now, from what is 
  * needs, and the other model writes the answer.
  */
 export const EXPLORER_INSTRUCTION = "You only gather material in this conversation: another model writes the answer. It sees this conversation and what your tool calls returned, not what you thought or wrote. So call the tools until their results hold everything the answer needs from the files. Then, or at once if no tool is needed, reply with the single word DONE instead of an answer.";
+
+/**
+ * The least ceiling on the input tokens of a question that sets no `limits.inputTokens`. Its
+ * ceiling is the larger of this and `toolTurns` times its first request, with the room for its
+ * whole-file reads added. New in 0.10.0.
+ */
+export const DEFAULT_INPUT_TOKENS = 1_000_000;
+
+/** How many whole-file reads one question may make, over all its documents, by default (`limits.wholeReadsPerQuestion`). */
+const DEFAULT_WHOLE_READS_PER_QUESTION = 2;
 
 /** The limits of one question. */
 export type AskLimits = {
@@ -82,12 +102,25 @@ export type AskLimits = {
   wholeDocumentReads?: number;
   /**
    * A ceiling on the input tokens of one question, over all its requests, whole-file part reads
-   * included. Once it is reached no more tools run and the next request is the answer; a
-   * whole-file read that would pass it is refused. Unset: no ceiling.
+   * included, in the models' own tokens. Before each tool request the loop looks ahead: when what
+   * was spent, that request and the answer's request would pass it, no more tools run and the next
+   * request is the answer. A whole-file read that would pass it is refused. A request whose
+   * provider reports no input counts by the library's estimate (`UsageTotals.estimatedInputTokens`).
+   * Unset (since 0.10.0): the larger of `DEFAULT_INPUT_TOKENS` and `toolTurns` times the estimate
+   * of the question's first request, plus room for its whole-file reads: as many as
+   * `wholeReadsPerQuestion` and the documents allow, each at the price of the dearest one.
+   * `Infinity`: no ceiling, as before 0.10.0.
    */
   inputTokens?: number;
   /** The same ceiling, on the number of model requests: the chat's and the part reads' together. */
   requests?: number;
+  /**
+   * How many whole-file reads (`analyze_whole_document`) one question may make over all its
+   * documents, next to `wholeDocumentReads` for each one. A read that sent requests counts, one
+   * that failed among them. Defaults to 2; `Infinity` keeps the rule of 0.9, one read of each
+   * document. New in 0.10.0.
+   */
+  wholeReadsPerQuestion?: number;
 };
 
 export type AskOptions = {
@@ -100,7 +133,8 @@ export type AskOptions = {
   /**
    * A second model that explores the documents: it makes the tool calls (search, read, look at
    * pages) and reads a whole file in parts. It may be of another provider than `model`. Left out,
-   * or the same adapter as `model`: one model does both.
+   * or the same adapter as `model`: one model does both. Since 0.10.0 it is not used when no file
+   * is searched and the tools are there for tables sent whole (`inlineTables`): `model` runs them.
    */
   explorer?: ModelAdapter | undefined;
   /** Documents this conversation may use. Where their text or cards go: see `documentPlacement`. */
@@ -112,6 +146,38 @@ export type AskOptions = {
    * document then moves on every turn and is billed in full each time.
    */
   documentPlacement?: "first" | "last";
+  /**
+   * "tools": a table sent whole (a CSV, a workbook, a file with `| cell |` rows) can still be
+   * counted and searched: the question gets `search_document`, `read_document` and
+   * `aggregate_table` for it, and runs the tool loop. When no file is searched, `model` runs that
+   * loop itself, without the explorer, so a question that needs no count is still answered in one
+   * request. "text": it is sent whole without tools, as in 0.9. Defaults to "tools". New in 0.10.0.
+   */
+  inlineTables?: "tools" | "text";
+  /**
+   * Number the lines of the files sent whole, as the tools number them ("12| "), so that the answer
+   * can cite them. When no file is searched, the system text asks for citations like
+   * "(report.docx L12)". Defaults to true; false sends them as in 0.9. New in 0.10.0.
+   */
+  numberInline?: boolean;
+  /**
+   * What to do with an answer that a filter of the provider stopped (`AskResult.finish`
+   * "filtered"): "keep" (the default) keeps its text, as in 0.9; "drop" gives `answered: false` and
+   * `text: ""`. Text already sent through `onText` and `text` events cannot be taken back: the
+   * "answer_filtered" notice then says `discardText`, before `run.finish`. New in 0.10.0.
+   */
+  filteredAnswer?: "keep" | "drop";
+  /**
+   * Called with the result of every tool call that ran, before the model, the evidence, the steps
+   * and the events get it: return `{ result }` to send another result (it is sent with
+   * `redacted: true`, and the call's outcome is "redacted"), `{ reject: "why" }` to send
+   * `{ error: "why" }` in its place (outcome "refused"), or undefined to keep it. What it throws, or
+   * a value of another shape, ends the question. Each call's hook is called as soon as its result
+   * is in, so those of one turn may run at the same time; the verdicts are applied in call order,
+   * and what they let through is then fitted to the room in the request. The parts of a whole-file
+   * read go to the model that reads them, not through this. New in 0.10.0.
+   */
+  onToolResult?: (context: ToolResultContext) => ToolResultVerdict | undefined | Promise<ToolResultVerdict | undefined>;
   /**
    * The conversation; the last message must be the user's question. Plain turns
    * (`{ role, text }`), the tool rounds an earlier question returned (`AskResult.toolTurns`), and
@@ -201,16 +267,23 @@ export type AskResult = {
    */
   text: string;
   /**
-   * False when the model's last turn had no text: the prompt was blocked, the reply was cut off
-   * before any text, or the model produced a malformed tool call. `text` may then be empty or
-   * hold only an earlier remark, so show your own message instead of treating it as the answer.
+   * False when the reply that should be the answer had no text: the prompt was blocked, or the
+   * reply was cut off or filtered before any text. A turn whose tool call could not be read is
+   * not an answer either, even with text: the answer is asked for once more. With
+   * `filteredAnswer: "drop"`, false for a filtered answer too. `text` may then be empty or hold
+   * only an earlier remark, so show your own message instead of treating it as the answer
+   * (`answerInfoOf` says which).
    */
   answered: boolean;
   /** Why the provider refused the prompt, when it did. */
   blockReason?: string;
   /** Every tool step taken, in order (also delivered through `onStep`). */
   steps: string[];
-  /** What each tool call showed the model: the document, and the lines or pages. In call order. */
+  /**
+   * What the model was shown: first each file sent whole, in the order of its block (`tool`
+   * "inline", every line, `whole: true`, no `callId`; since 0.10.0), then what each tool call
+   * showed, the document and the lines or pages, in call order.
+   */
   evidence: Evidence[];
   /**
    * The tool rounds of this question as plain JSON. Kept with the conversation and passed back in
@@ -234,7 +307,31 @@ export type AskResult = {
   usage: UsageTotals;
   /** The provider's own usage object of the last chat response, as it came. */
   lastUsage?: Record<string, unknown>;
+  /**
+   * How the reply whose text is the answer ended (`ModelReply.finish`), or the last reply of the
+   * chat when none answered. Absent when the adapter does not say. A "filtered" or "cut" answer
+   * also has an "answer_filtered" or "answer_cut" notice. New in 0.10.0.
+   */
+  finish?: ModelReply["finish"];
+  /**
+   * The line citations of `text`, checked against what the tools showed (`checkCitations`): a
+   * document sent whole counts as shown. Set when the question had documents. New in 0.10.0.
+   */
+  citations?: CitationCheck;
 };
+
+/**
+ * What `AskOptions.onToolResult` is given: the call and its result, as the tool returned it (before
+ * it is fitted to the room in the request), the document it names, who asks, and a signal that
+ * aborts when the question is stopped or fails. New in 0.10.0.
+ */
+export type ToolResultContext = { call: ToolCall; result: ToolResult; documentId?: string; owner?: string; scope?: DocumentScope; signal: AbortSignal };
+
+/**
+ * What `AskOptions.onToolResult` returns: `{ result }` sends that result in place of the tool's,
+ * and `{ reject }` sends `{ error: reject }`. Undefined keeps the tool's result. New in 0.10.0.
+ */
+export type ToolResultVerdict = { result: ToolResult } | { reject: string };
 
 /**
  * What `AskOptions.onMissingDocuments` says to do with the documents that are missing:
@@ -263,6 +360,36 @@ function checkMissingPolicy(given: unknown): void {
   throw new TypeError(`onMissingDocuments must be "throw", "drop" or a function, and is ${shownValue(given)}.`);
 }
 
+/**
+ * `filteredAnswer` checked: a value it cannot be ("Drop", true) is an error before anything is
+ * planned. It would otherwise keep a filtered answer that the application meant to drop.
+ */
+function checkFilteredAnswer(given: unknown): void {
+  if (given === undefined || given === "keep" || given === "drop") return;
+  throw new TypeError(`filteredAnswer must be "keep" or "drop", and is ${shownValue(given)}.`);
+}
+
+/**
+ * `inlineTables` and `numberInline` checked: a value they cannot be ("Text", "false") is an error
+ * before anything is planned, as `prepare` would throw it, but in the words of the question.
+ */
+function checkInlineOptions(tables: unknown, numbered: unknown): void {
+  if (tables !== undefined && tables !== "tools" && tables !== "text") throw new TypeError(`inlineTables must be "tools" or "text", and is ${shownValue(tables)}.`);
+  if (numbered !== undefined && typeof numbered !== "boolean") throw new TypeError(`numberInline must be true or false, and is ${shownValue(numbered)}.`);
+}
+
+/**
+ * The evidence of a document sent whole (since 0.10.0): every line of it was shown. It comes from
+ * no tool call, so it has no `callId`.
+ */
+const sentWhole = (meta: DocumentMeta): Evidence => ({
+  tool: "inline",
+  documentId: meta.id,
+  document: meta.name,
+  ...(Number.isFinite(meta.lines) && meta.lines >= 1 ? { lines: [[1, Math.trunc(meta.lines)]] } : {}),
+  whole: true,
+});
+
 /** An object made as `{}` or `Object.create(null)` is: not a Map, an array or an instance of a class. */
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   if (value === null || typeof value !== "object") return false;
@@ -282,6 +409,26 @@ function checkedAction(action: unknown): MissingDocumentsAction {
     }
   }
   throw new TypeError(`onMissingDocuments returned ${shownValue(action)}: it must return "throw", "drop", { retry: true } or { replace: { [oldId]: newId } }.`);
+}
+
+/**
+ * What `onToolResult` returned, checked: undefined, `{ result }` with a result that is an object,
+ * or `{ reject }` with a string. A verdict with a `result` is a result, whatever else it holds.
+ * Anything else ends the question: the hook is there to keep something from the model, and a
+ * mistake in it must not let the result through.
+ */
+function checkedVerdict(verdict: unknown): ToolResultVerdict | undefined {
+  if (verdict === undefined) return undefined;
+  if (verdict !== null && typeof verdict === "object") {
+    if (Object.hasOwn(verdict, "result")) {
+      const { result } = verdict as { result: unknown };
+      if (result !== null && typeof result === "object" && !Array.isArray(result)) return { result: result as ToolResult };
+    } else if (Object.hasOwn(verdict, "reject")) {
+      const { reject } = verdict as { reject: unknown };
+      if (typeof reject === "string") return { reject };
+    }
+  }
+  throw new TypeError(`onToolResult returned ${shownValue(verdict)}: it must return { result }, { reject: "why" } or undefined.`);
 }
 
 /** The documents of a question once `onMissingDocuments` had its say. */
@@ -333,14 +480,60 @@ const DEFAULT_CALLS_PER_TURN = 8;
 const CALLS_AT_ONCE = 4;
 /** With less room than this for its result, a call is not run. */
 const LEAST_ROOM_CHARACTERS = 1_500;
-/** Characters of a tool result for each token of room. A log full of IDs and numbers comes to about two. */
+/**
+ * Characters of a tool result for each token of room, when the call names no document of the
+ * question. Since 0.10.0 a call that names one takes its document's own (`charactersPerToken`).
+ */
 const CHARACTERS_PER_TOKEN = 2;
+
+/**
+ * The characters of a document's text for each token of the estimate, as its ingest counted them,
+ * from 0.8 to 4: about 0.9 for a table of numbers, 1.4 for a service log, 1.9 for Hebrew prose.
+ * The JSON of a tool result that quotes the text comes to about the same. `CHARACTERS_PER_TOKEN`
+ * when the metadata does not say. New in 0.10.0.
+ */
+function charactersPerToken(meta: Pick<DocumentMeta, "characters" | "estimatedTokens"> | undefined): number {
+  const ratio = meta && meta.estimatedTokens > 0 ? meta.characters / meta.estimatedTokens : Number.NaN;
+  return Number.isFinite(ratio) ? Math.min(4, Math.max(0.8, ratio)) : CHARACTERS_PER_TOKEN;
+}
+
+/** The tokens of room a tool result takes in a request, as the request meter counts an answer. */
+const resultTokens = (result: ToolResult): number => estimateTokens(JSON.stringify(result)) + 8;
+
+/**
+ * `result` cut to `tokens` of room (`resultTokens`): by `fitAnswer`, to the characters its own
+ * characters per token give, and a little less again while it is still over. Never below
+ * `LEAST_RESULT_CHARACTERS`.
+ */
+function cutToTokens(result: ToolResult, tokens: number): ToolResult {
+  const json = JSON.stringify(result);
+  const perToken = json.length / Math.max(1, resultTokens(result));
+  let characters = Math.max(LEAST_RESULT_CHARACTERS, Math.floor(tokens * perToken));
+  let cut = fitAnswer(result, characters);
+  for (let tries = 0; tries < 4 && resultTokens(cut) > tokens && characters > LEAST_RESULT_CHARACTERS; tries++) {
+    characters = Math.max(LEAST_RESULT_CHARACTERS, Math.floor(characters * 0.85));
+    cut = fitAnswer(result, characters);
+  }
+  return cut;
+}
+
+/**
+ * `alreadyShown`, but never a pointer to a result that `onToolResult` replaced (`redacted: true`):
+ * it does not hold what the call would return.
+ */
+function pointerTo(call: { name: string; args: Record<string, unknown> }, earlier: { call: { name: string; args: Record<string, unknown> }; result: ToolResult }, stored = false): ToolResult | undefined {
+  return earlier.result.redacted === true ? undefined : alreadyShown(call, earlier, stored);
+}
 /** Bytes a character of a tool result may take in the request. */
 const BYTES_PER_CHARACTER = 3;
 /** Tool rounds whose results are kept in full when older ones are dropped to make room. */
 const ROUNDS_KEPT = [3, 2, 1];
 
 const NO_ROOM = "Not run: there is no room left in this conversation for another tool result. Answer now, from what the tools returned so far.";
+/** How the error of a whole-file read that sent its parts, and could read none of them, begins (`NothingReadError`). */
+const NOTHING_READ = "Could not read any part of ";
+/** The answer to a call of a tool the question does not have: it is not run, and takes no room. New in 0.10.0. */
+const unknownTool = (name: string, tools: string[]) => `Unknown tool ${unknownToolName(name)}. The tools are: ${tools.join(", ")}.`;
 /** Why a request of a whole-file read that its read left behind ended with its call. */
 const CALL_ENDED = "The tool call ended before this request did.";
 
@@ -511,23 +704,30 @@ class RequestMeter {
 }
 
 /**
- * Shares `room` characters among tool calls whose results may be up to `caps` characters. A call
- * gets no more than its cap, and the others split what it leaves. Calls that cannot each get
- * `LEAST_ROOM_CHARACTERS` (or their cap, when it is smaller) are not run, the last ones first:
- * their share is undefined.
+ * Shares `room` among tool calls whose results may be up to `caps` characters. A character of the
+ * result of call i takes `rates[i]` of the room (1 when `rates` is left out: the room is in
+ * characters; since 0.10.0 the loop gives it in tokens, and each call the tokens a character of its
+ * document takes). A call gets no more than its cap, and the others split what it leaves. Calls
+ * that cannot each get `LEAST_ROOM_CHARACTERS` (or their cap, when it is smaller) are not run, the
+ * last ones first: their share is undefined. The shares are in characters.
  */
-export function shareRoom(caps: number[], room: number): Array<number | undefined> {
-  const least = (cap: number) => Math.min(cap, LEAST_ROOM_CHARACTERS);
+export function shareRoom(caps: number[], room: number, rates?: number[]): Array<number | undefined> {
+  const rate = (index: number) => rates?.[index] ?? 1;
+  const least = (cap: number, index: number) => Math.min(cap, LEAST_ROOM_CHARACTERS) * rate(index);
   let count = caps.length;
-  let needed = caps.reduce((sum, cap) => sum + least(cap), 0);
-  while (count > 0 && needed > room) needed -= least(caps[--count]!);
+  let needed = caps.reduce((sum, cap, index) => sum + least(cap, index), 0);
+  while (count > 0 && needed > room) {
+    count--;
+    needed -= least(caps[count]!, count);
+  }
   const shares: Array<number | undefined> = caps.map(() => undefined);
   // The smallest caps first: each call takes its cap or an even share of what is left, whichever is less.
-  const order = caps.slice(0, count).map((cap, index) => ({ cap, index })).sort((left, right) => left.cap - right.cap);
+  const order = caps.slice(0, count).map((cap, index) => ({ cap: cap * rate(index), index })).sort((left, right) => left.cap - right.cap);
   let left = Math.max(0, Math.floor(room));
   order.forEach(({ cap, index }, position) => {
     const share = Math.min(cap, Math.floor(left / (order.length - position)));
-    shares[index] = share;
+    // A call given its whole cap gets the cap as it is, not as it comes back from the rate.
+    shares[index] = share === cap ? caps[index]! : Math.floor(share / rate(index));
     left -= share;
   });
   return shares;
@@ -628,7 +828,7 @@ const MOST_OVERFLOW_RECOVERIES = 2;
  * so it turned off the ceilings and the cap on whole-file reads, or every tool.
  */
 function checkedLimits(given: AskLimits | undefined): AskLimits {
-  for (const field of ["toolTurns", "callsPerTurn", "wholeDocumentReads", "inputTokens", "requests"] as const) {
+  for (const field of ["toolTurns", "callsPerTurn", "wholeDocumentReads", "inputTokens", "requests", "wholeReadsPerQuestion"] as const) {
     const value: unknown = given?.[field];
     if (value === undefined) continue;
     if (typeof value !== "number") throw new TypeError(`limits.${field} must be a number, and is ${typeof value === "string" ? JSON.stringify(value) : typeof value}.`);
@@ -704,11 +904,20 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
  * A result as `run.finish` and `run.error` carry it: a copy, so that a listener cannot change the
  * caller's, without the tool rounds and with the plan naming documents only (both hold text of
  * the documents: tool results, outline headings, the commonest lines of a log) unless `withTurns`.
+ * Its plan never holds the owner, scope, SHA-256 or original of a document.
  */
 function eventResultOf(result: AskResult, withTurns: boolean): EventResult {
-  if (withTurns) return { ...result };
-  const { toolTurns: _toolTurns, plan, ...rest } = result;
+  const { toolTurns, plan, ...rest } = result;
+  // The full metadata only with `withTurns`, and never what is to stay on the server: who owns a
+  // document, its scope, the SHA-256 and the ref of its original.
+  if (withTurns) return { ...rest, toolTurns, plan: { inline: plan.inline.map(withoutServerFields), searchable: plan.searchable.map(withoutServerFields) } };
   return { ...rest, plan: { inline: plan.inline.map(documentRef), searchable: plan.searchable.map(documentRef) } };
+}
+
+/** A document's metadata without what is to stay on the server, for an event (since 0.10.0). */
+function withoutServerFields(meta: DocumentMeta): Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion"> {
+  const { owner: _owner, scope: _scope, sha256: _sha256, original: _original, metaVersion: _metaVersion, ...rest } = meta;
+  return rest;
 }
 
 /**
@@ -761,12 +970,18 @@ async function askPlanned(options: AskOptions, state: RunState): Promise<AskResu
 async function ask(options: AskOptions, carried: Carried | undefined, state: RunState): Promise<AskResult> {
   const { files, model, signal } = options;
   const { events } = state;
-  // A second model for the requests that use tools. The answering model itself is not one.
-  const explorer = options.explorer && options.explorer !== model ? options.explorer : undefined;
-  const toolModel = explorer ?? model;
-  const models = explorer ? [model, explorer] : [model];
+  // A second model for the requests that use tools. The answering model itself is not one. It
+  // explores only when a file is searched (see `explorer` below), but the budget is fitted to it.
+  const given = options.explorer && options.explorer !== model ? options.explorer : undefined;
+  const models = given ? [model, given] : [model];
   const limits = checkedLimits(options.limits);
   checkMissingPolicy(options.onMissingDocuments);
+  checkFilteredAnswer(options.filteredAnswer);
+  checkInlineOptions(options.inlineTables, options.numberInline);
+  // Since 0.10.0 by default: the tables sent whole get the tools, and the files sent whole have
+  // numbered lines. "text" and false send them as 0.9 did.
+  const inlineTables = options.inlineTables ?? "tools";
+  const numberInline = options.numberInline ?? true;
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -799,23 +1014,47 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const meter = new RequestMeter(pageTokens);
   const asText = textSize(messages, options.system);
   const earlier = meter.rounds(messages);
-  // Who asks: the documents are looked up, and every tool call reads them, for this owner and scope.
+  // Who asks: the documents are looked up, and every tool call reads them, for this owner and
+  // scope. The question's signal goes with them, for a library that ends its waits for the store
+  // with it (`AccessOptions.signal`).
   const access = {
     ...(options.owner !== undefined ? { owner: options.owner } : {}),
     ...(options.scope !== undefined ? { scope: options.scope } : {}),
+    ...(signal ? { signal } : {}),
   };
   // Documents that are missing are settled as `onMissingDocuments` says. A question planned again
   // starts from the documents its first try planned: the function is not asked again about them.
-  const planned = await planDocumentsOf(options, carried?.documentIds ?? options.documentIds, (ids) => files.prepare(ids, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
+  // The question stops when its signal aborts, whether the library does or not: a store call that
+  // hangs (a network volume that does not answer) must not hold it, with any `LargeFiles`.
+  const planned = await planDocumentsOf(options, carried?.documentIds ?? options.documentIds, (ids) => until(files.prepare(ids, { tokens: asText.tokens + earlier.tokens, bytes: asText.bytes + earlier.bytes }, {
     ...access,
     viewPages: options.viewPages !== false && canShowFiles,
     // The guide and the cards name `analyze_whole_document` only when the tools will have it.
-    wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof toolModel.generateText === "function",
+    wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof (given ?? model).generateText === "function",
     budget,
-  }));
+    numberInline,
+    inlineTables,
+  }), signal));
   const { prepared, documentIds } = planned;
   /** The documents left out of the question ("drop"), by this try and by the first. */
   const missing = [...carried?.missing ?? [], ...planned.dropped];
+  // Tools are needed for a file that is too large to send whole, for a PDF whose pages can be
+  // looked at (that one may have its whole text in the prompt and still hide a chart from the
+  // model), and for a table sent whole whose rows they can count (`inlineTables`). A library of
+  // your own whose `prepare` gives no `toolable` has none of the last.
+  const { searchable } = prepared.plan;
+  const { viewable } = prepared;
+  const toolable = prepared.toolable ?? [];
+  // The explorer gathers what the answer needs from the files searched with the tools. When none
+  // is, and the tools are there for tables sent whole, the answering model runs the loop itself: a
+  // question that needs no count is then answered in its first request, and the whole files are
+  // not sent to two models that share no cache.
+  const explorer = given && !(searchable.length === 0 && toolable.length > 0) ? given : undefined;
+  const toolModel = explorer ?? model;
+  // The lines of the files sent whole are numbered when asked, by a library whose `prepare` is
+  // that of this package (its result has the mark, `preparedHere`): one of your own of 0.9 sends
+  // them as they are.
+  const numbered = numberInline && preparedHere(prepared);
 
   const blocks = [...new Set(documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
   if (blocks.length) {
@@ -826,13 +1065,16 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   }
   // A question without some of its files says so to the model, in one line of its own.
   const missingLine = missing.length > 0 ? missingFilesLine(missing.length) : "";
-  const system = [options.system?.trim(), prepared.instruction, missingLine].filter(Boolean).join("\n\n");
+  // The fixed lines for the files sent whole (since 0.10.0): that their tables can still be counted
+  // with the tools, and, when no file is searched, to cite their numbered lines.
+  const inlineLine = inlineInstruction(prepared, numbered);
+  const system = [options.system?.trim(), prepared.instruction, inlineLine, missingLine].filter(Boolean).join("\n\n");
 
   // The size of what stays in every request: the text as asked, the documents, the tool guide.
   const whole = new Set(prepared.plan.inline.map((meta) => meta.id));
   meter.fixed = {
-    tokens: asText.tokens + prepared.plan.inlineTokens + estimateTokens(prepared.instruction) + (missingLine ? estimateTokens(missingLine) : 0),
-    bytes: asText.bytes + prepared.plan.inlineBytes + jsonBytes(prepared.instruction) + (missingLine ? jsonBytes(missingLine) : 0),
+    tokens: asText.tokens + prepared.plan.inlineTokens + estimateTokens(prepared.instruction) + (inlineLine ? estimateTokens(inlineLine) : 0) + (missingLine ? estimateTokens(missingLine) : 0),
+    bytes: asText.bytes + prepared.plan.inlineBytes + jsonBytes(prepared.instruction) + (inlineLine ? jsonBytes(inlineLine) : 0) + (missingLine ? jsonBytes(missingLine) : 0),
   };
   for (const [id, block] of prepared.blocks) {
     if (whole.has(id)) continue;
@@ -842,11 +1084,20 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
 
   let text = "";
   let turns = carried?.turns ?? 0;
+  /** The last reply of the chat: its `finish` is the answer's (`AskResult.finish`). */
+  let lastReply: ModelReply | undefined;
+  const dropFiltered = options.filteredAnswer === "drop";
   let finishReason: string | undefined;
   let blockReason: string | undefined;
   let lastUsage: Record<string, unknown> | undefined;
   const steps: string[] = [];
-  const evidence: Evidence[] = [];
+  // The files sent whole come first, in the order of their blocks: the model was shown every line
+  // of them before any tool ran (since 0.10.0).
+  const inlineById = new Map(prepared.plan.inline.map((meta) => [meta.id, meta]));
+  const evidence: Evidence[] = [...new Set(documentIds)].flatMap((id) => {
+    const meta = inlineById.get(id);
+    return meta ? [sentWhole(meta)] : [];
+  });
   const emit = (delta: string, requestId: string) => {
     text += delta;
     options.onText?.(delta);
@@ -968,10 +1219,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       if (events.active) events.emit({ type: "request.end", requestId, ms: Date.now() - began, outcome: "error", error: eventErrorOf(error) });
       throw error;
     }
-    // Text the adapter did not pass on as it came (no streaming was asked for, or it cannot).
-    if (shown && reply.text.length > got.length && reply.text.startsWith(got)) write(reply.text.slice(got.length));
+    // Text the adapter did not pass on as it came (no streaming was asked for, or it cannot). Not
+    // the text of a reply a filter stopped, when such an answer is dropped: it was not shown yet.
+    if (shown && reply.text.length > got.length && reply.text.startsWith(got) && !(dropFiltered && reply.finish === "filtered")) write(reply.text.slice(got.length));
     answeredRequests++;
-    usage.add(adapter.id, reply.usage);
+    lastReply = reply;
+    // A reply without its input tokens is counted by the estimate, in the model's own tokens.
+    usage.add(adapter.id, reply.usage, estimated * scaleOf(adapter));
     // The count of the model that answered, in the library's tokens by that model's own scale: how
     // much more than its scale says the text costs it, which the other model will see too. By the
     // larger scale of the two, a count of the model with the smaller one was taken for no more.
@@ -988,6 +1242,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       ...(reply.finish ? { finish: reply.finish } : {}),
       ...(reply.finishReason !== undefined ? { finishReason: reply.finishReason } : {}),
       toolCalls: reply.calls.length,
+      ...(typeof reply.responseId === "string" ? { responseId: reply.responseId } : {}),
+      ...(typeof reply.responseModel === "string" ? { responseModel: reply.responseModel } : {}),
     });
     if (reply.blockReason) notice("blocked", `The provider refused the prompt: ${reply.blockReason}.`);
     return reply;
@@ -996,6 +1252,25 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const wrote = (reply: ModelReply) => reply.text.trim().length > 0 && !reply.blockReason;
 
   const asked = messages.length;
+  /** The documents of the question, by ID: their names and formats, for the citations of the answer. */
+  const documents = [...prepared.plan.inline, ...prepared.plan.searchable];
+  const citationsOf = (): CitationCheck => {
+    const names: Record<string, string> = {};
+    const formats: Record<string, DocumentFormat> = {};
+    for (const meta of documents) {
+      names[meta.id] = meta.name;
+      formats[meta.id] = meta.format;
+    }
+    // A document sent whole was shown, every line of it (its evidence comes first and says so),
+    // and a whole-file read read every line: those from 1 to its last. A line past the end of the
+    // file is not supported.
+    const linesOf = new Map(documents.map((meta) => [meta.id, meta.lines]));
+    const bounded = (entry: Evidence): Evidence => {
+      const lines = linesOf.get(entry.documentId);
+      return entry.whole === true && !entry.lines && typeof lines === "number" && Number.isFinite(lines) ? { ...entry, lines: lines >= 1 ? [[1, Math.trunc(lines)]] : [] } : entry;
+    };
+    return checkCitations(text, evidence.map(bounded), names, formats);
+  };
   const result = (answered: boolean): AskResult => ({
     text,
     answered,
@@ -1018,7 +1293,33 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(finishReason ? { finishReason } : {}),
     usage: usage.totals,
     ...(lastUsage ? { lastUsage } : {}),
+    ...(lastReply?.finish !== undefined ? { finish: lastReply.finish } : {}),
+    ...(documents.length > 0 ? { citations: citationsOf() } : {}),
   });
+  /**
+   * The result of a question that ends with an answer: one that a filter stopped, or that was cut
+   * at the output limit, says so in a notice, before `run.finish`. A filtered answer is dropped
+   * when `filteredAnswer` says so; text of it already sent is to be taken away (`discardText`).
+   */
+  const answer = (answered: boolean): AskResult => {
+    const finish = lastReply?.finish;
+    if (finish === "filtered") {
+      const sent = text.length > 0;
+      const message = !lastReply?.text.trim()
+        ? "A filter of the provider stopped the answer before any text came."
+        : dropFiltered
+          ? "A filter of the provider stopped the answer before it was finished: its text was dropped."
+          : "A filter of the provider stopped the answer before it was finished.";
+      events.emit({ type: "notice", code: "answer_filtered", message, display: "none", ...(dropFiltered && sent ? { discardText: true as const } : {}) });
+      if (dropFiltered) {
+        text = "";
+        return result(false);
+      }
+    } else if (finish === "cut") {
+      notice("answer_cut", lastReply?.text.trim() ? "The answer stopped at the model's output limit, so it is incomplete." : "The answer stopped at the model's output limit before any text came.");
+    }
+    return result(answered);
+  };
 
   // Pages the model looks at stay in the request until the question is answered, so they are
   // counted twice: as bytes against the request limit, and as tokens against half of what the
@@ -1031,10 +1332,15 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   // request as too large, and names its window, makes it smaller.
   let tokenLimit = budget.contextTokens - Math.floor(reservedTokens / 2);
   const byteLimit = maxRequestBytes - Math.max(32_768, Math.floor(maxRequestBytes / 50));
-  /** Characters of tool results that still fit, with a model turn that is about to be answered. */
-  const room = (pending: ModelToolRound): number => {
+  /**
+   * The tokens of tool results that still fit, with a model turn that is about to be answered, for
+   * calls whose results take `rates` tokens a character: within the token limit, and within the
+   * bytes of the request for the call that takes the fewest tokens a character.
+   */
+  const room = (pending: ModelToolRound, rates: number[]): number => {
     const now = meter.current([...messages, pending]);
-    return Math.floor(Math.min((tokenLimit - now.tokens) * CHARACTERS_PER_TOKEN, (byteLimit - now.bytes) / BYTES_PER_CHARACTER));
+    const fewest = rates.length > 0 ? Math.min(...rates) : 1 / CHARACTERS_PER_TOKEN;
+    return Math.floor(Math.min(tokenLimit - now.tokens, (byteLimit - now.bytes) / BYTES_PER_CHARACTER * fewest));
   };
   /**
    * Makes room: the results of every tool round but the last `keep` are replaced by short
@@ -1093,7 +1399,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         if (answer.result.already_shown === true) {
           const held = canPoint && ((key !== undefined && (inRound.has(key) || (answer.call.name !== TOOL_NAMES.read && shownKeys.has(key))))
             || (answer.call.name === TOOL_NAMES.read && (shownReads.get(answer.call.args.document_id) ?? [])
-              .some((read) => alreadyShown(answer.call, read.answer, read.index < asked && read.question !== question) !== undefined)));
+              .some((read) => pointerTo(answer.call, read.answer, read.index < asked && read.question !== question) !== undefined)));
           if (!held) {
             touched = true;
             now = {
@@ -1105,7 +1411,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               },
             };
           }
-        } else if (key !== undefined && alreadyShown(answer.call, answer) !== undefined) {
+        } else if (key !== undefined && pointerTo(answer.call, answer) !== undefined) {
           // A result in full: what a later pointer may point to.
           if (answer.call.name === TOOL_NAMES.read) {
             const reads = shownReads.get(answer.call.args.document_id) ?? [];
@@ -1269,31 +1575,38 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   else signal?.addEventListener("abort", stopTools, { once: true });
 
   try {
-    // Tools are needed for a file that is too large to send whole, and for a PDF whose pages can be
-    // looked at: that one may have its whole text in the prompt and still hide a chart from the model.
-    const { searchable } = prepared.plan;
-    const { viewable } = prepared;
-    if (searchable.length === 0 && viewable.length === 0) return result(wrote(await send(model, () => ({ system, messages }), true, { role: "answer", purpose: "direct" })));
+    // Nothing for the tools (see `toolable` above): one request, without them.
+    if (searchable.length === 0 && viewable.length === 0 && toolable.length === 0) return answer(wrote(await send(model, () => ({ system, messages }), true, { role: "answer", purpose: "direct" })));
 
     // Reading a whole file in parts is exploring too: the explorer model's work, when there is one.
     // Bound to its adapter: a class with a `generateText` method that uses `this` keeps it.
     const partReader = options.wholeDocumentAnalysis === false ? undefined : toolModel.generateText?.bind(toolModel);
     const generate: GenerateText | undefined = partReader && (async (part) => {
       let reported = false;
+      // What the request sends, in the reader's tokens: counted for a request whose usage does not
+      // give its input, so that `limits.inputTokens` sees it. Worked out only then.
+      const estimate = () => (estimateTokens(part.system) + estimateTokens(part.prompt)) * scaleOf(toolModel);
       const text = await partReader({
         ...part,
         onUsage: (used) => {
           reported = true;
-          usage.add(toolModel.id, used);
+          usage.add(toolModel.id, used, reportsInput(used) ? undefined : estimate());
           part.onUsage?.(used);
         },
       });
       // A part reader that does not report its usage (`onUsage` is optional) still made a request,
       // and `limits.requests` counts it.
-      if (!reported) usage.add(toolModel.id, undefined);
+      if (!reported) usage.add(toolModel.id, undefined, estimate());
       return text;
     });
-    const tools = files.tools(searchable, {
+    // The tables sent whole are read by the tools too. Their question declares exactly the tools it
+    // needs (`questionTools`): search_document, read_document and aggregate_table for them, never
+    // get_document_overview or analyze_whole_document, which refuses a file sent whole if it is
+    // called. With no such table, the tool set of 0.9.
+    const declare = toolable.length > 0
+      ? { declare: questionTools({ searchable, toolable, viewable }, generate !== undefined && searchable.some((meta) => canBeReadWhole(meta, budget))), inline: prepared.plan.inline.map((meta) => meta.id) }
+      : {};
+    const tools = files.tools([...searchable, ...toolable], {
       // The owner and scope the store holds are checked against the question's own, not against
       // the metadata handed in.
       access,
@@ -1304,12 +1617,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       maxWholeDocumentReads: limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS,
       ...(options.retry ? { retry: options.retry } : {}),
       budget,
+      ...declare,
     });
     const declarations = tools.declarations;
     /** The documents a tool call found gone, told once each ("document_gone"). */
     const gone = new Set<string>();
     /** The file name of a document of the question, as the plan has it. */
-    const nameOf = (id: string): string | undefined => [...searchable, ...viewable].find((meta) => meta.id === id)?.name;
+    const metaOf = (id: unknown): DocumentMeta | undefined => (typeof id === "string" ? [...searchable, ...toolable, ...viewable].find((meta) => meta.id === id) : undefined);
+    const nameOf = (id: string): string | undefined => metaOf(id)?.name;
     // The requests that use the tools are the chat's own, or an explorer model's: the same
     // conversation, and a line that says what its part is.
     const toolSystem = explorer ? `${system}\n\n${EXPLORER_INSTRUCTION}` : system;
@@ -1320,42 +1635,137 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
 
     const maxTurns = Math.max(1, Math.trunc(limits.toolTurns ?? DEFAULT_TOOL_TURNS));
     const maxCalls = Math.max(1, Math.trunc(limits.callsPerTurn ?? DEFAULT_CALLS_PER_TURN));
-    /** True once the question has used what it may: no more tools run. One request is kept for the answer. */
-    const spent = (): boolean => (
-      (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
-      || (limits.requests !== undefined && usage.totals.requests >= limits.requests - 1)
-    );
+    const readsOfEach = limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS;
+    // As the tool set reads its own count of reads of each document: whole numbers, none below 0.
+    const readsInAll = Math.max(0, Math.trunc(limits.wholeReadsPerQuestion ?? DEFAULT_WHOLE_READS_PER_QUESTION));
     /**
-     * A whole-file read is many requests at once: one that would pass a ceiling of the question is
-     * not started. `reserved` is what the reads already let through in this turn will take: they run
-     * together, and the totals do not show them yet.
+     * The price of a whole-file read of `meta` by the model that explores, in its own tokens and
+     * requests: a read that lists items (`output: "items"`) is its parts alone; any other, its
+     * parts, the merges of their notes and its answer.
      */
-    const tooCostly = (call: ToolCall, reserved: { inputTokens: number; requests: number; reads: Map<string, number> }): { refusal?: string; own?: number } => {
-      if (call.name !== TOOL_NAMES.analyze) return {};
-      const meta = searchable.find((document) => document.id === call.args.document_id);
-      if (!meta) return {};
-      // A read of a document read whole as often as it may be is refused by the tool, at no cost: it
-      // takes nothing from the reads of other documents.
-      const before = evidence.filter((shown) => shown.whole && shown.documentId === meta.id).length + (reserved.reads.get(meta.id) ?? 0);
-      if (before >= (limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS)) return {};
-      // The parts are read by the model that explores, in its own tokens.
-      const tokens = Math.ceil(meta.estimatedTokens * scaleOf(toolModel));
-      // The parts, a merge of their notes, the answer of the read, and the answer of the question.
-      const requests = estimateParts(meta, budget) + 3;
-      if (limits.inputTokens !== undefined) {
-        const left = Math.max(0, limits.inputTokens - usage.totals.inputTokens - reserved.inputTokens);
-        if (tokens > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} are left of the ${count(limits.inputTokens)} this question may use. Use search_document and read_document.` };
+    const priceOf = (meta: DocumentMeta, output: "answer" | "items" = "answer") => wholeReadCost(meta, budget, scaleOf(toolModel), output);
+    /**
+     * The ceiling on the input tokens of the question: `limits.inputTokens`, or by default the larger
+     * of `DEFAULT_INPUT_TOKENS` and `toolTurns` times the first request, plus room for the
+     * whole-file reads the question may make: as many as `wholeReadsPerQuestion` and the documents
+     * that can be read whole allow, each at the price of the dearest of them.
+     */
+    const ceiling = ((): number => {
+      if (limits.inputTokens !== undefined) return limits.inputTokens;
+      const first = meter.current(viewFor(toolModel)).tokens * scaleOf(toolModel);
+      const readable = tools.has(TOOL_NAMES.analyze) && readsOfEach > 0 ? searchable.filter((meta) => canBeReadWhole(meta, budget)) : [];
+      const reads = Math.max(0, Math.min(readsInAll, readable.length * Math.trunc(readsOfEach)));
+      const prices = readable.map((meta) => priceOf(meta).inputTokens).filter((price) => Number.isFinite(price));
+      const allowance = prices.length > 0 ? (Number.isFinite(reads) ? reads : readable.length) * Math.max(...prices) : 0;
+      return Math.max(DEFAULT_INPUT_TOKENS, maxTurns * first) + allowance;
+    })();
+    /** The input tokens the question has used: those the providers reported, and the estimates of those they did not. */
+    const spentTokens = (): number => usage.totals.inputTokens + (usage.totals.estimatedInputTokens ?? 0);
+    /**
+     * True once the question has used what it may: no more tools run. One request is kept for the
+     * answer. The ceiling of input tokens looks ahead: what was spent, the tool request about to be
+     * sent and the answer's request after it, each as the meter counts it now, must stay within it.
+     */
+    const spent = (): boolean => {
+      if (limits.requests !== undefined && usage.totals.requests >= limits.requests - 1) return true;
+      if (!(ceiling < Number.POSITIVE_INFINITY)) return false;
+      const next = meter.current(viewFor(toolModel)).tokens * scaleOf(toolModel);
+      const closing = meter.current(viewFor(model)).tokens * scaleOf(model);
+      return spentTokens() + next + closing > ceiling;
+    };
+    /**
+     * The whole-file reads of the question that sent requests, by document: those that returned, and
+     * those that failed after they sent them. Counted from what the tool returned, before
+     * `onToolResult`: a read whose answer the hook replaced or rejected still made its requests.
+     */
+    const readsSent = new Map<string, number>();
+    const readsMade = (documentId?: string): number => {
+      if (documentId !== undefined) return readsSent.get(documentId) ?? 0;
+      let made = 0;
+      for (const reads of readsSent.values()) made += reads;
+      return made;
+    };
+    /** True for the output of a whole-file read that sent its parts: its answer, or the error of a read that could read none of them. */
+    const sentParts = (call: ToolCall, output: ToolResult): boolean => call.name === TOOL_NAMES.analyze
+      && (evidenceOf(call, output)?.whole === true || (typeof output.error === "string" && output.error.startsWith(NOTHING_READ)));
+    /** What the whole-file reads already let through in a turn will take: they run together, and the totals do not show them yet. */
+    type Reserved = { inputTokens: number; requests: number; reads: Map<string, number> };
+    /**
+     * True when no whole-file read of `meta` is left, past those of `reserved`: the tool refuses one
+     * itself, at no cost, with its own reason (such as a read that failed earlier). The tool set says
+     * how many reads are left; one of your own that does not is read by what the reads of this
+     * question returned.
+     */
+    const noReadLeft = (meta: DocumentMeta, reserved: Reserved): boolean => {
+      const inTurn = reserved.reads.get(meta.id) ?? 0;
+      const left = tools.wholeReadsLeft?.(meta.id);
+      return typeof left === "number" ? left - inTurn <= 0 : readsMade(meta.id) + inTurn >= readsOfEach;
+    };
+    /**
+     * What a whole-file read of `meta` takes, and why the question would not start it now, past the
+     * reads of `reserved`: its whole reads made, or a ceiling it would pass. Not the tool's own
+     * reasons (`noReadLeft`). `output` is the read's own: a read that lists items ("items") is
+     * priced at its parts alone, any other ("answer") at its parts, merges and answer.
+     */
+    const readNeeds = (meta: DocumentMeta, reserved: Reserved, output: "answer" | "items"): { refusal?: string; tokens: number; requests: number } => {
+      // The parts are read by the model that explores, in its own tokens: their lines numbered, the
+      // prompts, and the merges of their notes (`wholeReadCost`). A read that lists items sends its
+      // parts alone, with the rules of a list.
+      const items = output === "items";
+      const price = priceOf(meta, output).inputTokens;
+      const tokens = Number.isFinite(price) ? price : Math.ceil(meta.estimatedTokens * scaleOf(toolModel));
+      // The parts, a merge of their notes, the answer of the read, and the answer of the question;
+      // for a list of items, the parts and the answer of the question.
+      const requests = estimateParts(meta, budget) + (items ? 1 : 3);
+      const allReserved = [...reserved.reads.values()].reduce((sum, reads) => sum + reads, 0);
+      if (readsMade() + allReserved >= readsInAll) {
+        return { tokens, requests, refusal: `Not run: one question makes at most ${count(readsInAll)} whole-file ${readsInAll === 1 ? "read" : "reads"}, and this one has made ${readsInAll === 1 ? "it" : "them"}. Use search_document and read_document on ${meta.name}.` };
+      }
+      if (ceiling < Number.POSITIVE_INFINITY) {
+        const left = Math.max(0, ceiling - spentTokens() - reserved.inputTokens);
+        if (tokens > left) return { tokens, requests, refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} ${count(left) === "1" ? "is" : "are"} left of the ${count(ceiling)} this question may use. Use search_document and read_document.` };
       }
       if (limits.requests !== undefined) {
         const left = Math.max(0, limits.requests - usage.totals.requests - reserved.requests);
-        if (requests > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(requests)} model requests, and ${count(left)} are left of the ${count(limits.requests)} this question may make. Use search_document and read_document.` };
+        if (requests > left) return { tokens, requests, refusal: `Not run: reading all of ${meta.name} takes about ${count(requests)} model requests, and ${count(left)} ${count(left) === "1" ? "is" : "are"} left of the ${count(limits.requests)} this question may make. Use search_document and read_document.` };
       }
+      return { tokens, requests };
+    };
+    /**
+     * A whole-file read is many requests at once: one that would pass a ceiling of the question is
+     * not started. `reserved` is what the reads already let through in this turn will take.
+     */
+    const tooCostly = (call: ToolCall, reserved: Reserved): { refusal?: string; own?: number } => {
+      if (call.name !== TOOL_NAMES.analyze) return {};
+      const meta = searchable.find((document) => document.id === call.args.document_id);
+      // A read of a document read whole as often as it may be takes nothing from the reads of other documents.
+      if (!meta || noReadLeft(meta, reserved)) return {};
+      const { refusal, tokens, requests } = readNeeds(meta, reserved, call.args.output === "items" ? "items" : "answer");
+      if (refusal) return { refusal };
       reserved.inputTokens += tokens;
       // The answer of the question is one request, whatever number of reads come before it.
       reserved.requests += requests - 1;
       reserved.reads.set(meta.id, (reserved.reads.get(meta.id) ?? 0) + 1);
-      // The read's own requests: its parts, a merge of their notes, and its answer.
+      // The read's own requests: its parts, a merge of their notes, and its answer; or its parts.
       return { own: requests - 1 };
+    };
+    /**
+     * The requests a whole-file read of the document of a `read_document` call may make
+     * (`ToolCallLimits.maxRequests`), judged as on the next turn, the first the model can call it on:
+     * with the reads of this turn reserved, and that turn's request, of the conversation with
+     * `pending` at least (its results are not in it yet). 0 when the question would not start one
+     * then (`noReadLeft`, `readNeeds`), so that a read cut short of its range does not point at it
+     * (`whole_file`); what is left of `limits.requests` with one kept for the answer, when that is
+     * set; undefined otherwise.
+     */
+    const wholeReadRequests = (call: ToolCall, reserved: Reserved, pending: ModelToolRound): number | undefined => {
+      const meta = searchable.find((document) => document.id === call.args.document_id);
+      if (!meta) return undefined;
+      const nextTurn = meter.current(viewFor(toolModel, [...messages, pending])).tokens * scaleOf(toolModel);
+      const later: Reserved = { ...reserved, inputTokens: reserved.inputTokens + nextTurn, requests: reserved.requests + 1 };
+      // The hint points at a read that gives an answer, the dearer of the two kinds.
+      if (noReadLeft(meta, later) || readNeeds(meta, later, "answer").refusal !== undefined) return 0;
+      return limits.requests === undefined ? undefined : Math.max(0, limits.requests - usage.totals.requests - 1 - later.requests);
     };
     /**
      * A pointer for a call whose result is already in the conversation, in full: an earlier result
@@ -1369,7 +1779,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         if (!isRound(message)) continue;
         // The rounds before `asked` are those of earlier questions, which an older version may have written.
         for (const answer of message.answers) {
-          const pointer = alreadyShown(call, answer, at < asked);
+          const pointer = pointerTo(call, answer, at < asked);
           if (pointer) return pointer;
         }
       }
@@ -1386,6 +1796,19 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const toolRole: RequestRole = explorer ? "explorer" : "tools";
     /** A call as one line of plain text. An unknown tool's name is quoted and cut: no step starts with what the model chose, at any length. */
     const labelOf = (call: ToolCall): string => stepLine(tools.has(call.name) ? tools.describe(call.name, call.args) : `Call ${unknownToolName(call.name)}`);
+    // The tools are there only for tables sent whole (`inlineTables`): without them, the question
+    // would be the one request of 0.9 (and of "text"). It is still that, without the tools, the
+    // line that says to count with them, or a notice, when not one tool turn fits: a ceiling or a
+    // count of requests sized for that one request, or `toolTurns: 1`.
+    const tablesOnly = !explorer && searchable.length === 0 && viewable.length === 0;
+    if (tablesOnly && (1 + (carried?.answered ?? 0) >= maxTurns || spent())) {
+      const plainLine = inlineInstruction({ plan: prepared.plan }, numbered);
+      const plain = [options.system?.trim(), prepared.instruction, plainLine, missingLine].filter(Boolean).join("\n\n");
+      // Its estimate, for a provider that reports no usage: no declarations, its own line.
+      meter.fixed.tokens += -estimateTokens(sentTools) - (inlineLine ? estimateTokens(inlineLine) : 0) + (plainLine ? estimateTokens(plainLine) : 0);
+      meter.fixed.bytes += -Buffer.byteLength(sentTools) - (inlineLine ? jsonBytes(inlineLine) : 0) + (plainLine ? jsonBytes(plainLine) : 0);
+      return answer(wrote(await send(model, () => ({ system: plain, messages }), true, { role: "answer", purpose: "direct" })));
+    }
     for (let round = 1 + (carried?.answered ?? 0); round < maxTurns && !outOfRoom; round++) {
       if (spent()) {
         budgetReached();
@@ -1399,7 +1822,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // It is a request of the chat like any other: it takes a tool turn, and the last turn is still the answer's.
       if (reply.calls.length === 0 && nudges < MOST_NUDGES && round + 1 < maxTurns && !reply.blockReason && !spent()) {
         const malformed = reply.finish === "malformed_call";
-        const empty = !reply.text.trim() && callsAnswered === 0 && reply.finish !== "cut" && reply.finish !== "filtered";
+        // Not a reply that a filter, the output limit or another reason that asking again does not
+        // mend ended ("other": Gemini's OTHER, LANGUAGE): it would only end the same way.
+        const empty = !reply.text.trim() && callsAnswered === 0 && reply.finish !== "cut" && reply.finish !== "filtered" && reply.finish !== "other";
         if (malformed || empty) {
           nudges++;
           round++;
@@ -1411,8 +1836,15 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       }
       if (reply.calls.length === 0) {
         // Text from this turn is the answer. A remark made earlier, before a tool call, is not.
-        // Neither is anything an explorer model writes: the answer is asked for below.
-        answered = wrote(reply) && !explorer;
+        // Neither is anything an explorer model writes: the answer is asked for below. Nor the
+        // remark of a turn whose tool call could not be read ("Let me look at the errors."), on
+        // the last tool turn or after its nudge: the answer is asked for below.
+        answered = wrote(reply) && !explorer && reply.finish !== "malformed_call";
+        // Over tables sent whole alone, a reply that a filter or another reason that asking again
+        // does not mend ended ("other"), or one cut at the output limit before any text, ends the
+        // question, as it ends the direct request of 0.9: the request for the answer would send
+        // the whole tables again, only to end the same way.
+        if (tablesOnly && !answered && (reply.finish === "filtered" || reply.finish === "other" || reply.finish === "cut")) return answer(false);
         break;
       }
       const pending: ModelToolRound = { role: "tools", calls: reply.calls, answers: [], ...(reply.raw !== undefined ? { raw: reply.raw } : {}) };
@@ -1435,6 +1867,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         const label = labelOf(call);
         // A call that did not arrive whole is not run: the model is told, and can send it again.
         if (call.problem) return { call, label, refusal: call.problem };
+        // Nor a call of a tool the question does not have: it is told which there are, and its
+        // answer takes no room (a turn of unknown calls made room for each of them, at the cap of
+        // a result, and shortened the results of earlier turns for nothing).
+        if (!tools.has(call.name)) return { call, label, refusal: unknownTool(call.name, declarations.map((declaration) => declaration.name)) };
         // A look at pages returns a file and a few words: the file has its own room, worked out when it runs.
         if (call.name === TOOL_NAMES.view) return { call, label };
         const key = toolCallKey(call.name, call.args);
@@ -1457,17 +1893,27 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         const slack = Math.max(0, limits.requests - usage.totals.requests - 1 - reserved.requests);
         for (const plan of reads) plan.limits = { ...plan.limits, maxRequests: plan.own! + Math.floor(slack / reads.length) };
       }
+      // A read of lines points at a whole read of its file only when the question would start one
+      // on the next turn, past the whole reads of this turn: each is told the requests one may make.
+      for (const plan of planned) {
+        if (plan.refusal || plan.call.name !== TOOL_NAMES.read) continue;
+        const most = wholeReadRequests(plan.call, reserved, pending);
+        if (most !== undefined) plan.limits = { ...plan.limits, maxRequests: most };
+      }
       // The calls that return text, and the most they may return: a call that is refused, or
       // answered with a pointer to what is already shown, needs no room.
       const sized = planned.filter((plan) => !plan.refusal && !plan.pointer && plan.call.name !== TOOL_NAMES.view);
-      const needed = sized.reduce((sum, plan) => sum + most(plan.call), 0);
-      let left = room(pending);
+      // The room is in tokens, and each result takes those of its document's characters.
+      const rateOf = (call: ToolCall) => 1 / charactersPerToken(metaOf(call.args.document_id));
+      const sizedRates = sized.map((plan) => rateOf(plan.call));
+      const needed = sized.reduce((sum, plan, index) => sum + most(plan.call) * sizedRates[index]!, 0);
+      let left = room(pending, sizedRates);
       let dropped = false;
       for (const keep of canShrink ? ROUNDS_KEPT : []) {
         if (left >= needed) break;
         if (shrink(keep)) {
           dropped = true;
-          left = room(pending);
+          left = room(pending, sizedRates);
         }
       }
       if (dropped) {
@@ -1489,10 +1935,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // The room is shared by those calls. A result is most often far smaller than its cap, so a call
       // that was given its whole cap first could leave none for the next ones, and a turn of small
       // searches ended the question.
-      const shares = shareRoom(runsNow.map((plan) => most(plan.call)), left);
+      const runRates = runsNow.map((plan) => rateOf(plan.call));
+      const shares = shareRoom(runsNow.map((plan) => most(plan.call)), left, runRates);
+      /** The tokens of room each call that runs was given, by its index in the turn. */
+      const given = new Map<number, number>();
       runsNow.forEach((plan, index) => {
         const share = shares[index];
         const cap = most(plan.call);
+        if (share !== undefined) given.set(planned.indexOf(plan), share * runRates[index]!);
         if (share === undefined) {
           if (!outOfRoom) notice("no_room", "There is no room left in this conversation for another tool result.");
           outOfRoom = true;
@@ -1661,12 +2111,12 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               requestBytes = toolModel.requestBytes?.(waiting) ?? meter.estimate(waiting.messages).bytes;
             }
             // Base64 turns three bytes into four characters.
-            const output = await tools.executeWithFiles(call.name, call.args, {
+            const output = await until(tools.executeWithFiles(call.name, call.args, {
               maxFileBytes: Math.floor((maxRequestBytes - bytesKeptFree - requestBytes) * 3 / 4),
               maxPages: pagesLeft,
               // A wait that ends busy comes once in a tool turn: after a busy look, the others run only when a turn is free now.
               ...(pagesBusy ? { maxWaitMs: 0 } : {}),
-            }, hooksFor(index));
+            }, hooksFor(index)), halt.signal);
             for (const file of output.files) requestBytes += Math.ceil(file.bytes.length / 3) * 4 + 512;
             if (output.files.length > 0) pagesLeft -= pagesShown(output.result);
             return output;
@@ -1680,7 +2130,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
             halt.signal.throwIfAborted();
             options.onActivity?.(`${label}…`);
             startTool(index, call, label);
-            return await tools.executeWithFiles(call.name, call.args, callLimits, hooksFor(index));
+            // The question stops when its signal aborts, whether the tool set does or not: a store
+            // call that hangs inside a tool of any `LargeFiles` must not hold it.
+            return await until(tools.executeWithFiles(call.name, call.args, callLimits, hooksFor(index)), halt.signal);
           } finally {
             release();
           }
@@ -1699,13 +2151,61 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         }
 
         /**
+         * The application's say on what the model gets (`onToolResult`): each call's verdict, asked
+         * for as soon as its result is in, so that the hooks of a turn run at the same time. They are
+         * applied below, in call order, before the result is fitted to the room in the request, and
+         * before the evidence, the step and the events, which all tell what the model was sent.
+         * `raw` is what the tool returned; `output`, what the hook let through. A call made twice in
+         * the turn is given the verdict of its first (`copied`): no pointer to a result the hook
+         * replaced or rejected. A hook that fails ends the turn at once.
+         */
+        type Judged = { raw: ToolOutput; output: ToolOutput; judged?: ToolOutcome; copied?: boolean };
+        const hook = options.onToolResult;
+        const judgedOutputs: Array<Promise<Judged>> = [];
+        for (const [index, { call, refusal, pointer, twinOf }] of planned.entries()) {
+          const raw = outputs[index]!;
+          let judging: Promise<Judged>;
+          if (hook && pointer && twinOf !== undefined) {
+            judging = Promise.all([raw, judgedOutputs[twinOf]!]).then(([own, first]): Judged => (first.judged
+              ? { raw: own, output: { result: first.output.result, files: [] }, judged: first.judged, copied: true }
+              : { raw: own, output: own }));
+          } else if (hook && !refusal && !pointer) {
+            judging = raw.then(async (own): Promise<Judged> => {
+              const context: ToolResultContext = {
+                call,
+                result: own.result,
+                ...(typeof call.args.document_id === "string" ? { documentId: call.args.document_id } : {}),
+                ...(options.owner !== undefined ? { owner: options.owner } : {}),
+                ...(options.scope !== undefined ? { scope: options.scope } : {}),
+                signal: halt.signal,
+              };
+              let verdict: ToolResultVerdict | undefined;
+              try {
+                // A hook that does not look at the signal does not hold the question once it is stopped.
+                verdict = checkedVerdict(await until(Promise.resolve().then(() => hook(context)), halt.signal));
+              } catch (error) {
+                halt.abort(error);
+                throw error;
+              }
+              if (verdict && "result" in verdict) return { raw: own, output: { ...own, result: { ...verdict.result, redacted: true } }, judged: "redacted" };
+              if (verdict) return { raw: own, output: { result: { error: verdict.reject }, files: [] }, judged: "refused" };
+              return { raw: own, output: own };
+            });
+          } else {
+            judging = raw.then((own): Judged => ({ raw: own, output: own }));
+          }
+          judging.catch(() => undefined);
+          judgedOutputs.push(judging);
+        }
+
+        /**
          * The room of each whole-file read of the turn: what the other results left, shared among the
          * reads, the smaller answers first. Worked out when the first of them is reached, by which time
          * the other calls, which are quick, have most often returned.
          */
         let lateRoom: Map<number, number> | undefined;
         const roomOfReads = async (): Promise<Map<number, number>> => {
-          const sizes = await Promise.all(outputs.map(async (output) => JSON.stringify((await output).result).length));
+          const sizes = await Promise.all(judgedOutputs.map(async (judging) => resultTokens((await judging).output.result)));
           const reads = planned.flatMap((plan, index) => (plan.late ? [index] : []));
           let free = left - sizes.reduce((sum, size, index) => sum + (planned[index]!.late ? 0 : size), 0);
           const shares = new Map<number, number>();
@@ -1717,17 +2217,46 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           return shares;
         };
 
+        /**
+         * The tokens the results of this turn took so far, of the calls that were given room and are
+         * not whole-file reads (those are fitted to what the others left, above), and of those the
+         * hook replaced. A result is cut when it would take more than the room leaves it once the
+         * calls after it, and the reads, have their shares: the room shared by characters is a
+         * guess, a tool set of your own may not keep to `maxResultCharacters`, and a hook may return
+         * more than the tool did.
+         */
+        let took = 0;
+        const roomFor = (index: number): number => {
+          let others = 0;
+          for (const [other, tokens] of given) if (other > index || planned[other]!.late) others += tokens;
+          return left - took - others;
+        };
+
         // The answers in call order. Each call's `tool.end` goes out here, in the same order.
         for (const [index, { call, label, late, refusal, pointer }] of planned.entries()) {
-          let output = await outputs[index]!;
+          const { raw, output: judgedOutput, judged, copied } = await judgedOutputs[index]!;
           if (listenerError) throw listenerError.error;
+          // A hook of a later call failed: nothing more of the turn reaches the model.
+          if (halt.signal.aborted) throw halt.signal.reason;
           callsAnswered++;
+          // A whole-file read that sent its parts counts against `wholeReadsPerQuestion`, whatever the hook made of its answer.
+          if (!refusal && !pointer && sentParts(call, raw.result)) {
+            const id = String(call.args.document_id);
+            readsSent.set(id, (readsSent.get(id) ?? 0) + 1);
+          }
+          let output = judgedOutput;
           if (late) {
             lateRoom ??= await roomOfReads();
             const share = lateRoom.get(index)!;
-            if (JSON.stringify(output.result).length > share) output = { ...output, result: fitAnswer(output.result, Math.max(LEAST_RESULT_CHARACTERS, share)) };
+            if (resultTokens(output.result) > share) output = { ...output, result: cutToTokens(output.result, share) };
+          } else if (given.has(index) || judged) {
+            const fits = roomFor(index);
+            if (resultTokens(output.result) > fits) output = { ...output, result: cutToTokens(output.result, fits) };
+            took += resultTokens(output.result);
           }
-          if (pointer) {
+          // A cut replacement is still a replacement.
+          if (judged === "redacted" && output.result.redacted !== true) output = { ...output, result: { ...output.result, redacted: true } };
+          if (pointer && !copied) {
             const line = step(`${label} — already shown above`);
             const sent = { ...output.result, tool_turns_left: turnsLeft };
             answers.push({ call, result: sent, files: [] });
@@ -1735,23 +2264,26 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
             continue;
           }
           // Two searches in a row that failed in the same mode: the second says to try another way.
-          if (!refusal) {
+          // Read from what the tool returned; the hint goes only to a result the hook kept.
+          if (!refusal && !copied) {
+            const own = judged ? raw.result : output.result;
             const kind = failureKind(call);
             if (kind === undefined) {
               failing = undefined;
-            } else if (typeof output.result.error === "string") {
+            } else if (typeof own.error === "string") {
               failing = failing?.kind === kind ? { kind, count: failing.count + 1 } : { kind, count: 1 };
-              if (failing.count >= 2) output = { ...output, result: { ...output.result, error: `${output.result.error} ${repeatedFailureHint(call)}` } };
+              if (failing.count >= 2 && !judged) output = { ...output, result: { ...output.result, error: `${output.result.error} ${repeatedFailureHint(call)}` } };
             } else {
               failing = undefined;
             }
           }
           const line = step(`${label}${toolResultSummary(label, output.result)}`);
-          const shown = evidenceOf(call, output.result);
+          // A copy of the first call's verdict shows nothing that the first did not.
+          const shown = copied ? undefined : evidenceOf(call, output.result);
           if (shown) evidence.push({ ...shown, callId: callIds[index]! });
           const sent = { ...output.result, tool_turns_left: turnsLeft };
           answers.push({ call, result: sent, files: output.files });
-          const outcome: ToolOutcome = call.problem ? "error" : refusal ? "refused" : typeof output.result.error === "string" ? "error" : "ok";
+          const outcome: ToolOutcome = judged ?? (call.problem ? "error" : refusal ? "refused" : typeof output.result.error === "string" ? "error" : "ok");
           endTool(index, outcome, sent, line, shown);
         }
         // A listener of a read that went on after its call returned (its progress).
@@ -1783,7 +2315,12 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // With an explorer model this request is always made: it is the one the answering model gets.
     if (!answered && !blockReason) {
       activity("writing_answer", "Writing the answer…");
-      let closing = searchable.length > 0 ? FINAL_ANSWER_REQUEST : FINAL_ANSWER_AFTER_PAGES;
+      // With view_pages alone, the files are in the prompt and the pages were looked at. With the
+      // text tools, the answer comes from what they returned, and from the files sent whole too when
+      // their lines can be cited or their tables were counted: a model told "only what the tools
+      // returned" said that a fact of a file shown in full was not there.
+      const fromFiles = prepared.plan.inline.length > 0 && (numbered || toolable.length > 0);
+      let closing = searchable.length === 0 && toolable.length === 0 ? FINAL_ANSWER_AFTER_PAGES : fromFiles ? FINAL_ANSWER_WITH_FILES : FINAL_ANSWER_REQUEST;
       // No tool ran (the explorer needed none, the first reply was empty, or no turn was left for
       // tools): there is no tool result to answer from. The answering model gets the explorer's
       // calls and what they returned, and nothing else of it.
@@ -1797,14 +2334,17 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       let reply = await send(model, answerRequest(), true, { role: "answer", purpose: "closing" });
       // A reply with no text (empty, or a tool call the model was told not to make, or one that
       // could not be read) is asked for once more, with a note that is not kept: otherwise the
-      // question ends with nothing to show. Not after a refusal or a filter, which would come again,
-      // nor a reply cut off at the output limit with nothing in it, nor once a ceiling of `limits`
-      // is reached. It is one of the second tries of the question, and may be one request past
-      // `limits.toolTurns`, which counts the answer's first request.
+      // question ends with nothing to show. Not after a refusal, a filter or another reason that
+      // asking again does not mend ("other"), which would come again, nor a reply cut off at the
+      // output limit with nothing in it, nor when it would pass a ceiling of the question: the
+      // ceiling of input tokens looks ahead, as before each tool request, by what was spent and
+      // what this request takes, as the meter counts it now. It is one of the second tries of the
+      // question, and may be one request past `limits.toolTurns`, which counts the answer's first
+      // request.
       const calledInstead = reply.calls.length > 0 || reply.finish === "malformed_call";
-      const ceilingReached = (limits.inputTokens !== undefined && usage.totals.inputTokens >= limits.inputTokens)
-        || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
-      if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
+      const again = ceiling < Number.POSITIVE_INFINITY ? meter.current(viewFor(model)).tokens * scaleOf(model) : 0;
+      const ceilingReached = spentTokens() + again > ceiling || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
+      if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && reply.finish !== "other" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
         if (ceilingReached) {
           budgetReached();
         } else {
@@ -1815,7 +2355,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       }
       answered = wrote(reply);
     }
-    return result(answered);
+    return answer(answered);
   } catch (error) {
     // What the question found and paid for until it failed, for the application to keep. The usage is
     // a copy: a part reader that went on after the question was stopped may still report its own.

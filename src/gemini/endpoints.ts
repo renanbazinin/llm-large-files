@@ -1,3 +1,5 @@
+import { resolveHeaderSource, type HeaderContext, type HeaderSource } from "../http.js";
+
 /**
  * Where and how to call Gemini. Use `geminiApi()` or `vertexAi()`, or pass your own URLs and
  * headers for an enterprise gateway that proxies Generate Content.
@@ -7,8 +9,12 @@ export type GeminiEndpoint = {
   url: string;
   /** Streaming `...:streamGenerateContent?alt=sse` URL. Without it, answers arrive in one piece. */
   streamUrl?: string;
-  /** Request headers, or a function returning them (for short-lived access tokens). */
-  headers: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
+  /**
+   * Request headers, or a function returning them (for short-lived access tokens). Since 0.10.0 the
+   * function is called with `{ refresh: true }` when a request is sent again after a 401 (see
+   * `refreshable`); one of no arguments still fits.
+   */
+  headers: HeaderSource;
   /**
    * The non-streaming `...:generateContent` URL of a second model, the explorer. `askGemini` then
    * sends it the requests that search, read and look at pages, and the model of `url` only writes
@@ -16,6 +22,12 @@ export type GeminiEndpoint = {
    * `explorerModel`. Unset, or the same as `url`, one model does both.
    */
   explorerUrl?: string | undefined;
+  /**
+   * True when `headers` can give a token that is new, not the one it keeps in a cache: a request
+   * refused with HTTP 401 is then sent once more, with the headers of `headers({ refresh: true })`.
+   * A second 401 is the error. `vertexAi()` sets it when `accessToken` is a function. New in 0.10.0.
+   */
+  refreshable?: true | undefined;
 };
 
 /**
@@ -71,36 +83,97 @@ export function vertexHost(location: string): string {
   return `https://${location}-aiplatform.googleapis.com`;
 }
 
-/** Vertex AI with an OAuth access token (for example from google-auth-library). */
-export function vertexAi(options: {
-  project: string;
+/** An https origin: a host name of letters, digits, dots and dashes, with a port or none, and nothing after it. */
+const ORIGIN = /^https:\/\/[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?\/?$/;
+
+/**
+ * The origin of `host`, which must be an https origin and nothing more. A path, a query, a
+ * fragment or an "@" would send the requests, and the token or key with them, somewhere else than
+ * the host it seems to name: it throws a TypeError, as a location that is not one does.
+ */
+function originOf(host: string): string {
+  if (typeof host !== "string" || !ORIGIN.test(host)) {
+    throw new TypeError(`host must be an https origin such as "https://europe-west4-aiplatform.googleapis.com", with no path, query or "@", and is ${JSON.stringify(host) ?? String(host)}.`);
+  }
+  return new URL(host).origin;
+}
+
+/** What the two forms of `vertexAi()` take alike. */
+type VertexAiCommon = {
   /** The model that answers. Without `explorerModel` it also searches and reads the documents. */
   model: string;
   /** A second model that explores the documents, as in `geminiApi()`. Leave it out or empty for one model. */
   explorerModel?: string | undefined;
-  /** Defaults to "global". */
-  location?: string;
-  /** A token, or a function that returns a fresh one for each request. */
-  accessToken: string | (() => string | Promise<string>);
+  /**
+   * More headers, merged after the library's (a name you give replaces the library's). A function
+   * is called for each request, with the same context as the endpoint's `headers`. New in 0.10.0.
+   */
+  headers?: HeaderSource | undefined;
+  /**
+   * The https origin to send the requests to, in place of the host of the location: a Private
+   * Service Connect endpoint, or a proxy that keeps Vertex AI's paths. An origin only
+   * ("https://host" or "https://host:port"); anything else throws a TypeError. New in 0.10.0.
+   */
+  host?: string | undefined;
   /** Defaults to "v1". */
   apiVersion?: string;
-}): GeminiEndpoint {
-  const location = options.location ?? "global";
-  const models = `${vertexHost(location)}/${options.apiVersion ?? "v1"}/projects/${encodeURIComponent(options.project)}/locations/${encodeURIComponent(location)}/publishers/google/models/`;
+};
+
+/**
+ * The options of `vertexAi()`: a project with an OAuth access token, or (since 0.10.0) an API key of
+ * Vertex AI express mode, which names no project or location.
+ */
+export type VertexAiOptions =
+  | (VertexAiCommon & {
+      project: string;
+      /** Defaults to "global". */
+      location?: string;
+      /**
+       * A token, or a function that returns one for each request. The function is called with
+       * `{ refresh: true }` when the token it gave was refused (HTTP 401): return a new one then,
+       * not the one kept in a cache. A function of no arguments still fits.
+       */
+      accessToken: string | ((context: { refresh: boolean }) => string | Promise<string>);
+      apiKey?: never;
+    })
+  | (VertexAiCommon & {
+      /** The API key of Vertex AI express mode, sent as the `x-goog-api-key` header. */
+      apiKey: string;
+      project?: never;
+      location?: never;
+      accessToken?: never;
+    });
+
+/**
+ * Vertex AI with an OAuth access token (for example from google-auth-library), or with an API key
+ * of express mode (since 0.10.0).
+ */
+export function vertexAi(options: VertexAiOptions): GeminiEndpoint {
+  const express = typeof options.apiKey === "string";
+  const location = express ? undefined : options.location ?? "global";
+  const host = options.host !== undefined ? originOf(options.host) : vertexHost(location ?? "global");
+  const where = express ? "" : `projects/${encodeURIComponent(options.project!)}/locations/${encodeURIComponent(location!)}/`;
+  const models = `${host}/${options.apiVersion ?? "v1"}/${where}publishers/google/models/`;
   const base = `${models}${encodeURIComponent(options.model)}`;
   const explorer = explorerOf(options);
   const token = options.accessToken;
+  const own = options.headers;
   return {
     url: `${base}:generateContent`,
     streamUrl: `${base}:streamGenerateContent?alt=sse`,
-    headers: async () => ({
+    headers: async (context?: HeaderContext) => ({
       "Content-Type": "application/json",
-      Authorization: `Bearer ${typeof token === "function" ? await token() : token}`,
+      ...(express
+        ? { "x-goog-api-key": options.apiKey! }
+        : { Authorization: `Bearer ${typeof token === "function" ? await token({ refresh: context?.refresh === true }) : token}` }),
+      ...await resolveHeaderSource(own, context),
     }),
     ...(explorer ? { explorerUrl: `${models}${encodeURIComponent(explorer)}:generateContent` } : {}),
+    ...(typeof token === "function" ? { refreshable: true as const } : {}),
   };
 }
 
-export async function resolveHeaders(endpoint: GeminiEndpoint): Promise<Record<string, string>> {
-  return typeof endpoint.headers === "function" ? endpoint.headers() : endpoint.headers;
+/** The headers of an endpoint: `context` goes to a function of headers when it is given (a refresh after a 401). */
+export async function resolveHeaders(endpoint: Pick<GeminiEndpoint, "headers">, context?: HeaderContext): Promise<Record<string, string>> {
+  return resolveHeaderSource(endpoint.headers, context);
 }

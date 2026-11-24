@@ -1,0 +1,69 @@
+{
+ "case": "pdf-report",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 135",
+     "status": "pass"
+    },
+    {
+     "fact": "says רבעון 2 for Center",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 2291,
+   "cachedInputTokens": 0,
+   "outputTokens": 463,
+   "thoughtTokens": 377,
+   "ms": 4795,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 3,
+    "supported": 3,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 4118,
+     "ms": 4780,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2291,
+      "cachedInputTokens": 0,
+      "outputTokens": 463,
+      "thoughtTokens": 377
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "לפי דוח ההכנסות:\n\n* **הכנסות אזור צפון ברבעון 2:** **135 מיליון ש\"ח** (דוח הכנסות.pdf L3, L5).\n* **הרבעון שבו חסר נתון לאזור מרכז:** **רבעון 2** (דוח הכנסות.pdf L6)."
+  }
+ ],
+ "passed": true
+}

@@ -266,7 +266,8 @@ describe("onMissingDocuments", () => {
     const gemini = fakeFetch([Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text: "42." }] } }] })]);
     const result = await askGemini({ files, endpoint: geminiApi({ apiKey: "k", model: "gemini-test" }), fetch: gemini.fetch, documentIds: [note.id, old.id], messages: question("?"), onMissingDocuments: "drop" });
     expect(result.missing).toEqual([old.id]);
-    expect(gemini.sent[0]!.body.systemInstruction.parts[0].text).toBe(LINE_ONE);
+    // After the line that asks to cite the numbered lines of the note sent whole (since 0.10.0).
+    expect(gemini.sent[0]!.body.systemInstruction.parts[0].text).toBe(`Cite line numbers like (report.docx L12).\n\n${LINE_ONE}`);
   });
 });
 

@@ -108,8 +108,12 @@ describe("errorInfoOf", () => {
   });
 
   it("unknown: anything else, with the code of a system error and never its message", () => {
-    const system = errorInfoOf(Object.assign(new Error(`ENOSPC: no space left on device, write '${PATH}'`), { code: "ENOSPC", syscall: "write" }));
-    expect(system).toEqual({ category: "unknown", code: "ENOSPC", status: 500, retryable: false, message: "Something went wrong (ENOSPC)." });
+    const system = errorInfoOf(Object.assign(new Error(`EACCES: permission denied, write '${PATH}'`), { code: "EACCES", syscall: "write" }));
+    expect(system).toEqual({ category: "unknown", code: "EACCES", status: 500, retryable: false, message: "Something went wrong (EACCES)." });
+    // A full disk is 503, to try again later, since 0.10.0 (test/error-info-transient.test.ts).
+    const full = errorInfoOf(Object.assign(new Error(`ENOSPC: no space left on device, write '${PATH}'`), { code: "ENOSPC", syscall: "write" }));
+    expect(full).toEqual({ category: "unknown", code: "ENOSPC", status: 503, retryable: true, retryAfterMs: 30_000, message: "The server has no room right now (ENOSPC). Try again later." });
+    expectSafe(full);
     const plain = errorInfoOf(new Error(`MongoServerSelectionError: connect ECONNREFUSED ${HOST}`));
     expect(plain).toEqual({ category: "unknown", status: 500, retryable: false, message: "Something went wrong." });
     for (const value of [undefined, null, "a string", 42, { message: HOST }]) {

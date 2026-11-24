@@ -1,0 +1,65 @@
+{
+ "case": "budget-units",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says thousands of shekels",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 3862,
+   "cachedInputTokens": 0,
+   "outputTokens": 310,
+   "thoughtTokens": 226,
+   "ms": 4924,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 1,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5737,
+     "ms": 4896,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3862,
+      "cachedInputTokens": 0,
+      "outputTokens": 310,
+      "thoughtTokens": 226
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "לפי הגיליון (תקציב מחלקות 2026.xlsx L3, Row 1):\n\n* **כותרת הגיליון:** \"תקציב מחלקות 2026 (באלפי ש\"ח)\"\n* **יחידות הסכומים:** אלפי ש\"ח (אלפי שקלים חדשים)."
+  }
+ ],
+ "passed": true
+}

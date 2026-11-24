@@ -1,0 +1,227 @@
+{
+ "n": 12,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "6874cf22e4769e1c",
+  "bytes": 28721,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2160 chars #a40e61ec"
+      },
+      {
+       "text": "193 chars #b7a0ca5a"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #41da6850",
+        "id": "call_6022971457027241096"
+       },
+       "thoughtSignature": "412 chars #4a02dbf4"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_6022971457027241096",
+        "response": "{7 keys} #8a3a7265"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #9c761092",
+        "id": "call_829883941848342777"
+       },
+       "thoughtSignature": "2964 chars #24578e62"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_829883941848342777",
+        "response": "{7 keys} #ae551e43"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "analyze_whole_document",
+        "args": "{3 keys} #d30a8fc8",
+        "id": "25 chars #d05f0c9a"
+       },
+       "thoughtSignature": "5120 chars #8f9598ef"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "analyze_whole_document",
+        "id": "25 chars #d05f0c9a",
+        "response": "{5 keys} #6a19fcce"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "179 chars #5bc1634b"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1982 chars #73955965"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1,\"totalTokenCount\": 6458,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי קריאת ההסכם במלואו (משורה 1 ו\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 18,\"totalTokenCount\": 6475,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"עד שורה 164), להלן הפירוט והמענה לשאלותיך:\\n\\n###\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 44,\"totalTokenCount\": 6501,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" רשימת הסעיפים בהם הספק משלם כסף או שמנוכה/מקוזז ממנו כסף\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 72,\"totalTokenCount\": 6529,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" עקב הפרה או איחור:\\n\\n1. **שורה 7 (סעיף 3):**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 97,\"totalTokenCount\": 6554,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" קיזוז בסך **810 ש\\\"ח** מכל תשלום לספק בגין הש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 121,\"totalTokenCount\": 6578,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ארת דלת חדר השרתים פתוחה.\\n2. **שורה 11 (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 145,\"totalTokenCount\": 6602,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"סעיף 7):** קיזוז בסך **1,490 ש\\\"ח** מכל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 169,\"totalTokenCount\": 6626,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" תשלום לספק בגין החלפת עובד ניקיון ללא הודעה.\\n3\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 193,\"totalTokenCount\": 6650,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \". **שורה 15 (סעיף 11):** קיזוז בסך **2,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 217,\"totalTokenCount\": 6674,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"170 ש\\\"ח** מכל תשלום לספק בגין אי ניקוי השירותים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 241,\"totalTokenCount\": 6698,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בקומה לפי הלוח.\\n4. **שורה 20 (סעיף 16\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 265,\"totalTokenCount\": 6722,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"):** קנס בסך **3,020 ש\\\"ח** ישלם הספק למזמין בגין\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 292,\"totalTokenCount\": 6749,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" אי פינוי פסולת בסוף היום.\\n5. **שורה 24 (סעיף\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 316,\"totalTokenCount\": 6773,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 20):** קנס בסך **3,700 ש\\\"ח** ישלם הספק\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 340,\"totalTokenCount\": 6797,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" למזמין בגין איחור של יותר משעה בתחילת משמרת הניקיון.\\n6.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 367,\"totalTokenCount\": 6824,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **שורה 28 (סעיף 24):** קנס בסך **4,38\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 391,\"totalTokenCount\": 6848,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0 ש\\\"ח** בגין עבודה ללא תג עובד.\\n7. **שורה 32\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 418,\"totalTokenCount\": 6875,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (סעיף 28):** קנס בסך **360 ש\\\"ח** בגין\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 442,\"totalTokenCount\": 6899,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" נזק לרהוט במהלך הניקיון.\\n8. **שורה 36 (סעי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 466,\"totalTokenCount\": 6923,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ף 32):** קנס בסך **1,040 ש\\\"ח** בגין שי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 490,\"totalTokenCount\": 6947,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מוש בחומרי ניקוי שלא אושרו.\\n9. **שורה 41 (סעי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 514,\"totalTokenCount\": 6971,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ף 37):** פיצוי מוסכם בסך **1,890 ש\\\"ח**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 538,\"totalTokenCount\": 6995,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בגין החלפת עובד ניקיון ללא הודעה.\\n10. **שורה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 562,\"totalTokenCount\": 7019,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 45 (סעיף 41):** פיצוי מוסכם בסך **2,5\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 586,\"totalTokenCount\": 7043,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"70 ש\\\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 610,\"totalTokenCount\": 7067,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n11. **שורה 49 (סעיף 45):** פיצוי מוס\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 634,\"totalTokenCount\": 7091,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"כם בסך **3,250 ש\\\"ח** בגין אי מילוי סבונים ומ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 658,\"totalTokenCount\": 7115,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גבות נייר.\\n12. **שורה 53 (סעיף 49):**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 682,\"totalTokenCount\": 7139,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פיצוי מוסכם בסך **3,930 ש\\\"ח** בגין אי ביצוע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 706,\"totalTokenCount\": 7163,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ניקוי חלונות רבעוני.\\n13. **שורה 57 (סעיף\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 730,\"totalTokenCount\": 7187,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 53):** פיצוי מוסכם בסך **4,610 ש\\\"ח** ב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 754,\"totalTokenCount\": 7211,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גין השארת דלת חדר השרתים פתוחה.\\n14. **שורה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 778,\"totalTokenCount\": 7235,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 62 (סעיף 58):** הפחתת **760 ש\\\"ח** מה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 802,\"totalTokenCount\": 7259,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"תמורה החודשית בגין נזק לרהוט במהלך הניקיון.\\n15.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 827,\"totalTokenCount\": 7284,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **שורה 66 (סעיף 62):** הפחתת **1,440\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 851,\"totalTokenCount\": 7308,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ש\\\"ח** מהתמורה החודשית בגין שימוש בחומרי ניקוי שלא או\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 875,\"totalTokenCount\": 7332,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שרו.\\n16. **שורה 70 (סעיף 66):** הפחת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 899,\"totalTokenCount\": 7356,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ת **2,120 ש\\\"ח** מהתמורה החודשית בגין אי פינו\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 923,\"totalTokenCount\": 7380,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"י פסולת בסוף היום.\\n17. **שורה 74 (סעיף 7\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 947,\"totalTokenCount\": 7404,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0):** הפחתת **2,800 ש\\\"ח** מהתמורה החודשית ב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 971,\"totalTokenCount\": 7428,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גין איחור של יותר משעה בתחילת משמרת הניקיון.\\n18.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 995,\"totalTokenCount\": 7452,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **שורה 78 (סעיף 74):** הפחתת **3,480\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1019,\"totalTokenCount\": 7476,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ש\\\"ח** מהתמורה החודשית בגין עבודה ללא תג עובד.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1043,\"totalTokenCount\": 7500,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n19. **שורה 83 (סעיף 79):** קיזוז בסך\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1067,\"totalTokenCount\": 7524,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **4,330 ש\\\"ח** בגין אי ביצוע ניקוי חלונות רבע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1091,\"totalTokenCount\": 7548,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"וני.\\n20. **שורה 87 (סעיף 83):** קיזוז\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1115,\"totalTokenCount\": 7572,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בסך **310 ש\\\"ח** בגין השארת דלת חדר השרתים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1139,\"totalTokenCount\": 7596,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פתוחה.\\n21. **שורה 91 (סעיף 87):** קי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1163,\"totalTokenCount\": 7620,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"זוז בסך **990 ש\\\"ח** בגין החלפת עובד ניקיון\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1187,\"totalTokenCount\": 7644,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ללא הודעה.\\n22. **שורה 95 (סעיף 91):**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1211,\"totalTokenCount\": 7668,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" קיזוז בסך **1,670 ש\\\"ח** בגין אי ניקוי השירות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1235,\"totalTokenCount\": 7692,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ים בקומה לפי הלוח.\\n23. **שורה 99 (סעיף \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1259,\"totalTokenCount\": 7716,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"95):** קיזוז בסך **2,350 ש\\\"ח** בגין אי מ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1283,\"totalTokenCount\": 7740,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ילוי סבונים ומגבות נייר.\\n24. **שורה 104 (ס\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1307,\"totalTokenCount\": 7764,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"עיף 100):** קנס בסך **3,200 ש\\\"ח** בגי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1331,\"totalTokenCount\": 7788,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ן איחור של יותר משעה בתחילת משמרת הניקיון.\\n25. **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1355,\"totalTokenCount\": 7812,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שורה 108 (סעיף 104):** קנס בסך **3,8\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1379,\"totalTokenCount\": 7836,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"80 ש\\\"ח** בגין עבודה ללא תג עובד.\\n26. **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1403,\"totalTokenCount\": 7860,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שורה 112 (סעיף 108):** קנס בסך **4,5\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1427,\"totalTokenCount\": 7884,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"60 ש\\\"ח** בגין נזק לרהוט במהלך הניקיון.\\n27\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1451,\"totalTokenCount\": 7908,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \". **שורה 116 (סעיף 112):** קנס בסך **5\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1475,\"totalTokenCount\": 7932,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"40 ש\\\"ח** בגין שימוש בחומרי ניקוי שלא אושרו.\\n2\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1499,\"totalTokenCount\": 7956,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"8. **שורה 120 (סעיף 116):** קנס בסך **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1523,\"totalTokenCount\": 7980,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"1,220 ש\\\"ח** בגין אי פינוי פסולת בסוף היום.\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1547,\"totalTokenCount\": 8004,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"29. **שורה 125 (סעיף 121):** פיצוי מ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1571,\"totalTokenCount\": 8028,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"וסכם בסך **2,070 ש\\\"ח** בגין אי ניקוי השירותים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1595,\"totalTokenCount\": 8052,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בקומה לפי הלוח.\\n30. **שורה 129 (סעיף \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1619,\"totalTokenCount\": 8076,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"125):** פיצוי מוסכם בסך **2,750 ש\\\"ח** ב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1643,\"totalTokenCount\": 8100,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גין אי מילוי סבונים ומגבות נייר.\\n31. **שורה 1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1667,\"totalTokenCount\": 8124,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"33 (סעיף 129):** פיצוי מוסכם בסך **3,4\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1691,\"totalTokenCount\": 8148,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"30 ש\\\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\\n3\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1715,\"totalTokenCount\": 8172,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"2. **שורה 137 (סעיף 133):** פיצוי מוס\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1739,\"totalTokenCount\": 8196,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"כם בסך **4,110 ש\\\"ח** בגין השארת דלת חדר ה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1763,\"totalTokenCount\": 8220,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שרתים פתוחה.\\n33. **שורה 141 (סעיף 1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1787,\"totalTokenCount\": 8244,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"37):** פיצוי מוסכם בסך **4,790 ש\\\"ח** בגי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1811,\"totalTokenCount\": 8268,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ן החלפת עובד ניקיון ללא הודעה.\\n34. **שורה 1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1835,\"totalTokenCount\": 8292,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"46 (סעיף 142):** הפחתת **940 ש\\\"ח** מה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1859,\"totalTokenCount\": 8316,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"תמורה החודשית בגין שימוש בחומרי ניקוי שלא אושרו.\\n3\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1883,\"totalTokenCount\": 8340,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"5. **שורה 150 (סעיף 146):** הפחתת **1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1907,\"totalTokenCount\": 8364,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \",620 ש\\\"ח** מהתמורה החודשית בגין אי פינוי פסול\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1931,\"totalTokenCount\": 8388,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ת בסוף היום.\\n36. **שורה 154 (סעיף 150\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1955,\"totalTokenCount\": 8412,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"):** הפחתת **2,300 ש\\\"ח** מהתמורה החודשית בגי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 1979,\"totalTokenCount\": 8436,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ן איחור של יותר משעה בתחילת משמרת הניקיון.\\n37. **שורה 1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 2007,\"totalTokenCount\": 8464,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"58 (סעיף 154):** הפחתת **2,980 ש\\\"ח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 2031,\"totalTokenCount\": 8488,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"** מהתמורה החודשית בגין עבודה ללא תג עובד.\\n\\n---\\n\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 2055,\"totalTokenCount\": 8512,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"### סיכום:\\n* **כמות הסעיפים:** ישנם בדיוק **37** סעיפים כאלה לא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 2083,\"totalTokenCount\": 8540,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ורך ההסכם.\\n* **הסכום הגבוה ביותר:** **4,790 ש\\\"ח** (ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 2111,\"totalTokenCount\": 8568,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ורה 141, סעיף 137 – פיצוי מוסכם בגין החלפת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 2137,\"totalTokenCount\": 8594,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" עובד ניקיון ללא הודעה).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6457,\"candidatesTokenCount\": 2148,\"totalTokenCount\": 8605,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6457}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Ep8BCpwBAWkUfROJBz8SZAJTJDJU2QpnSHNhE5ZIjYQwLfvzCn5XslUiCeM5uaOq+cYZpSpnnRT4kO579oIUo0kdnS0dcvpdPUIQyAJQolCjg2DFNU5ylzf3nmHyED2JPcVBJqyquty27YoNdFZ7x1Kauz7/jczpCqRASz26uhDI0Jfkkh/wnlrXWKfbmlJwfm6foF+3f36/XkX0Q3T4PKVj\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7854,\"candidatesTokenCount\": 2148,\"totalTokenCount\": 10002,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7854}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"EoYFa4bXMeGzvdIPztnRuQs\"}\r\n\r\n"
+  ]
+ }
+}

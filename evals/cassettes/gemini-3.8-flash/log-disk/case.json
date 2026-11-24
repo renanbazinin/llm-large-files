@@ -1,0 +1,106 @@
+{
+ "case": "log-disk",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says db-2",
+     "status": "pass"
+    },
+    {
+     "fact": "number 95",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 12219,
+   "cachedInputTokens": 3407,
+   "outputTokens": 320,
+   "thoughtTokens": 151,
+   "ms": 8281,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "read_document"
+   ],
+   "reads": 1,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5814,
+     "ms": 2343,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3681,
+      "cachedInputTokens": 0,
+      "outputTokens": 68,
+      "thoughtTokens": 36
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 5947,
+     "ms": 2971,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3855,
+      "cachedInputTokens": 1703,
+      "outputTokens": 58,
+      "thoughtTokens": 18
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 6824,
+     "ms": 2932,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4683,
+      "cachedInputTokens": 1704,
+      "outputTokens": 194,
+      "thoughtTokens": 97
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the log (L11340):\n\n* **Node:** `db-2`\n* **Disk usage:** **95%** full (mount path: `/var/lib/postgres`)\n\n> `2026-11-12T08:47:15.000Z WARN [node-monitor] disk usage 95% on node db-2 (/var/lib/postgres)`"
+  }
+ ],
+ "passed": true
+}

@@ -1,0 +1,121 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "25f54eeb9c8d0b2b",
+  "bytes": 11324,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "63 chars #eaa3d4a1"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #54e84427",
+        "id": "25 chars #4f4828da"
+       },
+       "thoughtSignature": "436 chars #f277884d"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #4f4828da",
+        "response": "{5 keys} #f736e6a4"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"read_document\",\"args\": {\"start_line\": 11335,\"end_line\": 11345,\"document_id\": \"log-1\"},\"id\": \"call_5396741753736132881\"},\"thoughtSignature\": \"EuMBCuABAWkUfRMxA5WfjoDQjsFMxgMd1xucqJxfNKh0NTKIGxidbKuCSOD15PRcTYlxhp8GFhs8hcwDheCltAO5zGqhQEVpXRQup0vkx6/FKvigKrDLvweAlt8m5z3q4JUQGtUep0i5PFvtzUrqnqvh2aTflz+6mCbWMSEoCKa0kfF/Dpj8qxKNTiBfdan4zIYeZIz4TgCDEAwaEVPAZvS/dF3XKhyrut6xllupJhlaVijvmEqND3s+YoAOUqfOnTlj9+94OTGa2L5kUl3sRwMhExaErCzbsr5WIsriYVEa1TehTzo=\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3855,\"candidatesTokenCount\": 40,\"totalTokenCount\": 3913,\"cachedContentTokenCount\": 1703,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3855}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 1703}],\"thoughtsTokenCount\": 18,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"13UFa8yvFcmFkdUPl-Kk6Ac\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3855,\"candidatesTokenCount\": 40,\"totalTokenCount\": 3913,\"cachedContentTokenCount\": 1703,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3855}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 1703}],\"thoughtsTokenCount\": 18,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"13UFa8yvFcmFkdUPl-Kk6Ac\"}\r\n\r\n"
+  ]
+ }
+}

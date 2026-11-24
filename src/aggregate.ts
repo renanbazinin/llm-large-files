@@ -94,6 +94,8 @@ export type AggregateResult = {
   distinctCapped: boolean;
   /** For each numeric metric, how many matched rows had a value in its column that is not a number (left out). */
   notNumbers: Record<string, number>;
+  /** The filters whose value named a column: each row's cell of `column` was compared with its cell of `with` (since 0.10.0). */
+  compared?: Array<{ column: string; op: FilterOp; with: string }>;
 };
 
 /**
@@ -224,11 +226,30 @@ function splitCsvLine(line: string, separator: string, carry?: { fields: string[
   return { fields, open: false, field: "" };
 }
 
-/** A column a request names, resolved against the header: its index, and the part of a date to group by. */
-type ColumnRef = { index: number; name: string; datePart?: DatePart };
+/**
+ * A column a request names, resolved against the header: its index, the part of a date to group
+ * by, and whether it was named by its letter ("C").
+ */
+type ColumnRef = { index: number; name: string; datePart?: DatePart; byLetter?: boolean };
 
-/** Finds a column by its header name (ignoring case and spaces), its letter ("C"), or its number ("3"). */
-function columnOf(header: string[], given: string, letters: boolean): ColumnRef {
+/**
+ * The number of a column named by its letters ("C" is 3, "AA" is 27), or undefined when `name` is
+ * not one to three letters A to Z.
+ */
+function letterNumber(name: string): number | undefined {
+  if (!/^[A-Z]{1,3}$/i.test(name)) return undefined;
+  let number = 0;
+  for (const letter of name.toUpperCase()) number = number * 26 + letter.charCodeAt(0) - 64;
+  return number;
+}
+
+/**
+ * Finds a column by its header name (ignoring case and spaces), the lower name of a joined header
+ * when only one column has it, its letter ("C"), or its number ("3"). A letter or a number names a
+ * column only when no column has that name. Until 0.10.0 a letter named a column only in a sheet
+ * with no header, though the tool's description says it works in every table.
+ */
+function columnOf(header: string[], given: string): ColumnRef {
   let name = given.trim();
   let datePart: DatePart | undefined;
   const part = /:(year|month|day)$/i.exec(name);
@@ -246,21 +267,67 @@ function columnOf(header: string[], given: string, letters: boolean): ColumnRef 
       throw new Error(`${JSON.stringify(sliceWhole(name, 80))} names ${lower.length} columns of this table: ${lower.map((at) => JSON.stringify(header[at])).join(", ")}. Name one of them in full.`);
     }
   }
-  if (index === -1 && letters && /^[A-Z]{1,3}$/i.test(name)) {
-    let number = 0;
-    for (const letter of name.toUpperCase()) number = number * 26 + letter.charCodeAt(0) - 64;
-    if (number <= header.length) index = number - 1;
+  let byLetter = false;
+  if (index === -1) {
+    const number = letterNumber(name);
+    if (number !== undefined && number <= header.length) {
+      index = number - 1;
+      byLetter = true;
+    }
   }
   if (index === -1 && /^\d+$/.test(name) && Number(name) >= 1 && Number(name) <= header.length) index = Number(name) - 1;
   if (index === -1) {
     const listed = header.slice(0, 40).map((column) => JSON.stringify(column)).join(", ");
     throw new Error(`No column ${JSON.stringify(sliceWhole(name, 80))} in this table. Its columns are: ${listed}${header.length > 40 ? ", …" : ""}.`);
   }
-  return { index, name: header[index]!, ...(datePart ? { datePart } : {}) };
+  return { index, name: header[index]!, ...(datePart ? { datePart } : {}), ...(byLetter ? { byLetter } : {}) };
+}
+
+/** The filters that order a column against a value: when the value names a column, against that column. */
+const ORDER_OPS: ReadonlySet<FilterOp> = new Set(["<", "<=", ">", ">="]);
+
+/**
+ * The columns the value of a filter names, when the filter orders its column against it (`>`,
+ * `>=`, `<`, `<=`) and the value is not a number: the column of that full name, else the columns
+ * whose lower name (of a joined header) it is, else the column of that letter when the filter's own
+ * column was named by its letter ("C" > "B"). Such a value compared as text matched no row, with no
+ * word of why: "Q1 / Actual" > "Q1 / Budget" is meant cell against cell. Empty for any other
+ * filter: `=`, `!=` and the text filters may well look for a value that is also a column's name
+ * ("Department" != "Total").
+ */
+function columnsNamedBy(header: string[], filter: { op: FilterOp; value: string; number: number | undefined }, column: ColumnRef): number[] {
+  if (!ORDER_OPS.has(filter.op) || filter.number !== undefined) return [];
+  const wanted = valueKey(filter.value);
+  if (!wanted) return [];
+  const full = header.flatMap((name, at) => (valueKey(name) === wanted ? [at] : []));
+  if (full.length) return full;
+  const lower = header.flatMap((name, at) => (valueKey(name.split(" / ").at(-1) ?? "") === wanted ? [at] : []));
+  if (lower.length) return lower;
+  const number = column.byLetter ? letterNumber(filter.value.trim()) : undefined;
+  return number !== undefined && number <= header.length ? [number - 1] : [];
+}
+
+/**
+ * Whether the cell `left` stands in `op` (`>`, `>=`, `<`, `<=`) to the cell `right` of the same
+ * row, for a filter whose value names a column (`columnsNamedBy`): two numbers compare as numbers,
+ * two texts (ISO dates among them) as text, ignoring case. A number and a text, or an empty cell,
+ * never match: "n/a" is neither more nor less than 900.
+ */
+function compareCells(left: string, right: string, op: FilterOp): boolean {
+  const leftKey = valueKey(left);
+  const rightKey = valueKey(right);
+  const leftNumber = parseNumber(left);
+  const rightNumber = parseNumber(right);
+  if (!leftKey || !rightKey || (leftNumber === undefined) !== (rightNumber === undefined)) return false;
+  const order = leftNumber !== undefined && rightNumber !== undefined
+    ? Math.sign(leftNumber - rightNumber)
+    : leftKey === rightKey ? 0 : leftKey < rightKey ? -1 : 1;
+  return op === ">" ? order > 0 : op === ">=" ? order >= 0 : op === "<" ? order < 0 : order <= 0;
 }
 
 type Metric = { name: string; op: AggregateOp; column?: ColumnRef };
-type Filter = { column: ColumnRef; op: FilterOp; value: string; number: number | undefined; key: string };
+/** A filter, resolved; `against` is the column its value names, whose cell of each row it is compared with (since 0.10.0). */
+type Filter = { column: ColumnRef; op: FilterOp; value: string; number: number | undefined; key: string; against?: ColumnRef };
 type GroupState = { key: Record<string, string>; count: number; sums: number[]; numbers: number[]; minimums: Array<number | string | undefined>; maximums: Array<number | string | undefined>; distinct: Array<Set<string> | undefined>; lines: number[] };
 
 /** The value of a cell for comparing: a number when it is one, a date as written, or folded text. */
@@ -353,9 +420,17 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
       if (!FILTER_OPS.includes(filter.op)) throw new Error(`A filter's op must be one of ${FILTER_OPS.map((op) => `"${op}"`).join(", ")}.`);
       const value = filter.value === undefined || filter.value === null ? "" : String(filter.value);
       if (value === "" && filter.op !== "empty" && filter.op !== "not_empty" && filter.op !== "=" && filter.op !== "!=") throw new Error(`The filter on ${JSON.stringify(filter.column)} needs a value.`);
-      return { column: columnOf(columns, String(filter.column ?? ""), letters), op: filter.op, value, number: parseNumber(value), key: valueKey(value) };
+      const resolved: Filter = { column: columnOf(columns, String(filter.column ?? "")), op: filter.op, value, number: parseNumber(value), key: valueKey(value) };
+      // A value that names a column: each row's cell is compared with that column's (since 0.10.0).
+      const named = columnsNamedBy(columns, resolved, resolved.column);
+      if (named.length > 1) {
+        const names = named.slice(0, 10).map((at) => JSON.stringify(columns[at])).join(", ");
+        throw new Error(`${JSON.stringify(sliceWhole(value.trim(), 80))} names ${named.length} columns of this table: ${names}${named.length > 10 ? ", …" : ""}. Name one of them in full, to compare ${JSON.stringify(resolved.column.name)} with it in each row.`);
+      }
+      if (named.length === 1) resolved.against = { index: named[0]!, name: columns[named[0]!]! };
+      return resolved;
     });
-    groupColumns = (request.groupBy ?? []).map((name) => columnOf(columns, String(name), letters));
+    groupColumns = (request.groupBy ?? []).map((name) => columnOf(columns, String(name)));
     metrics = metricsGiven.map((given) => {
       const text = String(given).trim();
       const [rawOp, ...rest] = text.split(":");
@@ -364,7 +439,7 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
       const columnName = rest.join(":").trim();
       if (op === "count") return { name: "count", op };
       if (!columnName) throw new Error(`The metric "${op}" needs a column: "${op}:<column>".`);
-      const column = columnOf(columns, columnName, letters);
+      const column = columnOf(columns, columnName);
       return { name: `${op}:${column.name}`, op, column };
     });
     notNumbers = metrics.map(() => 0);
@@ -455,7 +530,9 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
     if (row.slice(header.length).some((cell) => cell !== "") || (kind === "csv" && row.length !== header.length)) irregularRows++;
     rowsRead++;
     const cell = (column: ColumnRef) => row[column.index] ?? "";
-    for (const filter of filters) if (!compare(cell(filter.column), filter)) return;
+    for (const filter of filters) {
+      if (!(filter.against ? compareCells(cell(filter.column), cell(filter.against), filter.op) : compare(cell(filter.column), filter))) return;
+    }
     rowsMatched++;
     const values = groupColumns.map((column) => groupValue(cell(column), column));
     const key = values.map(valueKey).join("\u0000");
@@ -650,6 +727,7 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
     irregularRows,
     distinctCapped,
     notNumbers: Object.fromEntries(metrics.flatMap((metric, index) => (notNumbers[index]! > 0 && (metric.op === "sum" || metric.op === "avg" || metric.op === "min" || metric.op === "max") ? [[metric.name, notNumbers[index]!]] : []))),
+    ...(filters.some((filter) => filter.against) ? { compared: filters.flatMap((filter) => (filter.against ? [{ column: filter.column.name, op: filter.op, with: filter.against.name }] : [])) } : {}),
   };
 }
 

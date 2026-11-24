@@ -1,0 +1,69 @@
+{
+ "case": "pdf-statement",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 4167.9",
+     "status": "pass"
+    },
+    {
+     "fact": "number 118",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 2324,
+   "cachedInputTokens": 0,
+   "outputTokens": 88,
+   "thoughtTokens": 0,
+   "ms": 592,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 2,
+    "supported": 2,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 4135,
+     "ms": 572,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2324,
+      "cachedInputTokens": 0,
+      "outputTokens": 88,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי דף החשבון (statement-1 L8):\n* **יתרת הסגירה:** 4,167.90 ש\"ח.\n* **הסכום ששולם לחברת החשמל** (הוראת קבע לחברת החשמל בתאריך 05/01, L6): **118.00 ש\"ח**."
+  }
+ ],
+ "passed": true
+}

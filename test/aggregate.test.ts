@@ -103,6 +103,57 @@ describe("aggregateTable", () => {
   });
 });
 
+describe("a filter whose value names a column (0.10.0)", () => {
+  // The budget of the evals, short: a title row, then a header of two rows, as Flash-Lite counted it.
+  const BUDGET = [
+    "## Sheet 1: תקציב", "Columns: | A |", "Row 1: | תקציב מחלקות 2026 |",
+    "Row 2: | מחלקה | רבעון 1 |  | רבעון 2 |  |", "Row 3: |  | תקציב | ביצוע | תקציב | ביצוע |",
+    "Row 4: | רכש | 150 | 105 | 160 | 120 |", "Row 5: | כספים | 187 | 195 | 201 | 190 |", "Row 6: | שיווק | 261 | 284 | 283 | 249 |",
+  ].join("\n");
+
+  it("compares each row's cell with the cell of the column its value names, for >, >=, < and <=", async () => {
+    // It compared the name as text before, matched no row and said nothing: Flash-Lite then counted
+    // 48 rows by eye, and missed one.
+    const named = await aggregateTable(doc("xlsx", BUDGET), { filters: [{ column: "רבעון 1 / ביצוע", op: ">", value: "רבעון 1 / תקציב" }] });
+    expect(named.rowsMatched).toBe(2);
+    expect(named.groups).toEqual([{ key: {}, count: 2, values: { count: 2 }, lines: [7, 8] }]);
+    expect(named.compared).toEqual([{ column: "רבעון 1 / ביצוע", op: ">", with: "רבעון 1 / תקציב" }]);
+    // Letters for both: "C" is the column, "B" the other one.
+    expect((await aggregateTable(doc("xlsx", BUDGET), { filters: [{ column: "C", op: ">", value: "B" }] })).compared).toEqual([{ column: "רבעון 1 / ביצוע", op: ">", with: "רבעון 1 / תקציב" }]);
+    expect((await aggregateTable(doc("xlsx", BUDGET), { filters: [{ column: "רבעון 2 / ביצוע", op: "<", value: "רבעון 2 / תקציב" }], metrics: ["sum:רבעון 2 / ביצוע"] })).groups[0]!.values).toEqual({ "sum:רבעון 2 / ביצוע": 559 });
+    // A lower name of a joined header that two columns have says which.
+    await expect(aggregateTable(doc("xlsx", BUDGET), { filters: [{ column: "רבעון 1 / ביצוע", op: "<=", value: "תקציב" }] })).rejects.toThrow('"תקציב" names 2 columns of this table: "רבעון 1 / תקציב", "רבעון 2 / תקציב". Name one of them in full, to compare "רבעון 1 / ביצוע" with it in each row.');
+    // In a CSV file too, ignoring case and spaces; an empty cell, or a number against a text, does not match.
+    const csv = await aggregateTable(doc("csv", "Item,Budget,Actual\nA,10,12\nB,10,8\nC,10,\nD,n/a,40\nE,7,7\n"), { filters: [{ column: "Actual", op: ">=", value: " budget " }] });
+    expect(csv.groups[0]!.lines).toEqual([2, 6]);
+    // Dates as text: shipped after it was ordered.
+    const dates = await aggregateTable(doc("csv", "Order,Ordered,Shipped\n1,2026-03-01,2026-03-04\n2,2026-03-05,2026-03-02\n"), { filters: [{ column: "Shipped", op: ">", value: "Ordered" }] });
+    expect(dates.groups[0]!.lines).toEqual([2]);
+  });
+
+  it("keeps a filter whose value is a column's name only by chance: equality, text, a number, a letter for a named column", async () => {
+    const table = "Department,Total,Grade\nSales,10,A\nTotal,30,C\nSupport,20,B\n";
+    // A summary row whose label is also a column's name.
+    expect((await aggregateTable(doc("csv", table), { filters: [{ column: "Department", op: "!=", value: "Total" }] })).rowsMatched).toBe(2);
+    expect((await aggregateTable(doc("csv", table), { filters: [{ column: "Department", op: "contains", value: "total" }] })).rowsMatched).toBe(1);
+    // A letter is a value when the column is named by its name: grades from B on.
+    expect((await aggregateTable(doc("csv", table), { filters: [{ column: "Grade", op: ">=", value: "B" }] })).rowsMatched).toBe(2);
+    // A number is a value, even where years name the columns.
+    expect((await aggregateTable(doc("pdf", "| Region | 2024 | 2025 |\n| East | 10 | 12 |\n| West | 5 | 6 |"), { filters: [{ column: "2025", op: ">", value: 2024 }] })).rowsMatched).toBe(0);
+  });
+
+  it("names a column by its letter in a table with a header too, as the tool's description says", async () => {
+    // "No column \"C\"" before, in every table but a sheet with no header.
+    const sheet = await aggregateTable(doc("xlsx", BUDGET), { metrics: ["sum:C"] });
+    expect(sheet.groups[0]!.values).toEqual({ "sum:רבעון 1 / ביצוע": 584 });
+    const csv = await aggregateTable(doc("csv", CSV), { metrics: ["sum:D"], filters: [{ column: "a", op: "=", value: "West" }] });
+    expect(csv.groups[0]!.values).toEqual({ "sum:Revenue": 800 });
+    // A column of that name comes first, and a letter past the last column is no column.
+    expect((await aggregateTable(doc("csv", "B,A\n1,2\n"), { metrics: ["sum:A"] })).groups[0]!.values).toEqual({ "sum:A": 2 });
+    await expect(aggregateTable(doc("csv", CSV), { metrics: ["sum:E"] })).rejects.toThrow('No column "E" in this table.');
+  });
+});
+
 describe("the aggregate_table tool", () => {
   const SALES = ["Region,Month,Revenue", ...Array.from({ length: 3_000 }, (_, index) => `${["East", "West", "North"][index % 3]},2026-0${1 + (index % 6)}-01,${100 + (index % 7)}`)].join("\n");
 
@@ -145,6 +196,32 @@ describe("the aggregate_table tool", () => {
     expect((await tools.execute("aggregate_table", { document_id: meta.id, metrics: ["sum:Profit"] })).error).toMatch(/^No column "Profit" in this table\. Its columns are: "Region", "Month", "Revenue"\.$/);
     expect((await tools.execute("aggregate_table", { document_id: meta.id, filters: [{ column: "Region", op: "like", value: "E" }] })).error).toMatch(/A filter's op must be one of/);
     expect((await tools.execute("aggregate_table", { document_id: meta.id, group_by: "Region" })).error).toBeUndefined();
+  });
+
+  it("says when a filter compared two cells of each row, as its value names a column (0.10.0)", async () => {
+    const { createLargeFiles, MemoryDocumentStore } = await import("../src/index.js");
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const meta = await files.ingest({ name: "budget.csv", bytes: new TextEncoder().encode("Department,Budget,Actual\nSales,10,12\nSupport,10,8\nOps,5,9\n") });
+    const result = await files.tools([meta]).execute("aggregate_table", { document_id: meta.id, filters: [{ column: "Actual", op: ">", value: "Budget" }] });
+    expect(result.rows_matched).toBe(2);
+    expect(result.filter_note).toBe('Each row\'s "Actual" was compared with its own "Budget" (>), as the filter\'s value names that column.');
+    expect((await files.tools([meta]).execute("aggregate_table", { document_id: meta.id, filters: [{ column: "Actual", op: ">", value: 9 }] })).filter_note).toBeUndefined();
+  });
+
+  it("says how to cite the lines it lists, with the file's name, for a table sent whole (0.10.0)", async () => {
+    const { files, meta } = (await both())[0]!;
+    const east = { document_id: meta.id, filters: [{ column: "Region", op: "=", value: "East" }], metrics: ["sum:Revenue"] };
+    // Flash-Lite answered counts over a table shown in full with no line cited.
+    const whole = await files.tools([meta], { inline: [meta.id] }).execute("aggregate_table", east);
+    expect((whole.groups as Array<{ lines: number[] }>)[0]!.lines).toEqual([2, 5, 8]);
+    expect(whole.cite).toBe("Cite the lines listed in your answer, like (sales.csv L2, L5, L8).");
+    expect(Object.keys(whole).at(-1)).toBe("cite");
+    // A grouped result: the first group's lines.
+    const grouped = await files.tools([meta], { inline: [meta.id] }).execute("aggregate_table", { document_id: meta.id, group_by: ["Region"] });
+    expect(grouped.cite).toBe(`Cite the lines listed in your answer, like (sales.csv ${(grouped.groups as Array<{ lines: number[] }>)[0]!.lines.map((line) => `L${line}`).join(", ")}).`);
+    // Searched, the guide asks for citations already; and no row matched, there is no line to cite.
+    expect((await files.tools([meta]).execute("aggregate_table", east)).cite).toBeUndefined();
+    expect((await files.tools([meta], { inline: [meta.id] }).execute("aggregate_table", { document_id: meta.id, filters: [{ column: "Region", op: "=", value: "South" }] })).cite).toBeUndefined();
   });
 
   it("cites the header and each group's first rows, and keeps the groups when shortened", async () => {

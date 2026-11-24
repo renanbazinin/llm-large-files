@@ -1,0 +1,87 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "18c7d9a327961b60",
+  "bytes": 27137,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12074 chars #2cd3f701"
+      },
+      {
+       "text": "70 chars #a0bef3c2"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"According to section 6.1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 7,\"totalTokenCount\": 7476,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"thoughtsTokenCount\": 238,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"23QFa8f8HJrqkdUPz7f2uQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" of the policy, the travel reimbursement rate for a private car is **2.35 NIS per kilometer**, based on a monthly report in\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 35,\"totalTokenCount\": 7504,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"thoughtsTokenCount\": 238,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"23QFa8f8HJrqkdUPz7f2uQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" the system (מדיניות משאבי אנוש 2026.docx L47).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 58,\"totalTokenCount\": 7527,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"thoughtsTokenCount\": 238,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"23QFa8f8HJrqkdUPz7f2uQs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Eu0ICuoIAWkUfRMbjR4xrkHg1kyzdslLf4jTNdqgItahwGvVMYDd+RVWX0g3CHP16GsZCjsk38ltHdaijzSOBlQh1slU4YNmu+CRjsAYeBF6YYaRdXN59BUv7aP9yIIiMM5GsRLN0QKmFzS506SoN370q7iDZ/js9CVytsFAmlJgMmas21UnSXKJSXLnKq16w1dKpo7osLyzpKGIR+yMvA/XoEw3F4ye+IZsVmhylLZOaenprcgCWe0eGE7dVBjPAt1Dauqn5jISvhgwc4ngTbt9AeJCtog7kczKA66l+aF32QMwdNA6udrol6rPQ6YJ3dZjavQaojtlp+M5Se891Q8iGZLoSyuOCHhi6+GjW6/W1zQ2lw7lSruw8f9UlFCUffaeinLeW6v4xu+yb5PNuyjMMkH3rtpBivqXu1CL2jAgnET9Ow/SdjHlEbctI/s+wbIJ1NZP2sBjSbeBj4rc/dk9+y/yBWa1TLZ3ZWi3cESU6zDOTOEq/zBsoE0jEVK31J5AimA30t2hnoC+GyT428l32tGmYfGw+sKS4WDh0zrepfDsWbBvdl5HjfaS2SqVUt8dsDslXzpqHoPWR+EyLb8y8keUb82MSMEQDMoxcQV4xTz/K37BvaPkNlJxqhhRYsOzg+uhjpiygeCF+r0PUpfpnVImzgaRd/ieqVP8lKT/+8hvBM03SvG4y6Ww1VPlsUrc4nLFnurVLpzfTSri1848hif2gfGMLsmP+WQsgQFh83x9FsTgbNtWpxKu9yrR0yNjRVeN2l8M3XzBYxzJv3J2chXwr2hQKedXZz7253rhV9M8EIhlMaYABCmhBjoZLdgmS2CRiGTaIK3mF1DrcCn/je4YveTRUEvZLfTsZshrR212zW9WU6Hs1s6Ynvu4g3ffOe+VXB4AaKnupT9p5gbyUi9mNQTzoL5Ya3qs6Tir1191bsFHbRdHuhPW1bg3hp6S/P8z8w3nBDTTddtD2q8SoZZG5pDcmGsJkCx1cEZ+2iDxsmKX1FpjD39dHT2ug3GWfFOKhe0c3zD0lXWMvqG/NoeT/0R325tJ1YPluS8YmwNskw/Ix/bsAqq5hbTdOZCNIKN0LUXVwntXuhRvyCOc40goQXk2VInLD+nSSWCNhndXLECCsnP3/xGRd3XXEkzTKhfYiEqtWOT3teneelcKBNJ3ZSRWgZItpc1HmLrlEv7jy8NpZ+yE01WZfRysQCu4pz6mLndfOOarZSAMWzyF/VjnBfCThscz9CPn3urFv4AFBqBTi5go1AUbzzvuLna3VJtxKvPskAb",
+   "QgMFjeD3lDqer5FNsooZ0TFD8davqW9Is5aMrUyq7fLS1m/u6Adw5aMQ7yV/qV81C6JzcjmWheewA3Pk952KswJptCwW39J7L5dTdPWCReeY+Ss3yIbPm8wCGVa2GHRN4b2oT5pRh4qh9HtwmFACZU7d7LHq6GV/FpT/BcsUqSjtHbnQi0+sy4p2uNRlMZx8dmSQcLqeGWsiOjyu+PJ9jElxVqPo=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7231,\"candidatesTokenCount\": 58,\"totalTokenCount\": 7527,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7231}],\"thoughtsTokenCount\": 238,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"23QFa8f8HJrqkdUPz7f2uQs\"}\r\n\r\n"
+  ]
+ }
+}

@@ -1,0 +1,110 @@
+{
+ "case": "invoices-searched",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 750",
+     "status": "pass"
+    },
+    {
+     "fact": "number 18714659.5 ±1",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 11484,
+   "cachedInputTokens": 3263,
+   "outputTokens": 417,
+   "thoughtTokens": 252,
+   "ms": 13436,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table",
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5464,
+     "ms": 3730,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3510,
+      "cachedInputTokens": 0,
+      "outputTokens": 161,
+      "thoughtTokens": 100
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 5621,
+     "ms": 5784,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3794,
+      "cachedInputTokens": 1485,
+      "outputTokens": 116,
+      "thoughtTokens": 71
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 5907,
+     "ms": 3705,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4180,
+      "cachedInputTokens": 1778,
+      "outputTokens": 140,
+      "thoughtTokens": 81
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי הנתונים בקובץ:\n\n* **מספר החשבוניות בסטטוס 'באיחור':** 750\n* **הסכום הכולל שלהן:** 18,714,659.5"
+  }
+ ],
+ "passed": true
+}

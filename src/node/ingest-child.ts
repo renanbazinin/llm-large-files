@@ -60,8 +60,8 @@ async function run(job: ChildJob): Promise<void> {
       ...input,
       ...(progress ? { onProgress: (report: ExtractProgress) => send({ type: "progress", id: job.id, progress: report }) } : {}),
     }, job.input.format === "pdf" && pdfExtractor ? { pdf: pdfExtractor.extract } : {});
-    const { text, pages, encoding, replacedCharacters } = result;
-    send({ type: "done", id: job.id, result: { text, ...(pages !== undefined ? { pages } : {}), ...(encoding !== undefined ? { encoding } : {}), ...(replacedCharacters !== undefined ? { replacedCharacters } : {}), ...(file ? { file } : {}) } });
+    const { text, pages, encoding, replacedCharacters, headings } = result;
+    send({ type: "done", id: job.id, result: { text, ...(pages !== undefined ? { pages } : {}), ...(encoding !== undefined ? { encoding } : {}), ...(replacedCharacters !== undefined ? { replacedCharacters } : {}), ...(file ? { file } : {}), ...(headings !== undefined ? { headings } : {}) } });
   } catch (error) {
     // A system error keeps its code and system call: the server tells it apart from a file that cannot be read.
     const { code, syscall } = (error ?? {}) as { code?: unknown; syscall?: unknown };

@@ -1,0 +1,130 @@
+{
+ "case": "chat-dropped-file",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "dropped-file",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 18",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim /12 ימי/",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 7255,
+   "cachedInputTokens": 0,
+   "outputTokens": 186,
+   "thoughtTokens": 0,
+   "ms": 892,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 4,
+    "supported": 4,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 9758,
+     "ms": 888,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7255,
+      "cachedInputTokens": 0,
+      "outputTokens": 186,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי מדיניות משאבי אנוש 2026, עובד במשרה מלאה זכאי ל-18 ימי חופשה בתשלום בכל שנה קלנדרית, כאשר מספר ימי החופשה עולה עם הוותק בהתאם לפירוט הבא:\n\n* **ותק של 1-4 שנים:** 18 ימי חופשה (policy-1 L28)\n* **ותק של 5 שנים:** 19 ימי חופשה (policy-1 L29)\n* **ותק של 6-7 שנים:** 21 ימי חופשה, כולל יום בחירה אחד (policy-1 L30)\n* **ותק של 8 שנים ומעלה:** 24 ימי חופשה (policy-1 L31)"
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 6",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 7457,
+   "cachedInputTokens": 4064,
+   "outputTokens": 47,
+   "thoughtTokens": 0,
+   "ms": 704,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 9973,
+     "ms": 702,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7457,
+      "cachedInputTokens": 4064,
+      "outputTokens": 47,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (policy-1 L23)."
+  }
+ ],
+ "passed": true
+}

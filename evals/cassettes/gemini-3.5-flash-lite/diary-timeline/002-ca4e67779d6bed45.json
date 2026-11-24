@@ -1,0 +1,81 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "ca4e67779d6bed45",
+  "bytes": 32204,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19896 chars #36c6e2bd"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- **יום ראשון, 4 באוקטובר 2026 (שבוע 1):**\n  - התראת לחות בחדר השרתים בקומה 3: מים נוטפים מהתקרה מעל ארונות 4 עד 6 עקב פיצוץ צינור בקומה שמעל (L138).\n  - כיבוי ארונות 4 עד 6 והעברת השירותים שלהם לאתר המשני (L140).\n  - לאחר ייבוש ובדיקה, ארונות 4 עד 6 הודלקו מחדש והשירותים חזרו לאתר הראשי (L149).",
+        "thoughtSignature": "EpYBCpMBAWkUfROA6+9mV6BV56TT3WeZmCobqXB7z9ndLUdVsHXPSFejGBwPsnwayMUu0fJfNnTIeQ6daWn+HYRwO0MuwRfe/Lt2uCSHVYK4SY59ySLqMZA6CsSM8fgcChSc0QjO3ie326xzm8ey9wjlndidGhclZfIPKQtbBsHktQkrGYkV3M0i3hOBtkMTvWY4Ua3WyUVu"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12114,
+    "candidatesTokenCount": 159,
+    "totalTokenCount": 12273,
+    "cachedContentTokenCount": 8167,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12114
+     }
+    ],
+    "cacheTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 8167
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "E0cFa8KpIq-jkdUPn4euwAc"
+  }
+ }
+}

@@ -1,0 +1,69 @@
+{
+ "case": "invoices-lookup",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says בוטל",
+     "status": "pass"
+    },
+    {
+     "fact": "number 22046.34",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 122214,
+   "cachedInputTokens": 0,
+   "outputTokens": 319,
+   "thoughtTokens": 266,
+   "ms": 5264,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 134217,
+     "ms": 5242,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122214,
+      "cachedInputTokens": 0,
+      "outputTokens": 319,
+      "thoughtTokens": 266
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "עבור חשבונית מספר **1234** (חשבוניות.csv L1235):\n\n* **סכום:** 22,046.34 ₪\n* **סטטוס:** בוטל"
+  }
+ ],
+ "passed": true
+}

@@ -1,0 +1,2845 @@
+{
+ "title": "Evals: package T of 0.10.0, lookups after the read hint (pass^2)",
+ "notes": [
+  "A check that the read hint of c1fbbb5 (`whole_file` on a `read_document` result cut short by the size limit) does not push lookups and counts into whole-file reads: four searched cases, two live runs each on both models (`npm run eval:live -- --k 2 --concurrency 2 --max-input-tokens 1150000`), at commit 31485b0, on the Gemini API on 2026-11-24. The files are synthetic (`evals/fixtures.ts`).",
+  "",
+  "- **No whole read in any of the 16 runs, and every run passed:** none in the recorded cassettes of these cases either, on either model, nor in Flash's recordings of `0100-t-record-3.md`.",
+  "",
+  "| Case | Model | Whole reads, live (2 runs) | Whole reads, cassette | Whole reads, `0100-t-record-3.md` | Passed, live |",
+  "| --- | --- | --- | --- | --- | --- |",
+  "| contract-penalties | Flash-Lite | 0, 0 | 0 | not recorded there | 2 of 2 |",
+  "| contract-penalties | Flash | 0, 0 | 0 | 0 | 2 of 2 |",
+  "| contract-largest-en | Flash-Lite | 0, 0 | 0 | not recorded there | 2 of 2 |",
+  "| contract-largest-en | Flash | 0, 0 | 0 | 0 | 2 of 2 |",
+  "| log-hebrew (2 questions) | Flash-Lite | 0, 0 | 0 | not recorded there | 2 of 2 |",
+  "| log-hebrew (2 questions) | Flash | 0, 0 | 0 | 0 | 2 of 2 |",
+  "| log-failover (2 questions) | Flash-Lite | 0, 0 | 0 | not recorded there | 2 of 2 |",
+  "| log-failover (2 questions) | Flash | 0, 0 | 0 | 0 | 2 of 2 |",
+  "",
+  "- **Where the hint can show in these cases:** the tool set can read the 33,500 lines of the service log whole (about 24 parts, some 2.1 million tokens of text, within `maxMapChunks`), so a read of it cut by the size limit carries `whole_file`; Flash read ranges of the log in both runs of log-failover, Flash-Lite in its second question. A read of the contract under these cases' budget (24,000 characters) shows all 202 lines and carries none.",
+  "- **Input tokens,** the sum of the usage the API reported: 384,287 for Flash-Lite and 252,866 for Flash, 637,153 in all."
+ ],
+ "runs": [
+  {
+   "case": "log-failover",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "en",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 09:31",
+       "status": "pass"
+      },
+      {
+       "fact": "says 09:34",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 9652,
+     "cachedInputTokens": 0,
+     "outputTokens": 158,
+     "thoughtTokens": 0,
+     "ms": 2024,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5813,
+       "ms": 1103,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3681,
+        "cachedInputTokens": 0,
+        "outputTokens": 27,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 8307,
+       "ms": 766,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5971,
+        "cachedInputTokens": 0,
+        "outputTokens": 131,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "Based on the `payments-service.log` file:\n\n* **Failover Start:** `2026-11-12T09:31:10.000Z` (L21880: `WARN [db-monitor] database failover started: primary db-1 unreachable`)\n* **Failover Complete:** `2026-11-12T09:34:52.000Z` (L22768: `INFO [db-monitor] database failover completed: db-2 is now primary`)"
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says warm-up",
+       "status": "pass"
+      },
+      {
+       "fact": "number 41",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 13008,
+     "cachedInputTokens": 6075,
+     "outputTokens": 160,
+     "thoughtTokens": 0,
+     "ms": 1479,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 8453,
+       "ms": 652,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6102,
+        "cachedInputTokens": 2025,
+        "outputTokens": 40,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 9328,
+       "ms": 803,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6906,
+        "cachedInputTokens": 4050,
+        "outputTokens": 120,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "Right after the database failover completed at `2026-11-12T09:34:52.000Z` (L22768), the cache warm-up finished 250ms later at `2026-11-12T09:34:52.250Z`, taking 41 seconds in total after the failover (L22769: `INFO [cache] cache warm-up finished in 41s after the failover`)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "log-failover",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "en",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 09:31",
+       "status": "pass"
+      },
+      {
+       "fact": "says 09:34",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 9655,
+     "cachedInputTokens": 2026,
+     "outputTokens": 159,
+     "thoughtTokens": 0,
+     "ms": 4283,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5813,
+       "ms": 530,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3681,
+        "cachedInputTokens": 0,
+        "outputTokens": 28,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 8311,
+       "ms": 3725,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5974,
+        "cachedInputTokens": 2026,
+        "outputTokens": 131,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "Based on the log file `payments-service.log`:\n\n* **Failover started:** `2026-11-12T09:31:10.000Z` (L21880: `WARN [db-monitor] database failover started: primary db-1 unreachable`)\n* **Failover completed:** `2026-11-12T09:34:52.000Z` (L22768: `INFO [db-monitor] database failover completed: db-2 is now primary`)"
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says warm-up",
+       "status": "pass"
+      },
+      {
+       "fact": "number 41",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 13330,
+     "cachedInputTokens": 6077,
+     "outputTokens": 171,
+     "thoughtTokens": 0,
+     "ms": 2076,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 8458,
+       "ms": 514,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6105,
+        "cachedInputTokens": 2025,
+        "outputTokens": 40,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 9679,
+       "ms": 1547,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7225,
+        "cachedInputTokens": 4052,
+        "outputTokens": 131,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "Right after the database failover completed at `09:34:52.000Z`, the **cache warm-up finished** (taking 41 seconds after the failover), logging:\n\n* `2026-11-12T09:34:52.250Z INFO [cache] cache warm-up finished in 41s after the failover` (payments-service.log L22769)\n\nFollowing that, normal request handling resumed across the worker threads (e.g., worker requests and occasional slow queries on the orders table)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "log-hebrew",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37",
+       "status": "pass"
+      },
+      {
+       "fact": "says worker-3",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 8947,
+     "cachedInputTokens": 0,
+     "outputTokens": 98,
+     "thoughtTokens": 0,
+     "ms": 2055,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5824,
+       "ms": 1145,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3692,
+        "cachedInputTokens": 0,
+        "outputTokens": 37,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 7488,
+       "ms": 812,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5255,
+        "cachedInputTokens": 0,
+        "outputTokens": 61,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "השגיאה `PAY-5031` מופיעה בלוג **37 פעמים**, וכולן נרשמו ב-**`worker-3`** (לדוגמה בשורות 17280 ו-25680)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 09:12",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 5320,
+     "cachedInputTokens": 2022,
+     "outputTokens": 60,
+     "thoughtTokens": 0,
+     "ms": 721,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "payments-service.log",
+        "line": 17280
+       }
+      ]
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 7549,
+       "ms": 715,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5320,
+        "cachedInputTokens": 2022,
+        "outputTokens": 60,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "השגיאה הראשונה מסוג `PAY-5031` נרשמה ב-**2026-11-12T09:12:00.000Z** (שורה 17280 בלוג)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "log-hebrew",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37",
+       "status": "pass"
+      },
+      {
+       "fact": "says worker-3",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 8947,
+     "cachedInputTokens": 2023,
+     "outputTokens": 98,
+     "thoughtTokens": 0,
+     "ms": 1330,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5824,
+       "ms": 623,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3692,
+        "cachedInputTokens": 0,
+        "outputTokens": 37,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 7488,
+       "ms": 694,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5255,
+        "cachedInputTokens": 2023,
+        "outputTokens": 61,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "השגיאה `PAY-5031` מופיעה בלוג **37 פעמים**, וכולן נרשמו ב-**`worker-3`** (לדוגמה בשורות 17280 ו-25680)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 09:12",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 5320,
+     "cachedInputTokens": 2022,
+     "outputTokens": 126,
+     "thoughtTokens": 0,
+     "ms": 756,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "payments-service.log",
+        "line": 17280
+       }
+      ]
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 7549,
+       "ms": 751,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5320,
+        "cachedInputTokens": 2022,
+        "outputTokens": 126,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "השגיאה הראשונה מבין ה-37 (שמופיעה בשורה 17280) נרשמה בתאריך ובשעה:\n\n**2026-11-12T09:12:00.000Z** (לפי השורה: `2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960`)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-penalties",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 7,
+     "inputTokens": 67878,
+     "cachedInputTokens": 40607,
+     "outputTokens": 307,
+     "thoughtTokens": 0,
+     "ms": 4645,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "get_document_overview"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5518,
+       "ms": 508,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3601,
+        "cachedInputTokens": 0,
+        "outputTokens": 27,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 10059,
+       "ms": 706,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8153,
+        "cachedInputTokens": 0,
+        "outputTokens": 43,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 10140,
+       "ms": 589,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8239,
+        "cachedInputTokens": 6087,
+        "outputTokens": 49,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 12861,
+       "ms": 739,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 11205,
+        "cachedInputTokens": 8128,
+        "outputTokens": 63,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 5,
+       "estimatedInputTokens": 12987,
+       "ms": 674,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 11346,
+        "cachedInputTokens": 8122,
+        "outputTokens": 41,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_6",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 6,
+       "estimatedInputTokens": 13212,
+       "ms": 618,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 11583,
+        "cachedInputTokens": 8117,
+        "outputTokens": 22,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_7",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 7,
+       "estimatedInputTokens": 15370,
+       "ms": 773,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 13751,
+        "cachedInputTokens": 10153,
+        "outputTokens": 62,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "בחוזה יש בסך הכל **37** סעיפי קנס (כלומר, 37 סעיפים שבהם נקבע כי הספק ישלם למזמין קנס בגין הפרות שונות או אי-עמידה בתנאי השירות)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-penalties",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 5,
+     "inputTokens": 40766,
+     "cachedInputTokens": 26389,
+     "outputTokens": 204,
+     "thoughtTokens": 0,
+     "ms": 4118,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5518,
+       "ms": 632,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3601,
+        "cachedInputTokens": 0,
+        "outputTokens": 27,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 10059,
+       "ms": 1288,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8153,
+        "cachedInputTokens": 6093,
+        "outputTokens": 35,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 10191,
+       "ms": 616,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8287,
+        "cachedInputTokens": 6087,
+        "outputTokens": 33,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 11579,
+       "ms": 741,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9781,
+        "cachedInputTokens": 6089,
+        "outputTokens": 49,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 5,
+       "estimatedInputTokens": 12678,
+       "ms": 824,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 10944,
+        "cachedInputTokens": 8120,
+        "outputTokens": 60,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "בחוזה שירותי התחזוקה (מס' 2026/114) ישנם **37** סעיפי קנס (לפי חיפוש מדויק של המילה \"קנס\" במסמך) (contract-1)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-largest-en",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "en",
+   "kinds": [
+    "lookup",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 48000",
+       "status": "pass"
+      },
+      {
+       "fact": "number 148",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 9,
+     "inputTokens": 85672,
+     "cachedInputTokens": 50683,
+     "outputTokens": 482,
+     "thoughtTokens": 0,
+     "ms": 6799,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5524,
+       "ms": 600,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3605,
+        "cachedInputTokens": 0,
+        "outputTokens": 33,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 10069,
+       "ms": 738,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8163,
+        "cachedInputTokens": 0,
+        "outputTokens": 49,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 10154,
+       "ms": 622,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8255,
+        "cachedInputTokens": 6087,
+        "outputTokens": 51,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 11286,
+       "ms": 605,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9435,
+        "cachedInputTokens": 6087,
+        "outputTokens": 37,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 5,
+       "estimatedInputTokens": 11431,
+       "ms": 677,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9587,
+        "cachedInputTokens": 6082,
+        "outputTokens": 51,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_6",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 6,
+       "estimatedInputTokens": 12858,
+       "ms": 735,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 11123,
+        "cachedInputTokens": 8113,
+        "outputTokens": 59,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_7",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 7,
+       "estimatedInputTokens": 13229,
+       "ms": 1307,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 11521,
+        "cachedInputTokens": 8109,
+        "outputTokens": 50,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_8",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 8,
+       "estimatedInputTokens": 13521,
+       "ms": 674,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 11833,
+        "cachedInputTokens": 8105,
+        "outputTokens": 36,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_9",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 9,
+       "estimatedInputTokens": 13840,
+       "ms": 811,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 12150,
+        "cachedInputTokens": 8100,
+        "outputTokens": 116,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "הקנס הגדול ביותר בחוזה הוא בסך **48,000 ש\"ח** (בנוסף לכל סעד אחר), והוא מופיע **בסעיף 148** (contract-1 L150):\n\n> *\"148. בגין דליפת מידע של לקוחות המזמין באחריות הספק ישלם הספק למזמין קנס בסך 48,000 ש\"ח, בנוסף לכל סעד אחר.\"*"
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-largest-en",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "en",
+   "kinds": [
+    "lookup",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 48000",
+       "status": "pass"
+      },
+      {
+       "fact": "number 148",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 8,
+     "inputTokens": 115792,
+     "cachedInputTokens": 85503,
+     "outputTokens": 349,
+     "thoughtTokens": 0,
+     "ms": 6032,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5524,
+       "ms": 612,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3605,
+        "cachedInputTokens": 0,
+        "outputTokens": 27,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 10065,
+       "ms": 733,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8157,
+        "cachedInputTokens": 2031,
+        "outputTokens": 28,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 14605,
+       "ms": 675,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 12709,
+        "cachedInputTokens": 8142,
+        "outputTokens": 36,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 19163,
+       "ms": 805,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 17282,
+        "cachedInputTokens": 12226,
+        "outputTokens": 52,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 5,
+       "estimatedInputTokens": 19248,
+       "ms": 680,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 17377,
+        "cachedInputTokens": 14256,
+        "outputTokens": 52,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_6",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 6,
+       "estimatedInputTokens": 20456,
+       "ms": 1050,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 18666,
+        "cachedInputTokens": 16290,
+        "outputTokens": 40,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_7",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 7,
+       "estimatedInputTokens": 20603,
+       "ms": 678,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 18821,
+        "cachedInputTokens": 16282,
+        "outputTokens": 36,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_8",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 8,
+       "estimatedInputTokens": 20959,
+       "ms": 778,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 19175,
+        "cachedInputTokens": 16276,
+        "outputTokens": 78,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "הקנס הגדול ביותר בחוזה הוא **48,000 ש\"ח** (בנוסף לכל סעד אחר), והוא מופיע ב**סעיף 148** (שורה 150 בחוזה), בגין דליפת מידע של לקוחות המזמין באחריות הספק."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "log-failover",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 1,
+   "language": "en",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 09:31",
+       "status": "pass"
+      },
+      {
+       "fact": "says 09:34",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 4,
+     "inputTokens": 18170,
+     "cachedInputTokens": 6230,
+     "outputTokens": 614,
+     "thoughtTokens": 292,
+     "ms": 12091,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "read_document",
+      "read_document"
+     ],
+     "reads": 2,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5813,
+       "ms": 2377,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3681,
+        "cachedInputTokens": 0,
+        "outputTokens": 99,
+        "thoughtTokens": 66
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6053,
+       "ms": 3666,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3987,
+        "cachedInputTokens": 1704,
+        "outputTokens": 88,
+        "thoughtTokens": 48
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 6928,
+       "ms": 2220,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4840,
+        "cachedInputTokens": 1705,
+        "outputTokens": 59,
+        "thoughtTokens": 19
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 7802,
+       "ms": 3798,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5662,
+        "cachedInputTokens": 2821,
+        "outputTokens": 368,
+        "thoughtTokens": 159
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "Based on the log file `payments-service.log`:\n\n* **Failover Started:** `2026-11-12T09:31:10.000Z`\n  > `2026-11-12T09:31:10.000Z WARN [db-monitor] database failover started: primary db-1 unreachable` (L21880)\n\n* **Failover Completed:** `2026-11-12T09:34:52.000Z`\n  > `2026-11-12T09:34:52.000Z INFO [db-monitor] database failover completed: db-2 is now primary` (L22768)\n\nThe failover took **3 minutes and 42 seconds** (222 seconds) to complete."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says warm-up",
+       "status": "pass"
+      },
+      {
+       "fact": "number 41",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 13010,
+     "cachedInputTokens": 8401,
+     "outputTokens": 414,
+     "thoughtTokens": 0,
+     "ms": 8009,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 5,
+      "supported": 5,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 8023,
+       "ms": 4076,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5722,
+        "cachedInputTokens": 3644,
+        "outputTokens": 40,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 9733,
+       "ms": 3926,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7288,
+        "cachedInputTokens": 4757,
+        "outputTokens": 374,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "Immediately after the failover completed (at `2026-11-12T09:34:52.000Z`, L22768), the following occurred:\n\n1. **Cache warm-up finished:** \n   250ms later, the cache completed warming up:\n   > `2026-11-12T09:34:52.250Z INFO [cache] cache warm-up finished in 41s after the failover` (L22769)\n\n2. **Normal payment request processing resumed:**\n   Requests immediately began being served by workers with lower latencies (starting at 90ms):\n   > `2026-11-12T09:34:52.500Z INFO [worker-2] req=a245e152 GET /api/v2/payments/2770 took 90ms` (L22770)\n\n3. **Slow queries on the orders table continued to be logged periodically:**\n   A couple of seconds later, slow query warnings reappeared on the new primary:\n   > `2026-11-12T09:34:54.000Z WARN [worker-0] slow query on orders table took 1312ms` (L22776)  \n   > `2026-11-12T09:34:57.250Z WARN [worker-5] slow query on orders table took 1793ms` (L22789)"
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "log-failover",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 2,
+   "language": "en",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 09:31",
+       "status": "pass"
+      },
+      {
+       "fact": "says 09:34",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 3,
+     "inputTokens": 13233,
+     "cachedInputTokens": 3409,
+     "outputTokens": 541,
+     "thoughtTokens": 217,
+     "ms": 8555,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "read_document",
+      "read_document"
+     ],
+     "reads": 2,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5813,
+       "ms": 1878,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3681,
+        "cachedInputTokens": 0,
+        "outputTokens": 70,
+        "thoughtTokens": 37
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6053,
+       "ms": 3011,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3958,
+        "cachedInputTokens": 1703,
+        "outputTokens": 110,
+        "thoughtTokens": 30
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 7802,
+       "ms": 3644,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5594,
+        "cachedInputTokens": 1706,
+        "outputTokens": 361,
+        "thoughtTokens": 150
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "Based on the log entries:\n\n- **Failover Started:** `2026-11-12T09:31:10.000Z`\n  > `2026-11-12T09:31:10.000Z WARN [db-monitor] database failover started: primary db-1 unreachable` (payments-service.log L21880)\n\n- **Failover Completed:** `2026-11-12T09:34:52.000Z`\n  > `2026-11-12T09:34:52.000Z INFO [db-monitor] database failover completed: db-2 is now primary` (payments-service.log L22768)\n\nThe failover process took **3 minutes and 42 seconds** (222 seconds)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says warm-up",
+       "status": "pass"
+      },
+      {
+       "fact": "number 41",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 13010,
+     "cachedInputTokens": 8399,
+     "outputTokens": 293,
+     "thoughtTokens": 0,
+     "ms": 6070,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 4,
+      "supported": 4,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 8026,
+       "ms": 2968,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5722,
+        "cachedInputTokens": 3643,
+        "outputTokens": 40,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 9736,
+       "ms": 3096,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7288,
+        "cachedInputTokens": 4756,
+        "outputTokens": 253,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "Right after the database failover completed:\n\n1. **Cache warm-up finished:** 250ms later, the cache service logged that warm-up had completed:\n   > `2026-11-12T09:34:52.250Z INFO [cache] cache warm-up finished in 41s after the failover` (payments-service.log L22769)\n\n2. **Normal traffic resumed:** Worker threads resumed handling incoming requests (e.g., `GET /api/v2/payments/2770 took 90ms` at `09:34:52.500Z` on L22770).\n\n3. **Intermittent slow queries continued:** A few seconds later, slow query warnings on the `orders` table reappeared (e.g., taking `1312ms` at `09:34:54.000Z` on L22776 and `1793ms` at `09:34:57.250Z` on L22789)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "log-hebrew",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37",
+       "status": "pass"
+      },
+      {
+       "fact": "says worker-3",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 3,
+     "inputTokens": 14557,
+     "cachedInputTokens": 5026,
+     "outputTokens": 442,
+     "thoughtTokens": 254,
+     "ms": 9668,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5824,
+       "ms": 2681,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3692,
+        "cachedInputTokens": 0,
+        "outputTokens": 129,
+        "thoughtTokens": 92
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 7488,
+       "ms": 2231,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5347,
+        "cachedInputTokens": 1710,
+        "outputTokens": 80,
+        "thoughtTokens": 28
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 7618,
+       "ms": 4681,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5518,
+        "cachedInputTokens": 3316,
+        "outputTokens": 233,
+        "thoughtTokens": 134
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "בלוג נרשמו **37** שגיאות מסוג `PAY-5031`.\n\nכולן נרשמו ב-**`worker-3`** (לדוגמה: שורה 17280 ושורה 25680). \n\nפרטי השגיאה:\n`ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=...`"
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 09:12",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 5493,
+     "cachedInputTokens": 3315,
+     "outputTokens": 109,
+     "thoughtTokens": 0,
+     "ms": 2693,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "payments-service.log",
+        "line": 17280
+       }
+      ]
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 7717,
+       "ms": 2679,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5493,
+        "cachedInputTokens": 3315,
+        "outputTokens": 109,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "השגיאה הראשונה נרשמה ב-**2026-11-12 בשעה 09:12:00.000Z** (שורה 17280):\n\n```\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960\n```"
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "log-hebrew",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37",
+       "status": "pass"
+      },
+      {
+       "fact": "says worker-3",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 3,
+     "inputTokens": 14557,
+     "cachedInputTokens": 5013,
+     "outputTokens": 499,
+     "thoughtTokens": 287,
+     "ms": 11520,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 2,
+      "supported": 2,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5824,
+       "ms": 4914,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3692,
+        "cachedInputTokens": 0,
+        "outputTokens": 116,
+        "thoughtTokens": 79
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 7488,
+       "ms": 2777,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5334,
+        "cachedInputTokens": 1710,
+        "outputTokens": 106,
+        "thoughtTokens": 54
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 7618,
+       "ms": 3791,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5531,
+        "cachedInputTokens": 3303,
+        "outputTokens": 277,
+        "thoughtTokens": 154
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "בלוג ישנן **37** שגיאות `PAY-5031`, וכולן נרשמו ב-**`worker-3`** (החל משורה 17280 ועד שורה 25680, בין השעות 09:12:00 ל-09:47:00).\n\nנוסח השגיאה:\n```text\nERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=<order_id>\n```"
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 09:12",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 5517,
+     "cachedInputTokens": 3303,
+     "outputTokens": 110,
+     "thoughtTokens": 0,
+     "ms": 3331,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "payments-service.log",
+        "line": 17280
+       }
+      ]
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 7745,
+       "ms": 3326,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5517,
+        "cachedInputTokens": 3303,
+        "outputTokens": 110,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "השגיאה הראשונה נרשמה ב-**`2026-11-12T09:12:00.000Z`** (שורה 17280):\n\n```text\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960\n```"
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-penalties",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 7,
+     "inputTokens": 41626,
+     "cachedInputTokens": 23437,
+     "outputTokens": 1259,
+     "thoughtTokens": 832,
+     "ms": 20047,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "read_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5518,
+       "ms": 2543,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3601,
+        "cachedInputTokens": 0,
+        "outputTokens": 115,
+        "thoughtTokens": 82
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6907,
+       "ms": 2046,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5178,
+        "cachedInputTokens": 2473,
+        "outputTokens": 89,
+        "thoughtTokens": 55
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 6983,
+       "ms": 1855,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5316,
+        "cachedInputTokens": 3149,
+        "outputTokens": 49,
+        "thoughtTokens": 15
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 7059,
+       "ms": 1927,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5414,
+        "cachedInputTokens": 3290,
+        "outputTokens": 95,
+        "thoughtTokens": 47
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 5,
+       "estimatedInputTokens": 8221,
+       "ms": 5372,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6689,
+        "cachedInputTokens": 3401,
+        "outputTokens": 534,
+        "thoughtTokens": 498
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_6",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 6,
+       "estimatedInputTokens": 8660,
+       "ms": 2783,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7627,
+        "cachedInputTokens": 5524,
+        "outputTokens": 125,
+        "thoughtTokens": 91
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_7",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 7,
+       "estimatedInputTokens": 8735,
+       "ms": 3494,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7801,
+        "cachedInputTokens": 5600,
+        "outputTokens": 252,
+        "thoughtTokens": 44
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "בחוזה ישנם **37 סעיפי קנס** (מתוך 200 סעיפים בחוזה).\n\nמספרי הסעיפים שבהם נקבע קנס:\n5, 10, 16, 21, 26, 32, 37, 42, 47, 53, 58, 63, 69, 74, 79, 85, 90, 95, 100, 106, 111, 116, 122, 127, 132, 138, 143, 148, 153, 159, 164, 169, 175, 180, 185, 191, 196."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-penalties",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 9,
+     "inputTokens": 58569,
+     "cachedInputTokens": 34803,
+     "outputTokens": 842,
+     "thoughtTokens": 508,
+     "ms": 23856,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "read_document",
+      "search_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5518,
+       "ms": 2266,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3601,
+        "cachedInputTokens": 1578,
+        "outputTokens": 122,
+        "thoughtTokens": 89
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6907,
+       "ms": 3150,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5185,
+        "cachedInputTokens": 1582,
+        "outputTokens": 96,
+        "thoughtTokens": 62
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 6983,
+       "ms": 1768,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5330,
+        "cachedInputTokens": 3156,
+        "outputTokens": 60,
+        "thoughtTokens": 26
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 7059,
+       "ms": 3757,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5439,
+        "cachedInputTokens": 3304,
+        "outputTokens": 43,
+        "thoughtTokens": 9
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 5,
+       "estimatedInputTokens": 7135,
+       "ms": 2468,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5531,
+        "cachedInputTokens": 3416,
+        "outputTokens": 86,
+        "thoughtTokens": 50
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_6",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 6,
+       "estimatedInputTokens": 7792,
+       "ms": 2248,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6233,
+        "cachedInputTokens": 3517,
+        "outputTokens": 104,
+        "thoughtTokens": 63
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_7",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 7,
+       "estimatedInputTokens": 8947,
+       "ms": 3635,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7517,
+        "cachedInputTokens": 4224,
+        "outputTokens": 124,
+        "thoughtTokens": 85
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_8",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 8,
+       "estimatedInputTokens": 10341,
+       "ms": 1927,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9102,
+        "cachedInputTokens": 6361,
+        "outputTokens": 68,
+        "thoughtTokens": 34
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_9",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 9,
+       "estimatedInputTokens": 11729,
+       "ms": 2615,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 10631,
+        "cachedInputTokens": 7665,
+        "outputTokens": 139,
+        "thoughtTokens": 90
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "בחוזה ישנם **37 סעיפי קנס** (סעיפים שבהם נקבע תשלום קנס על ידי הספק בגין הפרות או אי-עמידה בתנאים שונים)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-largest-en",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 1,
+   "language": "en",
+   "kinds": [
+    "lookup",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 48000",
+       "status": "pass"
+      },
+      {
+       "fact": "number 148",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 5,
+     "inputTokens": 30364,
+     "cachedInputTokens": 16785,
+     "outputTokens": 1444,
+     "thoughtTokens": 1186,
+     "ms": 18167,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5524,
+       "ms": 2100,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3605,
+        "cachedInputTokens": 0,
+        "outputTokens": 93,
+        "thoughtTokens": 60
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6913,
+       "ms": 2519,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5160,
+        "cachedInputTokens": 2473,
+        "outputTokens": 66,
+        "thoughtTokens": 25
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 8068,
+       "ms": 7302,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6406,
+        "cachedInputTokens": 3716,
+        "outputTokens": 934,
+        "thoughtTokens": 900
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 8144,
+       "ms": 2069,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7389,
+        "cachedInputTokens": 5237,
+        "outputTokens": 58,
+        "thoughtTokens": 22
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_5",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 5,
+       "estimatedInputTokens": 8540,
+       "ms": 4160,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7804,
+        "cachedInputTokens": 5359,
+        "outputTokens": 293,
+        "thoughtTokens": 179
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "הקנס הגבוה ביותר בחוזה מופיע ב**סעיף 148** (שורה 150), ועומד על סך של **48,000 ש\"ח**.\n\nלשון הסעיף:\n> **148.** בגין דליפת מידע של לקוחות המזמין באחריות הספק ישלם הספק למזמין קנס בסך 48,000 ש\"ח, בנוסף לכל סעד אחר."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-largest-en",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 2,
+   "language": "en",
+   "kinds": [
+    "lookup",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 48000",
+       "status": "pass"
+      },
+      {
+       "fact": "number 148",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 4,
+     "inputTokens": 24760,
+     "cachedInputTokens": 12707,
+     "outputTokens": 1357,
+     "thoughtTokens": 1136,
+     "ms": 16550,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "read_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5524,
+       "ms": 2673,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3605,
+        "cachedInputTokens": 1581,
+        "outputTokens": 106,
+        "thoughtTokens": 66
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 7847,
+       "ms": 7955,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6154,
+        "cachedInputTokens": 1589,
+        "outputTokens": 934,
+        "thoughtTokens": 898
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 8243,
+       "ms": 2398,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7445,
+        "cachedInputTokens": 4128,
+        "outputTokens": 62,
+        "thoughtTokens": 21
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 8326,
+       "ms": 3516,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7556,
+        "cachedInputTokens": 5409,
+        "outputTokens": 255,
+        "thoughtTokens": 151
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "הקנס הגבוה ביותר בחוזה הוא בסך **48,000 ש\"ח**, והוא מופיע ב**סעיף 148** (שורה 150):\n\n> **148.** בגין דליפת מידע של לקוחות המזמין באחריות הספק ישלם הספק למזמין קנס בסך 48,000 ש\"ח, בנוסף לכל סעד אחר."
+    }
+   ],
+   "passed": true
+  }
+ ]
+}

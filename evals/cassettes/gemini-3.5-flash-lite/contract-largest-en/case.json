@@ -1,0 +1,206 @@
+{
+ "case": "contract-largest-en",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 48000",
+     "status": "pass"
+    },
+    {
+     "fact": "number 148",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 8,
+   "inputTokens": 70465,
+   "cachedInputTokens": 40532,
+   "outputTokens": 467,
+   "thoughtTokens": 0,
+   "ms": 5464,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document",
+    "read_document",
+    "search_document"
+   ],
+   "reads": 1,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5524,
+     "ms": 474,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3605,
+      "cachedInputTokens": 0,
+      "outputTokens": 33,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 10069,
+     "ms": 733,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8163,
+      "cachedInputTokens": 0,
+      "outputTokens": 49,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 10153,
+     "ms": 611,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8255,
+      "cachedInputTokens": 6087,
+      "outputTokens": 51,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 4,
+     "estimatedInputTokens": 11285,
+     "ms": 745,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 9435,
+      "cachedInputTokens": 6087,
+      "outputTokens": 56,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_5",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 5,
+     "estimatedInputTokens": 11461,
+     "ms": 664,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 9621,
+      "cachedInputTokens": 6082,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_6",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 6,
+     "estimatedInputTokens": 11636,
+     "ms": 605,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 9804,
+      "cachedInputTokens": 6077,
+      "outputTokens": 36,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_7",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 7,
+     "estimatedInputTokens": 12237,
+     "ms": 740,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 10406,
+      "cachedInputTokens": 8100,
+      "outputTokens": 60,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_8",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 8,
+     "estimatedInputTokens": 12963,
+     "ms": 844,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 11176,
+      "cachedInputTokens": 8099,
+      "outputTokens": 129,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the contract (`חוזה שירותי תחזוקה.docx`), the largest fine is **48,000 ש\"ח** (48,000 NIS), and it appears in **Clause 148** (סעיף 148) (contract-1 L150):\n\n> *\"148. בגין דליפת מידע של לקוחות המזמין באחריות הספק ישלם הספק למזמין קנס בסך 48,000 ש\"ח, בנוסף לכל סעד אחר.\"*"
+  }
+ ],
+ "passed": true
+}

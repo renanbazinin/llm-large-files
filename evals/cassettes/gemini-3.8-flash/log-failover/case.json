@@ -1,0 +1,181 @@
+{
+ "case": "log-failover",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 09:31",
+     "status": "pass"
+    },
+    {
+     "fact": "says 09:34",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 15989,
+   "cachedInputTokens": 7686,
+   "outputTokens": 501,
+   "thoughtTokens": 288,
+   "ms": 9166,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 2,
+    "supported": 2,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5813,
+     "ms": 2443,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3681,
+      "cachedInputTokens": 0,
+      "outputTokens": 81,
+      "thoughtTokens": 54
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 8307,
+     "ms": 2173,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6025,
+      "cachedInputTokens": 3695,
+      "outputTokens": 52,
+      "thoughtTokens": 19
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 8546,
+     "ms": 4435,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6283,
+      "cachedInputTokens": 3991,
+      "outputTokens": 368,
+      "thoughtTokens": 215
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the log file, the database failover timestamps are:\n\n- **Started:** `2026-11-12T09:31:10.000Z`  \n  *(Line 21880: `WARN [db-monitor] database failover started: primary db-1 unreachable`)*\n- **Completed:** `2026-11-12T09:34:52.000Z`  \n  *(Line 22768: `INFO [db-monitor] database failover completed: db-2 is now primary`)*\n\nThe entire failover took **3 minutes and 42 seconds**."
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says warm-up",
+     "status": "pass"
+    },
+    {
+     "fact": "number 41",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 15122,
+   "cachedInputTokens": 8081,
+   "outputTokens": 333,
+   "thoughtTokens": 0,
+   "ms": 6780,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 4,
+    "supported": 4,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "read_document"
+   ],
+   "reads": 1,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 8707,
+     "ms": 2346,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6355,
+      "cachedInputTokens": 1711,
+      "outputTokens": 40,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 11348,
+     "ms": 4416,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8767,
+      "cachedInputTokens": 6370,
+      "outputTokens": 293,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Right after the failover completed at `09:34:52.000Z`, the following events occurred:\n\n1. **Cache warm-up finished:**\n   - `2026-11-12T09:34:52.250Z INFO [cache] cache warm-up finished in 41s after the failover` (Line 22769).\n\n2. **Normal request processing resumed:**\n   - Worker threads immediately began processing incoming requests again starting at `09:34:52.500Z` (e.g., `worker-2` processing `GET /api/v2/payments/2770` in 90ms) (Lines 22770–22775).\n\n3. **Subsequent warnings/errors shortly after:**\n   - At `09:34:54.000Z`: A slow query warning on the `orders` table taking 1312ms (Line 22776).\n   - At `09:34:58.750Z`: An upstream error: `ERROR [worker-3] upstream 502 from inventory-service req=15b0c39b` (Line 22795)."
+  }
+ ],
+ "passed": true
+}

@@ -1,0 +1,106 @@
+{
+ "case": "policy-seniority-en",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 24",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 13415,
+   "cachedInputTokens": 2016,
+   "outputTokens": 95,
+   "thoughtTokens": 0,
+   "ms": 2060,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "read_document"
+   ],
+   "reads": 1,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5894,
+     "ms": 832,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3822,
+      "cachedInputTokens": 0,
+      "outputTokens": 28,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 6800,
+     "ms": 552,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4658,
+      "cachedInputTokens": 0,
+      "outputTokens": 34,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 7083,
+     "ms": 636,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4935,
+      "cachedInputTokens": 2016,
+      "outputTokens": 33,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "According to the HR policy (policy-1 L31), an employee with 8 or more years of seniority gets **24** vacation days per year."
+  }
+ ],
+ "passed": true
+}

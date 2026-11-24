@@ -1,0 +1,75 @@
+{
+ "n": 5,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "9890c33360e86eae",
+  "bytes": 6944,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "4105 chars #85662914"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 32768
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "סעיפים שבהם הספק משלם פיצוי / מנוכה או מקוזז ממנו תשלום בגין הפרה או איחור בחלק זה:\n\n1. **שורה 49 (סעיף 45):** \"בגין אי מילוי סבונים ומגבות נייר ישלם הספק למזמין פיצוי מוסכם בסך 3,250 ש\"ח, ללא צורך בהוכחת נזק.\" – סכום: 3,250 ש\"ח.\n2. **שורה 53 (סעיף 49):** \"בגין אי ביצוע ניקוי חלונות רבעוני ישלם הספק למזמין פיצוי מוסכם בסך 3,930 ש\"ח, ללא צורך בהוכחת נזק.\" – סכום: 3,930 ש\"ח.\n3. **שורה 57 (סעיף 53):** \"בגין השארת דלת חדר השרתים פתוחה ישלם הספק למזמין פיצוי מוסכם בסך 4,610 ש\"ח, ללא צורך בהוכחת נזק.\" – סכום: 4,610 ש\"ח.\n4. **שורה 62 (סעיף 58):** \"במקרה של נזק לרהוט במהלך הניקיון יופחתו 760 ש\"ח מהתמורה החודשית של הספק.\" – סכום: 760 ש\"ח.\n5. **שורה 66 (סעיף 62):** \"במקרה של שימוש בחומרי ניקוי שלא אושרו יופחתו 1,440 ש\"ח מהתמורה החודשית של הספק.\" – סכום: 1,440 ש\"ח.\n6. **שורה 70 (סעיף 66):** \"במקרה של אי פינוי פסולת בסוף היום יופחתו 2,120 ש\"ח מהתמורה החודשית של הספק.\" – סכום: 2,120 ש\"ח.\n7. **שורה 74 (סעיף 70):** \"במקרה של איחור של יותר משעה בתחילת משמרת הניקיון יופחתו 2,800 ש\"ח מהתמורה החודשית של הספק.\" – סכום: 2,800 ש\"ח.\n8. **שורה 78 (סעיף 74):** \"במקרה של עבודה ללא תג עובד יופחתו 3,480 ש\"ח מהתמורה החודשית של הספק.\" – סכום: 3,480 ש\"ח.\n9. **שורה 83 (סעיף 79):** \"המזמין רשאי לקזז 4,330 ש\"ח מכל תשלום לספק בגין אי ביצוע ניקוי חלונות רבעוני.\" – סכום: 4,330 ש\"ח.\n10. **שורה 87 (סעיף 83):** \"המזמין רשאי לקזז 310 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה.\" – סכום: 310 ש\"ח.\n11. **שורה 91 (סעיף 87):** \"המזמין רשאי לקזז 990 ש\"ח מכל תשלום לספק בגין החלפת עובד ניקיון ללא הודעה.\" – סכום: 990 ש\"ח.",
+        "thoughtSignature": "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"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2205,
+    "candidatesTokenCount": 888,
+    "totalTokenCount": 4752,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2205
+     }
+    ],
+    "thoughtsTokenCount": 1659,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "r4UFa56NHIzhkdUPxbvEsQo"
+  }
+ }
+}

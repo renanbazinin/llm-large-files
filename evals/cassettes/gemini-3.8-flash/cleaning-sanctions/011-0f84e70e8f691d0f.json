@@ -1,0 +1,75 @@
+{
+ "n": 11,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "0f84e70e8f691d0f",
+  "bytes": 6171,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3739 chars #fe320208"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "142 chars #7ff2d63c"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 32768
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "להלן פירוט כל הסעיפים בהסכם שבהם נקבע תשלום, ניכוי, קיזוז, קנס, פיצוי מוסכם או הפחתה בגין הפרה או איחור (שורות 1–164), לפי סדר הופעתם:\n\n1. **שורה 7 (סעיף 3):** קיזוז בסך **810 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n2. **שורה 11 (סעיף 7):** קיזוז בסך **1,490 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n3. **שורה 15 (סעיף 11):** קיזוז בסך **2,170 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n4. **שורה 20 (סעיף 16):** קנס בסך **3,020 ש\"ח** בגין אי פינוי פסולת בסוף היום.\n5. **שורה 24 (סעיף 20):** קנס בסך **3,700 ש\"ח** בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n6. **שורה 28 (סעיף 24):** קנס בסך **4,380 ש\"ח** בגין עבודה ללא תג עובד.\n7. **שורה 32 (סעיף 28):** קנס בסך **360 ש\"ח** בגין נזק לרהוט במהלך הניקיון.\n8. **שורה 36 (סעיף 32):** קנס בסך **1,040 ש\"ח** בגין שימוש בחומרי ניקוי שלא אושרו.\n9. **שורה 41 (סעיף 37):** פיצוי מוסכם בסך **1,890 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n10. **שורה 45 (סעיף 41):** פיצוי מוסכם בסך **2,570 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n11. **שורה 49 (סעיף 45):** פיצוי מוסכם בסך **3,250 ש\"ח** בגין אי מילוי סבונים ומגבות נייר.\n12. **שורה 53 (סעיף 49):** פיצוי מוסכם בסך **3,930 ש\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\n13. **שורה 57 (סעיף 53):** פיצוי מוסכם בסך **4,610 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n14. **שורה 62 (סעיף 58):** הפחתת **760 ש\"ח** מהתמורה החודשית בגין נזק לרהוט במהלך הניקיון.\n15. **שורה 66 (סעיף 62):** הפחתת **1,440 ש\"ח** מהתמורה החודשית בגין שימוש בחומרי ניקוי שלא אושרו.\n16. **שורה 70 (סעיף 66):** הפחתת **2,120 ש\"ח** מהתמורה החודשית בגין אי פינוי פסולת בסוף היום.\n17. **שורה 74 (סעיף 70):** הפחתת **2,800 ש\"ח** מהתמורה החודשית בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n18. **שורה 78 (סעיף 74):** הפחתת **3,480 ש\"ח** מהתמורה החודשית בגין עבודה ללא תג עובד.\n19. **שורה 83 (סעיף 79):** קיזוז בסך **4,330 ש\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\n20. **שורה 87 (סעיף 83):** קיזוז בסך **310 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n21. **שורה 91 (סעיף 87):** קיזוז בסך **990 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n22. **שורה 95 (סעיף 91):** קיזוז בסך **1,670 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n23. **שורה 99 (סעיף 95):** קיזוז בסך **2,350 ש\"ח** בגין אי מילוי סבונים ומגבות נייר.\n24. **שורה 104 (סעיף 100):** קנס בסך **3,200 ש\"ח** בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n25. **שורה 108 (סעיף 104):** קנס בסך **3,880 ש\"ח** בגין עבודה ללא תג עובד.\n26. **שורה 112 (סעיף 108):** קנס בסך **4,560 ש\"ח** בגין נזק לרהוט במהלך הניקיון.\n27. **שורה 116 (סעיף 112):** קנס בסך **540 ש\"ח** בגין שימוש בחומרי ניקוי שלא אושרו.\n28. **שורה 120 (סעיף 116):** קנס בסך **1,220 ש\"ח** בגין אי פינוי פסולת בסוף היום.\n29. **שורה 125 (סעיף 121):** פיצוי מוסכם בסך **2,070 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n30. **שורה 129 (סעיף 125):** פיצוי מוסכם בסך **2,750 ש\"ח** בגין אי מילוי סבונים ומגבות נייר.\n31. **שורה 133 (סעיף 129):** פיצוי מוסכם בסך **3,430 ש\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\n32. **שורה 137 (סעיף 133):** פיצוי מוסכם בסך **4,110 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n33. **שורה 141 (סעיף 137):** פיצוי מוסכם בסך **4,790 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n34. **שורה 146 (סעיף 142):** הפחתת **940 ש\"ח** מהתמורה החודשית בגין שימוש בחומרי ניקוי שלא אושרו.\n35. **שורה 150 (סעיף 146):** הפחתת **1,620 ש\"ח** מהתמורה החודשית בגין אי פינוי פסולת בסוף היום.\n36. **שורה 154 (סעיף 150):** הפחתת **2,300 ש\"ח** מהתמורה החודשית בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n37. **שורה 158 (סעיף 154):** הפחתת **2,980 ש\"ח** מהתמורה החודשית בגין עבודה ללא תג עובד.\n\n---\n\n### סיכום:\n* **כמות הסעיפים הכוללת:** נמצאו בדיוק **37** סעיפים.\n* **הסכום הגבוה ביותר:** **4,790 ש\"ח** (מופיע בסעיף 137, שורה 141 – פיצוי מוסכם בגין החלפת עובד ניקיון ללא הודעה).\n\n---\n\n### סתירות ופערים במסמך:\nהמסמך כולל סתירות מהותיות וכפילויות רבות לגבי אותן הפרות בדיוק:\n1. **סתירות בגובה הסכומים ואופן האכיפה עבור אותה עילה:**\n   * *החלפת עובד ניקיון ללא הודעה:* מופיע כקיזוז של 1,490 ש\"ח (סעיף 7), פיצוי מוסכם של 1,890 ש\"ח (סעיף 37), קיזוז של 990 ש\"ח (סעיף 87), ופיצוי מוסכם של 4,790 ש\"ח (סעיף 137).\n   * *השארת דלת חדר השרתים פתוחה:* מופיע כקיזוז של 810 ש\"ח (סעיף 3), פיצוי מוסכם של 4,610 ש\"ח (סעיף 53), קיזוז של 310 ש\"ח (סעיף 83), ופיצוי מוסכם של 4,110 ש\"ח (סעיף 133).\n   * *איחור של יותר משעה בתחילת משמרת:* מופיע כקנס של 3,700 ש\"ח (סעיף 20), הפחתה של 2,800 ש\"ח (סעיף 70), קנס של 3,200 ש\"ח (סעיף 100), והפחתה של 2,300 ש\"ח (סעיף 150).\n   * סתירות דומות בסכומים ובמנגנונים (קנס / הפחתה / פיצוי / קיזוז) קיימות עבור כל אחת מיתר ההפרות (עבודה ללא תג, אי פינוי פסולת, נזק לריהוט, שימוש בחומרי ניקוי שלא אושרו, אי מילוי סבונים, אי ניקוי שירותים, ואי ביצוע ניקוי חלונות).\n2. **חוסר בהירות משפטית:** אין בהסכם הבהרה האם הסנקציות הללו מצטברות, חלופיות, או שמא מדובר בנוסחים סותרים שנשתלו במסמך ללא מנגנון הכרעה ביניהם.",
+        "thoughtSignature": "EtozCtczAWkUfROE7381yDuiclWREmKIL/VNVyYrfH3MmtUTwCaeM4rfB41gzac5TEeHqsHh9c6ZpqsGe0WFq83y+Ha3tdPdGsdoRWY9zIw0nUkepM0ezY9V0+T41eyowSNnuaW/gLZZ18sCn25AUcVCfSYeChygzYACvyGJkGRDnF7qkrAow6RAEruOVKr4TkhS/0siy7GcaB8DXiTZDB3zKan/ivwKgFtatABS49Z70iBkaTlNKCsdCUq/nQvpgWJZFlMTrYUNikKXbmIDKJD1ObcHyIRijuYiz9qtvAX4HTgBdK5YR7nYXr0Ze2XRFGnjRkb9z4E6ZY6Em/ghLYs9T8jOPldlgrUd4JMnUxoPq/uJycqRvgqM6PQnbqV36Cz5RYqXp/s46WKjFk/eb8bck0f3UpbCr75aviQNVxq82roY9WODmVkdWG0K+f42mIBFa4Rp3M8PCYbhNNIB4HdGd8Q1eFJ0gejydKghnp/O5DXxGrz6kAkoGjsSSXvpySLgi/xMbKP7JDRgX75zUr3GiJnapoCbuHA0ZsmBEoehov6trzMlLbbratGprznxzKg+W8M69shN05MbJ1GgG8HTXRNnw1v3Hvembn45lSrmdTdz+2ZHYGeC+/Vbp/ZZHC3Y+e4df6EuMo1au4qmtITuPyTeNjxZhKCQyV1OpUewedHd3xEksXVWAkjdhYY0UO3jOvSXiC3ioUJBPHYI4HDjirUJWhM1U838+LbOyLnEeEWz1eepBqL5R9hVJeh2nYzI9RwP+6wqucFlktvV/sCwgsOR02cME3XotkIgQj32I7g3cLg8ugnongE2smLAKDml/5KMijiuS0DsfIXv8EUWMWzEp80XnhRN++/Wte1pd0Dq/agB+Jh7cSzPgAmoRJp/HsD39peOwold9Rx9TG5Lvx3vK65pO4naBOSR5z+gT7olQQ6u8BOTVOI1IITqnzHQZfmNN/G/SXN6z6Q70CI84W+5rcIRliRIfw+sb3vQDjEnJtaUVCglk22rGwX38Bk9uX2UqOINJCIukHaQ37P3GULMK3hvltBOmwxtEPwyd++pSARpQDkxqZPUFiPhM/P2CD5x3Ws9fpYM3DOGjLivDa9rXY2ZEAO0LGC8cqHxODD4Lh/kMZSabvAEGJHQ4lpz/WDxB9CJ3zuO4I22xmpkxvVS+VSN0tPJeusa8gtLtuqKMdHPRc/WCK2r32xxK1Msnaig3JyjasXGssktXfCvV8Va1tKQQbzxoVTKpJqqfq/xBymkysRIOx49ii+QurB/Zl+GHQ78LcG7mHLqL81EK4bTm3oIduPd7O7LPeIu+dUklz0znDK0hAXlFy5CgFrLK9ZnmHvfT0Ztwm34quZ+Dwk3eA8fJx4vjxvqO7tbHR1XTtldG6ebLwzgAcAfT9mdfDdIx+xPdvwMrMP55KcuCrDdlBtg9PX7IYlToPezt0jbKZ5bsfagdnh5jAfhwvagiR5hwG/A48A5mNepuITTVlImiUZvdxf0+lQNXIHzMRby9rc5R6So/ypapzPO30jYlCBW7UcSExi9IobAyz+SOw5i3t3CvBw+NNndRy7LPfBQWMhY0WkNCnDRSDqLHDon+rBDq9S/tLogc7vqBmMhp3jzEh/UMQ8cOTsD5lt0n1JV3CJ8fsd2NhbfpJhQEI+ri/XveYZPT32l8Ttr13txUAL7zfOOlzpVD5Qh2f4EVCqk/QcUNvgs2s8rJG8/iB/IpKEl+lsKbBss+1w+mRkfD0n3uCsRj7Eq5UMfSfPRjjmQ8cfFgz6bYRdY7Q9R3Pr57/cgdmbzMMyjUeIrChF4T7Ajt5+7vCFLdLsy2nqtSgFx78NgKTzuAAbnHf+A99p43QXZrjeojrmG1Q3XV9w+IfjAIYj11ijWixsyEVrHZzbanoiFHTJLtl6OgRt+NFUiJFT+flmB1rX6BZFzVLqzF69B2OJ0b3Dl8FoD/fNEEvCy/VugLFZ1JYfPDE0Vq7CvLY36ST6z4gT5B3NexHGTDtukKOo+2Ij0KIo0eMM3sDwbrYO8CaCCiz/o0bbMys9o0AOkElsARpFdF1tOwdIfUZRIWXVtOpaBgVNt2+f4xqQOOb6fkLBiw+T4c9ariuxiiFBqc8RVeBiozqipaChWFzIId6INRxBlrHzKxdiUqfNKrvQGVLU2nhWfu/bbHS8NCdzKjPydw2xFezi4/zkeViZE6VgBoO6ym/+JlcIheF7QGnQdCkPDs3wpRYjGVKVlGzEeWl18LWklgVlo5JuMshUnnPIkUn5j4VlBiCsdhXXvcqJ5V4jd+OP5IhQnEMm0jJGXhote7GY+25l5A5G98yDJhl3gz4pO+yeQ4HHAEv5Y27jgt1AqdPoNXkiXdZzXmexQKJRUAhO4ovVyFa/ZPkkbZqkDT8pEq9kdPgFcOZFHze9TjOuYQNW1sjHKPQQHt9a76w9SBcRSdRyOuA/1t6eactD93oEGb1uKz1cgG9BBI5Tz7ImcFevDQQh2pIiOIpmxQ6+mIeIHcXGL5hEBlyS/wqNP85UutSuOJ12C8RAe1Pa84V3RYO9fLJxm5HiTdOmNux0vk/406E/T2c7Lqls284cLyhkA9cQ33lvgrKJDIcaKVg/hNRackXbqE4NzpP4ghbu9ndFwZomGOdZ7obBCae/9gHgKsDk8qsv3bzxRsEoIeyE5r9eA1qXdjt8BtJhBT8045iH2+ypUOuTV5MUC5P2yC047+9fm6pK4AaAijXE6xgBzf8BvP4u5FB3s1sEsHHUb0qaLhKrs7+EjaEN601PGAF89Cja4Hs+FK2FEEt2VhMjlaNv575c8ZNmo8LrDuc3crBTLnz5fDIDpL7nTAyXc4fofXzAr4tnl9E9BEq6EPtzhOJSpic8/gaN8Ar/ECfgEzE+QfTt0X9EgSiu6P1xlHsEL+kw71BosZbWYpMCsurMk4krZIdZxDXJPJEwU+L71JIASivShbkbA/r6ou6ft5+8YT+HMYPS5mreQlEAnmu0GU3mHmvWRDhyZARFIVGXK636l3roJhVUVcgTDgTSNNzSu8D6fv6zQOcVEoQxL1bigEuRFIs+rHhDQ+Wrqe6WaRvIZt+duuItjfRJ9mZIN4YZazXOmto6asxnTMklS6J/6fltM/J/8B30n6/JBdoQDhY+tytHyW2XqDPy/qV+MCZ1PxSBwF4nkMR8/yM66pYwEfVyu6DJM0ZgbIPvK7qpKTlUZnlzlxrKXrREyLyMq/SdrtHT4a0Jzk1xh7E3tTHsTj56/YQvsinfkWwcB4eVP1TiG33eYiS3DVBviRRAMSogUiyvQ+FscvxBraWytn5gHn+qzOqMj9cPE5cESaG405U+3tLgPVzXKMFtBISURWc6yw2KdHUAfUN/oospT4Fm/282Ypd9NK2Vy841q1RFrGXCLdPEolcU+L8PbURJxNMaa0Z0LwE7lizvdgWEu6rkMPcV8Y0SYlDtUELixVXWdTCXVIfQaE6QWxIZntbOWe+RTNOwWjGKE3TdchSBvq0H0tXerRROcEY8R6TEmk6ny9OIVhSo0djmWeglfxklf0DpHb8sFflGD33L+7LtrE7znK74lJM7R5iXION5Nc/DiElEsR2JSYzXzrJ+X5JLtxnWUB1WM3F52hH8RoWDn9e/4qME8zdzwXenZaf5wp7HNSZHy5XbYDvzcsT+nE+SAVfowZdLPgnua7VaKiuPS8FMiuY2gAbdy25Gpmj5BxILK4JhiAjNJjSm1Q2pgPUIt39wLjYb+3roqatu0bmnalBj96ia6AqZDy5JFcTXfH9lI0q4GI/ANZnCdvdEuHVAkVCrHGC4Aja20LLqVlwkiXgO22LT6KCdQOhXuiYTyeFxYMQAJVgCQPZrw7LWnNvtHxJORfEtJGs8foLqCx+AmpjPlxjz8Epl778v8sZkoYIO4nUdUIOEvmt4YLnDAHhSTNrUf3KJ4JLLT+onYTw/hN1jFs5ZYkJaTn+m7XYEizrHfYS72S/dk9h7CY7Bhx5dYLi/UrTxqtyuoJAYAKjIgDFd1IPg4gUmGe96Bssymta6o+7HqNkXrDwwy9RQ0tWKjtaA3SAjdNuMQfagwdmjbvcLwQSd8UdFz4wIxVQeTFSVGWUyBJvTnhrIitEeB/J5izHFYD07wM4s6w6Ia5Xxglf/SJMOpQmvtry/mcicthCh3RUGS72y3AdgnWYKuMW+PRJCb/3fPI3L001pfT8IxkI4q4hN9oMq2Ul0w1E8QmQPGlZuSueLA/AQ2YbKrEmb5jqLmouMAdWF8A/CJfbjjjfXVVgh8GdB9mOLT07v8PzYeYsXMftcKis5I0dCQkjXdPTi4Sclb+YUfQSWEDQnuN2grQ8s8WxkH2tomMlO7qm4+84wR491uqIEQbZgZRJ3GqAwGICI5VdTOTyW12UK5lbTqgp+Hvl3q3YLm8CWM2FsrCpVrOTVvUjsBIWyuYfnHWRx793K2uZu4DGyQUGrhG3wWkC4TRVF0RZGpUlbxLjgLBa8mP+eofd0TP8Vnt0f3DyN3NZPs6DhTxMMM8+YpPKDqjf4fCUMAhx+fRFuPnpYYxMIrZw6oGVw/B8tiZ2mg/DM0f7rPh+h2CODQFm4Mn/Xlco/MEWNMbQ4DwGFA0fWLfIJGLI1WayjuLg7qEhiuZCOTvLq3TXPrjIP0h+2VF4LQq/f2QaQDW8MrLunexzU15B/pc95q1T6iVbPYYJr1pFUbVpXqg6UxUi94tUpW+LgnhNdU4vRxdLyMPpUL7Oqq5c0JAHGxo7KaJJDNKHyCaAjVJDCHdoD/yPCU9tasDA+AKGh1ih7wlCAA7FV5TETNM0LR5EW2Otb6CEyhpcVBhqq/l6W+zvrCPMP0UpXuAg78o1OrZhJNhhGKl5N1+yyATFpEDiwdypRyqZboijn/wbYgkhFzRhD7miAnrPO0cG6poUtNmClWXXbolVrdL17MwcxFDxasQ9kO9KruZsU6aHt+Dfadeb94yINjPXEdohv+EZozy93Xo3Chp//GvIsz9wPjoL8p2axlXNpZaqhxX3OJVEXdwrEGqlqPYHdA4XkSNArFgiS8WhahB0dDdIUrcimWEejTLo0kZpFIUfg78lZioT/9y9Aw2cQ0UnDQ8TzJs5CdvBMxJY9VFYdOXm253T/kYSsDQz1SW1YmsO6RpP6By6LcIwJmyZFjjzhoEvGt2SS0/9rnvdJxYYz6jpWR3UVNEqQwG29VD4FvSQeHQp1oIBfCakw0BGcAjSrr9xAIiieQnFWLdZG51PQjetTcv6sctDo/NhAyFRT152Pd0wCrAxyjEXTZk+/W1viGiZqZQGX8C7nh6DUI4zGVUeGI01C5y6TGlAM2wIDAuAmdUc81zf1N+E6Fw7g28ltmxHv2UCWaWhUY5kj3xXN7N07hZjXA8zJL57O6qHmpMV6BoudzHB1ZEm4/9hXyosRbp1IcTphS9S+Yj9IlBz/awWrYpYEz1x19/rFov1CENeQPX+huLvMT2eL0yywPD7ONa3fNpceah6g4NbEob92942cipqcQucmgxg9CFzkIUEppYkKpEJ5VQ/H23bz6QqS7lJjkxj/yAK3KuBCed/tSo5tMOXAd92zW24HMbLAypvJAc3h5xImSq/iXWYD1AAWPf63c/bOD7wJ3sqKxkBkvFpWQfdMGVc+8WgJ80IC78OpP/vR954TeotX2nLULTidu7AYv3rddPoeNY7cBQhPT4H8T4bdNrWwRvkNu553jfogOE5qT6S6QLjL8mREbg/KU4cQ35PII4HhInfbpUkfDK8s893vuwI2mkGhSDIzRwdzve3ap1yNMTL/MEkY1OT/l9FKpXFcgTWUb9KsW9U5xFCWNlkta8rk2yuji2EkdpNGHXmOMtFGnQkef0vTQ0X1FB54zOexbpHS6ofsMiUZxgk1eKCyoPnSuRBDAVHzFmpxHSxYgq5K2IbZak2cxQrWb0As3EqeSukpMBJRZ0LwGez5imY45z4kHa9xg6n92RTUI8FpF2DgOjsiEX4kphYV4QKjqB1KW+haPKhNjJuu3xI7pZOAbMFfQbk9k6RdcIK82Anh9NxJgzw1zwGbFr1+Qv275dAwIA/El8l+2K6Ka43uNCYBPvc7tulReegO81vGd0vAuA+SpqwX5dsfpviQNNcweb0Iaa6PHd9rAyn49QNSZTzSXjq9nGv6+rl1VUTeEPwEW6HmQlEYbJTXMOD+z85WLQQQfRQs+rRVnqbkeubX1Tq9l4q36Yxdu4l0YJv2W8I3IoeO4YpgSYidZTxnT0fQQK1bM5VfBJMuS3d/AQCXCw0CH6tSXhq1nWAGq5pGTVgvWnJD9hk6Yc8f6M0jPIyB9jbcupPQMmebZ+6dlshcqRrDQPVk64/eiOrz/kI9bkkkWs94X53p4y2v5xidPDuT1U0BZBsF4mtfAOzVgk6mNc6puPQlsg9JY2k9B2WLH3Ry5PZfCukAIHNOrMtK+wCMDyu45H7l5Cbg5vq0K5kTJGdWE7XAqygDzJN1Zn+5fmqxKzw5FJ4ExEOSoziYEkpYE55GndxeaJibIHms9h3cJuHol/X4u/X8u9oyy50NPtemsW2j0ZsK1GcTr4KZ3ApU5yWRtHYKqtyRi1TXV1h2L9k5D3dJeDEVT2Z2pbYY9sapVJBP6J2iFwJIJYcpnVsRhP3rcj3f612Bvn6YYmgSOQ+MFWSeBSDdVhhYySCH3+MnTPUJXK/A8881keZUjT/Ub9/kHyCOsHtNiXTerg0XbxdTv3+cKUDq9f8iWLqOOqMuFTN5ukL52IHRf12pzvyexINYPw3Ihgg5wSosEuvenrZWI531Nd8M+34d2tWo4RYuCfgbpNumZPFcaIlDVHqh0P+cg4rEdE+jobtjVJ81a1qGRAV31OBiAZjgsL/C0kaSiTlBgqpEdN6MU0cGIYgmd2WlRfjHs19uH4i8VPhh1+hfJLE0RPd0vzZwWDlx6nyHUS6Uq9xy9lCtQwAkJUVCKSpb8qY4H2GAvakAjzmJyvzQWk54zZKpF2PTb0Hxqu7jdvMylUy8/luSScaJ8Bgi24wmRLFRAr9d/zFBx6+3B+xaWAgkp/crYZ6BIqnYd6AyzMiHQK+Zt8ecxORCe/PNq6Je94nCjyPih3gUvehVlzOpYVRBfHHgPpNE9hGFsO3ucfvBv8tV/fZsLbsNCCQaB6L9sURyqBwu7I4g+cKtE+EQpAmCWVAc/2pNQ6S4f9SmCwXEuPLgajRWCsBtI7Xc0ZsrUzs2GDjOv2o9RR9o37Hi8/shCOoQsAs1vy50/BsZ9/PqgjbLxA70snYilkuTIo3B+SOlhI7xNah2j7HTR3L2qvhu9dunDAIRMgeyFlVaFo8KxX9dPhaFKE3HghhLNFCO1nrC5pnT4sS6zI374Wjsg2Mxc19p6e8G2UP5q2Wy707WNLzeYnafuzvdaCfv6cPJigKc6947fe/r4byT2ZK7Z5yDcRCaWVHotIGm/v9GuFwBN2zjqEG5tLb5J38WnGn7PVbR9vSZIpK3iUoUopYvdrJ3CY/z7gs6+8VlCVwuOPEnUC2SDQYMvQ5zz5/lWYTlG54EbHxN5yZr0lCEt3pOTfYr3dTeoRF3tuqpkpWXGkfWeIrL/pp2hVDemXgN0MYegyIZEFyefPCfBueWF65XISaelj/0vcJDIT9YOX2qXw3DviIod/7c9UKGBHOgrW36QHxGI/qvRgmzSfTRI8GkRwIaAKxNujtwgAx3mmZf0Zr6I6uBERevJqeutgNbtQSeyMRPYMGdFvZo0KKUZka9HNG0YpcFY7q6spOpGE4WBZWxCr4H6kClqsaaIEJAfBPfJIbCQHvkKKhEGwAJ2Im/MNzyJly+0ufIe1/UWYIHXqocTYoR/O6nhOZwh1pGArGeqPdMlxXX4eOOnM60Db1mG8q82XkUuYbnfVnFx0+RL7cTtIIzXqlICtEtrMYtjjuFY48zsAXFSMMJe9PgMWar9hz+ihLwtK5H6UVhxfqSBG9egnKJkW6BGT/GbOx8uqpBn49klE+i0XhfO5XOtzjyJeg6rtyouEs1o8tcYWguzr34mrfD9HzvfKMTKUI+TYeEtN+UeTk/Liv1aymW7CZWuqtAihLY60gfdV34QCe02gMnrMfM0/C3Vewhqt2dkTVgfnA07unN7cENrW33slkSoodDrHkrF72v0mQ4JEcz3AbXzjgvk1x70EhsYkpIVDgDZtUctD/fzQEaQRiakRhCtFaM32Cdbj+peUbQdlpEvTW8IAvWrQVLZw4l+bn9oapMck7/sFFMtTl/pqy0QU5QhWkLxNMFXxdx0xYw/82gMpbj7gla1ABenI0N7j/jhP7j45UwsxUwhL87NexdTJIk7yMFS2sic/wIch6h5imj7jNxiDejUcP2maFOltO2mmnVhH8O+JVI+fyvvMylL9jw817FTJoXQ3ZAJTZyHGXs65/EF/d7Cgwy85D/Ca5Dmrgb1X3Y2lfLkoXWO6aO8uj22lmsqO4ZoFS4qjSmKuzK3R0a6fcPHJM8OjhRdG3sQA5aDeeyfKTBxBnkLU09vc5osnQEF6VIjnatHQaqiRyDrvUI9mQIVeFEOrBBSoGWfu253LoCm+jzCZoQQ28V5xPSN4KksGD72UyZrC5H9kP0Q1ZkPcBF9gUbcWU4NBDwBbbIA4pK1h+fyGyldtmNFVf+JLJsulQIPtWoYjIbph10gjTtgET0sIUlwcj9fDgIGBQokj5DWice6qI2cwgL68/FvlQS2X8mFNE6/MS86+Hmg1KvJuq+Hsd7007oE8jJ12vQV4SQPa3Phkhi4S8Ilj4wsCvdF92zqTobe1T8rClAiRCSi23nM7NKmifzIU6GTl5mr"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2160,
+    "candidatesTokenCount": 2669,
+    "totalTokenCount": 7174,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2160
+     }
+    ],
+    "thoughtsTokenCount": 2345,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "74UFa4DjA_SovdIPwrqb2Ag"
+  }
+ }
+}

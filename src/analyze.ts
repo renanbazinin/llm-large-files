@@ -166,8 +166,8 @@ function outlineEntry(lines: string[], index: number, hashes: HashHeadings = "al
   return undefined;
 }
 
-/** The outline kept from all the headings found: at most 400 of them. */
-function pickOutline(entries: OutlineEntry[]): OutlineEntry[] {
+/** The outline kept from all the headings found: at most 400 of them. Also picks a PDF's headings from type sizes (pdf-outline.ts). */
+export function pickOutline<T extends { level: number }>(entries: T[]): T[] {
   if (entries.length <= MAX_OUTLINE_ENTRIES) return entries;
   // Keep the top-level headings when there are at least 20 of them. A pool that fits is kept whole;
   // a larger one is sampled evenly, so the outline still spans the document.

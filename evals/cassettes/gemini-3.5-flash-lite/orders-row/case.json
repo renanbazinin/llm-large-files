@@ -1,0 +1,86 @@
+{
+ "case": "orders-row",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says pending",
+     "status": "pass"
+    },
+    {
+     "fact": "number 93.7",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 140184,
+   "cachedInputTokens": 67527,
+   "outputTokens": 75,
+   "thoughtTokens": 0,
+   "ms": 2331,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 80161,
+     "ms": 1423,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 70028,
+      "cachedInputTokens": 0,
+      "outputTokens": 36,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 80282,
+     "ms": 895,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 70156,
+      "cachedInputTokens": 67527,
+      "outputTokens": 39,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Order 41877 (found in `orders.csv` L1880) has a status of **pending** and an amount of **93.70**."
+  }
+ ],
+ "passed": true
+}

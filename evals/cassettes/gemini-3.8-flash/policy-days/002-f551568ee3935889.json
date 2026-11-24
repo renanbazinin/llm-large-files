@@ -1,0 +1,104 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "f551568ee3935889",
+  "bytes": 28072,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12074 chars #2cd3f701"
+      },
+      {
+       "text": "85 chars #1830197b"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "421 chars #cefef958"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "42 chars #c2674dd0"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"אם המנהל הישיר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7475,\"candidatesTokenCount\": 7,\"totalTokenCount\": 7698,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7475}],\"thoughtsTokenCount\": 216,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2XQFa8nZMs38nsEP-umZoAc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" נעדר, הבקשה מאושרת על ידי מנהלת משאבי האנוש, **נו\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7475,\"candidatesTokenCount\": 31,\"totalTokenCount\": 7722,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7475}],\"thoughtsTokenCount\": 216,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2XQFa8nZMs38nsEP-umZoAc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"עה ברק** (מדיניות משאבי אנוש 2026.docx L21\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7475,\"candidatesTokenCount\": 55,\"totalTokenCount\": 7746,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7475}],\"thoughtsTokenCount\": 216,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2XQFa8nZMs38nsEP-umZoAc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \").\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7475,\"candidatesTokenCount\": 56,\"totalTokenCount\": 7747,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7475}],\"thoughtsTokenCount\": 216,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2XQFa8nZMs38nsEP-umZoAc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Er8ICrwIAWkUfROEgHSeUuOsLM+Pi9Uu1sYgkI15vshmFbjKopRooJ3fesFoZJW6QyJzAWrrynzNqoPkc6EI6WcZkoDXD+aivM9BfFelI8kexztif0qa64T7cqc7Mf1FgKPPSLrbOd17oDsayGiifB0fup0cs8UG5aTQ9rk0EO27Slj87z+R5c22vIbI6JUi58k9cM98jQfi2uveaRXJWkZMtQkdgQvKXaBcU6fNY0VvwgB5zBtHqcbluGstgECMEoE6CzM0Y8kXqxPmgUYVlW0NmNDLNlVcW6oUx7/EhhP9E5+eO4qYAiYynZYwWXmUl8QREpGEacwURuEga+WKXzqOZcTetKC3ZJ9s3k9HLooDJbmWxw+sv9ERdfCagegeaYFZI8Fn94fR75ijZwmYSuWzvjavvLkrYOQCBWLe3VpfoHC2kRi2SicUq5U/riD85V6D95q+gSWXD5pkgtSzdNq43uT9xbeIiam1EiH9ZMtBWFEHDJqN5ViKD0UZKpFMpmeAYJ+qD9SUKPbmxPJbpbr8c7jGtjSHmetOJe+Z4H1cDJ3sI4rDWlchmZJdVzgBTKBt+Xi1RfAbgvMp5IidBZdCd5QHff/6o1m+PjufbJQawwC/9gG08MQJio+AoniGd+obX4XaJuyiVKtMNaWK6dxLl7kG1FzoKTncAGXf9kZoc0MCGCajLVY0MwXrklVUXYX7I27EvHlh3+Qq0aGYSruKYjq6oP1A1Q0mafxy7A+h1/Y8I8M9vV/w3G8LmrOMievehUq5v96eA73oE9GOnKHcfQ9Wl+zxZJ2Ci9I4LIcCxVnCU2GXIYqzTEuCvzlQAqDgmQMtfon8mFIoxuAFmjhCe5bCxeX1k6X93cXVKIXKANEjPLiH0Dng1CPNeMOusY6agd204Ggana8QSzsi1ybZ3yJjbrDNLdE3rmHe+Maey1ZY7XjJ5W8IscaFkMv9dDWFoyJbx21QMENWBPeGseWiM5iKpfgwonudpwnNwPBD6bmbi2UISKv+G6QFIFsJrIHWHEUOZkdZOsrs6Phvc+lNkcF1wHFYwxRUr6Ib+v/XvqaTDfi+3bjoBJKil+/uxuIKRxcgglGc1Qxyul7jjbpv4pec32LwXjI+7cFzzcFz2I5rLVu9YyNgFiAzpZF/jyDRta+eFe1yxjXnCHprqcmI8vr2ms2UDx5+jccB2emKGTG6G9479+Vi8/7q3we9TcF3PHr6DSZMGeuYdidBINIs42sfHEc/7W7/N1TsJeN91PkDKGnyasJCNMdv22yyqAc/PFe9NyadCgr",
+   "XFcbIXzhKhALXzwQ0Tx2kOCSyjaDovwlCeP396glxuQ+5RaORecoUuWkw1Bb7X8resxWWtBvt+1//uZjLU8PEh6gpX0D0qgqUFAA2tCAj1K3f7huXyiajYAEa/8t18wLuRSRB3fzvXgWJ1aHCMnfZ3q/cuYrLIA==\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7475,\"candidatesTokenCount\": 56,\"totalTokenCount\": 7747,\"cachedContentTokenCount\": 5209,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7475}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5209}],\"thoughtsTokenCount\": 216,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2XQFa8nZMs38nsEP-umZoAc\"}\r\n\r\n"
+  ]
+ }
+}

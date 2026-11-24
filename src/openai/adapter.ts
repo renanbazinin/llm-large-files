@@ -1,7 +1,7 @@
 // Any Chat Completions endpoint as a model of `askWithFiles`: OpenAI, Azure OpenAI, DeepSeek,
 // LiteLLM, vLLM, Ollama, OpenRouter, Gemini's OpenAI layer. No SDK: the caller gives the URL.
 import { randomUUID } from "node:crypto";
-import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, type HeaderSource, type IdleWatch, type SecretSource } from "../http.js";
+import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
@@ -75,7 +75,11 @@ export type OpenAiCompatibleOptions = {
   pageTokens?: number | undefined;
   /** This model's tokens for one token of the library's estimate. Defaults to 1. */
   tokenScale?: number | undefined;
-  /** Milliseconds a part read may take. Defaults to 180,000. */
+  /**
+   * Milliseconds a part read may take, its whole reply included. Defaults to 180,000; 0 sets none
+   * (since 0.10.0). A part past it is an `OpenAiRequestError` of kind "timeout" and status 0 (since
+   * 0.10.0; before, the abort of the timer), which a whole-file read sends again once.
+   */
   timeoutMs?: number | undefined;
   /**
    * The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count:
@@ -312,6 +316,9 @@ export function fromOpenAiMessages(history: OpenAiMessage[]): { system: string; 
   return { system: system.join("\n\n"), messages };
 }
 
+/** An ID for a call that came without one: no round of another question has it. */
+const newCallId = (): string => `call_${randomUUID().replaceAll("-", "").slice(0, 24)}`;
+
 /**
  * The tool rounds a question returned (`AskResult.toolTurns`) as Chat Completions messages, for an
  * application that keeps its history in that form: put them between the question and its answer.
@@ -320,7 +327,7 @@ export function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[] {
   return turns.flatMap((turn, index) => {
     // A call that came without an ID is given one that no round of another question has: these
     // messages are kept, and sent again next to those of later questions.
-    const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: `call_${randomUUID().replaceAll("-", "").slice(0, 24)}` }, result: laterResult(result) }));
+    const answers = turn.calls.map(({ result, ...call }) => ({ call: call.id ? call : { ...call, id: newCallId() }, result: laterResult(result) }));
     return roundMessages({ role: "tools", calls: answers.map((answer) => answer.call), answers }, index + 1, false);
   });
 }
@@ -375,10 +382,15 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
     };
   };
 
-  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => OpenAiRequestError = unreachable, headers?: Record<string, string>): Promise<Response> => {
+  /**
+   * Sends a request. A `bounded` one (a part read, whose time limit is its signal) stops waiting
+   * when the signal aborts, even for a fetch that does not stop then itself.
+   */
+  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => OpenAiRequestError = unreachable, headers?: Record<string, string>, bounded = false): Promise<Response> => {
     let response: Response;
     try {
-      response = await fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      const sent = fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      response = await (bounded ? until(sent, signal) : sent);
     } catch (error) {
       if (stopped()) throw error;
       throw lost(error);
@@ -389,8 +401,17 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
 
   const generateText: GenerateText = ({ system, prompt, maxOutputTokens, signal, onTruncated, onUsage }) => {
     const send = async (limit: number): Promise<LimitedReply> => {
-      const timeout = AbortSignal.timeout(options.timeoutMs ?? 180_000);
-      const stopped = () => Boolean(signal?.aborted) || timeout.aborted;
+      const timer = partTimer(signal, options.timeoutMs);
+      try {
+        return await read(limit, timer);
+      } finally {
+        timer.stop();
+      }
+    };
+    /** One part read, within its time limit: past it, a timeout. A stop of the caller's is reported as it is. */
+    const read = async (limit: number, timer: PartTimer): Promise<LimitedReply> => {
+      const stopped = () => Boolean(signal?.aborted);
+      const lost = (error: unknown) => (timer.expired && !signal?.aborted ? tooSlow(timer.limitMs) : unreachable(error));
       const body = (field: string): Json => ({
         model: options.model,
         messages: [{ role: systemRole, content: system }, { role: "user", content: prompt }],
@@ -401,15 +422,15 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       // The name this request is sent with: part reads run together, and another may learn the other name meanwhile.
       const sent = maxTokensField;
       try {
-        response = await post(body(sent), signal ? AbortSignal.any([signal, timeout]) : timeout, stopped);
+        response = await post(body(sent), timer.signal, stopped, lost, undefined, true);
       } catch (error) {
         // A server that knows only the other name of the output limit: it is sent that one, now and from now on.
         if (options.maxTokensField !== undefined || !refusesField(error, sent)) throw error;
         const other = sent === "max_tokens" ? "max_completion_tokens" : "max_tokens";
         if (maxTokensField === sent) maxTokensField = other;
-        response = await post(body(other), signal ? AbortSignal.any([signal, timeout]) : timeout, stopped);
+        response = await post(body(other), timer.signal, stopped, lost, undefined, true);
       }
-      const data = await readJson<Json>(response, stopped, unreachable, undefined, (error) => new OpenAiRequestError(notJsonMessage("The model's", response), response.status, { kind: "invalid", cause: error }));
+      const data = await readJson<Json>(response, stopped, lost, timer.signal ? { pulse: () => undefined, signal: timer.signal } : undefined, (error) => new OpenAiRequestError(notJsonMessage("The model's", response), response.status, { kind: "invalid", cause: error }));
       // An error in a body that came with 200 (OpenRouter, once generation has started): thrown as
       // a stream's error is, with its status, so that a 502 is sent again rather than read as no text.
       const failed = bodyError(data);
@@ -467,6 +488,13 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       let finish: unknown;
       let usage: Json | undefined;
       let text = "";
+      /** The provider's ID of the response and the model that wrote it, when it names them. */
+      let responseId: string | undefined;
+      let responseModel: string | undefined;
+      const named = (data: Json | undefined) => {
+        if (typeof data?.id === "string" && data.id) responseId = data.id;
+        if (typeof data?.model === "string" && data.model) responseModel = data.model;
+      };
       // A body that is no JSON (a gateway's page) is not the model's reply, and is not sent again.
       const notJson = (error: unknown) => new OpenAiRequestError(notJsonMessage("The model's", answer), answer.status, { kind: "invalid", cause: error });
       let response = answer;
@@ -492,6 +520,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
           for await (const chunk of parseSseJson<Json>(response.body, { onData: watch.pulse, onDone: () => { ended = true; end.reached(); }, signal: end.signal })) {
             const failed = (Array.isArray(chunk) ? chunk[0] : chunk)?.error;
             if (failed) throw streamFailure(failed);
+            named(chunk);
             if (chunk.usage) usage = chunk.usage as Json;
             const choice = chunk.choices?.[0] as Json | undefined;
             if (!choice) continue;
@@ -508,8 +537,11 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
             if (typeof delta.reasoning === "string") reasoningText += delta.reasoning;
             if (Array.isArray(delta.reasoning_details)) for (const detail of delta.reasoning_details as unknown[]) addReasoningDetail(details, detail);
             for (const part of (Array.isArray(delta.tool_calls) ? delta.tool_calls : []) as Json[]) {
-              // A call arrives in pieces under its index: first its ID and name, then its arguments, a few characters at a time.
-              const at = typeof part.index === "number" ? part.index : part.id || toolCalls.length === 0 ? toolCalls.length : toolCalls.length - 1;
+              // A call arrives in pieces under its index: first its ID and name, then its arguments, a
+              // few characters at a time. A server that sends no index starts a new call with an ID
+              // that is not the last call's: one that sends the ID with every piece adds to that call.
+              const last = toolCalls[toolCalls.length - 1] as Json | undefined;
+              const at = typeof part.index === "number" ? part.index : toolCalls.length === 0 || (part.id && part.id !== last?.id) ? toolCalls.length : toolCalls.length - 1;
               const call = (toolCalls[at] ??= { type: "function", function: { name: "", arguments: "" } });
               for (const [key, value] of Object.entries(part)) {
                 if (key !== "index" && key !== "function" && value !== undefined && value !== null && !(key === "id" && call.id)) call[key] = value;
@@ -565,6 +597,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         message = (choice?.message ?? { role: "assistant", content: null }) as Json;
         finish = choice?.finish_reason;
         usage = data.usage as Json | undefined;
+        named(data);
         // The whole reply is in hand: one that the server stopped is sent again before any of it is shown.
         if (finish === "insufficient_system_resource") throw interrupted();
         // A refusal is what the model has to say to the user, in a field of its own.
@@ -579,6 +612,9 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       const calls: ToolCall[] = (Array.isArray(message.tool_calls) ? message.tool_calls as Json[] : [])
         .filter((call) => typeof call?.function?.name === "string" && call.function.name)
         .map((call) => {
+          // A call that came without an ID is given one, once, in the turn that goes back too: its
+          // tool message must name the same ID as the call does.
+          if (typeof call.id !== "string" || !call.id) call.id = newCallId();
           const read = readArguments(call.function.arguments);
           // Arguments that are not a JSON object go back as none, and so do arguments that are
           // empty: a server that reads every call of the conversation (vLLM before 0.29) refuses
@@ -586,7 +622,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
           const written = call.function.arguments;
           if (read.problem || typeof written !== "string" || !written.trim()) call.function = { ...call.function, arguments: read.problem ? "{}" : JSON.stringify(read.args) };
           const problem = read.problem ?? cutOff;
-          return { ...(typeof call.id === "string" && call.id ? { id: call.id } : {}), name: call.function.name as string, args: read.args, ...(problem ? { problem } : {}) };
+          return { id: call.id as string, name: call.function.name as string, args: read.args, ...(problem ? { problem } : {}) };
         });
       const kind = finishOfOpenAi(finish);
       return {
@@ -596,6 +632,8 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         ...(typeof finish === "string" ? { finishReason: finish } : {}),
         ...(kind ? { finish: kind } : {}),
         ...(finish === "content_filter" && !text && calls.length === 0 ? { blockReason: "content_filter" } : {}),
+        ...(responseId ? { responseId } : {}),
+        ...(responseModel ? { responseModel } : {}),
         ...(usage ? { usage: usageOf(usage), providerUsage: usage } : {}),
       };
     }
@@ -610,6 +648,11 @@ function unreachable(error: unknown): OpenAiRequestError {
 /** A request that got nothing back for the whole wait of its `IdleWatch`. */
 function silent(waitMs: number): OpenAiRequestError {
   return new OpenAiRequestError(`The model sent nothing for ${Math.round(waitMs / 1_000)} s.`, 0, { kind: "timeout" });
+}
+
+/** A part read whose whole reply did not come within its time limit (`timeoutMs`). */
+function tooSlow(limitMs: number): OpenAiRequestError {
+  return new OpenAiRequestError(`The model took longer than ${waitText(limitMs)} to answer.`, 0, { kind: "timeout" });
 }
 
 /** A reply the server stopped because it ran short (DeepSeek's `insufficient_system_resource`). */

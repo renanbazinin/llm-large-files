@@ -1,0 +1,103 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "98db411ce496ae2b",
+  "bytes": 27885,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12074 chars #2cd3f701"
+      },
+      {
+       "text": "85 chars #1830197b"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "309 chars #434363ff"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "42 chars #c2674dd0"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"אם המ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7431,\"candidatesTokenCount\": 2,\"totalTokenCount\": 7433,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7431}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa5uXMqStkdUPjfKu0Qc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"נהל הישיר נעדר, הבקשה מאושרת על ידי מ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7431,\"candidatesTokenCount\": 20,\"totalTokenCount\": 7451,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7431}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa5uXMqStkdUPjfKu0Qc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"נהלת משאבי האנוש, **נועה ברק** (מדיניות משאבי אנו\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7431,\"candidatesTokenCount\": 44,\"totalTokenCount\": 7475,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7431}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa5uXMqStkdUPjfKu0Qc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ש 2026 L21).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7431,\"candidatesTokenCount\": 54,\"totalTokenCount\": 7485,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7431}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa5uXMqStkdUPjfKu0Qc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRPAytyJw53UQK9MLBBCi1q0SOjwOuvHjW+HU+YH0dLM1N9j1/dDzHcmuGYjUcsIfh0CjgB3Kl4OrGiqXsZzkvOYwEw7jLDcetgPkpQHbXS9Wp6cSeKM4ILabalnl41WoKmhXdNXcSY86dyxHvITXZIDKdnNvifSKMEYB4oiZevAg1+WJuJu7sOCVuoTC7Gg\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7431,\"candidatesTokenCount\": 54,\"totalTokenCount\": 7485,\"cachedContentTokenCount\": 4064,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7431}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4064}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa5uXMqStkdUPjfKu0Qc\"}\r\n\r\n"
+  ]
+ }
+}

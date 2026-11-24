@@ -92,7 +92,10 @@ What `askGemini` gives each model:
   `firstByteTimeoutMs`, `idleTimeoutMs` and `fetch` apply to both models. `analysisConfig` is the
   `generationConfig` of the part reads of a whole-file read, which the explorer makes: write it for
   the explorer. `toolFilePlacement: "inside"` is read by Gemini 3 models; if either model is
-  Gemini 2.5, use `"beside"`, which both read (see [PDFs](./pdfs.md)).
+  Gemini 2.5, use `"beside"`, which both read (see [PDFs](./pdfs.md)). Since 0.10.0,
+  `timeoutMs` (the time of one part read), `analysisBody`, `functionCallingMode` and
+  `answerWithoutTools` apply to both models too. `body` goes to the chat requests of both, unless
+  `explorerBody` is set for the explorer.
 - **The defaults of `gemini()`.** `askGemini` has no option for `contextTokens`,
   `maxRequestBytes`, `pageTokens` or `id`, so both of its models keep the defaults of `gemini()`:
   no window and no request size declared, 530 tokens a page, and the model's name from its URL in

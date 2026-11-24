@@ -1,0 +1,157 @@
+{
+ "case": "policy-searched",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "searched",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 6",
+     "status": "pass"
+    },
+    {
+     "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 10785,
+   "cachedInputTokens": 0,
+   "outputTokens": 97,
+   "thoughtTokens": 0,
+   "ms": 2036,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5899,
+     "ms": 751,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3828,
+      "cachedInputTokens": 0,
+      "outputTokens": 32,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 9337,
+     "ms": 1201,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6957,
+      "cachedInputTokens": 0,
+      "outputTokens": 65,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי סעיף 3.4 בנוהל משאבי אנוש (policy-1 L23), ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים."
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 2.35",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 7034,
+   "cachedInputTokens": 2001,
+   "outputTokens": 66,
+   "thoughtTokens": 0,
+   "ms": 2100,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": [
+     {
+      "document": "מדיניות משאבי אנוש 2026.docx",
+      "line": 47
+     }
+    ]
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 9417,
+     "ms": 2079,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7034,
+      "cachedInputTokens": 2001,
+      "outputTokens": 66,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי סעיף 6.1 בנוהל משאבי אנוש (policy-1 L47), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח** לכל קילומטר, לפי דיווח חודשי במערכת."
+  }
+ ],
+ "passed": true
+}

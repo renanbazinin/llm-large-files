@@ -285,16 +285,17 @@ the client's connection stalled, or a proxy held the body. The connection is clo
 the file again. For users on slow or unsteady links, raise `uploadIdleTimeoutMs` of
 `createDocumentHandlers`.
 
-### `500`: "Upload failed (ETIMEDOUT)." or "Upload failed (ELOOP)."
+### `503`: "Upload failed (ETIMEDOUT)." and `500`: "Upload failed (ELOOP)."
 
 New in 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`).
 
-- **"ETIMEDOUT".** A call to the disk (checking the folders of a path with a ref, opening the file,
-  a write, closing it) did not end within `uploadIdleTimeoutMs` (30 s): the volume stopped
-  answering, such as a network volume whose server is gone. The upload's room is given back, and
-  the file is removed once the volume answers. **Fix.** Check the volume. A slow network volume can
-  take long to close a file it held writes for: raise `uploadIdleTimeoutMs`.
-- **"ELOOP".** `prepareUpload` gave a path that ends with the ref of its `original`, and a folder
+- **"ETIMEDOUT"**, a `503` with `Retry-After: 5` (a `500` before 0.10.0). A call to the disk
+  (checking the folders of a path with a ref, opening the file, a write, closing it) did not end
+  within `uploadIdleTimeoutMs` (30 s): the volume stopped answering, such as a network volume whose
+  server is gone. The upload's room is given back, and the file is removed once the volume answers.
+  **Fix.** Check the volume. The client may send the file again after `Retry-After`. A slow network
+  volume can take long to close a file it held writes for: raise `uploadIdleTimeoutMs`.
+- **"ELOOP"**, a `500`. `prepareUpload` gave a path that ends with the ref of its `original`, and a folder
   between that root and the file is a link. `fileOriginals` would never read the file back through
   it, so nothing is written. **Fix.** Replace the link with the folder itself, or mount the other
   disk there. The root itself may be a link.
@@ -1116,7 +1117,7 @@ import { askGemini } from "llm-large-files/gemini";
 const result = await askGemini({
   files, endpoint, documentIds, messages, owner,
   limits: {
-    inputTokens: 1_000_000, // no more tools once the question has sent this many input tokens
+    inputTokens: 1_000_000, // no tool request that, with the answer, would pass it
     requests: 20,           // chat requests and part reads together
     wholeDocumentReads: 0,  // no whole-file reads
   },
@@ -1126,10 +1127,11 @@ const { inputTokens, cachedInputTokens, outputTokens, requests, byModel } = resu
 console.log({ owner, inputTokens, cachedInputTokens, outputTokens, requests, byModel });
 ```
 
-The ceilings are checked before each request that may use tools. Once one is reached, the next
-request is the answer, which is still made: a question can pass `inputTokens` by about two
-requests (the one that crossed it, and the answer): set it that far below what must not be passed
-([Costs and limits](./guides/costs-and-limits.md#inputtokens-and-requests-are-checked-between-turns)). A
+The ceilings are checked before each request that may use tools, looking ahead: when what the
+question spent, the next tool request and the answer would pass `inputTokens`, the next request is
+the answer. So a question can pass `inputTokens` by about one request, the answer's, with the
+results of the last tool turn in it: set it that far below what must not be passed
+([Costs and limits](./guides/costs-and-limits.md#the-ceiling-looks-ahead)). A
 cheaper [explorer model](./guides/explorer-model.md) takes the searching and the part reads off the
 model that answers.
 

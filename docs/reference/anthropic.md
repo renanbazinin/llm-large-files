@@ -148,11 +148,14 @@ or not: the explorer's requests too. Each piece of text goes to `onText` as it a
   `outputTokens` is `output_tokens`; `thoughtTokens` stays 0, as the adapter reads no count of
   thinking apart. With fallbacks, the attempts in `usage.iterations` are added up. `providerUsage`
   is the API's `usage` as it came; in a stream, that of `message_start` updated by `message_delta`.
+- `responseId` and `responseModel` are the message's `id` and `model` (in a stream, those of
+  `message_start`), when the API gives them. New in 0.10.0.
 
 **Part reads** (`generateText`, for `analyze_whole_document`) go to the same URL with the same
 headers and are never streamed. The body is `model`, `max_tokens` (the limit of that read),
 `system`, one user message, then the fields of `analysisBody(limit)`: no `body`, no
-`cache_control`, no `fallbacks`, no tools. Each request may take `timeoutMs` (180 s). A reply that
+`cache_control`, no `fallbacks`, no tools. Each request may take `timeoutMs` (180 s; 0 for none,
+since 0.10.0). A reply that
 stopped for `refusal` or `model_context_window_exceeded` is kept and marked incomplete, as one cut
 off at its limit is. A reply cut off with nothing written, or with half its limit or more spent
 thinking, while the limit was below 32,768, is asked again with 32,768 output tokens
@@ -182,11 +185,13 @@ turns the larger limit off only when the window it names is 32,768 tokens or les
 
 A part read throws as `send` does for an HTTP error, a connection that failed, an empty body, an
 abort and a body that is not JSON. It has no waits of `firstByteTimeoutMs` and `idleTimeoutMs`;
-instead, a request that ran past `timeoutMs` throws the error of its abort (a `TimeoutError`). A
-reply with no text throws `Error("The model returned no text (refusal).")`, the reason in brackets
-being `stop_reason`. These two have no `status`. In a whole-file read, the model is told why a part
-failed by the error's kind and status, never by the API's message: "The model took too long to
-answer." for the `TimeoutError`, "The model returned no text (refusal)." for a reply with no text
+instead, a request that ran past `timeoutMs` throws an `AnthropicRequestError` "Claude took longer
+than 180 s to answer.", status 0, kind `"timeout"` (since 0.10.0; before, the error of its abort, a
+`TimeoutError` with no status), which a whole-file read sends again once. A reply with no text
+throws `Error("The model returned no text (refusal).")`, the reason in brackets being
+`stop_reason`; it has no `status`. In a whole-file read, the model is told why a part failed by the
+error's kind and status, never by the API's message: "The model took too long to answer." for a
+timeout, "The model returned no text (refusal)." for a reply with no text
 (see [`analyze_whole_document`](./tools.md#analyze_whole_document)).
 
 ```ts
@@ -271,7 +276,7 @@ The options of [`anthropic()`](#anthropicoptions).
 | `maxRequestBytes` | `number` | `32_000_000` | The largest request body in bytes, the limit of the Claude API (32 MB). It keeps the budget within it. |
 | `pageTokens` | `number` | `3_500` | Tokens billed for one PDF page shown by `view_pages`: its text and its picture. The loop sizes the pages a question may look at from it. |
 | `tokenScale` | `number` | `1.35` | Claude's tokens for one token of the library's estimate, which is fitted to Gemini: documents are planned for a window that much smaller. 1.35 is a cautious guess for the tokenizer of the current models; during a question, the token count the API reports with each reply corrects the estimate. |
-| `timeoutMs` | `number` | `180_000` | The longest a part read's request may take, in milliseconds, each try counted apart. A request that runs longer is aborted. Not used for chat requests. |
+| `timeoutMs` | `number` | `180_000` | The longest a part read's request may take, in milliseconds, each try counted apart. A request that runs longer is aborted, and is an `AnthropicRequestError` of kind `"timeout"` and status 0 (since 0.10.0). 0 sets no limit (since 0.10.0; before, it aborted every part read at once). Not used for chat requests. |
 | `firstByteTimeoutMs` | `number` | `600_000` | The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count: a model that thinks sends nothing until it has thought, and a reply that is not streamed comes whole at the end. A request that gets nothing for that long is aborted with an `AnthropicRequestError` (`status` 0, `kind` `"timeout"`), which `askWithFiles` sends again once. 0, a negative or a non-finite number waits without end. The key, token and headers are resolved before the wait starts. Not used for part reads. |
 | `idleTimeoutMs` | `number` | `300_000` | The longest wait, in milliseconds, between two pieces of a chat reply once it has started to arrive. Any bytes count, Claude's `ping` events included. The same error; `askWithFiles` sends the request again once, unless text of it was shown. 0 waits without end. Not used for part reads. |
 | `id` | `string` | `model` | The name of the model in `usage.byModel` and in messages. |

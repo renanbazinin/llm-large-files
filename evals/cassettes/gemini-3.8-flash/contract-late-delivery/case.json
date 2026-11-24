@@ -1,0 +1,68 @@
+{
+ "case": "contract-late-delivery",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 5%",
+     "status": "pass"
+    },
+    {
+     "fact": "number 63",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 8602,
+   "cachedInputTokens": 0,
+   "outputTokens": 264,
+   "thoughtTokens": 198,
+   "ms": 4022,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 10871,
+     "ms": 4004,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8602,
+      "cachedInputTokens": 0,
+      "outputTokens": 264,
+      "thoughtTokens": 198
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "הקנס על איחור באספקה של חלקי חילוף הוא **5% מערך ההזמנה לכל שבוע איחור**, והוא מופיע ב**סעיף 63** (`חוזה שירותי תחזוקה.docx L65`)."
+  }
+ ],
+ "passed": true
+}

@@ -1,0 +1,97 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "6f738349be48a639",
+  "bytes": 8320,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "506 chars #34a3b784"
+      },
+      {
+       "text": "88 chars #03da1ee5"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1067 chars #3333db2c"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "view_pages",
+       "description": "284 chars #fc39aebc",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #80d11510",
+        "required": "[2 items] #bfa97534"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 1,\"totalTokenCount\": 2292,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"yXQFa97lMLWkvdIPpqKb-AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי דוח ההכנסות (report-1 L5, L6):\\n\\n* הה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 20,\"totalTokenCount\": 2311,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"yXQFa97lMLWkvdIPpqKb-AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"כנסות של אזור **צפון** ברבעון 2 עמדו על **135 מיליון\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 45,\"totalTokenCount\": 2336,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"yXQFa97lMLWkvdIPpqKb-AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" שקלים**.\\n* הנתון החסר לאזור **מרכז** הוא ב**רבעון 2** (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 73,\"totalTokenCount\": 2364,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"yXQFa97lMLWkvdIPpqKb-AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"התای מופיע ריק בטבלה).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 86,\"totalTokenCount\": 2377,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"yXQFa97lMLWkvdIPpqKb-AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfROaLbJ1j30Jt+FgRJ5mQF/R2qwdRo1qiocb/QeEZO9Vsa1NlatiRN73jX0tnyOwvif+xqNTGmsOP/MmJVD5Ogqe7psH36IjNZFxRjsDkNABcHU/1kZN9yWlfSELSyRlurqBIymmFfJAGS5BP2gRl0f8az3cERUkvNrSR800ItPUCXmy0oZHQqIwR2qE1eZ7\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 86,\"totalTokenCount\": 2377,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"yXQFa97lMLWkvdIPpqKb-AU\"}\r\n\r\n"
+  ]
+ }
+}

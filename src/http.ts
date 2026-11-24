@@ -1,11 +1,23 @@
 // Small things every adapter needs for its HTTP requests.
 import { sliceWhole } from "./text.js";
 
-/** Request headers, or a function returning them: called for each request, so a token can be renewed. */
-export type HeaderSource = Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
+/**
+ * What a function of headers is told: `refresh` is true when the headers are asked for again
+ * because the last ones were refused (HTTP 401), so a token kept in a cache is to be fetched anew.
+ * New in 0.10.0.
+ */
+export type HeaderContext = { refresh?: boolean };
 
-export async function resolveHeaderSource(source: HeaderSource | undefined): Promise<Record<string, string>> {
-  return typeof source === "function" ? source() : source ?? {};
+/**
+ * Request headers, or a function returning them: called for each request, so a token can be
+ * renewed. Since 0.10.0 the function may take a `HeaderContext`; one of no arguments still fits.
+ */
+export type HeaderSource = Record<string, string> | ((context?: HeaderContext) => Record<string, string> | Promise<Record<string, string>>);
+
+/** The headers of a source. A function is called with `context` when one is given, and with nothing otherwise, as before 0.10.0. */
+export async function resolveHeaderSource(source: HeaderSource | undefined, context?: HeaderContext): Promise<Record<string, string>> {
+  if (typeof source !== "function") return source ?? {};
+  return context ? source(context) : source();
 }
 
 /** A secret, or a function returning it: called for each request. */
@@ -47,6 +59,55 @@ export const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 600_000;
 
 /** The longest delay `setTimeout` takes: a longer one fires at once. About 24.8 days, which is no limit. */
 const LONGEST_TIMER_MS = 2_147_483_647;
+
+/**
+ * The longest time, by default, that one part read of a whole-file read may take, in milliseconds:
+ * from the request until its whole reply is in.
+ */
+export const DEFAULT_PART_TIMEOUT_MS = 180_000;
+
+/** The time limit of one part read: see `partTimer`. */
+export type PartTimer = {
+  /** The signal for `fetch`: it aborts when the caller's does, or when the time is up. */
+  readonly signal: AbortSignal | undefined;
+  /** True once the time ran out. The request was then aborted by the timer, not by the caller. */
+  readonly expired: boolean;
+  /** The time limit, in milliseconds, for the message. */
+  readonly limitMs: number;
+  /** The request is over: the timer is cleared. */
+  stop(): void;
+};
+
+/**
+ * A time limit on one part read of a whole-file read: `timeoutMs` (by default
+ * `DEFAULT_PART_TIMEOUT_MS`) for the request and its whole reply. 0, or a value that is not a
+ * positive number, sets none. `expired` tells the timer's abort apart from the caller's, which the
+ * adapters report as a `ModelRequestError` of kind "timeout" and status 0: the rule of `withRetry`
+ * then sends it again once, as a chat request that got nothing back.
+ */
+export function partTimer(caller: AbortSignal | undefined, timeoutMs: number | undefined): PartTimer {
+  const limitMs = timeoutMs ?? DEFAULT_PART_TIMEOUT_MS;
+  if (!watching(limitMs)) return { signal: caller, expired: false, limitMs: 0, stop() {} };
+  const controller = new AbortController();
+  let expired = false;
+  const timer = setTimeout(() => {
+    expired = true;
+    controller.abort(new Error(`The part read took longer than ${waitText(limitMs)}.`));
+  }, Math.min(limitMs, LONGEST_TIMER_MS));
+  return {
+    signal: caller ? AbortSignal.any([caller, controller.signal]) : controller.signal,
+    get expired() {
+      return expired;
+    },
+    limitMs,
+    stop: () => clearTimeout(timer),
+  };
+}
+
+/** A wait in words: "180 s", or "50 ms" under a second. */
+export function waitText(ms: number): string {
+  return ms >= 1_000 ? `${Math.round(ms / 1_000)} s` : `${Math.round(ms)} ms`;
+}
 
 /** Watches a request for silence: see `idleWatch`. */
 export type IdleWatch = {

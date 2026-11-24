@@ -211,6 +211,17 @@ export type ExtractedText = {
    * to hash it, a slice at a time. Other extractors leave it out. New in 0.9.0.
    */
   file?: { bytes: number; sha256: string };
+  /**
+   * A PDF's headings, found from the size of its type: each line set larger than the body, with
+   * its page (from 1), its level (1 is the top) and its text, in the order of the text; and `skip`,
+   * when lines above it on its page read the same (a contents list, a running header), how many.
+   * The built-in PDF extractor returns them; `ingest` finds each among the lines of its page (the
+   * lines after `--- Page N ---`), with spaces left out of the comparison, past the first `skip`
+   * that match, and makes them the outline when the text's own rules find fewer than 3 headings and
+   * it finds 3 or more. Read for a PDF only. An extractor that wraps the built-in one passes them on
+   * to keep that outline. New in 0.10.0.
+   */
+  headings?: Array<{ page: number; level: number; title: string; skip?: number }>;
 };
 
 export type ExtractInput = {
@@ -341,7 +352,12 @@ export type ToolCallLimits = {
   /**
    * The most model requests a whole-file read (`analyze_whole_document`) may make: what the
    * question has left of `limits.requests`. A part the model refuses as too large is read as two
-   * halves only while that and `maxMapChunks` allow it.
+   * halves only while that and `maxMapChunks` allow it. Given to a `read_document` call (since
+   * 0.10.0), it is what a whole read of its file may make on the model's next turn, the first it
+   * can call one on: a read cut short of its range points at one (`whole_file`) only when the
+   * file's estimated parts are within it. `askWithFiles` gives a read 0 when the question would not
+   * start a whole read of its file on that turn (a ceiling it would pass, with that turn's request
+   * counted, or its whole reads made).
    */
   maxRequests?: number;
   /**
@@ -376,6 +392,11 @@ export type ToolCallHooks = {
    * the server is busy. `askWithFiles` makes it a "page_looks_busy" notice. New in 0.9.0.
    */
   onPagesBusy?: (documentId: string) => void;
+  /**
+   * Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. It is
+   * joined with the tool set's own signal (`ToolOptions.signal`). New in 0.10.0.
+   */
+  signal?: AbortSignal;
 };
 
 /** One model request of a tool call (`ToolCallHooks.onRequest`). */
@@ -423,6 +444,13 @@ export type ToolSet = {
    * before it runs a call.
    */
   resultCharacters(name: string): number;
+  /**
+   * How many more times this tool set may read the document `documentId` whole
+   * (`analyze_whole_document`): 0 once a read of it found no part it could read, or at the cap.
+   * Optional, so that a tool set of your own still compiles. The tool set of `files.tools()` has
+   * it. New in 0.10.0.
+   */
+  wholeReadsLeft?(documentId: string): number;
 };
 
 /** Tokens one model request used, as far as the provider said. */
@@ -466,6 +494,15 @@ export type DocumentPlan = {
   inlineBytes: number;
 };
 
+/**
+ * The name of a document tool, as the model calls it (`TOOL_NAMES`). New in 0.10.0.
+ */
+export type ToolName = "search_document" | "read_document" | "get_document_overview" | "analyze_whole_document" | "view_pages" | "aggregate_table";
+
+/**
+ * What `prepare` gives for one request. The fields new in 0.10.0 are optional, so that a
+ * `LargeFiles` of your own still compiles: without them, `askWithFiles` works as in 0.9.
+ */
 export type PreparedContext = {
   plan: DocumentPlan;
   /** Prompt text per document ID: the full text for inline documents, a summary card otherwise. */
@@ -479,4 +516,11 @@ export type PreparedContext = {
    * was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`.
    */
   viewable: DocumentMeta[];
+  /**
+   * Documents sent whole whose tables the tools can still count and search: every CSV and XLSX
+   * file, and a file of another format that `aggregate_table` reads whose text has a `| cell |`
+   * table of at least 3 rows. Set when `prepare` was called with `inlineTables: "tools"`, else
+   * absent. `askWithFiles` makes the tools for them with the searched documents. New in 0.10.0.
+   */
+  toolable?: DocumentMeta[];
 };

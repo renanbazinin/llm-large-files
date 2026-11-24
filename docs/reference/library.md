@@ -17,7 +17,8 @@ import {
   estimateTokens, utf8Bytes, jsonBytes,
 } from "llm-large-files";
 import type {
-  LargeFilesOptions, LargeFiles, AccessOptions, IngestInput, PrepareOptions, ToolOptions, PreparedContext, DocumentPlan,
+  LargeFilesOptions, LargeFiles, CreatedLargeFiles, LargeFilesStats, AccessOptions, IngestInput, PrepareOptions, ToolOptions,
+  PreparedContext, ToolName, DocumentPlan,
   Budget, ModelLimits, DocumentStore, DocumentContext, DocumentScope, StoredDocument, FileDocumentStoreOptions, FileDocumentScopes,
   PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
   ExtractedText, DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent,
@@ -32,11 +33,12 @@ from the same entry point.
 Contents:
 
 - [The library](#the-library): [`createLargeFiles(options)`](#createlargefilesoptions),
-  [`LargeFilesOptions`](#largefilesoptions), [`LargeFiles`](#largefiles), [`IngestInput`](#ingestinput),
+  [`LargeFilesOptions`](#largefilesoptions), [`LargeFiles`](#largefiles), [`CreatedLargeFiles`](#createdlargefiles),
+  [`LargeFilesStats`](#largefilesstats), [`IngestInput`](#ingestinput),
   [`IngestError`](#ingesterror), [`ingestErrorCodeOf(message)`](#ingesterrorcodeofmessage),
   [`AccessOptions`](#accessoptions), [`PrepareOptions`](#prepareoptions), [`ToolOptions`](#tooloptions),
-  [`PreparedContext`](#preparedcontext), [`DocumentPlan`](#documentplan),
-  [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
+  [`PreparedContext`](#preparedcontext), [`ToolName`](#toolname),
+  [`DocumentPlan`](#documentplan), [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
   [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes),
   [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms),
   [`NEVER_EXPIRES`](#never_expires), [`isDocumentId(value)`](#isdocumentidvalue),
@@ -75,7 +77,7 @@ model sees ([tools.md](./tools.md)), and the events of a question and of an inge
 ### createLargeFiles(options)
 
 ```ts
-declare function createLargeFiles(options: LargeFilesOptions): LargeFiles;
+declare function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles; // LargeFiles before 0.10.0
 ```
 
 Creates the library over one store. Create it once per process and share it: it keeps the cache of
@@ -122,6 +124,9 @@ type LargeFilesOptions = {
   pageLookWaitMs?: number; // new in 0.9.0
   requireOwner?: boolean; // new in 0.9.0
   requireScope?: boolean; // new in 0.9.0
+  storeTimeoutMs?: number; // new in 0.10.0
+  maxStuckStoreCalls?: number; // new in 0.10.0
+  sweepTimeoutMs?: number; // new in 0.10.0
   now?: () => Date;
 };
 ```
@@ -149,6 +154,9 @@ type LargeFilesOptions = {
 | `pageLookWaitMs` | `number` | 30,000 | How long a look at pages waits for its turn, in milliseconds. Past it, the look is not run: the model reads "‹file›: The pages cannot be looked at right now; the server is busy. Answer from the text, or look again later.", and `askWithFiles` gives a `"page_looks_busy"` notice. A question that is stopped stops waiting at once. In `askWithFiles` a wait that ends busy comes once in a tool turn: after a look of the turn was told the server is busy, its other looks run only when a turn is free at once ([`ToolCallLimits.maxWaitMs`](./tools.md#toolcalllimits)). Each look that gets its turn may still have waited up to `pageLookWaitMs`: see [PDFs](../guides/pdfs.md). `Infinity` waits without end; 0 does not wait. New in 0.9.0. |
 | `requireOwner` | `boolean` | `false` | Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles`, `askStream` and `askGemini`, and `tools`, which then needs `access`. A call without one throws `TypeError("owner is required: requireOwner is on")`, before the store is asked anything. An owner that `ingest` would refuse (`""`, spaces only) is refused too. A document stored without an owner reads as missing. Use it on a server where every document belongs to a signed-in user: a call that forgot the owner fails, rather than reaching every document stored without one. New in 0.9.0. |
 | `requireScope` | `boolean` | `false` | The same for scopes ([`DocumentScope`](#documentscope)): a call without one throws `TypeError("scope is required: requireScope is on")`, and a document stored without a scope reads as missing. `files.sweep()` without a scope is still allowed: it is upkeep, not a user's access. New in 0.9.0. |
+| `storeTimeoutMs` | `number` | 30,000 | The most time one store call may take, in milliseconds: `getMeta`, `get`, `readTextRange`, `getIndex` and `putIndex` when a document is opened, `getOriginal` (and `originals.read`), and `delete`. Past it, the call fails with a [`DocumentStoreError`](#documentstoreerror) of code `"ETIMEDOUT"` (status 503, `cause`: `The store did not answer within 30 s.`). The call itself goes on, since nothing can stop it, and counts as stuck until it ends (`maxStuckStoreCalls`). In a question, a tool call that meets it ends the question with `run.error`. `ingest` keeps its own limits (`ingestTimeoutMs`), past which its store calls count as stuck too, and `sweep` has `sweepTimeoutMs`. Keep it above your store's slowest healthy call, such as a `get` of a text of `wholeDocumentBytes`. 0 sets no limit, and so does a time past what a timer can wait. Before 0.10.0 a store call that never settled held its caller forever. New in 0.10.0. [Storage](../guides/storage.md#time-limits). |
+| `maxStuckStoreCalls` | `number` | half of `UV_THREADPOOL_SIZE` (4 when it is not set), at least 1: 2 by default, 16 with 32 threads | While this many calls of the process are stuck (past their time limit, and not ended), every new store call of this library fails at once, without calling the store, with a `DocumentStoreError` of code `"STORE_STUCK"` (status 503): an `ingest` fails at its first store call (operation `"write"`, or `"read"` for the look-up of an application's ID). The removal of what an ingest wrote, once writes that began under the limit end (its caller left, or they failed), still runs. The count is the process's, shared by every library: store calls past `storeTimeoutMs`, whether their caller timed out or left, the store calls of `ingest` past the time it gives them (`ingestTimeoutMs`, 2 minutes when it is 0), and the upload handlers' calls to the disk past `uploadIdleTimeoutMs`. A call that ends within its limit never counts. `UV_THREADPOOL_SIZE` is read when the library is made, as libuv reads it: an empty value, 0, or one that does not start with digits is a pool of 1 thread, so a limit of 1. `Infinity` refuses nothing. New in 0.10.0. [Deployment](../guides/deployment.md#a-store-that-stops-answering). |
+| `sweepTimeoutMs` | `number` | 0 (no limit) | The most time one `sweep` may take, in milliseconds. Past it, `sweep` fails with a `DocumentStoreError` of operation `"sweep"` and code `"ETIMEDOUT"`, and the sweep goes on. A sweep never counts as a stuck call; while `maxStuckStoreCalls` calls are stuck, it is refused at once, as other store calls are. New in 0.10.0. |
 | `now` | `() => Date` | `() => new Date()` | The clock, for tests. It dates `createdAt` and `expiresAt`, decides whether a document has expired, and is passed to the store's `sweep`. |
 
 Since 0.7.1, `ttlMs`, `maxUploadBytes`, `scannedPdfPages`, `cacheBytes`, `cacheSize`,
@@ -160,7 +168,8 @@ a value that is not a number throws a `TypeError`, and so does `Infinity` for `s
 used to pass through: `maxConcurrentScans` left every scan of a document read by range waiting
 forever, `ttlMs` failed every upload, `maxUploadBytes` took off the upload limit. A number below
 the least an option takes is raised to it, as before. `maxTextBytes`, `maxPdfPages` and
-`ingestTimeoutMs` take NaN as left out, as they have since 0.6.0.
+`ingestTimeoutMs` take NaN as left out, as they have since 0.6.0. `storeTimeoutMs`,
+`maxStuckStoreCalls` and `sweepTimeoutMs`, new in 0.10.0, are checked as the options of 0.7.1 are.
 
 Guides: [storage](../guides/storage.md) for the store, owners and retention,
 [costs and limits](../guides/costs-and-limits.md) for the budget, [PDFs](../guides/pdfs.md) for
@@ -183,6 +192,8 @@ interface LargeFiles {
   sweep(options?: { scope?: DocumentScope }): Promise<number>;
   prepare(ids: string[], base: { tokens: number; bytes: number }, options?: PrepareOptions): Promise<PreparedContext>;
   tools(documents: DocumentMeta[], options?: ToolOptions): ToolSet;
+  stats?(): LargeFilesStats; // new in 0.10.0
+  toolsFor?(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>; // new in 0.10.0
 }
 ```
 
@@ -202,6 +213,13 @@ owner of the call (of the document, at ingest). It is a frozen object, and a fie
 left out, so a call without either gets `{}`. A document a store returns for another ID, or with
 the owner `null` (as a MongoDB driver writes a field that was left out), is read as missing, or as
 without an owner.
+
+The members new in 0.10.0:
+
+| Member | Type | What it is |
+|---|---|---|
+| `stats` | `() => LargeFilesStats`, optional | Counters for metrics and alerts ([`files.stats()`](#filesstats)), read without a store call. Optional, so that a `LargeFiles` of your own still compiles; the one `createLargeFiles` makes has it. New in 0.10.0. |
+| `toolsFor` | `(ids: string[], options: ToolOptions & { access: AccessOptions }) => Promise<{ tools: ToolSet; missing: string[] }>`, optional | Looks each ID up for `options.access`, then makes the tools for the documents found; `missing` lists the others ([`files.toolsFor()`](#filestoolsforids-options)). Optional, as `stats` is. New in 0.10.0. |
 
 #### `files.access`
 
@@ -317,7 +335,7 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | `IngestError` `"exists"`: `<name>: a document with this ID already exists.` | A document of `id` is there and `ifExists` does not let it be replaced; or another ingest of this library is storing `id` at the moment, whatever `ifExists` says; or a write failed and the document under `id` by then is another owner's or scope's, and has not expired (stored by another server). Status 409. It says nothing of the document that has the ID, but it does say that the ID is taken ([Application IDs](../guides/storage.md#application-ids)). New in 0.9.0. |
 | `TypeError("Give the file as bytes or as source, not both.")`, `TypeError("source.path must be the path of a file: a string that is not empty.")` | An input with both `bytes` and `source`, or a `source` whose `path` is not a string that is not empty (or holds a NUL). New in 0.9.0. |
 | `TypeError("original.ref must be a string of 1 to 1,024 characters.")`, `TypeError("original needs LargeFilesOptions.originals, which reads the file from its ref.")` | `original` has no ref of that length, or the library has no `originals` to read it back. New in 0.9.0. |
-| An error with a system error's `code` and `syscall` | A file at a path that is not there (`ENOENT`), cannot be opened (`EACCES`), is a link (`ELOOP`, from `lstat`, or from the read at its turn when a link was put in its place), a folder (`EISDIR`), or not a file at all (`EINVAL`: a pipe, a device). Or a volume that did not answer the look before the turn within `ingestTimeoutMs` (`ETIMEDOUT`, `syscall` `"lstat"` or `"read"`): `The file to ingest did not answer within 2 min.` Passed on as it is, not as an `IngestError`: it is the server's trouble, not the file's. The messages of the library's own (`ELOOP`, `EISDIR`, `EINVAL`, `ETIMEDOUT`) name no path; Node's do. New in 0.9.0. |
+| An error with a system error's `code` and `syscall` | A file at a path that is not there (`ENOENT`), cannot be opened (`EACCES`), is a link (`ELOOP`, from `lstat`, or from the read at its turn when a link was put in its place), a folder (`EISDIR`), or not a file at all (`EINVAL`: a pipe, a device). Or a volume that did not answer the look before the turn, or (new in 0.10.0) the read at its turn, within `ingestTimeoutMs` (`ETIMEDOUT`, `syscall` `"lstat"` or `"read"`): `The file to ingest did not answer within 2 min.` Passed on as it is, not as an `IngestError`: it is the server's trouble, not the file's. The messages of the library's own (`ELOOP`, `EISDIR`, `EINVAL`, `ETIMEDOUT`) name no path; Node's do. New in 0.9.0. |
 | [`IngestError`](#ingesterror) `"empty"`: `<name> is empty.` | The file has no bytes. A file at a path is refused from its `lstat` size, before its turn and without being read. |
 | `IngestError` `"too_large"`: `<name> is larger than the 100 MB upload limit.` | The file is larger than `maxUploadBytes`. The message gives your limit. A file at a path is refused from its `lstat` size, before its turn and without being read; one that has grown past the limit by its turn is refused once `maxUploadBytes + 1` bytes are read. |
 | An `IngestError` with the extractor's message | The extractor refused the file: a binary or compressed file, an Office file of before 2007 or with a password, a PDF with a password or without text, a missing optional dependency or an `unpdf` that cannot run on this Node, a possible zip bomb, a file past `maxTextBytes` or `maxPdfPages`, a file built to exhaust the server; or a parser failed on a damaged file. The `code` comes from the message ([`ingestErrorCodeOf`](#ingesterrorcodeofmessage)), `"unreadable"` for one the library does not know, and the extractor's error is `cause`. A text file is never refused for its encoding. The built-in messages, listed under [`defaultExtractors`](#defaultextractors), are written for a user. The upload handlers answer code `"unreadable"` in fixed words, not with its message (new in 0.9.0, [`Extractor`](#extractor)). |
@@ -375,7 +393,9 @@ An owner of `null` is left out of the metadata returned (new in 0.9.0). Throws `
 store cannot be read, and, new in 0.9.0, with code `"NEWER_VERSION"` when a newer version of the
 package wrote the metadata ([`DOCUMENT_META_VERSION`](#document_meta_version)). A name that 0.5.0
 or earlier stored cut inside an emoji comes back with a replacement character (U+FFFD) in place of
-the half, as the model and the steps get it; the stored metadata is not changed.
+the half, as the model and the steps get it; the stored metadata is not changed. Since 0.10.0 a
+store that does not answer within `storeTimeoutMs` is a `DocumentStoreError` of code `"ETIMEDOUT"`,
+and `access.signal` ends the wait with its reason.
 
 #### `files.getOriginal(id, access?)`
 
@@ -404,7 +424,13 @@ deleted. Otherwise it drops what this process keeps of the document in memory, i
 and returns what `store.delete(id, context)` returns. Throws `DocumentStoreError` when the look-up
 cannot read the store, and, new in 0.9.0, a `DocumentStoreError` of operation `"delete"` when
 `store.delete` fails, with the store's error as `cause` (it was passed on unchanged). Its message
-names no path: `The document could not be deleted (EPERM). Try again.`
+names no path: `The document could not be deleted (EPERM). Try again.` Since 0.10.0 a delete ends
+within `storeTimeoutMs` in all: its look-up, its wait for its turn and the store's `delete` share
+that time. The deletes of one library run one at a time: each waits for the one before it to end,
+and fails with code `"ETIMEDOUT"` without calling the store when its time is up first; a
+`store.delete` still running when it is up fails the same way and goes on alone, holding the turn
+until it ends, and counts as stuck once it has itself run `storeTimeoutMs`. `access.signal` ends
+the wait.
 
 #### `files.sweep(options?)`
 
@@ -415,7 +441,8 @@ removed: 0 when the store has no `sweep`. With `scope` (new in 0.9.0), the store
 that scope only (`store.sweep(now, { scope })`); without one, every scope (`store.sweep(now, {})`).
 It needs no scope under `requireScope`. A scope that is not valid is a `DocumentScopeError`. Since
 0.9.0 a store that fails is a `DocumentStoreError` of operation `"sweep"`, with the store's error as
-`cause` (it was passed on unchanged). The library never sweeps on its own: run it on a schedule,
+`cause` (it was passed on unchanged). Since 0.10.0 `sweepTimeoutMs` bounds it (no limit by default),
+and it never counts as a stuck call. The library never sweeps on its own: run it on a schedule,
 from one place (see [deployment](../guides/deployment.md)).
 
 #### `files.prepare(ids, base, options?)`
@@ -502,6 +529,54 @@ tools, their arguments and their results are in [tools.md](./tools.md).
 
 Throws an `Error` for a `budget` that cannot work.
 
+#### `files.stats()`
+
+`stats(): LargeFilesStats`
+
+New in 0.10.0. Counters of this library, for metrics and alerts: the ingests, scans and looks at
+pages under way and waiting, what the cache keeps, and the calls of the process left stuck past
+their time limit ([`LargeFilesStats`](#largefilesstats)). It reads counters only: no store call, no
+wait, so a metrics endpoint or a readiness probe may call it as often as it likes. Each call gives
+new objects.
+
+```ts
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+
+const files = createLargeFiles({ store: new FileDocumentStore("/mnt/documents", { scopes: { depth: 2 } }) });
+
+// Every 15 seconds, to your metrics: an alert when stuckStoreCalls stays above 0.
+setInterval(() => {
+  const { ingests, pageLooks, cache, stuckStoreCalls, maxStuckStoreCalls } = files.stats();
+  console.log(JSON.stringify({ ingestsWaiting: ingests.waiting, looksWaiting: pageLooks.waiting, cacheBytes: cache.bytes, stuckStoreCalls, maxStuckStoreCalls }));
+}, 15_000).unref();
+```
+
+[Deployment](../guides/deployment.md#a-store-that-stops-answering) has a readiness probe built on it.
+
+#### `files.toolsFor(ids, options)`
+
+`toolsFor(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>`
+
+New in 0.10.0. The tools of a loop of your own, for document IDs: each ID is looked up for
+`options.access` as [`files.getMeta`](#filesgetmetaid-access) does, one at a time, then
+[`files.tools`](#filestoolsdocuments-options) is called with the documents found and `options`, so
+every call of the tools reads with the same owner and scope. `missing` lists the IDs not found, in
+the order given: never there, deleted, expired, of another owner or of another scope, or not of an
+ID's shape. A repeated ID counts once. `access` is required (a `TypeError` without it); under
+`requireOwner` and `requireScope` it needs the owner and the scope. `access.signal`, or the tool
+set's `signal`, ends the waits for the store. Throws `DocumentStoreError` as `getMeta` does.
+
+```ts
+import type { LargeFiles } from "llm-large-files";
+
+// The tools for the documents of one chat, in a loop of your own.
+async function chatTools(files: LargeFiles & { toolsFor: NonNullable<LargeFiles["toolsFor"]> }, ids: string[], userId: string, chatId: string) {
+  const { tools, missing } = await files.toolsFor(ids, { access: { owner: userId, scope: [userId, chatId] } });
+  if (missing.length > 0) console.warn(`Not found for this chat: ${missing.join(", ")}`);
+  return tools;
+}
+```
+
 #### `files.budget`
 
 `readonly budget: Budget`
@@ -526,6 +601,40 @@ Guide: [costs and limits](../guides/costs-and-limits.md).
 `readonly maxUploadBytes: number`
 
 The upload limit in effect: `options.maxUploadBytes`, or 104,857,600 (100 MB).
+
+### `CreatedLargeFiles`
+
+```ts
+type CreatedLargeFiles = LargeFiles & { stats(): LargeFilesStats; toolsFor: NonNullable<LargeFiles["toolsFor"]> };
+```
+
+What `createLargeFiles` returns since 0.10.0: a [`LargeFiles`](#largefiles) whose `stats` and
+`toolsFor` are always there, so `files.stats()` needs no `?.` under `strict`. It was `LargeFiles`
+before. Code that types its library as `LargeFiles` still compiles, and calls `files.stats?.()`.
+
+### `LargeFilesStats`
+
+```ts
+type LargeFilesStats = {
+  ingests: { active: number; waiting: number };
+  scans: { active: number; waiting: number };
+  pageLooks: { active: number; waiting: number };
+  cache: { bytes: number; entries: number; maxBytes: number };
+  stuckStoreCalls: number;
+  maxStuckStoreCalls: number;
+};
+```
+
+What `files.stats()` gives. New in 0.10.0.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `ingests` | `{ active: number; waiting: number }` | Ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). |
+| `scans` | `{ active: number; waiting: number }` | Scans of whole documents read by range, and those waiting their turn (`maxConcurrentScans`). |
+| `pageLooks` | `{ active: number; waiting: number }` | Looks at pages, and those waiting their turn (`maxConcurrentPageLooks`). |
+| `cache` | `{ bytes: number; entries: number; maxBytes: number }` | What is kept in memory: its bytes, by their own estimate; how many entries, the documents and the decoded pieces of documents read by range; and the most bytes they may take (`cacheBytes`). |
+| `stuckStoreCalls` | `number` | Calls of this process that ran past their time limit and have not settled: the store calls of every library (past `storeTimeoutMs`, or for `ingest` past `ingestTimeoutMs`), and the upload handlers' calls to the disk (past `uploadIdleTimeoutMs`). The same for every library of the process. |
+| `maxStuckStoreCalls` | `number` | This library's limit on them (`maxStuckStoreCalls`): at it, its store calls fail at once with `"STORE_STUCK"`. |
 
 ### `IngestInput`
 
@@ -598,7 +707,9 @@ export const meta = await files.ingest({ name: "report.pdf", source: { path: "/s
   MB, read for that alone: a DOCX without its extension is still a DOCX.
 - **At its turn**, the file is read once, opened without following a link at its name (not on
   Windows), and at most `maxUploadBytes + 1` bytes: a file that has grown past the limit since it
-  was looked at is refused as `"too_large"`. Its SHA-256 is taken as it is read
+  was looked at is refused as `"too_large"`. A read that does not end within `ingestTimeoutMs` fails
+  the ingest with an error of code `"ETIMEDOUT"` and `syscall` `"read"` (new in 0.10.0: it was the
+  `IngestError` `"timeout"` of a file that takes too long to read). Its SHA-256 is taken as it is read
   (`DocumentMeta.sha256`), and `bytes` is the size read. The bytes are let go as soon as the
   extractor returns, before the text is prepared, indexed and stored, unless the store keeps a copy
   (`keepOriginals` without `original`).
@@ -750,7 +861,11 @@ const error = new IngestError(ingestErrorCodeOf(message), message);
 ### `AccessOptions`
 
 ```ts
-type AccessOptions = { owner?: string; scope?: DocumentScope };
+type AccessOptions = {
+  owner?: string;
+  scope?: DocumentScope;
+  signal?: AbortSignal; // new in 0.10.0
+};
 ```
 
 Who is asking. `getMeta`, `getOriginal`, `delete` and `prepare` (through
@@ -761,6 +876,7 @@ takes the same two options. Each store call carries both ([`DocumentContext`](#d
 |---|---|---|---|
 | `owner` | `string` | none | Compared with the document's `owner` with `===`. A document that has an owner can be used only with that exact owner. A document without one can be used by anyone, unless the library has `requireOwner`. Another owner's document looks exactly like a missing one. `null` counts as none. |
 | `scope` | [`DocumentScope`](#documentscope) | none | The scope of the caller, such as `[userId, chatId]`. A document stored with a scope serves only a caller of the same scope, segment by segment: a caller with another scope, a longer or shorter one, or none, finds it missing. A document stored without a scope serves any caller, unless the library has `requireScope`. A store that keeps scopes apart (`MemoryDocumentStore`) does not even find a document of another scope. Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
+| `signal` | `AbortSignal` | none | Ends this caller's waits for the store, with the signal's reason, as it is: in `getMeta`, `getOriginal`, `delete`, `prepare`, `toolsFor`, and the calls of `tools` with `access`. Never a store call that other callers wait on too (one opening of a document serves every caller of its scope: the others go on waiting), and never the store call itself, which nothing can stop. A signal already aborted starts no store call. Not an `AbortSignal`: a `TypeError`. New in 0.10.0. |
 
 The library has no notion of a session and cannot list documents by owner: record the IDs in your
 own data. See [storage](../guides/storage.md) and [security](../security.md).
@@ -772,10 +888,13 @@ type PrepareOptions = AccessOptions & {
   budget?: Partial<Budget>;
   viewPages?: boolean;
   wholeDocumentAnalysis?: boolean;
+  numberInline?: boolean; // new in 0.10.0
+  inlineTables?: "tools" | "text"; // new in 0.10.0
 };
 ```
 
-The options of [`files.prepare`](#filesprepareids-base-options).
+The options of [`files.prepare`](#filesprepareids-base-options). Without the two options new in
+0.10.0, `prepare` gives the plan, the blocks and the instruction of 0.9.
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
@@ -784,6 +903,15 @@ The options of [`files.prepare`](#filesprepareids-base-options).
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for this request, as in `LargeFilesOptions.budget`. `askWithFiles` passes the budget fitted to its model. |
 | `viewPages` | `boolean` | `false` | Says that your loop can pass files to the model. `viewable` then lists the PDFs whose original is kept (with a store that has `getOriginal`), and the instruction and the cards tell the model about `view_pages`. Without it, `viewable` is empty and nothing mentions `view_pages`. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Says whether your tool set has `analyze_whole_document`. Pass `false` when you call `tools` without `generate`: the instruction then does not name it, and the cards do not offer a whole-file read or say that a file is too large for one. Each says `This file is NOT in your context. Use the document tools to search it and to read line ranges.` `askWithFiles` passes `false` when the model that explores has no `generateText`, and when its own `wholeDocumentAnalysis` is `false`. |
+| `numberInline` | `boolean` | `false` | Numbers the lines of each document sent whole, as the tools number them: `12| ` before each line, from 1, a line ending at each newline and none after the last. The document is planned by its numbered size, about 8% to 16% more tokens (see below), so a document at the edge of `inlineTokens` may become a card. `instruction` asks for line citations only when a file is searched: when none is, add `Cite line numbers like (report.docx L12).` after it. `plan.inlineTokens` and `plan.inlineBytes` are the numbered sizes. The frame lines do not change. A value that is not a boolean throws a `TypeError`. New in 0.10.0. |
+| `inlineTables` | `"tools" \| "text"` | `"text"` | `"tools"`: `toolable` lists the documents sent whole whose tables the tools can count (see [`PreparedContext`](#preparedcontext)), and the block of each gives its document_id in its first frame line (`; document_id doc_…;`), for the tools. `instruction` does not say that they can be counted: add a line after it, such as the one `askWithFiles` adds, `Files shown in full can still be counted exactly: use aggregate_table for counts, sums and groups over their tables, and search_document exact for matching lines. In a spreadsheet, give the Row number when asked which row.` `"text"`: no `toolable`, and the blocks of 0.9. Another value throws a `TypeError`. New in 0.10.0. |
+
+`numberInline` counts a document as `estimatedTokens` + 1.2 tokens a digit of its line numbers + 1.5
+tokens a line, and its bytes as its JSON bytes + the digits + 4 a line: the formula of
+`estimateParts`. That is 15.5% more tokens for a CSV of 3,000 short rows, 9.4% for a service log,
+and 8.4% for Hebrew prose. It can count short: a line that starts with 16 spaces costs about 2
+tokens more with its number. So `prepare` also measures the numbered text of each document it
+sends whole, and plans again when that is larger: such a document is counted at its measured size.
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
@@ -800,6 +928,8 @@ type ToolOptions = {
   retry?: RetryOptions;
   budget?: Partial<Budget>;
   viewPages?: boolean | DocumentMeta[];
+  declare?: readonly ToolName[]; // new in 0.10.0
+  inline?: readonly string[]; // new in 0.10.0
 };
 ```
 
@@ -816,6 +946,8 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | 3 retries, a first wait of 250 to 500 ms (500 ms before the jitter) that doubles, 60 s at most | How a failed model request of a whole-document read is sent again. An error without an HTTP status is sent again once, at once. |
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for these tools: their result cap and part size. Use the budget you planned the request with. |
 | `viewPages` | `boolean \| DocumentMeta[]` | none | Offers `view_pages`, which hands the model real pages of a PDF as a file. `true` offers it for the PDFs among `documents`; a list offers it for exactly those, which may include PDFs whose text is already in the prompt: pass `prepared.viewable`. Only PDFs with `originalKept` count, and only with a store that has `getOriginal`. Turn it on only when your loop runs tools with `executeWithFiles` and sends the files to the model. |
+| `declare` | `readonly `[`ToolName`](#toolname)`[]` | none | Declare exactly these tools, in the order the tool set declares them (search, read, overview, aggregate, analyze, view). A declared tool that cannot run answers with its reason. New in 0.10.0. |
+| `inline` | `readonly string[]` | none | The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in full, and `aggregate_table` says how to cite their lines (`cite`). New in 0.10.0. |
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
@@ -828,6 +960,7 @@ type PreparedContext = {
   instruction: string;
   missing: string[];
   viewable: DocumentMeta[];
+  toolable?: DocumentMeta[]; // new in 0.10.0
 };
 ```
 
@@ -840,6 +973,12 @@ What [`files.prepare`](#filesprepareids-base-options) returns.
 | `instruction` | `string` | The guide to the tools, for the system prompt, when a document is searchable or viewable; `""` otherwise. It names `analyze_whole_document` when a searchable file is small enough for it and `prepare` was not given `wholeDocumentAnalysis: false`. Then give `generate` to `tools`, or a call of it is answered as an unknown tool. |
 | `missing` | `string[]` | The IDs that were not found: never uploaded, not a document ID, deleted, expired, or another owner's. |
 | `viewable` | `DocumentMeta[]` | The PDFs whose pages `view_pages` can show, whether their text is in the prompt or searched. Empty unless `prepare` was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`. |
+| `toolable` | `DocumentMeta[]`, optional | With `inlineTables: "tools"`: the documents sent whole whose tables the tools can still count and search. A CSV or an XLSX workbook always; a DOCX, PPTX, PDF, HTML or Markdown file when its text has a table of at least 3 `\| cell \|` rows (a run of lines that start and end with `\|`, a `\| --- \|` separator not counted), as `aggregate_table` reads a table. Absent with `"text"`. Give them to `tools` with the searched documents, and declare for them `search_document`, `read_document` and `aggregate_table`. New in 0.10.0. |
+
+`toolable` is optional, so that a `LargeFiles` of your own still compiles. With a `prepare` of your
+own that gives the fields of 0.9 alone, `askWithFiles` works as in 0.9: no table sent whole gets the
+tools, and the system text gets no citation line for the files sent whole. The one
+`createLargeFiles` makes gives `toolable` with `inlineTables: "tools"`.
 
 A document sent whole sits between these two lines (new in 0.6.0, for every document):
 
@@ -848,6 +987,9 @@ A document sent whole sits between these two lines (new in 0.6.0, for every docu
 <the text>
 --- End attached file [mark <mark>] ---
 ```
+
+With `numberInline` (new in 0.10.0), `<the text>` has its lines numbered as `read_document` shows
+them: `1| first line`, `2| `, `3| third line`. The frame lines are the same.
 
 - `<mark>` is eight hex digits made from the document ID, the same in every request, so a
   provider's prompt cache reuses the file. After an upgrade from 0.5.0, the first request of each
@@ -873,7 +1015,8 @@ starts every frame.
 
 A card starts with `--- Large attached file: <name> ---`, as before. Its third line is
 `<format> · <size> · <lines> lines · <pages> pages · about <tokens> tokens`, with `1 line` and
-`1 page` for one. For a text file that was not valid UTF-8, a line after the way to read it says
+`1 page` for one. A size that rounds to 1,024 KB reads `1 MB`, and a count that rounds to 1,000K
+reads `1.0M` (since 0.10.0; `1024 KB` and `1000K` before). For a text file that was not valid UTF-8, a line after the way to read it says
 `This file is not in UTF-8. Its text was read as windows-1255: if its letters look wrong, ask the user to save it as UTF-8.`,
 followed, when some characters were not valid in it, by
 ` 3 characters of it were not valid in windows-1255, and show as �.`; or, for a file read as UTF-8,
@@ -882,6 +1025,14 @@ followed, when some characters were not valid in it, by
 `1 character of this file was not valid UTF-8, and shows as �.`
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
+
+### `ToolName`
+
+```ts
+type ToolName = "search_document" | "read_document" | "get_document_overview" | "analyze_whole_document" | "view_pages" | "aggregate_table";
+```
+
+The name of a document tool, as the model calls it ([`TOOL_NAMES`](./tools.md#tool_names)). New in 0.10.0.
 
 ### `DocumentPlan`
 
@@ -1290,13 +1441,17 @@ documents of each scope are in a folder of their own:
   links in the folders of a scope are refused on every platform (`"scope_invalid"`).
 - `delete` removes the metadata first. When that fails, it throws, and nothing else is removed: the
   document stays whole. Then it removes the text, the index and the original, and returns whether
-  the metadata existed. Since 0.9.0, a part that cannot be removed then is left for `sweep`, and
-  `delete` still returns `true`: the document is gone once its metadata is.
+  it removed the metadata itself. Since 0.9.0, a part that cannot be removed then is left for
+  `sweep`, and `delete` still returns `true`: the document is gone once its metadata is. Since
+  0.10.0 the metadata is first renamed to a name of the call's own (`<id>.json.<8 hex>.tmp`), and
+  that name is then removed: of two deletes of one document at once, on one server or two, only
+  one returns `true`, on Windows too. The rename keeps the time the metadata was written, so
+  `sweep` reads the age of such a name from its last change (ctime), which the rename sets: a sweep
+  on another server meanwhile leaves it to the delete.
 - `sweep(now?)` removes expired documents and returns how many, counting a document whose metadata
   is not valid and is older than `orphanAgeMs`. It counts only the documents whose metadata it
-  removed itself: of two sweeps at once, on one server or two, each document is counted once
-  (since 0.9.0). Not always on Windows: there, two processes that remove one file at the same
-  moment can both be told it was removed, so the total can count a document twice. It also
+  removed itself, as `delete` does: of two sweeps at once, on one server or two, each document is
+  counted once (since 0.9.0; on Windows too since 0.10.0). It also
   removes files that belong to no document, and temporary files, once they are older than
   `orphanAgeMs` (these are not counted). Where files
   of your own may sit beside the documents (`directory` without `scopes`, or `scopes.folder` `""`),
@@ -1478,7 +1633,7 @@ it, rather than ask the user to upload the file again.
 |---|---|---|
 | `name` | `string` | `"DocumentStoreError"`. |
 | `message` | `string` | By `operation`: `The document store could not be read (<code>). Try again.` ("read"), `The document could not be stored (<code>). Try again.` ("write"), `The document could not be deleted (<code>). Try again.` ("delete"), `The document store could not be cleaned up (<code>). Try again.` ("sweep"), each without the code when there is none. For code `"NEWER_VERSION"`: `The document was stored by a newer version of llm-large-files. Try again.` It names no path and no host: it is safe to show to a user or a model. |
-| `code` | `string \| undefined` | The code of the system error behind it (`EIO`, `EMFILE`, `ETIMEDOUT`), when there is one, or the code it was made with: `"NEWER_VERSION"` for metadata a newer version of the package wrote ([`DOCUMENT_META_VERSION`](#document_meta_version)). |
+| `code` | `string \| undefined` | The code of the system error behind it (`EIO`, `EMFILE`, `ETIMEDOUT`), when there is one, or the code it was made with: `"NEWER_VERSION"` for metadata a newer version of the package wrote ([`DOCUMENT_META_VERSION`](#document_meta_version)); since 0.10.0, `"ETIMEDOUT"` for a store call that did not end within `storeTimeoutMs` (or `sweepTimeoutMs`), and `"STORE_STUCK"` for one refused at once because `maxStuckStoreCalls` calls of the process are stuck. |
 | `syscall` | `string \| undefined` | The system call that failed (`open`, `read`), when there is one. |
 | `operation` | `"read" \| "write" \| "delete" \| "sweep"` | What the store was doing. `"read"` unless it was made with another. New in 0.9.0. |
 | `status` | `503` | The HTTP status to answer with. New in 0.9.0. |
@@ -1678,6 +1833,7 @@ type ExtractedText = {
   encoding?: string;
   replacedCharacters?: number;
   file?: { bytes: number; sha256: string }; // new in 0.9.0
+  headings?: Array<{ page: number; level: number; title: string; skip?: number }>; // new in 0.10.0
 };
 ```
 
@@ -1688,6 +1844,7 @@ type ExtractedText = {
 | `encoding` | `string \| undefined` | The older encoding the file was read in, when it is not UTF-8, such as `"windows-1255"`. Stored as `DocumentMeta.encoding` when it is a name (letters, digits, `.`, `_`, `:` and `-`, up to 40 characters) and not a name of UTF-8 or UTF-16 (`utf-8`, `utf8`, `unicode`, `utf-16be`…): a name `TextDecoder` does not know is kept. New in 0.6.0. |
 | `replacedCharacters` | `number \| undefined` | The characters that were not valid in the encoding the file was read in, each now U+FFFD (�). Stored as `DocumentMeta.replacedCharacters` when it is a whole number above 0. New in 0.6.0. |
 | `file` | `{ bytes, sha256 } \| undefined` | What an extractor that reads paths read from `ExtractInput.path`: the size of the file, and its SHA-256 as 64 lowercase hex digits. Stored as `DocumentMeta.bytes` and `sha256`. Read only for an ingest from a path whose extractor read it; left out otherwise, and ignored in another shape. New in 0.9.0. |
+| `headings` | `{ page, level, title, skip? }[] \| undefined` | A PDF's headings, found from the size of its type: each line set larger than the body, with its page (from 1), its level (1 is the top) and its text as pdf.js gives it (the words of right-to-left text can run together), in the order of the text; and `skip`, when lines above it on its page read the same (a contents list, a running header), how many. The built-in PDF extractor returns them when it finds any ([PDF outline](../guides/pdfs.md#pdf-outline)). `ingest` looks for each among the lines of its page (after the line `--- Page N ---`, the pages counted from 1), comparing the text without its spaces and passing over the first `skip` lines that match, and makes those it finds the outline when the text's own rules find fewer than 3 headings and it finds 3 or more (see [`OutlineEntry`](#outlineentry)). Read for a PDF only: the first 10,000 entries, each with a page and a level that are whole numbers (the level from 1 to 6), a title of up to 1,000 characters, and a `skip` that is a whole number from 0 or none; other entries are skipped. An extractor that wraps the built-in one passes them on to keep that outline. New in 0.10.0. |
 
 The model is told of both, on the card and in the frame of a file sent whole (see
 [`PreparedContext`](#preparedcontext)).
@@ -1758,7 +1915,10 @@ writes each page as a line `--- Page N ---` followed by the page's text, and
 `[No text on this page. It may be a scan, a photo, or a chart.]` for a page without text. With
 `pictures`, a page that shows a picture or a drawing gets the line
 `[Picture on this page. This text cannot show it.]` under its page line. It returns the number of
-pages. It throws the PDF messages listed under [`defaultExtractors`](#defaultextractors).
+pages, and since 0.10.0 the lines set larger than the body as `headings`
+([`ExtractedText`](#extractedtext)), which `ingest` makes the outline of a PDF whose text gives
+fewer than 3 headings, when it finds 3 or more of these.
+It throws the PDF messages listed under [`defaultExtractors`](#defaultextractors).
 
 ```ts
 import { createLargeFiles, createPdfExtractor, MemoryDocumentStore } from "llm-large-files";
@@ -1918,7 +2078,7 @@ browser instead.
 | `encoding` | `string \| undefined` | The older encoding a text file was read in, because it is not UTF-8, as `TextDecoder` names it: `"windows-1255"` for a Hebrew CSV that Excel saved, or `"windows-1256"`, `"windows-1251"`, `"shift_jis"`, `"windows-1252"`. Lines of it that are valid UTF-8 are read as UTF-8 all the same. Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see `replacedCharacters`), for UTF-16, for PDF, DOCX, PPTX and XLSX, and on documents from before 0.6.0. An HTML file is decoded as a text file is, and can have one. An extractor of your own may set another name ([`ExtractedText`](#extractedtext)). How the encoding is chosen: [Text encodings](../guides/pdfs.md#text-encodings). New in 0.6.0. |
 | `replacedCharacters` | `number \| undefined` | The characters of a text file that were not valid in the encoding it was read in (UTF-8, or `encoding`), such as a character cut in two at the end of a UTF-8 log, or a byte that `encoding` does not have: each is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.0. New in 0.6.0. |
 | `originalKept` | `boolean \| undefined` | `true` when the uploaded file is kept (`keepOriginals`): in the store, or by its ref (`original`, 0.9.0). Absent otherwise. Documents ingested before you turned `keepOriginals` on have no original. |
-| `outline` | [`OutlineEntry[]`](#outlineentry) | The headings found in the text, at most 400. Empty for `log`, `json` and `csv`. |
+| `outline` | [`OutlineEntry[]`](#outlineentry) | The headings found in the text, at most 400. Empty for `log`, `json` and `csv`. For a PDF whose text gives fewer than 3, the lines set larger than its body when there are 3 or more, since 0.10.0. |
 | `logProfile` | [`LogProfile`](#logprofile) or `undefined` | The log profile, for a `log` document only. |
 | `pagesWithoutText` | `number[]` or `undefined` | The pages of a PDF with no text at all (scans, photos, charts), up to 200. Absent when there are none, and on documents from before 0.8.1. The card names them, and points to `view_pages` when they can be looked at. New in 0.8.1. |
 | `garbledPages` | `number[]` or `undefined` | The pages of a PDF whose text looks garbled: of at least 40 characters, fewer than 3 in 10 letters or digits, or more than max(6, 3%) replacement characters (a font without a Unicode map). Up to 200. The card says not to rely on them. New in 0.8.1. |
@@ -1977,7 +2137,12 @@ type OutlineEntry = { line: number; level: number; title: string };
 One heading of a document's outline. The headings are found in the text: Markdown headings (the
 slides of a PPTX are `## Slide N`), lines that start with "Chapter", "Part", "Book", "Section" or
 "Appendix" (or the Hebrew words for chapter, part and appendix), numbered headings such as `2.1 Results`, and short lines in capitals; all but the
-Markdown ones only after a blank line. When there are more than 400, the outline keeps only the
+Markdown ones only after a blank line. A PDF whose text gives fewer than 3 such headings (pdf.js
+gives no blank line between paragraphs, and Hebrew has no capitals) gets, since 0.10.0, the lines its
+extractor found set larger than its body ([`ExtractedText.headings`](#extractedtext)), when 3 or
+more of them are found: each is the line of the text it points to, and its level comes from its size, 1 to 3
+([PDF outline](../guides/pdfs.md#pdf-outline)). A PDF ingested before 0.10.0 keeps the outline it
+was given until it is uploaded again. When there are more than 400, the outline keeps only the
 top-level headings (of the shallowest level found) when there are at least 20 of them, and all the
 headings otherwise. With 20 to 400 top-level headings, each one is kept once, in order. Otherwise
 (more than 400 top-level headings, or fewer than 20) the outline has 400 entries, in order, taken
@@ -2058,6 +2223,7 @@ type ToolCallHooks = {
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
   onDocumentGone?: (documentId: string) => void; // new in 0.9.0
   onPagesBusy?: (documentId: string) => void; // new in 0.9.0
+  signal?: AbortSignal; // new in 0.10.0
 };
 ```
 
@@ -2074,6 +2240,7 @@ and `"document_gone"` and `"page_looks_busy"` notices ([events in your own loop]
 | `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle`, optional | Called as each model request of this call starts ([`ToolRequestStart`](#toolrequeststart)). Return a [`ToolRequestHandle`](#toolrequesthandle): the read tells it of each retry of that request, and once when the request ends. |
 | `onDocumentGone` | `(documentId: string) => void`, optional | Called by any tool when the document the call names is no longer in the store: deleted or expired since it was planned, or not readable by the caller, which looks the same. The model gets "‹id› is no longer available on the server. Ask the user to attach the file again." New in 0.9.0. |
 | `onPagesBusy` | `(documentId: string) => void`, optional | Called by `view_pages` when the look waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`) and was not run. New in 0.9.0. |
+| `signal` | `AbortSignal`, optional | Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. Joined with `ToolOptions.signal`. New in 0.10.0. |
 
 Do not let them throw. The read takes a throw from `onRequest` or from a handle for a failure of
 that request: the part is reported as not read, and a merge or the answer falls back to the notes.

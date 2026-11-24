@@ -8,7 +8,7 @@ import { createLargeFiles, DocumentScopeError, DocumentStoreError, FileDocumentS
 const bytes = (text: string) => new TextEncoder().encode(text);
 const log = (lines: number) => Array.from({ length: lines }, (_, i) => `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z INFO request ${i} took ${i % 900}ms`).join("\n");
 
-type FsCall = "readFile" | "open" | "rm" | "unlink";
+type FsCall = "readFile" | "open" | "rm" | "unlink" | "rename";
 
 /**
  * Makes the next `times` matching calls of an `fs/promises` function fail the way a busy volume
@@ -33,9 +33,26 @@ function failNext(method: FsCall, matches: (target: string) => boolean, code: st
   };
 }
 
+/**
+ * Makes the next removal of the metadata fail: its rename to a name of the removal's own (since
+ * 0.10.0), and an `unlink` of it (before).
+ */
+function failBoth(matches: (target: string) => boolean, code: string): () => void {
+  const undo = [failNext("rename", matches, code), failNext("unlink", matches, code)];
+  return () => undo.reverse().forEach((step) => step());
+}
+
 let directory: string | undefined;
 let restore: (() => void) | undefined;
+/**
+ * Store calls the tests hold, let go at each test's end: a call left past its time limit counts as
+ * stuck in the process until it ends (0.10.0), and would refuse the store calls of the next tests.
+ */
+const held: Array<() => void> = [];
+const hold = <T>(): Promise<T> => new Promise<T>((resolve) => held.push(() => resolve(undefined as T)));
 afterEach(async () => {
+  for (const release of held.splice(0)) release();
+  await new Promise((resolve) => setImmediate(resolve));
   restore?.();
   restore = undefined;
   if (directory) await rm(directory, { recursive: true, force: true });
@@ -124,8 +141,9 @@ describe("a store that could not be read", () => {
     const before = (await readdir(dir)).sort();
     expect(before).toHaveLength(4);
 
-    // EIO, which is not tried again (EBUSY is since 0.9.0: see below).
-    restore = failNext("unlink", (target) => target.endsWith(`${meta.id}.json`), "EIO");
+    // EIO, which is not tried again (EBUSY is since 0.9.0: see below). Since 0.10.0 the metadata is
+    // renamed to a name of the delete's own before it is removed: the rename fails.
+    restore = failBoth((target) => target.endsWith(`${meta.id}.json`), "EIO");
     await expect(files.delete(meta.id)).rejects.toMatchObject({ name: "DocumentStoreError", operation: "delete", code: "EIO" });
     restore();
     restore = undefined;
@@ -182,7 +200,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
   it("is a DocumentStoreError of code ETIMEDOUT when the store does not finish writing in time", async () => {
     class Hanging extends MemoryDocumentStore {
       override put(): Promise<void> {
-        return new Promise(() => {});
+        return hold();
       }
     }
     const files = createLargeFiles({ store: new Hanging(), ingestTimeoutMs: 100 });
@@ -196,7 +214,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
       looks = 0;
       override getMeta(id: string, context?: DocumentContext) {
         // The look before the file is read answers; the one just before the writes does not.
-        return ++this.looks === 1 ? super.getMeta(id, context) : new Promise<undefined>(() => {});
+        return ++this.looks === 1 ? super.getMeta(id, context) : hold<undefined>();
       }
     }
     const store = new Hanging();
@@ -212,7 +230,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
     const files = createLargeFiles({ store: new FileDocumentStore(dir) });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\n") });
     // EROFS (a volume mounted read-only) is not tried again: EPERM, EACCES and EBUSY are, since 0.9.0.
-    restore = failNext("unlink", (target) => target.endsWith(`${meta.id}.json`), "EROFS");
+    restore = failBoth((target) => target.endsWith(`${meta.id}.json`), "EROFS");
     const thrown = await files.delete(meta.id).catch((error: unknown) => error);
     expect(DocumentStoreError.is(thrown)).toBe(true);
     expect(thrown).toMatchObject({ operation: "delete", code: "EROFS", status: 503, message: "The document could not be deleted (EROFS). Try again." });
@@ -263,13 +281,14 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
 
 /**
  * Makes removing a file that `matches` fail with `code`, `times` times, whichever call removes it:
- * `unlink` since 0.9.0, `rm` before. Counts the tries.
+ * `unlink` since 0.9.0, `rm` before, and for the metadata, since 0.10.0, its `rename` to a name of
+ * the removal's own. Counts the tries.
  */
 function failRemoval(matches: (target: string) => boolean, code: string, times = Number.POSITIVE_INFINITY): { tries: number } {
-  const table = fsp as unknown as Record<"rm" | "unlink", (...args: unknown[]) => Promise<unknown>>;
-  const real = { rm: table.rm, unlink: table.unlink };
+  const table = fsp as unknown as Record<"rm" | "unlink" | "rename", (...args: unknown[]) => Promise<unknown>>;
+  const real = { rm: table.rm, unlink: table.unlink, rename: table.rename };
   const counted = { tries: 0 };
-  for (const method of ["rm", "unlink"] as const) {
+  for (const method of ["rm", "unlink", "rename"] as const) {
     table[method] = function (this: unknown, ...args: unknown[]) {
       const target = String(args[0]);
       if (matches(target)) {
@@ -283,6 +302,7 @@ function failRemoval(matches: (target: string) => boolean, code: string, times =
   restore = () => {
     table.rm = real.rm;
     table.unlink = real.unlink;
+    table.rename = real.rename;
     syncBuiltinESMExports();
   };
   return counted;

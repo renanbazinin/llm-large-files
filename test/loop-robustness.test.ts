@@ -855,12 +855,14 @@ describe("since the review of these changes", () => {
       const output = await tools.executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "List the errors." }, maxRequests === undefined ? {} : { maxRequests });
       return { sent, result: output.result };
     };
-    // Two parts. A read that may make its parts, a merge and its answer: no part is halved.
-    const tight = await run(2 + 2);
+    // Two parts. A read that may make its parts, the merges of their notes and its answer: no part
+    // is halved. Since 0.10.0 the merges are priced by estimateMerges: none here, as the notes of
+    // two parts fit one request even at the output limit (before, one merge was always kept).
+    const tight = await run(2 + 1);
     expect(tight.sent).toHaveLength(2);
     expect(tight.result.error).toMatch(/^Could not read any part of app\.log/);
     // One request more: one part is halved.
-    const one = await run(2 + 2 + 1);
+    const one = await run(2 + 1 + 1);
     expect(one.sent).toHaveLength(4);
     expect(one.result).toMatchObject({ parts_read: 3, parts_that_failed: 1 });
     // maxMapChunks of 2: the parts are as many as it allows, and none is halved.

@@ -1,0 +1,49 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "b7ee31b741988e63",
+  "bytes": 27438,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "15901 chars #7e5898cc"
+      },
+      {
+       "text": "61 chars #abfa082e"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "146 chars #9eacfc9a"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"הק\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 2,\"totalTokenCount\": 8604,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa7zRM9HMvdIPodrAsQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"נס על איחור באספקה של חלקי חילוף הוא \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 20,\"totalTokenCount\": 8622,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa7zRM9HMvdIPodrAsQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"5% מערך ההזמנה לכל שבוע איחור, והוא מופיע בסעיף \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 45,\"totalTokenCount\": 8647,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa7zRM9HMvdIPodrAsQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"63 (חוזה שירותי תחזוקה.docx L65).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 63,\"totalTokenCount\": 8665,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa7zRM9HMvdIPodrAsQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNyulQU3Zh/m72OSoAPIGIw2PJt3L/bxfhCso+9tYO4YmhPJNxBQ0O9mm/avLrcyUyN9JzUR6kqK3M1xBtVTsjp/Qn6ogGzjXzefUy6L7oDIzJ5E1MffQkOC/wppMXq/ZEdWpVKz0h05kkbrxWjYZv976Ii7yV0rSDhCdzb9F92Gzp2x8HnbxR8CIYLDsbA\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 63,\"totalTokenCount\": 8665,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa7zRM9HMvdIPodrAsQo\"}\r\n\r\n"
+  ]
+ }
+}

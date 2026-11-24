@@ -1,0 +1,169 @@
+{
+ "case": "log-hebrew",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "count",
+  "searched",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 37",
+     "status": "pass"
+    },
+    {
+     "fact": "says worker-3",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 14498,
+   "cachedInputTokens": 4988,
+   "outputTokens": 476,
+   "thoughtTokens": 244,
+   "ms": 13839,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 2,
+    "supported": 2,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5824,
+     "ms": 6861,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3692,
+      "cachedInputTokens": 0,
+      "outputTokens": 91,
+      "thoughtTokens": 54
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 7488,
+     "ms": 2969,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5309,
+      "cachedInputTokens": 1710,
+      "outputTokens": 97,
+      "thoughtTokens": 45
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 7618,
+     "ms": 3940,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5497,
+      "cachedInputTokens": 3278,
+      "outputTokens": 288,
+      "thoughtTokens": 145
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "בלוג ישנן **37 שגיאות** של **PAY-5031**, וכולן נרשמו ב-**`worker-3`** (החל משורה 17280 ועד שורה 25680).\n\n**פרטי השגיאה:**\n* **הודעת השגיאה:** `PAY-5031 card processor timeout after 30000ms order=...`\n* **טווח זמנים:** בין השעות 09:12:00 ל-09:47:00 (ב-12/11/2026)."
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 09:12",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 5537,
+   "cachedInputTokens": 3474,
+   "outputTokens": 125,
+   "thoughtTokens": 0,
+   "ms": 2585,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": [
+     {
+      "document": "payments-service.log",
+      "line": 17280
+     }
+    ]
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 7762,
+     "ms": 2583,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5537,
+      "cachedInputTokens": 3474,
+      "outputTokens": 125,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "השגיאה הראשונה נרשמה בתאריך ובשעה:  \n**`2026-11-12T09:12:00.000Z`** (שורה 17280).\n\nשורת הלוג המלאה:\n```\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960\n```"
+  }
+ ],
+ "passed": true
+}

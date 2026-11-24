@@ -1,0 +1,102 @@
+{
+ "case": "invoices-columns",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says מספר",
+     "status": "pass"
+    },
+    {
+     "fact": "says לקוח",
+     "status": "pass"
+    },
+    {
+     "fact": "says סכום",
+     "status": "pass"
+    },
+    {
+     "fact": "says סטטוס",
+     "status": "pass"
+    },
+    {
+     "fact": "says תאריך",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 244654,
+   "cachedInputTokens": 118726,
+   "outputTokens": 94,
+   "thoughtTokens": 0,
+   "ms": 2972,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "read_document"
+   ],
+   "reads": 1,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 134212,
+     "ms": 1835,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122208,
+      "cachedInputTokens": 0,
+      "outputTokens": 33,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 134451,
+     "ms": 1115,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122446,
+      "cachedInputTokens": 118726,
+      "outputTokens": 61,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "העמודות בקובץ \"חשבוניות.csv\" הן (invoices-1 L1):\n\n1. **מספר**\n2. **לקוח**\n3. **סכום**\n4. **סטטוס**\n5. **תאריך**"
+  }
+ ],
+ "passed": true
+}

@@ -33,7 +33,9 @@ import { numberedPdf } from "./pdf-fixtures.js";
  * `fullUnder` set, a write to a file under that folder fails as a full disk does (ENOSPC). With
  * `writesHeldUnder` set, each write to such a file waits for `writesGate`, as on a volume that
  * stopped answering, then runs. With `realpathHeldUnder` set, a look at the real path of a file
- * under that folder never ends; `realpaths` has the path of every look. With `removalsHeldUnder` set, a removal (`rm`) of a file under that
+ * under that folder does not end until `releaseRealpaths()` (each test's end): a call to the disk
+ * left past its time limit counts as stuck in the process until it ends (0.10.0), and would refuse
+ * the store calls of the next tests; `realpaths` has the path of every look. With `removalsHeldUnder` set, a removal (`rm`) of a file under that
  * folder waits for `removalsGate`, then runs. With `closesHeldUnder` set, the closing of a file
  * opened to write ("wx") under that folder waits for `closesGate`, as on a network volume that
  * writes then what it held back; `closesWaiting` counts the closings that wait.
@@ -45,6 +47,7 @@ const disk = vi.hoisted(() => ({
   writesGate: Promise.resolve(),
   realpathHeldUnder: undefined as string | undefined,
   realpaths: [] as string[],
+  realpathsHeld: [] as Array<() => void>,
   removalsHeldUnder: undefined as string | undefined,
   removalsGate: Promise.resolve(),
   closesHeldUnder: undefined as string | undefined,
@@ -84,7 +87,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   }) as typeof actual.open;
   const realpath = ((...args: Parameters<typeof actual.realpath>) => {
     disk.realpaths.push(String(args[0]));
-    return disk.realpathHeldUnder !== undefined && String(args[0]).startsWith(disk.realpathHeldUnder) ? new Promise<never>(() => undefined) : actual.realpath(...args);
+    if (disk.realpathHeldUnder === undefined || !String(args[0]).startsWith(disk.realpathHeldUnder)) return actual.realpath(...args);
+    return new Promise<void>((resolve) => disk.realpathsHeld.push(resolve)).then(() => actual.realpath(...args));
   }) as typeof actual.realpath;
   const rm = (async (...args: Parameters<typeof actual.rm>) => {
     if (disk.removalsHeldUnder !== undefined && String(args[0]).startsWith(disk.removalsHeldUnder)) await disk.removalsGate;
@@ -122,6 +126,7 @@ beforeEach(async () => {
 afterEach(async () => {
   // The folder of the test is removed by a removal that is not held.
   disk.realpathHeldUnder = undefined;
+  for (const release of disk.realpathsHeld.splice(0)) release();
   disk.removalsHeldUnder = undefined;
   disk.closesHeldUnder = undefined;
   for (const server of servers.splice(0)) {
@@ -213,7 +218,7 @@ function chatbot(extra: Partial<DocumentHandlerOptions> = {}) {
   return { options, infos, contexts, saved: (id: string) => path.join(root, "alice", "chat-1", "uploads", id) };
 }
 
-function library(extractors?: Record<string, Extractor>, maxUploadBytes?: number) {
+function library(extractors?: Record<string, Extractor>, maxUploadBytes?: number, maxStuckStoreCalls?: number) {
   return createLargeFiles({
     store: new FileDocumentStore(root, { scopes: { depth: 2 } }),
     keepOriginals: ["pdf"],
@@ -222,6 +227,7 @@ function library(extractors?: Record<string, Extractor>, maxUploadBytes?: number
     requireScope: true,
     ...(extractors ? { extractors } : {}),
     ...(maxUploadBytes ? { maxUploadBytes } : {}),
+    ...(maxStuckStoreCalls ? { maxStuckStoreCalls } : {}),
   });
 }
 
@@ -486,7 +492,7 @@ describe("prepareUpload with a path", () => {
   });
 
   // A volume that stopped answering held the upload, unanswered, with its file.
-  it("removes the file, and answers 500 (ETIMEDOUT), when a write does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
+  it("removes the file, and answers 503 (ETIMEDOUT), when a write does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
     const files = library();
     const { options, saved } = chatbot({ uploadIdleTimeoutMs: IDLE_MS });
     const base = await serve(files, options);
@@ -495,7 +501,9 @@ describe("prepareUpload with a path", () => {
     disk.writesGate = new Promise<void>((resolve) => (release = resolve));
     for (const events of [false, true]) {
       const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events);
-      expect(response.status).toBe(500);
+      // A 503, to try again, since 0.10.0 (a 500 before).
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("5");
       expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
     }
     expect(writes(saved("up-1"))).toHaveLength(1);
@@ -509,7 +517,7 @@ describe("prepareUpload with a path", () => {
 
   // The look at the folders of the ref came before the first timed call to the disk: on a volume
   // that stopped answering, such an upload was never answered.
-  it("answers 500 (ETIMEDOUT), and writes nothing, when the look at the folders of the ref does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
+  it("answers 503 (ETIMEDOUT), and writes nothing, when the look at the folders of the ref does not end within uploadIdleTimeoutMs", { timeout: 30_000 }, async () => {
     const files = library();
     const { options } = chatbot({ uploadIdleTimeoutMs: IDLE_MS });
     const base = await serve(files, options);
@@ -517,7 +525,7 @@ describe("prepareUpload with a path", () => {
     for (const events of [false, true]) {
       // Answered before the event stream starts: JSON on both paths.
       const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events, AbortSignal.timeout(10_000));
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(503);
       expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
     }
     expect(disk.opens.filter((entry) => entry.flags === "wx")).toEqual([]);
@@ -525,7 +533,12 @@ describe("prepareUpload with a path", () => {
     // One look at a time: each upload left one look that does not end (one thread of libuv's pool
     // held), at the root of the ref, and never looked at its folder.
     expect(disk.realpaths).toEqual([root, root]);
+    // Two looks stuck: at the default limit of stuck calls, the store is not called (0.10.0).
+    expect(files.stats()).toMatchObject({ stuckStoreCalls: 2, maxStuckStoreCalls: 2 });
+    // The volume answers again: the looks end.
     disk.realpathHeldUnder = undefined;
+    for (const release of disk.realpathsHeld.splice(0)) release();
+    await expect.poll(() => files.stats().stuckStoreCalls).toBe(0);
     disk.realpaths.length = 0;
     expect((await upload(base, "notes.txt", "The meeting is on Tuesday.")).status).toBe(201);
     expect(await uploads()).toEqual(["up-3"]);
@@ -544,7 +557,9 @@ describe("prepareUpload with a path", () => {
   // A volume that stopped answering after the body was written: the removal of the file of an
   // upload that failed held its answer.
   it("answers an upload that failed when the removal of its file does not end within uploadIdleTimeoutMs, on both paths", { timeout: 30_000 }, async () => {
-    const files = library();
+    // Each removal held past uploadIdleTimeoutMs counts as a stuck call of the process (0.10.0),
+    // which would refuse the library's own store calls past 2: this test is about the answers.
+    const files = library(undefined, undefined, Number.POSITIVE_INFINITY);
     const { options, saved } = chatbot({
       uploadIdleTimeoutMs: IDLE_MS,
       onUploaded: (document) => {
@@ -570,10 +585,12 @@ describe("prepareUpload with a path", () => {
     // The document of a refused upload is deleted all the same.
     expect(await files.getMeta("up-2", ACCESS)).toBeUndefined();
     expect(await files.getMeta("up-4", ACCESS)).toBeUndefined();
-    // The removals go on, and end once the volume answers.
+    // The removals go on, and end once the volume answers. Until then each counts as stuck.
     expect(await uploads()).toHaveLength(4);
+    expect(files.stats().stuckStoreCalls).toBe(4);
     release();
     await expect.poll(() => uploads()).toEqual([]);
+    await expect.poll(() => files.stats().stuckStoreCalls).toBe(0);
     for (const id of ["up-1", "up-2", "up-3", "up-4"]) expect(await exists(saved(id))).toBe(false);
   });
 

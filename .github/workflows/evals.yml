@@ -1,0 +1,83 @@
+name: Evals
+
+# The eval cases (evals/) against the Gemini API: every Monday, and on demand from the Actions tab.
+# Each case runs k times and passes only when every run passes (pass^k). The job fails when a case
+# not known to fail on 0.9.0 misses pass^k, when a question ends with an error (a refused key, a
+# quota), or when a fact that held in every run of the baseline (evals/baseline/0.9.0.json) fails.
+# The report, with the gates of the plan, is kept as the artifact "evals" of the run. It needs the
+# repository secret GEMINI_API_KEY; without it, the job says so and stops, and nothing fails: the
+# weekly run does nothing until the secret is added. Pull requests replay the evals instead
+# (ci.yml, evals-replay), with no key.
+on:
+  workflow_dispatch:
+    inputs:
+      k:
+        description: "Runs of each case (pass^k)"
+        default: "3"
+      models:
+        description: "Gemini models, comma-separated"
+        default: "gemini-3.5-flash-lite,gemini-3.8-flash"
+      cases:
+        description: "Case IDs, comma-separated (empty: every case)"
+        default: ""
+      max_input_tokens:
+        description: "The input tokens the run may use, in all"
+        default: "25000000"
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+# Actions are pinned by commit, as in ci.yml (which says how to update them).
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # A scheduled run has no inputs: the defaults above.
+      K: ${{ inputs.k || '3' }}
+      MODELS: ${{ inputs.models || 'gemini-3.5-flash-lite,gemini-3.8-flash' }}
+      CASES: ${{ inputs.cases || '' }}
+      MAX_INPUT_TOKENS: ${{ inputs.max_input_tokens || '25000000' }}
+    steps:
+      - name: Stop when there is no GEMINI_API_KEY secret
+        id: key
+        run: |
+          if [ -z "${GEMINI_API_KEY}" ]; then
+            echo "::notice title=Live evals skipped::The live evals were skipped: the repository has no GEMINI_API_KEY secret. Add it under Settings, Secrets and variables, Actions to run them."
+            echo "The live evals were skipped: the repository has no GEMINI_API_KEY secret." >> "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.key.outputs.run == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: steps.key.outputs.run == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - if: steps.key.outputs.run == 'true'
+        run: npm ci --ignore-scripts
+      - name: npm run eval:live
+        if: steps.key.outputs.run == 'true'
+        # The inputs go through the environment, never into the script's text.
+        run: |
+          set -- --k "${K}" --models "${MODELS}" --max-input-tokens "${MAX_INPUT_TOKENS}" --results evals/results/live.json --title "Live evals"
+          if [ -n "${CASES}" ]; then set -- "$@" --cases "${CASES}"; fi
+          npm run eval:live -- "$@"
+      - name: The report in the summary of the job
+        if: ${{ !cancelled() && steps.key.outputs.run == 'true' }}
+        run: |
+          if [ -f evals/results/live.md ]; then cat evals/results/live.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - if: ${{ !cancelled() && steps.key.outputs.run == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: evals
+          path: evals/results/
+          if-no-files-found: warn
+          retention-days: 30

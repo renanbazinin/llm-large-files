@@ -1,0 +1,198 @@
+{
+ "case": "diary-timeline",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "whole-read",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 4 October",
+     "status": "pass"
+    },
+    {
+     "fact": "says 11 October",
+     "status": "pass"
+    },
+    {
+     "fact": "says 19 October",
+     "status": "pass"
+    },
+    {
+     "fact": "says 23 October",
+     "status": "pass"
+    },
+    {
+     "fact": "says 28 October",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 8,
+   "inputTokens": 63000,
+   "cachedInputTokens": 38741,
+   "outputTokens": 4157,
+   "thoughtTokens": 0,
+   "ms": 11000,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 32,
+    "supported": 32,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "analyze_whole_document"
+   ],
+   "reads": 0,
+   "wholeReads": 1,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 6214,
+     "ms": 648,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4287,
+      "cachedInputTokens": 2021,
+      "outputTokens": 78,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 1 of 5",
+     "callId": "call_1",
+     "ms": 973,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12114,
+      "cachedInputTokens": 8167,
+      "outputTokens": 159,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_3",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 2 of 5",
+     "callId": "call_1",
+     "ms": 1041,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12147,
+      "cachedInputTokens": 8167,
+      "outputTokens": 149,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_4",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 3 of 5",
+     "callId": "call_1",
+     "ms": 1037,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12130,
+      "cachedInputTokens": 8167,
+      "outputTokens": 168,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_5",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 4 of 5",
+     "callId": "call_1",
+     "ms": 1398,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12065,
+      "cachedInputTokens": 8167,
+      "outputTokens": 328,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_6",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "part 5 of 5",
+     "callId": "call_1",
+     "ms": 549,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2985,
+      "cachedInputTokens": 0,
+      "outputTokens": 5,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_7",
+     "role": "reader",
+     "purpose": "final",
+     "model": "gemini-3.5-flash-lite",
+     "detail": "the answer",
+     "callId": "call_1",
+     "ms": 5094,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 991,
+      "cachedInputTokens": 0,
+      "outputTokens": 1856,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_8",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 8230,
+     "ms": 3704,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6281,
+      "cachedInputTokens": 4052,
+      "outputTokens": 1414,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "להלן ציר הזמן של חודש אוקטובר 2026 במרכז הנתונים בפתח תקווה, מחולק לפי שבועות: ממה שהתרחש בכל שבוע ועד לפרטי האירועים החריגים (זמני התחלה וסיום ומהלך האירוע), על פי יומן המשמרות:\n\n---\n\n### שבוע 1 (1–4 באוקטובר 2026)\n* **מה קרה בשבוע זה:** לצד שגרת בדיקות שרתים, ניקיון, בדיקות גנרטור ותחזוקת מיזוג, אירעה תקלת רטיבות בחדר השרתים (L138).\n* **אירוע חריג:** התראת לחות והצפה בחדר השרתים בקומה 3 (מים נוטפים מעל ארונות 4 עד 6 עקב פיצוץ צינור בקומה שמעל) (L138).\n  * **מתי התחיל:** 4 באוקטובר 2026.\n  * **מתי הסתיים:** באותו היום.\n  * **מה קרה:** הארונות הנפגעים כובו ושירותיהם הועברו לאתר המשני (L140). לאחר ייבוש, בדיקה ובדיקת תקינות, ארונות השרתים הודלקו מחדש והשירותים הוחזרו לאתר הראשי (L149).\n\n---\n\n### שבוע 2 (11–17 באוקטובר 2026)\n* **מה קרה בשבוע זה:** ביצוע פעילות שוטפת וטיפול בתקלת תקשורת רוחבית באתר ההזמנות (L462).\n* **אירוע חריג:** אתר ההזמנות אינו נטען עקב נתב ליבה ראשי שנתקע (L462).\n  * **מתי התחיל:** 11 באוקטובר 2026 בשעה 14:05 (L462).\n  * **מתי הסתיים:** באותו יום בשעה 15:20 (L466).\n  * **מה קרה:** הלקוחות דיווחו שהאתר לא נטען, וצוות הרשת זיהה שהנתב הראשי נתקע (L462). ניסיון לאתחל את הנתב ב-14:30 לא צלח (L464), ולבסוף בשעה 15:20 הוחלף נתב הליבה בנתב הגיבוי ואתר ההזמנות חזר לפעילות מלאה (L466).\n\n---\n\n### שבוע 3 (18–24 באוקטובר 2026)\n* **מה קרה בשבוע זה:** תחזוקה שוטפת של מערכות, לצד אירוע אבטחת מידע ואזעקת שווא (L801, L998).\n* **אירוע חריג 1:** התחברות חשודה מחוץ לארץ לחשבון של עובדת במחלקת הכספים (L801).\n  * **מתי התחיל:** 19 באוקטובר 2026 בשעה 09:30 (L801).\n  * **מתי הסתיים:** באותו יום בשעה 11:00 (L806).\n  * **מה קרה:** צוות אבטחת המידע זיהה את ההתחברות, נעל את החשבון ואיפס סיסמה (L801). בוצעה בדיקת כלל הפעולות שבוצעו בחשבון בשבוע האחרון (L804), ולאחר שנמצא כי לא דלף מידע רגיש, החשבון נפתח מחדש בצירוף אימות דו-שלבי (L806).\n* **אירוע חריג 2:** אזעקת אש בבניין (L998).\n  * **מתי התחיל:** 23 באוקטובר 2026 בשעה 22:45 (L998).\n  * **מתי הסתיים:** באותו יום בשעה 23:10 (L1001).\n  * **מה קרה:** הופעלה אזעקת אש וצוות המשמרת התפנה לנקודת הכינוס בחניון (L998). כוחות הכבאות הגיעו ב-22:58 (L1000) ולאחר בדיקה קבעו ב-23:10 שמדובר באזעקת שווא שנגרמה מגלאי עשן תקול, והצוות חזר לבניין (L1001).\n\n---\n\n### שבוע 4 (25–31 באוקטובר 2026)\n* **מה קרה בשבוע זה:** פעילות שוטפת וטיפול בתקלת אחסון בגיבוי הלילי (L1188).\n* **אירוע חריג:** גיבוי הלילה לא הושלם עקב מחסור במקום אחסון (L1188).\n  * **מתי התחיל:** 28 באוקטובר 2026 בשעה 06:00 (L1188).\n  * **מתי הסתיים:** באותו יום בשעה 13:30 (L1202).\n  * **מה קרה:** ב-06:00 זוהה כי מערך האחסון מלא ואין מקום לעותק החדש (L1188). ב-09:10 נמחקו עותקים ישנים שפג תוקפם כפתרון זמני (L1194), וב-13:30 נוסף מדף דיסקים חדש למערך האחסון והגיבוי הושלם בהצלחה (L1202)."
+  }
+ ],
+ "passed": true
+}

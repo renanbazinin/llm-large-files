@@ -1,0 +1,69 @@
+{
+ "case": "policy-seniority",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 21",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 7239,
+   "cachedInputTokens": 0,
+   "outputTokens": 402,
+   "thoughtTokens": 316,
+   "ms": 4474,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 9740,
+     "ms": 4468,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7239,
+      "cachedInputTokens": 0,
+      "outputTokens": 402,
+      "thoughtTokens": 316
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "לפי טבלת ימי החופשה במסמך (סעיף 3.5), עובד עם ותק של 6 שנים (קטגוריית 6–7 שנים) זכאי ל-**21 ימי חופשה** (כולל יום בחירה אחד) (מדיניות משאבי אנוש 2026.docx L30)."
+  }
+ ],
+ "passed": true
+}

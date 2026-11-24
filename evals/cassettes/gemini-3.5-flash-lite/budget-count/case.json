@@ -1,0 +1,106 @@
+{
+ "case": "budget-count",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "count",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 23",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 12137,
+   "cachedInputTokens": 0,
+   "outputTokens": 162,
+   "thoughtTokens": 0,
+   "ms": 2183,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 3,
+    "supported": 3,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table",
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5731,
+     "ms": 961,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3856,
+      "cachedInputTokens": 0,
+      "outputTokens": 51,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 5838,
+     "ms": 519,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3976,
+      "cachedInputTokens": 0,
+      "outputTokens": 62,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 6122,
+     "ms": 618,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4305,
+      "cachedInputTokens": 0,
+      "outputTokens": 49,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "ברבעון 1, הביצוע היה גבוה מהתקציב ב-**23** מחלקות (תקציב מחלקות 2026.xlsx L7, L9, L11)."
+  }
+ ],
+ "passed": true
+}

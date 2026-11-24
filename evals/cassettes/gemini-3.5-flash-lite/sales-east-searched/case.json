@@ -1,0 +1,86 @@
+{
+ "case": "sales-east-searched",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 32133",
+     "status": "pass"
+    },
+    {
+     "fact": "number 22",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 6422,
+   "cachedInputTokens": 0,
+   "outputTokens": 82,
+   "thoughtTokens": 0,
+   "ms": 1189,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5063,
+     "ms": 623,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3131,
+      "cachedInputTokens": 0,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 5205,
+     "ms": 537,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3291,
+      "cachedInputTokens": 0,
+      "outputTokens": 29,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "The total revenue for the East region is **32,133**, and there are **22** rows for the East region."
+  }
+ ],
+ "passed": true
+}
