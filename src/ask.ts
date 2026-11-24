@@ -366,6 +366,15 @@ function checkMissingPolicy(given: unknown): void {
   throw new TypeError(`onMissingDocuments must be "throw", "drop" or a function, and is ${shownValue(given)}.`);
 }
 
+/**
+ * `filteredAnswer` checked: a value it cannot be ("Drop", true) is an error before anything is
+ * planned. It would otherwise keep a filtered answer that the application meant to drop.
+ */
+function checkFilteredAnswer(given: unknown): void {
+  if (given === undefined || given === "keep" || given === "drop") return;
+  throw new TypeError(`filteredAnswer must be "keep" or "drop", and is ${shownValue(given)}.`);
+}
+
 /** An object made as `{}` or `Object.create(null)` is: not a Map, an array or an instance of a class. */
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
   if (value === null || typeof value !== "object") return false;
@@ -952,6 +961,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const models = explorer ? [model, explorer] : [model];
   const limits = checkedLimits(options.limits);
   checkMissingPolicy(options.onMissingDocuments);
+  checkFilteredAnswer(options.filteredAnswer);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 

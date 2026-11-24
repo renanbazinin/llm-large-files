@@ -105,6 +105,20 @@ describe("AskResult.finish and the answer notices", () => {
     expect(answerInfoOf(result)).toEqual({ complete: true, finish: "complete", finishReason: "STOP" });
   });
 
+  it("refuses a filteredAnswer it cannot be before anything is asked: it would keep what was meant to be dropped", async () => {
+    const { files, note } = await library();
+    for (const [value, shown] of [["Drop", "\"Drop\""], [true, "boolean"], [null, "null"]] as const) {
+      const model = fakeModel([says("Partial", { finish: "filtered" })]);
+      const outcome = await askWithFiles({ files, model, documentIds: [note.id], messages: question("q"), filteredAnswer: value as never }).then(() => undefined, (error: unknown) => error);
+      expect(outcome).toBeInstanceOf(TypeError);
+      expect((outcome as Error).message).toBe(`filteredAnswer must be "keep" or "drop", and is ${shown}.`);
+      expect(model.requests).toHaveLength(0);
+    }
+    // "keep" and undefined are the default.
+    const kept = await askWithFiles({ files, model: fakeModel([says("Partial", { finish: "filtered" })]), documentIds: [note.id], messages: question("q"), filteredAnswer: "keep" });
+    expect(kept).toMatchObject({ text: "Partial", answered: true });
+  });
+
   it("says an answer was cut at the output limit, and keeps it", async () => {
     const { files, log } = await library();
     const events: AskEvent[] = [];
