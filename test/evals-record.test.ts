@@ -320,6 +320,30 @@ describe("the facts of the eval cases", () => {
     // Once checkCitations is written, the fact is checked: here, the line cited holds it.
     expect(result.status).toBe(written ? "pass" : "not checked yet");
   });
+  it("writes no project, gateway key or token from a header or a URL parameter it does not know", async () => {
+    const dir = folder();
+    const upstream = (async () => Response.json({ candidates: [{ content: { role: "model", parts: [{ text: "Hi." }] }, finishReason: "STOP" }] })) as typeof fetch;
+    const record = recordingFetch(dir, { fetch: upstream });
+    const secrets = ["secret-proj-3", "SECRETTOKEN4", "org-SECRET5", "SECRETKEY6", "SECRETTOKEN7", "SECRETSIG8", "SECRETPASS9"];
+    const body = JSON.stringify({ contents: [{ role: "user", parts: [{ text: "Hi?" }] }] });
+    await record(new Request("https://gateway.example.com/v1/models/gemini-test:generateContent?alt=json&api_key=SECRETKEY6&access_token=SECRETTOKEN7&sig=SECRETSIG8", {
+      method: "POST", body,
+      headers: { "Content-Type": "application/json", "x-goog-user-project": "secret-proj-3", "Helicone-Auth": "Bearer SECRETTOKEN4", "OpenAI-Organization": "org-SECRET5" },
+    }));
+    await record("https://user:SECRETPASS9@gateway.example.com/v1/x?api-version=2024-10-21", { method: "POST", body });
+    const written = readdirSync(dir).map((name) => readFileSync(path.join(dir, name), "utf8")).join("\n");
+    for (const secret of secrets) expect(written, secret).not.toContain(secret);
+    const [first, second] = readCassette(dir);
+    // The names stay, and the values that hold no secret.
+    expect(first!.request.headers).toEqual({ "content-type": "application/json", "x-goog-user-project": "<redacted>", "helicone-auth": "<redacted>", "openai-organization": "<redacted>" });
+    expect(first!.request.url).toBe("https://gateway.example.com/v1/models/gemini-test:generateContent?alt=json&api_key=<redacted>&access_token=<redacted>&sig=<redacted>");
+    expect(second!.request.url).toBe("https://<redacted>@gateway.example.com/v1/x?api-version=2024-10-21");
+    // A replay with another token still finds its recording: the hash holds no secret either.
+    const replay = replayFetch(dir);
+    await replay("https://gateway.example.com/v1/models/gemini-test:generateContent?alt=json&api_key=OTHER&access_token=OTHER&sig=OTHER", { method: "POST", body });
+    expect(replay.misses).toEqual([]);
+  });
+
 });
 
 describe("the eval runner over a cassette (evals/lib/runner.ts)", () => {

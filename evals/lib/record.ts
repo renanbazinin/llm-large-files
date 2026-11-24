@@ -6,10 +6,13 @@
 // changed, and the response (its status, a few headers, and its body, or the chunks of a stream as
 // they arrived). No request body is kept: the text of the documents stays out of the files.
 //
-// Normalized: the `key` parameter leaves the URL, `projects/<id>/` becomes `projects/<project>/`,
-// and the tool-call IDs an adapter makes itself (`call_<24 hex>`, `toolu_<24 hex>`) become
-// placeholders in the order they appear. Redacted: the authorization, x-goog-api-key, api-key and
-// x-api-key headers. So no key, token or project ID is written.
+// Normalized: the `key` parameter leaves the URL, the value of every other parameter but `alt` and
+// `api-version` is redacted (api_key, access_token, sig…), so are the user and password of a URL,
+// `projects/<id>/` becomes `projects/<project>/`, and the tool-call IDs an adapter makes itself
+// (`call_<24 hex>`, `toolu_<24 hex>`) become placeholders in the order they appear. Request headers
+// are written from an allow-list: content-type, accept, anthropic-version and anthropic-beta keep
+// their values, every other header (authorization, x-goog-api-key, x-goog-user-project, a gateway's
+// key…) is written as redacted. So no key, token or project ID is written.
 //
 // Replay answers each request from the file whose hash it has, in the order they were recorded
 // for requests of the same hash, or strictly in order. A request with no file throws
@@ -22,9 +25,9 @@ import type { AskEvent, GenerateText, GenerateUsage, ModelAdapter, ModelCapabili
 /** A request as it is written: what a `redact` function gets and gives back. */
 export type RecordedRequest = {
   method: string;
-  /** Without the `key` parameter, with `projects/<project>/`. */
+  /** Without the `key` parameter, other parameters but `alt` and `api-version` redacted, with `projects/<project>/`. */
   url: string;
-  /** Names in lower case; the secret ones redacted. */
+  /** Names in lower case; the values of all but a few redacted. */
   headers: Record<string, string>;
   /** The body parsed as JSON (or its text, when it is not JSON), tool-call IDs normalized. Not written: its hash and outline are. */
   body: unknown;
@@ -51,8 +54,11 @@ export type Outline = null | boolean | number | string | Outline[] | { [key: str
 /** Written in place of a secret. */
 export const REDACTED = "<redacted>";
 
-/** Headers whose values are never written. */
-const SECRET_HEADERS = new Set(["authorization", "proxy-authorization", "x-goog-api-key", "api-key", "x-api-key", "cookie"]);
+/** Request headers whose values are written: none of them can carry a key, a token or an account. */
+const KEPT_REQUEST_HEADERS = new Set(["content-type", "accept", "anthropic-version", "anthropic-beta"]);
+
+/** URL parameters whose values are written. Every other value is redacted, and `key` is left out. */
+const KEPT_PARAMETERS = new Set(["alt", "api-version"]);
 
 /** Response headers worth keeping: those an adapter reads. */
 const KEPT_HEADERS = ["content-type", "retry-after", "retry-after-ms", "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens"];
@@ -83,17 +89,30 @@ export class CassetteMissError extends Error {
 
 // Normalizing.
 
-/** The URL without its `key` parameter, and with the project of a Vertex AI path replaced. */
+const parameterName = (name: string) => {
+  try {
+    return decodeURIComponent(name).toLowerCase();
+  } catch {
+    return name.toLowerCase();
+  }
+};
+
+/**
+ * The URL without its `key` parameter, the values of its other parameters redacted (but `alt` and
+ * `api-version`), without a user and password, and with the project of a Vertex AI path replaced.
+ */
 export function normalizeUrl(url: string): string {
-  let out = url.replace(/([?&])key=[^&#]*&?/gi, (_match, separator: string) => separator).replace(/[?&](?=#|$)/, "");
+  let out = url.replace(/([?&])key=[^&#\s]*&?/gi, (_match, separator: string) => separator).replace(/[?&](?=#|$|\s)/, "");
+  out = out.replace(/([?&])([^=&#\s?]+)=([^&#\s]*)/g, (match, separator: string, name: string) => (KEPT_PARAMETERS.has(parameterName(name)) ? match : `${separator}${name}=${REDACTED}`));
+  out = out.replace(/\b([a-z][\w+.-]*:\/\/)[^/@?#\s]+@/gi, `$1${REDACTED}@`);
   out = out.replace(/\/projects\/[^/?#]+\//g, "/projects/<project>/");
   return out;
 }
 
-/** The headers with lower-case names, and the secret ones redacted. */
+/** The headers with lower-case names, every value redacted but those of a few headers that hold no secret. */
 export function redactHeaders(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const [name, value] of Object.entries(headers)) out[name.toLowerCase()] = SECRET_HEADERS.has(name.toLowerCase()) ? REDACTED : value;
+  for (const [name, value] of Object.entries(headers)) out[name.toLowerCase()] = KEPT_REQUEST_HEADERS.has(name.toLowerCase()) || value === REDACTED ? value : REDACTED;
   return out;
 }
 
