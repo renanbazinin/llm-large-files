@@ -18,7 +18,7 @@ import {
 import { askGemini, geminiApi } from "llm-large-files/gemini";
 import { calls, fakeFetch, fakeModel, says, serviceLog, utf8 } from "llm-large-files/testing";
 import { FINAL_ANSWER_WITH_FILES } from "../src/ask.js";
-import { INLINE_CITATION_LINE, INLINE_TABLES_LINE, numberedText, renderInline } from "../src/plan.js";
+import { INLINE_CITATION_LINE, INLINE_TABLES_LINE, numberedSize, numberedText, renderInline } from "../src/plan.js";
 import { p, word, zip } from "./word-fixtures.js";
 
 /** probe4's CSV: 3,000 invoices in Hebrew, 750 of them late ("באיחור"). */
@@ -240,6 +240,20 @@ describe("files sent whole are numbered (numberInline)", () => {
     expect(model.requests[0]!.tools).toBeUndefined();
     // Line 9 is past the end of the file.
     expect(result.citations).toEqual({ checked: 2, supported: 1, unchecked: 0, unsupported: [{ document: "notes.md", line: 9 }] });
+  });
+
+  it("plans a file sent whole by its numbered size: at the edge of inlineTokens it is searched", async () => {
+    const files = await library();
+    const meta = await files.ingest({ name: "notes.md", bytes: utf8(Array.from({ length: 400 }, (_, i) => `Line ${i + 1} of the notes on the nightly import.`).join("\n")) });
+    // Room for the text, not for its line numbers.
+    const budget = { inlineTokens: Math.floor((meta.estimatedTokens + numberedSize(meta).tokens) / 2) };
+    const ask = (numberInline: boolean) => askWithFiles({ files, model: fakeModel([says("At 02:00.")]), documentIds: [meta.id], messages: [question("When?")], budget, numberInline });
+    const numbered = await ask(true);
+    expect(numbered.plan.inline).toEqual([]);
+    expect(numbered.plan.searchable.map((document) => document.id)).toEqual([meta.id]);
+    const plain = await ask(false);
+    expect(plain.plan.inline.map((document) => document.id)).toEqual([meta.id]);
+    expect(plain.plan.inlineTokens).toBe(meta.estimatedTokens);
   });
 
   it("sends the block of 0.9 with numberInline false, and no citation line", async () => {
