@@ -150,9 +150,10 @@ export function freeShare(used: Size, limit: Size): number {
  * not yet stand-ins become stand-ins, one at a time, until `STUB_END_FREE` is free or every unit is
  * one. So the earlier turns of a chat change in a few batches, not a little at every request.
  * `other` is everything else in the request; each unit gives its size in full and as stand-ins.
+ * A `stubbed` that is not a number counts as 0, and Infinity as every unit.
  */
 export function stubbedFor(units: ReadonlyArray<{ full: Size; standIn: Size }>, other: Size, limit: Size, stubbed = 0): number {
-  let count = Math.min(units.length, Math.max(0, Math.trunc(stubbed)));
+  let count = typeof stubbed !== "number" || Number.isNaN(stubbed) ? 0 : Math.min(units.length, Math.max(0, Math.trunc(stubbed)));
   const used = { ...other };
   units.forEach((unit, index) => {
     const size = index < count ? unit.standIn : unit.full;

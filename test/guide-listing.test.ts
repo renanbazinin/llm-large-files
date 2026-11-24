@@ -283,8 +283,14 @@ describe("room kept for what is besides the documents (reserve)", () => {
     const files = library();
     const meta = await files.ingest({ name: "notes.txt", bytes: utf8("one\n") });
     await expect(files.prepare([meta.id], base, { reserve: { tokens: -1, bytes: 0 } })).rejects.toThrow(RangeError);
-    await expect(files.prepare([meta.id], base, { reserve: { tokens: 0, bytes: Number.NaN } })).rejects.toThrow("PrepareOptions.reserve.bytes must be a number of 0 or more (got NaN).");
-    await expect(files.prepare([meta.id], base, { reserve: "4K" as never })).rejects.toThrow(TypeError);
+    await expect(files.prepare([meta.id], base, { reserve: { tokens: 0, bytes: Number.NaN } })).rejects.toThrow("PrepareOptions.reserve.bytes must be a finite number of 0 or more (got NaN).");
+    await expect(files.prepare([meta.id], base, { reserve: { tokens: Number.POSITIVE_INFINITY, bytes: 0 } })).rejects.toThrow(RangeError);
+    await expect(files.prepare([meta.id], base, { reserve: "4K" as never })).rejects.toThrow('PrepareOptions.reserve must be an object: { tokens, bytes } (got "4K").');
+    await expect(files.prepare([meta.id], base, { reserve: [] as never })).rejects.toThrow(TypeError);
+    // A field missing, or not a number, is of the wrong kind, and a string is quoted.
+    await expect(files.prepare([meta.id], base, { reserve: { tokens: 5 } as never })).rejects.toThrow(new TypeError("PrepareOptions.reserve.bytes must be a number (got undefined)."));
+    await expect(files.prepare([meta.id], base, { reserve: { tokens: "1", bytes: 1 } as never })).rejects.toThrow(new TypeError('PrepareOptions.reserve.tokens must be a number (got "1").'));
+    expect((await files.prepare([meta.id], base, { reserve: { tokens: 0, bytes: 0 } })).plan.inline).toHaveLength(1);
     await expect(files.prepare([meta.id], base, { numberInline: "yes" as never })).rejects.toThrow("PrepareOptions.numberInline must be true or false (got string).");
     await expect(files.prepare([meta.id], base, { inlineTables: "table" as never })).rejects.toThrow('PrepareOptions.inlineTables must be "tools" or "text" (got "table").');
   });

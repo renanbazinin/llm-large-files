@@ -96,13 +96,20 @@ async function block(context: PrepareContext, id: string, meta: DocumentMeta, ca
   return undefined;
 }
 
-/** `PrepareOptions.reserve` checked: undefined when it is not given. */
+/** A value as an error message quotes it: a string in quotes, so that "1" is not read as 1. */
+const quoted = (value: unknown) => (typeof value === "string" ? JSON.stringify(value) : String(value));
+
+/**
+ * `PrepareOptions.reserve` checked: undefined when it is not given. A value that is not an object
+ * of two numbers is a TypeError; a size that is not a finite number of 0 or more, a RangeError.
+ */
 function reserveOf(value: unknown): Size | undefined {
   if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null) throw new TypeError("PrepareOptions.reserve must be an object: { tokens, bytes }.");
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError(`PrepareOptions.reserve must be an object: { tokens, bytes } (got ${Array.isArray(value) ? "an array" : quoted(value)}).`);
   const { tokens, bytes } = value as { tokens?: unknown; bytes?: unknown };
   for (const [name, size] of [["tokens", tokens], ["bytes", bytes]] as const) {
-    if (typeof size !== "number" || Number.isNaN(size) || size < 0) throw new RangeError(`PrepareOptions.reserve.${name} must be a number of 0 or more (got ${String(size)}).`);
+    if (typeof size !== "number") throw new TypeError(`PrepareOptions.reserve.${name} must be a number (got ${quoted(size)}).`);
+    if (!Number.isFinite(size) || size < 0) throw new RangeError(`PrepareOptions.reserve.${name} must be a finite number of 0 or more (got ${size}).`);
   }
   return { tokens: tokens as number, bytes: bytes as number };
 }

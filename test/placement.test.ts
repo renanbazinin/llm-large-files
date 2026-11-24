@@ -279,6 +279,11 @@ describe("stand-ins in batches (HL2-2)", () => {
     // With little to gain, every unit, and no more.
     expect(stubbedFor(units, { tokens: 95_000, bytes: 0 }, limit)).toBe(6);
     expect(stubbedFor(units, { tokens: 0, bytes: 0 }, limit, 9)).toBe(6);
+    // A count that is not a number is none, and Infinity is every unit: it gave NaN.
+    expect(stubbedFor(units, { tokens: 30_000, bytes: 0 }, limit, Number.NaN)).toBe(4);
+    expect(stubbedFor(units, { tokens: 0, bytes: 0 }, limit, Number.NaN)).toBe(0);
+    expect(stubbedFor(units, { tokens: 0, bytes: 0 }, limit, Number.POSITIVE_INFINITY)).toBe(6);
+    expect(stubbedFor(units, { tokens: 30_000, bytes: 0 }, limit, Number.NEGATIVE_INFINITY)).toBe(4);
   });
 
   it("counts bytes too, by the less free of the two", () => {
