@@ -9,6 +9,12 @@ import { hebrewLease, paint, PdfBuilder, pdfWithSizedLines, type SizedLine } fro
 
 const fixture = (name: string) => new Uint8Array(readFileSync(new URL(`./fixtures/pdf/${name}.pdf`, import.meta.url)));
 const body = (text: string): SizedLine => ({ text, size: 11 });
+/** What the built-in PDF extractor returns for `bytes`. */
+const extract = (bytes: Uint8Array, options?: Parameters<typeof createPdfExtractor>[0]) =>
+  (options ? createPdfExtractor(options) : defaultExtractors.pdf)(bytes, { name: "file.pdf", mimeType: "application/pdf", format: "pdf" });
+/** The headings the extractor found, as [page, level, title]. */
+const headingsIn = async (bytes: Uint8Array, options?: Parameters<typeof createPdfExtractor>[0]) =>
+  ((await extract(bytes, options)).headings ?? []).map(({ page, level, title }) => [page, level, title]);
 
 /** An English report: a title, numbered and unnumbered headings in two sizes, a small running footer. */
 function englishReport(): Uint8Array {
@@ -93,16 +99,20 @@ describe("the outline of a PDF from the size of its type", () => {
     expect((await ingested(hebrewLease(), { store: new MemoryDocumentStore(), extractors: { pdf: dropping } })).meta.outline).toEqual([]);
   });
 
-  it("gives the Hebrew and English PDFs printed by Word and Chrome their headings", async () => {
-    const hebrewReport = await ingested(fixture("word-hebrew"));
-    expect(outlineOf(hebrewReport.meta, hebrewReport.text)).toEqual([[2, 1, "דוח הכנסות"]]);
-    const statement = await ingested(fixture("chrome-hebrew-statement"));
-    expect(outlineOf(statement.meta, statement.text)).toEqual([[2, 1, "דף חשבון"]]);
+  it("gives a PDF printed by Word its headings, and leaves the outline of one with a title alone as it was", async () => {
     const report = await ingested(fixture("word-pictures"));
     expect(outlineOf(report.meta, report.text).map(([, level, title]) => [level, title])).toEqual([[1, "Regional report"], [1, "Site visit"], [1, "Status by site"]]);
-    // A caption set larger than the text, smaller than the title.
-    const simple = await ingested(fixture("word-simple"));
-    expect(outlineOf(simple.meta, simple.text)).toEqual([[2, 1, "Revenue report"], [7, 2, "Table 1: Revenue by region (USD millions)"]]);
+    // A title, or a title and a caption set larger than the text, is not an outline: the card and
+    // the search hits of these PDFs, the two of the evals among them, are those of 0.9.
+    for (const [name, found] of [
+      ["word-hebrew", [[1, 1, "דוח הכנסות"]]],
+      ["chrome-hebrew-statement", [[1, 1, "דף חשבון"]]],
+      ["word-simple", [[1, 1, "Revenue report"], [1, 2, "Table 1: Revenue by region (USD millions)"]]],
+      ["word-dense", [[1, 1, "Output by site"]]],
+    ] as const) {
+      expect(await headingsIn(fixture(name))).toEqual(found);
+      expect((await ingested(fixture(name))).meta.outline).toEqual([]);
+    }
   });
 
   it("keeps the outline of the text rules when they find 3 headings or more, and replaces one of fewer", async () => {
@@ -128,32 +138,107 @@ describe("the outline of a PDF from the size of its type", () => {
     expect(outlineOf(two.meta, two.text)).toEqual([[2, 1, "Service agreement"], [7, 2, "Definitions"], [9, 2, "Obligations"]]);
   });
 
-  it("takes no row of a table for a heading, nor a line of numbers set large", async () => {
+  it("takes no row of a table for a heading, nor a line of numbers set large, with the tables rebuilt or not", async () => {
     const rows = Array.from({ length: 14 }, (_, index): SizedLine => ({ cells: [`Site ${String.fromCharCode(65 + index)}`, `${120 + index}`, `${135 + index}`, `${150 + index}`], size: 10 }));
-    const bytes = pdfWithSizedLines([[
+    const bytes = () => pdfWithSizedLines([[
       { text: "Quarterly figures", size: 16 },
-      { cells: ["Region", "Q1", "Q2", "Q3"], size: 13 },
+      { cells: ["Region", "North South", "East", "West"], size: 13 },
       ...rows,
       { cells: ["Total", "1,200", "1,350", "1,500"], size: 13 },
       { text: "1,234,567", size: 18 },
       { text: "Figures are in thousands and were not audited.", size: 10 },
+      { text: "The north and south regions were counted together this year.", size: 10 },
     ]]);
-    const { meta, text } = await ingested(bytes);
-    expect(text).toContain("\n| Region | Q1 | Q2 | Q3 |\n| Site A | 120 | 135 | 150 |\n");
-    expect(outlineOf(meta, text)).toEqual([[2, 1, "Quarterly figures"]]);
-    // Real tables: a Word report whose table is most of the page, and a Hebrew bank statement.
-    const dense = await ingested(fixture("word-dense"));
-    expect(outlineOf(dense.meta, dense.text)).toEqual([[2, 1, "Output by site"]]);
+    expect((await extract(bytes())).text).toContain("\n| Region | North South | East | West |\n| Site A | 120 | 135 | 150 |\n");
+    expect(await headingsIn(bytes())).toEqual([[1, 1, "Quarterly figures"]]);
+    // Read without rebuilding the tables, the header row is one line of the text: its cells are far apart.
+    expect((await extract(bytes(), { tables: false })).text).toContain("\nRegion North South East West\n");
+    expect(await headingsIn(bytes(), { tables: false })).toEqual([[1, 1, "Quarterly figures"]]);
+    // A table of two columns, which is never rebuilt: a label and its value.
+    const details = pdfWithSizedLines([[
+      { text: "Tenant details", size: 16 },
+      body("The tenant gave these details when the lease was signed, in person."),
+      { cells: ["Field", "Value"], size: 13 },
+      { cells: ["Name", "Dana Levi"], size: 11 },
+      { cells: ["Phone", "050-1234567"], size: 11 },
+      body("The landlord keeps a copy of these details for the length of the lease."),
+    ]]);
+    expect(await headingsIn(details)).toEqual([[1, 1, "Tenant details"]]);
+  });
+
+  it("measures the body without the tables: a statement whose table is in smaller type than its notes has no note for a heading", async () => {
+    const statement = (hebrew: boolean) => {
+      const row = (index: number): SizedLine => ({ cells: [`${10 + (index % 20)}/11/2026`, hebrew ? `תשלום לספק ${index}` : `Payment to supplier ${index}`, `${120 + index}.50`, `${4_000 + index}.20`], size: 8 });
+      const rows = Array.from({ length: 30 }, (_, index) => row(index));
+      const note = (english: string, hebrewText: string): SizedLine => ({ text: hebrew ? hebrewText : english, size: 10 });
+      return pdfWithSizedLines([
+        [{ text: hebrew ? "דף חשבון" : "Account statement", size: 14 }, note("Your balance went down this month because of two large payments.", "היתרה שלך ירדה החודש בגלל שני תשלומים גדולים"),
+          ...rows, note("Interest is paid on the last working day of each month.", "הריבית משולמת ביום העבודה האחרון של כל חודש")],
+        [note("Call us if you see a payment you do not know.", "פנה אלינו אם אתה רואה תשלום שאינך מכיר"), ...rows, note("All amounts are in pounds.", "כל הסכומים בשקלים חדשים")],
+      ]);
+    };
+    expect(await headingsIn(statement(false))).toEqual([[1, 1, "Account statement"]]);
+    expect(await headingsIn(statement(true))).toEqual([[1, 1, "דף חשבון"]]);
+    expect((await ingested(statement(true))).meta.outline).toEqual([]);
+  });
+
+  it("points each heading at its own line when a line above it on its page reads the same: a contents list, a running header", async () => {
+    const bytes = () => pdfWithSizedLines([[
+      { text: "Site report", size: 9 },
+      { text: "Site report", size: 22 },
+      { text: "Contents", size: 14 },
+      body("Introduction"), body("Method"), body("Results"),
+      { text: "Introduction", size: 16 }, body("The inspection began with the north gate and its fence."), body("Two inspectors walked the grounds."),
+      { text: "Method", size: 16 }, body("Each wall was measured with a laser and photographed."), body("The roof was checked by drone."),
+      { text: "Results", size: 16 }, body("The east wall needs new mortar before the winter."), body("The roof drains are blocked by leaves."),
+    ]]);
+    expect((await extract(bytes())).headings).toEqual([
+      { page: 1, level: 1, title: "Site report", skip: 1 },
+      { page: 1, level: 3, title: "Contents" },
+      { page: 1, level: 2, title: "Introduction", skip: 1 },
+      { page: 1, level: 2, title: "Method", skip: 1 },
+      { page: 1, level: 2, title: "Results", skip: 1 },
+    ]);
+    const { files, meta, text } = await ingested(bytes());
+    expect(outlineOf(meta, text)).toEqual([[3, 1, "Site report"], [4, 3, "Contents"], [8, 2, "Introduction"], [11, 2, "Method"], [14, 2, "Results"]]);
+    const tools = files.tools([meta]);
+    const sectionOf = async (query: string) => ((await tools.execute("search_document", { document_id: meta.id, query, mode: "exact" })) as { matches: Array<{ section?: string }> }).matches[0]!.section;
+    expect([await sectionOf("north gate"), await sectionOf("laser"), await sectionOf("east wall")]).toEqual(["Introduction", "Method", "Results"]);
+  });
+
+  it("keeps numbered chapters, which are on a few pages, and leaves out a numbered footer, which is on most", async () => {
+    const lines = ["המשכיר הוא בעל הזכויות בדירה ברחוב הרצל", "השוכר מעוניין לשכור את הדירה למגורים בלבד", "דמי השכירות ישולמו בראשון לכל חודש בהעברה"].map(body);
+    const pages = Array.from({ length: 12 }, (_, index): SizedLine[] => [
+      ...(index % 3 === 0 ? [{ text: `פרק ${index / 3 + 1}`, size: 18 }] : []),
+      ...lines, ...lines,
+      { text: `עמוד ${index + 1} מתוך 12`, size: 13 },
+    ]);
+    const { meta, text } = await ingested(pdfWithSizedLines(pages));
+    expect(outlineOf(meta, text).map(([, level, title]) => [level, title])).toEqual([[1, "פרק 1"], [1, "פרק 2"], [1, "פרק 3"], [1, "פרק 4"]]);
+  });
+
+  it("gives the headings of the body their own levels below a cover page", async () => {
+    const filler = [body("The supplier keeps the systems running at all hours of the day."), body("Each party does what this agreement asks of it, on time and in full.")];
+    const { meta, text } = await ingested(pdfWithSizedLines([
+      [{ text: "Annual Audit Report", size: 26 }, { text: "Operations Division", size: 18 }],
+      [{ text: "Introduction", size: 16 }, ...filler, { text: "Scope of the audit", size: 13 }, ...filler, { text: "Sources", size: 13 }, ...filler],
+      [{ text: "Findings", size: 16 }, ...filler, { text: "Late payments", size: 13 }, ...filler, { text: "Missing receipts", size: 13 }, ...filler],
+    ]));
+    expect(outlineOf(meta, text).map(([, level, title]) => [level, title])).toEqual([
+      [1, "Annual Audit Report"], [1, "Operations Division"],
+      [2, "Introduction"], [3, "Scope of the audit"], [3, "Sources"],
+      [2, "Findings"], [3, "Late payments"], [3, "Missing receipts"],
+    ]);
   });
 
   it("finds the headings of the pages with text in a PDF with a page without any, and none in a scan", async () => {
     const mixed = await ingested(pdfWithSizedLines([
       [{ text: "Inspection notes", size: 18 }, body("The first site was visited on a dry morning in March."), body("Nothing needed repair at once.")],
       [],
-      [{ text: "Second visit", size: 18 }, body("The second visit found a leak in the roof of the store room.")],
+      [{ text: "Second visit", size: 18 }, body("The second visit found a leak in the roof of the store room."), { text: "Third visit", size: 18 }, body("The leak was mended.")],
     ]), { store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     expect(mixed.text).toContain("--- Page 2 ---\n[No text on this page. It may be a scan, a photo, or a chart.]");
-    expect(outlineOf(mixed.meta, mixed.text)).toEqual([[2, 1, "Inspection notes"], [10, 1, "Second visit"]]);
+    expect(outlineOf(mixed.meta, mixed.text)).toEqual([[2, 1, "Inspection notes"], [10, 1, "Second visit"], [12, 1, "Third visit"]]);
 
     const builder = new PdfBuilder();
     for (let page = 0; page < 2; page++) builder.page(paint("Im1", 612, 792, 0, 0), { Im1: builder.image() });
@@ -165,25 +250,33 @@ describe("the outline of a PDF from the size of its type", () => {
   });
 
   it("reads only well-formed headings of an extractor of your own, for a PDF only, and leaves out those not found on their page", async () => {
-    const text = "--- Page 1 ---\nTitle of the file\nSome text under it.\n\n--- Page 2 ---\nA  second   heading\nMore text.\nTitle of the file";
+    const text = "--- Page 1 ---\nTitle of the file\nSome text under it.\n\n--- Page 2 ---\nA  second   heading\nMore text.\nTitle of the file\nThird part";
     const own = (headings: unknown, written: string): Extractor => async () => ({ text: written, pages: 2, headings } as Awaited<ReturnType<Extractor>>);
     const withHeadings = (headings: unknown, format: "pdf" | "text" = "pdf", written = text) => {
       const store = new MemoryDocumentStore();
       return createLargeFiles({ store, extractors: { [format]: own(headings, written) } }).ingest({ name: format === "pdf" ? "own.pdf" : "own.txt", bytes: new Uint8Array([1]) });
     };
-    const good = [{ page: 1, level: 1, title: "Title of the file" }, { page: 2, level: 2, title: "A second heading" }];
-    expect((await withHeadings(good)).outline).toEqual([{ line: 2, level: 1, title: "Title of the file" }, { line: 6, level: 2, title: "A  second   heading" }]);
+    const good = [{ page: 1, level: 1, title: "Title of the file" }, { page: 2, level: 2, title: "A second heading" }, { page: 2, level: 2, title: "Third part" }];
+    expect((await withHeadings(good)).outline).toEqual([{ line: 2, level: 1, title: "Title of the file" }, { line: 6, level: 2, title: "A  second   heading" }, { line: 9, level: 2, title: "Third part" }]);
     // Bad entries are skipped; a heading looked for on another page, or missing from its page, is not found.
     const mixed = [null, "Title", { page: 0, level: 1, title: "Title of the file" }, { page: 1, level: 7, title: "Title of the file" }, { page: 1.5, level: 1, title: "x" },
-      { page: 1, level: 1, title: "  " }, { page: 1, level: 1, title: "x".repeat(1_001) }, { page: 3, level: 1, title: "More text." }, { page: 1, level: 1, title: "More text." }, ...good];
-    expect((await withHeadings(mixed)).outline).toHaveLength(2);
+      { page: 1, level: 1, title: "  " }, { page: 1, level: 1, title: "x".repeat(1_001) }, { page: 3, level: 1, title: "More text." }, { page: 1, level: 1, title: "More text." },
+      { page: 2, level: 1, title: "More text.", skip: -1 }, { page: 2, level: 1, title: "More text.", skip: 0.5 }, { page: 2, level: 1, title: "More text.", skip: "0" }, ...good];
+    expect((await withHeadings(mixed)).outline).toHaveLength(3);
     expect((await withHeadings("not a list")).outline).toEqual([]);
     expect((await withHeadings([{ page: 1, level: 1, title: "Nowhere" }])).outline).toEqual([]);
     expect((await withHeadings(good, "text")).outline).toEqual([]);
+    // Two of them alone are not an outline.
+    expect((await withHeadings(good.slice(0, 2))).outline).toEqual([]);
+    // A heading past lines of its page that read the same; one past more of them than there are is not found.
+    const listed = "--- Page 1 ---\nContents\nPart one\nPart two\nPart one\nText.\nPart two\nText.";
+    const parts = [{ page: 1, level: 1, title: "Contents" }, { page: 1, level: 2, title: "Part one", skip: 1 }, { page: 1, level: 2, title: "Part two", skip: 1 }];
+    expect((await withHeadings(parts, "pdf", listed)).outline.map((entry) => entry.line)).toEqual([2, 5, 7]);
+    expect((await withHeadings([...parts, { page: 1, level: 2, title: "Part two", skip: 2 }], "pdf", listed)).outline.map((entry) => entry.line)).toEqual([2, 5, 7]);
     // In a long text, past the pauses for other requests.
-    const long = ["--- Page 1 ---", "Opening words", ...Array.from({ length: 5_000 }, (_, index) => `Line ${index}`), "", "--- Page 2 ---", "Late heading", "More text."].join("\n");
-    expect((await withHeadings([{ page: 1, level: 1, title: "Opening words" }, { page: 2, level: 2, title: "Late heading" }], "pdf", long)).outline)
-      .toEqual([{ line: 2, level: 1, title: "Opening words" }, { line: 5_005, level: 2, title: "Late heading" }]);
+    const long = ["--- Page 1 ---", "Opening words", ...Array.from({ length: 5_000 }, (_, index) => `Line ${index}`), "", "--- Page 2 ---", "Late heading", "More text.", "Last heading"].join("\n");
+    expect((await withHeadings([{ page: 1, level: 1, title: "Opening words" }, { page: 2, level: 2, title: "Late heading" }, { page: 2, level: 2, title: "Last heading" }], "pdf", long)).outline)
+      .toEqual([{ line: 2, level: 1, title: "Opening words" }, { line: 5_005, level: 2, title: "Late heading" }, { line: 5_007, level: 2, title: "Last heading" }]);
   });
 });
 
@@ -216,13 +309,18 @@ describe("PdfHeadingFinder", () => {
     expect(find([lines]).map((heading) => heading.title)).toEqual(["A1B2C3", "Fine heading"]);
   });
 
-  it("leaves out lines repeated on most pages, numbers aside", () => {
+  it("leaves out lines repeated on most pages, and numbered lines on more than half of them", () => {
     const page = (number: number, extra: PdfTextItem[] = []) => [item("Company name", 14), ...extra, item(BODY, 10), item(BODY, 10), item(`Page ${number}`, 14)];
     // Two pages of two: both repeated. Two pages of five: kept. Three pages: repeated.
     expect(find([page(1, [item("First", 18)]), page(2)]).map((heading) => heading.title)).toEqual(["First"]);
     const five = find([page(1, [item("Twice seen", 18)]), page(2, [item("Twice seen", 18)]), page(3), page(4), page(5)]);
     expect(five.map((heading) => heading.title)).toEqual(["Twice seen", "Twice seen"]);
     expect(find([[item("Notes", 18), item(BODY, 10)], [item("Notes", 18), item(BODY, 10)], [item("Notes", 18), item(BODY, 10)], [item(BODY, 10)], [item(BODY, 10)], [item(BODY, 10)]])).toEqual([]);
+    // Numbered: on 3 pages of 6, and on 2 of 4, kept; on 4 of 6, left out.
+    const numbered = (every: number, count: number) => find(Array.from({ length: count }, (_, index) => [...(index % every === 0 ? [item(`Part ${index + 1}`, 18)] : []), item(BODY, 10), item(BODY, 10)]));
+    expect(numbered(2, 6).map((heading) => heading.title)).toEqual(["Part 1", "Part 3", "Part 5"]);
+    expect(numbered(2, 4).map((heading) => heading.title)).toEqual(["Part 1", "Part 3"]);
+    expect(find(Array.from({ length: 6 }, (_, index) => [...(index < 4 ? [item(`Part ${index + 1}`, 18)] : []), item(BODY, 10), item(BODY, 10)]))).toEqual([]);
   });
 
   it("finds none when the text has one size, when much of it is set large, or when nothing can be measured", () => {
@@ -232,6 +330,14 @@ describe("PdfHeadingFinder", () => {
     expect(find([[{ str: "No size", transform: "odd" as unknown as number[], width: 1, height: 0, hasEOL: true }, { str: 3 as unknown as string, transform: [1, 0, 0, 1, 0, 0], width: 1, height: 20 }, item("   ", 20)]])).toEqual([]);
     // Of two sizes with as many characters, the smaller is the body.
     expect(find([[item("Equal length", 20), item("Equal length", 10)]]).map((heading) => heading.title)).toEqual([]);
+  });
+
+  it("keeps at most 64 sizes while it reads: the smallest go first, and more sizes than that set large give none", () => {
+    const bodyLines = Array.from({ length: 200 }, () => item(BODY, 10));
+    const sixty = Array.from({ length: 60 }, (_, index) => item(`Heading ${index}`, 20 + index * 0.5));
+    expect(find([[...bodyLines, ...sixty]])).toHaveLength(60);
+    const seventy = Array.from({ length: 70 }, (_, index) => item(`Heading ${index}`, 20 + index * 0.5));
+    expect(find([[...bodyLines, ...seventy]])).toEqual([]);
   });
 
   it("keeps at most 20,000 lines while it reads: the smallest size goes first, and too many large lines give none", () => {

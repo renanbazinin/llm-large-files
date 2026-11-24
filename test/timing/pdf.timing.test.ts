@@ -1,7 +1,8 @@
 // The tests of PDF reading that hold work to the clock: how often a timer gets a turn while
-// @cantoo/pdf-lib parses or cuts a file (from test/pdf-parse-pauses.test.ts), and how long the
+// @cantoo/pdf-lib parses or cuts a file (from test/pdf-parse-pauses.test.ts), how long the
 // checks take that refuse pages, names and forms built to hold the server (from
-// test/ingest-limits.test.ts, test/pdf-names.test.ts and test/pdf-pictures.test.ts).
+// test/ingest-limits.test.ts, test/pdf-names.test.ts and test/pdf-pictures.test.ts), and how long
+// the headings of a PDF built to hold the server take to find (from test/pdf-outline.test.ts).
 import "../load-pdf-libraries.js";
 import { deflateSync } from "node:zlib";
 import * as pdfLib from "@cantoo/pdf-lib";
@@ -11,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { createPdfExtractor, PICTURE_ON_PAGE, type PdfExtractorOptions } from "../../src/extract.js";
 import { canonicalName, cutPdfPages, loadPdf, objectsPerTick, OBJECTS_PER_TICK } from "../../src/pdf-pages.js";
+import { PdfHeadingFinder } from "../../src/pdf-outline.js";
 import { parsePdf } from "../../src/pdf-pictures.js";
 import { checkPageWork } from "../../src/pdf-work.js";
 import { FORM, formsInForms, heavyPdf, HELVETICA, pageObject as page, PdfBuilder, pdfFromObjects, pdfStream, textLine } from "../pdf-fixtures.js";
@@ -261,5 +263,22 @@ describe("picture marks: when they are left out", () => {
     const started = performance.now();
     expect(marked(await read(bytes))).toEqual([1]);
     expect(performance.now() - started).toBeLessThan(2_000);
+  });
+});
+
+describe("the headings of a PDF are found in time that grows with its text", () => {
+  it("reads 40,000 lines each in a size of its own at once: a few sizes are kept, not one per line", () => {
+    // A file of short lines at rising sizes, 0.5 apart: once 20,000 lines were kept, each new one
+    // looked through all the sizes kept to drop the smallest, and this took about a minute. It takes
+    // about half a second on a busy machine.
+    const items = Array.from({ length: 40_000 }, (_, index) => {
+      const size = 4 + index * 0.5;
+      return { str: "abc", transform: [size, 0, 0, size, 72, 700], width: size * 1.5, height: size, hasEOL: true };
+    });
+    const started = performance.now();
+    const finder = new PdfHeadingFinder();
+    for (let page = 0; page < 8; page++) finder.addPage(page + 1, items.slice(page * 5_000, (page + 1) * 5_000));
+    expect(finder.headings()).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(5_000);
   });
 });

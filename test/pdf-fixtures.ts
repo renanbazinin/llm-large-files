@@ -253,7 +253,8 @@ export function heavyPdf(count = 450, size = 1_200, referred = false): Uint8Arra
 
 /**
  * A line of `pdfWithSizedLines`: text in a size of its own (in points), or the cells of a table row,
- * each at a column of its own (72, 202, 332… from the left).
+ * each at a column of its own (72, 202, 332… from the left; in a row with Hebrew, the first cell is
+ * the rightmost, and is drawn first).
  */
 export type SizedLine = { text: string; size: number } | { cells: string[]; size: number };
 
@@ -293,8 +294,10 @@ export function pdfWithSizedLines(pages: SizedLine[][]): Uint8Array {
     const content = lines.map((line) => {
       y -= line.size * 1.5;
       const cells = "cells" in line ? line.cells : [line.text];
+      // A row with Hebrew runs right to left: its first cell is at the right, and is drawn first.
+      const rightToLeft = cells.some((cell) => /[א-ת]/.test(cell));
       return cells.map((cell, column) => {
-        const x = "cells" in line ? 72 + column * 130 : /[א-ת]/.test(cell) ? Math.max(72, 540 - cell.length * line.size * 0.5) : 72;
+        const x = "cells" in line ? 72 + (rightToLeft ? cells.length - 1 - column : column) * 130 : rightToLeft ? Math.max(72, 540 - cell.length * line.size * 0.5) : 72;
         return `BT /F1 ${line.size} Tf ${x.toFixed(1)} ${y.toFixed(1)} Td (${sizedString(cell)}) Tj ET`;
       }).join("\n");
     }).join("\n");
