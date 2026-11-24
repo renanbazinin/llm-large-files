@@ -672,7 +672,9 @@ that number is (since 0.10.0; before, a number of 2 or more let it try again).
 
 New in 0.10.0. Each part replies with one JSON object for each item it finds, on a line of its own:
 `{"line": 123, "label": "penalty", "value": "5%", "quote": "a fine of 5% of the order"}`, the label
-only when the call gave `labels`. Code reads the replies, checks the items and counts them. No model
+only when the call gave `labels`. The rules ask for a quote of the few words that state the item,
+at most 80 characters: the longer quotes asked for at first (200 characters) made Gemini
+Flash-Lite cut its list at the output limit more often, and copy more words wrong. Code reads the replies, checks the items and counts them. No model
 merges them, and there is no answer of the read: one request a part.
 
 - A reply is read leniently: a line may start with a list mark (`- `, `1. `) and end with a comma,
@@ -689,7 +691,14 @@ merges them, and there is no answer of the read: one request a part.
   are left out, and a quote cut with `…` must have each of its pieces on the line, in order.
 - An item whose quote is not on the line it names, but on exactly one line of its part, is given
   that line: in a file whose lines start with numbers ("7| 5. …", clause 5 on line 7), a model may
-  name the number in the text. Any other item counts in `unverified_items`, not in `total_items`.
+  name the number in the text.
+- An item whose quote is on no line of its part, but near the line it names, keeps that line: a
+  quote of 15 characters or more, compared as above, whose numbers are all numbers of the line,
+  and whose pieces are runs of the line with at most one letter in five changed, added or taken
+  out in all. Gemini Flash-Lite copies Hebrew quotes with a letter or a word changed (השרים for
+  השרתים, מקוזז for לקזז, ש"ץ for ש"ח). A quote with an amount other than the line's is not near
+  it, so neither is the quote of the next clause of a contract written to the same pattern.
+- Any other item counts in `unverified_items`, not in `total_items`.
 - A backslash that starts no JSON escape (`ש\"\ח`, as Gemini Flash-Lite escapes a Hebrew letter) is
   taken out before a line is read again.
 - The same item listed twice (the same line, label and value) counts once.

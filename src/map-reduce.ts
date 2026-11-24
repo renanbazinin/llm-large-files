@@ -462,7 +462,7 @@ const itemsPrompt = (name: string, from: number, to: number, text: string, where
   `- line: the number before "| " at the start of the line that states the item, from ${from} to ${to}; not a number written in its text.`,
   ...(labels ? [`- label: one of ${labels.map((label) => JSON.stringify(label)).join(", ")}.`] : []),
   "- value: the amount, date, name or other figure the item gives, as written. Leave it out when it gives none.",
-  "- quote: words of that line that state the item, copied exactly, enough to tell the line from the others, at most 200 characters.",
+  "- quote: the few words of that line that state the item, copied exactly, enough to tell the line from the others, at most 80 characters.",
   `Write every letter as it is in the file, not as a \\u escape. List each item once, on the line that states it. If this part has no such item, reply exactly: ${NOTHING}`,
 ].join("\n");
 
@@ -866,6 +866,63 @@ export function quoteOnLine(quote: string, line: string): boolean {
   return true;
 }
 
+/** A quote must have this many characters (in `quoteForm`) to be found on its line with a few letters copied wrong. */
+const NEAR_QUOTE_CHARACTERS = 15;
+/** The share of a quote's characters that may differ from its line when it is found with letters copied wrong. */
+const NEAR_QUOTE_SHARE = 0.2;
+
+/** The numbers of a text in `quoteForm`, without their thousands separators: "1,490" is 1490. */
+const numbersOf = (text: string): string[] => (text.match(/\d(?:[\d,.]*\d)?/g) ?? []).map((number) => number.replaceAll(",", ""));
+
+/**
+ * The fewest letters to change, add or take out to make `quote` a run of `line` (the edit distance
+ * to the nearest run): Sellers' algorithm, by code point. Only a quote not found on its line is
+ * measured, against that line alone.
+ */
+function nearestRun(quote: string, line: string): number {
+  const wanted = [...quote];
+  const size = wanted.length;
+  let previous = new Uint32Array(size + 1).map((_, index) => index);
+  let current = new Uint32Array(size + 1);
+  let best = size;
+  for (const letter of line) {
+    // A run may start at any letter of the line: its first row costs nothing.
+    current[0] = 0;
+    for (let index = 1; index <= size; index++) {
+      current[index] = Math.min(previous[index]! + 1, current[index - 1]! + 1, previous[index - 1]! + (wanted[index - 1] === letter ? 0 : 1));
+    }
+    best = Math.min(best, current[size]!);
+    [previous, current] = [current, previous];
+  }
+  return best;
+}
+
+/**
+ * Whether a quote is on its line with a few letters copied wrong, as Gemini Flash-Lite copies
+ * Hebrew quotes (השרים for השרתים, הניקוי for הניקיון, מקוזז for לקזז, ש"ץ for ש"ח): in
+ * `quoteForm`, it has at least `NEAR_QUOTE_CHARACTERS` characters, every number of it is a number of
+ * the line, and its pieces (a quote cut with "…" has several) are each a run of the line, or near
+ * one, with no more letters to change, add or take out in all than `NEAR_QUOTE_SHARE` of its
+ * characters. A quote with an amount other than the line's is not, nor one of the next clause of a
+ * contract written to the same pattern with another amount. New in 0.10.0.
+ */
+export function quoteNearLine(quote: string, line: string): boolean {
+  const bare = quoteForm(quote.replace(/^\s*\d+\|\s?/, "")).replace(/^["'`\s]+|["'`.,;:\s]+$/g, "");
+  const pieces = bare.split(/\s*(?:…|\.\.\.)\s*/).map((piece) => piece.replace(/^["'`\s]+|["'`.,;:\s]+$/g, "")).filter(Boolean);
+  const length = pieces.reduce((sum, piece) => sum + [...piece].length, 0);
+  if (length < NEAR_QUOTE_CHARACTERS) return false;
+  const target = quoteForm(line);
+  const numbers = new Set(numbersOf(target));
+  if (!numbersOf(bare).every((number) => numbers.has(number))) return false;
+  const most = Math.floor(length * NEAR_QUOTE_SHARE);
+  let edits = 0;
+  for (const piece of pieces) {
+    if (!target.includes(piece)) edits += nearestRun(piece, target);
+    if (edits > most) return false;
+  }
+  return true;
+}
+
 /** The text of a field of an item as the model wrote it, a string or a number, at most `most` characters; undefined when empty. */
 function itemText(value: unknown, most: number): string | undefined {
   const text = typeof value === "string" ? value.trim() : typeof value === "number" && Number.isFinite(value) ? String(value) : "";
@@ -875,9 +932,10 @@ function itemText(value: unknown, most: number): string | undefined {
 /**
  * An item a part listed, checked: its quote on its line, within the part (`from` and the part's
  * `lines`). An item whose quote is not on the line it names, but on exactly one line of the part, is
- * given that line: Gemini Flash-Lite named clause 5 on line 7 ("7| 5. …") as line 5. Undefined
- * for one whose quote is on no line of the part, or on several but not its own: it is counted as
- * unverified. A label is matched to the read's labels in `quoteForm`, and given as the read spelled it.
+ * given that line: Gemini Flash-Lite named clause 5 on line 7 ("7| 5. …") as line 5. One whose quote
+ * is on no line of the part, but near the line it names (`quoteNearLine`: a few letters copied
+ * wrong, the same numbers), keeps that line. Undefined for any other: it is counted as unverified.
+ * A label is matched to the read's labels in `quoteForm`, and given as the read spelled it.
  */
 function checkedItem(object: Record<string, unknown>, from: number, lines: readonly string[], labels: readonly string[] | undefined): WholeItem | undefined {
   const named = typeof object.line === "number" ? object.line : typeof object.line === "string" && object.line.trim() ? Number(object.line) : Number.NaN;
@@ -886,8 +944,9 @@ function checkedItem(object: Record<string, unknown>, from: number, lines: reado
   let number = named;
   if (!Number.isInteger(named) || named < from || named >= from + lines.length || !quoteOnLine(quote, lines[named - from]!)) {
     const found = lines.flatMap((text, index) => (quoteOnLine(quote, text) ? [from + index] : []));
-    if (found.length !== 1) return undefined;
-    number = found[0]!;
+    const near = found.length === 0 && Number.isInteger(named) && named >= from && named < from + lines.length && quoteNearLine(quote, lines[named - from]!);
+    if (found.length !== 1 && !near) return undefined;
+    number = near ? named : found[0]!;
   }
   const given = itemText(object.label, MAX_LABEL_CHARACTERS);
   const label = given === undefined ? undefined : labels?.find((known) => quoteForm(known) === quoteForm(given)) ?? given;

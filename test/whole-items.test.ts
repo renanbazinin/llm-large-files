@@ -3,7 +3,7 @@
 // request. A synthetic Hebrew contract has 37 penalty clauses among 200.
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, estimateTokens, evidenceOf, MemoryDocumentStore, stubResult, type GenerateText, type ToolResult } from "../src/index.js";
-import { parseItemLines, quoteForm, quoteOnLine } from "../src/map-reduce.js";
+import { parseItemLines, quoteForm, quoteNearLine, quoteOnLine } from "../src/map-reduce.js";
 import { fitAnswer } from "../src/tools.js";
 import { wholeReadCost } from "../src/whole-cost.js";
 import { utf8 } from "./fake-model.js";
@@ -310,6 +310,49 @@ describe("quoteOnLine", () => {
   it("compares in one form, quoteForm", () => {
     expect(quoteForm("  שָׁלוֹם   עוֹלָם ")).toBe("שלומ עולמ");
     expect(quoteForm("Don’t STOP")).toBe("don't stop");
+  });
+});
+
+describe("quoteNearLine", () => {
+  // Lines of the eval's cleaning agreement, and quotes Gemini Flash-Lite copied of them, live (0.10.0's measures).
+  const offset = "3. המזמין רשאי לקזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה.";
+  const lowered = "58. במקרה של נזק לרהוט במהלך הניקיון יופחתו 760 ש\"ח מהתמורה החודשית של הספק.";
+
+  it("finds a long quote with a few letters copied wrong, and the same numbers", () => {
+    expect(quoteOnLine("מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה", offset)).toBe(false);
+    expect(quoteNearLine("מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה", offset)).toBe(true);
+    expect(quoteNearLine("המזמין רשאי לקזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרים פתוחה.", offset)).toBe(true);
+    expect(quoteNearLine("במקרה של נזק לרהוט במהלך הניקוי יופחתו 760 ש\"ח מהתמורה החודשית של הספק.", lowered)).toBe(true);
+    // Short quotes, and quotes cut with an ellipsis, with a letter of each piece copied wrong (ש"ץ for ש"ח).
+    expect(quoteNearLine("מקוזז 1,670 ש\"ץ", "91. המזמין רשאי לקזז 1,670 ש\"ח מכל תשלום לספק בגין אי ניקוי השירותים בקומה לפי הלוח.")).toBe(true);
+    expect(quoteNearLine("המזמין רשאי … השרים פתוחה", offset)).toBe(true);
+    expect(quoteNearLine("במקרה של נזק לרהוט... יופחתו 760 ש\"ץ", lowered)).toBe(true);
+  });
+
+  it("does not find a quote with another amount, a short quote, one cut with an ellipsis, or other words", () => {
+    // Another amount: the quote of the same clause of another site, or a number misread.
+    expect(quoteNearLine("המזמין רשאי לקזז 310 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה.", offset)).toBe(false);
+    expect(quoteNearLine("המזמין רשאי לקזז 8,100 ש\"ח מכל תשלום לספק", offset)).toBe(false);
+    expect(quoteNearLine("רשאי לקזוז 810", offset)).toBe(false);
+    expect(quoteNearLine("מקוזז 810 ש\"ץ", offset)).toBe(false);
+    expect(quoteNearLine("המזמין רשאי … חלונות המטבח", offset)).toBe(false);
+    expect(quoteNearLine("הספק ישלם קנס בגין איחור באספקת חומרי ניקוי", offset)).toBe(false);
+    expect(quoteNearLine("ניקיון יומי של החדרים", lowered)).toBe(false);
+  });
+
+  it("lets an item with such a quote count on the line it names, and no other", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", offset, lowered, "4. הספק יבצע ניקיון יומי."].join("\n")) });
+    const generate: GenerateText = async () => [
+      { line: 2, value: "810", quote: "מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה" },
+      { line: 3, value: "760", quote: "במקרה של נזק לרהוט במהלך הניקוי יופחתו 760 ש\"ח מהתמורה החודשית של הספק." },
+      // Near line 2, but named on line 4: not moved by a near match.
+      { line: 4, value: "810", quote: "רשאי לקזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרים" },
+    ].map((item) => JSON.stringify(item)).join("\n");
+    const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "sanctions", output: "items" });
+    // 0.10.0 before this fix: 0 counted, 3 unverified.
+    expect(result).toMatchObject({ total_items: 2, unverified_items: 1 });
+    expect((result.items as Array<{ line: number }>).map((item) => item.line)).toEqual([2, 3]);
   });
 });
 

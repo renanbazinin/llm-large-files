@@ -82,7 +82,7 @@ describe("a part read", () => {
       expect.stringMatching(/^- line: the number before "\| " at the start of the line that states the item, from \d+ to \d+; not a number written in its text\.$/),
       '- label: one of "slow".',
       "- value: the amount, date, name or other figure the item gives, as written. Leave it out when it gives none.",
-      "- quote: words of that line that state the item, copied exactly, enough to tell the line from the others, at most 200 characters.",
+      "- quote: the few words of that line that state the item, copied exactly, enough to tell the line from the others, at most 80 characters.",
       "Write every letter as it is in the file, not as a \\u escape. List each item once, on the line that states it. If this part has no such item, reply exactly: NOTHING RELEVANT",
     ]);
   });
