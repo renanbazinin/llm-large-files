@@ -3,7 +3,7 @@
 // the line numbers, the prompts and the merges of notes: about 9% under what probe5's read sends.
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, estimateTokens, MemoryDocumentStore, resolveBudget, type DocumentMeta, type GenerateText, type LargeFiles } from "llm-large-files";
-import { PART_OUTPUT_TOKENS } from "../src/map-reduce.js";
+import { ITEMS_FRAME_TOKENS, PART_OUTPUT_TOKENS } from "../src/map-reduce.js";
 import { estimateMerges, lineNumberDigits, wholeReadCost } from "../src/whole-cost.js";
 import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
 
@@ -76,8 +76,13 @@ describe("wholeReadCost", () => {
     expect(Number.isNaN(wholeReadCost({ estimatedTokens: Number.NaN, lines: 1, textBytes: 1 }, budget, 1).inputTokens)).toBe(true);
   });
 
-  it("does not price a read that lists items yet", () => {
-    expect(() => wholeReadCost({ estimatedTokens: 1_000, lines: 99, textBytes: 4_000 }, resolveBudget(), 1, "items")).toThrow(/output "items" is not written yet/);
+  it("prices a read that lists items as its parts alone, with the longer rules of a list", () => {
+    const budget = resolveBudget({ mapChunkTokens: 60_000 });
+    const meta = { estimatedTokens: 1_000, lines: 99, textBytes: 4_000 };
+    // One part: its numbered lines and its prompt. No merge, no answer of the read.
+    const tokens = 1_000 + 1.2 * 189 + 1.5 * 99 + ITEMS_FRAME_TOKENS;
+    expect(wholeReadCost(meta, budget, 1, "items")).toEqual({ inputTokens: Math.ceil(tokens), requests: 1, parts: 1, merges: 0 });
+    expect(wholeReadCost(meta, budget, 2, "items").inputTokens).toBe(Math.ceil(tokens * 2));
   });
 });
 

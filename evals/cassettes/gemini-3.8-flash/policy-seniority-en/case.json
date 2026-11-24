@@ -22,13 +22,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 8598,
-   "cachedInputTokens": 3996,
-   "outputTokens": 436,
-   "thoughtTokens": 346,
-   "ms": 8105,
+   "inputTokens": 8979,
+   "cachedInputTokens": 1218,
+   "outputTokens": 327,
+   "thoughtTokens": 233,
+   "ms": 6832,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "read_document"
    ],
@@ -41,14 +46,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5737,
-     "ms": 3543,
+     "estimatedInputTokens": 5894,
+     "ms": 3033,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3658,
-      "cachedInputTokens": 1634,
-      "outputTokens": 125,
-      "thoughtTokens": 91
+      "inputTokens": 3822,
+      "cachedInputTokens": 0,
+      "outputTokens": 112,
+      "thoughtTokens": 78
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -60,21 +65,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 7049,
-     "ms": 4560,
+     "estimatedInputTokens": 7283,
+     "ms": 3794,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4940,
-      "cachedInputTokens": 2362,
-      "outputTokens": 311,
-      "thoughtTokens": 255
+      "inputTokens": 5157,
+      "cachedInputTokens": 1218,
+      "outputTokens": 215,
+      "thoughtTokens": 155
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "According to section 3.5 of the HR policy document (מדיניות משאבי אנוש 2026), an employee with 8 years of seniority is entitled to **24 vacation days** per year (lines 27–31)."
+   "answer": "לפי טבלת חופשה שנתית בנוהל (סעיף 3.5, שורה 31), עובד בעל ותק של 8 שנים ומעלה זכאי ל-**24 ימי חופשה** בשנה."
   }
  ],
  "passed": true

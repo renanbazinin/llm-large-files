@@ -1,0 +1,103 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "186e84f460c14990",
+  "bytes": 11262,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "1477 chars #8882f103"
+      },
+      {
+       "text": "54 chars #b23fe5d4"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1973 chars #64f24237"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"aggregate_table\",\"args\": {\"filters\": [{\"op\": \"=\",\"value\": \"באיחור\",\"column\": \"סטטוס\"}],\"document_id\": \"invoices-1\",\"metrics\": [\"count\",\"sum:סכום\"]},\"id\": \"call_11530708190895689883\"},\"thoughtSignature\": \"ErYECrMEAWkUfROyeejvNvbdgq0rJpio/Nxnump08lTiQKtM6BAzQGHPrSFiMWjSzUl4jA28KFg0miW7WwXga7ETpCfrTrJY9C0v7T5eoZto6jPXYlvQTx09CXYS49Cft2JBNqfVtu2DiNNIyF/yduSJY01u+ALCOzZftGg2aULUJdLRjhJjMzww3JZHaJj8Jjz6B7JNVbfieWXc5cHY9LEe32qU8ADRfnk+Wdf53Hk5BfMWXB1r2tqpYDbVpqbPcqxQdyIWzH8oluKL0CJfWNMMICjFd1lZJzI0tbghcFWKJir994aHBEfYyIh98f3C8TPt8fNcx3BXm8GhRUgF0YPsje6dFMg0nSVx+1Etbq/CjzlWuMEN06tFpFFOCKoQ9UXU2IOkyv+PE2cYRA3JgIARTU1cC2R3/hGzVNHBdfGTHrzvwTib+cZTL6S3DLPrwaYsyhERGNdYtZEt/HcXVagTUGCosdMHPRTGNgrxsCuqRgurVXL5R2UlkD+jm/qb7rUImrZc04NBKmbZUHPkh+BduvlL9uesvvA7P2YF7E1tXi8S3nGV8Nm4fPHSFlPXzB2c10kWV+b726rdkNp5QeTyw0ICk+JNrTil+13IQn0g33EVq6pqzckzSLWB9bqlcE2vZ3KErSM/DKH2U0evWosMayqSrXt7j9nyb",
+   "0AxRZWlKF7AUYXynGT49fDdEcv+fxRq2Gz45QHdWbbUuAczxN5Wv9EYxiPZ6SR4fTx6BPBpY8rNOJx5F1k=\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3510,\"candidatesTokenCount\": 61,\"totalTokenCount\": 3671,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3510}],\"thoughtsTokenCount\": 100,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"f0cFa6D8H9aZ3boP2YXw0Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3510,\"candidatesTokenCount\": 61,\"totalTokenCount\": 3671,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3510}],\"thoughtsTokenCount\": 100,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"f0cFa6D8H9aZ3boP2YXw0Ag\"}\r\n\r\n"
+  ]
+ }
+}

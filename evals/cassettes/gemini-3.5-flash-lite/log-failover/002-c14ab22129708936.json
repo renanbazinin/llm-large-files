@@ -1,0 +1,126 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "c14ab22129708936",
+  "bytes": 14375,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "63 chars #636dbb45"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #1393f270",
+        "id": "call_9845286175920981040"
+       },
+       "thoughtSignature": "204 chars #d6c6ca85"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_9845286175920981040",
+        "response": "{4 keys} #ea3f5a16"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Based on\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5971,\"candidatesTokenCount\": 2,\"totalTokenCount\": 5973,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5971}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"B0cFa7CsMYPvxs0P9qHD2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" the log file (`payments-service.log`), the database failover:\\n\\n* **Started\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5971,\"candidatesTokenCount\": 21,\"totalTokenCount\": 5992,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5971}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"B0cFa7CsMYPvxs0P9qHD2Ag\"}\r\n\r\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \":** `2026-11-12T09:31:10.00\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5971,\"candidatesTokenCount\": 45,\"totalTokenCount\": 6016,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5971}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"B0cFa7CsMYPvxs0P9qHD2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0Z` (L21880: `WARN [db-monitor] database failover started: primary db\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5971,\"candidatesTokenCount\": 70,\"totalTokenCount\": 6041,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5971}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"B0cFa7CsMYPvxs0P9qHD2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"-1 unreachable`)\\n* **Completed:** `2026-11-12T09:\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5971,\"candidatesTokenCount\": 94,\"totalTokenCount\": 6065,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5971}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"B0cFa7CsMYPvxs0P9qHD2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"34:52.000Z` (L22768: `INFO [db-\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5971,\"candidatesTokenCount\": 118,\"totalTokenCount\": 6089,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5971}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"B0cFa7CsMYPvxs0P9qHD2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"monitor] database failover completed: db-2 is now primary`)\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5971,\"candidatesTokenCount\": 132,\"totalTokenCount\": 6103,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5971}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"B0cFa7CsMYPvxs0P9qHD2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNkjl2iQRPtMNiCp2q/gN1gsl22LR8eTXFL9BZNGazI8zgTAtsGPkoFjmiE8w4wFrcT4lAI0XCwbuF9ssaB34dun88v0bP80T6bh3NKtxqWhaPiAC2jZKE1xpLh3WHSNxwqRFVSuXm6RLDz7I78HdZvl89tM/uS983IBix+FZIXf7512jr003zISRGaRCrh\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5971,\"candidatesTokenCount\": 132,\"totalTokenCount\": 6103,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5971}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"B0cFa7CsMYPvxs0P9qHD2Ag\"}\r\n\r\n"
+  ]
+ }
+}

@@ -4,8 +4,7 @@
  "language": "he",
  "kinds": [
   "count",
-  "searched",
-  "whole-read"
+  "searched"
  ],
  "questions": [
   {
@@ -22,21 +21,27 @@
     }
    ],
    "passed": true,
-   "requests": 7,
-   "inputTokens": 40132,
-   "cachedInputTokens": 22658,
-   "outputTokens": 1287,
-   "thoughtTokens": 872,
-   "ms": 23188,
+   "requests": 6,
+   "inputTokens": 38288,
+   "cachedInputTokens": 20854,
+   "outputTokens": 797,
+   "thoughtTokens": 524,
+   "ms": 19030,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "search_document",
     "search_document",
     "search_document",
     "search_document",
-    "read_document",
-    "search_document"
+    "search_document",
+    "search_document",
+    "read_document"
    ],
    "reads": 1,
    "wholeReads": 0,
@@ -47,14 +52,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5361,
-     "ms": 3130,
+     "estimatedInputTokens": 5528,
+     "ms": 2830,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3437,
-      "cachedInputTokens": 1415,
-      "outputTokens": 122,
-      "thoughtTokens": 89
+      "inputTokens": 3611,
+      "cachedInputTokens": 0,
+      "outputTokens": 87,
+      "thoughtTokens": 54
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -66,18 +71,18 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 6750,
-     "ms": 2253,
+     "estimatedInputTokens": 6917,
+     "ms": 4154,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5021,
-      "cachedInputTokens": 2311,
-      "outputTokens": 85,
-      "thoughtTokens": 51
+      "inputTokens": 5160,
+      "cachedInputTokens": 2483,
+      "outputTokens": 157,
+      "thoughtTokens": 56
      },
      "finish": "complete",
      "finishReason": "STOP",
-     "toolCalls": 1
+     "toolCalls": 3
     },
     {
      "requestId": "req_3",
@@ -85,14 +90,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 3,
-     "estimatedInputTokens": 6826,
-     "ms": 2150,
+     "estimatedInputTokens": 7144,
+     "ms": 2361,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5155,
-      "cachedInputTokens": 2993,
-      "outputTokens": 56,
-      "thoughtTokens": 22
+      "inputTokens": 5460,
+      "cachedInputTokens": 3123,
+      "outputTokens": 66,
+      "thoughtTokens": 32
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -104,14 +109,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 4,
-     "estimatedInputTokens": 6902,
-     "ms": 3276,
+     "estimatedInputTokens": 8532,
+     "ms": 3363,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5260,
-      "cachedInputTokens": 3130,
-      "outputTokens": 122,
-      "thoughtTokens": 81
+      "inputTokens": 6987,
+      "cachedInputTokens": 3452,
+      "outputTokens": 105,
+      "thoughtTokens": 64
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -123,14 +128,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 5,
-     "estimatedInputTokens": 8057,
-     "ms": 2047,
+     "estimatedInputTokens": 9687,
+     "ms": 2896,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 6562,
-      "cachedInputTokens": 3248,
-      "outputTokens": 75,
-      "thoughtTokens": 39
+      "inputTokens": 8272,
+      "cachedInputTokens": 5549,
+      "outputTokens": 122,
+      "thoughtTokens": 86
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -142,40 +147,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 6,
-     "estimatedInputTokens": 8496,
-     "ms": 6245,
+     "estimatedInputTokens": 10126,
+     "ms": 3413,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 7041,
-      "cachedInputTokens": 4540,
-      "outputTokens": 566,
-      "thoughtTokens": 533
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_7",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.8-flash",
-     "turn": 7,
-     "estimatedInputTokens": 8571,
-     "ms": 4073,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 7656,
-      "cachedInputTokens": 5021,
-      "outputTokens": 261,
-      "thoughtTokens": 57
+      "inputTokens": 8798,
+      "cachedInputTokens": 6247,
+      "outputTokens": 260,
+      "thoughtTokens": 232
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "בחוזה ישנם **37 סעיפי קנס** (מתוך 200 סעיפים בסך הכל). \n\nמספרי הסעיפים הם: 5, 10, 16, 21, 26, 32, 37, 42, 47, 53, 58, 63, 69, 74, 79, 85, 90, 95, 100, 106, 111, 116, 122, 127, 132, 138, 143, 148, 153, 159, 164, 169, 175, 180, 185, 191 ו-196."
+   "answer": "בחוזה ישנם **37 סעיפי קנס** (מתוך 200 סעיפי החוזה)."
   }
  ],
  "passed": true

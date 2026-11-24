@@ -1,0 +1,189 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "bd17adb743d6eb6c",
+  "bytes": 37603,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2283 chars #7227fca5"
+      },
+      {
+       "text": "23 chars #67f743c7"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #dbfb4e8b",
+        "id": "call_5061826364962543801"
+       },
+       "thoughtSignature": "204 chars #67131ebd"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_5061826364962543801",
+        "response": "{4 keys} #22d6ecfd"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #5b075813",
+        "id": "call_2317171566179312538"
+       },
+       "thoughtSignature": "204 chars #a58878de"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_2317171566179312538",
+        "response": "{2 keys} #ff164c71"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #679b5099",
+        "id": "call_6173695408079101206"
+       },
+       "thoughtSignature": "204 chars #829e3361"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_6173695408079101206",
+        "response": "{7 keys} #09a6d72d"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1984 chars #76e73369"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 11197,\"candidatesTokenCount\": 1,\"totalTokenCount\": 11198,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 11197}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"DEcFa5HBGfSovdIP07ib2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חוזה שירותי התחזוקה ישנם **37**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 11197,\"candidatesTokenCount\": 17,\"totalTokenCount\": 11214,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 11197}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"DEcFa5HBGfSovdIP07ib2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" סעיפי קנס (סעיפים שבהם נקבע כי הספק ישלם למזמין קנס ב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 11197,\"candidatesTokenCount\": 43,\"totalTokenCount\": 11240,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 11197}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"DEcFa5HBGfSovdIP07ib2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גין הפרה או אי-עמידה בתנאים) (contract-1 L1-L202).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 11197,\"candidatesTokenCount\": 69,\"totalTokenCount\": 11266,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 11197}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"DEcFa5HBGfSovdIP07ib2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRPySpTleKVp5ME4ZrZ1L5v8rW/Wsv047KArzmm3pQVmrBFw4fMEOcXWZctpDKw8hx/UsHefNn9tBTfaHpiE7BYAGFnxYR4iuOBoEwFn0GTHXYpS5d+2HeM2qsXqUjxiWCbAv0xVnxg1fyC8STA8uEGB9gTThu4ezMq5Rpvdaria4SpVsQtbPQBaomWU/IvR\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 11197,\"candidatesTokenCount\": 69,\"totalTokenCount\": 11266,\"cachedContentTokenCount\": 8128,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 11197}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8128}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"DEcFa5HBGfSovdIP07ib2Ag\"}\r\n\r\n"
+  ]
+ }
+}

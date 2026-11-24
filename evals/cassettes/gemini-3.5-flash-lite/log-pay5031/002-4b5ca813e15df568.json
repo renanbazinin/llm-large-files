@@ -1,0 +1,129 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "4b5ca813e15df568",
+  "bytes": 13794,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "70 chars #30959126"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #9ac77675",
+        "id": "25 chars #0f180b6a"
+       },
+       "thoughtSignature": "204 chars #953c0b8a"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #0f180b6a",
+        "response": "{7 keys} #d1424c93"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"There are\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 2,\"totalTokenCount\": 5252,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **37** `PAY-5031` errors in the log (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 18,\"totalTokenCount\": 5268,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"`payments-service.log`), and all of them were logged by **`worker-3`**.\\n\\nFor example:\\n-\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 45,\"totalTokenCount\": 5295,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" `2026-11-12T09:12:00.000\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 69,\"totalTokenCount\": 5319,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 93,\"totalTokenCount\": 5343,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" order=40960` (L17280)\\n- `2026-\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 117,\"totalTokenCount\": 5367,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"11-12T09:47:00.000Z ERROR [worker-3\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 141,\"totalTokenCount\": 5391,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"] PAY-5031 card processor timeout after 30000ms order=9976\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 165,\"totalTokenCount\": 5415,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0` (L25680)\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 175,\"totalTokenCount\": 5425,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNhyl0tTOgH5A10PTxUUdLJR5eusHewaXzuw8Ub1eRdhnUIE2j/+o10U9lHhdG99mOQMwPkipy0h4JANn8CHx1CUuHkLeMm17fh1L4qZuR8ll4M+1PPvjEaqxFqX4snOiT1HTQmh+zCdeWrHqsIxXEjychvt7qnaXQ/2v/9hGppPkPz1fJV+thhbBRpD6vv\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5250,\"candidatesTokenCount\": 175,\"totalTokenCount\": 5425,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5250}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"BkcFa-DbMMzyvdIPj86ssAw\"}\r\n\r\n"
+  ]
+ }
+}

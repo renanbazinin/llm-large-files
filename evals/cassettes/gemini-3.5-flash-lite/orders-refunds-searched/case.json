@@ -22,13 +22,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 5978,
+   "inputTokens": 6306,
    "cachedInputTokens": 0,
    "outputTokens": 81,
    "thoughtTokens": 0,
-   "ms": 1182,
+   "ms": 1446,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "aggregate_table"
    ],
@@ -41,11 +46,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 4855,
-     "ms": 496,
+     "estimatedInputTokens": 5012,
+     "ms": 684,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2903,
+      "inputTokens": 3067,
       "cachedInputTokens": 0,
       "outputTokens": 54,
       "thoughtTokens": 0
@@ -60,11 +65,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 5004,
-     "ms": 636,
+     "estimatedInputTokens": 5161,
+     "ms": 709,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3075,
+      "inputTokens": 3239,
       "cachedInputTokens": 0,
       "outputTokens": 27,
       "thoughtTokens": 0

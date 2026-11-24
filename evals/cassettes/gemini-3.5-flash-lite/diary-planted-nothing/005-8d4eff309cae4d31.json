@@ -1,0 +1,74 @@
+{
+ "n": 5,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "8d4eff309cae4d31",
+  "bytes": 31446,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19600 chars #05910bf1"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- שבוע 4 (המשך):\n  - יום חמישי, 26 בנובמבר 2026:\n    - אירוע חריג: פקיעת תעודת אבטחה בפורטל הלקוחות ואזהרת דפדפן (L1120).\n      - התחיל: 20:10 (L1120).\n      - הסתיים: 21:05, עם התקנת תעודה חדשה והעלמת האזהרה (L1123).",
+        "thoughtSignature": "EpYBCpMBAWkUfRNlYArkqoHJnhU2NRHBvI6OKWp+P8l5WPaoYO6Ofb9az1OMIt70uzGAj/aOviLHSxtwt24s6nYGP/3uoPk4ZaPUgW7Wc5ll0LAvFHdV2HXni11IM5rZGtt0Rtbn5lJChI7kH99xBF2UJyI5YABsiElZrKzITS5d68eBCLqrygIlMOUlmHsO2P+AIpBesWud"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12087,
+    "candidatesTokenCount": 126,
+    "totalTokenCount": 12213,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12087
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "IkcFa57WEMb8nsEPsP6NuAc"
+  }
+ }
+}

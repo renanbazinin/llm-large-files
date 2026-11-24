@@ -17,16 +17,20 @@
     }
    ],
    "passed": true,
-   "requests": 3,
-   "inputTokens": 27493,
-   "cachedInputTokens": 12210,
-   "outputTokens": 93,
+   "requests": 2,
+   "inputTokens": 11689,
+   "cachedInputTokens": 4054,
+   "outputTokens": 61,
    "thoughtTokens": 0,
-   "ms": 1986,
+   "ms": 1312,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
-    "search_document",
     "search_document"
    ],
    "reads": 0,
@@ -38,13 +42,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 7011,
-     "ms": 615,
+     "estimatedInputTokens": 7168,
+     "ms": 608,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4899,
+      "inputTokens": 5063,
       "cachedInputTokens": 0,
-      "outputTokens": 31,
+      "outputTokens": 37,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -57,32 +61,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 13140,
-     "ms": 620,
+     "estimatedInputTokens": 8832,
+     "ms": 678,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 10516,
-      "cachedInputTokens": 4070,
-      "outputTokens": 37,
-      "thoughtTokens": 0
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_3",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.5-flash-lite",
-     "turn": 3,
-     "estimatedInputTokens": 14803,
-     "ms": 684,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 12078,
-      "cachedInputTokens": 8140,
-      "outputTokens": 25,
+      "inputTokens": 6626,
+      "cachedInputTokens": 4054,
+      "outputTokens": 24,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -90,7 +75,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "There are **37** `PAY-5031` errors in the log (`payments-service.log`)."
+   "answer": "There are **37** PAY-5031 errors in the log file (`payments-service.log`)."
   },
   {
    "turn": 2,
@@ -103,13 +88,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 24353,
-   "cachedInputTokens": 14237,
+   "inputTokens": 13463,
+   "cachedInputTokens": 8099,
    "outputTokens": 62,
    "thoughtTokens": 0,
-   "ms": 1511,
+   "ms": 1150,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "aggregate_table"
    ],
@@ -122,12 +112,12 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 14824,
-     "ms": 765,
+     "estimatedInputTokens": 8862,
+     "ms": 580,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 12099,
-      "cachedInputTokens": 4070,
+      "inputTokens": 6654,
+      "cachedInputTokens": 4052,
       "outputTokens": 47,
       "thoughtTokens": 0
      },
@@ -141,12 +131,12 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 14957,
-     "ms": 698,
+     "estimatedInputTokens": 8995,
+     "ms": 489,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 12254,
-      "cachedInputTokens": 10167,
+      "inputTokens": 6809,
+      "cachedInputTokens": 4047,
       "outputTokens": 15,
       "thoughtTokens": 0
      },

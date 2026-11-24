@@ -27,13 +27,18 @@
    ],
    "passed": true,
    "requests": 3,
-   "inputTokens": 14115,
-   "cachedInputTokens": 4696,
-   "outputTokens": 753,
-   "thoughtTokens": 472,
-   "ms": 11538,
+   "inputTokens": 14569,
+   "cachedInputTokens": 5039,
+   "outputTokens": 531,
+   "thoughtTokens": 258,
+   "ms": 9537,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 3,
+    "supported": 3,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "search_document",
     "search_document"
@@ -47,14 +52,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5667,
-     "ms": 2841,
+     "estimatedInputTokens": 5833,
+     "ms": 3048,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3528,
+      "inputTokens": 3702,
       "cachedInputTokens": 0,
-      "outputTokens": 124,
-      "thoughtTokens": 87
+      "outputTokens": 122,
+      "thoughtTokens": 85
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -66,14 +71,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 7331,
-     "ms": 3610,
+     "estimatedInputTokens": 7497,
+     "ms": 2495,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5178,
-      "cachedInputTokens": 1548,
-      "outputTokens": 140,
-      "thoughtTokens": 88
+      "inputTokens": 5350,
+      "cachedInputTokens": 1720,
+      "outputTokens": 76,
+      "thoughtTokens": 21
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -85,21 +90,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 3,
-     "estimatedInputTokens": 7461,
-     "ms": 5066,
+     "estimatedInputTokens": 7629,
+     "ms": 3966,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5409,
-      "cachedInputTokens": 3148,
-      "outputTokens": 489,
-      "thoughtTokens": 297
+      "inputTokens": 5517,
+      "cachedInputTokens": 3319,
+      "outputTokens": 333,
+      "thoughtTokens": 152
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "בלוג יש **37** שגיאות של `PAY-5031`, וכולן ללא יוצא מן הכלל נרשמו ב-**`worker-3`** (לדוגמה: שורה 17280 עד שורה 25680).\n\n**פרטים נוספים:**\n* **הודעת השגיאה:** `PAY-5031 card processor timeout after 30000ms order=<id>`\n* **טווח זמנים:** מ-`2026-11-12T09:12:00.000Z` (שורה 17280) ועד `2026-11-12T09:47:00.000Z` (שורה 25680)."
+   "answer": "בלוג ישנן **37** שגיאות של `PAY-5031`, וכולן נרשמו ב-**`worker-3`** (למשל שורות 17280, 25680).\n\n**פרטים נוספים מתוך הלוג:**\n- **סוג השגיאה:** `PAY-5031 card processor timeout after 30000ms`\n- **טווח זמנים:** מ-`2026-11-12T09:12:00.000Z` (שורה 17280) ועד `2026-11-12T09:47:00.000Z` (שורה 25680)."
   },
   {
    "turn": 2,
@@ -116,13 +121,23 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 5422,
-   "cachedInputTokens": 3386,
-   "outputTokens": 120,
+   "inputTokens": 5588,
+   "cachedInputTokens": 3494,
+   "outputTokens": 109,
    "thoughtTokens": 0,
-   "ms": 2590,
+   "ms": 2423,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": [
+     {
+      "document": "payments-service.log",
+      "line": 17280
+     }
+    ]
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
@@ -133,13 +148,13 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 7657,
-     "ms": 2581,
+     "estimatedInputTokens": 7815,
+     "ms": 2421,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5422,
-      "cachedInputTokens": 3386,
-      "outputTokens": 120,
+      "inputTokens": 5588,
+      "cachedInputTokens": 3494,
+      "outputTokens": 109,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -147,7 +162,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "השגיאה הראשונה נרשמה ב:\n**`2026-11-12T09:12:00.000Z`** (שורה 17280).\n\nשורת הלוג המלאה:\n```log\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960\n```"
+   "answer": "השגיאה הראשונה נרשמה ב-**`2026-11-12T09:12:00.000Z`** (שורה 17280):\n\n```\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960\n```"
   }
  ],
  "passed": true

@@ -1,0 +1,161 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "4408e66b6d15e8a1",
+  "bytes": 21768,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2940 chars #b374ba51"
+      },
+      {
+       "text": "154 chars #6f523d6a"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #d8937de6",
+        "id": "call_9136320862337299342"
+       },
+       "thoughtSignature": "2540 chars #b5538ad2"
+      },
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #81698e65",
+        "id": "call_9136320862337299965"
+       }
+      },
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #e06215c5",
+        "id": "call_9136320862337300588"
+       }
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_9136320862337299342",
+        "response": "{6 keys} #cd459e8e"
+       }
+      },
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_9136320862337299965",
+        "response": "{6 keys} #6ff70430"
+       }
+      },
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_9136320862337300588",
+        "response": "{2 keys} #6a7c7f39"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1984 chars #f3fbce98"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "638 chars #144276e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #cf56d9dd",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"search_document\",\"args\": {\"query\": \"תקל|כשל|חריג|התרא|נזיל|השבת|נפיל|עשן|שריפה|אזעק|קצר|חירום\",\"mode\": \"regex\",\"document_id\": \"diary-2\"},\"id\": \"call_15400328812058465853\"},\"thoughtSignature\": \"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\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6011,\"candidatesTokenCount\": 75,\"totalTokenCount\": 6623,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6011}],\"thoughtsTokenCount\": 537,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2yYFa8j2KYPBvdIPn5ucqQ8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"search_document\",\"args\": {\"query\": \"הסתיים|החל|התחיל|נפתר|תוקן|טופל|שוחזר|הסתיים|אירוע\",\"mode\": \"regex\",\"document_id\": \"diary-2\"},\"id\": \"call_15400328812058468112\"}}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6011,\"candidatesTokenCount\": 140,\"totalTokenCount\": 6688,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6011}],\"thoughtsTokenCount\": 537,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2yYFa8j2KYPBvdIPn5ucqQ8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6455,\"candidatesTokenCount\": 140,\"totalTokenCount\": 7132,\"cachedContentTokenCount\": 4225,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6455}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4225}],\"thoughtsTokenCount\": 537,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"2yYFa8j2KYPBvdIPn5ucqQ8\"}\r\n\r\n"
+  ]
+ }
+}

@@ -34,13 +34,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 6270,
+   "inputTokens": 6607,
    "cachedInputTokens": 0,
-   "outputTokens": 131,
+   "outputTokens": 163,
    "thoughtTokens": 0,
-   "ms": 1342,
+   "ms": 1194,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "aggregate_table"
    ],
@@ -53,13 +58,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 4900,
-     "ms": 503,
+     "estimatedInputTokens": 5057,
+     "ms": 476,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2961,
+      "inputTokens": 3125,
       "cachedInputTokens": 0,
-      "outputTokens": 36,
+      "outputTokens": 40,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -72,13 +77,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 5245,
-     "ms": 822,
+     "estimatedInputTokens": 5404,
+     "ms": 690,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3309,
+      "inputTokens": 3482,
       "cachedInputTokens": 0,
-      "outputTokens": 95,
+      "outputTokens": 123,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -86,7 +91,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "Based on the sales data in `sales-2026.xlsx`, here is the average revenue for every region:\n\n* **East:** 1,460.59\n* **South:** 1,447.91\n* **West:** 1,447.31\n* **Center:** 1,446.93\n* **North:** 1,445.22"
+   "answer": "Based on the sales data in `sales-2026.xlsx`, here is the average revenue per region:\n\n* **East:** 1,460.59 (22 transactions)\n* **South:** 1,447.91 (293 transactions)\n* **West:** 1,447.31 (294 transactions)\n* **Center:** 1,446.93 (295 transactions)\n* **North:** 1,445.22 (295 transactions)"
   }
  ],
  "passed": true

@@ -94,8 +94,13 @@ export function evidenceOf(call: ToolCall, result: ToolResult): Evidence | undef
       if (total < 1) return entry;
       return withRanges(total > 30 ? [[1, 30], [Math.max(1, total - 19), total]] : [[1, total]], []);
     }
-    case TOOL_NAMES.analyze:
-      return { ...entry, whole: true, ...(typeof call.args.task === "string" ? { query: call.args.task } : {}) };
+    case TOOL_NAMES.analyze: {
+      // A read that lists items (since 0.10.0) also showed the lines of the items in its result,
+      // each checked against its quote: those can be cited.
+      const items = (Array.isArray(result.items) ? result.items : []) as Array<{ line?: unknown }>;
+      const lines = items.flatMap((item): NumberRange[] => (typeof item.line === "number" && Number.isInteger(item.line) && item.line > 0 ? [[item.line, item.line]] : []));
+      return { ...withRanges(lines, []), whole: true, ...(typeof call.args.task === "string" ? { query: call.args.task } : {}) };
+    }
     case TOOL_NAMES.aggregate: {
       // The rows read are all of the table; what can be cited is the header and each group's first rows.
       const groups = (Array.isArray(result.groups) ? result.groups : []) as Array<{ lines?: unknown }>;
@@ -117,6 +122,8 @@ const KEPT_ANSWER_CHARACTERS = 6_000;
 const MOST_RANGES = 60;
 /** The groups kept of a search with `group_by`, the largest (or, by time, the first) ones. */
 const KEPT_GROUPS = 30;
+/** The items kept of a whole-file read that lists them: their counts are kept whole. */
+const KEPT_ITEMS = 20;
 
 const rangeText = ([from, to]: NumberRange) => (to > from ? `${from}-${to}` : String(from));
 
@@ -176,6 +183,18 @@ function standIn(call: ToolCall, result: ToolResult): ToolResult {
         note: "This result was shown to you earlier and was shortened to make room: the largest groups are kept. Run aggregate_table again for the others.",
       };
     case TOOL_NAMES.analyze: {
+      // A read that lists items (since 0.10.0): its counts stay, and its first items.
+      if (typeof result.total_items === "number") {
+        return {
+          ...base,
+          ...(typeof result.parts_read === "number" ? { parts_read: result.parts_read } : {}),
+          total_items: result.total_items,
+          ...(result.counts_by_label && typeof result.counts_by_label === "object" ? { counts_by_label: result.counts_by_label } : {}),
+          ...(typeof result.unverified_items === "number" ? { unverified_items: result.unverified_items } : {}),
+          ...(Array.isArray(result.items) ? { items: result.items.slice(0, KEPT_ITEMS) } : {}),
+          note: "This is the start of the list of the whole-file read, with its counts. The rest of the list was dropped from the conversation to make room.",
+        };
+      }
       const answer = typeof result.answer === "string" ? result.answer : "";
       return {
         ...base,

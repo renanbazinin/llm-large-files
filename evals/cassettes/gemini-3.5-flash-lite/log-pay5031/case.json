@@ -21,20 +21,20 @@
     }
    ],
    "passed": true,
-   "requests": 7,
-   "inputTokens": 64118,
-   "cachedInputTokens": 36531,
-   "outputTokens": 309,
+   "requests": 2,
+   "inputTokens": 8937,
+   "cachedInputTokens": 0,
+   "outputTokens": 212,
    "thoughtTokens": 0,
-   "ms": 4391,
+   "ms": 1628,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 2,
+    "supported": 2,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
-    "search_document",
-    "search_document",
-    "search_document",
-    "search_document",
-    "search_document",
     "search_document"
    ],
    "reads": 0,
@@ -46,13 +46,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5663,
-     "ms": 623,
+     "estimatedInputTokens": 5820,
+     "ms": 590,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3523,
+      "inputTokens": 3687,
       "cachedInputTokens": 0,
-      "outputTokens": 31,
+      "outputTokens": 37,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -65,108 +65,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 11792,
-     "ms": 591,
+     "estimatedInputTokens": 7484,
+     "ms": 941,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 9140,
+      "inputTokens": 5250,
       "cachedInputTokens": 0,
-      "outputTokens": 38,
-      "thoughtTokens": 0
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_3",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.5-flash-lite",
-     "turn": 3,
-     "estimatedInputTokens": 11867,
-     "ms": 538,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 9221,
-      "cachedInputTokens": 6095,
-      "outputTokens": 44,
-      "thoughtTokens": 0
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_4",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.5-flash-lite",
-     "turn": 4,
-     "estimatedInputTokens": 12029,
-     "ms": 508,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 9394,
-      "cachedInputTokens": 6090,
-      "outputTokens": 51,
-      "thoughtTokens": 0
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_5",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.5-flash-lite",
-     "turn": 5,
-     "estimatedInputTokens": 12125,
-     "ms": 590,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 9502,
-      "cachedInputTokens": 6084,
-      "outputTokens": 43,
-      "thoughtTokens": 0
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_6",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.5-flash-lite",
-     "turn": 6,
-     "estimatedInputTokens": 13795,
-     "ms": 662,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 11070,
-      "cachedInputTokens": 8116,
-      "outputTokens": 63,
-      "thoughtTokens": 0
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_7",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.5-flash-lite",
-     "turn": 7,
-     "estimatedInputTokens": 15070,
-     "ms": 695,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 12268,
-      "cachedInputTokens": 10146,
-      "outputTokens": 39,
+      "outputTokens": 175,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -174,7 +79,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "There are **37** `PAY-5031` errors in the log (`payments-service.log`), and all of them were logged by **`worker-3`**."
+   "answer": "There are **37** `PAY-5031` errors in the log (`payments-service.log`), and all of them were logged by **`worker-3`**.\n\nFor example:\n- `2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960` (L17280)\n- `2026-11-12T09:47:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=99760` (L25680)"
   }
  ],
  "passed": true

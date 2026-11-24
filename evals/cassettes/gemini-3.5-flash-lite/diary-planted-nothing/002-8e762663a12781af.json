@@ -1,0 +1,74 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "8e762663a12781af",
+  "bytes": 32076,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19824 chars #bbb12c7e"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- שבוע 1 (1–8 בנובמבר 2026): פעילות שוטפת הכוללת בדיקות מצלמות, ניקיון, בדיקות מזגנים, לוחות חשמל, גנרטור, כיבוי אש, גיבויים, עדכוני תוכנה ומשלוחי דיסקים.\n- אירוע חריג:\n  - מתי התחיל: יום חמישי, 5 בנובמבר 2026, בשעה 01:50, משמרת לילה (L181).\n  - מה קרה: מערכת הניטור התריעה שאחד מספקי הכוח בארון 12 כבה, והשרתים בארון עברו לספק הגיבוי (L181).\n  - מתי הסתיים: יום חמישי, 5 בנובמבר 2026, בשעה 09:30, משמרת בוקר, כאשר טכנאי היצרן החליף את ספק הכוח בארון 12 והבדיקות עברו (L194).",
+        "thoughtSignature": "EpYBCpMBAWkUfRMDNsnZzbOOrhdBxa55kvmPNIvtobIuxEGHB3nE/1BH3s4hjhtfwbziSp1+0RpNVobkywfiBoBKnjd3rz8wPORUGw8GmvgXtXDJokZHWuz665JOuiCkYa1+9nGIWrq7K2l5OEHIXR49HGK6XrFJ0QH/+P/B21ztRNUIi3Yk0s3DeONRbHjNlrHlIOeOi4ff"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12074,
+    "candidatesTokenCount": 254,
+    "totalTokenCount": 12328,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12074
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "IkcFa6SRCuXxnsEP1efzwAc"
+  }
+ }
+}

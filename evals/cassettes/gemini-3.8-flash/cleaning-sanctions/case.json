@@ -1,0 +1,150 @@
+{
+ "case": "cleaning-sanctions",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "count",
+  "whole-read",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 37",
+     "status": "pass"
+    },
+    {
+     "fact": "number 4790",
+     "status": "fail",
+     "detail": "numbers in the answer: 1, 30, 30, 2, 3, 7, 810, 7, 11, 1490, 11, 15"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": false,
+   "requests": 4,
+   "inputTokens": 20828,
+   "cachedInputTokens": 5063,
+   "outputTokens": 3924,
+   "thoughtTokens": 2869,
+   "ms": 38727,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 17,
+    "supported": 13,
+    "unchecked": 0,
+    "unsupported": [
+     {
+      "document": "הסכם שירותי ניקיון.md",
+      "line": 34
+     },
+     {
+      "document": "הסכם שירותי ניקיון.md",
+      "line": 46
+     },
+     {
+      "document": "הסכם שירותי ניקיון.md",
+      "line": 46
+     },
+     {
+      "document": "הסכם שירותי ניקיון.md",
+      "line": 153
+     }
+    ]
+   },
+   "tools": [
+    "read_document",
+    "read_document",
+    "search_document"
+   ],
+   "reads": 2,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5596,
+     "ms": 3954,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3671,
+      "cachedInputTokens": 0,
+      "outputTokens": 184,
+      "thoughtTokens": 150
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 6366,
+     "ms": 3579,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4604,
+      "cachedInputTokens": 2479,
+      "outputTokens": 212,
+      "thoughtTokens": 178
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 7049,
+     "ms": 22832,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5473,
+      "cachedInputTokens": 2584,
+      "outputTokens": 2613,
+      "thoughtTokens": 2541
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "answer",
+     "purpose": "closing",
+     "model": "gemini-3.8-flash",
+     "turn": 4,
+     "estimatedInputTokens": 7960,
+     "ms": 8339,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7080,
+      "cachedInputTokens": 0,
+      "outputTokens": 915,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "על פי החיפוש שבוצע במסמך באמצעות ביטויים רגולריים המתאימים לניכויים, קנסות, קיזוזים, פיצויים, הפרות ואיחורים (`בגין|קנס|לקזז|קיזוז|ניכוי|ינכה|פיצוי|הפרה|איחור`):\n\n1. **מספר הסעיפים:**\n   המערכת זיהתה בסך הכל **30 שורות/סעיפים מתאימים** בכל רחבי המסמך (`total_matching_lines: 30`).\n\n2. **הסעיפים שהוצגו במלואם:**\n   * **סעיף 3** (שורה 7): קיזוז 810 ש\"ח בגין השארת דלת חדר השרתים פתוחה.\n   * **סעיף 7**",
+   "answer": "על פי החיפוש שבוצע במסמך באמצעות ביטויים רגולריים המתאימים לניכויים, קנסות, קיזוזים, פיצויים, הפרות ואיחורים (`בגין|קנס|לקזז|קיזוז|ניכוי|ינכה|פיצוי|הפרה|איחור`):\n\n1. **מספר הסעיפים:**\n   המערכת זיהתה בסך הכל **30 שורות/סעיפים מתאימים** בכל רחבי המסמך (`total_matching_lines: 30`).\n\n2. **הסעיפים שהוצגו במלואם:**\n   * **סעיף 3** (שורה 7): קיזוז 810 ש\"ח בגין השארת דלת חדר השרתים פתוחה.\n   * **סעיף 7** (שורה 11): קיזוז 1,490 ש\"ח בגין החלפת עובד ניקיון ללא הודעה.\n   * **סעיף 11** (שורה 15): קיזוז 2,170 ש\"ח בגין אי ניקוי השירותים בקומה לפי הלוח.\n   * **סעיף 16** (שורה 20): קנס בסך 3,020 ש\"ח בגין אי פינוי פסולת בסוף היום.\n   * **סעיף 20** (שורה 24): קנס בסך 3,700 ש\"ח בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n   * **סעיף 24** (שורה 28): קנס בסך 4,380 ש\"ח בגין עבודה ללא תג עובד.\n   * **סעיף 28** (שורה 32): קנס בסך 360 ש\"ח בגין נזק לרהוט במהלך הניקיון.\n   * **סעיף 32** (שורה 36): קנס בסך 1,040 ש\"ח בגין שימוש בחומרי ניקוי שלא אושרו.\n   * **סעיף 37** (שורה 41): פיצוי מוסכם בסך 1,890 ש\"ח בגין החלפת עובד ניקיון ללא הודעה.\n   * **סעיף 41** (שורה 45): פיצוי מוסכם בסך 2,570 ש\"ח בגין אי ניקוי השירותים בקומה לפי הלוח.\n   * **סעיף 150** (שורה 154): הפחתת 2,300 ש\"ח מהתמורה החודשית במקרה של איחור של יותר משעה בתחילת משמרת הניקיון.\n\n3. **מה שלא ניתן היה לאחזר במלואו והסכום המקסימלי:**\n   * מתוך 30 הסעיפים שנמצאו, הוצגו במפורש 11 סעיפים (שורות 7 עד 45 ושורה 154), בעוד ש-19 הסעיפים שביניהם (משורה 46 עד 153) לא הוצגו במלואם עקב מגבלת אורך הפלט ומיצוי מכסת הקריאות לכלי.\n   * מבין הסעיפים **שהוחזרו ונקראו בפועל**, הסכום הגבוה ביותר הוא **4,380 ש\"ח** (סעיף 24, שורה 28). עם זאת, לא ניתן לאשר בוודאות מלאה האם קיים סכום גבוה יותר ב-19 הסעיפים שבין שורה 46 לשורה 153 שלא הוצגו."
+  }
+ ],
+ "passed": false
+}

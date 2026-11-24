@@ -149,6 +149,21 @@
                     "task": {
                       "type": "string",
                       "description": "What to find or produce from the whole file, stated completely."
+                    },
+                    "output": {
+                      "type": "string",
+                      "enum": [
+                        "answer",
+                        "items"
+                      ],
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
+                    },
+                    "labels": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "output \"items\" only: the kinds of item to label each one with, such as [\"penalty\", \"deadline\"]. Up to 12, each up to 40 characters."
                     }
                   },
                   "required": [
@@ -367,6 +382,21 @@
                     "task": {
                       "type": "string",
                       "description": "What to find or produce from the whole file, stated completely."
+                    },
+                    "output": {
+                      "type": "string",
+                      "enum": [
+                        "answer",
+                        "items"
+                      ],
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
+                    },
+                    "labels": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "output \"items\" only: the kinds of item to label each one with, such as [\"penalty\", \"deadline\"]. Up to 12, each up to 40 characters."
                     }
                   },
                   "required": [
@@ -588,6 +618,21 @@
                     "task": {
                       "type": "string",
                       "description": "What to find or produce from the whole file, stated completely."
+                    },
+                    "output": {
+                      "type": "string",
+                      "enum": [
+                        "answer",
+                        "items"
+                      ],
+                      "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
+                    },
+                    "labels": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "output \"items\" only: the kinds of item to label each one with, such as [\"penalty\", \"deadline\"]. Up to 12, each up to 40 characters."
                     }
                   },
                   "required": [
@@ -761,6 +806,21 @@
                         "task": {
                           "type": "string",
                           "description": "What to find or produce from the whole file, stated completely."
+                        },
+                        "output": {
+                          "type": "string",
+                          "enum": [
+                            "answer",
+                            "items"
+                          ],
+                          "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
+                        },
+                        "labels": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "output \"items\" only: the kinds of item to label each one with, such as [\"penalty\", \"deadline\"]. Up to 12, each up to 40 characters."
                         }
                       },
                       "required": [
@@ -994,6 +1054,21 @@
                         "task": {
                           "type": "string",
                           "description": "What to find or produce from the whole file, stated completely."
+                        },
+                        "output": {
+                          "type": "string",
+                          "enum": [
+                            "answer",
+                            "items"
+                          ],
+                          "description": "\"answer\" (the default): one answer written from the notes of every part, for a summary, a timeline, or a description of events. \"items\": to count the items of a kind that must be judged by meaning, such as the clauses that set a fine: each part lists them, each with its line and a quote checked against the file, and the result counts them, by label."
+                        },
+                        "labels": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "output \"items\" only: the kinds of item to label each one with, such as [\"penalty\", \"deadline\"]. Up to 12, each up to 40 characters."
                         }
                       },
                       "required": [

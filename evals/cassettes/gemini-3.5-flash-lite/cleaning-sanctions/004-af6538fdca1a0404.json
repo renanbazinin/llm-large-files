@@ -1,0 +1,152 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "af6538fdca1a0404",
+  "bytes": 16266,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2160 chars #a40e61ec"
+      },
+      {
+       "text": "193 chars #b7a0ca5a"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #827105d4",
+        "id": "25 chars #1ab97b12"
+       },
+       "thoughtSignature": "204 chars #2e8114ed"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #1ab97b12",
+        "response": "{5 keys} #01863d53"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "get_document_overview",
+        "args": "{1 keys} #313932f6",
+        "id": "call_2566646269628444121"
+       },
+       "thoughtSignature": "204 chars #66a14c1e"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "get_document_overview",
+        "id": "call_2566646269628444121",
+        "response": "{4 keys} #54204411"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #1d7d5f15",
+        "id": "25 chars #6fdf9c63"
+       },
+       "thoughtSignature": "204 chars #e634cdb7"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #6fdf9c63",
+        "response": "{7 keys} #17beb9b6"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "179 chars #5bc1634b"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1982 chars #73955965"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 1,\"totalTokenCount\": 4730,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי הבדיקה במסמך הסכם שירותי הניקיון, נמצאו\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 20,\"totalTokenCount\": 4749,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **28 סעיפים** שבהם הספק משלם כסף או שמנוכים ממנו ס\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 44,\"totalTokenCount\": 4773,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"כומים בגין הפרה, איחור או מחדל כלשהו (לפי חיפוש בי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 68,\"totalTokenCount\": 4797,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"טויי הקיזוז, הקנסות והתשלומים שהחזיק הכלי).\\n\\nמהנת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 92,\"totalTokenCount\": 4821,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ונים שעלו בתוצאות החיפוש שהתקבלו (הכוללות את דוגמא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 116,\"totalTokenCount\": 4845,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ות החיפוש והסעיפים שרוכזו בהן, כגון סעיפים 3, 7,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 144,\"totalTokenCount\": 4873,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 11, 16, 20, 24, 28, 32, 37\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 171,\"totalTokenCount\": 4900,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \", 41 ו-137), **הסכום הגבוה ביותר** שנמצא באותן\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 195,\"totalTokenCount\": 4924,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" תוצאות הוא **4,790 ש\\\"ח** (בסעיף 137,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 219,\"totalTokenCount\": 4948,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בגין החלפת עובד ניקיון ללא הודעה). \\n\\n*(הערה: מכ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 244,\"totalTokenCount\": 4973,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"יוון שחלק מהסעיפים האמצעיים בין השורות 46 ל-136\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 268,\"totalTokenCount\": 4997,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לא נקראו במלואם עקב מגבלת תצוגה של כלי החיפוש,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 293,\"totalTokenCount\": 5022,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" אין באפשרותי לוודא האם היה סעיף גבוה מ-4,790 ש\\\"ח בטווח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 321,\"totalTokenCount\": 5050,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" שלא הוצג במלואו).*\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 330,\"totalTokenCount\": 5059,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRPjyk1sfdAaeHPKTj4UkQOc/uox3yb/ZbTt/ChE+mgCD5Oh01oArFPCgWs9b5+zCXMCe2gQ9DrAvgVzdruzAiwG0YqPSPpGKYZB9PViMCph95ICi0iJX0xEWVpPxwVJ9ZiPfpdyHJYhTjXifVD+0glIYN1fN6nq8hv+q2tJEjtq575mMcoM9JA+1CVsLkDb\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4729,\"candidatesTokenCount\": 330,\"totalTokenCount\": 5059,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4729}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa__HK8eD7M8PqYH3qQg\"}\r\n\r\n"
+  ]
+ }
+}
