@@ -133,7 +133,8 @@ export type AskOptions = {
   /**
    * A second model that explores the documents: it makes the tool calls (search, read, look at
    * pages) and reads a whole file in parts. It may be of another provider than `model`. Left out,
-   * or the same adapter as `model`: one model does both.
+   * or the same adapter as `model`: one model does both. Since 0.10.0 it is not used when no file
+   * is searched and the tools are there for tables sent whole (`inlineTables`): `model` runs them.
    */
   explorer?: ModelAdapter | undefined;
   /** Documents this conversation may use. Where their text or cards go: see `documentPlacement`. */

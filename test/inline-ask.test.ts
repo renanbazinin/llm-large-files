@@ -15,7 +15,8 @@ import {
   type ModelToolRound,
   type ToolResult,
 } from "llm-large-files";
-import { calls, fakeModel, says, serviceLog, utf8 } from "llm-large-files/testing";
+import { askGemini, geminiApi } from "llm-large-files/gemini";
+import { calls, fakeFetch, fakeModel, says, serviceLog, utf8 } from "llm-large-files/testing";
 import { FINAL_ANSWER_WITH_FILES } from "../src/ask.js";
 import { INLINE_CITATION_LINE, INLINE_TABLES_LINE, numberedText, renderInline } from "../src/plan.js";
 import { p, word, zip } from "./word-fixtures.js";
@@ -197,6 +198,22 @@ describe("tables sent whole get the tools that count them (inlineTables)", () =>
     // Numbered still: the citation line alone.
     expect(model.requests[0]!.system).toBe(INLINE_CITATION_LINE);
     expect(result.evidence).toEqual([{ tool: "inline", documentId: meta.id, document: "חשבוניות.csv", lines: [[1, 41]], whole: true }]);
+  });
+
+  it("is passed on by askGemini, which forwards both options", async () => {
+    const files = await library();
+    const meta = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices(40)) });
+    const endpoint = geminiApi({ apiKey: "test-key", model: "gemini-test" });
+    const reply = () => Response.json({ candidates: [{ content: { role: "model", parts: [{ text: "Five columns." }] }, finishReason: "STOP" }] });
+    const tools = fakeFetch([reply()]);
+    await askGemini({ files, endpoint, fetch: tools.fetch, documentIds: [meta.id], messages: [question("Which columns?")] });
+    expect(tools.sent[0]!.body.tools[0].functionDeclarations.map((tool: { name: string }) => tool.name)).toEqual(["search_document", "read_document", "aggregate_table"]);
+    expect(tools.sent[0]!.body.contents[0].parts[0].text).toContain("\n1| מספר,לקוח,סכום,סטטוס,תאריך\n");
+    const plain = fakeFetch([reply()]);
+    await askGemini({ files, endpoint, fetch: plain.fetch, documentIds: [meta.id], messages: [question("Which columns?")], inlineTables: "text", numberInline: false });
+    expect(plain.sent[0]!.body.tools).toBeUndefined();
+    expect(plain.sent[0]!.body.systemInstruction).toBeUndefined();
+    expect(plain.sent[0]!.body.contents[0].parts[0].text).toContain("\nמספר,לקוח,סכום,סטטוס,תאריך\n");
   });
 
   it("refuses an inlineTables or numberInline it cannot be, before any request", async () => {
