@@ -156,14 +156,15 @@ describe("order \"last\" when the scan stopped early (findings 14, 33, 51, 52)",
   const toolsOver = (text: string, regexBudgetMs?: number) =>
     createDocumentTools({ load: async () => doc(text), documentIds: ["doc_t"], budget, ...(regexBudgetMs !== undefined ? { regexBudgetMs } : {}) });
 
-  it("suggests no line past the range when the last line it found is the last line searched", async () => {
-    // An exact search stops at its millionth matching line: here it is the last line of the file.
+  it("counts all of 1,000,000 matching lines, and is no lower bound (P8, 0.10.0)", async () => {
+    // Until 0.10.0 an exact search stopped at its millionth matching line, here the last line of
+    // the file, and said that the scan stopped early. It now goes on past it, and so reaches the end.
     const text = "x\n".repeat(999_999) + "x";
     const started = performance.now();
     const result = await toolsOver(text).execute("search_document", { document_id: "doc_t", query: "x", mode: "exact", order: "last", max_results: 2 });
     expect(performance.now() - started).toBeLessThan(5_000);
     expect(result.total_matching_lines).toBe(1_000_000);
     expect(linesOf(result)).toEqual([999_999, 1_000_000]);
-    expect(result.note).toBe("The scan stopped early; the total is a lower bound. These are the last 2 matching lines it found, in the order of the file.");
+    expect(result.note).toBe("These are the last 2 of the 1000000 matching lines, in the order of the file: the last match is on line 1000000, and the first on line 1.");
   }, 15_000);
 });
