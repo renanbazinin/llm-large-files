@@ -809,7 +809,8 @@ one question to the next, `prepare` gives what does not change:
   list, plan the next question without a state. Its `head` is kept as you give it.
 - **`reserve`**: pass the size of the tool declarations you send, `{ tokens, bytes }`. Planning then
   counts the cards, the header and the guide as well, at their size, and sends fewer files whole when
-  many cards fill the window.
+  many cards fill the window. A file becomes a card only for the room that frees: a small file whose
+  card would be larger stays whole. When nothing fits, `prepare` gives the plan nearest to fitting.
 
 Plan with the tool rounds of earlier questions at their stand-in size: count each result as its
 `stubResult(call, result, hadFiles)` when you work out `base`. Then a file sent whole stays whole as

@@ -4,7 +4,7 @@
 // its name, and room kept for the declarations, the cards, the header and the guide (`reserve`).
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { createLargeFiles, MemoryDocumentStore, type LargeFiles } from "llm-large-files";
+import { createLargeFiles, estimateTokens, MemoryDocumentStore, type LargeFiles, type PreparedContext } from "llm-large-files";
 import { serviceLog, utf8 } from "llm-large-files/testing";
 import { emptyPlacement, placementHead } from "../src/placement.js";
 import { INLINE_CITATION_LINE, INLINE_TABLES_LINE, LISTING_TITLE, listingLine, renderListing, toolGuide } from "../src/plan.js";
@@ -18,6 +18,14 @@ function library(options: Partial<Parameters<typeof createLargeFiles>[0]> = {}):
   const clock = () => new Date((now += 1_000));
   return createLargeFiles({ store: new MemoryDocumentStore({ now: clock }), now: clock, ...options });
 }
+
+/** What a request holds of the files, as `askWithFiles` counts it: the files sent whole, the cards, the header and the guide. */
+function requestTokens(prepared: PreparedContext): number {
+  const cards = prepared.plan.searchable.map((meta) => estimateTokens(prepared.blocks.get(meta.id)!));
+  return prepared.plan.inlineTokens + cards.reduce((sum, tokens) => sum + tokens, 0) + estimateTokens(renderListing([...prepared.listing!.values()])) + estimateTokens(prepared.guide!);
+}
+
+const steps = (count: number) => Array.from({ length: count }, (_, i) => `Step ${i + 1}: restart worker ${i % 9} and check queue depth on shard ${i % 12} before paging.`).join("\n");
 
 const csv = (rows: number) => ["id,status,amount", ...Array.from({ length: rows }, (_, i) => `${i + 1},${i % 4 === 0 ? "late" : "paid"},${(i * 37) % 500}`)].join("\n");
 
@@ -156,6 +164,59 @@ describe("room kept for what is besides the documents (reserve)", () => {
     expect(counted.plan.searchable).toHaveLength(13);
     expect(counted.blocks.get(runbook.id)).toContain("--- Large attached file: runbook.md ---");
     expect(counted.listing?.get(runbook.id)).toContain("searched with the tools");
+  });
+
+  it("does not move small files to cards larger than they are, nor demote pinned ones, when nothing fits", async () => {
+    // A window a little too small for 70 short notes beside the cards of 2 logs: no plan fits,
+    // and each note's card is about twice the note.
+    const files = library({ budget: { contextTokens: 20_000, reservedTokens: 4_000, inlineTokens: 30_000 } });
+    const logs: string[] = [];
+    for (let i = 0; i < 2; i++) logs.push((await files.ingest({ name: `big-${i}.log`, bytes: utf8(serviceLog(4_000 + i)) })).id);
+    const notes: string[] = [];
+    for (let i = 0; i < 70; i++) notes.push((await files.ingest({ name: `note-${i}.md`, bytes: utf8(Array.from({ length: 8 }, (_, j) => `Note ${i}.${j}: check worker ${j} on shard ${i}.`).join("\n")) })).id);
+    const ids = [...logs, ...notes];
+    const plain = await files.prepare(ids, base);
+    expect(plain.plan.inline).toHaveLength(70);
+    const room = 20_000 - 4_000;
+    expect(requestTokens(plain)).toBeGreaterThan(room);
+    const card = await files.prepare([notes[0]!], base, { placement: { ...emptyPlacement(HEAD), cards: [notes[0]!] } });
+    expect(estimateTokens(card.blocks.get(notes[0]!)!)).toBeGreaterThan(2 * (plain.plan.inlineTokens / 70) - 20);
+    // With the cards counted, the notes stay whole: as cards they would take more room. It made
+    // every file a card before, 13K tokens over the room.
+    const counted = await files.prepare(ids, base, { reserve: { tokens: 0, bytes: 0 } });
+    expect(counted.plan.inline.map((meta) => meta.id).sort()).toEqual([...notes].sort());
+    expect(requestTokens(counted)).toBeLessThanOrEqual(requestTokens(plain));
+    // The same with the notes pinned by the state of the first plan: they stay pinned.
+    const pinned = await files.prepare(ids, base, { placement: plain.placement, reserve: { tokens: 0, bytes: 0 } });
+    expect(pinned.plan.inline).toHaveLength(70);
+    expect(pinned.placement).toMatchObject({ inline: plain.placement!.inline, cards: plain.placement!.cards });
+  });
+
+  it("moves to a card the file whose card frees room, and leaves whole those whose cards would not", async () => {
+    const files = library({ budget: { contextTokens: 24_000, reservedTokens: 4_000, inlineTokens: 30_000 } });
+    const log = await files.ingest({ name: "worker.log", bytes: utf8(serviceLog(300)) });
+    const runbook = await files.ingest({ name: "runbook.md", bytes: utf8(steps(250)) });
+    const notes: string[] = [];
+    for (let i = 0; i < 20; i++) notes.push((await files.ingest({ name: `note-${i}.md`, bytes: utf8(`Note ${i}: restart worker ${i % 7}.\nThen check shard ${i}.`) })).id);
+    const ids = [log.id, runbook.id, ...notes];
+    const room = 24_000 - 4_000;
+    const plain = await files.prepare(ids, base);
+    expect(plain.plan.inline.map((meta) => meta.id).sort()).toEqual([runbook.id, ...notes].sort());
+    expect((await files.prepare(ids, base, { reserve: { tokens: 0, bytes: 0 } })).plan.inline).toHaveLength(21);
+    // Room for all but the runbook: it goes to the cards, and the notes stay.
+    const tight = await files.prepare(ids, base, { reserve: { tokens: room - requestTokens(plain) + 100, bytes: 0 } });
+    expect(tight.plan.inline.map((meta) => meta.id).sort()).toEqual([...notes].sort());
+    expect(tight.plan.searchable.map((meta) => meta.id).sort()).toEqual([log.id, runbook.id].sort());
+    // Room for less than that: nothing fits, and the notes stay whole, as cards would take more
+    // room. It made them all cards before.
+    const over = { reserve: { tokens: room - requestTokens(tight) + 100, bytes: 0 } };
+    const fresh = await files.prepare(ids, base, over);
+    expect(fresh.plan.inline.map((meta) => meta.id).sort()).toEqual([...notes].sort());
+    expect(requestTokens(fresh)).toBe(requestTokens(tight));
+    // Pinned, the same: the runbook, which cannot fit even as the others are, moves to the cards.
+    const pinned = await files.prepare(ids, base, { placement: plain.placement, ...over });
+    expect(pinned.plan.inline.map((meta) => meta.id).sort()).toEqual([...notes].sort());
+    expect(pinned.placement).toMatchObject({ inline: plain.placement!.inline.filter((id) => id !== runbook.id), cards: [log.id, runbook.id] });
   });
 
   it("is refused when it is not a size, and so are numberInline and inlineTables of the wrong kind", async () => {

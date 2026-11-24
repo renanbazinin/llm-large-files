@@ -26,14 +26,25 @@ export type PlanOptions = {
   pinned?: readonly string[];
   /** The IDs of documents searched in earlier questions (`PlacementState.cards`): they stay searched. */
   cards?: readonly string[];
+  /**
+   * The size of each document's card, as rendered (`renderCard`). With it, the cards count against
+   * the room of the request with the documents sent whole: a document becomes a card only for room
+   * the move frees, so one whose card is no smaller than its text stays whole (within
+   * `budget.inlineTokens`), a pinned one included. Without it, as in 0.9, the cards are not counted.
+   */
+  cardSizes?: ReadonlyMap<string, Size>;
 };
+
+type Size = { tokens: number; bytes: number };
+
+const NO_SIZE: Size = { tokens: 0, bytes: 0 };
 
 /**
  * Decides which documents go into the prompt in full and which the model reaches through
  * tools. Smaller documents are inlined first, so as many as possible are read in full. Since
- * 0.10.0, `options` can count them with their lines numbered, and keep the documents of earlier
- * questions where they were (`PlanOptions`). Both lists are in order of size, smallest first, as
- * before.
+ * 0.10.0, `options` can count them with their lines numbered, keep the documents of earlier
+ * questions where they were, and count the cards (`PlanOptions`). Both lists are in order of size,
+ * smallest first, as before.
  */
 export function planDocuments(
   documents: DocumentMeta[],
@@ -41,17 +52,52 @@ export function planDocuments(
   base: { tokens: number; bytes: number },
   options: PlanOptions = {},
 ): DocumentPlan {
-  const tokenRoom = Math.min(budget.inlineTokens, budget.contextTokens - budget.reservedTokens - base.tokens);
+  const contextRoom = budget.contextTokens - budget.reservedTokens - base.tokens;
+  const tokenRoom = Math.min(budget.inlineTokens, contextRoom);
   const byteRoom = budget.maxRequestBytes - REQUEST_BYTES_MARGIN - base.bytes;
   const sorted = [...documents].sort((left, right) => left.estimatedTokens - right.estimatedTokens);
   const pinned = new Set(options.pinned ?? []);
   const cards = new Set((options.cards ?? []).filter((id) => !pinned.has(id)));
+  const numbered = options.numbered === true;
+  const cardSizes = options.cardSizes;
   const inline = new Set<string>();
   let tokens = 0;
   let bytes = 0;
+  // With the cards counted: what the documents take of the request. A document not placed yet
+  // counts at the smaller of its text and its card, and a card of an earlier question at its card.
+  const used = { ...NO_SIZE };
+  const lower = (meta: DocumentMeta) => {
+    const size = inlineSize(meta, numbered);
+    const card = cardSizes?.get(meta.id) ?? NO_SIZE;
+    return { tokens: Math.min(size.tokens, card.tokens), bytes: Math.min(size.bytes, card.bytes) };
+  };
+  if (cardSizes) {
+    for (const meta of documents) {
+      const counted = cards.has(meta.id) ? cardSizes.get(meta.id) ?? NO_SIZE : lower(meta);
+      used.tokens += counted.tokens;
+      used.bytes += counted.bytes;
+    }
+  }
   const place = (meta: DocumentMeta) => {
-    const size = inlineSize(meta, options.numbered === true);
-    if (tokens + size.tokens <= tokenRoom && bytes + size.bytes <= byteRoom) {
+    const size = inlineSize(meta, numbered);
+    if (!cardSizes) {
+      if (tokens + size.tokens <= tokenRoom && bytes + size.bytes <= byteRoom) {
+        inline.add(meta.id);
+        tokens += size.tokens;
+        bytes += size.bytes;
+      }
+      return;
+    }
+    const card = cardSizes.get(meta.id) ?? NO_SIZE;
+    const low = lower(meta);
+    // A move to the cards that frees no room is not made.
+    const whole = tokens + size.tokens <= budget.inlineTokens
+      && (size.tokens <= card.tokens || used.tokens - low.tokens + size.tokens <= contextRoom)
+      && (size.bytes <= card.bytes || used.bytes - low.bytes + size.bytes <= byteRoom);
+    const taken = whole ? size : card;
+    used.tokens += taken.tokens - low.tokens;
+    used.bytes += taken.bytes - low.bytes;
+    if (whole) {
       inline.add(meta.id);
       tokens += size.tokens;
       bytes += size.bytes;
@@ -72,10 +118,10 @@ export function planDocuments(
 }
 
 /**
- * What a document sent whole takes of the request: its tokens, and its bytes with 200 for its
- * frame. `numbered` counts its line numbers too (`numberedSize`), rounded up.
+ * What a document sent whole takes of the request, as planning counts it: its tokens, and its
+ * bytes with 200 for its frame. `numbered` counts its line numbers too (`numberedSize`), rounded up.
  */
-function inlineSize(meta: DocumentMeta, numbered: boolean): { tokens: number; bytes: number } {
+export function inlineSize(meta: DocumentMeta, numbered: boolean): Size {
   if (!numbered) return { tokens: meta.estimatedTokens, bytes: (meta.jsonBytes ?? Math.ceil(meta.textBytes * 1.08)) + 200 };
   const size = numberedSize(meta);
   return { tokens: Math.ceil(size.tokens), bytes: Math.ceil(size.bytes) + 200 };

@@ -10,11 +10,13 @@ import {
   canBeReadWhole,
   CARD_LINES,
   documentToolsInstruction,
+  inlineSize,
   isToolable,
   listingLine,
   numberedText,
   planDocuments,
   questionTools,
+  REQUEST_BYTES_MARGIN,
   renderCard,
   renderInline,
   renderListing,
@@ -25,7 +27,7 @@ import {
 import { DocumentGoneError } from "./ranged.js";
 import { numberLines, type DocumentSource } from "./search.js";
 import { estimateTokens, jsonBytes } from "./text.js";
-import type { Budget, DocumentMeta, PlacementState, PreparedContext } from "./types.js";
+import type { Budget, DocumentMeta, PreparedContext, ToolName } from "./types.js";
 
 /** What planning a request needs of the library that asks for it. */
 export type PrepareContext = {
@@ -133,8 +135,20 @@ function listingOf(documents: DocumentMeta[], inline: Set<string>, viewable: Set
 /** The size of a text in a request, as `askWithFiles` counts the text it sends. */
 const sizeOf = (text: string): Size => (text ? { tokens: estimateTokens(text), bytes: jsonBytes(text) } : { tokens: 0, bytes: 0 });
 
-/** How many times planning is made again for the cards, header and guide it found it needs room for. */
+const sum = (sizes: Iterable<Size>): Size => {
+  const total = { tokens: 0, bytes: 0 };
+  for (const size of sizes) {
+    total.tokens += size.tokens;
+    total.bytes += size.bytes;
+  }
+  return total;
+};
+
+/** How many times planning is made again when the request it planned does not fit. */
 const MOST_EXTRA_PLANS = 6;
+
+/** A plan and what goes with it, before the next placement is worked out. */
+type Planned = Omit<PreparedContext, "missing" | "placement"> & { tools: ToolName[] };
 
 /**
  * Plans one model request (`LargeFiles.prepare`): which documents go in whole and which become
@@ -167,32 +181,70 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     if (meta) documents.push(meta);
     else missing.push(id);
   }
-  // With `reserve`, what planning found the cards, the header and the guide need, and the blocks
-  // read so far: a plan made again for them reads each block once.
+  // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
+  const viewableOf = () => (options?.viewPages ? documents.filter((meta) => context.viewableMeta(meta)) : []);
+  // With `reserve` or `numberInline`, the blocks read so far, by kind and ID: a plan made again
+  // reads each block once. Without them, the reads of 0.9.
+  const read = reserve || shape.numbered ? new Map<string, Rendered>() : undefined;
+  const render = async (meta: DocumentMeta, whole: boolean, viewable: boolean): Promise<Rendered | undefined> => {
+    const key = `${whole ? "whole" : "card"} ${meta.id}`;
+    const known = read?.get(key);
+    if (known) return known;
+    const wholeRead = !analysis ? "not_offered" : canBeReadWhole(meta, budget) ? "offered" : "too_large";
+    const rendered = await block(context, meta.id, meta, caller, whole, viewable, wholeRead, shape);
+    if (rendered) read?.set(key, rendered);
+    return rendered;
+  };
+  // What the request may hold of the documents, the cards, the header and the guide.
+  const limit: Size = {
+    tokens: budget.contextTokens - budget.reservedTokens - base.tokens - (reserve?.tokens ?? 0),
+    bytes: budget.maxRequestBytes - REQUEST_BYTES_MARGIN - base.bytes - (reserve?.bytes ?? 0),
+  };
+  /** How far a plan is over the room it has: 0 when it fits. */
+  const excessOf = (planned: Planned): number => {
+    const whole = sum(planned.plan.inline.map((meta) => inlineSize(meta, shape.numbered)));
+    const total = reserve
+      ? sum([whole, sizeOf(planned.guide!), sizeOf(renderListing([...planned.listing!.values()])), ...planned.plan.searchable.map((meta) => sizeOf(planned.blocks.get(meta.id)!))])
+      : whole;
+    const tokens = Math.max(0, total.tokens - limit.tokens, whole.tokens - budget.inlineTokens);
+    const bytes = Math.max(0, total.bytes - limit.bytes);
+    return tokens / Math.max(1, budget.contextTokens) + bytes / Math.max(1, budget.maxRequestBytes);
+  };
+  const finish = ({ plan, blocks, instruction, viewable, toolable, guide, listing, tools }: Planned): PreparedContext => ({
+    plan,
+    blocks,
+    instruction,
+    missing,
+    viewable,
+    ...(toolable ? { toolable } : {}),
+    guide,
+    listing,
+    placement: nextPlacement(given, typeof head === "string" ? head : "", { ids: unique, plan, missing, tools }),
+  });
+  // With `reserve`, once a plan is found not to fit: the card of each document, and the room the
+  // guide and the header took.
+  let cardSizes: Map<string, Size> | undefined;
   let extra: Size = { tokens: 0, bytes: 0 };
   let extraPlans = 0;
-  const read = reserve ? new Map<string, Rendered>() : undefined;
+  let best: { planned: Planned; excess: number } | undefined;
   // Planning needs only the metadata. The text is read for the documents sent whole, and the
   // first lines for the others. One that is gone by then is missing, and the plan is made again.
   for (;;) {
     const room = reserve ? { tokens: base.tokens + reserve.tokens + extra.tokens, bytes: base.bytes + reserve.bytes + extra.bytes } : base;
-    const plan = planDocuments(documents, budget, room, { numbered: shape.numbered, ...(given ? { pinned: given.inline, cards: given.cards } : {}) });
+    const plan = planDocuments(documents, budget, room, {
+      numbered: shape.numbered,
+      ...(given ? { pinned: given.inline, cards: given.cards } : {}),
+      ...(cardSizes ? { cardSizes } : {}),
+    });
     const inline = new Set(plan.inline.map((meta) => meta.id));
-    // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
-    const viewable = options?.viewPages ? documents.filter((meta) => context.viewableMeta(meta)) : [];
+    const viewable = viewableOf();
     const shown = new Set(viewable.map((meta) => meta.id));
     const blocks = new Map<string, string>();
     const toolableIds = new Set<string>();
     const gone: string[] = [];
     for (const meta of documents) {
       const whole = inline.has(meta.id);
-      const key = `${whole ? "whole" : "card"} ${meta.id}`;
-      let rendered = read?.get(key);
-      if (!rendered) {
-        const wholeRead = !analysis ? "not_offered" : canBeReadWhole(meta, budget) ? "offered" : "too_large";
-        rendered = await block(context, meta.id, meta, caller, whole, shown.has(meta.id), wholeRead, shape);
-        if (rendered) read?.set(key, rendered);
-      }
+      const rendered = await render(meta, whole, shown.has(meta.id));
       if (rendered === undefined) {
         gone.push(meta.id);
         continue;
@@ -203,6 +255,7 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     if (gone.length > 0) {
       missing.push(...gone);
       documents = documents.filter((meta) => !gone.includes(meta.id));
+      best = undefined;
       continue;
     }
     // A whole-document read is named only when the tools have it, and one of the files is
@@ -212,29 +265,47 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     // The tools declared: those of earlier questions of the chat, and those this one needs.
     const tools = toolsInOrder([...given?.tools ?? [], ...questionTools({ searchable: plan.searchable, ...(toolable ? { toolable } : {}), viewable }, wholeReads)]);
     const guide = toolGuide(tools, { fullTables: shape.tables, numberedInline: shape.numbered && plan.inline.length > 0 });
-    const listing = listingOf(documents, inline, shown);
-    if (reserve && extraPlans < MOST_EXTRA_PLANS) {
-      // The cards, the header and the guide, at the size they have: when they need more room than
-      // the plan left them, it is made again with that room kept.
-      const needed = [guide, renderListing([...listing.values()]), ...plan.searchable.map((meta) => blocks.get(meta.id)!)].map(sizeOf)
-        .reduce((sum, size) => ({ tokens: sum.tokens + size.tokens, bytes: sum.bytes + size.bytes }), { tokens: 0, bytes: 0 });
-      if (needed.tokens > extra.tokens || needed.bytes > extra.bytes) {
-        extra = { tokens: Math.max(extra.tokens, needed.tokens), bytes: Math.max(extra.bytes, needed.bytes) };
-        extraPlans++;
-        continue;
-      }
-    }
-    const placement: PlacementState = nextPlacement(given, typeof head === "string" ? head : "", { ids: unique, plan, missing, tools });
-    return {
+    const planned: Planned = {
       plan,
       blocks,
       instruction: documentToolsInstruction(plan.searchable, viewable, wholeReads),
-      missing,
       viewable,
       ...(toolable ? { toolable } : {}),
       guide,
-      listing,
-      placement,
+      listing: listingOf(documents, inline, shown),
+      tools,
     };
+    // Without `reserve` and `numberInline`, the plan of 0.9: the cards, the header and the guide
+    // are the caller's to count.
+    if (!reserve && !shape.numbered) return finish(planned);
+    // A plan that does not fit is made again with what it was found to need; a plan made again
+    // that is no nearer to fitting is not used, and the nearest is.
+    const excess = excessOf(planned);
+    if (excess === 0) return finish(planned);
+    if (best && excess >= best.excess) return finish(best.planned);
+    best = { planned, excess };
+    if (extraPlans >= MOST_EXTRA_PLANS) return finish(planned);
+    extraPlans++;
+    if (reserve) {
+      // The room the guide and the header take is kept. And planning counts the card each
+      // document would become: a move to the cards that frees less room than it takes is not made.
+      const needed = sum([sizeOf(guide), sizeOf(renderListing([...planned.listing!.values()]))]);
+      extra = { tokens: Math.max(extra.tokens, needed.tokens), bytes: Math.max(extra.bytes, needed.bytes) };
+      if (!cardSizes) {
+        const sizes = new Map<string, Size>();
+        for (const meta of documents) {
+          const rendered = await render(meta, false, shown.has(meta.id));
+          if (rendered === undefined) gone.push(meta.id);
+          else sizes.set(meta.id, sizeOf(rendered.text));
+        }
+        if (gone.length > 0) {
+          missing.push(...gone);
+          documents = documents.filter((meta) => !gone.includes(meta.id));
+          best = undefined;
+          continue;
+        }
+        cardSizes = sizes;
+      }
+    }
   }
 }
