@@ -332,6 +332,31 @@ describe("removals in a library", () => {
     expect(await files.getMeta(a.id)).toBeUndefined();
   });
 
+  it("give a delete storeTimeoutMs in all, its wait for the turn included; its store call counts as stuck past its own limit", async () => {
+    const { store, files, a, b } = await setUp({ maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    store.hung.add("delete");
+    const first = files.delete(a.id);
+    let second: unknown;
+    void files.delete(b.id).then((value) => (second = value), (error: unknown) => (second = error));
+    await settle();
+    // The first removal is slow, and ends after 29 s: the second gets its turn then.
+    await vi.advanceTimersByTimeAsync(29_000);
+    held.shift()!();
+    expect(await first).toBe(true);
+    await settle();
+    expect(store.calls.filter((call) => call === "delete")).toHaveLength(2);
+    // Answered 30 s after it began: before, its store call had 30 s of its own, and it waited 59 s.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(second).toMatchObject({ code: "ETIMEDOUT", operation: "delete" });
+    // Its store call has run 1 s: it counts once it has run 30 s.
+    expect(files.stats().stuckStoreCalls).toBe(0);
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(files.stats().stuckStoreCalls).toBe(1);
+    releaseAll();
+    await settle();
+    expect(files.stats().stuckStoreCalls).toBe(0);
+  });
+
   it("gives the turn back to the next removal as soon as one ends", async () => {
     const { store, files, a, b } = await setUp();
     store.hung.add("delete");

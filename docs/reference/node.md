@@ -746,10 +746,11 @@ which removes it from the store: its text, its index and any kept original, as f
 | `500` | `{ "error": "The file could not be deleted." }` | `getOwner`, `getScope` or `onRemoved` threw an error without a status. |
 
 Since 0.10.0 the delete has a time limit: the library's `storeTimeoutMs` (30 s by default), for the
-look-up and for the store's `delete`. A store that does not answer within it is answered `503`
-`{ "error": "The document could not be deleted (ETIMEDOUT). Try again." }` (or "The document store
-could not be read (ETIMEDOUT). Try again." for the look-up), with `Retry-After: 5`; the delete goes
-on alone. While the process has `maxStuckStoreCalls` calls stuck, the answer is the same `503`,
+look-up, the wait for the turn of the library's deletes (one at a time) and the store's `delete`
+together, so that the answer comes within it. A store that does not answer within it is answered
+`503` `{ "error": "The document could not be deleted (ETIMEDOUT). Try again." }` (or "The document
+store could not be read (ETIMEDOUT). Try again." for the look-up), with `Retry-After: 5`; the
+delete goes on alone. While the process has `maxStuckStoreCalls` calls stuck, the answer is the same `503`,
 with code `STORE_STUCK`, at once. Before, a store that never answered left the request unanswered.
 
 #### handlers.stats()

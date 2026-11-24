@@ -941,8 +941,9 @@ tool call ends with `run.error`. Before, a call that never settled held the ques
 - **A saved index that does not answer in time is not built again.** The opening of a document
   read by range fails with `"ETIMEDOUT"`, as any call does; it does not read the whole text from the
   same store to build the index, as it does for an index that is missing or broken.
-- **`delete` runs one at a time** in a library: a delete waits for the one before it to settle, for
-  at most `storeTimeoutMs`.
+- **`delete` runs one at a time** in a library: a delete waits for the one before it to settle. A
+  delete ends within `storeTimeoutMs` in all: its look-up, its turn and your store's `delete`
+  share it.
 - **`ingest`** keeps its own limits: its writes, and its look-ups of an application's ID, end within
   `ingestTimeoutMs` (2 minutes when it is 0), as before. Past them they count as stuck too, and
   while too many calls are stuck an ingest fails at its first store call with `"STORE_STUCK"`.

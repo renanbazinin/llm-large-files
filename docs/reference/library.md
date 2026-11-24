@@ -424,11 +424,13 @@ deleted. Otherwise it drops what this process keeps of the document in memory, i
 and returns what `store.delete(id, context)` returns. Throws `DocumentStoreError` when the look-up
 cannot read the store, and, new in 0.9.0, a `DocumentStoreError` of operation `"delete"` when
 `store.delete` fails, with the store's error as `cause` (it was passed on unchanged). Its message
-names no path: `The document could not be deleted (EPERM). Try again.` Since 0.10.0 the deletes of
-one library run one at a time: each waits for the one before it to end, for at most
-`storeTimeoutMs`, then fails with code `"ETIMEDOUT"` without calling the store; a `store.delete`
-that does not end within `storeTimeoutMs` fails the same way and goes on alone, holding the turn
-until it ends. `access.signal` ends the wait.
+names no path: `The document could not be deleted (EPERM). Try again.` Since 0.10.0 a delete ends
+within `storeTimeoutMs` in all: its look-up, its wait for its turn and the store's `delete` share
+that time. The deletes of one library run one at a time: each waits for the one before it to end,
+and fails with code `"ETIMEDOUT"` without calling the store when its time is up first; a
+`store.delete` still running when it is up fails the same way and goes on alone, holding the turn
+until it ends, and counts as stuck once it has itself run `storeTimeoutMs`. `access.signal` ends
+the wait.
 
 #### `files.sweep(options?)`
 

@@ -884,22 +884,21 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
 
   /**
    * Removes a document from the store (`store.delete`), in the removals' turn (`removals`). The turn
-   * is waited for no longer than a store call may take, nor once the caller's signal aborts; it is
-   * then held until the store call ends, even past its time limit.
+   * and the store call are waited for until `deadline` aborts (the delete's time limit, which they
+   * share), or the caller's signal does; the turn is then held until the store call ends, even past
+   * its time limit. The store call counts as stuck once it has itself run `storeTimeoutMs`.
    */
-  async function removal(call: () => Promise<boolean>, signal: AbortSignal | undefined): Promise<boolean> {
+  async function removal(call: () => Promise<boolean>, signal: AbortSignal | undefined, deadline: AbortSignal): Promise<boolean> {
     checkStuck("delete", maxStuckStoreCalls);
     if (signal?.aborted) throw signal.reason;
-    const late = new AbortController();
-    const timer = isTimeLimit(storeTimeoutMs) ? setTimeout(() => late.abort(), storeTimeoutMs) : undefined;
+    if (deadline.aborted) throw deadline.reason;
+    const waits = signal ? AbortSignal.any([signal, deadline]) : deadline;
     let release: () => void;
     try {
-      release = await removals.acquire(signal ? AbortSignal.any([signal, late.signal]) : late.signal);
+      release = await removals.acquire(waits);
     } catch (error) {
       if (signal?.aborted) throw signal.reason;
-      throw late.signal.aborted ? storeTimeout("delete", storeTimeoutMs) : error;
-    } finally {
-      clearTimeout(timer);
+      throw deadline.aborted ? deadline.reason : error;
     }
     let started = false;
     try {
@@ -913,7 +912,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
         }
         running.then(release, release);
         return running;
-      }, signal);
+      }, waits);
     } finally {
       if (!started) release();
     }
@@ -1006,9 +1005,18 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
 
     async delete(id, access) {
       const caller = callerOf(access, rules);
-      if (!await metaFor(id, caller)) return false;
-      forget(id);
-      return removal(() => store.delete(id, caller.context), caller.signal);
+      // One time limit for the whole delete: the look-up (which keeps its own, and its error of a
+      // read), then the wait for the removals' turn and the store's delete. Before, the turn and the
+      // delete had one each: with a slow delete before it, a delete answered after twice the limit.
+      const deadline = new AbortController();
+      const timer = isTimeLimit(storeTimeoutMs) ? setTimeout(() => deadline.abort(storeTimeout("delete", storeTimeoutMs)), storeTimeoutMs) : undefined;
+      try {
+        if (!await metaFor(id, caller)) return false;
+        forget(id);
+        return await removal(() => store.delete(id, caller.context), caller.signal, deadline.signal);
+      } finally {
+        clearTimeout(timer);
+      }
     },
 
     async sweep(sweepOptions) {
