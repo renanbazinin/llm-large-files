@@ -6,10 +6,19 @@
 //
 // The questions cover what P1 changed: a table sent whole (a CSV, a Word file with a table) with and
 // without a count, in a chat with an explorer too; a note sent whole beside a searched log, with the
-// request for the answer after the tool turns ran out; a note alone; and the same through gemini()
-// over fakeFetch, as its bytes. Recorded again only from that source:
+// request for the answer after the tool turns ran out; a note alone; and through gemini() over
+// fakeFetch, as its bytes, the same note and CSV beside the log, and a count over the CSV alone.
+// Recorded again only from that source:
 //
 //   RECORD_OPT_OUT_BODIES=1 npx vitest run --project unit test/inline-opt-out.test.ts
+//
+// What the same questions send with the defaults of 0.10.0 is kept too, in
+// test/inline-opt-out/defaults.json: the numbered blocks, the document_id in the frame of a table
+// that gets the tools, the line that says to count with them, their declarations, and the closing
+// note. A change to that text shows there as a diff to review. Recorded again from the source of
+// this branch, when such a change is meant:
+//
+//   RECORD_DEFAULT_BODIES=1 npx vitest run --project unit test/inline-opt-out.test.ts
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore, type AskOptions, type LargeFiles, type ModelAdapter } from "llm-large-files";
@@ -18,7 +27,9 @@ import { calls, fakeFetch, fakeModel, says, serviceLog, utf8, type FakeModel, ty
 import { p, word } from "./word-fixtures.js";
 
 const RECORD = process.env.RECORD_OPT_OUT_BODIES === "1";
+const RECORD_DEFAULTS = process.env.RECORD_DEFAULT_BODIES === "1";
 const FILE = new URL("./inline-opt-out/bodies.json", import.meta.url);
+const DEFAULTS = new URL("./inline-opt-out/defaults.json", import.meta.url);
 const CLOCK = () => new Date("2026-11-20T08:00:00.000Z");
 const question = (text: string) => ({ role: "user" as const, text });
 
@@ -99,6 +110,18 @@ async function cases(shape: Shape): Promise<Case[]> {
     await askWithFiles({ files, model, documentIds: ["notes-1", "invoices-1", "log-1"], system: "Be brief.", messages: [question("How many errors?")], ...shape });
     out.push({ name: "gemini(): a note and a CSV sent whole beside a searched log", requests: log });
   }
+  {
+    const log: Sent[] = [];
+    const call = { id: "call-1", name: "aggregate_table", args: { document_id: "invoices-1", metrics: ["count"], filters: [{ column: "סטטוס", op: "=", value: "באיחור" }] } };
+    // The count is asked for when the tools are declared; without them, the answer comes at once.
+    const fetch = recordingFetch([
+      (sent) => (sent.body.tools ? Response.json({ candidates: [{ content: { role: "model", parts: [{ functionCall: call }] }, finishReason: "STOP" }] }) : geminiText("15 late.")),
+      geminiText("15 late."),
+    ], log);
+    const model = gemini(geminiApi({ apiKey: "test-key", model: "gemini-test" }), { fetch });
+    await askWithFiles({ files, model, documentIds: ["invoices-1"], system: "Be brief.", messages: [question("How many invoices are late?")], ...shape });
+    out.push({ name: "gemini(): a CSV sent whole, a count", requests: log });
+  }
   return out;
 }
 
@@ -129,13 +152,29 @@ describe("inlineTables \"text\" with numberInline false", () => {
     }
   }, 60_000);
 
-  it("is what makes them so: with the defaults, every question over a file sent whole sends other bodies", async () => {
+  it("is what makes them so: with the defaults, every question over a file sent whole sends other bodies, those defaults.json keeps", async () => {
     if (RECORD) return;
-    const kept = JSON.parse(readFileSync(FILE, "utf8")) as Recording;
     const asked = await cases({});
+    if (RECORD_DEFAULTS) {
+      mkdirSync(new URL(".", DEFAULTS), { recursive: true });
+      writeFileSync(DEFAULTS, fileText({ cases: asked.map(({ name, requests }) => ({ name, requests: requests.map(({ to, body }) => ({ to, body: JSON.parse(body) as unknown })) })) }));
+      return;
+    }
+    const kept = JSON.parse(readFileSync(FILE, "utf8")) as Recording;
     for (const [at, { name, requests }] of asked.entries()) {
       const before = kept.cases[at]!.requests.map((one) => JSON.stringify(one.body));
       expect(requests.map((one) => one.body), name).not.toEqual(before);
+    }
+    if (!existsSync(DEFAULTS)) throw new Error("test/inline-opt-out/defaults.json is not there.");
+    const defaults = JSON.parse(readFileSync(DEFAULTS, "utf8")) as Recording;
+    expect(asked.map((one) => one.name)).toEqual(defaults.cases.map((one) => one.name));
+    for (const [at, { name, requests }] of asked.entries()) {
+      const recorded = defaults.cases[at]!.requests;
+      expect(requests.map((one) => one.to), name).toEqual(recorded.map((one) => one.to));
+      for (const [index, { body }] of requests.entries()) {
+        expect(JSON.parse(body), `${name}, request ${index + 1}`).toEqual(recorded[index]!.body);
+        expect(body, `${name}, request ${index + 1}: its bytes`).toBe(JSON.stringify(recorded[index]!.body));
+      }
     }
   }, 60_000);
 });
