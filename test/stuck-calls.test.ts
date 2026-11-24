@@ -3,7 +3,8 @@
 // threads is; while it is at `maxStuckStoreCalls` (half of UV_THREADPOOL_SIZE, 2 by default), new
 // store calls fail at once with "STORE_STUCK", without calling the store. A sweep never counts.
 // Probes p6b and p6c: 4 file calls that do not answer froze every file call and DNS look-up of a
-// process with the default pool of 4 threads. Fake timers: no wall-clock bound.
+// process with the default pool of 4 threads. Fake timers, set once the documents are ingested (a
+// PDF parser waits on timers of its own): no wall-clock bound.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLargeFiles, DocumentStoreError, MemoryDocumentStore, TOOL_NAMES, type DocumentContext, type DocumentStore, type StoredDocument } from "llm-large-files";
 import { utf8 } from "llm-large-files/testing";
@@ -18,11 +19,10 @@ let pool: string | undefined;
 beforeEach(() => {
   pool = process.env[POOL];
   delete process.env[POOL];
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 });
 afterEach(async () => {
   releaseAll();
-  await vi.advanceTimersByTimeAsync(0);
+  if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(0);
   vi.useRealTimers();
   if (pool === undefined) delete process.env[POOL];
   else process.env[POOL] = pool;
@@ -69,13 +69,17 @@ class Holding implements DocumentStore {
 
 /** Lets the promises that are due settle. */
 const settle = () => vi.advanceTimersByTimeAsync(0);
+/** The clock of the timers, from here on: moved by the test. */
+const fakeTimers = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
-async function setUp(options: Parameters<typeof createLargeFiles>[0] extends infer O ? Partial<O> : never = {}) {
+/** A library over a `Holding` store, with two documents; then the timers are fake, unless `fake` is false. */
+async function setUp(options: Parameters<typeof createLargeFiles>[0] extends infer O ? Partial<O> : never = {}, fake = true) {
   const store = new Holding();
   const files = createLargeFiles({ store, keepOriginals: ["pdf"], ...options });
   const a = await files.ingest({ name: "a.txt", bytes: utf8("alpha\n") });
   const b = await files.ingest({ name: "b.txt", bytes: utf8("beta\n") });
   store.calls.length = 0;
+  if (fake) fakeTimers();
   return { store, files, a, b };
 }
 
@@ -179,7 +183,7 @@ describe("calls past the time limit", () => {
   });
 
   it("is one count for the process: the calls of one library refuse those of another, each by its own limit", async () => {
-    const one = await setUp();
+    const one = await setUp({}, false);
     const two = await setUp({ maxStuckStoreCalls: 3 });
     one.store.hung.add("getMeta");
     const stuck = [one.files.getMeta(one.a.id), one.files.getMeta(one.b.id)].map((call) => call.catch(() => undefined));
@@ -215,6 +219,7 @@ describe("calls past the time limit", () => {
     const files = createLargeFiles({ store, keepOriginals: ["pdf"], maxConcurrentPageLooks: 1 });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(3) });
     store.hung.add("getOriginal");
+    fakeTimers();
     const look = files.tools([meta], { viewPages: true }).executeWithFiles(TOOL_NAMES.view, { document_id: meta.id, from_page: 1 }).catch((error: unknown) => error);
     await settle();
     expect(files.stats().pageLooks.active).toBe(1);
