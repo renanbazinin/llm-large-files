@@ -125,8 +125,8 @@ question ─► plan the documents for the room left in the request, smallest fi
      not a heading; in other plain text, only one after a blank line and not followed by another.
      A PDF seldom has these (pdf.js gives no blank line between paragraphs, and Hebrew has no
      capitals): when its text gives fewer than 3, its outline is the lines its extractor found set
-     in larger type than its body, from the sizes pdf.js gives, when they are more (since 0.10.0;
-     [PDF outline](./guides/pdfs.md#pdf-outline)).
+     in larger type than its body, from the sizes pdf.js gives, when 3 or more of them are found in
+     the text (since 0.10.0; [PDF outline](./guides/pdfs.md#pdf-outline)).
    - For a log, build a **profile**: lines by level (ERR counts as ERROR, WARNING as WARN, CRITICAL
      as FATAL; since 0.8.0 also a level in lower case in brackets, after `level=` or in a JSON
      field, pino's numbers and klog's letter), the first and last timestamp, and the ERROR, FATAL

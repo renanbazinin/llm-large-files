@@ -73,9 +73,9 @@ pieces than 0.5.0 split it, which moves the lines after it. Since 0.8.0 the text
 from its headings: Markdown `#` lines (`## Slide N` and `## Sheet N: name` among them; not in a
 fenced code block, nor the comments of a text file that reads as code), chapter and numbered section
 lines, and short lines in capitals; a PDF whose text gives fewer than 3 of these, from the lines set
-in larger type than its body ([PDF outline](#pdf-outline), new in 0.10.0). `meta.pages` is the
-number of pages of a PDF, of slides of a PPTX and of sheets of an XLSX.
-[How it works](../how-it-works.md) follows ingest from there.
+in larger type than its body, when there are 3 or more ([PDF outline](#pdf-outline), new in
+0.10.0). `meta.pages` is the number of pages of a PDF, of slides of a PPTX and of sheets of an
+XLSX. [How it works](../how-it-works.md) follows ingest from there.
 
 ### Text encodings
 
@@ -475,8 +475,9 @@ and a search hit names the heading above it (`section`). The rules that find hea
 seldom find any in a PDF: pdf.js gives no blank line between paragraphs, and Hebrew has no capitals,
 so an unnumbered Hebrew contract had no outline. Since 0.10.0 the PDF extractor finds the lines set
 in larger type than the body, from the size pdf.js gives each piece of text, and `ingest` makes them
-the outline of a PDF whose text gives fewer than 3 headings. The card of a lease then starts its
-outline with:
+the outline of a PDF whose text gives fewer than 3 headings, when 3 or more of them are found in the
+stored text. One or two are not an outline: a PDF with a title alone keeps the card and search hits
+of 0.9.0. The card of a lease then starts its outline with:
 
 ```text
 Outline (8 of 8 headings):
@@ -486,23 +487,39 @@ Outline (8 of 8 headings):
   L16   תקופת השכירות
 ```
 
-- The body is the size most of the text is set in. A heading is a line at least 15% larger, with
-  three quarters of its characters in that size: the title, Word's Heading 1 and Heading 2 (16 and
-  13 points over 11), the `h1` to `h3` of a page printed by Chrome.
-- Its level comes from its size: the largest is 1, the next 2, all the smaller ones 3.
+- The body is the size most of the text is set in, table rows aside. A heading is a line at least
+  15% larger, with three quarters of its characters in that size: the title, Word's Heading 1 and
+  Heading 2 (16 and 13 points over 11), the `h1` to `h3` of a page printed by Chrome.
+- A table row is a line with a gap of more than 3 times its type size between two of its pieces:
+  cells, or a label and its value, whether the table was rebuilt or not (two columns, or
+  `tables: false`). It counts for neither the body nor the headings, so a statement whose table is
+  set smaller than its notes does not make its notes headings.
+- Its level comes from its size. The sizes of several headings rank from the largest: 1, 2, then 3
+  for all smaller ones. A size of one heading only, larger than all of those (a title, the lines of
+  a cover page), is level 1, and the ranks then start at 2: a cover does not flatten the sections
+  and subsections under it.
 - Each heading is a line of the stored text, and points to it: `read_document` from that line
   starts at the heading. A heading set on several lines in a row is one entry, at its first line.
+  A line above it on its page that reads the same (a contents list, a running header in small type)
+  is passed over.
 - Not headings: a line of more than 120 characters, or of fewer than 3 letters, or with more digits
-  than letters (an amount, a date, a page number); a row of a rebuilt table; a line found on 3 pages
-  or more, or on 2 pages and at least half of them, its numbers aside (running headers and footers,
-  "עמוד 3 מתוך 10").
+  than letters (a bare amount, a date in digits, a page number); a table row; a running header or
+  footer, which is a line found on 3 pages or more, or on 2 pages and at least half of them, or,
+  its numbers aside ("עמוד 3 מתוך 10"), on more than half of the pages. Numbered chapters ("פרק 1",
+  "Chapter 2") are on fewer pages, and are kept.
 - No outline from sizes when more than 30% of the text is set larger than the body: the sizes then
   mark something else.
 
 It adds no line to the text: the text of a PDF, its reads and its pages are those of 0.9.0, and its
-search hits the same but for the `section` they now name. What it does not find: a heading in bold type of the body's size (pdf.js does not say which
-text is bold), and headings a PDF keeps only in its bookmarks or tags. A PDF whose text gives 3
-headings or more (lines that start with `#`) keeps the outline of its text.
+search hits the same but for the `section` they now name. What it does not find: a heading in bold
+type of the body's size (pdf.js does not say which text is bold), a heading less than 15% larger
+than the body (Word's Heading 3, 12 points over 11), a heading repeated on 3 pages or more, one
+numbered chapter on each page of a short document (on more than half its pages, as a page number
+is), and headings a PDF keeps only in its bookmarks or tags. What it can take for a heading: any
+other short line set large, such as a caption, a date written with its month's name, or a total
+with its label ("Total due 12,500.00"), and the header cell of a table that is not rebuilt when
+pdf.js gives it as a line of its own. A PDF whose text gives 3 headings or more (lines that start
+with `#`) keeps the outline of its text.
 
 A PDF ingested before 0.10.0 keeps the outline it was given, most often none, until it is uploaded
 again; the metadata does not say where an outline came from. The outline from sizes comes in
@@ -1020,9 +1037,10 @@ What the library does with what you return:
   your extractor stored as U+FFFD. Both reach the card, the frame of a file sent whole, and
   `toDocumentSummary` ([Text encodings](#text-encodings)).
 - A `text` file whose lines look like a log becomes `log`.
-- `headings`, for a PDF, become its outline when its text gives fewer than 3 headings
-  ([PDF outline](#pdf-outline)): each is looked for among the lines of its page, after the line
-  `--- Page N ---`, by its text without spaces. New in 0.10.0.
+- `headings`, for a PDF, become its outline when its text gives fewer than 3 headings and 3 or more
+  of them are found ([PDF outline](#pdf-outline)): each is looked for among the lines of its page,
+  after the line `--- Page N ---`, by its text without spaces, past the `skip` lines of its page
+  that read the same. New in 0.10.0.
 
 An error you throw is the answer to the upload. `ingest` throws it as an `IngestError` with the
 same message (and your error as `cause`), with the code its message gives
