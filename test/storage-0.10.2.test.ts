@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   askWithFiles,
+  compactToolTurns,
   createLargeFiles,
   FileDocumentStore,
   MAX_APP_DATA_BYTES,
@@ -14,7 +15,7 @@ import {
   toDocumentSummary,
   type DocumentStore,
 } from "llm-large-files";
-import { fakeModel, says, utf8 } from "./fake-model.js";
+import { calls, fakeModel, says, utf8 } from "./fake-model.js";
 
 const HOUR = 60 * 60 * 1000;
 let directory: string | undefined;
@@ -188,5 +189,34 @@ describe("FileDocumentStore.putMeta", () => {
     // A scope whose folder is not there: false, and no folder is made.
     expect(await store.putMeta!(meta, { scope: ["u9", "c9"] })).toBe(false);
     expect(await readdir(directory!)).toEqual(["u1"]);
+  });
+});
+
+describe("storeRounds and compactToolTurns", () => {
+  const log = Array.from({ length: 3_000 }, (_, i) => `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z ${i % 7 === 0 ? "ERROR payment failed" : "INFO ok"} request ${i} ${"x".repeat(40)}`).join("\n");
+
+  it("stores the stand-ins of large results with storeRounds \"compact\", and compactToolTurns makes the same of full rounds", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 100 } });
+    const meta = await files.ingest({ name: "app.log", bytes: utf8(log) });
+    const script = () => fakeModel([
+      calls([{ id: "c1", name: "read_document", args: { document_id: meta.id, start_line: 1, end_line: 300 } }, { id: "c2", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } }]),
+      says("There are 429 errors (app.log L1)."),
+    ]);
+    const asked = { files, documentIds: [meta.id], messages: [{ role: "user" as const, text: "How many errors?" }] };
+    const full = await askWithFiles({ ...asked, model: script() });
+    const compact = await askWithFiles({ ...asked, model: script(), storeRounds: "compact" });
+    const sizeOf = (value: unknown) => JSON.stringify(value).length;
+    expect(sizeOf(compact.toolTurns)).toBeLessThan(sizeOf(full.toolTurns) / 10);
+    const [read, search] = compact.toolTurns[0]!.calls;
+    expect(read!.result).toMatchObject({ dropped: true, lines: full.toolTurns[0]!.calls[0]!.result.lines });
+    expect(search!.result).toMatchObject({ dropped: true, total_matching_lines: 429, query: "ERROR" });
+    // The same stand-ins from the full rounds; those are not changed.
+    expect(compactToolTurns(full.toolTurns)).toEqual(compact.toolTurns);
+    expect(full.toolTurns[0]!.calls[0]!.result.dropped).toBeUndefined();
+    // A later question takes them as any stored round.
+    const later = fakeModel([says("Still 429.")]);
+    await askWithFiles({ files, documentIds: [meta.id], model: later, messages: [...asked.messages, ...compact.toolTurns, { role: "assistant", text: compact.text }, { role: "user", text: "And now?" }] });
+    expect(JSON.stringify(later.requests[0]!.messages)).toContain("dropped from the conversation to make room");
+    await expect(askWithFiles({ ...asked, model: script(), storeRounds: "small" as never })).rejects.toThrow('storeRounds must be "full" or "compact"');
   });
 });

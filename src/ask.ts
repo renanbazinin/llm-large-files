@@ -257,6 +257,14 @@ export type AskOptions = {
    * documents, and events are often sent on to a browser.
    */
   eventResults?: boolean;
+  /**
+   * How `AskResult.toolTurns` holds the results of the question's tool calls. "full" (the default):
+   * as the model had them. "compact": each large result replaced by the stand-in the loop sends
+   * when it drops a result to make room (`compactToolTurns`), so that a stored question takes a few
+   * hundred bytes a call. A later question then sends those stand-ins: the model reads again what it
+   * needs, at the price of a tool call. New in 0.10.2.
+   */
+  storeRounds?: "full" | "compact";
   signal?: AbortSignal;
 };
 
@@ -367,6 +375,29 @@ function checkMissingPolicy(given: unknown): void {
 function checkFilteredAnswer(given: unknown): void {
   if (given === undefined || given === "keep" || given === "drop") return;
   throw new TypeError(`filteredAnswer must be "keep" or "drop", and is ${shownValue(given)}.`);
+}
+
+/** `storeRounds` checked: "full", "compact" or nothing (0.10.2). */
+function checkStoreRounds(given: unknown): void {
+  if (given === undefined || given === "full" || given === "compact") return;
+  throw new TypeError(`storeRounds must be "full" or "compact", and is ${shownValue(given)}.`);
+}
+
+/**
+ * Stored tool rounds (`AskResult.toolTurns`) made small: each result that is large is replaced by
+ * the stand-in the loop sends when it drops a result to make room (`stubResult`): the document, the
+ * lines or pages it showed, a search's query and total, the largest groups of a count, and a note
+ * that it was dropped. Errors and small results stay as they are. Copies: the turns given are not
+ * changed. For rounds stored by `storeRounds: "full"`, or by an earlier version. New in 0.10.2.
+ */
+export function compactToolTurns(turns: readonly ToolTurn[]): ToolTurn[] {
+  return turns.map((turn) => ({
+    ...turn,
+    calls: turn.calls.map((call) => {
+      const { result, ...rest } = call;
+      return { ...rest, result: stubResult(rest, result) ?? result };
+    }),
+  }));
 }
 
 /**
@@ -977,6 +1008,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const limits = checkedLimits(options.limits);
   checkMissingPolicy(options.onMissingDocuments);
   checkFilteredAnswer(options.filteredAnswer);
+  checkStoreRounds(options.storeRounds);
   checkInlineOptions(options.inlineTables, options.numberInline);
   // Since 0.10.0 by default: the tables sent whole get the tools, and the files sent whole have
   // numbered lines. "text" and false send them as 0.9 did.
@@ -1277,13 +1309,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(blockReason ? { blockReason } : {}),
     steps,
     evidence,
-    // The rounds as the model last had them. A file cannot be kept as JSON: what is kept says that it was shown.
+    // The rounds as the model last had them, or their stand-ins (`storeRounds: "compact"`). A
+    // file cannot be kept as JSON: what is kept says that it was shown.
     toolTurns: messages.slice(asked).filter(isRound).map((round) => ({
       role: "tools" as const,
       version: TOOL_TURN_VERSION,
       calls: round.answers.map(({ call: { problem: _problem, ...call }, result: returned, files: shownFiles }) => ({
         ...call,
-        result: shownFiles?.length ? stubResult(call, returned, true) ?? returned : returned,
+        result: shownFiles?.length ? stubResult(call, returned, true) ?? returned : options.storeRounds === "compact" ? stubResult(call, returned) ?? returned : returned,
       })),
     })),
     plan: prepared.plan,
