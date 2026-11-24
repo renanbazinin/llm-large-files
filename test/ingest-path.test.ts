@@ -297,7 +297,11 @@ describe("ingest from a path", () => {
     const at = await file("stuck.log", "one\ntwo\n");
     reads.stuck = at;
     const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 100, maxConcurrentIngests: 1 });
-    await expect(files.ingest({ name: "stuck.log", source: { path: at } })).rejects.toMatchObject({ code: "timeout", message: "stuck.log took too long to read (more than 100 ms). Split it, or save it as plain text, and attach that." });
+    // The server's trouble, a system error ETIMEDOUT (503), since 0.10.0: not the IngestError
+    // "timeout" of a file that takes too long to read (422, "split it").
+    const thrown = await files.ingest({ name: "stuck.log", source: { path: at } }).catch((error: unknown) => error);
+    expect(thrown).not.toBeInstanceOf(IngestError);
+    expect(thrown).toMatchObject({ code: "ETIMEDOUT", syscall: "read", message: "The file to ingest did not answer within 100 ms." });
     // The read still holds the turn: the next ingest waits for it, at most ingestTimeoutMs more.
     let done = false;
     const next = files.ingest({ name: "next.md", bytes: utf8("# Next") }).then((meta) => {

@@ -120,10 +120,11 @@ describe("an ingest from a path that is not a file the library reads", () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 100 });
     const { thrown, event } = await failed(files, { name: "slow.log", source: { path: at } });
     expect(thrown).toMatchObject({ code: "ETIMEDOUT", syscall: "lstat", message: "The file to ingest did not answer within 100 ms." });
-    const expected: ErrorInfo = { category: "unknown", code: "ETIMEDOUT", status: 500, retryable: false, message: "Something went wrong (ETIMEDOUT)." };
+    // A volume that did not answer: 503, to try again in a moment, since 0.10.0 (a 500 before).
+    const expected: ErrorInfo = { category: "unknown", code: "ETIMEDOUT", status: 503, retryable: true, retryAfterMs: 5_000, message: "The server could not do this just now (ETIMEDOUT). Try again in a moment." };
     expect(errorInfoOf(thrown)).toEqual(expected);
     expect(errorInfoOf(event)).toEqual(expected);
-    expect(uploadAnswerOf(thrown)).toEqual({ status: 500, error: "Upload failed (ETIMEDOUT)." });
+    expect(uploadAnswerOf(thrown)).toEqual({ status: 503, error: "Upload failed (ETIMEDOUT).", retryAfterMs: 5_000 });
     expectNoPath(thrown instanceof Error ? thrown.message : thrown, event, uploadAnswerOf(thrown));
   });
 

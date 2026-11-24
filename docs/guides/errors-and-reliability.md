@@ -737,6 +737,42 @@ of another owner, is not an error of the store: `prepare` lists it in `missing`,
 throws `DocumentsNotFoundError` for it, unless `onMissingDocuments` says otherwise (below). What a
 store must do is in [Storage](./storage.md).
 
+### Transient errors: a store or a disk that does not answer
+
+New in 0.10.0. A store that stops answering no longer holds a question forever. Every store call of
+the library has a time limit, `storeTimeoutMs` (30 s by default): past it, the call is a
+`DocumentStoreError` of code `"ETIMEDOUT"`, a 503 to retry. In a question it ends the question with
+`run.error`, and the model sees no new text. While too many calls of the process are stuck past
+their limit (`maxStuckStoreCalls`, half of `UV_THREADPOOL_SIZE`), store calls fail at once with code
+`"STORE_STUCK"`, 503 too, so that the server keeps its threads for everything else. Both are
+category `"store"` for `errorInfoOf`: the words of the `"store"` case above fit them ("try again in
+a moment"). [Deployment](./deployment.md#a-store-that-stops-answering) says how to size the limits
+and what to alert on.
+
+A Node system error that says the server, or a service it needs, could not answer just now is now
+retryable too: `ETIMEDOUT`, `ECONNRESET`, `ECONNREFUSED`, `EPIPE`, `EAI_AGAIN`, `EAGAIN`, `EBUSY`,
+`EMFILE`, `ENFILE`, `ESTALE`, `EHOSTUNREACH` and `ENETUNREACH`. `errorInfoOf` gives them category
+`"unknown"`, their code, status 503, `retryable: true` and 5 s to wait; a full disk (`ENOSPC`,
+`EDQUOT`) the same with 30 s. The upload handlers answer them `503` with `Retry-After`. Before, they
+were 500 and not retryable: a user was told "something went wrong" for a volume that hung a moment.
+A path upload whose read does not answer within `ingestTimeoutMs` is such an error, `ETIMEDOUT`,
+not the `IngestError` `"timeout"` (422, "split the file") it was: the trouble is the server's, not
+the file's. The full list is in
+[the reference](../reference/errors-and-retries.md#transient-system-errors).
+
+Tell your users to try again when `retryable` is true, whatever the category:
+
+```ts
+import { errorInfoOf } from "llm-large-files";
+
+/** The Hebrew words for an error the user can retry: a store, a disk or a service that did not answer. */
+export function retryWords(error: unknown): string | undefined {
+  const info = errorInfoOf(error);
+  if (!info.retryable || info.category === "model") return undefined; // a model's error has words of its own
+  return info.code === "ENOSPC" || info.code === "EDQUOT" ? "אין כרגע מקום בשרת. נסו שוב מאוחר יותר." : "השרת לא הגיב כרגע. נסו שוב בעוד רגע.";
+}
+```
+
 ## Documents that are gone
 
 A document expires `ttlMs` after its upload (72 hours by default), and a chat can outlive it. By
@@ -769,7 +805,7 @@ the errors of another copy of the package too. Every row is in
 | `"model"` | A model request (`ModelRequestError`). | Its [kind](#the-kind-of-a-model-error). |
 | `"aborted"` | A signal stopped it: the user left, or a deadline. | `"aborted"`, `"timeout"`. |
 | `"input"` | A mistake in the call: a bug of your server, not of the user. | A scope error's code. |
-| `"unknown"` | Anything else. | A system error's code. |
+| `"unknown"` | Anything else. Since 0.10.0 a system error that says the server could not answer just now (`ETIMEDOUT`, `ECONNRESET`…) is 503 and retryable ([transient errors](#transient-errors-a-store-or-a-disk-that-does-not-answer)). | A system error's code. |
 
 One switch turns them into your users' words. A chatbot for Hebrew speakers:
 

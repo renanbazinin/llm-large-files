@@ -121,12 +121,17 @@ With `scopes` (new in 0.9.0), the files of each scope are in a folder of their o
   undefined. Since 0.9.0 it does so also when the removal fails: the next `sweep` tries again.
 - `readTextRange` reads only the bytes asked for, so a tool call never loads a large file whole.
   The whole text is read only when the plan sends it in the prompt.
+- A volume that stops answering (a hung NFS mount) is given up on after `storeTimeoutMs`, 30 s by
+  default (new in 0.10.0): see [Time limits](#time-limits) and
+  [Deployment](./deployment.md#a-store-that-stops-answering) for the thread pool.
 - `sweep` removes expired documents and returns how many: those whose metadata it removed itself,
-  so two sweeps at once count each document once (on Windows, two removals of one file at the
-  same moment can both succeed, and a document can be counted twice). It also removes files that
+  so two sweeps at once count each document once. Since 0.10.0 the metadata is first renamed to a
+  name of the sweep's own, then removed, so this holds on Windows too, where two removals of one
+  file at the same moment can both succeed. `delete` does the same. It also removes files that
   belong to no document (an upload that failed, a server that stopped while writing) and temporary files, once
   they are `orphanAgeMs` old, one hour by default: a younger one may be an upload in progress on
-  another server. In a folder that may hold files of yours too (`directory` without `scopes`), it
+  another server. A temporary name of a document's metadata is also young for `orphanAgeMs` after
+  it was renamed (its ctime): it may be a delete's, under way on another server. In a folder that may hold files of yours too (`directory` without `scopes`), it
   removes such a file only when its name is an ID the library makes, or a temporary file:
   `notes.txt` may be yours, not the text of a document `notes`. A document whose metadata could not
   be read at all is left alone, whatever its age. One that cannot be removed is left for the next
@@ -911,6 +916,41 @@ What the library does with what you throw depends on the call:
   `"scope_missing"` `404` "This chat no longer exists.", and the other two `500` (new in 0.9.0).
 - **`putIndex` on a later read**: an error is ignored. The index is used from memory, and built again
   the next time.
+
+### Time limits
+
+Since 0.10.0 the library gives each call of your store a time limit, `storeTimeoutMs` of
+[`LargeFilesOptions`](../reference/library.md#largefilesoptions), 30 seconds by default: `getMeta`,
+`get`, `readTextRange`, `getIndex`, `putIndex` on a later read, `getOriginal` (the reading of the
+bytes as well as the call), and `delete`. A call that does not settle within it is given up on: the
+library throws a `DocumentStoreError` of code `"ETIMEDOUT"` (503, retryable), and a question in a
+tool call ends with `run.error`. Before, a call that never settled held the question forever.
+
+- **The call itself is not stopped.** The library cannot cancel your promise, and does not pass a
+  signal to your store. Give your client a time limit of its own (a driver's socket or operation
+  timeout, an `AbortSignal.timeout` on a `fetch`), shorter than `storeTimeoutMs`, so that a call
+  that is given up on also ends.
+- **A call past the limit counts as stuck until it settles**, in the process
+  (`files.stats().stuckStoreCalls`). While `maxStuckStoreCalls` calls are stuck (half of
+  `UV_THREADPOOL_SIZE`, 2 by default), every new call of the library fails at once with code
+  `"STORE_STUCK"`, without calling your store. It matters most for stores on the file system, whose
+  calls hold threads of libuv's pool: see [Deployment](./deployment.md#a-store-that-stops-answering).
+- **A caller's signal ends only its own wait** (`AccessOptions.signal`, `askWithFiles`' `signal`).
+  One opening of a document serves every caller of its scope, so a call that others wait on goes on
+  when one of them leaves.
+- **A saved index that does not answer in time is not built again.** The opening of a document
+  read by range fails with `"ETIMEDOUT"`, as any call does; it does not read the whole text from the
+  same store to build the index, as it does for an index that is missing or broken.
+- **`delete` runs one at a time** in a library: a delete waits for the one before it to settle. A
+  delete ends within `storeTimeoutMs` in all: its look-up, its turn and your store's `delete`
+  share it.
+- **`ingest`** keeps its own limits: its writes, and its look-ups of an application's ID, end within
+  `ingestTimeoutMs` (2 minutes when it is 0), as before. Past them they count as stuck too, and
+  while too many calls are stuck an ingest fails at its first store call with `"STORE_STUCK"`.
+  **`sweep`** has `sweepTimeoutMs`, no limit by default, and never counts as stuck.
+- Keep `storeTimeoutMs` above your slowest healthy call: a `get` of the largest text loaded whole
+  (`wholeDocumentBytes`, 2 MB by default), or a `getOriginal` of the largest original, at the store's
+  busiest. 0 sets no limit.
 
 ### Concurrency and several servers
 

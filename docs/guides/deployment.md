@@ -2,9 +2,9 @@
 
 This page is for running an application built on llm-large-files in production: on several
 servers, behind a proxy or a load balancer, through restarts and upgrades. It says what state lives
-where, what the shared store must guarantee, how much memory a server needs, how to sweep expired
-documents, how to keep a streamed answer alive, and what Node.js and packages a production image
-needs.
+where, what the shared store must guarantee, what happens when it stops answering, how much memory
+a server needs, how to sweep expired documents, how to keep a streamed answer alive, and what
+Node.js and packages a production image needs.
 
 ## What lives where
 
@@ -22,6 +22,7 @@ rebuild from the store.
 | Searches of large files waiting their turn | A queue in each `LargeFiles` (`maxConcurrentScans`) | No | Empty |
 | Ingests waiting their turn | A queue in each `LargeFiles` (`maxConcurrentIngests`, new in 0.8.2) | No | Empty: the uploads in it get no answer, and must be sent again |
 | Uploads being received | A count in each set of `createDocumentHandlers` (`maxPendingUploadBytes`, new in 0.8.2) | No | Empty |
+| Store calls past their time limit that have not ended | A count in each process (`files.stats().stuckStoreCalls`, new in 0.10.0) | No | Zero |
 | The output limit a thinking model needs for whole-file part reads | Each process, by URL and model | No | Learned again, at the cost of one request |
 | The name of the output limit an OpenAI-compatible server takes | Each `openAiCompatible()` adapter | No | Learned again, at the cost of one refused request |
 
@@ -101,6 +102,84 @@ The built-in stores:
 
 - **A store of your own**, over MongoDB, S3, Cloud Storage, Redis or a database: see
   [Storage](./storage.md) for the contract method by method and a complete example.
+
+## A store that stops answering
+
+A network volume can stop answering without failing: an NFS server that is gone, a mount that
+hangs. Before 0.10.0 a question whose store call did not answer waited forever, and so did
+`files.delete`. Since 0.10.0 every store call of the library has a time limit, `storeTimeoutMs`,
+30 seconds by default: a look-up (`getMeta`), a read of a text whole or by range, of its index or
+of its original, and a delete. Past it, the call fails with a `DocumentStoreError` of code
+`"ETIMEDOUT"`, a 503 that `errorInfoOf` marks as one to retry. In a question it ends the question
+with `run.error`; the upload handlers' `remove` answers 503 with `Retry-After`. `ingest` keeps its
+own limits (`ingestTimeoutMs`), and `sweep` has `sweepTimeoutMs`
+([below](#sweeping-expired-documents)).
+
+**Size it** above the slowest healthy call: a read of the largest text loaded whole
+(`wholeDocumentBytes`, 2 MB by default) or of the largest original a look at pages reads, over your
+volume at its busiest. Raise it for a slow store, or set 0 for no limit.
+
+**The thread pool.** A call to the disk that does not answer cannot be stopped: Node.js gives up
+waiting for it, and the call holds one thread of libuv's pool until the volume answers. The pool
+has 4 threads by default, and every file call of the process uses it, and so does every DNS look-up
+(`dns.lookup`, which `fetch` calls for each new connection, to Vertex AI too). Measured on Node 22
+with calls that never end (opens of a FIFO with no writer, as a hung NFS mount behaves):
+
+| Threads (`UV_THREADPOOL_SIZE`) | Calls stuck | A read of another file | `dns.lookup("localhost")` |
+|---|---|---|---|
+| 4 (the default) | 3 | 9 ms | 13 ms |
+| 4 (the default) | 4 | still waiting after 2 s | still waiting after 2 s |
+| 32 | 4 | 2 ms | 13 ms |
+
+So on servers that use a network volume, set `UV_THREADPOOL_SIZE=32` in the environment of the
+process (the pool is made at the first call that needs it: setting it in your code later may do
+nothing). Check that the value reaches the process: libuv reads an empty value, 0, or one that
+does not start with digits as a pool of 1 thread, where one stuck call freezes every file call. A
+template whose value is unset can give an empty one.
+
+**Calls left stuck.** A call counts as stuck once it has run past `storeTimeoutMs`, whether its
+caller timed out or left, until it ends. One that ends within the limit never counts, so users who
+press stop during slow but healthy reads do not raise it. The count is the process's, as the pool
+is: the calls of every library, the writes and look-ups of `ingest` past `ingestTimeoutMs` (the
+time it gives them, so that a large upload written slowly is not counted at 30 s), and the upload
+handlers' calls to the disk past `uploadIdleTimeoutMs`. While it is at `maxStuckStoreCalls`, every
+new store call of the library, those of `ingest` included, fails at once with code `"STORE_STUCK"`
+(503), without touching the volume, so that the threads left keep serving file calls and DNS. The
+default is half the pool, read from `UV_THREADPOOL_SIZE` when the library is made: 2 with 4
+threads, 16 with 32. Deletes of one library run one at a time, so a volume that hangs holds one
+thread for them, not one for each.
+
+**Alerts and readiness.** `files.stats()` and `handlers.stats()` read counters only, with no store
+call: call them as often as your metrics need.
+
+```ts
+import http from "node:http";
+
+// One library and one set of handlers per process, made at startup.
+let stuckSince: number | undefined;
+http.createServer((request, response) => {
+  const stats = files.stats();
+  const uploads = handlers.stats();
+  if (request.url === "/metrics") {
+    response.setHeader("Content-Type", "application/json");
+    return void response.end(JSON.stringify({ ...stats, uploads }));
+  }
+  // Ready unless this pod is saturated, or its calls have been stuck at the limit for a minute.
+  const atLimit = stats.stuckStoreCalls >= stats.maxStuckStoreCalls;
+  stuckSince = atLimit ? (stuckSince ?? Date.now()) : undefined;
+  const ready = stats.ingests.waiting <= 20 && !(stuckSince !== undefined && Date.now() - stuckSince >= 60_000);
+  response.statusCode = ready ? 200 : 503;
+  response.end(ready ? "ready" : "busy");
+}).listen(9090);
+```
+
+- **Alert on `stuckStoreCalls` above 0.** It means the store stopped answering on that pod.
+- **Fail readiness on local saturation**: `ingests.waiting`, `pageLooks.waiting` or
+  `uploads.uploadsInFlight` past a bound you choose. Another pod can take the next request.
+- **Fail readiness on stuck calls only when they stay at the limit for 60 s or more.** All pods
+  share one volume: when it hangs, a readiness probe that fails at once takes every pod out at
+  once, and users get the ingress's error instead of your app's "try again". A short hang then
+  costs a few 503s, which your app tells as a store to retry.
 
 ## Memory on each server
 
@@ -266,15 +345,18 @@ const documents = createDocumentHandlers(files, {
   On a network volume, that is the price of taking it off the heap.
 - **A volume that stops answering.** Each call to the disk (opening the file, each write, closing
   it) is waited for no longer than `uploadIdleTimeoutMs` (30 s). Past it, the upload is answered
-  `500` `{ "error": "Upload failed (ETIMEDOUT)." }`, and its room is given back. The file is removed
+  `503` `{ "error": "Upload failed (ETIMEDOUT)." }` with `Retry-After: 5` (a `500` before 0.10.0),
+  its room is given back, and the call counts as stuck until it ends
+  ([A store that stops answering](#a-store-that-stops-answering)). The file is removed
   at once, or once the volume answers. On a network volume, closing a file can wait for the writes
   the system held back: on a slow one, raise `uploadIdleTimeoutMs`. The same holds for the `path`
   of `prepareUpload`, and for the check of its folders with a ref. The removal of the file, once
   the ingest ends, is waited for no longer either: the upload is answered, its room is given back,
   and the removal goes on alone. The ingest's look at the file before its turn, and its read at its
-  turn, are waited for no longer than `ingestTimeoutMs` (2 minutes by default). Past it, the look
-  is answered `500` `{ "error": "Upload failed (ETIMEDOUT)." }`. The read fails as a file that took
-  too long to read: `422`, code `"timeout"`. Until then, the upload holds its room. With
+  turn, are waited for no longer than `ingestTimeoutMs` (2 minutes by default). Past it, both are
+  answered `503` `{ "error": "Upload failed (ETIMEDOUT)." }` with `Retry-After: 5`. Before 0.10.0
+  the look was a `500`, and the read failed as a file that took too long to read (`422`, code
+  `"timeout"`, "split it"), though the trouble was the volume's. Until then, the upload holds its room. With
   `ingestTimeoutMs: 0`, the look still stops at 2 minutes, but the read waits until the client
   leaves.
 - **Saving the upload where you keep it.** When your app keeps each upload anyway, `prepareUpload`
@@ -598,8 +680,9 @@ and then the model is told the server is busy. So the heap holds one parsed PDF 
 for each question that looks. Raise it only with the heap to match: six looks at once took 352 MB
 more than one, and did not finish sooner. A look holds its turn while it reads the PDF from the
 store, for at most `ingestTimeoutMs` (2 minutes by default). Past it, the turn goes back and the
-model is told the file could not be read in time. The read itself goes on: give your store's
-`getOriginal` a time limit of its own, shorter than that, when it reads over a network.
+model is told the file could not be read in time. Since 0.10.0 the read of the original is a store
+call within `storeTimeoutMs` (30 s by default), which fails it first: the read itself goes on, and
+counts as stuck until it ends ([A store that stops answering](#a-store-that-stops-answering)).
 For the documents of users you do not trust, do not offer `view_pages` (`viewPages: false`), or keep
 no PDF originals. To offer it anyway, run each of their questions, the whole tool loop, in a process
 you fork, with its own heap and memory limits. What the model is told when pages cannot be shown,
@@ -624,15 +707,25 @@ with `FileDocumentStore`, since removing a file that another sweep just removed 
 each server then lists the whole directory (with `scopes`, every chat's folder) and reads every
 metadata file. Run it from one server, or take a lease first (a document in MongoDB with an expiry
 that one server holds at a time). A job of its own runs as the user of the servers, or in their
-group with the modes above. Give it the options of the servers' store:
+group with the modes above.
+
+**On a network volume**, run it from one pod only, a Kubernetes CronJob for example, not from the
+pods that answer users. `sweepConcurrency` file calls run at once (16 by default), and on a volume
+that hangs each holds a thread of the pool ([A store that stops answering](#a-store-that-stops-answering)):
+set it to at most a quarter of the pool, 8 with `UV_THREADPOOL_SIZE=32`. A sweep has no time limit
+by default, since a sweep of a large volume may take long, and it never counts as a stuck call:
+`sweepTimeoutMs` (new in 0.10.0) gives up on one that takes longer, with a `DocumentStoreError` of
+code `"ETIMEDOUT"`, while the sweep itself goes on. While the process has `maxStuckStoreCalls`
+calls stuck, a sweep is refused at once, as other store calls are. Give it the options of the
+servers' store:
 
 ```ts
 // sweep.ts: run every hour by a scheduled job (cron, a Kubernetes CronJob, Cloud Scheduler).
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 
-// The options of the servers' store: here, a folder per user and chat.
-const store = new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents", { scopes: { depth: 2 } });
-const files = createLargeFiles({ store });
+// The options of the servers' store: here, a folder per user and chat. Run with UV_THREADPOOL_SIZE=32.
+const store = new FileDocumentStore(process.env.DOCUMENTS_DIR ?? "/mnt/documents", { scopes: { depth: 2 }, sweepConcurrency: 8 });
+const files = createLargeFiles({ store, sweepTimeoutMs: 30 * 60 * 1000 });
 const removed = await files.sweep();
 console.log(`Removed ${removed} expired documents.`);
 ```

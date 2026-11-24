@@ -47,6 +47,28 @@ export type ErrorInfo = {
 
 /** How long to wait after a store failed, before the same call is made again. */
 export const STORE_RETRY_AFTER_MS = 5_000;
+/** How long to wait after a disk was full (`ENOSPC`, `EDQUOT`), before the same call is made again. New in 0.10.0. */
+export const NO_ROOM_RETRY_AFTER_MS = 30_000;
+
+/**
+ * The codes of system errors that say the server, or a service it needs, could not answer just
+ * now: a time limit, a connection that was refused or cut, a name that could not be looked up, too
+ * many files open, a busy file or a stale handle on a network volume. The same call may work a
+ * moment later. New in 0.10.0: before, they were "unknown", 500, and not retryable.
+ */
+export const TRANSIENT_CODES: ReadonlySet<string> = new Set([
+  "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EPIPE", "EAI_AGAIN", "EAGAIN", "EBUSY", "EMFILE", "ENFILE", "ESTALE", "EHOSTUNREACH", "ENETUNREACH",
+]);
+/** The codes of a disk that is full: retryable too, later. New in 0.10.0. */
+export const NO_ROOM_CODES: ReadonlySet<string> = new Set(["ENOSPC", "EDQUOT"]);
+
+/** How long to wait before the same call is made again after a system error of `code`, or undefined when it is not one to retry. New in 0.10.0. */
+export function retryAfterOfCode(code: unknown): number | undefined {
+  if (typeof code !== "string") return undefined;
+  if (TRANSIENT_CODES.has(code)) return STORE_RETRY_AFTER_MS;
+  if (NO_ROOM_CODES.has(code)) return NO_ROOM_RETRY_AFTER_MS;
+  return undefined;
+}
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
 /**
@@ -223,9 +245,22 @@ function infoOf(error: unknown): ErrorInfo {
 /**
  * Anything else: "unknown", with the code of a system error (of its event, from the library's
  * words), never its message. `status`, of plain data, is kept when it is one of an error (400 to
- * 599), and says whether to retry.
+ * 599), and says whether to retry. Since 0.10.0 a code that says the server could not answer just
+ * now (`TRANSIENT_CODES`) is 503 and retryable, with 5 s to wait, and one of a full disk
+ * (`NO_ROOM_CODES`) the same with 30 s, whatever status the data holds.
  */
 function plainInfo(error: object, status: unknown, code = systemCode(error)): ErrorInfo {
+  const retryAfterMs = retryAfterOfCode(code);
+  if (code && retryAfterMs !== undefined) {
+    return {
+      category: "unknown",
+      code,
+      status: 503,
+      retryable: true,
+      retryAfterMs,
+      message: NO_ROOM_CODES.has(code) ? `The server has no room right now (${code}). Try again later.` : `The server could not do this just now (${code}). Try again in a moment.`,
+    };
+  }
   return {
     category: "unknown",
     ...(code ? { code } : {}),

@@ -1,7 +1,7 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
-import { checkMetaVersion, checkOwner, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules } from "./access.js";
+import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
@@ -33,8 +33,16 @@ export type IngestContext = {
   readonly extractors: Partial<Record<DocumentFormat, Extractor>> | undefined;
   /** The ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). */
   readonly ingests: Limiter;
-  /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
+  /**
+   * How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). Its
+   * store calls are given this long too, and count as stuck past it (`watchStuck`).
+   */
   readonly slotCapMs: number;
+  /**
+   * While this many calls of the process are stuck, the ingest's store calls fail at once, without
+   * calling the store (`maxStuckStoreCalls`). New in 0.10.0.
+   */
+  readonly maxStuck: number;
   /**
    * Whether the uploaded file of a document of this format is kept: by its ref (`IngestInput.original`,
    * read by `LargeFilesOptions.originals`), or else as a copy in the store (`putOriginal`).
@@ -96,11 +104,14 @@ const exists = (name: string) => new IngestError("exists", `${name}: a document 
  * call would say so of a document that is there. A document written by a newer version of the
  * package is never replaced (`DocumentStoreError` "NEWER_VERSION"). Returns true when there is a
  * document to delete before the new one is written: the one being replaced, or one expired.
+ *
+ * Since 0.10.0 the look-up is refused at once while too many calls of the process are stuck
+ * ("STORE_STUCK"), and counts as stuck once it has run `slotCapMs`, the time the ingest gives it.
  */
 async function claim(context: IngestContext, target: Target & { id: string }, name: string): Promise<boolean> {
-  const { store, now } = context;
+  const { store, now, maxStuck, slotCapMs } = context;
   const { id } = target;
-  const found = metaOf(await storeCall("read", () => store.getMeta(id, target.context)), id);
+  const found = metaOf(await watchStuck(storeCall("read", () => store.getMeta(id, target.context), { maxStuck }), slotCapMs), id);
   if (!found) return false;
   if (Date.parse(found.expiresAt) <= now().getTime()) return true;
   if (target.ifExists === "fail") throw exists(name);
@@ -116,18 +127,23 @@ async function claim(context: IngestContext, target: Target & { id: string }, na
  * be there: one the ingest was to replace (its delete failed), or one another server stored
  * meanwhile. It is left. "taken" when the ingest could not have replaced it: it has not expired, and
  * it is of another owner or scope. "left" for any other.
+ *
+ * Since 0.10.0 its calls count as stuck once they have run `slotCapMs`. They are not refused while
+ * too many calls are stuck: they follow writes of the ingest that began under the limit and have
+ * just ended, and a document left behind would be kept until it expires (for good, under
+ * `ttlMs: Infinity`) though its caller left or was told it failed.
  */
-async function removeOwn(context: Pick<IngestContext, "store" | "now">, target: Target, meta: DocumentMeta): Promise<"removed" | "left" | "taken"> {
-  const { store, now } = context;
+async function removeOwn(context: IngestContext, target: Target, meta: DocumentMeta): Promise<"removed" | "left" | "taken"> {
+  const { store, now, slotCapMs } = context;
   if (target.id !== undefined) {
-    const found = metaOf(await storeCall("read", () => store.getMeta(meta.id, target.context)), meta.id);
+    const found = metaOf(await watchStuck(storeCall("read", () => store.getMeta(meta.id, target.context)), slotCapMs), meta.id);
     if (found && !(found.createdAt === meta.createdAt && heldBy(found, meta.owner, meta.scope))) {
       // As `claim` sees it: a date that cannot be read has not expired.
       const expired = Date.parse(found.expiresAt) <= now().getTime();
       return !expired && !heldBy(found, target.owner, target.scope) ? "taken" : "left";
     }
   }
-  await store.delete(meta.id, target.context);
+  await watchStuck(Promise.resolve(store.delete(meta.id, target.context)), slotCapMs);
   return "removed";
 }
 
@@ -370,24 +386,19 @@ class IngestSlot {
   }
 }
 
-/** A time limit in the words of a message: "500 ms", "45 s", "2 min". */
-function formatDuration(ms: number): string {
-  if (ms < 1_000) return `${Math.max(1, Math.round(ms))} ms`;
-  if (ms < 120_000) return `${Number((ms / 1_000).toFixed(1))} s`;
-  return `${Number((ms / 60_000).toFixed(1))} min`;
-}
-
 /**
  * The signal one ingest runs under: aborted when the caller's is, or when `timeoutMs` has passed
- * (with an error that says the file took too long). `dispose` stops the timer.
+ * (with an error that says the file took too long). `dispose` stops the timer. `timedOut` says
+ * whether an error is the one of the time limit.
  */
-function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; dispose(): void } {
+function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; dispose(): void; timedOut(error: unknown): boolean } {
   const controller = new AbortController();
   const onAbort = () => controller.abort(caller!.reason);
   if (caller?.aborted) controller.abort(caller.reason);
   else caller?.addEventListener("abort", onAbort, { once: true });
+  let late: Error | undefined;
   const timer = timeoutMs > 0 && timeoutMs <= LONGEST_TIMER_MS
-    ? setTimeout(() => controller.abort(new Error(`${name} took too long to read (more than ${formatDuration(timeoutMs)}). Split it, or save it as plain text, and attach that.`)), timeoutMs)
+    ? setTimeout(() => controller.abort(late = new Error(`${name} took too long to read (more than ${formatDuration(timeoutMs)}). Split it, or save it as plain text, and attach that.`)), timeoutMs)
     : undefined;
   return {
     signal: controller.signal,
@@ -395,6 +406,7 @@ function ingestSignal(name: string, caller: AbortSignal | undefined, timeoutMs: 
       clearTimeout(timer);
       caller?.removeEventListener("abort", onAbort);
     },
+    timedOut: (error) => late !== undefined && error === late,
   };
 }
 
@@ -569,7 +581,7 @@ async function ingestFile(
   const mayCopy = !byRef && (keeps(format, false) || (format === "text" && keeps("log", false)));
   // A file at a path that its extractor reads itself (an isolated reader) is not read here at all.
   const extractorReads = path !== undefined && extractorFor(format, extractors).readsPath === true && !mayCopy;
-  const { signal, dispose } = ingestSignal(name, input.signal, ingestTimeoutMs);
+  const { signal, dispose, timedOut } = ingestSignal(name, input.signal, ingestTimeoutMs);
   // Each long step works in slices, with pauses for other requests: one large upload no longer
   // holds the whole server while it is read.
   const slicer = new TimeSlicer(signal);
@@ -580,13 +592,20 @@ async function ingestFile(
   /** The bytes to keep in the store (`putOriginal`), until they are written. */
   let copy: Uint8Array | undefined;
   /**
-   * A read of the file at `path`, or the signal's reason once it aborts: a volume that does not
-   * answer fails the ingest in its time, as an extractor does. The ingest keeps its turn until the
-   * read ends (`IngestSlot`).
+   * A read of the file at `path`, or the signal's reason once it aborts. A volume that does not
+   * answer within the ingest's time is the server's trouble, not the file's: a system error
+   * ETIMEDOUT (503, to try again), not the `IngestError` "timeout" of a file that takes too long to
+   * read (422, "split it"), since 0.10.0. The ingest keeps its turn until the read ends (`IngestSlot`).
    */
   const readWithin = async <T>(read: Promise<T>): Promise<T> => {
     work.abandoned = read;
-    const got = await untilAborted(read, signal);
+    let got: T;
+    try {
+      got = await untilAborted(read, signal);
+    } catch (error) {
+      if (timedOut(error)) throw Object.assign(new Error(`The file to ingest did not answer within ${formatDuration(ingestTimeoutMs)}.`), { code: "ETIMEDOUT", syscall: "read" });
+      throw error;
+    }
     work.abandoned = undefined;
     return got;
   };
@@ -754,8 +773,14 @@ async function ingestFile(
   const clear = target.id !== undefined
     && await settleWithin(claim(context, { ...target, id: target.id }, name), slotCapMs, () => storeTimeout(name, slotCapMs, "read"));
   // The files first, the document last: a document is there once its metadata is. Every call
-  // carries the owner and scope of the document.
+  // carries the owner and scope of the document. Since 0.10.0 the writes are refused at once while
+  // too many calls of the process are stuck (`writing` stays false: nothing is written, and nothing
+  // is to remove), and count as one stuck call once they have run `slotCapMs`, the time they are
+  // given: they are made one after the other, and hold one thread of the pool at a time.
+  let writing = false;
   const storing = (async () => {
+    checkStuck("write", context.maxStuck);
+    writing = true;
     if (clear) {
       await store.delete(meta.id, target.context);
       forget(meta.id);
@@ -772,6 +797,7 @@ async function ingestFile(
     await store.put({ meta, text }, target.context);
     wrote(true);
   })();
+  watchStuck(storing, slotCapMs);
   try {
     // A store that does not answer fails the ingest after `slotCapMs`: it held the ingest's turn,
     // and the upload handler's room for the file, for as long as it did not answer.
@@ -786,7 +812,7 @@ async function ingestFile(
     const remove = async () => {
       taken = await removeOwn(context, target, meta) === "taken";
     };
-    const removal = storing.then(remove, remove).catch(() => undefined).then(() => {
+    const removal = (writing ? storing.then(remove, remove) : Promise.resolve()).catch(() => undefined).then(() => {
       ended = true;
     });
     await settleWithin(removal, slotCapMs, () => new Error("")).catch(() => undefined);
