@@ -9,7 +9,7 @@ an application or write a store, an extractor or a loop of their own.
 import {
   createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_MAX_TEXT_BYTES,
   DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, isDocumentId, toDocumentSummary, IngestError, ingestErrorCodeOf,
-  DEFAULT_BUDGET, resolveBudget,
+  DEFAULT_BUDGET, resolveBudget, PLACEMENT_STATE_VERSION,
   MemoryDocumentStore, FileDocumentStore, isSafeScopeSegment, hashedScopeSegment,
   DOCUMENT_ID_PATTERN, APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION,
   DocumentStoreError, DocumentScopeError,
@@ -17,7 +17,8 @@ import {
   estimateTokens, utf8Bytes, jsonBytes,
 } from "llm-large-files";
 import type {
-  LargeFilesOptions, LargeFiles, AccessOptions, IngestInput, PrepareOptions, ToolOptions, PreparedContext, DocumentPlan,
+  LargeFilesOptions, LargeFiles, CreatedLargeFiles, LargeFilesStats, AccessOptions, IngestInput, PrepareOptions, ToolOptions,
+  PreparedContext, PlacementState, ToolName, DocumentPlan,
   Budget, ModelLimits, DocumentStore, DocumentContext, DocumentScope, StoredDocument, FileDocumentStoreOptions, FileDocumentScopes,
   PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
   ExtractedText, DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent,
@@ -32,11 +33,12 @@ from the same entry point.
 Contents:
 
 - [The library](#the-library): [`createLargeFiles(options)`](#createlargefilesoptions),
-  [`LargeFilesOptions`](#largefilesoptions), [`LargeFiles`](#largefiles), [`IngestInput`](#ingestinput),
+  [`LargeFilesOptions`](#largefilesoptions), [`LargeFiles`](#largefiles), [`CreatedLargeFiles`](#createdlargefiles),
+  [`LargeFilesStats`](#largefilesstats), [`IngestInput`](#ingestinput),
   [`IngestError`](#ingesterror), [`ingestErrorCodeOf(message)`](#ingesterrorcodeofmessage),
   [`AccessOptions`](#accessoptions), [`PrepareOptions`](#prepareoptions), [`ToolOptions`](#tooloptions),
-  [`PreparedContext`](#preparedcontext), [`DocumentPlan`](#documentplan),
-  [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
+  [`PreparedContext`](#preparedcontext), [`PlacementState`](#placementstate), [`ToolName`](#toolname),
+  [`DocumentPlan`](#documentplan), [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
   [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes),
   [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms),
   [`NEVER_EXPIRES`](#never_expires), [`isDocumentId(value)`](#isdocumentidvalue),
@@ -75,7 +77,7 @@ model sees ([tools.md](./tools.md)), and the events of a question and of an inge
 ### createLargeFiles(options)
 
 ```ts
-declare function createLargeFiles(options: LargeFilesOptions): LargeFiles;
+declare function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles; // LargeFiles before 0.10.0
 ```
 
 Creates the library over one store. Create it once per process and share it: it keeps the cache of
@@ -122,6 +124,9 @@ type LargeFilesOptions = {
   pageLookWaitMs?: number; // new in 0.9.0
   requireOwner?: boolean; // new in 0.9.0
   requireScope?: boolean; // new in 0.9.0
+  storeTimeoutMs?: number; // new in 0.10.0, not applied yet
+  maxStuckStoreCalls?: number; // new in 0.10.0, not applied yet
+  sweepTimeoutMs?: number; // new in 0.10.0, not applied yet
   now?: () => Date;
 };
 ```
@@ -149,6 +154,9 @@ type LargeFilesOptions = {
 | `pageLookWaitMs` | `number` | 30,000 | How long a look at pages waits for its turn, in milliseconds. Past it, the look is not run: the model reads "‹file›: The pages cannot be looked at right now; the server is busy. Answer from the text, or look again later.", and `askWithFiles` gives a `"page_looks_busy"` notice. A question that is stopped stops waiting at once. In `askWithFiles` a wait that ends busy comes once in a tool turn: after a look of the turn was told the server is busy, its other looks run only when a turn is free at once ([`ToolCallLimits.maxWaitMs`](./tools.md#toolcalllimits)). Each look that gets its turn may still have waited up to `pageLookWaitMs`: see [PDFs](../guides/pdfs.md). `Infinity` waits without end; 0 does not wait. New in 0.9.0. |
 | `requireOwner` | `boolean` | `false` | Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles`, `askStream` and `askGemini`, and `tools`, which then needs `access`. A call without one throws `TypeError("owner is required: requireOwner is on")`, before the store is asked anything. An owner that `ingest` would refuse (`""`, spaces only) is refused too. A document stored without an owner reads as missing. Use it on a server where every document belongs to a signed-in user: a call that forgot the owner fails, rather than reaching every document stored without one. New in 0.9.0. |
 | `requireScope` | `boolean` | `false` | The same for scopes ([`DocumentScope`](#documentscope)): a call without one throws `TypeError("scope is required: requireScope is on")`, and a document stored without a scope reads as missing. `files.sweep()` without a scope is still allowed: it is upkeep, not a user's access. New in 0.9.0. |
+| `storeTimeoutMs` | `number` | 30,000 | The most time one store call may take, in milliseconds. Past it, the call fails with a `DocumentStoreError` of code `"ETIMEDOUT"` (status 503). 0 sets no limit. New in 0.10.0. Not applied yet: store calls have no time limit. |
+| `maxStuckStoreCalls` | `number` | half of `UV_THREADPOOL_SIZE` (4 when it is not set), at least 1 | How many store calls past `storeTimeoutMs` may still be running in this process before new ones fail at once, with code `"STORE_STUCK"` (status 503). New in 0.10.0. Not applied yet. |
+| `sweepTimeoutMs` | `number` | 0 (no limit) | The most time one `sweep` may take, in milliseconds. A sweep never counts as a stuck call. New in 0.10.0. Not applied yet. |
 | `now` | `() => Date` | `() => new Date()` | The clock, for tests. It dates `createdAt` and `expiresAt`, decides whether a document has expired, and is passed to the store's `sweep`. |
 
 Since 0.7.1, `ttlMs`, `maxUploadBytes`, `scannedPdfPages`, `cacheBytes`, `cacheSize`,
@@ -183,6 +191,8 @@ interface LargeFiles {
   sweep(options?: { scope?: DocumentScope }): Promise<number>;
   prepare(ids: string[], base: { tokens: number; bytes: number }, options?: PrepareOptions): Promise<PreparedContext>;
   tools(documents: DocumentMeta[], options?: ToolOptions): ToolSet;
+  stats?(): LargeFilesStats; // new in 0.10.0
+  toolsFor?(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>; // new in 0.10.0
 }
 ```
 
@@ -202,6 +212,13 @@ owner of the call (of the document, at ingest). It is a frozen object, and a fie
 left out, so a call without either gets `{}`. A document a store returns for another ID, or with
 the owner `null` (as a MongoDB driver writes a field that was left out), is read as missing, or as
 without an owner.
+
+The members new in 0.10.0:
+
+| Member | Type | What it is |
+|---|---|---|
+| `stats` | `() => LargeFilesStats`, optional | Counters for metrics and alerts ([`LargeFilesStats`](#largefilesstats)), read without a store call. Optional, so that a `LargeFiles` of your own still compiles; the one `createLargeFiles` makes has it. New in 0.10.0. Not written yet: that one throws. |
+| `toolsFor` | `(ids: string[], options: ToolOptions & { access: AccessOptions }) => Promise<{ tools: ToolSet; missing: string[] }>`, optional | Looks each ID up for `options.access`, then makes the tools for the documents found; `missing` lists the others. Optional, as `stats` is. New in 0.10.0. Not written yet: the one of `createLargeFiles` rejects. |
 
 #### `files.access`
 
@@ -527,6 +544,39 @@ Guide: [costs and limits](../guides/costs-and-limits.md).
 
 The upload limit in effect: `options.maxUploadBytes`, or 104,857,600 (100 MB).
 
+### `CreatedLargeFiles`
+
+```ts
+type CreatedLargeFiles = LargeFiles & { stats(): LargeFilesStats; toolsFor: NonNullable<LargeFiles["toolsFor"]> };
+```
+
+What `createLargeFiles` returns since 0.10.0: a [`LargeFiles`](#largefiles) whose `stats` and
+`toolsFor` are always there, so `files.stats()` needs no `?.`.
+
+### `LargeFilesStats`
+
+```ts
+type LargeFilesStats = {
+  ingests: { active: number; waiting: number };
+  scans: { active: number; waiting: number };
+  pageLooks: { active: number; waiting: number };
+  cache: { bytes: number; entries: number; maxBytes: number };
+  stuckStoreCalls: number;
+  maxStuckStoreCalls: number;
+};
+```
+
+What `files.stats()` gives. New in 0.10.0.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `ingests` | `{ active: number; waiting: number }` | Ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). |
+| `scans` | `{ active: number; waiting: number }` | Scans of whole documents read by range, and those waiting their turn (`maxConcurrentScans`). |
+| `pageLooks` | `{ active: number; waiting: number }` | Looks at pages, and those waiting their turn (`maxConcurrentPageLooks`). |
+| `cache` | `{ bytes: number; entries: number; maxBytes: number }` | Documents kept in memory: their bytes, how many there are, and the most bytes they may take (`cacheBytes`). |
+| `stuckStoreCalls` | `number` | Store calls of this process that ran past their time limit and have not settled. |
+| `maxStuckStoreCalls` | `number` | This library's limit on them (`maxStuckStoreCalls`). |
+
 ### `IngestInput`
 
 ```ts
@@ -750,7 +800,11 @@ const error = new IngestError(ingestErrorCodeOf(message), message);
 ### `AccessOptions`
 
 ```ts
-type AccessOptions = { owner?: string; scope?: DocumentScope };
+type AccessOptions = {
+  owner?: string;
+  scope?: DocumentScope;
+  signal?: AbortSignal; // new in 0.10.0, not read yet
+};
 ```
 
 Who is asking. `getMeta`, `getOriginal`, `delete` and `prepare` (through
@@ -761,6 +815,7 @@ takes the same two options. Each store call carries both ([`DocumentContext`](#d
 |---|---|---|---|
 | `owner` | `string` | none | Compared with the document's `owner` with `===`. A document that has an owner can be used only with that exact owner. A document without one can be used by anyone, unless the library has `requireOwner`. Another owner's document looks exactly like a missing one. `null` counts as none. |
 | `scope` | [`DocumentScope`](#documentscope) | none | The scope of the caller, such as `[userId, chatId]`. A document stored with a scope serves only a caller of the same scope, segment by segment: a caller with another scope, a longer or shorter one, or none, finds it missing. A document stored without a scope serves any caller, unless the library has `requireScope`. A store that keeps scopes apart (`MemoryDocumentStore`) does not even find a document of another scope. Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
+| `signal` | `AbortSignal` | none | Ends this caller's wait for the store, with the signal's reason: never a store call that other callers wait on too. New in 0.10.0. Not read yet. |
 
 The library has no notion of a session and cannot list documents by owner: record the IDs in your
 own data. See [storage](../guides/storage.md) and [security](../security.md).
@@ -772,6 +827,10 @@ type PrepareOptions = AccessOptions & {
   budget?: Partial<Budget>;
   viewPages?: boolean;
   wholeDocumentAnalysis?: boolean;
+  placement?: PlacementState; // new in 0.10.0, not read yet
+  numberInline?: boolean; // new in 0.10.0, not read yet
+  inlineTables?: "tools" | "text"; // new in 0.10.0, not read yet
+  reserve?: { tokens: number; bytes: number }; // new in 0.10.0, not read yet
 };
 ```
 
@@ -784,6 +843,10 @@ The options of [`files.prepare`](#filesprepareids-base-options).
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for this request, as in `LargeFilesOptions.budget`. `askWithFiles` passes the budget fitted to its model. |
 | `viewPages` | `boolean` | `false` | Says that your loop can pass files to the model. `viewable` then lists the PDFs whose original is kept (with a store that has `getOriginal`), and the instruction and the cards tell the model about `view_pages`. Without it, `viewable` is empty and nothing mentions `view_pages`. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Says whether your tool set has `analyze_whole_document`. Pass `false` when you call `tools` without `generate`: the instruction then does not name it, and the cards do not offer a whole-file read or say that a file is too large for one. Each says `This file is NOT in your context. Use the document tools to search it and to read line ranges.` `askWithFiles` passes `false` when the model that explores has no `generateText`, and when its own `wholeDocumentAnalysis` is `false`. |
+| `placement` | [`PlacementState`](#placementstate) | none | The placement state of the chat's last question: the documents keep the place they had. New in 0.10.0. Not read yet. |
+| `numberInline` | `boolean` | `false` | Number the lines of the documents sent whole, as the tools number them. `false` here gives the blocks of 0.9. New in 0.10.0. Not read yet. |
+| `inlineTables` | `"tools" \| "text"` | `"text"` | `"tools"`: list in `toolable` the documents sent whole whose tables the tools can count. `"text"`: as in 0.9. New in 0.10.0. Not read yet. |
+| `reserve` | `{ tokens: number; bytes: number }` | none | Room to keep free in the request besides `base`: the tool declarations, the guide, the header lines and the cards, at their rendered size. New in 0.10.0. Not read yet. |
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
@@ -800,6 +863,8 @@ type ToolOptions = {
   retry?: RetryOptions;
   budget?: Partial<Budget>;
   viewPages?: boolean | DocumentMeta[];
+  declare?: readonly ToolName[]; // new in 0.10.0, not read yet
+  inline?: readonly string[]; // new in 0.10.0, not read yet
 };
 ```
 
@@ -816,6 +881,8 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | 3 retries, a first wait of 250 to 500 ms (500 ms before the jitter) that doubles, 60 s at most | How a failed model request of a whole-document read is sent again. An error without an HTTP status is sent again once, at once. |
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for these tools: their result cap and part size. Use the budget you planned the request with. |
 | `viewPages` | `boolean \| DocumentMeta[]` | none | Offers `view_pages`, which hands the model real pages of a PDF as a file. `true` offers it for the PDFs among `documents`; a list offers it for exactly those, which may include PDFs whose text is already in the prompt: pass `prepared.viewable`. Only PDFs with `originalKept` count, and only with a store that has `getOriginal`. Turn it on only when your loop runs tools with `executeWithFiles` and sends the files to the model. |
+| `declare` | `readonly `[`ToolName`](#toolname)`[]` | none | Declare exactly these tools, in the order the tool set declares them (search, read, overview, aggregate, analyze, view). A declared tool that cannot run answers with its reason. New in 0.10.0. Not read yet. |
+| `inline` | `readonly string[]` | none | The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in full. New in 0.10.0. Not read yet. |
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
@@ -828,6 +895,10 @@ type PreparedContext = {
   instruction: string;
   missing: string[];
   viewable: DocumentMeta[];
+  toolable?: DocumentMeta[]; // new in 0.10.0, not set yet
+  guide?: string; // new in 0.10.0, not set yet
+  listing?: Map<string, string>; // new in 0.10.0, not set yet
+  placement?: PlacementState; // new in 0.10.0, not set yet
 };
 ```
 
@@ -840,6 +911,13 @@ What [`files.prepare`](#filesprepareids-base-options) returns.
 | `instruction` | `string` | The guide to the tools, for the system prompt, when a document is searchable or viewable; `""` otherwise. It names `analyze_whole_document` when a searchable file is small enough for it and `prepare` was not given `wholeDocumentAnalysis: false`. Then give `generate` to `tools`, or a call of it is answered as an unknown tool. |
 | `missing` | `string[]` | The IDs that were not found: never uploaded, not a document ID, deleted, expired, or another owner's. |
 | `viewable` | `DocumentMeta[]` | The PDFs whose pages `view_pages` can show, whether their text is in the prompt or searched. Empty unless `prepare` was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`. |
+| `toolable` | `DocumentMeta[]`, optional | Documents sent whole whose tables the tools can still count and search (`inlineTables: "tools"`): CSV and XLSX, and the others whose text has `\| cell \|` rows. New in 0.10.0. Not set yet. |
+| `guide` | `string`, optional | The tool guide for the system text, the same in every question of a chat: no file names or IDs, and no figure that changes from one question to the next. New in 0.10.0. Not set yet: use `instruction`. |
+| `listing` | `Map<string, string>`, optional | One header line per document ID, for the turn that holds its block: its name, its `document_id`, and whether it is shown in full or searched with the tools. New in 0.10.0. Not set yet. |
+| `placement` | [`PlacementState`](#placementstate), optional | Where the documents were placed, for the next question (`PrepareOptions.placement`). New in 0.10.0. Not set yet. |
+
+The fields new in 0.10.0 are optional, so that a `LargeFiles` of your own still compiles: without
+them, `askWithFiles` works as in 0.9.
 
 A document sent whole sits between these two lines (new in 0.6.0, for every document):
 
@@ -882,6 +960,44 @@ followed, when some characters were not valid in it, by
 `1 character of this file was not valid UTF-8, and shows as �.`
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
+
+### `PlacementState`
+
+```ts
+type PlacementState = {
+  version: 1;
+  head: string;
+  inline: string[];
+  cards: string[];
+  tools: ToolName[];
+  stubbedThrough: number;
+  nativeRefused?: true;
+};
+
+declare const PLACEMENT_STATE_VERSION: 1;
+```
+
+Where the documents of a chat were placed (`AskResult.placement`, `AskOptions.placement`,
+`PrepareOptions.placement`). It holds document IDs and a hash only, and is never sent to a model.
+New in 0.10.0. Not set or read yet.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `version` | `1` | The version of this shape: `PLACEMENT_STATE_VERSION`. A state of another version is ignored. |
+| `head` | `string` | A hash of the text of the first user turn: a list trimmed or swapped at its start is seen, and the state ignored. |
+| `inline` | `string[]` | The IDs of the documents sent whole, in the order they were first placed. |
+| `cards` | `string[]` | The IDs of the documents searched through the tools, in the order they were first placed. |
+| `tools` | [`ToolName[]`](#toolname) | The tools declared so far: the set only grows. |
+| `stubbedThrough` | `number` | How many earlier questions, counted from the start of `messages`, have their stored rounds sent as stand-ins. |
+| `nativeRefused` | `true`, optional | The provider refused stored thought signatures once: later questions send the calls only. |
+
+### `ToolName`
+
+```ts
+type ToolName = "search_document" | "read_document" | "get_document_overview" | "analyze_whole_document" | "view_pages" | "aggregate_table";
+```
+
+The name of a document tool, as the model calls it ([`TOOL_NAMES`](./tools.md#tool_names)). New in 0.10.0.
 
 ### `DocumentPlan`
 
@@ -2058,6 +2174,7 @@ type ToolCallHooks = {
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
   onDocumentGone?: (documentId: string) => void; // new in 0.9.0
   onPagesBusy?: (documentId: string) => void; // new in 0.9.0
+  signal?: AbortSignal; // new in 0.10.0, not read yet
 };
 ```
 
@@ -2074,6 +2191,7 @@ and `"document_gone"` and `"page_looks_busy"` notices ([events in your own loop]
 | `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle`, optional | Called as each model request of this call starts ([`ToolRequestStart`](#toolrequeststart)). Return a [`ToolRequestHandle`](#toolrequesthandle): the read tells it of each retry of that request, and once when the request ends. |
 | `onDocumentGone` | `(documentId: string) => void`, optional | Called by any tool when the document the call names is no longer in the store: deleted or expired since it was planned, or not readable by the caller, which looks the same. The model gets "‹id› is no longer available on the server. Ask the user to attach the file again." New in 0.9.0. |
 | `onPagesBusy` | `(documentId: string) => void`, optional | Called by `view_pages` when the look waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`) and was not run. New in 0.9.0. |
+| `signal` | `AbortSignal`, optional | Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. Joined with `ToolOptions.signal`. New in 0.10.0. Not read yet. |
 
 Do not let them throw. The read takes a throw from `onRequest` or from a handle for a failure of
 that request: the part is reported as not read, and a merge or the answer falls back to the notes.

@@ -242,9 +242,11 @@ for `onText`.
 | `ms` | `number` | From `request.start` to now, retries and their waits included. |
 | `outcome` | `"ok" \| "error"` | How it ended. |
 | `usage` | `Partial<ModelUsage>`, optional | What the provider said this request used. For a `"reader"` request, the sum of all its sends. |
-| `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call"`, optional | How the reply ended, in the library's words. Chat requests only. |
+| `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call" \| "other"`, optional | How the reply ended, in the library's words. Chat requests only. `"other"` is new in 0.10.0, and no built-in adapter gives it yet. |
 | `finishReason` | `string`, optional | How the reply ended, in the provider's words. Chat requests only. |
 | `toolCalls` | `number`, optional | How many tool calls the reply asked for. Chat requests with outcome `"ok"`. |
+| `responseId` | `string`, optional | The provider's ID of the response (`ModelReply.responseId`), when the adapter gives one. New in 0.10.0. Not set yet. |
+| `responseModel` | `string`, optional | The model that wrote the response, as the provider names it (`ModelReply.responseModel`). New in 0.10.0. Not set yet. |
 | `error` | [`EventError`](#errors-eventerror), optional | With outcome `"error"`: why. |
 
 A request that failed does not always end the question. An overflow is made smaller and sent
@@ -297,6 +299,7 @@ outcome that says so.
 | `message` | `string` | One line of plain text, word for word what the callback got when there was one. |
 | `display` | [`NoticeDisplay`](#noticecode-and-noticedisplay) | Where it went in the callbacks: `"activity"`, `"step"` or `"none"`. |
 | `documentIds` | `string[]`, optional | The documents the notice is about: those left out (`"documents_missing"`), the one found gone (`"document_gone"`), the one whose pages were not looked at (`"page_looks_busy"`). New in 0.9.0. |
+| `discardText` | `true`, optional | With `"answer_filtered"` under `AskOptions.filteredAnswer: "drop"`: text of the answer was already sent (`text` events, `onText`), and the page should take it away. New in 0.10.0. Not set yet. |
 
 #### `run.finish`
 
@@ -389,6 +392,7 @@ How a tool call ended (`tool.end.outcome`):
 | `"refused"` | Was not run, for a limit of the question: its cost, the room left in the conversation, the reads of a whole file. |
 | `"already_shown"` | Repeated a call whose result is still in the conversation, and was answered with a pointer to it. |
 | `"not_run"` | Was over `limits.callsPerTurn` for its turn. |
+| `"redacted"` | Ran, and `AskOptions.onToolResult` replaced its result: the model was sent the replacement. New in 0.10.0. Not given yet. |
 
 ### `NoticeCode` and `NoticeDisplay`
 
@@ -411,6 +415,10 @@ to `onStep` and `AskResult.steps`, `"none"` to neither. The `"none"` notices are
 | `"documents_missing"` | none | Documents of `documentIds` were missing, and the question is answered without them (`onMissingDocuments: "drop"`, see [missing documents](./ask.md#missing-documents)). Before the `plan` event, once a question. `documentIds` names them; `AskResult.missing` lists them too. New in 0.9.0. | "1 of the attached files is no longer available: the question is answered without it." |
 | `"document_gone"` | none | A tool call found a document gone during the question: deleted or expired since it was planned. The model was told so in the call's result ("‹id› is no longer available on the server. Ask the user to attach the file again."). Once for each document. `documentIds` names it. New in 0.9.0. | "app.log is no longer available on the server." |
 | `"page_looks_busy"` | none | A look at pages waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`, [library](./library.md#largefilesoptions)) and was not run. The model was told the server is busy. `documentIds` names the PDF. New in 0.9.0. | "The pages of report.pdf were not looked at: the server was busy with other looks at pages." |
+| `"answer_filtered"` | not set yet | A filter of the provider stopped the answer, with or without text (`AskResult.finish` `"filtered"`). New in 0.10.0. Not emitted yet. | not written yet |
+| `"answer_cut"` | not set yet | The answer stopped at the output limit (`AskResult.finish` `"cut"`). New in 0.10.0. Not emitted yet. | not written yet |
+| `"placement_changed"` | not set yet | The documents were planned afresh, not as `AskOptions.placement` had them: the state was of another version or of another start of the chat, or a document sent whole is searched with the tools now. New in 0.10.0. Not emitted yet. | not written yet |
+| `"native_rounds_dropped"` | not set yet | The provider refused the rounds of earlier questions in its own form (`ToolTurn.native`), and the request was sent again with their calls only. New in 0.10.0. Not emitted yet. | not written yet |
 
 The messages are written for people and may change between versions. Test `code`, not `message`.
 
@@ -504,7 +512,12 @@ text of the documents:
 ```ts
 type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
   toolTurns?: ToolTurn[];
-  plan: { inline: Array<DocumentRef | DocumentMeta>; searchable: Array<DocumentRef | DocumentMeta> };
+  // Since 0.10.0 the full metadata here has no owner, scope, sha256, original or metaVersion in its
+  // type (DocumentMeta before). They are not dropped at run time yet.
+  plan: {
+    inline: Array<DocumentRef | Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">>;
+    searchable: Array<DocumentRef | Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">>;
+  };
 };
 ```
 
@@ -970,6 +983,7 @@ type ToolCallHooks = {
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
   onDocumentGone?: (documentId: string) => void; // new in 0.9.0
   onPagesBusy?: (documentId: string) => void; // new in 0.9.0
+  signal?: AbortSignal; // new in 0.10.0, not read yet
 };
 type ToolRequestStart = { purpose: "part" | "merge" | "final"; detail: string };
 type ToolRequestHandle = {
@@ -985,6 +999,7 @@ type ToolRequestEnd = { outcome: "ok" | "error"; usage?: GenerateUsage; error?: 
 | `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle` | Called as each model request of this call starts, with its `purpose` and `detail` (`"part 3 of 12"`, `"first half of part 3 of 12"`, `"round 2: 1 of 4"`, `"the answer"`). The handle you return is told of each retry of that request, and once of its end, with the usage its part reader reported (summed over its sends) and, on an error, the error. |
 | `onDocumentGone` | `(documentId: string) => void` | Called when the document the call names is no longer in the store: deleted or expired since it was planned, or not the caller's. The call's result is the error the model is told. `askWithFiles` makes it a `"document_gone"` notice. New in 0.9.0. |
 | `onPagesBusy` | `(documentId: string) => void` | Called when a look at pages (`view_pages`) waited longer than `pageLookWaitMs` for its turn and was not run. The call's result is the error the model is told. `askWithFiles` makes it a `"page_looks_busy"` notice. New in 0.9.0. |
+| `signal` | `AbortSignal` | Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. Joined with `ToolOptions.signal`. New in 0.10.0. Not read yet. |
 
 `onProgress` and `onRequest` are used only by `analyze_whole_document`; the other tools ignore
 them, and `view_pages` too. `onDocumentGone` is called by every tool, and `onPagesBusy` by
