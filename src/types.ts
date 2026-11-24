@@ -130,7 +130,21 @@ export type DocumentMeta = {
   scripts?: Array<{ script: string; percent: number }>;
   createdAt: string;
   expiresAt: string;
+  /**
+   * The application's own data about the document (`IngestInput.appData`, `files.update`): a JSON
+   * object of at most `MAX_APP_DATA_BYTES` (16 KB) as JSON, such as the ID of its row in your
+   * database or a label. The library keeps it with the metadata and does nothing else with it: it
+   * is never sent to the model, nor in a summary. An event holds it only with
+   * `AskOptions.eventResults: true`, in the full plan of `run.finish` and `run.error`. New in 0.10.2.
+   */
+  appData?: AppData;
 };
+
+/** A value JSON can hold: what `DocumentMeta.appData` is made of. New in 0.10.2. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+/** The application's own data about a document (`DocumentMeta.appData`): a JSON object. New in 0.10.2. */
+export type AppData = { [key: string]: JsonValue };
 
 export type StoredDocument = { meta: DocumentMeta; text: string };
 
@@ -192,6 +206,20 @@ export interface DocumentStore {
   putIndex?(id: string, index: Uint8Array, context?: DocumentContext): Promise<void>;
   /** The index kept by `putIndex`, or undefined. A damaged one is noticed and built again. */
   getIndex?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  /**
+   * The metadata of the documents of the scope of `context`, in any order: those stored without a
+   * scope when it has none. A store that keeps no scopes apart gives every document it has. Leave
+   * out the expired ones. Optional: `files.list()` needs it. A store of many documents should answer
+   * from an index (a database query on the scope), not by reading each one. New in 0.10.2.
+   */
+  list?(context?: DocumentContext): Promise<DocumentMeta[]>;
+  /**
+   * Replaces the metadata of a stored document (`meta.id`), and keeps its text, line index and
+   * original as they are: true, or false when the document is not there (unknown, deleted or
+   * expired), and nothing was written. Optional: `files.touch()` and `files.update()` need it. New
+   * in 0.10.2.
+   */
+  putMeta?(meta: DocumentMeta, context?: DocumentContext): Promise<boolean>;
 }
 
 export type ExtractedText = {

@@ -7,7 +7,7 @@ import { DocumentCache, documentVersion, type Sized } from "./cache.js";
 import type { DocumentStoreOperation } from "./errors.js";
 import type { IngestEvent } from "./events.js";
 import { until } from "./http.js";
-import { ingestDocument, LONGEST_TIMER_MS, type IngestContext } from "./ingest.js";
+import { checkAppData, expiryAfter, ingestDocument, LONGEST_TIMER_MS, type IngestContext } from "./ingest.js";
 import { Limiter } from "./limiter.js";
 import { canBeReadWhole, TABLE_FORMATS } from "./plan.js";
 import { prepareDocuments, type PrepareContext } from "./prepare.js";
@@ -16,11 +16,12 @@ import { SearchableDocument, type DocumentSource } from "./search.js";
 import { TimeSlicer } from "./pause.js";
 import { checkScope } from "./scope.js";
 import { isSha256, sha256InSlices } from "./source.js";
-import { APP_DOCUMENT_ID_PATTERN } from "./stores.js";
+import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
 import { wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
 import { createDocumentTools, type PageLookTurns } from "./tools.js";
 import type {
+  AppData,
   Budget,
   DocumentContext,
   DocumentFormat,
@@ -36,7 +37,7 @@ import type {
 } from "./types.js";
 
 export { DEFAULT_BUDGET } from "./budget.js";
-export { checkOwner, cleanFileName, cleanMimeType, NEVER_EXPIRES, toDocumentSummary } from "./ingest.js";
+export { checkOwner, cleanFileName, cleanMimeType, MAX_APP_DATA_BYTES, NEVER_EXPIRES, toDocumentSummary } from "./ingest.js";
 
 export type LargeFilesOptions = {
   /** Where extracted text is kept: `new FileDocumentStore(dir)`, `new MemoryDocumentStore()`, or your own. */
@@ -275,6 +276,13 @@ export type IngestInput = {
    * deletes the file: `delete` leaves it. New in 0.9.0.
    */
   original?: { ref: string };
+  /**
+   * The application's own data about the document, kept as `DocumentMeta.appData`: a JSON object
+   * of at most 16 KB as JSON (`MAX_APP_DATA_BYTES`). Another value is a TypeError; a larger one, a
+   * RangeError. Never sent to the model, nor in a summary. Change it later with `files.update`.
+   * New in 0.10.2.
+   */
+  appData?: AppData;
 };
 
 /** A file to ingest from where it is, rather than from bytes in memory (`IngestFromSource`). New in 0.9.0. */
@@ -460,6 +468,29 @@ export interface LargeFiles {
    * compiles; the one `createLargeFiles` makes has it. New in 0.10.0.
    */
   toolsFor?(ids: string[], options: ToolOptions & { access: AccessOptions }): Promise<{ tools: ToolSet; missing: string[] }>;
+  /**
+   * The documents of `access.scope` that the caller may use (those of no scope without one), as
+   * `getMeta` would give each, the oldest first. Expired documents, and metadata this version
+   * cannot read (damaged, or of a newer version), are left out. It needs a store with `list`
+   * (`MemoryDocumentStore` and `FileDocumentStore` have it): another is a TypeError. A store that
+   * fails is a `DocumentStoreError` (operation "read"). Optional, so that a `LargeFiles` of your own
+   * still compiles; the one `createLargeFiles` makes has it. New in 0.10.2.
+   */
+  list?(access?: AccessOptions): Promise<DocumentMeta[]>;
+  /**
+   * Marks a document used: its expiry is counted again from now (`ttlMs`), so that a chat that
+   * still reads a file keeps it. An expiry already later stays. Returns the metadata as it now is,
+   * or undefined when the document is missing for this caller. It needs a store with `putMeta`:
+   * another is a TypeError. A store that fails is a `DocumentStoreError`. Optional, as `list` is.
+   * New in 0.10.2.
+   */
+  touch?(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
+  /**
+   * Changes the application's own data about a document (`appData`; null removes it), and nothing
+   * else. Returns the metadata as it now is, or undefined when the document is missing for this
+   * caller. It needs a store with `putMeta`, as `touch` does. Optional, as `list` is. New in 0.10.2.
+   */
+  update?(id: string, changes: { appData?: AppData | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>;
 }
 
 /** What `files.stats()` counts: plain numbers, for metrics and alerts. New in 0.10.0. */
@@ -769,6 +800,26 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
   }
 
   /**
+   * The metadata of a document as the store keeps it, when `caller` may use it and it has not
+   * expired: to change and write back (`putMeta`), with its name as stored. `operation` names the
+   * method that needs `putMeta` in the TypeError of a store without it.
+   */
+  async function storedFor(id: string, caller: Caller, operation: string): Promise<DocumentMeta | undefined> {
+    if (typeof store.putMeta !== "function") throw new TypeError(`files.${operation} needs a store with putMeta(): MemoryDocumentStore and FileDocumentStore have it.`);
+    if (!isDocumentId(id)) return undefined;
+    const meta = metaOf(await reading(() => store.getMeta(id, caller.context), caller.signal), id);
+    if (!meta || Date.parse(meta.expiresAt) <= now().getTime() || !mayUse(meta, caller, rules)) return undefined;
+    checkMetaVersion(meta);
+    return meta;
+  }
+
+  /** Writes `meta` back (`putMeta`), within `storeTimeoutMs`: the metadata as it now is, or undefined when the document went meanwhile. */
+  async function rewrite(meta: DocumentMeta, caller: Caller): Promise<DocumentMeta | undefined> {
+    const written = await timed("write", () => store.putMeta!(meta, caller.context), caller.signal);
+    return written === true ? wholeName(meta) : undefined;
+  }
+
+  /**
    * A document ready to read and search, for `caller`, who may use it. The store is asked first,
    * every time: a kept copy is used only while the store still has the same document. `known` is
    * metadata just read from the store and checked, to save asking twice. One opening serves every
@@ -1054,6 +1105,48 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
         else missing.push(id);
       }
       return { tools: tools(found, toolOptions), missing };
+    },
+
+    async list(access) {
+      const caller = callerOf(access, rules);
+      if (typeof store.list !== "function") throw new TypeError("files.list needs a store with list(): MemoryDocumentStore and FileDocumentStore have it.");
+      const found: unknown = await reading(() => store.list!(caller.context), caller.signal);
+      const at = now().getTime();
+      const listed: DocumentMeta[] = [];
+      for (const item of Array.isArray(found) ? found : []) {
+        const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
+        // Damaged, or of another ID than a document may have, or expired: not listed.
+        if (!meta || typeof meta.id !== "string" || !isDocumentId(meta.id) || !(Date.parse(meta.expiresAt) > at)) continue;
+        // Written by a newer version of the package: left out, where `getMeta` would throw.
+        const version: unknown = meta.metaVersion ?? 0;
+        if (typeof version !== "number" || version > DOCUMENT_META_VERSION) continue;
+        if (mayUse(meta, caller, rules)) listed.push(wholeName(meta));
+      }
+      // The oldest first, then by ID: the same order whatever order the store gave.
+      return listed.sort((left, right) => (Date.parse(left.createdAt) - Date.parse(right.createdAt)) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+    },
+
+    async touch(id, access) {
+      const caller = callerOf(access, rules);
+      const meta = await storedFor(id, caller, "touch");
+      if (!meta) return undefined;
+      const expiresAt = expiryAfter(now(), ttlMs);
+      // An expiry already later stays: nothing is written.
+      if (Date.parse(expiresAt) <= Date.parse(meta.expiresAt)) return wholeName(meta);
+      return rewrite({ ...meta, expiresAt }, caller);
+    },
+
+    async update(id, changes, access) {
+      if (typeof changes !== "object" || changes === null || Array.isArray(changes)) throw new TypeError("files.update needs the changes as an object, such as { appData: { rowId: \"42\" } }.");
+      const unknown = Object.keys(changes).filter((key) => key !== "appData");
+      if (unknown.length > 0) throw new TypeError(`files.update changes appData only; it was given ${unknown.map((key) => JSON.stringify(key)).join(", ")}.`);
+      const given: unknown = changes.appData;
+      const appData: AppData | null | undefined = given === undefined || given === null ? given : checkAppData(given, "appData");
+      const caller = callerOf(access, rules);
+      const meta = await storedFor(id, caller, "update");
+      if (!meta || appData === undefined) return meta && wholeName(meta);
+      const { appData: _old, ...rest } = meta;
+      return rewrite(appData === null ? rest : { ...rest, appData }, caller);
     },
   };
 

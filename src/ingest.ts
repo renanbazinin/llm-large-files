@@ -17,7 +17,7 @@ import { absolutePath, isSha256, readRanges, readSource, sha256InSlices, statSou
 import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
 import { measureText, prepareText, removeInvisible, sliceWhole } from "./text.js";
-import type { DocumentContext, DocumentFormat, DocumentMeta, DocumentScope, DocumentStore, DocumentSummary, ExtractedText, ExtractProgress, Extractor } from "./types.js";
+import type { AppData, DocumentContext, DocumentFormat, DocumentMeta, DocumentScope, DocumentStore, DocumentSummary, ExtractedText, ExtractProgress, Extractor } from "./types.js";
 
 export { checkOwner } from "./access.js";
 
@@ -77,6 +77,8 @@ type Target = {
   readonly scope: DocumentScope | undefined;
   /** The context of every store call of the ingest. */
   readonly context: DocumentContext;
+  /** `IngestInput.appData`, checked and copied (0.10.2). */
+  readonly appData?: AppData;
 };
 
 /** The TypeError of an `IngestInput.id` of another shape. It does not repeat the ID, which may hold what it must not. */
@@ -91,7 +93,10 @@ function targetOf(input: IngestInput | IngestFromSource, rules: AccessRules): Ta
   const { id, ifExists = "fail" } = input;
   if (id !== undefined && (typeof id !== "string" || !APP_DOCUMENT_ID_PATTERN.test(id))) throw new TypeError(ID_SHAPE);
   if (ifExists !== "fail" && ifExists !== "replace") throw new TypeError('ifExists must be "fail" or "replace".');
-  return { id, ifExists, owner: input.owner, scope, context: storeContext(scope, input.owner) };
+  // Null is none, as a database gives a field that was left out.
+  const given: unknown = input.appData ?? undefined;
+  const appData = given === undefined ? undefined : checkAppData(given, "appData");
+  return { id, ifExists, owner: input.owner, scope, context: storeContext(scope, input.owner), ...(appData !== undefined ? { appData } : {}) };
 }
 
 /** The refusal of an application's ID that is taken (`ifExists`). It says nothing of the document that has it. */
@@ -318,6 +323,37 @@ function fileOf(extracted: ExtractedText): { bytes: number; sha256: string } | u
  * year 9999. A date, so that every comparison, and a server of an older version, reads it as any other.
  */
 export const NEVER_EXPIRES = "9999-12-31T23:59:59.999Z";
+
+/** The expiry of a document stored, or used, at `at`: `ttlMs` later, or `NEVER_EXPIRES` past what a date can hold. */
+export function expiryAfter(at: Date, ttlMs: number): string {
+  const expires = at.getTime() + ttlMs;
+  return expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString();
+}
+
+/** The most bytes `DocumentMeta.appData` may take, as JSON in UTF-8: 16 KB. New in 0.10.2. */
+export const MAX_APP_DATA_BYTES = 16_384;
+
+/**
+ * `appData` checked, and copied through JSON, as a store that keeps it as JSON gives it back. A
+ * value that is not an object (an array, a string, null), or that JSON cannot write (a BigInt, a
+ * loop), is a TypeError; one larger than `MAX_APP_DATA_BYTES` as JSON, a RangeError. What JSON
+ * leaves out (a function, undefined) is left out. `where` names the option in the message.
+ */
+export function checkAppData(value: unknown, where: string): AppData {
+  const shape = `${where} must be a JSON object, such as { "rowId": "42" }`;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError(`${shape}.`);
+  let json: unknown;
+  try {
+    json = JSON.stringify(value);
+  } catch (error) {
+    throw new TypeError(`${shape}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // A toJSON of its own may turn it into something else.
+  if (typeof json !== "string" || !json.startsWith("{")) throw new TypeError(`${shape}.`);
+  const bytes = Buffer.byteLength(json);
+  if (bytes > MAX_APP_DATA_BYTES) throw new RangeError(`${where} takes ${bytes} bytes as JSON; it may take ${MAX_APP_DATA_BYTES}.`);
+  return JSON.parse(json) as AppData;
+}
 
 /** The refusal of a file whose text is larger than `maxTextBytes`. */
 const tooMuchText = (name: string, maxTextBytes: number) =>
@@ -719,7 +755,6 @@ async function ingestFile(
     dispose();
   }
   const created = now();
-  const expires = created.getTime() + ttlMs;
   // Kept by its ref, or as a copy in the store, which has the bytes to write.
   const keepOriginal = byRef ? keeps(format, true) : copy !== undefined;
   // A copy: the outline's headings and the log's timestamps are pieces of the text, and a piece
@@ -754,7 +789,9 @@ async function ingestFile(
     ...quality,
     createdAt: created.toISOString(),
     // Never, for a time to live without end (or one that runs past what a date can hold).
-    expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
+    expiresAt: expiryAfter(created, ttlMs),
+    // The application's own, checked when the ingest began. Never sent to the model.
+    ...(target.appData !== undefined ? { appData: target.appData } : {}),
   });
   const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && index.textBytes === meta.textBytes
     ? serializeTextIndex(index)

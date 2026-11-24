@@ -112,6 +112,22 @@ export class MemoryDocumentStore implements DocumentStore {
     return removed;
   }
 
+  /** The metadata of the documents of the scope of `context`, or of no scope when it has none, expired ones left out. New in 0.10.2. */
+  async list(context?: DocumentContext): Promise<DocumentMeta[]> {
+    const shelf = this.#shelf(context);
+    if (!shelf) return [];
+    const now = this.now();
+    return [...shelf.documents.values()].filter((document) => !expired(document.meta, now)).map((document) => structuredClone(document.meta));
+  }
+
+  /** Replaces the metadata of a document that is there, and keeps its text: false when it is not. New in 0.10.2. */
+  async putMeta(meta: DocumentMeta, context?: DocumentContext): Promise<boolean> {
+    const document = this.#shelf(context)?.documents.get(meta.id);
+    if (!document || expired(document.meta, this.now())) return false;
+    document.meta = structuredClone(meta);
+    return true;
+  }
+
   async putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void> {
     // A copy: the caller may reuse its buffer after the upload.
     this.#shelf(context, true).originals.set(id, bytes.slice());
@@ -717,6 +733,61 @@ export class FileDocumentStore implements DocumentStore {
     if (!fileId(id)) return false;
     const place = await this.#find(context, true);
     return place ? this.#remove(place, id) : false;
+  }
+
+  /**
+   * The metadata of the documents in the folder of the scope of `context` (in the directory, without
+   * `scopes`), expired ones left out (and removed, as `getMeta` does). It reads every metadata file
+   * of the folder, `sweepConcurrency` at a time: a folder of one chat holds few, but the directory of
+   * a store without scopes may hold many. In a folder the application shares, only metadata that
+   * names its own file counts. A folder that is not there gives none. New in 0.10.2.
+   */
+  async list(context?: DocumentContext): Promise<DocumentMeta[]> {
+    const place = await this.#find(context);
+    if (!place) return [];
+    let entries: Dirent[];
+    try {
+      entries = await readdir(place.folder, { withFileTypes: true });
+    } catch (error) {
+      if (this.#unreadable(place, error)) return [];
+      throw error;
+    }
+    const ids = entries.flatMap((entry) => {
+      const match = entry.isFile() ? FILE_NAME.exec(entry.name) : null;
+      return match && match[2] === "json" && match[3] === undefined ? [match[1]!] : [];
+    });
+    const slots = new Limiter(this.#sweepConcurrency);
+    const metas = await Promise.all(ids.map(async (id) => {
+      const release = await slots.acquire();
+      try {
+        const meta = await this.#meta(place, id);
+        return meta && meta.id === id ? meta : undefined;
+      } finally {
+        release();
+      }
+    }));
+    return metas.filter((meta): meta is DocumentMeta => meta !== undefined);
+  }
+
+  /**
+   * Writes the metadata of a document that is there, whole under a temporary name and then renamed,
+   * as `put` does, and touches no other file: false when its metadata is not there (or has
+   * expired), and nothing is written. A delete that ends between the check and the write would
+   * leave metadata without text: the text is looked for after the write, and without it the
+   * metadata is removed again and the answer is false. New in 0.10.2.
+   */
+  async putMeta(meta: DocumentMeta, context?: DocumentContext): Promise<boolean> {
+    if (!fileId(meta.id)) return false;
+    const place = await this.#find(context);
+    if (!place || !await this.#meta(place, meta.id)) return false;
+    const files = filesOf(place.folder, meta.id);
+    await this.#write(place, files.meta, JSON.stringify(meta));
+    const text = await lstat(files.text).catch((error: unknown) => (absent(error) ? undefined : null));
+    if (text === undefined) {
+      await this.#remove(place, meta.id).catch(() => undefined);
+      return false;
+    }
+    return true;
   }
 
   async putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void> {
