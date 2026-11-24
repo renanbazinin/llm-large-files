@@ -207,15 +207,34 @@ const deepseek = openAiCompatible({
   question and the request for an answer with no turn between them, and DeepSeek's reasoner
   refuses two user turns in a row.
 - **The model's own turn goes back with its `reasoning_content`**, streamed or not
-  ([the reply](../reference/openai.md#openaicompatibleoptions)). DeepSeek's thinking mode asks for
-  the `reasoning_content` of every earlier turn in a request with tools, those of earlier questions
-  included, and refuses a request without it (HTTP 400), as its
-  [thinking mode guide](https://api-docs.deepseek.com/guides/thinking_mode) says (read in November
-  2026). Within a question the loop sends it back. Since 0.10.0 the adapter's
-  `capabilities.nativeRounds` is true, so the rounds of earlier questions go back with it too when
-  you store `result.toolTurns` and pass them in `messages`. If you keep Chat Completions messages,
-  write them with `openAiToolTurns(result.toolTurns, { native: true })`
-  ([below](#conversations-kept-as-chat-completions-messages)).
+  ([the reply](../reference/openai.md#openaicompatibleoptions)). Within a question the loop sends
+  it back.
+- **Thinking mode and follow-up questions.** In a request with tools, DeepSeek's thinking mode
+  asks for the `reasoning_content` of every earlier assistant turn, those of earlier questions
+  included, even a turn that made no tool call, and refuses a request without it (HTTP 400). So
+  says its [thinking mode guide](https://api-docs.deepseek.com/guides/thinking_mode) (read in
+  November 2026). Without tools in the request, earlier reasoning is ignored. The library does not
+  keep the reasoning of an answer yet: `AskResult` does not give it, and a stored answer is a
+  `ChatTurn` of text. So a follow-up question that offers tools goes out without the reasoning of
+  the earlier answers, and DeepSeek refuses it. Thinking is on by default on DeepSeek's current
+  models. In a chat of several questions, turn it off for chat requests. The part reads of a
+  whole-file read offer no tools and do not use `body`, so they keep thinking:
+
+  ```ts
+  const deepseek = openAiCompatible({
+    baseUrl: "https://api.deepseek.com/v1",
+    apiKey: process.env.DEEPSEEK_API_KEY!,
+    model: "deepseek-v4-pro",
+    contextTokens: 128_000,
+    body: { thinking: { type: "disabled" } }, // chat requests: a follow-up offers tools
+  });
+  ```
+
+  A first question, with no earlier answer in `messages`, works with thinking on. The tool rounds
+  of earlier questions can carry their reasoning already: `openAiToolTurns(result.toolTurns, { native: true })`
+  writes it in Chat Completions messages ([below](#conversations-kept-as-chat-completions-messages)),
+  and `capabilities.nativeRounds` is true for the loop that sends stored rounds in their own form.
+  The reasoning of the answer turns is planned for a later 0.10.x.
 - **`insufficient_system_resource`**: DeepSeek stops a reply when its servers run short. The
   adapter takes that for the server's failure, HTTP 503, and the loop sends the request again. A
   reply that is not streamed is checked before any of it is shown, so it can always be sent again;
@@ -395,10 +414,11 @@ the larger limit off when that allowance is no larger than 32,768. Both requests
   text of it was already shown.
 - **A part read** has `timeoutMs` for the whole request, reply included. One that runs out is an
   `OpenAiRequestError` of status 0 and kind `"timeout"` ("The model took longer than 180 s to
-  answer."), since 0.10.0; before, the abort error of the timer, with no status. It is tried once
-  more at once, and then counts as a part that could not be read, which the tool result says
-  ("The model took too long to answer."). Raise `timeoutMs` for a model that thinks long over a
-  large part; 0 sets none (since 0.10.0).
+  answer."), since 0.10.0; before, the abort error of the timer, with no status, tried once more at
+  once. It is tried once more, after the retry wait (`retry.baseDelayMs`: 250 to 500 ms by default)
+  and with a `request.retry` event, and then counts as a part that could not be read, which the
+  tool result says ("The model took too long to answer."). Raise `timeoutMs` for a model that
+  thinks long over a large part; 0 sets none (since 0.10.0).
 
 How failed requests are sent again, and what to tell your user, is in
 [Errors and reliability](./errors-and-reliability.md).
@@ -451,16 +471,6 @@ the IDs it gives calls that came without one: "Streaming" and "The reply" under
 back with every field the server sent in it, such as `extra_content`. A server that sends the name
 of a tool call again with each piece of it is read right: the name is not doubled
 (`search_documentsearch_document`, which the loop answered as an unknown tool before 0.6.0).
-Since 0.10.0:
-
-- **A call that came without an ID**, or with an empty one, gets `call_` and 24 hexadecimal
-  characters, once, in the call and in the turn that goes back, so its tool message names the same
-  ID. Before, the turn went back without the ID and the tool message had a numbered one, which a
-  strict server refuses.
-- **A server that streams calls without `index`** starts a new call only at a piece whose ID is
-  there and is not the last call's. One that sends the ID with every piece of a call makes one
-  call; before, each piece was a call of its own.
-- **`responseId` and `responseModel`** of the reply are the `id` and `model` the server gave.
 
 ## What it does not do
 

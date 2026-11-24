@@ -291,7 +291,12 @@ await askGemini({
   filters.
 - **`cachedContent`** names an explicit context cache (`cachedContents/…`) that you made with the
   API. The library makes none: Gemini 3 caches the start of a request by itself (implicit caching),
-  and the library keeps that start the same from one request to the next.
+  and the library keeps that start the same from one request to the next. A request that uses a
+  cache may not set `systemInstruction`, `tools` or `toolConfig`: they must be in the cache
+  ([Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/context-cache/context-cache-use)).
+  The requests of `askGemini` and `askWithFiles` send the system text in every request (part reads
+  included), and tools in the requests that offer them, so `cachedContent` does not fit them. It
+  fits only a loop of your own with `gemini()` whose requests have no `system` and no tools.
 - **`functionCallingMode: "VALIDATED"`** has Gemini check each call against the declaration of its
   tool. It is sent only in a request that offers tools; `"AUTO"` is the default.
 - **`body` changes the bytes of every request**, so the first request after you set it or change it
@@ -471,8 +476,9 @@ status since 0.10.0, so a 503 is tried again; before, it was "The model returned
 
 Each part read may take `timeoutMs`: 180,000 ms by default, its whole reply included. That is a
 limit of its own, not the waits above. A part past it is a `GeminiRequestError` of kind
-`"timeout"` and status 0: it is tried once more at once, and is then reported in the answer of the
-read as "The model took too long to answer". Set `timeoutMs` on `gemini()` or `askGemini` (both
+`"timeout"` and status 0: it is tried once more, after the retry wait (`retry.baseDelayMs`: 250 to
+500 ms by default) and with a `request.retry` event, and is then reported in the answer of the read
+as "The model took too long to answer". Set `timeoutMs` on `gemini()` or `askGemini` (both
 models get it); 0 sets none. New in 0.10.0: before, the limit could be changed only by replacing
 the adapter's part reader, and a part past it came as the abort error of the timer.
 

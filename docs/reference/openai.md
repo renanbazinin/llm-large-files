@@ -378,7 +378,7 @@ function runs, so that the rounds of two questions kept in one history never sha
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `native` | `boolean` | `false` | A round that kept its own assistant message (`ToolTurn.native`) gets that message's `reasoning_content`, written between `content` and `tool_calls`. DeepSeek's thinking mode asks for the `reasoning_content` of every earlier turn in a request with tools, and refuses one without it (HTTP 400). A round without it, or whose `native` is not an assistant message with reasoning, is written as without the option. New in 0.10.0. |
+| `native` | `boolean` | `false` | A round that kept its own assistant message (`ToolTurn.native`) gets that message's `reasoning_content`, written between `content` and `tool_calls`. DeepSeek's thinking mode asks for the `reasoning_content` of every earlier assistant turn in a request with tools, a turn that made no tool call included, and refuses one without it (HTTP 400). The answer turns of earlier questions have none to give: the library does not keep an answer's reasoning yet ([DeepSeek](../guides/openai-compatible.md#deepseek)). A round without it, or whose `native` is not an assistant message with reasoning, is written as without the option. New in 0.10.0. |
 
 ```ts
 import { askWithFiles } from "llm-large-files";

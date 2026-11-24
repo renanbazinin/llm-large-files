@@ -580,7 +580,7 @@ those. Nothing is refused at run time: a field given anyway replaces the library
 | `safetySettings` | The thresholds of Gemini's safety filters. A reply a filter stops has `finish` `"filtered"`. |
 | `labels` | Vertex AI only: labels for the billing export, keys and values in lower case, at most 63 characters each. They reach everyone who reads the billing data: never put a user ID, an email or other personal data in them. |
 | `serviceTier` | The service tier of the request, where the API offers one. |
-| `cachedContent` | The name of an explicit context cache (`cachedContents/…`). The library keeps no cache of its own: Gemini 3 caches the start of a request by itself. |
+| `cachedContent` | The name of an explicit context cache (`cachedContents/…`). The library keeps no cache of its own: Gemini 3 caches the start of a request by itself. A request that uses a cache may not set `systemInstruction`, `tools` or `toolConfig` (they must be in the cache), and the library's requests send the system text (part reads included), and tools when they offer them: it fits only requests that send neither ([the guide](../guides/vertex-and-gemini.md#fields-of-your-own-safety-settings-labels-and-more)). |
 
 ### `GEMINI_PAGE_TOKENS`
 
