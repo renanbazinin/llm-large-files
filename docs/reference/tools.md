@@ -1245,8 +1245,9 @@ and a tenth kept free (256 KiB at least), times 3/4; `maxPages` is what is left 
 `reservedTokens / 2 / pageTokens` pages for the question (60 with a `reservedTokens` of 64,000 and
 Gemini's 530 tokens a page); `maxRequests`, when `limits.requests` is set, is the read's own
 requests and a share of what the question has left of it (for a `read_document` call, what the
-question has left of it with one request kept for the answer, and 0 when the question would not
-start a whole read of the file: since 0.10.0); `maxWaitMs` is 0 for the looks of a
+question has left of it with one request kept for the answer, one for the next turn, which would
+call a whole read, and those of the whole reads let through in this turn; 0 when the question
+would not start a whole read of the file on the next turn: since 0.10.0); `maxWaitMs` is 0 for the looks of a
 tool turn after one of them was told the server is busy, so that a wait that ends busy comes once
 in a turn. See
 [Your own adapter and loop](../guides/own-adapter-and-loop.md).
