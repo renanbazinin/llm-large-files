@@ -9,7 +9,7 @@ an application or write a store, an extractor or a loop of their own.
 import {
   createLargeFiles, DEFAULT_CACHE_BYTES, DEFAULT_WHOLE_DOCUMENT_BYTES, DEFAULT_MAX_PDF_PAGES, DEFAULT_MAX_TEXT_BYTES,
   DEFAULT_INGEST_TIMEOUT_MS, NEVER_EXPIRES, isDocumentId, toDocumentSummary, IngestError, ingestErrorCodeOf,
-  DEFAULT_BUDGET, resolveBudget, PLACEMENT_STATE_VERSION,
+  DEFAULT_BUDGET, resolveBudget,
   MemoryDocumentStore, FileDocumentStore, isSafeScopeSegment, hashedScopeSegment,
   DOCUMENT_ID_PATTERN, APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION,
   DocumentStoreError, DocumentScopeError,
@@ -18,7 +18,7 @@ import {
 } from "llm-large-files";
 import type {
   LargeFilesOptions, LargeFiles, CreatedLargeFiles, LargeFilesStats, AccessOptions, IngestInput, PrepareOptions, ToolOptions,
-  PreparedContext, PlacementState, ToolName, DocumentPlan,
+  PreparedContext, ToolName, DocumentPlan,
   Budget, ModelLimits, DocumentStore, DocumentContext, DocumentScope, StoredDocument, FileDocumentStoreOptions, FileDocumentScopes,
   PdfExtractorOptions, Extractor, ExtractInput, ExtractProgress,
   ExtractedText, DocumentMeta, DocumentSummary, DocumentFormat, OutlineEntry, LogIssue, LogProfile, ProgressEvent,
@@ -37,7 +37,7 @@ Contents:
   [`LargeFilesStats`](#largefilesstats), [`IngestInput`](#ingestinput),
   [`IngestError`](#ingesterror), [`ingestErrorCodeOf(message)`](#ingesterrorcodeofmessage),
   [`AccessOptions`](#accessoptions), [`PrepareOptions`](#prepareoptions), [`ToolOptions`](#tooloptions),
-  [`PreparedContext`](#preparedcontext), [`PlacementState`](#placementstate), [`ToolName`](#toolname),
+  [`PreparedContext`](#preparedcontext), [`ToolName`](#toolname),
   [`DocumentPlan`](#documentplan), [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
   [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes),
   [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms),
@@ -890,12 +890,10 @@ type PrepareOptions = AccessOptions & {
   wholeDocumentAnalysis?: boolean;
   numberInline?: boolean; // new in 0.10.0
   inlineTables?: "tools" | "text"; // new in 0.10.0
-  placement?: PlacementState; // new in 0.10.0
-  reserve?: { tokens: number; bytes: number }; // new in 0.10.0
 };
 ```
 
-The options of [`files.prepare`](#filesprepareids-base-options). Without the four options new in
+The options of [`files.prepare`](#filesprepareids-base-options). Without the two options new in
 0.10.0, `prepare` gives the plan, the blocks and the instruction of 0.9.
 
 | Option | Type | Default | What it does |
@@ -906,9 +904,7 @@ The options of [`files.prepare`](#filesprepareids-base-options). Without the fou
 | `viewPages` | `boolean` | `false` | Says that your loop can pass files to the model. `viewable` then lists the PDFs whose original is kept (with a store that has `getOriginal`), and the instruction and the cards tell the model about `view_pages`. Without it, `viewable` is empty and nothing mentions `view_pages`. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Says whether your tool set has `analyze_whole_document`. Pass `false` when you call `tools` without `generate`: the instruction then does not name it, and the cards do not offer a whole-file read or say that a file is too large for one. Each says `This file is NOT in your context. Use the document tools to search it and to read line ranges.` `askWithFiles` passes `false` when the model that explores has no `generateText`, and when its own `wholeDocumentAnalysis` is `false`. |
 | `numberInline` | `boolean` | `false` | Numbers the lines of each document sent whole, as the tools number them: `12| ` before each line, from 1, a line ending at each newline and none after the last. The document is planned by its numbered size, about 8% to 16% more tokens (see below), so a document at the edge of `inlineTokens` may become a card. `instruction` asks for line citations only when a file is searched: when none is, add `Cite line numbers like (report.docx L12).` after it. `plan.inlineTokens` and `plan.inlineBytes` are the numbered sizes. The frame lines do not change. A value that is not a boolean throws a `TypeError`. New in 0.10.0. |
-| `inlineTables` | `"tools" \| "text"` | `"text"` | `"tools"`: `toolable` lists the documents sent whole whose tables the tools can count, the block of each gives its document_id in its first frame line (`; document_id doc_…;`), for the tools, and the guide says how (see [`PreparedContext`](#preparedcontext)). `"text"`: no `toolable`, and the blocks of 0.9. Another value throws a `TypeError`. New in 0.10.0. |
-| `placement` | [`PlacementState`](#placementstate) | none | The state of the chat's last question (`prepared.placement` of that question). A document it lists as sent whole is placed first, in the order first placed, and stays whole while it fits; one that no longer fits becomes a card. A document it lists as searched stays a card, even when it would fit now. Its tools stay declared. A state of another version, or of another shape, is not used: the question is planned afresh. `prepare` does not know your conversation, so it cannot check the state's `head`: pass a state only to the same conversation. New in 0.10.0. |
-| `reserve` | `{ tokens: number; bytes: number }` | none | Room to keep free in the request besides `base`: the tool declarations you offer. With it, planning also counts the cards, the header lines and the guide at their rendered size. When the request it planned does not fit, it plans again with the card of each document counted: a document becomes a card only for the room that frees, so a small file whose card would be larger stays whole, a pinned one too. When no plan fits, `prepare` gives the one nearest to fitting. Without it, as in 0.9, only the documents sent whole are counted. A value that is not an object of two numbers throws a `TypeError`, and a size that is not a finite number of 0 or more a `RangeError`. New in 0.10.0. |
+| `inlineTables` | `"tools" \| "text"` | `"text"` | `"tools"`: `toolable` lists the documents sent whole whose tables the tools can count (see [`PreparedContext`](#preparedcontext)), and the block of each gives its document_id in its first frame line (`; document_id doc_…;`), for the tools. `instruction` does not say that they can be counted: add a line after it, such as the one `askWithFiles` adds, `Files shown in full can still be counted exactly: use aggregate_table for counts, sums and groups over their tables, and search_document exact for matching lines. In a spreadsheet, give the Row number when asked which row.` `"text"`: no `toolable`, and the blocks of 0.9. Another value throws a `TypeError`. New in 0.10.0. |
 
 `numberInline` counts a document as `estimatedTokens` + 1.2 tokens a digit of its line numbers + 1.5
 tokens a line, and its bytes as its JSON bytes + the digits + 4 a line: the formula of
@@ -916,10 +912,6 @@ tokens a line, and its bytes as its JSON bytes + the digits + 4 a line: the form
 and 8.4% for Hebrew prose. It can count short: a line that starts with 16 spaces costs about 2
 tokens more with its number. So `prepare` also measures the numbered text of each document it
 sends whole, and plans again when that is larger: such a document is counted at its measured size.
-
-Planning stored rounds at their stand-in size, as `askWithFiles` does since 0.10.0, is the caller's
-part: pass a `base` that counts the tool rounds of earlier questions as their stand-ins
-(`stubResult`), and the documents of the state stay in place as the chat grows.
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
@@ -936,8 +928,8 @@ type ToolOptions = {
   retry?: RetryOptions;
   budget?: Partial<Budget>;
   viewPages?: boolean | DocumentMeta[];
-  declare?: readonly ToolName[]; // new in 0.10.0, not read yet
-  inline?: readonly string[]; // new in 0.10.0, not read yet
+  declare?: readonly ToolName[]; // new in 0.10.0
+  inline?: readonly string[]; // new in 0.10.0
 };
 ```
 
@@ -954,7 +946,7 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | 3 retries, a first wait of 250 to 500 ms (500 ms before the jitter) that doubles, 60 s at most | How a failed model request of a whole-document read is sent again. An error without an HTTP status is sent again once, at once. |
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for these tools: their result cap and part size. Use the budget you planned the request with. |
 | `viewPages` | `boolean \| DocumentMeta[]` | none | Offers `view_pages`, which hands the model real pages of a PDF as a file. `true` offers it for the PDFs among `documents`; a list offers it for exactly those, which may include PDFs whose text is already in the prompt: pass `prepared.viewable`. Only PDFs with `originalKept` count, and only with a store that has `getOriginal`. Turn it on only when your loop runs tools with `executeWithFiles` and sends the files to the model. |
-| `declare` | `readonly `[`ToolName`](#toolname)`[]` | none | Declare exactly these tools, in the order the tool set declares them (search, read, overview, aggregate, analyze, view). A declared tool that cannot run answers with its reason. New in 0.10.0. Not read yet. |
+| `declare` | `readonly `[`ToolName`](#toolname)`[]` | none | Declare exactly these tools, in the order the tool set declares them (search, read, overview, aggregate, analyze, view). A declared tool that cannot run answers with its reason. New in 0.10.0. |
 | `inline` | `readonly string[]` | none | The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in full, and `aggregate_table` says how to cite their lines (`cite`). New in 0.10.0. |
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
@@ -969,9 +961,6 @@ type PreparedContext = {
   missing: string[];
   viewable: DocumentMeta[];
   toolable?: DocumentMeta[]; // new in 0.10.0
-  guide?: string; // new in 0.10.0
-  listing?: Map<string, string>; // new in 0.10.0
-  placement?: PlacementState; // new in 0.10.0
 };
 ```
 
@@ -985,32 +974,11 @@ What [`files.prepare`](#filesprepareids-base-options) returns.
 | `missing` | `string[]` | The IDs that were not found: never uploaded, not a document ID, deleted, expired, or another owner's. |
 | `viewable` | `DocumentMeta[]` | The PDFs whose pages `view_pages` can show, whether their text is in the prompt or searched. Empty unless `prepare` was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`. |
 | `toolable` | `DocumentMeta[]`, optional | With `inlineTables: "tools"`: the documents sent whole whose tables the tools can still count and search. A CSV or an XLSX workbook always; a DOCX, PPTX, PDF, HTML or Markdown file when its text has a table of at least 3 `\| cell \|` rows (a run of lines that start and end with `\|`, a `\| --- \|` separator not counted), as `aggregate_table` reads a table. Absent with `"text"`. Give them to `tools` with the searched documents, and declare for them `search_document`, `read_document` and `aggregate_table`. New in 0.10.0. |
-| `guide` | `string`, optional | The tool guide for the system text that stays the same from one question of a chat to the next: it names no file and no document ID, and gives no count of turns (it says that the last turn is marked). It is made from the tools declared alone (`placement.tools`), so it changes only when a tool is declared for the first time. With `inlineTables: "tools"` and `aggregate_table` declared, it says that files shown in full can still be counted. When the files sent whole are numbered and no text tool is declared, it ends with the line `Cite line numbers like (report.docx L12).`, whose name is always that example: without tools, it is that line alone. `""` when there is nothing to say. Use it in place of `instruction` with `listing`. New in 0.10.0. |
-| `listing` | `Map<string, string>`, optional | One header line per document found, by ID, in the order asked: which file it is, and where. Put the lines of a group of blocks before the blocks, under `Attached files:` (see below). New in 0.10.0. |
-| `placement` | [`PlacementState`](#placementstate), optional | Where the documents were placed, for the next question: pass it as `placement` to the next `prepare` of the same conversation. Its documents sent whole and searched are in the order first placed; those found missing are left out; `tools` holds the tools of earlier questions and those this one needs, in the order a tool set declares them. Its `head` is that of the state given, or `""` without one; `stubbedThrough` and `nativeRefused` are kept as given. Never send it to a model. New in 0.10.0. |
 
-The fields new in 0.10.0 are optional, so that a `LargeFiles` of your own still compiles: without
-them, `askWithFiles` works as in 0.9. The one `createLargeFiles` makes always gives `guide`,
-`listing` and `placement`, and `toolable` with `inlineTables: "tools"`.
-
-The header of a group of blocks, new in 0.10.0, is made from the documents' metadata and their
-place alone, so its bytes stay the same while those do:
-
-```text
-Attached files:
-- "runbook.md" (document_id doc_2f…): shown in full below
-- "app.log" (document_id doc_8a…): searched with the tools
-- "report.pdf" (document_id doc_c1…, 12 pages): shown in full below; it replaces doc_9e…, an earlier file of the same name
-```
-
-- The name is a JSON string, as in the frame of a file sent whole.
-- `12 pages` is there for a PDF whose pages `view_pages` can show (`viewable`).
-- `it replaces …` is on the later of two documents of the same name (by `createdAt`, then by ID for
-  two made in the same millisecond; names compared in Unicode NFC), and names the latest document
-  before it. The earlier document's line does not change, and the order the question lists them in
-  does not matter. `createdAt` comes from the clock of the server that stored the file: keep the
-  clocks of your servers in step, or a file uploaded again within the gap can be taken for the
-  earlier one.
+`toolable` is optional, so that a `LargeFiles` of your own still compiles. With a `prepare` of your
+own that gives the fields of 0.9 alone, `askWithFiles` works as in 0.9: no table sent whole gets the
+tools, and the system text gets no citation line for the files sent whole. The one
+`createLargeFiles` makes gives `toolable` with `inlineTables: "tools"`.
 
 A document sent whole sits between these two lines (new in 0.6.0, for every document):
 
@@ -1057,36 +1025,6 @@ followed, when some characters were not valid in it, by
 `1 character of this file was not valid UTF-8, and shows as �.`
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
-
-### `PlacementState`
-
-```ts
-type PlacementState = {
-  version: 1;
-  head: string;
-  inline: string[];
-  cards: string[];
-  tools: ToolName[];
-  stubbedThrough: number;
-  nativeRefused?: true;
-};
-
-declare const PLACEMENT_STATE_VERSION: 1;
-```
-
-Where the documents of a chat were placed (`AskResult.placement`, `AskOptions.placement`,
-`PrepareOptions.placement`). It holds document IDs and a hash only, and is never sent to a model.
-New in 0.10.0. Not set or read yet.
-
-| Field | Type | What it holds |
-|---|---|---|
-| `version` | `1` | The version of this shape: `PLACEMENT_STATE_VERSION`. A state of another version is ignored. |
-| `head` | `string` | A hash of the text of the first user turn: a list trimmed or swapped at its start is seen, and the state ignored. |
-| `inline` | `string[]` | The IDs of the documents sent whole, in the order they were first placed. |
-| `cards` | `string[]` | The IDs of the documents searched through the tools, in the order they were first placed. |
-| `tools` | [`ToolName[]`](#toolname) | The tools declared so far: the set only grows. |
-| `stubbedThrough` | `number` | How many earlier questions, counted from the start of `messages`, have their stored rounds sent as stand-ins. |
-| `nativeRefused` | `true`, optional | The provider refused stored thought signatures once: later questions send the calls only. |
 
 ### `ToolName`
 
@@ -2285,7 +2223,7 @@ type ToolCallHooks = {
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
   onDocumentGone?: (documentId: string) => void; // new in 0.9.0
   onPagesBusy?: (documentId: string) => void; // new in 0.9.0
-  signal?: AbortSignal; // new in 0.10.0, not read yet
+  signal?: AbortSignal; // new in 0.10.0
 };
 ```
 
@@ -2302,7 +2240,7 @@ and `"document_gone"` and `"page_looks_busy"` notices ([events in your own loop]
 | `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle`, optional | Called as each model request of this call starts ([`ToolRequestStart`](#toolrequeststart)). Return a [`ToolRequestHandle`](#toolrequesthandle): the read tells it of each retry of that request, and once when the request ends. |
 | `onDocumentGone` | `(documentId: string) => void`, optional | Called by any tool when the document the call names is no longer in the store: deleted or expired since it was planned, or not readable by the caller, which looks the same. The model gets "‹id› is no longer available on the server. Ask the user to attach the file again." New in 0.9.0. |
 | `onPagesBusy` | `(documentId: string) => void`, optional | Called by `view_pages` when the look waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`) and was not run. New in 0.9.0. |
-| `signal` | `AbortSignal`, optional | Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. Joined with `ToolOptions.signal`. New in 0.10.0. Not read yet. |
+| `signal` | `AbortSignal`, optional | Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. Joined with `ToolOptions.signal`. New in 0.10.0. |
 
 Do not let them throw. The read takes a throw from `onRequest` or from a handle for a failure of
 that request: the part is reported as not read, and a merge or the answer falls back to the notes.

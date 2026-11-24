@@ -92,16 +92,18 @@ Through `files.tools(documents, options)` (a loop of your own, see [`ToolSet`](#
   `prepared.viewable`) means exactly those.
 - `options.declare` (new in 0.10.0) declares exactly the tools it names, in place of the rules
   above, always in the order search, read, overview, aggregate, analyze, view, whatever the order
-  of the list: what [declarationsFor(names)](#declarationsfornames) gives. A chat whose tool set only
-  grows declares the tools of its earlier questions too, so a declared tool may have nothing to work
-  on: each call of it then answers with the reason, `No attached file has a table: aggregate_table
-  needs one.` for `aggregate_table` when no document may hold a table, `No attached file has pages
-  to look at: view_pages needs a PDF whose original file is kept. Answer from the text.` for
-  `view_pages` with no PDF to look at, and `Whole-document analysis is not enabled.` for
-  `analyze_whole_document` without `generate`. It answers those tools and no other: a call of a tool
-  it does not name gets `Unknown tool “NAME”.`, and `has(name)` is false, where without `declare`
-  `aggregate_table` and (with `generate`) `analyze_whole_document` are answered when not declared.
-  With today's set, `declare` gives today's bytes.
+  of the list: what [declarationsFor(names)](#declarationsfornames) gives. `askWithFiles` uses it
+  when tables are sent whole (`inlineTables`), to declare exactly the tools of the question: for
+  those tables search, read and aggregate, not overview or a whole-file read. A list of your own may
+  name a tool that has nothing to work on: each call of it then answers with the reason,
+  `No attached file has a table: aggregate_table needs one.` for `aggregate_table` when no document
+  may hold a table, `No attached file has pages to look at: view_pages needs a PDF whose original
+  file is kept. Answer from the text.` for `view_pages` with no PDF to look at, and
+  `Whole-document analysis is not enabled.` for `analyze_whole_document` without `generate`. It
+  answers those tools and no other: a call of a tool it does not name gets `Unknown tool “NAME”.`,
+  and `has(name)` is false, where without `declare` `aggregate_table` and (with `generate`)
+  `analyze_whole_document` are answered when not declared. With today's set, `declare` gives
+  today's bytes.
 - `options.inline` (new in 0.10.0) lists the IDs of documents whose text is in the prompt. Pass
   them among `documents` too, so that the text tools can count and search them;
   `analyze_whole_document` refuses them (see [its errors](#analyze_whole_document)), and

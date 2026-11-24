@@ -419,16 +419,13 @@ to `onStep` and `AskResult.steps`, `"none"` to neither. The `"none"` notices are
 | `"page_looks_busy"` | none | A look at pages waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`, [library](./library.md#largefilesoptions)) and was not run. The model was told the server is busy. `documentIds` names the PDF. New in 0.9.0. | "The pages of report.pdf were not looked at: the server was busy with other looks at pages." |
 | `"answer_filtered"` | none | A filter of the provider stopped the answer, with or without text (`AskResult.finish` `"filtered"`). Right before `run.finish`. With `filteredAnswer: "drop"`, `discardText` says when text was already sent. New in 0.10.0. | "A filter of the provider stopped the answer before it was finished.", "… before any text came.", or under `"drop"` "… before it was finished: its text was dropped." |
 | `"answer_cut"` | none | The answer stopped at the output limit (`AskResult.finish` `"cut"`). Right before `run.finish`. The answer is kept. New in 0.10.0. | "The answer stopped at the model's output limit, so it is incomplete.", or "… before any text came." |
-| `"placement_changed"` | not set yet | The documents were planned afresh, not as `AskOptions.placement` had them: the state was of another version or of another start of the chat, or a document sent whole is searched with the tools now. New in 0.10.0. Not emitted yet. | not written yet |
-| `"native_rounds_dropped"` | not set yet | The provider refused the rounds of earlier questions in its own form (`ToolTurn.native`), and the request was sent again with their calls only. New in 0.10.0. Not emitted yet. | not written yet |
 
 The messages are written for people and may change between versions. Test `code`, not `message`.
 
 New codes come with new versions: 0.9.0 added `"documents_missing"`, `"document_gone"` and
-`"page_looks_busy"`, and 0.10.0 `"answer_filtered"`, `"answer_cut"`, `"placement_changed"` and
-`"native_rounds_dropped"`. In TypeScript, a `switch` over `NoticeCode` that must handle every code (one
-with a `never` check in its `default`) no longer compiles until it handles them. Give such a switch
-a `default` that shows nothing, or the message.
+`"page_looks_busy"`, and 0.10.0 `"answer_filtered"` and `"answer_cut"`. In TypeScript, a `switch`
+over `NoticeCode` that must handle every code (one with a `never` check in its `default`) no longer
+compiles until it handles them. Give such a switch a `default` that shows nothing, or the message.
 
 ### How the callbacks map to events
 
@@ -988,7 +985,7 @@ type ToolCallHooks = {
   onRequest?: (request: ToolRequestStart) => ToolRequestHandle;
   onDocumentGone?: (documentId: string) => void; // new in 0.9.0
   onPagesBusy?: (documentId: string) => void; // new in 0.9.0
-  signal?: AbortSignal; // new in 0.10.0, not read yet
+  signal?: AbortSignal; // new in 0.10.0
 };
 type ToolRequestStart = { purpose: "part" | "merge" | "final"; detail: string };
 type ToolRequestHandle = {
@@ -1004,7 +1001,7 @@ type ToolRequestEnd = { outcome: "ok" | "error"; usage?: GenerateUsage; error?: 
 | `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle` | Called as each model request of this call starts, with its `purpose` and `detail` (`"part 3 of 12"`, `"first half of part 3 of 12"`, `"round 2: 1 of 4"`, `"the answer"`). The handle you return is told of each retry of that request, and once of its end, with the usage its part reader reported (summed over its sends) and, on an error, the error. |
 | `onDocumentGone` | `(documentId: string) => void` | Called when the document the call names is no longer in the store: deleted or expired since it was planned, or not the caller's. The call's result is the error the model is told. `askWithFiles` makes it a `"document_gone"` notice. New in 0.9.0. |
 | `onPagesBusy` | `(documentId: string) => void` | Called when a look at pages (`view_pages`) waited longer than `pageLookWaitMs` for its turn and was not run. The call's result is the error the model is told. `askWithFiles` makes it a `"page_looks_busy"` notice. New in 0.9.0. |
-| `signal` | `AbortSignal` | Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. Joined with `ToolOptions.signal`. New in 0.10.0. Not read yet. |
+| `signal` | `AbortSignal` | Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. Joined with `ToolOptions.signal`. New in 0.10.0. |
 
 `onProgress` and `onRequest` are used only by `analyze_whole_document`; the other tools ignore
 them, and `view_pages` too. `onDocumentGone` is called by every tool, and `onPagesBusy` by

@@ -75,7 +75,6 @@ It returns:
 | `streamUrl` | `{baseUrl}/{apiVersion}/models/{model}:streamGenerateContent?alt=sse` |
 | `headers` | The object `{ "Content-Type": "application/json", "x-goog-api-key": apiKey }` |
 | `explorerUrl` | `{baseUrl}/{apiVersion}/models/{explorerModel}:generateContent`, only when an explorer is named. Otherwise the field is absent. |
-| `nativeRounds` | `true`: the Gemini API takes the tool rounds of earlier questions in Gemini's own form, thought signatures included. New in 0.10.0. |
 
 It makes no request and throws nothing.
 
@@ -124,9 +123,6 @@ It returns:
 | `headers` | An async function that returns `{ "Content-Type": "application/json", Authorization: "Bearer {token}" }` (with `apiKey`, `"x-goog-api-key": apiKey` in place of `Authorization`), then the fields of `headers` |
 | `explorerUrl` | The `:generateContent` URL of `explorerModel`, only when an explorer is named. Otherwise the field is absent. |
 | `refreshable` | `true` when `accessToken` is a function, new in 0.10.0: a request refused with HTTP 401 is sent once more with a new token. Absent for a token given as a string, and for `apiKey`. |
-
-`nativeRounds` is not set yet: Vertex AI gets the calls alone of the rounds of earlier questions,
-not their thought signatures, until a live check shows that it takes them.
 
 It makes no request and does not call `accessToken`. An error that the token function throws comes
 out of the request that needed the token, as it was thrown: it is not a `GeminiRequestError`. It
@@ -217,7 +213,6 @@ type GeminiEndpoint = {
   headers: Record<string, string> | ((context?: { refresh?: boolean }) => Record<string, string> | Promise<Record<string, string>>);
   explorerUrl?: string | undefined;
   refreshable?: true | undefined;
-  nativeRounds?: boolean | undefined;
 };
 ```
 
@@ -230,7 +225,6 @@ Where a Gemini model is and how to call it.
 | `headers` | `Record<string, string>` or a function that returns them | required | Sent with every request as they are. A function is called before every request, so a renewed token is used. Since 0.10.0 it may take a context: it is called with `{ refresh: true }` when a request of a `refreshable` endpoint is sent again after a 401, and with nothing otherwise. `gemini()` adds no header of its own: give `"Content-Type": "application/json"`, as `geminiApi()` and `vertexAi()` do. |
 | `explorerUrl` | `string \| undefined` | none | The `...:generateContent` URL of an explorer model, called with the same `headers` and never streamed. Only `askGemini` reads it, and only when it differs from `url`. With `askGemini` it receives the explorer's chat requests and the part reads of whole-file reads. `gemini()` ignores it. |
 | `refreshable` | `true \| undefined` | none | `headers({ refresh: true })` gives a token that is new, not the one it keeps in a cache: a request refused with HTTP 401 is sent once more with those headers, in chat requests, part reads and askGemini's explorer alike. A second 401 is the error: there is no third try. `vertexAi()` sets it when `accessToken` is a function. New in 0.10.0. |
-| `nativeRounds` | `boolean \| undefined` | none | Whether the tool rounds of earlier questions may go back to this endpoint's models in Gemini's own form, thought signatures included. `gemini()` gives it as `capabilities.nativeRounds`, the default of [`AskOptions.nativeRounds`](./ask.md#askoptions). `geminiApi()` sets it to true; `vertexAi()` does not set it yet. New in 0.10.0. |
 
 An endpoint for a gateway that proxies Generate Content:
 
@@ -427,7 +421,7 @@ Guide: [errors and reliability](../guides/errors-and-reliability.md).
 
 ```ts
 declare function gemini(
-  endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "headers" | "refreshable" | "nativeRounds">,
+  endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "headers" | "refreshable">,
   options?: GeminiModelOptions,
 ): ModelAdapter;
 ```
@@ -443,7 +437,7 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`. Without it, the model name in the URL (`/models/{name}`, decoded); for a URL without one, its host; else `"gemini"`. |
-| `capabilities` | `toolFiles` from `toolFilePlacement` (`"inside"`), `pageTokens` (530), and `contextTokens` and `maxRequestBytes` when they are set. `nativeRounds` from `endpoint.nativeRounds` when it is set (true for `geminiApi()`), new in 0.10.0. No `tokenScale` (so 1), no `outputTokens`, not `appendOnly`. |
+| `capabilities` | `toolFiles` from `toolFilePlacement` (`"inside"`), `pageTokens` (530), and `contextTokens` and `maxRequestBytes` when they are set. No `tokenScale` (so 1), no `outputTokens`, not `appendOnly`. |
 | `send(request, hooks?)` | One chat request: to `streamUrl` when `hooks.onText` is given and the endpoint has one, otherwise to `url`. |
 | `requestBytes(request)` | The size in bytes of the JSON body that `send` would post. |
 | `generateText` | The part reader of whole-file reads: [`createGeminiGenerateText()`](#creategeminigeneratetextoptions) on `endpoint.url`, with `analysisConfig`, `analysisBody`, `timeoutMs`, `fetch` and the endpoint's `refreshable`. `askWithFiles` uses it when this model is the one that explores. Each of its requests may take `timeoutMs` (180 s); before 0.10.0, `gemini()` had no option to change that. |
@@ -639,21 +633,12 @@ its responses are the turn the model answers (an application that ran the tools 
 own hands the conversation over). `askWithFiles` throws "The last message must be the user's." for
 a conversation that ends with a stored round.
 
-With `model` (new in 0.10.0), a round whose `model` turn also has thought signatures, or text
-parts next to its calls, as `geminiToolTurns()` writes a round that kept its own turn, becomes a
-stored round too, with that turn as `native` for the adapter `model` names. `askGemini` gives
-`model` (the id of the model that makes the tool calls) only once the loop sends `native` back,
-and then when the rounds of earlier questions go back in Gemini's own form
-([`AskOptions.nativeRounds`](./ask.md#askoptions), by default the model's `capabilities.nativeRounds`).
-Until then a loop would send such a round as its calls alone, so `askGemini` leaves it as it is,
-and its thought signatures go out as they came, as in 0.9.
-
 Guide: [conversations](../guides/conversations.md#gemini-contents).
 
 ### `FromGeminiContentsOptions`
 
 ```ts
-type FromGeminiContentsOptions = { rounds?: boolean; model?: string };
+type FromGeminiContentsOptions = { rounds?: boolean };
 ```
 
 New in 0.9.0.
@@ -661,7 +646,6 @@ New in 0.9.0.
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `rounds` | `boolean` | `true` | Turn the tool rounds of earlier questions into stored rounds (above). `false` keeps every turn as its parts, as 0.8 did. Function parts are sized by their JSON either way. With `askGemini`: `messages: fromGeminiContents(contents, { rounds: false })`. |
-| `model` | `string` | none | The `id` of the adapter the contents go to. A round whose `model` turn has thought signatures or text parts next to its calls becomes a stored round that keeps that turn (`ToolTurn.native`) for this adapter. Left out, such a round stays as it is, as before. New in 0.10.0. |
 
 ### geminiToolTurns(turns)
 
@@ -678,12 +662,6 @@ stored rounds (since 0.6.0): a history kept as `contents` gives the same request
 `toolTurns`. Contents that 0.5.0 converted keep the field. Since 0.9.0 `fromGeminiContents` turns
 these turns back into stored rounds, so the loop treats them alike too, and the rounds of 0.5.0
 are then sent without the field (above).
-
-Since 0.10.0 a round that kept Gemini's own model turn (`ToolTurn.native`, a `model` turn whose
-function calls are the round's calls) is written with that turn, thought signatures and text parts
-included, so the start of a later request stays the same as the request that made it. Any other
-`native` (the turn of another provider) is not written. `fromGeminiContents` with `model` reads such
-a round back with its turn.
 
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
