@@ -857,6 +857,7 @@ import {
   FINAL_ANSWER_REQUEST,
   jsonBytes,
   retryAfterMs,
+  TOOL_NAMES,
   toolResultSummary,
   UsageMeter,
   withRetry,
@@ -987,7 +988,9 @@ export async function ask(question: string, documentIds: string[], owner: string
         maxResultCharacters: Math.floor((tokensLeft * 2) / Math.min(calls.length, MAX_CALLS)),
         maxFileBytes: Math.floor(((budget.maxRequestBytes - sentBytes - 1_000_000) * 3) / 4), // base64: four bytes for three
         maxPages: pagesLeft,
-        maxRequests: MAX_REQUESTS - usage.totals.requests - 1, // for a whole-file read; one is kept for the answer
+        // For a whole-file read, one is kept for the answer. A read_document call points at a whole
+        // read the model can make on its next turn at the earliest: that turn's request is kept too.
+        maxRequests: MAX_REQUESTS - usage.totals.requests - (call.name === TOOL_NAMES.read ? 2 : 1),
       });
       console.log(`${label}${toolResultSummary(label, output.result)}`);
       if (output.files.length > 0) {
