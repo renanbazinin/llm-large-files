@@ -120,8 +120,10 @@ Pushing the tag starts the release workflow.
 4. Commit, push, and open a pull request titled "Release 0.6.0: what the version is about". Wait
    for CI (the tests on Node 22, 24 and 26, on Ubuntu and Windows; the tarball check on Node 22
    and 26; the coverage report; the replayed evals), then squash-merge it. When release.yml
-   changed since the last release, run its dry run on the branch first
-   ([below](#the-first-run-of-a-changed-workflow)).
+   changed since the last release, run its dry run first
+   ([below](#the-first-run-of-a-changed-workflow)): on the branch when the release.yml of `main`
+   already has the `workflow_dispatch` trigger, or else on `main` after the merge and before the
+   tag.
 
 5. Tag the merged commit and push the tag:
 
@@ -265,7 +267,11 @@ only in the verbose log: that is why the step runs with `--loglevel verbose`.
 ## A dry run of the release workflow
 
 The release workflow also runs by hand, from the Actions tab (Release, then Run workflow) or with
-`gh`, on any branch or tag. Its one input, `dry_run`, is on by default:
+`gh`, on any branch or tag. Its one input, `dry_run`, is on by default. GitHub offers the run only
+when the release.yml of the default branch, `main`, has the `workflow_dispatch` trigger; the run
+then uses the release.yml of the branch or tag it runs on. So the release that adds the trigger
+(0.10.0) cannot be dry-run on its branch before it merges: see
+[The first run of a changed workflow](#the-first-run-of-a-changed-workflow).
 
 ```bash
 gh workflow run release.yml --ref release/0.6.0      # a dry run
@@ -300,8 +306,14 @@ A change to release.yml is tried in a dry run before a tag depends on it. A chan
 there costs a deleted tag and a new pull request; in a dry run, nothing.
 
 1. The pull request that changes the workflow passed CI.
-2. On the release branch (or the branch of that pull request), run the workflow by hand with
-   `dry_run` on.
+2. Run the workflow by hand with `dry_run` on. When the release.yml of `main` already has the
+   `workflow_dispatch` trigger, run it on the release branch (or the branch of that pull request):
+   the run uses that branch's release.yml. When it does not, because this change adds the trigger,
+   GitHub refuses a run on any ref (`gh workflow run release.yml --ref release/0.10.0` fails). Then
+   either merge the release.yml change to `main` in a pull request of its own first, and run the
+   dry run on the release branch; or merge the release pull request, run the dry run on `main`
+   before you tag (the version is not on npm yet, so npm takes the dry run), and tag only once it
+   passed.
 3. In the build job: `npm ci --ignore-scripts`, `npm run check`, Pack and the tarball check passed;
    the tag check was skipped (on a branch); Pack printed the npm shasum, the integrity and the
    SHA-256.
@@ -315,7 +327,7 @@ there costs a deleted tag and a new pull request; in a dry run, nothing.
 8. The publish job still checks out nothing and installs nothing, and has `contents: read` and
    `id-token: write` only: no code of the repository or of a dependency runs where the identity
    token is.
-9. Merge, and tag as in [Releasing a version](#releasing-a-version). Watch the first tagged run to
+9. Merge (unless step 2 merged already), and tag as in [Releasing a version](#releasing-a-version). Watch the first tagged run to
    its end (step 6 there): the dry run cannot try trusted publishing itself.
 
 ## When the publish job fails

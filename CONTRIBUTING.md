@@ -172,19 +172,23 @@ adapters with a fake `fetch`, recorded replies, timers, live tests that cost lit
 `askWithFiles` with Gemini as the company chatbot asks them. `evals/cassettes` keeps a recording of
 each case on each model, and `evals/baseline/0.9.0.md` the report of 0.9.0, which later versions are
 compared with. It is not published, and the tests do not run it: it has its own Vitest config,
-`vitest.evals.config.ts`. [Testing](docs/guides/testing.md#the-librarys-own-evals) lists the
-options.
+`vitest.evals.config.ts`. [Testing](docs/guides/testing.md#the-librarys-own-evals) lists every
+option of `evals/cli.mjs`.
 
 ```bash
 npm run eval:replay                          # every case from evals/cassettes: no network, no key
+npm run eval:recheck                         # the facts checked again on the recorded answers
 GEMINI_API_KEY=… npm run eval:record         # each case once on each model, recorded again
 GEMINI_API_KEY=… npm run eval:live -- --k 3  # each case three times: pass^3
 ```
 
 CI replays them on every pull request (`evals-replay`). A change that changes what the library
-sends a model (a prompt, a tool description, the tool guide, a card, the planning of a question)
-fails it with "prompt changed: re-record", naming the case, the request and the first field that
-differs. When the change is meant, record the cassettes again in the same pull request:
+sends a model (a prompt, a tool description, the tool guide, a card, the planning of a question, the
+part, merge and final prompts of a whole-file read) fails it with "prompt changed: re-record",
+naming the case, the request and the first field that differs. The whole-file prompts are covered
+by the cases of kind "whole-read" (`contract-summary`, `diary-timeline`): a replay fails when such a
+case's recording holds no whole read. When the change is meant, record the cassettes again in the
+same pull request:
 
 - Record with `npm run eval:record`, with a Gemini API key in `GEMINI_API_KEY`: every case, on
   Gemini 3.5 Flash-Lite and 3.8 Flash, which costs about 2 million input tokens. `--cases id,id`
@@ -195,7 +199,13 @@ differs. When the change is meant, record the cassettes again in the same pull r
   which ones changed, and `case.json` whether each fact held. A fact that held before and fails now
   is a finding of the change: say so in the pull request.
 - Run `npm run eval:live -- --k 3` before a release, and on a change that may make models use tools
-  differently: a recording is one run, and a live run varies.
+  differently: a recording is one run, and a live run varies. Record and live fail a case when a
+  question ends with an error, when a case not marked `failsOn090` misses pass^k, or when a fact
+  that held in every run of `evals/baseline/0.9.0.json` fails now. The report figures the release
+  gates and lists the facts lost.
+- A change to a fact, with no request changed, needs no recording: `npm run eval:recheck` checks
+  the facts again on the recorded answers and writes them to each `case.json`. Until it is run, a
+  replay fails with "facts changed". Review the diff the same way.
 
 The cassettes stay small (the folder is well under 5 MB, which a test checks): they keep hashes and
 outlines of the requests, not their text. The files of the evals are synthetic, built by code: add
