@@ -38,13 +38,12 @@ matter.
 
 ## 0.10.0 — not released yet
 
-Counts that are right, a cost that is bounded, and a prompt cache that holds, for a chatbot on
-Gemini. Tables sent whole get exact counts, files sent whole get line numbers, every question has a
-ceiling on input tokens by default, and the start of a chat's requests stays the same from one
-question to the next. Answers say how they ended, a store that stops answering no longer holds a
-question or a server, Gemini requests take fields of your own, and a PDF whose headings are set in
-larger type, Hebrew included, gets an outline. The text sent to the model changes on purpose, all
-at once: each chat misses the provider's prompt cache once at the upgrade.
+Counts that are right and a cost that is bounded, for a chatbot on Gemini. Tables sent whole get
+exact counts, files sent whole get line numbers, and every question has a ceiling on input tokens
+by default. Answers say how they ended, a store that stops answering no longer holds a question or
+a server, Gemini requests take fields of your own, and a PDF whose headings are set in larger type,
+Hebrew included, gets an outline. The text sent to the model changes on purpose, all at once: each
+chat with files misses the provider's prompt cache once at the upgrade.
 [Upgrading to 0.10](docs/upgrading-0.10.md) takes an application from 0.9.0 step by step, with the
 Hebrew chatbot of the 0.9 guide carried over.
 
@@ -53,10 +52,10 @@ Hebrew chatbot of the 0.9 guide carried over.
 Code written for 0.9.0 compiles with 0.10.0, except in these cases
 ([Does my code compile?](docs/upgrading-0.10.md#does-my-code-compile)):
 
-- `NoticeCode` has four new members, `"answer_filtered"`, `"answer_cut"`, `"placement_changed"`
-  and `"native_rounds_dropped"`; `ToolOutcome` one, `"redacted"`; and `ModelReply.finish` one,
-  `"other"` (also in the new `AskResult.finish` and in the `finish` of a `request.end` event). An
-  exhaustive `switch` over any of them, or a `Record` keyed by it, needs them.
+- `NoticeCode` has two new members, `"answer_filtered"` and `"answer_cut"`; `ToolOutcome` one,
+  `"redacted"`; and `ModelReply.finish` one, `"other"` (also in the new `AskResult.finish` and in
+  the `finish` of a `request.end` event). An exhaustive `switch` over any of them, or a `Record`
+  keyed by it, needs them.
 - The plan of `run.finish` and `run.error` (`EventResult.plan`) holds
   `Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">`, and the result
   of `eventResults: true` leaves those fields out at run time too. Code that reads them there fails
@@ -69,9 +68,6 @@ Code written for 0.9.0 compiles with 0.10.0, except in these cases
   with TS2741.
 - `LargeFiles` has two new optional methods, `stats` and `toolsFor`. A `LargeFiles` of your own
   with a member of either name and another type fails with TS2322 or TS2416. Rename it.
-- A type of your own that extends `ChatTurn`, `ToolTurn` or `ModelCapabilities` with a field named
-  `notes`, `documentIds`, `native` or `nativeRounds` of another type fails with TS2430 or TS2322:
-  the library now has fields of those names. Rename yours.
 - `vertexAi` takes `VertexAiOptions`, a union of the token form and express mode (`apiKey`), and
   its token function is typed with its `{ refresh }` argument. A value typed
   `Parameters<typeof vertexAi>[0]` whose `project` you read as a string, or whose `accessToken`
@@ -79,40 +75,30 @@ Code written for 0.9.0 compiles with 0.10.0, except in these cases
   `Extract<VertexAiOptions, { project: string }>`, and call `accessToken({ refresh: false })`.
 - A subclass of `UsageMeter` whose `add` takes a parameter of its own after `usage` fails with
   TS2416: `add(model, usage, estimatedInputTokens?)` takes that place. Put yours after it.
-- `openAiToolTurns` passed as a callback (`histories.map(openAiToolTurns)`) fails with TS2345: its
-  new second parameter would get the index. Write
-  `histories.map((turns) => openAiToolTurns(turns))`.
 
 The other changes to the public types add exports, options, fields and optional members.
-`ChatTurn.documentIds` and `notes`, `ToolTurn.native`, `ModelCapabilities.nativeRounds`,
-`ExtractedText.headings`, `ToolSet.wholeReadsLeft` and the new `PreparedContext` fields are
-optional, so an adapter, an extractor, a tool set or a `LargeFiles` of your own still compiles,
-unless it has a field of the same name and another type (above). The
+`ModelReply.responseId` and `responseModel`, `ExtractedText.headings`, `ToolSet.wholeReadsLeft` and
+`PreparedContext.toolable` are optional, so an adapter, an extractor, a tool set or a `LargeFiles`
+of your own still compiles, unless it already has a field of the same name and another type. The
 type of `askGemini`'s options is now `Omit<AskOptions, "model" | "explorer" | "messages"> &
 GeminiOwnOptions`: no field was removed, and every option of `askWithFiles` reaches the loop. No
 export was removed or renamed. The new exports are under **New**.
 
 Some behavior is different. Check each point against your app:
 
-- **One prompt-cache miss for each chat at the upgrade.** The text sent changes once, for every
-  chat with files: files sent whole are numbered (`12| `); the system text holds a fixed tool guide
-  that names no file, where 0.9's named the searched files; each group of blocks starts with header
-  lines (a file's name, its `document_id`, "shown in full below" or "searched with the tools"); the
-  line of files left out (`onMissingDocuments: "drop"`) moves from the system text into the
-  question's turn; a table sent whole gets three tool declarations and a guide line; tool results
-  lose `tool_turns_left` (except Claude's), and the last tool turn gets a note that is not stored;
-  `analyze_whole_document` is declared with two more arguments, `output` and `labels`; the closing
-  request after files shown in full ends with `FINAL_ANSWER_WITH_FILES`; stored rounds go back in
-  the model's own form on the Gemini API, Claude and OpenAI-compatible servers; and on a card, a
-  size between 999,500 and 999,999 tokens reads "1.0M", and one between 1,048,064 and 1,048,575
-  bytes "1 MB", on a card and in `get_document_overview`'s `size` (LLF-059); error messages that
-  print a size in that range (upload and text limits, `view_pages`) read "1 MB" too. After that one
-  miss, question N+1's first request extends question N's last request, byte for byte, on the
-  Gemini API and OpenAI-compatible servers. On Vertex AI, where `nativeRounds` stays off, with
-  `nativeRounds: false`, and with Claude, a follow-up still differs from its first stored round, as
-  in 0.9.
-  **What to do:** nothing; the first question of each chat after the deploy costs its full input.
-  Keep the start the same as **Placement** below says
+- **One prompt-cache miss for each chat with files at the upgrade.** The text sent changes once:
+  files sent whole are numbered (`12| `), and when no file is searched the system text gets the
+  line `Cite line numbers like (report.docx L12).`; a table sent whole gets three tool
+  declarations, its `document_id` in its frame line, and a line of the system text that says to
+  count with them; `analyze_whole_document` is declared with two more arguments, `output` and
+  `labels`; the closing request after files shown in full asks for an answer from those files and
+  what the tools returned, with line citations, where 0.9's named only what the tools returned; and
+  on a card, a size between 999,500 and 999,999 tokens reads "1.0M", and one between 1,048,064 and
+  1,048,575 bytes "1 MB", on a card and in `get_document_overview`'s `size` (LLF-059); error
+  messages that print a size in that range (upload and text limits, `view_pages`) read "1 MB" too.
+  After that one miss, the cache works across questions as in 0.9: a follow-up still differs from
+  its first stored round, which goes back as its calls.
+  **What to do:** nothing; the first question of each chat after the deploy costs its full input
   ([Prompt caching](docs/guides/costs-and-limits.md#prompt-caching)).
 - **A ceiling on input tokens by default.** A question that sets no `limits.inputTokens` stops
   calling tools once what it spent, its next tool request and the answer would pass the larger of
@@ -130,8 +116,9 @@ Some behavior is different. Check each point against your app:
   `aggregate_table`, and the question runs the tool loop. A question with no count stays at one
   request when the model answers at once; a count takes 2 or 3 (live, a median of 2 on both
   models), each sending the table again; at most, about `toolTurns` times the first request (about
-  1.5M input tokens for a CSV of 3,000 invoices), bounded by the ceiling. Live, input tokens on the eval's cases shared with 0.9.0 were
-  about 2.3 to 2.4 times 0.9.0's, and counts were right in 24 of 24 on both models
+  1.5M input tokens for a CSV of 3,000 invoices), bounded by the ceiling. Live, input tokens on the
+  eval's cases shared with 0.9.0 were about 2.3 to 2.4 times 0.9.0's, and counts were right in 24
+  of 24 on both models
   ([Measurements](docs/measurements.md#tables-sent-whole-p1s-live-gate)). Gemini 3.5 Flash-Lite
   looks a row up with a tool even when the table is shown in full: 21 of 39 questions with no count
   took one request (Gemini 3.8 Flash: 38 of 39), so a lookup takes 2, each sending the table. This
@@ -142,82 +129,24 @@ Some behavior is different. Check each point against your app:
   ([Tables sent whole](docs/guides/costs-and-limits.md#tables-sent-whole)).
 - **Files sent whole are numbered** (`numberInline: true`, the default of `askWithFiles` and
   `askGemini`), so that answers cite their lines: about 8% to 16% more tokens for each file, and a
-  file at the edge of `inlineTokens` may become a card. A question with no tool declared gets the
-  line `Cite line numbers like (report.docx L12).`.
+  file at the edge of `inlineTokens` may become a card. When no file is searched, the system text
+  gets the line `Cite line numbers like (report.docx L12).`.
   **What to do:** nothing, or `numberInline: false` to send them as 0.9 did.
 - **`AskResult.evidence` lists each file sent whole first**, as
   `{ tool: "inline", documentId, document, lines: [[1, n]], whole: true }`, with no `callId`.
   **What to do:** code that counts tool calls from evidence, or maps it to `tool.end`, skips the
   entries without a `callId`.
-- **Placement: what you store with each question.** To keep the start of the requests the same,
-  `askWithFiles` returns `result.userTurn` (the question's turn as it was sent: your text,
-  `documentIds` and own fields, with the library's `notes`), `result.toolTurns` with each round's
-  `native` (a few KB a round), and `result.placement`, a `PlacementState` for the chat. Without
-  them nothing fails: a turn stored without its notes changes once, and a question without a state
-  is planned afresh, as in 0.9. Under `documentPlacement: "attached"`, a turn stored as
-  `{ role, text }` loses its `documentIds`, and its documents move to the newest turn at every
-  question: store `result.userTurn`.
-  **What to do:** store `result.userTurn` in place of your own copy of the turn, keep `toolTurns`
-  as they are, and pass `result.placement` as `placement` with the next question
-  ([Placement across questions](docs/guides/conversations.md#placement-across-questions)).
-- **The library reads `notes` and `documentIds` on the user turns you pass.** The notes of an
-  earlier turn are sent to the model, and `documentIds` places blocks under
-  `documentPlacement: "attached"`. A value that is not a list of strings (`null` aside) is a
-  `TypeError`, and so is `documentIds` on a turn in parts form. A `documentPlacement` other than
-  `"first"`, `"last"`, `"attached"` or `null` is a `TypeError` (0.9 read such values as `"first"`),
-  and so is `"attached"` with `askGemini`'s `contents`.
-  **What to do:** rename fields of your own of those names on stored turns before you upgrade.
-- **Strict schemas.** A MongoDB `$jsonSchema` with `additionalProperties: false`, or a Mongoose
-  schema with `strict: "throw"`, refuses `native` in a stored round, `documentIds` and `notes` in a
-  stored turn, and the fields of `PlacementState` (`version`, `head`, `inline`, `cards`, `tools`,
-  `stubbedThrough`, `nativeRefused`, `filesGone`). Mongoose's default strict mode drops the fields
-  it does not know, with no error: every question is then planned afresh, and every follow-up
-  differs from its first stored round. A schema default of `false` or a stored `null` for
-  `nativeRefused` or `filesGone` reads as not set.
-  **What to do:** allow them before the first server of 0.10.0 starts. In Mongoose, declare
-  the stored user turns, `placement` and the rounds of `toolTurns` as `Schema.Types.Mixed`
-  ([Allow the new fields](docs/upgrading-0.10.md#allow-the-new-fields)).
-- **A chat keeps the tools it declared.** A later question whose files are all sent whole declares
-  them and runs the tool loop, where 0.9 made one request without tools. A call of a tool that the
-  chat never declared is answered "Unknown tool" (0.9 ran an undeclared `aggregate_table` or
-  `analyze_whole_document`). The loop now answers any unknown tool itself ("Unknown tool “x”.
-  The tools are: …"), with outcome `"refused"`, where the tool set returned an `"error"`.
-  **What to do:** nothing.
-- **Stored rounds go back in the model's own form.** `nativeRounds` defaults to the `capabilities`
-  of the adapter a round goes back to: `geminiApi()`, `anthropic()` and `openAiCompatible()` send
-  their own turns back (thought signatures, thinking blocks, `reasoning_content`); `vertexAi()`
-  keeps it off, since no live check has run on Vertex AI. Each signed round sent again is billed:
-  133 to 215 input tokens a round on Gemini 3.8 Flash. A provider that refuses old signatures gets
-  the request once more with calls only, a `native_rounds_dropped` notice, and
-  `placement.nativeRefused` for the chat. With Claude, a follow-up still differs from the first
-  stored round, as in 0.9, and so it does on Vertex AI: on Gemini 3.8 Flash such a request kept
-  only the system text and tools in the cache
-  ([Measurements](docs/measurements.md#the-live-session-on-the-gemini-api)). With `askGemini`,
-  `contents` and an explorer of another model, signed rounds go to both models as calls only.
-  DeepSeek's thinking mode with tools also asks for the reasoning of earlier answers, which the
-  library does not keep yet ([DeepSeek](docs/guides/openai-compatible.md#deepseek)).
-  **What to do:** nothing, or `nativeRounds: false` for 0.9's calls-only rounds
-  ([Native rounds](docs/guides/conversations.md#native-rounds-and-their-fallback)).
-- **Stand-ins in batches.** The results of old rounds become stand-ins only once less than 15% of
-  the room is free, and then until 40% is, before the first request too. `placement.stubbedThrough`
-  carries the boundary to the next question. Planning counts earlier rounds at their stand-in size
-  and keeps room for the tool declarations, the guide, the header lines and the cards, so a file at
-  the edge of the window may be planned the other way.
-  **What to do:** nothing. Tests that count stand-ins see more of them.
-- **What the opt-outs do not give back.** `inlineTables: "text"`, `numberInline: false`,
-  `documentPlacement: "first"` (the default) and `nativeRounds: false` each give 0.9's bytes for
-  what they cover. With all four, these stay: the header lines, the fixed guide and the line of
-  files left out in the question's turn; results without `tool_turns_left` and the last-turn note;
-  the `whole_file` hint of a `read_document` result cut short, and the `cite` line and `filter_note`
-  of `aggregate_table`; the declaration of `analyze_whole_document` and the card sizes of LLF-059;
-  the tools a chat keeps; the room planning keeps, with stored rounds counted at their stand-in
-  size; and stand-ins in batches
+- **What the opt-outs do not give back.** `inlineTables: "text"` and `numberInline: false` each
+  give 0.9's bytes for what they cover. With both, these stay: the `whole_file` hint of a
+  `read_document` result cut short, and the `filter_note` of `aggregate_table`; the declaration of
+  `analyze_whole_document` and the prompts of its part reads (M8); and the card sizes of LLF-059
   ([What has a way back](docs/upgrading-0.10.md#going-back-to-09s-text)).
-- **Rolling deploys.** Servers of 0.9 read what 0.10.0 stores and ignore `native`, `documentIds`,
-  `notes` and the placement, so nothing fails, but a chat answered by 0.9 and 0.10 servers in turn
-  misses the prompt cache on every switch.
+- **Rolling deploys.** What 0.10.0 stores is what 0.9 stores, so servers of both versions share a
+  store and nothing fails. But they send different text, so a chat answered by 0.9 and 0.10 servers
+  in turn misses the prompt cache on every switch.
   **What to do:** deploy every server at once, or route each chat to one version until the rollout
-  ends ([Rolling deploys](docs/upgrading-0.10.md#rolling-deploys)).
+  ends. Run the sweep from a server of 0.10.0
+  ([Rolling deploys](docs/upgrading-0.10.md#rolling-deploys)).
 - **Store calls have a time limit.** A `getMeta`, a read of a text, its index or its original, or a
   `delete` that does not end within `storeTimeoutMs` (30 s) fails with a `DocumentStoreError` of
   code `"ETIMEDOUT"` (503, to retry), where it hung. In a question, a store call that times out,
@@ -266,15 +195,14 @@ Some behavior is different. Check each point against your app:
   extractor that returns only `text` and `pages` keeps the 0.9 outline.
   **What to do:** pass `headings` on in such a wrapper (`{ ...extracted, text }`)
   ([PDF outline](docs/guides/pdfs.md#pdf-outline)).
-- **Tests that compare results, events or requests whole.** Results have no `tool_turns_left`
-  (but Claude's), and the request of the last tool turn ends with a note. `usage` gains
-  `estimatedInputTokens` and `unmeasuredRequests` when a request reports no input. The built-in
-  adapters' `capabilities` gain `nativeRounds`, and replies `responseId` and `responseModel` where
-  the provider gives them. A malformed call on the last tool turn now gets a closing request: one
-  request more (LLF-048). A refused call of an unknown tool gets no `onActivity` line. A size
-  between 1,048,064 and 1,048,575 bytes reads "1 MB" on a card, in `get_document_overview` and in
-  error messages (LLF-059).
-  `run.finish` carries `placement` and `userTurn` (`sseMessageOf` leaves them out).
+- **Tests that compare results, events or requests whole.** Requests change as the first point
+  says. `usage` gains `estimatedInputTokens` and `unmeasuredRequests` when a request reports no
+  input. Replies gain `responseId` and `responseModel` where the provider gives them. A malformed
+  call on the last tool turn now gets a closing request: one request more (LLF-048). The loop
+  answers a call of an unknown tool itself ("Unknown tool “x”. The tools are: …"), with outcome
+  `"refused"` and no `onActivity` line, where the tool set returned an `"error"`. A size between
+  1,048,064 and 1,048,575 bytes reads "1 MB" on a card, in `get_document_overview` and in error
+  messages (LLF-059).
   **What to do:** update the tests that compare these whole.
 
 ### New: what you can add
@@ -303,49 +231,33 @@ Some behavior is different. Check each point against your app:
 
 - `AskOptions.inlineTables` (`"tools"` by default) and `AskOptions.numberInline` (`true` by
   default), also in `askGemini`. For loops of your own, `PrepareOptions.inlineTables` and
-  `numberInline` (off by default) and `PreparedContext.toolable`
-  ([Numbered lines and tables sent whole](docs/how-it-works.md#numbered-lines-and-tables-sent-whole)).
-- `FINAL_ANSWER_WITH_FILES`, the closing note after files shown in full, from `llm-large-files` and
-  `llm-large-files/gemini`.
-
-**A start of the requests that stays the same**
-
-- `PlacementState`, `PLACEMENT_STATE_VERSION`, `AskOptions.placement` and `AskResult.placement`
-  ([PlacementState](docs/reference/library.md#placementstate)).
-- `AskResult.userTurn`, `ChatTurn.documentIds`, `ChatTurn.notes`, and
-  `documentPlacement: "attached"`: each document's block at the turn that attached it
-  ([`documentPlacement: "attached"`](docs/guides/conversations.md#documentplacement-attached)).
-- `AskOptions.nativeRounds`, `ToolTurn.native` and `ModelCapabilities.nativeRounds`.
-- The notices `"placement_changed"` and `"native_rounds_dropped"`.
-- For loops of your own: `prepared.guide`, `prepared.listing` and `prepared.placement`,
-  `PrepareOptions.placement` and `reserve`, `ToolOptions.declare` and `inline`,
+  `numberInline` (off by default) and `PreparedContext.toolable`; and for the tool set,
+  `ToolOptions.inline` (the files sent whole) and `ToolOptions.declare` (exactly these tools), with
   `declarationsFor(names)` and `ToolName`
-  ([A start of the request that stays the same](docs/guides/own-adapter-and-loop.md#a-start-of-the-request-that-stays-the-same)).
+  ([Numbered lines and tables sent whole](docs/how-it-works.md#numbered-lines-and-tables-sent-whole)).
 
-The chat of a Hebrew chatbot on Vertex AI and MongoDB, with the start of its requests kept:
+The chat of a Hebrew chatbot on Vertex AI and MongoDB:
 
 ```ts
-import { answerInfoOf, hashedScopeSegment, type ChatTurn } from "llm-large-files";
+import { answerInfoOf, hashedScopeSegment } from "llm-large-files";
 import { askGemini, vertexAi } from "llm-large-files/gemini";
 
-const turn: ChatTurn = { role: "user", text: question, documentIds: newlyAttachedIds };
+const turn = { role: "user" as const, text: question };
 const result = await askGemini({
   files,
   endpoint: vertexAi({ project, location: "global", model, accessToken }), // accessToken({ refresh })
   body: { labels: { app: "chatbot", team: "hr" } }, // billing labels: no user IDs
   documentIds: chat.documentIds,
-  messages: [...chat.messages, turn], // stored turns with documentIds and notes, rounds with native
-  documentPlacement: "attached",
-  ...(chat.placement ? { placement: chat.placement } : {}), // the PlacementState of the last answer
+  messages: [...chat.messages, turn], // the stored turns and tool rounds, as in 0.9
   owner: userId,
   scope: [hashedScopeSegment(userId), chatId],
   onMissingDocuments: "drop",
   filteredAnswer: "drop",
 });
 const info = answerInfoOf(result); // complete, or why not: one switch for the Hebrew message
+const answer = result.answered ? [{ role: "assistant" as const, text: result.text }] : [];
 await chats.updateOne({ _id: chatId }, {
-  $set: { placement: result.placement! }, // always set by askGemini
-  $push: { messages: { $each: [result.userTurn, ...result.toolTurns, { role: "assistant", text: result.text }] } },
+  $push: { messages: { $each: [turn, ...result.toolTurns, ...answer] } }, // as in 0.9
 });
 ```
 
@@ -370,11 +282,8 @@ await chats.updateOne({ _id: chatId }, {
 - `vertexAi({ headers, host, apiKey })` (`VertexAiOptions`); `apiKey` is Vertex AI express mode
   (NEW-vertex-endpoint-options).
 - `accessToken({ refresh })` and a `HeaderSource` that takes a context: after a 401, the request is
-  sent once more with a fresh token. `GeminiEndpoint.refreshable` and `GeminiEndpoint.nativeRounds`
+  sent once more with a fresh token. `GeminiEndpoint.refreshable`
   ([Access tokens](docs/guides/vertex-and-gemini.md#access-tokens-for-vertex-ai)).
-- `fromGeminiContents(contents, { model })`, and `geminiToolTurns` writes a round's own signed
-  turn.
-- `openAiToolTurns(turns, { native })` writes DeepSeek's `reasoning_content`.
 
 **Operations**
 
@@ -418,28 +327,8 @@ await chats.updateOne({ _id: chatId }, {
 - `aggregate_table`: a filter that orders a column (`>`, `>=`, `<`, `<=`) against a value that
   names another column compares the two cells of each row, and says so in `filter_note`. A column
   letter works in every table. Over a table sent whole, a grouped result ends with a `cite` line.
-- With an explorer, a question in which nothing is searched or viewed is run by the answering model
-  alone.
-- In a chat with no text tool, the citation line comes with its first file placed and stays, also
-  once its files are all gone (`placement.filesGone`).
-
-**Placement and the prompt cache**
-
-- Stored rounds are planned at their stand-in size, with the documents of the state pinned: a file
-  sent whole stays whole while it fits, and one that no longer fits becomes a card, with a
-  `placement_changed` notice and a note in the question's turn.
-- Stand-ins are made in batches (start below 15% free, stop at 40%), in place of shortening all
-  but the last three rounds, then two, then one.
-- The tool set of a chat only grows, in a fixed order. A question that ends without declarations
-  adds no tools.
-- The text tools read every file sent whole; `analyze_whole_document` still refuses them. With
-  `placement`, a table's `document_id` is in its header line, not its frame line.
-- A file uploaded again under its name has "it replaces doc_…, an earlier file of the same name"
-  on its header line, when both are in the question's `documentIds`.
-- The guide's line for items says a summary or a timeline keeps the default output.
-- The fallback for refused signatures resends once with calls only on an HTTP 400 that names a
-  thought signature, on Claude's "Invalid `signature` in `thinking` block" (from the API's
-  wording, not seen live), and on Gemini's `MISSING_THOUGHT_SIGNATURE`.
+- With an explorer, a question in which no file is searched, and a table sent whole gets the tools,
+  is run by the answering model alone: the files sent whole are not sent to two models.
 
 **Whole-file reads, search and tools**
 
@@ -473,9 +362,6 @@ await chats.updateOne({ _id: chatId }, {
 - A non-streamed Gemini reply that is a list of chunks is read chunk by chunk, and an error inside
   a stream carries its `retryDelay`.
 - `timeoutMs: 0` sets no limit in `openAiCompatible()` and `anthropic()` too.
-- Vertex AI keeps `nativeRounds` off: no live check of old signatures has run on Vertex AI. The
-  Gemini API has it on: on 3.8 Flash, a follow-up whose rounds went back as calls kept only the
-  system text and tools in the cache.
 
 **Storage and operations**
 
@@ -507,9 +393,12 @@ await chats.updateOne({ _id: chatId }, {
   any branch or tag, then runs `npm publish --dry-run` in a job with no identity token
   ([Publishing](docs/publishing.md#a-dry-run-of-the-release-workflow), LO-6).
 - An eval suite of 48 Hebrew and English cases (in `evals/`, not published) replays its recorded
-  requests on every pull request. The prompt changes of this version are gated on it live before
-  the release, on Gemini 3.5 Flash-Lite and 3.8 Flash
-  (T4; [Testing](docs/guides/testing.md#the-librarys-own-evals)).
+  requests on every pull request. The prompt changes of this version were gated on it live, on
+  Gemini 3.5 Flash-Lite and 3.8 Flash: tables and line numbers by P1's gate (pass^3, at 64a4ec8),
+  whole-file reads and items by T's (at c1fbbb5)
+  ([Measurements](docs/measurements.md#tables-sent-whole-p1s-live-gate)). Each of its 96
+  recordings (48 cases on 2 models) replays against 0.10.0, so 0.10.0 sends the requests that were
+  recorded live, byte for byte (T4; [Testing](docs/guides/testing.md#the-librarys-own-evals)).
 
 ### Fixed
 
@@ -543,25 +432,6 @@ await chats.updateOne({ _id: chatId }, {
 - **LLF-061:** `describe()` of a `read_document` call left out an end line given as a string
   (`"250"`), which the tool reads: it now says "lines 1-250".
 
-**The prompt cache**
-
-- **HL2-1:** an upload rewrote the start of every later request: the tool guide in the system text
-  named the files. The line of files left out (`onMissingDocuments: "drop"`) was in the system
-  text too, and cost a miss on its question and on the next.
-- **G-09, L3:** a file sent whole flipped to a card as a chat grew (a 45K-token runbook, at 4
-  stored questions on a window of 128K): planning counted the stored rounds in full.
-- **HL2-2:** stand-ins shortened all but the last three rounds, then two, then one, at each turn
-  that ran short, and rewrote the start each time: 15 rewrites in a test chat, 2 in batches.
-- **L15-ext, except on Vertex AI:** a follow-up missed the cache from its first stored round:
-  rounds went back without their thought signatures, and with `tool_turns_left` taken out. On
-  Vertex AI, where `nativeRounds` stays off, rounds still go back as their calls.
-- A repeated call that pointed into a `read_document` result cut short of its range was sent at the
-  next question as dropped ("Not run then: … dropped from the conversation to make room"): the
-  model was told that a result it still had was gone, and that question's first request no longer
-  extended the last one (since 0.6.0).
-- **L2, part 1:** planning left out the size of the tool declarations (about 2,000 tokens for all
-  six), the cards and the guide, so a file was planned whole with too little room left for them.
-
 **Providers**
 
 - **LLF-018:** a Gemini error in a stream or a reply of HTTP 200 with no numeric code had status
@@ -578,10 +448,6 @@ await chats.updateOne({ _id: chatId }, {
   in a later one.
 - A part read's time limit did not end the wait for a `fetch` that ignores its signal, in all three
   adapters.
-- **A2, in part:** the tool rounds of an earlier question went back to DeepSeek without their
-  `reasoning_content`. They keep it now, in native rounds and with `openAiToolTurns(turns,
-  { native })`. DeepSeek also asks for the reasoning of earlier answers, which waits for 0.10.x: the
-  guide says to turn thinking off for chat requests in a chat of several questions.
 
 **Storage and operations**
 
@@ -602,14 +468,18 @@ await chats.updateOne({ _id: chatId }, {
 
 - **A1:** the OpenAI recipe uses `reasoning_effort: "none"`, which tool calls on GPT-5.4 and later
   need through Chat Completions.
+- **DeepSeek:** in a request with tools, its thinking mode asks for the reasoning of every earlier
+  assistant turn, those of earlier questions included, and refuses a request without it (HTTP 400,
+  as DeepSeek's guide says). The library does not keep the reasoning of an earlier question, so the
+  guide says to turn thinking off for chat requests in a chat of several questions
+  ([DeepSeek](docs/guides/openai-compatible.md#deepseek)).
 
 In all, this version fixes LLF-018, -034, -035, -036, -048, -049, -056, -057, -058, -059 and
--061. It closes the roadmap items A2 (in part), A5, A6, A11, G-09, HL2-1, HL2-2, I6
-(`files.toolsFor`), I9 (`ToolCallHooks.signal`), L1, L2 part 1, L3, L5, L7, L12, L15-ext (except
-on Vertex AI), M8, M9, N12, P8, P9, S3 (in part: the citation check), T4, the leftovers of 0.9.0
-(LO-1, LO-2 (the write half), LO-3 to LO-7),
-NEW-answer-request-tools, NEW-filtered-answer, NEW-inline-table-tools, NEW-store-call-timeout and
-NEW-vertex-endpoint-options, and the Hebrew PDF outline (HARNESS-LESSONS item 4).
+-061. It closes the roadmap items A5, A6, A11, I6 (`files.toolsFor`), I9 (`ToolCallHooks.signal`),
+L1, L5, L7, L12, M8, M9, N12, P8, P9, S3 (in part: the citation check), T4, the leftovers of 0.9.0
+(LO-1, LO-2 (the write half), LO-3 to LO-7), NEW-answer-request-tools, NEW-filtered-answer,
+NEW-inline-table-tools, NEW-store-call-timeout and NEW-vertex-endpoint-options, and the Hebrew PDF
+outline (HARNESS-LESSONS item 4).
 
 ## 0.9.0 — 2026-11-24
 
