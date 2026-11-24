@@ -32,6 +32,7 @@
    "tools": [
     "read_document"
    ],
+   "reads": 1,
    "wholeReads": 0,
    "log": [
     {

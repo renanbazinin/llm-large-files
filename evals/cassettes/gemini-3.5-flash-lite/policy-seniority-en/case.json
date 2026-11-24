@@ -32,6 +32,7 @@
    "tools": [
     "search_document"
    ],
+   "reads": 0,
    "wholeReads": 0,
    "log": [
     {

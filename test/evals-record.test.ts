@@ -15,7 +15,9 @@ import { evalCases, type EvalCase } from "../evals/cases.js";
 import { buildFixtures, type EvalLibrary } from "../evals/fixtures.js";
 import { checkFact, describeFact, hebrewShare, numbersIn } from "../evals/lib/facts.js";
 import { CassetteMissError, normalizeUrl, readCassette, recordingFetch, recordingModel, replayFetch, replayModel, runRecorder } from "../evals/lib/record.js";
-import { runCase } from "../evals/lib/runner.js";
+import { gateProblems, lostFacts } from "../evals/lib/gate.js";
+import { gatesOf, markdown, summarize } from "../evals/lib/report.js";
+import { runCase, type CaseRun, type QuestionRun } from "../evals/lib/runner.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const folders: string[] = [];
@@ -548,6 +550,59 @@ describe("the eval runner over a cassette (evals/lib/runner.ts)", () => {
   it("fails a replay of a case that was never recorded", async () => {
     const run = await runCase({ mode: "replay", evalCase: tiny, model: "gemini-test", library: await evalLibraryOf(), cassettes: folder() });
     expect(run.replayProblems![0]).toMatch(/^not recorded: /);
+  });
+
+  it("fails a live run whose question ended with an error: a refused key does not pass", async () => {
+    const refused = fakeFetch([Response.json({ error: { code: 400, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT" } }, { status: 400 })]);
+    const run = await runCase({ mode: "live", evalCase: tiny, model: "gemini-test", library: await evalLibraryOf(), cassettes: folder(), apiKey: "bad-key", fetch: refused.fetch });
+    expect(run.passed).toBe(false);
+    expect(run.replayProblems).toBeUndefined();
+    expect(gateProblems(tiny, [run])).toEqual([expect.stringMatching(/^run 1, question 1: .*API key not valid/), expect.stringMatching(/^pass\^1 missed: 0 of 1 runs passed/)]);
+  });
+});
+
+describe("the gate of a live or recorded run (evals/lib/gate.ts), and the report (evals/lib/report.ts)", () => {
+  const question = (more: Partial<QuestionRun> = {}): QuestionRun => ({
+    turn: 1, answered: true, facts: [], passed: true, requests: 1, inputTokens: 1_000, cachedInputTokens: 0, outputTokens: 10, thoughtTokens: 0,
+    ms: 1_000, ceilingReached: false, citations: null, tools: [], reads: 0, wholeReads: 0, log: [], ...more,
+  });
+  const run = (more: Partial<CaseRun> = {}): CaseRun => ({ case: "c", model: "m", mode: "live", run: 1, language: "he", kinds: ["lookup"], questions: [question()], passed: true, ...more });
+  const evalCase: EvalCase = { id: "c", language: "he", kinds: ["lookup"], turns: [{ question: "?", documentIds: [], facts: [{ number: 18 }] }] };
+  const failed = (fact = "number 18") => question({ passed: false, facts: [{ fact, status: "fail", detail: "numbers in the answer: 12" }] });
+
+  it("fails pass^k missed, unless the case is known to fail on 0.9.0", () => {
+    const runs = [run(), run({ run: 2, passed: false, questions: [failed()] }), run({ run: 3 })];
+    expect(gateProblems(evalCase, runs)).toEqual(["pass^3 missed: 2 of 3 runs passed (failed: question 1: number 18)."]);
+    expect(gateProblems({ ...evalCase, failsOn090: "known" }, runs)).toEqual([]);
+    expect(gateProblems(evalCase, [run(), run({ run: 2 })])).toEqual([]);
+  });
+
+  it("fails a fact lost against the baseline, compared by its words", () => {
+    const held = question({ facts: [{ fact: "number 18", status: "pass" }, { fact: "says x", status: "fail" }] });
+    const baseline = [run({ questions: [held] }), run({ run: 2, questions: [held] })];
+    const now = [run({ passed: false, questions: [failed()] }), run({ run: 2, passed: false, questions: [failed("says x")] })];
+    expect(lostFacts(baseline, now)).toEqual([{ model: "m", case: "c", question: 1, fact: "number 18", runs: 1, of: 2, detail: "numbers in the answer: 12" }]);
+    // "says x" failed in the baseline already, and a fact the baseline does not have is not compared.
+    expect(gateProblems({ ...evalCase, failsOn090: "known" }, now, baseline)).toEqual([expect.stringMatching(/^lost against the baseline: question 1, "number 18" held in every baseline run and failed in 1 of 2/)]);
+  });
+
+  it("reports reads, the median requests, the one-request share, the supported citations and the gates", () => {
+    const runs = [
+      run({ case: "table", kinds: ["lookup", "inline-table"], questions: [question({ requests: 1 }), question({ turn: 2, requests: 3, tools: ["search_document", "read_document", "read_document"], reads: 2 })] }),
+      run({ case: "count", kinds: ["count", "inline-table"], questions: [question({ requests: 4, citations: { checked: 4, supported: 3, unchecked: 0, unsupported: [{ document: "a", line: 1 }] } })] }),
+    ];
+    const [count, table] = summarize(runs, ["table", "count"]).sort((left, right) => left.case.localeCompare(right.case));
+    expect(table).toMatchObject({ requestsPerQuestion: 2, medianRequests: 2, oneRequestShare: 0.5, readsPerQuestion: 1, supportedShare: null });
+    expect(count).toMatchObject({ medianRequests: 4, supportedShare: 0.75 });
+    const gates = Object.fromEntries(gatesOf(runs, []).map((gate) => [gate.name, gate]));
+    expect(gates["Inline-table questions with no count, in one request"]).toMatchObject({ figure: "50% (1 of 2)", met: false });
+    expect(gates["Inline-table count questions, requests at the median"]).toMatchObject({ figure: "4", met: false });
+    expect(gates["Citations inside what the tools showed"]).toMatchObject({ figure: "75%", met: false });
+    const report = markdown({ title: "T", notes: [], runs }, [], [{ model: "m", case: "count", question: 1, fact: "number 9", runs: 1, of: 1 }]);
+    expect(report).toContain("## Gates");
+    expect(report).toContain("| Facts lost against the baseline | none | 1 ✗ |");
+    expect(report).toContain("- **m/count**, question 1: number 9, in 1 of 1 runs.");
+    expect(report).toMatch(/\| table \| he \| lookup, inline-table \| 1 of 1 \| 2\.0, 2 \| 50% \| 1\.0 \| 0 \|/);
   });
 });
 

@@ -37,6 +37,7 @@
     "read_document",
     "search_document"
    ],
+   "reads": 2,
    "wholeReads": 0,
    "log": [
     {

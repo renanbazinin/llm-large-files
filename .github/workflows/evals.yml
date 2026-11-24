@@ -1,10 +1,13 @@
 name: Evals
 
 # The eval cases (evals/) against the Gemini API: every Monday, and on demand from the Actions tab.
-# Each case runs k times and passes only when every run passes (pass^k). The report is kept as the
-# artifact "evals" of the run. It needs the repository secret GEMINI_API_KEY; without it, the job
-# says so and stops, and nothing fails. Pull requests replay the evals instead (ci.yml,
-# evals-replay), with no key.
+# Each case runs k times and passes only when every run passes (pass^k). The job fails when a case
+# not known to fail on 0.9.0 misses pass^k, when a question ends with an error (a refused key, a
+# quota), or when a fact that held in every run of the baseline (evals/baseline/0.9.0.json) fails.
+# The report, with the gates of the plan, is kept as the artifact "evals" of the run. It needs the
+# repository secret GEMINI_API_KEY; without it, the job says so and stops, and nothing fails: the
+# weekly run does nothing until the secret is added. Pull requests replay the evals instead
+# (ci.yml, evals-replay), with no key.
 on:
   workflow_dispatch:
     inputs:

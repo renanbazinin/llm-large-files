@@ -8,6 +8,8 @@
 //   --results file.json        add the runs to this results file, and write its report beside it
 //   --title "..."              the report's title
 //   --notes notes.md           Markdown put under the report's title
+//   --baseline file.json       the results whose facts record, live and report compare with
+//                              (evals/baseline/0.9.0.json by default; "none" for no comparison)
 //   --max-input-tokens N       the input tokens the run may use
 //   --question-input-tokens N  a question that uses more is stopped
 //   --concurrency N            cases run at once
@@ -25,6 +27,7 @@ const OPTIONS = {
   "--results": "EVAL_RESULTS",
   "--title": "EVAL_TITLE",
   "--notes": "EVAL_NOTES_FILE",
+  "--baseline": "EVAL_BASELINE",
   "--max-input-tokens": "EVAL_MAX_INPUT_TOKENS",
   "--question-input-tokens": "EVAL_QUESTION_INPUT_TOKENS",
   "--concurrency": "EVAL_CONCURRENCY",

@@ -34,6 +34,7 @@
     "read_document",
     "aggregate_table"
    ],
+   "reads": 1,
    "wholeReads": 0,
    "log": [
     {

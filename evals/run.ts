@@ -7,6 +7,9 @@
 //                    "record": each case once against the Gemini API, written to its cassette.
 //                    "live": each case EVAL_K times (3 by default) against the Gemini API: a case
 //                    passes only when every run passes (pass^k).
+//                    Record and live fail a case when a question ends with an error or is not
+//                    asked, when a case not known to fail on 0.9.0 (`failsOn090`) misses pass^k, or
+//                    when a fact that held in every run of the baseline fails now.
 //                    "recheck": a replay that writes each case's facts, checked again on the
 //                    recorded answers, to its case.json: after a fact changed, with no request
 //                    changed. It needs no key.
@@ -20,6 +23,9 @@
 //                    evals/results/<mode>.json for record and live, started afresh; a replay or a
 //                    recheck writes none unless given one.
 //   EVAL_TITLE       The title of the report.
+//   EVAL_BASELINE    The results file whose facts record, live and report compare with. Defaults to
+//                    evals/baseline/0.9.0.json; "none" compares with nothing. Its answers are checked
+//                    again with the facts as they are now, so a fact fixed later applies to it too.
 //   EVAL_MAX_INPUT_TOKENS       The input tokens this run may use: no question starts past them.
 //   EVAL_QUESTION_INPUT_TOKENS  A question that uses more is stopped. Defaults to 1,500,000.
 //   GEMINI_API_KEY   For record and live. Never written: cassettes hold no key.
@@ -29,12 +35,15 @@ import { fileURLToPath } from "node:url";
 import { afterAll, describe, it } from "vitest";
 import { evalCases } from "./cases.js";
 import { evalLibrary } from "./fixtures.js";
+import { gateProblems, lostFacts, type LostFact } from "./lib/gate.js";
 import { markdown, summarize, type Results } from "./lib/report.js";
-import { runCase, type CaseRun, type RunMode } from "./lib/runner.js";
+import { recheckRun, runCase, type CaseRun, type RunMode } from "./lib/runner.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CASSETTES = path.join(HERE, "cassettes");
 const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
+
+const BASELINE = path.join(HERE, "baseline", "0.9.0.json");
 
 const env = process.env;
 const mode = (env.EVAL_MODE || "replay") as RunMode | "report" | "recheck";
@@ -62,6 +71,17 @@ const cases = only.length ? allCases.filter((one) => only.includes(one.id)) : al
 /** The runs kept before this one, when the results file is added to (EVAL_RESULTS given). */
 const earlier: Results | undefined = env.EVAL_RESULTS && resultsFile && existsSync(resultsFile) ? (JSON.parse(readFileSync(resultsFile, "utf8")) as Results) : undefined;
 const runs: CaseRun[] = [];
+
+/** The baseline's runs, their facts checked again as the cases say now; none for a replay, or for the baseline's own report. */
+const baselineFile = env.EVAL_BASELINE === "none" ? undefined : path.resolve(env.EVAL_BASELINE || BASELINE);
+const compared = runMode !== "replay" && baselineFile && baselineFile !== resultsFile && existsSync(baselineFile);
+const context = { names: library.names, formats: library.formats, linesWith: library.linesWith };
+const baseline: CaseRun[] = compared
+  ? (JSON.parse(readFileSync(baselineFile!, "utf8")) as Results).runs.flatMap((run) => {
+    const evalCase = allCases.find((one) => one.id === run.case);
+    return evalCase ? [recheckRun(run, evalCase, context)] : [];
+  })
+  : [];
 
 const line = (run: CaseRun) => {
   const asked = run.questions.filter((question) => !question.error?.startsWith("not asked"));
@@ -95,6 +115,11 @@ for (const model of models) {
           if (runMode !== "replay") process.stdout.write(`${line(run)}\n`);
           if (run.replayProblems?.length) throw new Error(run.replayProblems.join("\n"));
         }
+        if (runMode === "replay") return;
+        // The gate of a live or recorded run: errors, pass^k, facts lost against the baseline.
+        const own = runs.filter((run) => run.model === model && run.case === evalCase.id);
+        const problems = gateProblems(evalCase, own, baseline.filter((run) => run.model === model && run.case === evalCase.id));
+        if (problems.length) throw new Error(`${model}/${evalCase.id}:\n${problems.join("\n")}`);
       });
     }
   });
@@ -115,6 +140,7 @@ afterAll(() => {
   const results: Results = { title: env.EVAL_TITLE || earlier?.title || `Evals: ${mode}`, notes, runs: [...(earlier?.runs ?? []), ...runs.sort((left, right) => left.model.localeCompare(right.model) || order.indexOf(left.case) - order.indexOf(right.case) || left.run - right.run)] };
   mkdirSync(path.dirname(resultsFile), { recursive: true });
   writeFileSync(resultsFile, `${JSON.stringify(results, null, 1)}\n`);
-  writeFileSync(resultsFile.replace(/\.json$/, "") + ".md", markdown(results, allCases));
+  const lost: LostFact[] | undefined = compared ? lostFacts(baseline, results.runs) : undefined;
+  writeFileSync(resultsFile.replace(/\.json$/, "") + ".md", markdown(results, allCases, lost));
   process.stdout.write(`Results: ${path.relative(process.cwd(), resultsFile)} and its .md\n`);
 });

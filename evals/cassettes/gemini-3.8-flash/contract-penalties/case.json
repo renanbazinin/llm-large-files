@@ -38,6 +38,7 @@
     "read_document",
     "search_document"
    ],
+   "reads": 1,
    "wholeReads": 0,
    "log": [
     {

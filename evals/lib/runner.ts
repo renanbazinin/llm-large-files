@@ -33,8 +33,9 @@ export type QuestionRun = {
   ceilingReached: boolean;
   /** `checkCitations` of the answer; null while it is not written yet. */
   citations: CitationCheck | null;
-  /** The tools called, in order, and how many whole-file reads. */
+  /** The tools called, in order, and how many line reads (read_document) and whole-file reads. */
   tools: string[];
+  reads?: number;
   wholeReads: number;
   /** The requests of the question as its events told them. */
   log: RequestRecord[];
@@ -92,7 +93,7 @@ export const cassetteFolder = (cassettes: string, model: string, id: string) => 
 
 const empty = (turn: number, error: string): QuestionRun => ({
   turn, answered: false, error, facts: [], passed: false, requests: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, thoughtTokens: 0,
-  ms: 0, ceilingReached: false, citations: null, tools: [], wholeReads: 0, log: [],
+  ms: 0, ceilingReached: false, citations: null, tools: [], reads: 0, wholeReads: 0, log: [],
 });
 
 /** Runs the questions of a case in order, once. */
@@ -195,6 +196,7 @@ export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
       ceilingReached: recorder.notices().includes("budget_reached"),
       citations: citationsOf(result.text, factContext) ?? null,
       tools,
+      reads: tools.filter((tool) => tool === "read_document").length,
       wholeReads: tools.filter((tool) => tool === "analyze_whole_document").length,
       log,
       ...(passed ? {} : { excerpt: result.text.trim().slice(0, 400) }),
