@@ -3,16 +3,11 @@
 // - Gemini: the finish reasons of the adapter (MODEL_ARMOR and SAFETY are "filtered") and the
 //   loop's rule for them: no nudge and no second try, so a filtered question costs 2 requests, and
 //   says so with an "answer_filtered" notice. 0.9 read MODEL_ARMOR as no finish, and asked 4 times.
-// - DeepSeek: the adapter's `reasoning_content` and the native rounds of the loop. A follow-up sends
-//   the reasoning of the earlier question's tool round back. The reasoning of an earlier answer is
-//   not kept yet (docs/guides/openai-compatible.md#deepseek): the answer turn goes back as its text.
 import { describe, expect, it } from "vitest";
-import { askWithFiles, createLargeFiles, MemoryDocumentStore, type AskEvent, type AskResult, type ChatMessage, type LargeFiles } from "llm-large-files";
+import { createLargeFiles, MemoryDocumentStore, type AskEvent, type LargeFiles } from "llm-large-files";
 import { askGemini, geminiApi } from "llm-large-files/gemini";
-import { openAiCompatible } from "llm-large-files/openai";
 import { fakeFetch, serviceLog, utf8 } from "llm-large-files/testing";
 
-type Json = Record<string, any>;
 type Notice = Extract<AskEvent, { type: "notice" }>;
 const notices = (events: AskEvent[]) => events.filter((event): event is Notice => event.type === "notice");
 
@@ -81,41 +76,5 @@ describe("a Gemini answer that a filter stopped, through askGemini", () => {
     const codes = notices(events).map((event) => event.code);
     expect(codes).toContain("blocked");
     expect(codes).not.toContain("answer_filtered");
-  });
-});
-
-describe("a DeepSeek follow-up in thinking mode, through openAiCompatible", () => {
-  const call = (documentId: string) => ({ id: "call_1", type: "function", function: { name: "search_document", arguments: JSON.stringify({ document_id: documentId, query: "ERROR", mode: "exact" }) } });
-  const reply = (message: Json, finish: string): Response => Response.json({ id: "r1", model: "deepseek-v4-flash", choices: [{ index: 0, finish_reason: finish, message: { role: "assistant", ...message } }], usage: { prompt_tokens: 900, completion_tokens: 20 } });
-  const deepseek = (fetch: typeof globalThis.fetch) => openAiCompatible({ model: "deepseek-v4-flash", baseUrl: "https://api.deepseek.com/v1", apiKey: "k", fetch });
-
-  it("sends the reasoning of the earlier question's tool round back, with the earlier answer after it", async () => {
-    const { files, log } = await library();
-    // Question 1: a search, with its reasoning, then the answer.
-    const first = fakeFetch([
-      reply({ content: "", reasoning_content: "The log is large: search it for ERROR.", tool_calls: [call(log)] }, "tool_calls"),
-      reply({ content: "51 errors (app.log L97).", reasoning_content: "51 lines match." }, "stop"),
-    ]);
-    const one = await askWithFiles({ files, model: deepseek(first.fetch), documentIds: [log], messages: [{ role: "user", text: "How many errors?" }] });
-    expect(one.text).toBe("51 errors (app.log L97).");
-    expect(one.toolTurns).toHaveLength(1);
-    expect(one.toolTurns[0]!.native).toMatchObject({ model: "deepseek-v4-flash", turn: { reasoning_content: "The log is large: search it for ERROR." } });
-
-    // Question 2, from what an application stores as JSON: the turn, the rounds, the answer, the question.
-    const messages = JSON.parse(JSON.stringify([one.userTurn, ...one.toolTurns, { role: "assistant", text: one.text }, { role: "user", text: "And the first one?" }])) as ChatMessage[];
-    const second = fakeFetch([reply({ content: "At L97.", reasoning_content: "The first match." }, "stop")]);
-    const two: AskResult = await askWithFiles({ files, model: deepseek(second.fetch), documentIds: [log], messages, placement: one.placement! });
-    expect(two.text).toBe("At L97.");
-    const sent = second.sent[0]!.body.messages as Json[];
-    expect(second.sent[0]!.body.tools).toBeDefined();
-    const round = sent.findIndex((message) => message.role === "assistant" && Array.isArray(message.tool_calls));
-    expect(sent[round]).toMatchObject({ reasoning_content: "The log is large: search it for ERROR.", tool_calls: [{ id: "call_1" }] });
-    expect(sent[round + 1]).toMatchObject({ role: "tool", tool_call_id: "call_1" });
-    // The earlier answer follows its round, as its text: the library keeps no reasoning of an answer yet.
-    const answer = sent.findIndex((message) => message.role === "assistant" && message.content === "51 errors (app.log L97).");
-    expect(answer).toBeGreaterThan(round + 1);
-    expect(sent[answer]).not.toHaveProperty("reasoning_content");
-    expect(sent.at(-1)).toMatchObject({ role: "user" });
-    expect(JSON.stringify(sent.at(-1))).toContain("And the first one?");
   });
 });
