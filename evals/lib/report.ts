@@ -152,13 +152,15 @@ export function gatesOf(runs: CaseRun[], lost: LostFact[] = []): Gate[] {
   const oneRequest = share(inlineNoCount.filter(({ question }) => question.requests === 1).length, inlineNoCount.length);
   const countMedian = median(inlineCount.map(({ question }) => question.requests));
   const passedShare = (list: Array<{ question: QuestionRun }>) => share(list.filter(({ question }) => question.passed).length, list.length);
+  /** A share and its counts, or "none" when nothing is counted. */
+  const shareOf = (part: number, whole: number) => (whole ? `${percent(share(part, whole))} (${part} of ${whole})` : "none");
   return [
-    { name: "Count questions answered right", figure: `${percent(passedShare(counts))} (${counts.filter(({ question }) => question.passed).length} of ${counts.length})`, bar: "100%", met: counts.length ? passedShare(counts) === 1 : null },
-    { name: "Hebrew lookups answered right", figure: `${percent(passedShare(hebrewLookups))} (${hebrewLookups.filter(({ question }) => question.passed).length} of ${hebrewLookups.length})`, bar: "at least 90%", met: hebrewLookups.length ? passedShare(hebrewLookups) >= 0.9 : null },
-    { name: "Hebrew questions answered in Hebrew", figure: `${language.filter((fact) => fact.status === "pass").length} of ${language.length}`, bar: "every run", met: language.length ? language.every((fact) => fact.status === "pass") : null },
+    { name: "Count questions answered right", figure: shareOf(counts.filter(({ question }) => question.passed).length, counts.length), bar: "100%", met: counts.length ? passedShare(counts) === 1 : null },
+    { name: "Hebrew lookups answered right", figure: shareOf(hebrewLookups.filter(({ question }) => question.passed).length, hebrewLookups.length), bar: "at least 90%", met: hebrewLookups.length ? passedShare(hebrewLookups) >= 0.9 : null },
+    { name: "Hebrew questions answered in Hebrew", figure: language.length ? `${language.filter((fact) => fact.status === "pass").length} of ${language.length}` : "none", bar: "every run", met: language.length ? language.every((fact) => fact.status === "pass") : null },
     { name: "Citations inside what the tools showed", figure: supported === null ? "not checked yet" : percent(supported), bar: "at least 90%", met: supported === null ? null : supported >= 0.9 },
     { name: "Answers with no citation recognized", figure: noCitation === null ? "not checked yet" : percent(noCitation), bar: "at most 10%", met: noCitation === null ? null : noCitation <= 0.1 },
-    { name: "Inline-table questions with no count, in one request", figure: `${percent(oneRequest)} (${inlineNoCount.filter(({ question }) => question.requests === 1).length} of ${inlineNoCount.length})`, bar: "at least 90%", met: inlineNoCount.length ? oneRequest >= 0.9 : null },
+    { name: "Inline-table questions with no count, in one request", figure: shareOf(inlineNoCount.filter(({ question }) => question.requests === 1).length, inlineNoCount.length), bar: "at least 90%", met: inlineNoCount.length ? oneRequest >= 0.9 : null },
     { name: "Inline-table count questions, requests at the median", figure: inlineCount.length ? String(countMedian) : "none", bar: "at most 3", met: inlineCount.length ? countMedian <= 3 : null },
     { name: "Facts lost against the baseline", figure: String(lost.length), bar: "none", met: lost.length === 0 },
   ];
