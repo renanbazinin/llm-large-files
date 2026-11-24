@@ -141,6 +141,34 @@ describe("a ceiling that is set", () => {
     expect(record.codes.filter((code) => code === "budget_reached")).toHaveLength(1);
   }, 60_000);
 
+  it("looks ahead for the answer's second try too: an empty answer is not asked for again past the ceiling", async () => {
+    const { files, id } = await runawayLog();
+    const record = recorder();
+    // probe2's runaway, whose answers come back empty. The provider reports each estimate as its input.
+    let n = 0;
+    const model = fakeModel([(request) => {
+      const usage = { inputTokens: record.estimates().at(-1) ?? 0 };
+      if (request.toolChoice === "none") return says("", { usage });
+      const reads = Array.from({ length: 8 }, () => {
+        n++;
+        return { id: `c${n}`, name: "read_document", args: { document_id: id, start_line: 1 + (n * 600) % 59_000, end_line: 600 + (n * 600) % 59_000 } };
+      });
+      return calls(reads, { usage });
+    }]);
+    const result = await askWithFiles({ files, model, documentIds: [id], messages: question("q"), limits: { inputTokens: 400_000 }, onEvent: record.onEvent });
+    // The answer's request was the last that fit: its second try would have passed the ceiling
+    // (before this, it was sent, and the question spent 610,304 tokens).
+    expect(model.requests.map((request) => request.toolChoice)).toEqual(["auto", "auto", "none"]);
+    expect(record.codes).toEqual(["searching_instead", "budget_reached", "writing_answer"]);
+    expect(result.usage.inputTokens).toBeLessThanOrEqual(400_000);
+    expect(result.answered).toBe(false);
+    // Far below its ceiling, an empty answer is still asked for again.
+    const roomy = fakeModel([calls([{ id: "s", name: "search_document", args: { document_id: id, query: "ERROR", mode: "exact" } }]), says(""), says("There are 51 errors.")]);
+    const again = await askWithFiles({ files, model: roomy, documentIds: [id], messages: question("q"), limits: { toolTurns: 2 } });
+    expect(roomy.requests.map((request) => request.toolChoice)).toEqual(["auto", "none", "none"]);
+    expect(again.answered).toBe(true);
+  }, 60_000);
+
   it("stops by estimate when the provider reports no usage at all", async () => {
     const { files, id } = await runawayLog();
     const record = recorder();

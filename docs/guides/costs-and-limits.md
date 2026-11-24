@@ -85,9 +85,10 @@ true when the reply has text and was not refused.
   request. It is one of the two second tries a question may make, and it can be one request past
   `toolTurns`. It is not made after a refusal, a filter, another reason that asking again does
   not mend (`finish: "other"`, such as Gemini's `OTHER` or `LANGUAGE`) or a reply cut off at the
-  output limit with nothing in it, nor once `requests` or the ceiling of input tokens is reached:
-  it never passes them. With `toolTurns: 8`, a question makes at most 9 answered chat requests; to
-  cap them exactly, set `requests`.
+  output limit with nothing in it, nor when it would pass `requests` or the ceiling of input
+  tokens: it is sent only while a request is left of `requests`, and while what the question spent
+  and that request, as the loop estimates it, stay within the ceiling. With `toolTurns: 8`, a
+  question makes at most 9 answered chat requests; to cap them exactly, set `requests`.
 - Each tool result carries `tool_turns_left`, so the model can see its turns run out and stop
   searching in time. The results of an earlier question, passed back in `messages`, are sent
   without it ([Conversations](./conversations.md#what-toolturns-holds)).
@@ -131,8 +132,10 @@ the behavior of 0.9: no ceiling.
   request about to be sent and the request for the answer after it, as the loop estimates them now
   (raised by what the provider reported for the requests before). When the three would pass the
   ceiling, no tool request is made, and the next request is the answer. So a question spends at most
-  about one request past its ceiling: the answer's, with the results of the last tool turn in it. In
-  0.9 the ceiling was checked after the fact: a ceiling of 500,000 let 1,219,683 tokens through.
+  about one request past its ceiling: the answer's, with the results of the last tool turn in it.
+  The answer's second try, after a reply without text, looks ahead the same way: it is not made when
+  it would pass the ceiling. In 0.9 the ceiling was checked after the fact: a ceiling of 500,000 let
+  1,219,683 tokens through.
 - **A request that reports no input is counted by its estimate.** An OpenAI-compatible server that
   sends no usage, a provider that reports an input of 0, or a part reader of your own that does not
   call `onUsage`: the loop adds its estimate of that request to `usage.estimatedInputTokens`, and

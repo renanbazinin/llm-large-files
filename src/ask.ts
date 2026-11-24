@@ -2152,11 +2152,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // could not be read) is asked for once more, with a note that is not kept: otherwise the
       // question ends with nothing to show. Not after a refusal, a filter or another reason that
       // asking again does not mend ("other"), which would come again, nor a reply cut off at the
-      // output limit with nothing in it, nor once the ceiling of the question is reached. It is one
-      // of the second tries of the question, and may be one request past `limits.toolTurns`, which
-      // counts the answer's first request.
+      // output limit with nothing in it, nor when it would pass a ceiling of the question: the
+      // ceiling of input tokens looks ahead, as before each tool request, by what was spent and
+      // what this request takes, as the meter counts it now. It is one of the second tries of the
+      // question, and may be one request past `limits.toolTurns`, which counts the answer's first
+      // request.
       const calledInstead = reply.calls.length > 0 || reply.finish === "malformed_call";
-      const ceilingReached = spentTokens() >= ceiling || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
+      const again = ceiling < Number.POSITIVE_INFINITY ? meter.current(viewFor(model)).tokens * scaleOf(model) : 0;
+      const ceilingReached = spentTokens() + again > ceiling || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
       if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && reply.finish !== "other" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
         if (ceilingReached) {
           budgetReached();
