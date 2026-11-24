@@ -1,0 +1,252 @@
+{
+ "n": 18,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "427848152a8f336a",
+  "bytes": 69834,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2283 chars #7227fca5"
+      },
+      {
+       "text": "143 chars #a9a4300b"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #19725b8c",
+        "id": "25 chars #53fb5fc8"
+       },
+       "thoughtSignature": "1004 chars #ef6771df"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "25 chars #53fb5fc8",
+        "response": "{6 keys} #8cccac67"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #94f0a456",
+        "id": "25 chars #9184d2e2"
+       },
+       "thoughtSignature": "17908 chars #1012e0c2"
+      },
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #f1ac5d55",
+        "id": "25 chars #f1f0e87c"
+       }
+      },
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #cf8aade9",
+        "id": "25 chars #df8ae36d"
+       }
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #9184d2e2",
+        "response": "{7 keys} #273c8734"
+       }
+      },
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #f1f0e87c",
+        "response": "{7 keys} #90e9cfda"
+       }
+      },
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #df8ae36d",
+        "response": "{2 keys} #64271d9e"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "analyze_whole_document",
+        "args": "{3 keys} #cc996486",
+        "id": "25 chars #05fd0777"
+       },
+       "thoughtSignature": "25420 chars #defd2dbb"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "analyze_whole_document",
+        "id": "25 chars #05fd0777",
+        "response": "{5 keys} #dd9f835a"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "179 chars #5bc1634b"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1984 chars #76e73369"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"להלן סיכום מלא של חוזה שירותי תחזוקה מס' 2\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 21,\"totalTokenCount\": 8248,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"026/114, על פי המידע שהופק מתוך המסמך:\\n\\n---\\n\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 46,\"totalTokenCount\": 8273,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"### 1. הצדדים להסכם\\n* **המזמין:** חברת אורן מערכות בע\\\"מ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 72,\"totalTokenCount\": 8299,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (L2).\\n* **הספק:** חברת קור-טק שירותים בע\\\"מ (L\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 98,\"totalTokenCount\": 8325,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"2).\\n\\n---\\n\\n### 2. מה הספק מתחייב לעשות\\nהחוזה כולל ס\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 123,\"totalTokenCount\": 8350,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"דרה של התחייבויות תפעוליות החוזרות על עצמן בסעיפי ההסכם:\\n1.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 152,\"totalTokenCount\": 8379,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **החזקת מלאי חלקי חילוף:** להחזיק מלאי חלקי חילוף ז\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 179,\"totalTokenCount\": 8406,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מין לשירות המפעל בקריית גת (L4, L14, L24 ועוד).\\n2. **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 208,\"totalTokenCount\": 8435,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"זמני הגעת טכנאי:** להגיע למחסן באשדוד בתוך 4 שעות מקריאה ד\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 237,\"totalTokenCount\": 8464,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חופה, ובתוך יומיים מקריאה רגילה (L6, L16 ועוד).\\n3. **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 265,\"totalTokenCount\": 8492,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"תיאום השבתות:** לתאם מראש עם מנהל האתר כל עבודה במפעל ב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 289,\"totalTokenCount\": 8516,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קריית גת שמחייבת השבתה (L9, L19 ועוד).\\n4. **מינוי מ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 318,\"totalTokenCount\": 8545,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"נהל לקוח:** למנות מנהל לקוח אחד שירכז את הקשר עם המזמין (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 342,\"totalTokenCount\": 8569,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"L11, L21 ועוד).\\n5. **ביטוחים:** לבטח את עוב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 366,\"totalTokenCount\": 8593,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"דיו בביטוח חבות מעבידים ובביטוח צד שלישי (L17 ועוד).\\n6. **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 395,\"totalTokenCount\": 8622,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ביקורת חודשית ודיווח:** לבצע ביקור תחזוקה חודשי במרכז הלוגיסטי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 423,\"totalTokenCount\": 8650,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קה בחולון, ולמסור דוח על הביקור (L22 ועוד).\\n\\n---\\n\\n###\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 447,\"totalTokenCount\": 8674,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 3. מה המזמין מתחייב לעשות (וזכויותיו)\\n1. **תשלום הת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 475,\"totalTokenCount\": 8702,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מורה:** המזמין מתחייב לשלם את התמורה בתוך 45 ימים מיום\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 501,\"totalTokenCount\": 8728,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" קבלת חשבונית מס כדין (L3, L13, L33, L43, L53 וע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 530,\"totalTokenCount\": 8757,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"וד).\\n2. **זכות ביקורת:** המזמין רשאי לבצע ביקורת על אי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 555,\"totalTokenCount\": 8782,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"כות השירות בכל עת, בתיאום מראש (L10, L20, L3\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 579,\"totalTokenCount\": 8806,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0, L40, L50 ועוד).\\n\\n---\\n\\n### 4. התחייבויות מש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 604,\"totalTokenCount\": 8831,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ותפות\\n* **שינויים בהסכם:** כל שינוי בהיקף השירות ייעשה בכתב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 632,\"totalTokenCount\": 8859,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ובחתימת שני הצדדים (L5, L15, L25 ועוד).\\n*\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 656,\"totalTokenCount\": 8883,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **סודיות:** הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 680,\"totalTokenCount\": 8907,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ההתקשרות (L8 ועוד).\\n\\n---\\n\\n### 5. באילו מקרים הספק\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 705,\"totalTokenCount\": 8932,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" משלם קנס ובאילו סכומים\\nהקנסות בחוזה מוגדרים לפי אתרים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 731,\"totalTokenCount\": 8958,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ספציפיים וכן כקנסות כלליים:\\n\\n#### א. קנסות כלליים\\n* **אי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 760,\"totalTokenCount\": 8987,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חור באספקת חלקי חילוף:** קנס של 5% מערך ההזמנה לכל שבוע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 789,\"totalTokenCount\": 9016,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" איחור (L65).\\n* **דליפת מידע של לקוחות המזמין:** 4\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 814,\"totalTokenCount\": 9041,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"8,000 ש\\\"ח (באחריות הספק, בנוסף לכל סעד אחר) (L15\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 842,\"totalTokenCount\": 9069,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0).\\n\\n#### ב. מרכז לוגיסטיקה (מרלו\\\"ג) בחולון\\n* **איח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 869,\"totalTokenCount\": 9096,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ור בתגובה לקריאת שירות דחופה:** 1,000 ש\\\"ח לכל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 893,\"totalTokenCount\": 9120,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מקרה (L7).\\n* **אי-הגשת דוח תחזוקה חודשי ב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 917,\"totalTokenCount\": 9144,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מועד:** 3,250 ש\\\"ח לכל מקרה (L87).\\n* **ה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 942,\"totalTokenCount\": 9169,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"פרת הוראות הבטיחות באתר:** 5,500 ש\\\"ח לכל מקרה (L166).\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 971,\"totalTokenCount\": 9198,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"* **שימוש בחלקי חילוף שאינם מקוריים:** 9,750 ש\\\"\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 996,\"totalTokenCount\": 9223,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ח לכל מקרה (L34).\\n* **אי-ביצוע תחזוקה מונעת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1020,\"totalTokenCount\": 9247,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" במועד:** 12,000 ש\\\"ח לכל מקרה (L113).\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1045,\"totalTokenCount\": 9272,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"* **השארת פסולת באתר לאחר העבודה:** 14,250 ש\\\"ח לכל מקרה (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1074,\"totalTokenCount\": 9301,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"L193).\\n* **אי-תיעוד של קריאת שירות במערכת:** 18\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1100,\"totalTokenCount\": 9327,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \",500 ש\\\"ח לכל מקרה (L60).\\n* **אי-עמידה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1124,\"totalTokenCount\": 9351,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בזמני התיקון שנקבעו בנספח השירות:** 20,75\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1148,\"totalTokenCount\": 9375,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0 ש\\\"ח לכל מקרה (L140).\\n\\n#### ג. משרדים בתל אבי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1172,\"totalTokenCount\": 9399,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ב\\n* **אי-עמידה בזמני התיקון שנקבעו בנספח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1196,\"totalTokenCount\": 9423,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" השירות:** 2,750 ש\\\"ח לכל מקרה (L12).\\n* **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1220,\"totalTokenCount\": 9447,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"החלפת טכנאי ללא הודעה מוקדמת:** 5,000 ש\\\"\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1244,\"totalTokenCount\": 9471,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ח לכל מקרה (L92).\\n* **אובדן ציוד של המזמין:**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1268,\"totalTokenCount\": 9495,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 7,250 ש\\\"ח לכל מקרה (L171).\\n* **הפר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1292,\"totalTokenCount\": 9519,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ת הוראות הבטיחות באתר:** 11,500 ש\\\"ח לכל מקרה (L\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1316,\"totalTokenCount\": 9543,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"39).\\n* **עבודה ללא אישור כניסה בתוקף:** 13,750 ש\\\"ח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1345,\"totalTokenCount\": 9572,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לכל מקרה (L118).\\n* **איחור בתגובה לקריאת שירות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1369,\"totalTokenCount\": 9596,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" דחופה:** 16,000 ש\\\"ח לכל מקרה (L198).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1393,\"totalTokenCount\": 9620,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n* **השבתת מערכת הקירור מעבר לארבע שעות:** 22,500\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1420,\"totalTokenCount\": 9647,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ש\\\"ח לכל מקרה (L145).\\n\\n#### ד. מפעל בקריית גת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1444,\"totalTokenCount\": 9671,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n* **השבתת מערכת הקירור מעבר לארבע שעות:** 4,5\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1468,\"totalTokenCount\": 9695,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"00 ש\\\"ח לכל מקרה (L18).\\n* **שימוש בחלקי חיל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1492,\"totalTokenCount\": 9719,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"וף שאינם מקוריים:** 6,750 ש\\\"ח לכל מקרה (L9\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1516,\"totalTokenCount\": 9743,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"7).\\n* **אי-ביצוע תחזוקה מונעת במועד:** 9,0\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1540,\"totalTokenCount\": 9767,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"00 ש\\\"ח לכל מקרה (L177).\\n* **אובדן ציוד\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1564,\"totalTokenCount\": 9791,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" של המזמין:** 13,250 ש\\\"ח לכל מקרה (L44).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1588,\"totalTokenCount\": 9815,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n* **אי-תיעוד של קריאת שירות במערכת:** 15,50\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1612,\"totalTokenCount\": 9839,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0 ש\\\"ח לכל מקרה (L124).\\n* **איחור בתגובה לקריאת ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1639,\"totalTokenCount\": 9866,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ירות דחופה:** 22,000 ש\\\"ח לכל מקרה (L71).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1663,\"totalTokenCount\": 9890,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n\\n#### ה. סניף בחיפה\\n* **החלפת טכנאי ללא הודעה מוקדמת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1691,\"totalTokenCount\": 9918,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \":** 2,000 ש\\\"ח לכל מקרה (L155).\\n* **אי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1715,\"totalTokenCount\": 9942,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"-הגשת דוח תחזוקה חודשי במועד:** 6,250 ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1739,\"totalTokenCount\": 9966,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\\"ח לכל מקרה (L23).\\n* **הפרת הוראות הבטיחות באתר:**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1763,\"totalTokenCount\": 9990,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 8,500 ש\\\"ח לכל מקרה (L102).\\n* **עבודה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1787,\"totalTokenCount\": 10014,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ללא אישור כניסה בתוקף:** 10,750 ש\\\"ח לכל מק\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1811,\"totalTokenCount\": 10038,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"רה (L182).\\n* **אי-ביצוע תחזוקה מונעת במועד\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1835,\"totalTokenCount\": 10062,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \":** 15,000 ש\\\"ח לכל מקרה (L49).\\n* **ה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1859,\"totalTokenCount\": 10086,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שארת פסולת באתר לאחר העבודה:** 17,250 ש\\\"ח לכל מק\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1883,\"totalTokenCount\": 10110,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"רה (L129).\\n* **אי-עמידה בזמני תיקון שנקבעו\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1908,\"totalTokenCount\": 10135,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בנספח השירות:** 23,750 ש\\\"ח לכל מקרה (L7\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1932,\"totalTokenCount\": 10159,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"6).\\n\\n#### ו. מחסן באשדוד\\n* **השבתת מערכת הקירור מעבר לא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1960,\"totalTokenCount\": 10187,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"רבע שעות:** 1,500 ש\\\"ח לכל מקרה (L81).\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 1984,\"totalTokenCount\": 10211,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"* **שימוש בחלקי חילוף שאינם מקוריים:** 3,750 ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2008,\"totalTokenCount\": 10235,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\\"ח לכל מקרה (L161).\\n* **החלפת טכנאי ללא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2032,\"totalTokenCount\": 10259,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" הודעה מוקדמת:** 8,000 ש\\\"ח לכל מקרה (L28\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2056,\"totalTokenCount\": 10283,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \").\\n* **אובדן ציוד של המזמין:** 10,250 ש\\\"ח לכל מקרה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2085,\"totalTokenCount\": 10312,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (L108).\\n* **אי-תיעוד קריאת שירות במערכת:** \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2109,\"totalTokenCount\": 10336,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"12,500 ש\\\"ח לכל מקרה (L187).\\n* **עבודה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2133,\"totalTokenCount\": 10360,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ללא אישור כניסה בתוקף:** 16,750 ש\\\"ח לכל מק\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2157,\"totalTokenCount\": 10384,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"רה (L55).\\n* **איחור בתגובה לקריאת שירות דחופה:**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2181,\"totalTokenCount\": 10408,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 19,000 ש\\\"ח לכל מקרה (L134).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8227,\"candidatesTokenCount\": 2201,\"totalTokenCount\": 10428,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8227}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Ep8BCpwBAWkUfRNaaQKBMGKZWuo14RJl4j+dNqngsKl5b5/W2tn+eWr+VoPgyiyRF0uKuCaOt5fR9Lcoi4v2RWPnSP0PkNhQQqJ/X6IfG9Hy9sbuc+t+75JWDp7mVhmtesMDNBKKc8Wv9VsWRwNZXRMsH8DpfBU3v8vO3wcdNvuPmDw/mRQJ970Q8g0yHZNXxlF3OQJGKUZy3CFzCv/+FYSm\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 16717,\"candidatesTokenCount\": 2201,\"totalTokenCount\": 18918,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 16717}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"SHcFa4nRMu__vdIProWhoQk\"}\r\n\r\n"
+  ]
+ }
+}

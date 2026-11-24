@@ -1,0 +1,75 @@
+{
+ "n": 7,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "ce5dcc2d54c2de60",
+  "bytes": 31723,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19755 chars #8f237ee8"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 32768
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "**פעילות שגרתית ותחזוקות מתוכננות (23 בנובמבר – 30 בנובמבר 2026, שבוע רביעי ותחילת שבוע חמישי):**\nלאורך כל המשמרות (בוקר, ערב, לילה) מתועדת שגרה קבועה ומחזורית הכוללת (L968–L1279):\n- החלפות משמרת (\"אין משימות פתוחות\").\n- בדיקות סביבתיות: סבב בדיקה בחדר שרתים (טמפרטורה קבועה 20 מעלות, הכול תקין), בדיקת לחץ במערכת כיבוי אש בגז (לחץ תקין).\n- חשמל וגנרטור: בדיקות לוחות חשמל (עומס רגיל), בדיקות גנרטור שבועיות (עברו כסדרן), מעקב אחר מלאי סולר בגנרטור (נע בין 74% ל-94%).\n- מיזוג אוויר: תחזוקה מתוכננת במזגן 2 ע\"י טכנאי מיזוג, וניקוי מסנני אוויר במזגנים (1 ו-2, 2 ו-3, 3 ו-4, 4 ו-5 לסירוגין).\n- גיבויים ותוכנה: החלפת קלטות גיבוי והעברתן לכספת, עדכוני תוכנה מתוכננים על שרתי הדואר.\n- אבטחה, כבילה ותפעול שוטף: בדיקת מצלמות אבטחה (כולן מקליטות), עדכון תיעוד כבילה בארונות תקשורת (ארונות 2, 5, 8) ע\"י טכנאי הרשת, קבלת משלוחי דיסקים ורישום במלאי, סבבי ניקיון בחדר הציוד, ושליחת הודעות למשתמשים על חלון תחזוקה של יום שישי.\n\n---\n\n**אירוע חריג:**\n- **נושא:** פקיעת תעודת אבטחה בפורטל הלקוחות.\n- **מועד התחלה:** יום חמישי, 26 בנובמבר 2026, שעה 20:10 (משמרת ערב) (L1120).\n- **תיאור האירוע:** תעודת האבטחה של פורטל הלקוחות פגה, ולקוחות קיבלו אזהרה בדפדפן (L1120).\n- **אופן הטיפול ומועד סיום:** הותקנה תעודה חדשה בפורטל הלקוחות והאזהרה נעלמה ב-26 בנובמבר 2026, שעה 21:05 (משמרת ערב) (L1123).",
+        "thoughtSignature": "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"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12161,
+    "candidatesTokenCount": 688,
+    "totalTokenCount": 14297,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12161
+     }
+    ],
+    "thoughtsTokenCount": 1448,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "zXcFa77RCraxvdIP986e0Qk"
+  }
+ }
+}

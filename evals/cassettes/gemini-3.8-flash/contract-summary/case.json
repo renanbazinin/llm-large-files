@@ -29,26 +29,27 @@
     }
    ],
    "passed": true,
-   "requests": 21,
-   "inputTokens": 61656,
-   "cachedInputTokens": 8702,
-   "outputTokens": 49052,
-   "thoughtTokens": 23777,
-   "ms": 253606,
+   "requests": 18,
+   "inputTokens": 65348,
+   "cachedInputTokens": 7014,
+   "outputTokens": 58885,
+   "thoughtTokens": 35369,
+   "ms": 310291,
    "ceilingReached": false,
    "citations": {
-    "checked": 32,
-    "supported": 32,
+    "checked": 64,
+    "supported": 64,
     "unchecked": 0,
     "unsupported": []
    },
    "tools": [
     "read_document",
-    "analyze_whole_document",
     "search_document",
-    "read_document"
+    "search_document",
+    "search_document",
+    "analyze_whole_document"
    ],
-   "reads": 2,
+   "reads": 1,
    "wholeReads": 1,
    "log": [
     {
@@ -57,14 +58,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5585,
-     "ms": 4061,
+     "estimatedInputTokens": 5575,
+     "ms": 3304,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3666,
-      "cachedInputTokens": 1642,
-      "outputTokens": 199,
-      "thoughtTokens": 165
+      "inputTokens": 3656,
+      "cachedInputTokens": 0,
+      "outputTokens": 181,
+      "thoughtTokens": 147
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -76,49 +77,52 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 6296,
-     "ms": 20097,
+     "estimatedInputTokens": 6286,
+     "ms": 30355,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4549,
-      "cachedInputTokens": 2479,
-      "outputTokens": 2299,
-      "thoughtTokens": 2084
+      "inputTokens": 4521,
+      "cachedInputTokens": 2469,
+      "outputTokens": 3593,
+      "thoughtTokens": 3470
      },
      "finish": "complete",
      "finishReason": "STOP",
-     "toolCalls": 2
+     "toolCalls": 3
     },
     {
      "requestId": "req_3",
-     "role": "reader",
-     "purpose": "part",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.8-flash",
-     "detail": "part 1 of 5",
-     "callId": "call_2",
-     "ms": 15950,
+     "turn": 3,
+     "estimatedInputTokens": 8173,
+     "ms": 39182,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2181,
-      "cachedInputTokens": 0,
-      "outputTokens": 1934,
-      "thoughtTokens": 1000
-     }
+      "inputTokens": 9991,
+      "cachedInputTokens": 4545,
+      "outputTokens": 5058,
+      "thoughtTokens": 4873
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
     },
     {
      "requestId": "req_4",
      "role": "reader",
      "purpose": "part",
      "model": "gemini-3.8-flash",
-     "detail": "part 2 of 5",
-     "callId": "call_2",
-     "ms": 34271,
+     "detail": "part 1 of 5",
+     "callId": "call_5",
+     "ms": 18549,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2220,
+      "inputTokens": 2191,
       "cachedInputTokens": 0,
-      "outputTokens": 2213,
-      "thoughtTokens": 1179
+      "outputTokens": 2482,
+      "thoughtTokens": 1433
      }
     },
     {
@@ -126,15 +130,15 @@
      "role": "reader",
      "purpose": "part",
      "model": "gemini-3.8-flash",
-     "detail": "part 3 of 5",
-     "callId": "call_2",
-     "ms": 34040,
+     "detail": "part 2 of 5",
+     "callId": "call_5",
+     "ms": 35501,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2192,
+      "inputTokens": 2230,
       "cachedInputTokens": 0,
-      "outputTokens": 2376,
-      "thoughtTokens": 1454
+      "outputTokens": 2311,
+      "thoughtTokens": 1187
      }
     },
     {
@@ -142,15 +146,15 @@
      "role": "reader",
      "purpose": "part",
      "model": "gemini-3.8-flash",
-     "detail": "part 4 of 5",
-     "callId": "call_2",
-     "ms": 31857,
+     "detail": "part 3 of 5",
+     "callId": "call_5",
+     "ms": 38971,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2201,
+      "inputTokens": 2202,
       "cachedInputTokens": 0,
-      "outputTokens": 2113,
-      "thoughtTokens": 1104
+      "outputTokens": 2879,
+      "thoughtTokens": 1459
      }
     },
     {
@@ -158,31 +162,31 @@
      "role": "reader",
      "purpose": "part",
      "model": "gemini-3.8-flash",
-     "detail": "part 5 of 5",
-     "callId": "call_2",
-     "ms": 13010,
+     "detail": "part 4 of 5",
+     "callId": "call_5",
+     "ms": 72876,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 1095,
+      "inputTokens": 4422,
       "cachedInputTokens": 0,
-      "outputTokens": 1538,
-      "thoughtTokens": 953
+      "outputTokens": 7796,
+      "thoughtTokens": 5694
      }
     },
     {
      "requestId": "req_8",
      "role": "reader",
-     "purpose": "merge",
+     "purpose": "part",
      "model": "gemini-3.8-flash",
-     "detail": "round 1: 1 of 4",
-     "callId": "call_2",
-     "ms": 16190,
+     "detail": "part 5 of 5",
+     "callId": "call_5",
+     "ms": 13736,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 1162,
+      "inputTokens": 1105,
       "cachedInputTokens": 0,
-      "outputTokens": 2113,
-      "thoughtTokens": 1205
+      "outputTokens": 1718,
+      "thoughtTokens": 1074
      }
     },
     {
@@ -190,15 +194,15 @@
      "role": "reader",
      "purpose": "merge",
      "model": "gemini-3.8-flash",
-     "detail": "round 1: 2 of 4",
-     "callId": "call_2",
-     "ms": 15468,
+     "detail": "round 1: 1 of 4",
+     "callId": "call_5",
+     "ms": 16645,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 1263,
+      "inputTokens": 1287,
       "cachedInputTokens": 0,
-      "outputTokens": 1944,
-      "thoughtTokens": 985
+      "outputTokens": 2153,
+      "thoughtTokens": 1137
      }
     },
     {
@@ -206,15 +210,15 @@
      "role": "reader",
      "purpose": "merge",
      "model": "gemini-3.8-flash",
-     "detail": "round 1: 3 of 4",
-     "callId": "call_2",
-     "ms": 14081,
+     "detail": "round 1: 2 of 4",
+     "callId": "call_5",
+     "ms": 14155,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 1152,
+      "inputTokens": 1363,
       "cachedInputTokens": 0,
-      "outputTokens": 1681,
-      "thoughtTokens": 911
+      "outputTokens": 1903,
+      "thoughtTokens": 852
      }
     },
     {
@@ -222,15 +226,15 @@
      "role": "reader",
      "purpose": "merge",
      "model": "gemini-3.8-flash",
-     "detail": "round 1: 4 of 4",
-     "callId": "call_2",
-     "ms": 10798,
+     "detail": "round 1: 3 of 4",
+     "callId": "call_5",
+     "ms": 18280,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 1837,
+      "inputTokens": 1660,
       "cachedInputTokens": 0,
-      "outputTokens": 1406,
-      "thoughtTokens": 0
+      "outputTokens": 2567,
+      "thoughtTokens": 1293
      }
     },
     {
@@ -238,14 +242,14 @@
      "role": "reader",
      "purpose": "merge",
      "model": "gemini-3.8-flash",
-     "detail": "round 2: 1 of 3",
-     "callId": "call_2",
-     "ms": 11138,
+     "detail": "round 1: 4 of 4",
+     "callId": "call_5",
+     "ms": 9654,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2088,
+      "inputTokens": 1976,
       "cachedInputTokens": 0,
-      "outputTokens": 1467,
+      "outputTokens": 1229,
       "thoughtTokens": 0
      }
     },
@@ -254,15 +258,15 @@
      "role": "reader",
      "purpose": "merge",
      "model": "gemini-3.8-flash",
-     "detail": "round 2: 2 of 3",
-     "callId": "call_2",
-     "ms": 12025,
+     "detail": "round 2: 1 of 2",
+     "callId": "call_5",
+     "ms": 25500,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 990,
+      "inputTokens": 2298,
       "cachedInputTokens": 0,
-      "outputTokens": 1644,
-      "thoughtTokens": 878
+      "outputTokens": 3766,
+      "thoughtTokens": 2131
      }
     },
     {
@@ -270,15 +274,15 @@
      "role": "reader",
      "purpose": "merge",
      "model": "gemini-3.8-flash",
-     "detail": "round 2: 3 of 3",
-     "callId": "call_2",
-     "ms": 19953,
+     "detail": "round 2: 2 of 2",
+     "callId": "call_5",
+     "ms": 43473,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 1626,
+      "inputTokens": 2734,
       "cachedInputTokens": 0,
-      "outputTokens": 2600,
-      "thoughtTokens": 1316
+      "outputTokens": 5814,
+      "thoughtTokens": 3856
      }
     },
     {
@@ -286,97 +290,46 @@
      "role": "reader",
      "purpose": "merge",
      "model": "gemini-3.8-flash",
-     "detail": "round 3: 1 of 2",
-     "callId": "call_2",
-     "ms": 60020,
+     "detail": "round 3: 1 of 1",
+     "callId": "call_5",
+     "ms": 38104,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4908,
+      "inputTokens": 3824,
       "cachedInputTokens": 0,
-      "outputTokens": 8560,
-      "thoughtTokens": 5067
+      "outputTokens": 6184,
+      "thoughtTokens": 3255
      }
     },
     {
      "requestId": "req_16",
      "role": "reader",
-     "purpose": "merge",
+     "purpose": "final",
      "model": "gemini-3.8-flash",
-     "detail": "round 3: 2 of 2",
-     "callId": "call_2",
-     "ms": 11795,
+     "detail": "the answer",
+     "callId": "call_5",
+     "ms": 47660,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 1504,
+      "inputTokens": 3171,
       "cachedInputTokens": 0,
-      "outputTokens": 1389,
-      "thoughtTokens": 0
+      "outputTokens": 7050,
+      "thoughtTokens": 3508
      }
     },
     {
      "requestId": "req_17",
-     "role": "reader",
-     "purpose": "merge",
-     "model": "gemini-3.8-flash",
-     "detail": "round 4: 1 of 1",
-     "callId": "call_2",
-     "ms": 37357,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 3487,
-      "cachedInputTokens": 0,
-      "outputTokens": 5412,
-      "thoughtTokens": 2895
-     }
-    },
-    {
-     "requestId": "req_18",
-     "role": "reader",
-     "purpose": "final",
-     "model": "gemini-3.8-flash",
-     "detail": "the answer",
-     "callId": "call_2",
-     "ms": 39837,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 2749,
-      "cachedInputTokens": 0,
-      "outputTokens": 5745,
-      "thoughtTokens": 2468
-     }
-    },
-    {
-     "requestId": "req_19",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.8-flash",
-     "turn": 3,
-     "estimatedInputTokens": 10817,
-     "ms": 5329,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 11128,
-      "cachedInputTokens": 4581,
-      "outputTokens": 149,
-      "thoughtTokens": 113
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_20",
      "role": "answer",
      "purpose": "closing",
      "model": "gemini-3.8-flash",
      "turn": 4,
-     "estimatedInputTokens": 11176,
-     "ms": 16398,
+     "estimatedInputTokens": 12002,
+     "ms": 17004,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 9658,
+      "inputTokens": 16717,
       "cachedInputTokens": 0,
-      "outputTokens": 2270,
+      "outputTokens": 2201,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -384,7 +337,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "להלן סיכום מלא ומפורט של **חוזה שירותי תחזוקה מס' 2026/114** שנחתם בין **חברת אורן מערכות בע\"מ** (\"המזמין\") לבין **חברת קור-טק שירותים בע\"מ** (\"הספק\") (L1–2):\n\n---\n\n### 1. מה הספק מתחייב לעשות\n* **זמני הגעה וקריאות שירות (SLA):** הגעת טכנאי מטעם הספק למחסן באשדוד בתוך 4 שעות לכל היותר מקבלת קריאה דחופה, ובתוך יומיים מקבלת קריאה רגילה (L6).\n* **מלאי חלקי חילוף:** החזקת מלאי זמין של חלקי חילוף ייעודי לצורכי השירות במפעל בקריית גת (L4).\n* **ביקורי תחזוקה ודיווח שוטף:** ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון, והגשת דוח מסודר ומפורט אודות הביקור (L22, L152).\n* **תיאום השבתות מראש:** תיאום מראש עם מנהל האתר של כל עבודה במפעל בקריית גת המחייבת השבתה (L9, L149).\n* **איש קשר ייעודי:** מינוי מנהל לקוח יחיד אשר ירכז את כלל הקשר השוטף מול המזמין (L11, L151).\n* **ביטוח עובדים:** ביטוח כלל עובדי הספק בפוליסות חבות מעבידים וביטוח אחריות צד שלישי (L17).\n* **סודיות:** שמירה על סודיות מוחלטת לגבי כל מידע שהגיע לידיעת הספק במסגרת ההתקשרות (התחייבות הדדית) (L8, L148).\n* **שינויים בהסכם:** כל שינוי בהיקף השירות חייב להיעשות בכתב ובחתימת שני הצדדים (L5).\n\n---\n\n### 2. מה המזמין מתחייב לעשות וזכויותיו\n* **תשלום התמורה:** תשלום התמורה לספק בתוך 45 ימים ממועד קבלת חשבונית מס כדין (L3, L153).\n* **זכות פיקוח וביקורת:** זכות המזמין לבצע ביקורת על איכות השירות בכל עת, בכפוף לתיאום מראש (L10).\n* **שמירת סודיות:** חובת סודיות הדדית לגבי כל מידע שנחשף אליו במסגרת ההתקשרות (L8, L148).\n\n---\n\n### 3. המקרים שבהם הספק משלם קנס וגובה הסכומים\n\nהחוזה קובע סנקציות כספיות וקנסות לפי אתרים שונים וכן קנסות כלליים:\n\n#### א. מרכז הלוגיסטיקה בחולון\n* **איחור בתגובה לקריאת שירות דחופה:** קנס בסך **1,000 ש\"ח** לכל מקרה (L7).\n* **אי-הגשת דוח תחזוקה חודשי במועד:** קנס בסך **3,250 ש\"ח** לכל מקרה.\n* **הפרת הוראות בטיחות באתר:** קנס בסך **5,500 ש\"ח** לכל מקרה.\n* **שימוש בחלקי חילוף שאינם מקוריים:** קנס בסך **9,750 ש\"ח** לכל מקרה (L34).\n* **אי-ביצוע תחזוקה מונעת בזמן:** קנס בסך **12,000 ש\"ח** לכל מקרה.\n* **השארת פסולת באתר בתום העבודה:** קנס בסך **14,250 ש\"ח** לכל מקרה.\n* **אי-תיעוד קריאת שירות במערכת:** קנס בסך **18,500 ש\"ח** לכל מקרה (L60).\n* **אי-עמידה בזמני התיקון שנקבעו בנספח השירות:** קנס בסך **20,750 ש\"ח** לכל מקרה.\n\n#### ב. המשרדים בתל אביב\n* **אי-עמידה בזמני התיקון שנקבעו בנספח השירות:** קנס בסך **2,750 ש\"ח** לכל מקרה (L12).\n* **החלפת טכנאי ללא הודעה מוקדמת:** קנס בסך **5,000 ש\"ח** לכל מקרה.\n* **אובדן ציוד השייך למזמין:** קנס בסך **7,250 ש\"ח** לכל מקרה.\n* **הפרת הוראות בטיחות באתר:** קנס בסך **11,500 ש\"ח** לכל מקרה (L39).\n* **עבודה ללא אישור כניסה בתוקף:** קנס בסך **13,750 ש\"ח** לכל מקרה.\n* **איחור בתגובה לקריאת שירות דחופה:** קנס בסך **16,000 ש\"ח** לכל מקרה (L198).\n* **השבתת מערכת הקירור מעבר לארבע שעות:** קנס בסך **22,500 ש\"ח** לכל מקרה.\n\n#### ג. המפעל בקריית גת\n* **השבתת מערכת הקירור מעבר לארבע שעות:** קנס בסך **4,500 ש\"ח** לכל מקרה (L18).\n* **שימוש בחלקי חילוף שאינם מקוריים:** קנס בסך **6,750 ש\"ח** לכל מקרה.\n* **אי-ביצוע תחזוקה מונעת במועד:** קנס בסך **9,000 ש\"ח** לכל מקרה.\n* **אובדן ציוד של המזמין:** קנס בסך **13,250 ש\"ח** לכל מקרה (L44).\n* **אי-תיעוד קריאת שירות במערכת:** קנס בסך **15,500 ש\"ח** לכל מקרה.\n* **איחור בתגובה לקריאת שירות דחופה:** קנס בסך **22,000 ש\"ח** לכל מקרה.\n\n#### ד. סניף חיפה\n* **החלפת טכנאי ללא הודעה מוקדמת:** קנס בסך **2,000 ש\"ח** לכל מקרה.\n* **אי-הגשת דוח תחזוקה חודשי במועד:** קנס בסך **6,250 ש\"ח** לכל מקרה (L23).\n* **הפרת הוראות בטיחות:** קנס בסך **8,500 ש\"ח** לכל מקרה.\n* **עבודה ללא אישור כניסה בתוקף:** קנס בסך **10,750 ש\"ח** לכל מקרה.\n* **אי-ביצוע תחזוקה מונעת במועד:** קנס בסך **15,000 ש\"ח** לכל מקרה (L49).\n* **השארת פסולת באתר:** קנס בסך **17,250 ש\"ח** לכל מקרה.\n* **אי-עמידה בזמני התיקון שנקבעו בנספח השירות:** קנס בסך **23,750 ש\"ח** לכל מקרה.\n\n#### ה. המחסן באשדוד\n* **השבתת מערכת הקירור מעבר לארבע שעות:** קנס בסך **1,500 ש\"ח** לכל מקרה.\n* **שימוש בחלקי חילוף שאינם מקוריים:** קנס בסך **3,750 ש\"ח** לכל מקרה.\n* **החלפת טכנאי ללא הודעה מוקדמת:** קנס בסך **8,000 ש\"ח** לכל מקרה (L28).\n* **אובדן ציוד של המזמין:** קנס בסך **10,250 ש\"ח** לכל מקרה.\n* **אי-תיעוד קריאת שירות במערכת:** קנס בסך **12,500 ש\"ח** לכל מקרה.\n* **עבודה ללא אישור כניסה בתוקף:** קנס בסך **16,750 ש\"ח** לכל מקרה (L55).\n* **איחור בתגובה לקריאת שירות דחופה:** קנס בסך **19,000 ש\"ח** לכל מקרה.\n\n#### ו. קנסות כלליים (אינם מוגבלים לאתר מסוים)\n* **איחור באספקת חלקי חילוף:** קנס של **5% מערך ההזמנה** לכל שבוע איחור (L65).\n* **דליפת מידע של לקוחות המזמין באחריות הספק:** קנס בסך **48,000 ש\"ח**, בנוסף לכל סעד אחר (L150)."
+   "answer": "להלן סיכום מלא של חוזה שירותי תחזוקה מס' 2026/114, על פי המידע שהופק מתוך המסמך:\n\n---\n\n### 1. הצדדים להסכם\n* **המזמין:** חברת אורן מערכות בע\"מ (L2).\n* **הספק:** חברת קור-טק שירותים בע\"מ (L2).\n\n---\n\n### 2. מה הספק מתחייב לעשות\nהחוזה כולל סדרה של התחייבויות תפעוליות החוזרות על עצמן בסעיפי ההסכם:\n1. **החזקת מלאי חלקי חילוף:** להחזיק מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L4, L14, L24 ועוד).\n2. **זמני הגעת טכנאי:** להגיע למחסן באשדוד בתוך 4 שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה (L6, L16 ועוד).\n3. **תיאום השבתות:** לתאם מראש עם מנהל האתר כל עבודה במפעל בקריית גת שמחייבת השבתה (L9, L19 ועוד).\n4. **מינוי מנהל לקוח:** למנות מנהל לקוח אחד שירכז את הקשר עם המזמין (L11, L21 ועוד).\n5. **ביטוחים:** לבטח את עובדיו בביטוח חבות מעבידים ובביטוח צד שלישי (L17 ועוד).\n6. **ביקורת חודשית ודיווח:** לבצע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון, ולמסור דוח על הביקור (L22 ועוד).\n\n---\n\n### 3. מה המזמין מתחייב לעשות (וזכויותיו)\n1. **תשלום התמורה:** המזמין מתחייב לשלם את התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L3, L13, L33, L43, L53 ועוד).\n2. **זכות ביקורת:** המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L10, L20, L30, L40, L50 ועוד).\n\n---\n\n### 4. התחייבויות משותפות\n* **שינויים בהסכם:** כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים (L5, L15, L25 ועוד).\n* **סודיות:** הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות (L8 ועוד).\n\n---\n\n### 5. באילו מקרים הספק משלם קנס ובאילו סכומים\nהקנסות בחוזה מוגדרים לפי אתרים ספציפיים וכן כקנסות כלליים:\n\n#### א. קנסות כלליים\n* **איחור באספקת חלקי חילוף:** קנס של 5% מערך ההזמנה לכל שבוע איחור (L65).\n* **דליפת מידע של לקוחות המזמין:** 48,000 ש\"ח (באחריות הספק, בנוסף לכל סעד אחר) (L150).\n\n#### ב. מרכז לוגיסטיקה (מרלו\"ג) בחולון\n* **איחור בתגובה לקריאת שירות דחופה:** 1,000 ש\"ח לכל מקרה (L7).\n* **אי-הגשת דוח תחזוקה חודשי במועד:** 3,250 ש\"ח לכל מקרה (L87).\n* **הפרת הוראות הבטיחות באתר:** 5,500 ש\"ח לכל מקרה (L166).\n* **שימוש בחלקי חילוף שאינם מקוריים:** 9,750 ש\"ח לכל מקרה (L34).\n* **אי-ביצוע תחזוקה מונעת במועד:** 12,000 ש\"ח לכל מקרה (L113).\n* **השארת פסולת באתר לאחר העבודה:** 14,250 ש\"ח לכל מקרה (L193).\n* **אי-תיעוד של קריאת שירות במערכת:** 18,500 ש\"ח לכל מקרה (L60).\n* **אי-עמידה בזמני התיקון שנקבעו בנספח השירות:** 20,750 ש\"ח לכל מקרה (L140).\n\n#### ג. משרדים בתל אביב\n* **אי-עמידה בזמני התיקון שנקבעו בנספח השירות:** 2,750 ש\"ח לכל מקרה (L12).\n* **החלפת טכנאי ללא הודעה מוקדמת:** 5,000 ש\"ח לכל מקרה (L92).\n* **אובדן ציוד של המזמין:** 7,250 ש\"ח לכל מקרה (L171).\n* **הפרת הוראות הבטיחות באתר:** 11,500 ש\"ח לכל מקרה (L39).\n* **עבודה ללא אישור כניסה בתוקף:** 13,750 ש\"ח לכל מקרה (L118).\n* **איחור בתגובה לקריאת שירות דחופה:** 16,000 ש\"ח לכל מקרה (L198).\n* **השבתת מערכת הקירור מעבר לארבע שעות:** 22,500 ש\"ח לכל מקרה (L145).\n\n#### ד. מפעל בקריית גת\n* **השבתת מערכת הקירור מעבר לארבע שעות:** 4,500 ש\"ח לכל מקרה (L18).\n* **שימוש בחלקי חילוף שאינם מקוריים:** 6,750 ש\"ח לכל מקרה (L97).\n* **אי-ביצוע תחזוקה מונעת במועד:** 9,000 ש\"ח לכל מקרה (L177).\n* **אובדן ציוד של המזמין:** 13,250 ש\"ח לכל מקרה (L44).\n* **אי-תיעוד של קריאת שירות במערכת:** 15,500 ש\"ח לכל מקרה (L124).\n* **איחור בתגובה לקריאת שירות דחופה:** 22,000 ש\"ח לכל מקרה (L71).\n\n#### ה. סניף בחיפה\n* **החלפת טכנאי ללא הודעה מוקדמת:** 2,000 ש\"ח לכל מקרה (L155).\n* **אי-הגשת דוח תחזוקה חודשי במועד:** 6,250 ש\"ח לכל מקרה (L23).\n* **הפרת הוראות הבטיחות באתר:** 8,500 ש\"ח לכל מקרה (L102).\n* **עבודה ללא אישור כניסה בתוקף:** 10,750 ש\"ח לכל מקרה (L182).\n* **אי-ביצוע תחזוקה מונעת במועד:** 15,000 ש\"ח לכל מקרה (L49).\n* **השארת פסולת באתר לאחר העבודה:** 17,250 ש\"ח לכל מקרה (L129).\n* **אי-עמידה בזמני תיקון שנקבעו בנספח השירות:** 23,750 ש\"ח לכל מקרה (L76).\n\n#### ו. מחסן באשדוד\n* **השבתת מערכת הקירור מעבר לארבע שעות:** 1,500 ש\"ח לכל מקרה (L81).\n* **שימוש בחלקי חילוף שאינם מקוריים:** 3,750 ש\"ח לכל מקרה (L161).\n* **החלפת טכנאי ללא הודעה מוקדמת:** 8,000 ש\"ח לכל מקרה (L28).\n* **אובדן ציוד של המזמין:** 10,250 ש\"ח לכל מקרה (L108).\n* **אי-תיעוד קריאת שירות במערכת:** 12,500 ש\"ח לכל מקרה (L187).\n* **עבודה ללא אישור כניסה בתוקף:** 16,750 ש\"ח לכל מקרה (L55).\n* **איחור בתגובה לקריאת שירות דחופה:** 19,000 ש\"ח לכל מקרה (L134)."
   }
  ],
  "passed": true

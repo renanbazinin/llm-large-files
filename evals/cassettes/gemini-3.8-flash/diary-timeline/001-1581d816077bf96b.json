@@ -1,0 +1,103 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "1581d816077bf96b",
+  "bytes": 14205,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3046 chars #48a1a980"
+      },
+      {
+       "text": "144 chars #97e5e7a9"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1985 chars #96da3494"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"search_document\",\"args\": {\"mode\": \"regex\",\"document_id\": \"diary-1\",\"query\": \"תקלה|חריג|אזהרה|התראה|נפיל|הצפה|שריפה|עשן|הפסק|חום|טמפרטורה|קריס|דליפ|תקוע|הושבת\"},\"id\": \"call_17064021081786663863\"},\"thoughtSignature\": \"ErUFCrIFAWkUfRONHEcBjo3gly+UafrwqspjrkLHdbhY+7wb/6OwhTAhznCO3OQ/oN9g3kBeEZM+SME+2Hhb5yi9Fuk9DnMuyVT4FaAXMGZG9kAQ8DUGPZqTSk5epR5lIJaSKN8Q+DtKC2D/e+pSpTLwrLt8uu1rYxMVtkGSggtMWOpzcrUs/+Md7tiwAk/v7D+O3gI/q6SSedrMhK9caFBrtBXqwVr8ip179n6pjM5R73Tb03tjbSTg5RJ1dBTHM3naCpeT7Fgt0cIFl84ckOxdhmqIeKzSCYGnvRv/ZMhuEv7l4SKG5t+OKoYDu8pwb68Yay9qeJT4UXZUwyL4Gq2Pq67L7tyfymIO/C/8N9Rwm4/AEasBNHdkQH+3hVfxeyG7j6VKD2CLu0skz5qyoCAVyIrd8gDpxWhLfpG/h3CPtkTxB5dbuKh4MIp7f8XZIAIIugTL+fu0ySrYwSJeGDzNA7rtXV1BfkpvKikyhpD4sTPXBonJsI4LBRtZ4z12rlm1DCM5EkSXPz9Ud5mOjJZKFtQIw/EPp0VQV359i/5oowrxZCuqlL9XzeNFltkdD0XcySTntdI4K5UOZphox+Q2N5hPfJkqYvP0GB",
+   "RuSyHP5urDxHWfHA19YOMVlIjW8oIfYdgm6QSsGR+dblHJ+fBVGuMnr576kZiVaH2f42TYmMqwZDEVv8LMAwptJiawfuPSmFzzJQ/EJl/yB+qpHzFiLfNApUlPpNNBHG9tbga5dxQrt/PH2HQjgYAzTfQwJFGXsc990O3rG6L+w759wd0QCpAxBylc+SjyxQOuJreHVoZARhi5p+y2bR1L4J2MeXp4SGnJ4bFrFnUyFwfX3WxWwGPl3prOKMF7r0uMOlK3pQijzxLwgaz3+dj7R4rocWSRDOqqkybHphCzqZs5UCIi1AZQ4H2K\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4287,\"candidatesTokenCount\": 91,\"totalTokenCount\": 4497,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4287}],\"thoughtsTokenCount\": 119,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"WXcFa6SBNp21nsEP0NWGkQ8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4287,\"candidatesTokenCount\": 91,\"totalTokenCount\": 4497,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4287}],\"thoughtsTokenCount\": 119,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"WXcFa6SBNp21nsEP0NWGkQ8\"}\r\n\r\n"
+  ]
+ }
+}
