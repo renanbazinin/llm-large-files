@@ -2,6 +2,7 @@
 // side): a tool guide without file names or figures that change (`guide`), a header line for each
 // document kept with its block (`listing`), with "replaces doc_…" for a file uploaded again under
 // its name, and room kept for the declarations, the cards, the header and the guide (`reserve`).
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { createLargeFiles, estimateTokens, MemoryDocumentStore, resolveBudget, type DocumentMeta, type LargeFiles, type PreparedContext } from "llm-large-files";
@@ -25,6 +26,12 @@ function requestTokens(prepared: PreparedContext): number {
   const cards = prepared.plan.searchable.map((meta) => estimateTokens(prepared.blocks.get(meta.id)!));
   return prepared.plan.inlineTokens + cards.reduce((sum, tokens) => sum + tokens, 0) + estimateTokens(renderListing([...prepared.listing!.values()])) + estimateTokens(prepared.guide!);
 }
+
+/**
+ * A document ID of the shape the library gives ("doc_" and 32 hex digits), fixed by the file's
+ * name: the size of a card, which holds the ID, is then the same in every run.
+ */
+const fixedId = (name: string) => `doc_${createHash("md5").update(name).digest("hex")}`;
 
 const steps = (count: number) => Array.from({ length: count }, (_, i) => `Step ${i + 1}: restart worker ${i % 9} and check queue depth on shard ${i % 12} before paging.`).join("\n");
 
@@ -228,12 +235,13 @@ describe("room kept for what is besides the documents (reserve)", () => {
 
   it("does not move small files to cards larger than they are, nor demote pinned ones, when nothing fits", async () => {
     // A window a little too small for 70 short notes beside the cards of 2 logs: no plan fits,
-    // and each note's card is about twice the note.
+    // and each note's card is about twice the note. The IDs are fixed: a card holds its document's
+    // ID, and with random ones the card of a note came out 0.3 tokens short of the bound below.
     const files = library({ budget: { contextTokens: 20_000, reservedTokens: 4_000, inlineTokens: 30_000 } });
     const logs: string[] = [];
-    for (let i = 0; i < 2; i++) logs.push((await files.ingest({ name: `big-${i}.log`, bytes: utf8(serviceLog(4_000 + i)) })).id);
+    for (let i = 0; i < 2; i++) logs.push((await files.ingest({ name: `big-${i}.log`, id: fixedId(`big-${i}.log`), bytes: utf8(serviceLog(4_000 + i)) })).id);
     const notes: string[] = [];
-    for (let i = 0; i < 70; i++) notes.push((await files.ingest({ name: `note-${i}.md`, bytes: utf8(Array.from({ length: 8 }, (_, j) => `Note ${i}.${j}: check worker ${j} on shard ${i}.`).join("\n")) })).id);
+    for (let i = 0; i < 70; i++) notes.push((await files.ingest({ name: `note-${i}.md`, id: fixedId(`note-${i}.md`), bytes: utf8(Array.from({ length: 8 }, (_, j) => `Note ${i}.${j}: check worker ${j} on shard ${i}.`).join("\n")) })).id);
     const ids = [...logs, ...notes];
     const plain = await files.prepare(ids, base);
     expect(plain.plan.inline).toHaveLength(70);
