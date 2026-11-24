@@ -20,6 +20,17 @@ describe("checkCitations", () => {
     expect(checkCitations(text, evidence, names)).toEqual({ checked: 5, supported: 4, unchecked: 0, unsupported: [{ document: "db.log", line: 41 }] });
   });
 
+  it("reads a line number written with commas between groups of three as one number", () => {
+    const big = [read("doc_log", "app.log", [[1_150, 1_250]])];
+    const names1 = { "doc_log": "app.log" };
+    // 0.10.0 read "L1,200" as line 1.
+    expect(checkCitations("The timeout is at (app.log L1,200), the retry at (app.log line 1,240-1,245).", big, names1)).toEqual({ checked: 2, supported: 2, unchecked: 0, unsupported: [] });
+    expect(checkCitations("Then (app.log L12,345,678).", big, names1)).toEqual({ checked: 1, supported: 0, unchecked: 0, unsupported: [{ document: "app.log", line: 12_345_678 }] });
+    expect(checkCitations("בשורה 1,200 של app.log", big, names1)).toEqual({ checked: 1, supported: 1, unchecked: 0, unsupported: [] });
+    // A group has three digits: "L1,20" is line 1, then something else.
+    expect(checkCitations("(app.log L1,20)", big, names1)).toEqual({ checked: 1, supported: 0, unchecked: 0, unsupported: [{ document: "app.log", line: 1 }] });
+  });
+
   it("counts a citation with no file name as unchecked when there are several files, and as the file's when there is one", () => {
     expect(checkCitations("It failed (L97).", evidence, names)).toEqual({ checked: 0, supported: 0, unchecked: 1, unsupported: [] });
     expect(checkCitations("It failed (L97), then (L500).", [evidence[0]!], { "doc_log": "app.log" })).toEqual({ checked: 2, supported: 1, unchecked: 0, unsupported: [{ document: "app.log", line: 500 }] });
