@@ -499,6 +499,7 @@
                           ]
                         }
                       ],
+                      "cite": "Cite the lines listed in your answer, like (חשבוניות.csv L4, L8, L12).",
                       "tool_turns_left": 10
                     },
                     "files": []
@@ -3185,6 +3186,7 @@
                             ]
                           }
                         ],
+                        "cite": "Cite the lines listed in your answer, like (חשבוניות.csv L4, L8, L12).",
                         "tool_turns_left": 10
                       }
                     }

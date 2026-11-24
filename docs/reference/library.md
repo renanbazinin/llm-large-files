@@ -955,7 +955,7 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for these tools: their result cap and part size. Use the budget you planned the request with. |
 | `viewPages` | `boolean \| DocumentMeta[]` | none | Offers `view_pages`, which hands the model real pages of a PDF as a file. `true` offers it for the PDFs among `documents`; a list offers it for exactly those, which may include PDFs whose text is already in the prompt: pass `prepared.viewable`. Only PDFs with `originalKept` count, and only with a store that has `getOriginal`. Turn it on only when your loop runs tools with `executeWithFiles` and sends the files to the model. |
 | `declare` | `readonly `[`ToolName`](#toolname)`[]` | none | Declare exactly these tools, in the order the tool set declares them (search, read, overview, aggregate, analyze, view). A declared tool that cannot run answers with its reason. New in 0.10.0. Not read yet. |
-| `inline` | `readonly string[]` | none | The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in full, and `aggregate_table` says, for a filter that compares two columns, that their rows are shown above. New in 0.10.0. |
+| `inline` | `readonly string[]` | none | The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in full, and `aggregate_table` says how to cite their lines (`cite`) and, for a filter that compares two columns, that their rows are shown above. New in 0.10.0. |
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 

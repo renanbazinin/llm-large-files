@@ -874,8 +874,8 @@ export function createDocumentTools(options: {
   declare?: readonly ToolName[];
   /**
    * The IDs of documents sent whole in the prompt: `analyze_whole_document` refuses them, as the
-   * model has every line of them already, and `aggregate_table` says where their rows are. New in
-   * 0.10.0.
+   * model has every line of them already, and `aggregate_table` says how to cite their lines and
+   * where their rows are. New in 0.10.0.
    */
   inline?: readonly string[];
 }): ToolSet {
@@ -1212,7 +1212,13 @@ export function createDocumentTools(options: {
       const note = groups.length < result.totalGroups
         ? { note: `${groups.length} of the ${result.totalGroups} groups are shown, ${request.orderBy === "key" ? "in the order of their values" : "the largest first"}. Raise limit, or filter, for the others.` }
         : {};
-      return fit({ ...base, ...note, groups }, "groups", limit);
+      // Over a table shown in full, Flash-Lite answered with the count alone, citing no line: the
+      // result says how to cite the lines it lists, with the file's name (since 0.10.0).
+      const firstLines = groups[0]?.lines ?? [];
+      const cite = shownInFull && firstLines.length > 0
+        ? { cite: `Cite the lines listed in your answer, like (${document.meta.name} ${firstLines.map((line) => `L${line}`).join(", ")}).` }
+        : {};
+      return fit({ ...base, ...note, groups, ...cite }, "groups", limit);
     },
 
     async [TOOL_NAMES.analyze](args, limits, hooks, signal) {

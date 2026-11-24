@@ -515,6 +515,7 @@ Result:
 | `total_groups` | number, optional | Groups found, with `group_by`. |
 | `groups` | array | One entry a group: `group` (the value of each group-by column, as its first row writes it), each metric by its name (`count`, `"sum:Revenue"`: null when no row of the group had a number there), `rows` when `count` was not asked, and `lines`, the lines of its first 3 rows. |
 | `note` | string, optional | "N of the M groups are shown…", when `limit` cut them. |
+| `cite` | string, optional | For a table sent whole (`ToolOptions.inline`), when a group was found: how to cite the lines listed, with the file's name, as "Cite the lines listed in your answer, like (orders-2026.csv L5, L10, L15)." Over a table shown in full, Flash-Lite answered with the count alone. Its last field. New in 0.10.0. |
 | `values_not_numbers`, `other_rows`, `repeated_header_rows`, `irregular_rows` | optional | Cells left out of a metric, rows of groups past 10,000, header rows found again inside the table, and rows with values past the header's columns (a sign that the header was read wrong). |
 
 ```json

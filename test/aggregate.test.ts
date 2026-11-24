@@ -199,6 +199,22 @@ describe("the aggregate_table tool", () => {
     expect((await files.tools([meta]).execute("aggregate_table", call)).error).toBe(`${refusal} read_document gives the rows, with their line numbers.`);
   });
 
+  it("says how to cite the lines it lists, with the file's name, for a table sent whole (0.10.0)", async () => {
+    const { files, meta } = (await both())[0]!;
+    const east = { document_id: meta.id, filters: [{ column: "Region", op: "=", value: "East" }], metrics: ["sum:Revenue"] };
+    // Flash-Lite answered counts over a table shown in full with no line cited.
+    const whole = await files.tools([meta], { inline: [meta.id] }).execute("aggregate_table", east);
+    expect((whole.groups as Array<{ lines: number[] }>)[0]!.lines).toEqual([2, 5, 8]);
+    expect(whole.cite).toBe("Cite the lines listed in your answer, like (sales.csv L2, L5, L8).");
+    expect(Object.keys(whole).at(-1)).toBe("cite");
+    // A grouped result: the first group's lines.
+    const grouped = await files.tools([meta], { inline: [meta.id] }).execute("aggregate_table", { document_id: meta.id, group_by: ["Region"] });
+    expect(grouped.cite).toBe(`Cite the lines listed in your answer, like (sales.csv ${(grouped.groups as Array<{ lines: number[] }>)[0]!.lines.map((line) => `L${line}`).join(", ")}).`);
+    // Searched, the guide asks for citations already; and no row matched, there is no line to cite.
+    expect((await files.tools([meta]).execute("aggregate_table", east)).cite).toBeUndefined();
+    expect((await files.tools([meta], { inline: [meta.id] }).execute("aggregate_table", { document_id: meta.id, filters: [{ column: "Region", op: "=", value: "South" }] })).cite).toBeUndefined();
+  });
+
   it("cites the header and each group's first rows, and keeps the groups when shortened", async () => {
     const { evidenceOf, stubResult, toolResultSummary } = await import("../src/index.js");
     const { files, meta } = (await both())[0]!;
