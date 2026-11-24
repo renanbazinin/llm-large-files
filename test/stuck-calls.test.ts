@@ -175,7 +175,10 @@ describe("calls past the time limit", () => {
     // Two users press stop during reads that are slow, but end.
     for (const controller of controllers) controller.abort(new Error("Stopped."));
     for (const call of calls) expect(await call).toMatchObject({ message: "Stopped." });
+    // Left, but not past the limit: not stuck, while they run as once they end.
+    expect(files.stats().stuckStoreCalls).toBe(0);
     await vi.advanceTimersByTimeAsync(10_000);
+    expect(files.stats().stuckStoreCalls).toBe(0);
     releaseAll();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(files.stats().stuckStoreCalls).toBe(0);
