@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.10.1 — not released yet
+## 0.10.1 — 2026-11-25
 
 A patch from the review of 0.10.0 against its code: a few pages said more, or less, than the code
 does, `checkCitations` read a line number written with commas as its first digits, and one test
