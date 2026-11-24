@@ -1,0 +1,74 @@
+{
+ "n": 6,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "71092460ca0cad39",
+  "bytes": 3008,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "1836 chars #d6d50b04"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- 30 בנובמבר 2026 (משמרת בוקר, ערב, לילה):\n  - 12:00 (L1280): טכנאי הרשת עדכן את תיעוד הכבילה בארון 8.\n  - 12:36 (L1281): נבדקו לוחות החשמל: העומס רגיל.\n  - 13:12 (L1282): סבב ניקיון בחדר הציוד.\n  - 13:48 (L1283): נשלחה למשתמשים הודעה על חלון התחזוקה של יום שישי.\n  - 14:24 (L1284): נבדק מלאי הסולר של הגנרטור: 94 אחוזים.\n  - 15:00 (L1285): סבב בדיקה בחדר השרתים: הטמפרטורה 20 מעלות, הכול תקין.\n  - 15:36 (L1286): נבדקה מערכת כיבוי האש בגז: הלחץ תקין.\n  - 16:12 (L1287): בדיקת הגנרטור השבועית עברה כסדרה.\n  - 16:48 (L1288): קלטות הגיבוי הוחלפו והועברו לכספת.\n  - 17:24 (L1289): עדכון תוכנה מתוכנן הותקן על שרתי הדואר.\n  - 18:00 (L1290): החלפת משמרת: אין משימות פתוחות.\n  - 18:36 (L1291): טכנאי המיזוג ביצע תחזוקה מתוכננת במזגן 2.\n  - 19:12 (L1292): נבדקו מצלמות האבטחה: כולן מקליטות.\n  - 19:48 (L1293): נוקו מסנני האוויר במזגנים 1 ו-2.\n  - 20:24 (L1294): התקבל משלוח דיסקים חדש, ונרשם במלאי.\n  - 21:00 (L1295): טכנאי הרשת עדכן את תיעוד הכבילה בארון 5.\n  - 21:36 (L1296): נבדקו לוחות החשמל: העומס רגיל.\n  - 22:12 (L1297): סבב ניקיון בחדר הציוד.\n  - 22:48 (L1298): נשלחה למשתמשים הודעה על חלון התחזוקה של יום שישי.\n  - 23:24 (L1299): נבדק מלאי הסולר של הגנרטור: 84 אחוזים.",
+        "thoughtSignature": "EpYBCpMBAWkUfRO8cFT4VMjYImQxfGZQdiF74jc2KemSGXKKh0Ur0ECf0teKlaqOmkPoomJwrMBZjZwCmdwmer8WaOncVwbdpz4+eIOvG87kA3JipEpqSjwxjuQ7/UV15EYU2qD1ZlQzmKdw4bf0iyuZKPEOjl3bM9ESopE8gSNNjWIq8EqPGREs+bN6iWhPv0bZxh0i1RhW"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 1023,
+    "candidatesTokenCount": 734,
+    "totalTokenCount": 1757,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 1023
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "I0cFa7u6AqPCvdIPltG1gA8"
+  }
+ }
+}

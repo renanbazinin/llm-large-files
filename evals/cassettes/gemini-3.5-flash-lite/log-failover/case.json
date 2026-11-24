@@ -23,11 +23,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 9672,
+   "inputTokens": 9652,
    "cachedInputTokens": 0,
    "outputTokens": 159,
    "thoughtTokens": 0,
-   "ms": 1251,
+   "ms": 1204,
    "ceilingReached": false,
    "citations": {
     "checked": 2,
@@ -47,11 +47,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5822,
-     "ms": 491,
+     "estimatedInputTokens": 5813,
+     "ms": 525,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3691,
+      "inputTokens": 3681,
       "cachedInputTokens": 0,
       "outputTokens": 27,
       "thoughtTokens": 0
@@ -66,11 +66,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 8316,
-     "ms": 732,
+     "estimatedInputTokens": 8307,
+     "ms": 667,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5981,
+      "inputTokens": 5971,
       "cachedInputTokens": 0,
       "outputTokens": 132,
       "thoughtTokens": 0
@@ -80,7 +80,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "Based on the `payments-service.log` file, the database failover:\n\n* **Started:** `2026-11-12T09:31:10.000Z` (L21880: `WARN [db-monitor] database failover started: primary db-1 unreachable`)\n* **Completed:** `2026-11-12T09:34:52.000Z` (L22768: `INFO [db-monitor] database failover completed: db-2 is now primary`)"
+   "answer": "Based on the log file (`payments-service.log`), the database failover:\n\n* **Started:** `2026-11-12T09:31:10.000Z` (L21880: `WARN [db-monitor] database failover started: primary db-1 unreachable`)\n* **Completed:** `2026-11-12T09:34:52.000Z` (L22768: `INFO [db-monitor] database failover completed: db-2 is now primary`)"
   },
   {
    "turn": 2,
@@ -97,15 +97,15 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 13346,
-   "cachedInputTokens": 6077,
-   "outputTokens": 147,
+   "inputTokens": 12811,
+   "cachedInputTokens": 6074,
+   "outputTokens": 242,
    "thoughtTokens": 0,
-   "ms": 1446,
+   "ms": 1567,
    "ceilingReached": false,
    "citations": {
-    "checked": 2,
-    "supported": 2,
+    "checked": 3,
+    "supported": 3,
     "unchecked": 0,
     "unsupported": []
    },
@@ -121,11 +121,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 8465,
-     "ms": 584,
+     "estimatedInputTokens": 8456,
+     "ms": 491,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 6113,
+      "inputTokens": 6103,
       "cachedInputTokens": 2025,
       "outputTokens": 40,
       "thoughtTokens": 0
@@ -140,13 +140,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 9686,
-     "ms": 857,
+     "estimatedInputTokens": 9112,
+     "ms": 1066,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 7233,
-      "cachedInputTokens": 4052,
-      "outputTokens": 107,
+      "inputTokens": 6708,
+      "cachedInputTokens": 4049,
+      "outputTokens": 202,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -154,7 +154,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "Right after the failover completed at `2026-11-12T09:34:52.000Z` (L22768), the cache warm-up finished 41 seconds after the failover (`2026-11-12T09:34:52.250Z`, L22769), and worker requests (`GET /api/v2/payments/...`) immediately resumed normal processing."
+   "answer": "Right after the database failover completed at `2026-11-12T09:34:52.000Z`, the cache warm-up finished (taking 41 seconds in total after the failover), and regular worker requests resumed normally (L22769–L22770):\n\n* **2026-11-12T09:34:52.250Z:** `INFO [cache] cache warm-up finished in 41s after the failover` (L22769)\n* **2026-11-12T09:34:52.500Z:** `INFO [worker-2] req=a245e152 GET /api/v2/payments/2770 took 90ms` (L22770)"
   }
  ],
  "passed": true

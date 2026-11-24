@@ -26,11 +26,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 6444,
+   "inputTokens": 6424,
    "cachedInputTokens": 0,
-   "outputTokens": 84,
+   "outputTokens": 82,
    "thoughtTokens": 0,
-   "ms": 1243,
+   "ms": 1413,
    "ceilingReached": false,
    "citations": {
     "checked": 0,
@@ -50,11 +50,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5073,
-     "ms": 648,
+     "estimatedInputTokens": 5063,
+     "ms": 621,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3142,
+      "inputTokens": 3132,
       "cachedInputTokens": 0,
       "outputTokens": 53,
       "thoughtTokens": 0
@@ -69,13 +69,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 5215,
-     "ms": 563,
+     "estimatedInputTokens": 5205,
+     "ms": 757,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3302,
+      "inputTokens": 3292,
       "cachedInputTokens": 0,
-      "outputTokens": 31,
+      "outputTokens": 29,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -83,7 +83,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "סך ההכנסות של אזור **East** הוא **32,133**, ויש בו **22** שורות."
+   "answer": "סך ההכנסות של אזור East הוא **32,133**, ויש לו **22** שורות."
   }
  ],
  "passed": true

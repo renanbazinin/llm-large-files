@@ -22,22 +22,17 @@
    ],
    "passed": true,
    "requests": 3,
-   "inputTokens": 14523,
-   "cachedInputTokens": 5004,
-   "outputTokens": 578,
-   "thoughtTokens": 371,
-   "ms": 13021,
+   "inputTokens": 14472,
+   "cachedInputTokens": 4988,
+   "outputTokens": 446,
+   "thoughtTokens": 241,
+   "ms": 8678,
    "ceilingReached": false,
    "citations": {
-    "checked": 1,
-    "supported": 0,
+    "checked": 2,
+    "supported": 2,
     "unchecked": 0,
-    "unsupported": [
-     {
-      "document": "payments-service.log",
-      "line": 17281
-     }
-    ]
+    "unsupported": []
    },
    "tools": [
     "search_document",
@@ -52,14 +47,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5829,
-     "ms": 3300,
+     "estimatedInputTokens": 5820,
+     "ms": 2532,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3697,
+      "inputTokens": 3687,
       "cachedInputTokens": 0,
-      "outputTokens": 92,
-      "thoughtTokens": 55
+      "outputTokens": 96,
+      "thoughtTokens": 59
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -71,14 +66,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 7493,
-     "ms": 4140,
+     "estimatedInputTokens": 7484,
+     "ms": 2374,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5315,
-      "cachedInputTokens": 1720,
-      "outputTokens": 105,
-      "thoughtTokens": 53
+      "inputTokens": 5309,
+      "cachedInputTokens": 1710,
+      "outputTokens": 76,
+      "thoughtTokens": 24
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -90,21 +85,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 3,
-     "estimatedInputTokens": 7623,
-     "ms": 5552,
+     "estimatedInputTokens": 7614,
+     "ms": 3692,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5511,
-      "cachedInputTokens": 3284,
-      "outputTokens": 381,
-      "thoughtTokens": 263
+      "inputTokens": 5476,
+      "cachedInputTokens": 3278,
+      "outputTokens": 274,
+      "thoughtTokens": 158
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "There are **37** `PAY-5031` errors in the log, and all of them were logged by **`worker-3`** (e.g., lines 17280–25680).\n\n**Example log entry:**\n```text\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960\n```"
+   "answer": "There are **37** PAY-5031 errors in the log, and all of them were logged by **`worker-3`** (first occurrence at L17280, last at L25680).\n\n**Sample log line:**\n```\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960\n```"
   }
  ],
  "passed": true

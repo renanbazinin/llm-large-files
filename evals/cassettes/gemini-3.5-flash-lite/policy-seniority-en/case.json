@@ -22,11 +22,11 @@
    ],
    "passed": true,
    "requests": 3,
-   "inputTokens": 13609,
-   "cachedInputTokens": 2017,
-   "outputTokens": 97,
+   "inputTokens": 13415,
+   "cachedInputTokens": 2016,
+   "outputTokens": 95,
    "thoughtTokens": 0,
-   "ms": 2075,
+   "ms": 2060,
    "ceilingReached": false,
    "citations": {
     "checked": 1,
@@ -47,11 +47,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5904,
-     "ms": 875,
+     "estimatedInputTokens": 5894,
+     "ms": 832,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3832,
+      "inputTokens": 3822,
       "cachedInputTokens": 0,
       "outputTokens": 28,
       "thoughtTokens": 0
@@ -66,11 +66,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 6810,
-     "ms": 609,
+     "estimatedInputTokens": 6800,
+     "ms": 552,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4668,
+      "inputTokens": 4658,
       "cachedInputTokens": 0,
       "outputTokens": 34,
       "thoughtTokens": 0
@@ -85,13 +85,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 3,
-     "estimatedInputTokens": 7272,
-     "ms": 560,
+     "estimatedInputTokens": 7083,
+     "ms": 636,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5109,
-      "cachedInputTokens": 2017,
-      "outputTokens": 35,
+      "inputTokens": 4935,
+      "cachedInputTokens": 2016,
+      "outputTokens": 33,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -99,7 +99,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "According to the HR policy (policy-1 L31), an employee with 8 years of seniority or more is entitled to **24** vacation days per year."
+   "answer": "According to the HR policy (policy-1 L31), an employee with 8 or more years of seniority gets **24** vacation days per year."
   }
  ],
  "passed": true

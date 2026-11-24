@@ -31,11 +31,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 8170,
-   "cachedInputTokens": 1811,
-   "outputTokens": 230,
-   "thoughtTokens": 126,
-   "ms": 5790,
+   "inputTokens": 8351,
+   "cachedInputTokens": 2474,
+   "outputTokens": 276,
+   "thoughtTokens": 180,
+   "ms": 5830,
    "ceilingReached": false,
    "citations": {
     "checked": 1,
@@ -55,14 +55,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5909,
-     "ms": 3244,
+     "estimatedInputTokens": 5899,
+     "ms": 3180,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3838,
+      "inputTokens": 3828,
       "cachedInputTokens": 0,
-      "outputTokens": 153,
-      "thoughtTokens": 119
+      "outputTokens": 154,
+      "thoughtTokens": 120
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -74,21 +74,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 6319,
-     "ms": 2541,
+     "estimatedInputTokens": 6519,
+     "ms": 2581,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4332,
-      "cachedInputTokens": 1811,
-      "outputTokens": 77,
-      "thoughtTokens": 7
+      "inputTokens": 4523,
+      "cachedInputTokens": 2474,
+      "outputTokens": 122,
+      "thoughtTokens": 60
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "על פי סעיף 3.4 במסמך המדיניות, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (סעיף 3.4, שורה 23)."
+   "answer": "לפי סעיף 3.4 במסמך, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו. \n\n(ימים מעבר לכך אינם נצברים ואינם נפדים; שורה 23)."
   },
   {
    "turn": 2,
@@ -109,11 +109,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 9401,
-   "cachedInputTokens": 1810,
-   "outputTokens": 92,
+   "inputTokens": 9766,
+   "cachedInputTokens": 1801,
+   "outputTokens": 89,
    "thoughtTokens": 0,
-   "ms": 3839,
+   "ms": 4729,
    "ceilingReached": false,
    "citations": {
     "checked": 1,
@@ -133,13 +133,13 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 6403,
-     "ms": 1772,
+     "estimatedInputTokens": 6596,
+     "ms": 2131,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4295,
-      "cachedInputTokens": 1810,
-      "outputTokens": 28,
+      "inputTokens": 4477,
+      "cachedInputTokens": 1801,
+      "outputTokens": 29,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -152,13 +152,13 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 7292,
-     "ms": 2060,
+     "estimatedInputTokens": 7486,
+     "ms": 2569,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5106,
+      "inputTokens": 5289,
       "cachedInputTokens": 0,
-      "outputTokens": 64,
+      "outputTokens": 60,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -166,7 +166,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "על פי סעיף 6.1 במסמך המדיניות, החזר הוצאות נסיעה ברכב פרטי עומד על **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת (שורה 47)."
+   "answer": "לפי סעיף 6.1 במסמך, החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, בהתאם לדיווח חודשי במערכת (שורה 47)."
   }
  ],
  "passed": true

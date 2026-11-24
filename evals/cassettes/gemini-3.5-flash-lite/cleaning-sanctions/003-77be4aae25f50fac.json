@@ -1,0 +1,158 @@
+{
+ "n": 3,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "77be4aae25f50fac",
+  "bytes": 20082,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2160 chars #a40e61ec"
+      },
+      {
+       "text": "193 chars #b7a0ca5a"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #827105d4",
+        "id": "25 chars #1ab97b12"
+       },
+       "thoughtSignature": "204 chars #2e8114ed"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #1ab97b12",
+        "response": "{5 keys} #01863d53"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "get_document_overview",
+        "args": "{1 keys} #313932f6",
+        "id": "call_2566646269628444121"
+       },
+       "thoughtSignature": "204 chars #66a14c1e"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "get_document_overview",
+        "id": "call_2566646269628444121",
+        "response": "{4 keys} #54204411"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1982 chars #73955965"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #3bc2857d",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"search_document\",\"args\": {\"query\": \"(קנס|לקזז|ישלם הספק)\",\"document_id\": \"cleaning-1\",\"mode\": \"regex\"},\"id\": \"call_12323968634804725296\"},\"thoughtSignature\": \"EpYBCpMBAWkUfROXVpmLQZz45DCaSzjVb0IunALxXd+GHPuotR+n4DDJ3GX7zVX2xPlUyM+UXtGmhcBxal48HNCYkGQbchoUCLHItqyEIO99WPcqbSeeyaoQ6ZUXjytpBTHz3nSRiBIw3Qxpx3iscAAgI8B6OkEYd7gV9kvVnxqnM5J+Bc9iEkGFIw1k+Is1nK3Ab5tHlSGC\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5672,\"candidatesTokenCount\": 45,\"totalTokenCount\": 5717,\"cachedContentTokenCount\": 2020,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5672}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2020}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa4zrAeOhnsEPps_-iAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5672,\"candidatesTokenCount\": 45,\"totalTokenCount\": 5717,\"cachedContentTokenCount\": 2020,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5672}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2020}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"H0cFa4zrAeOhnsEPps_-iAk\"}\r\n\r\n"
+  ]
+ }
+}

@@ -22,20 +22,24 @@
    ],
    "passed": true,
    "requests": 4,
-   "inputTokens": 37780,
-   "cachedInputTokens": 18293,
-   "outputTokens": 206,
+   "inputTokens": 31190,
+   "cachedInputTokens": 14215,
+   "outputTokens": 180,
    "thoughtTokens": 0,
-   "ms": 2444,
+   "ms": 2892,
    "ceilingReached": false,
    "citations": {
-    "checked": 0,
+    "checked": 1,
     "supported": 0,
     "unchecked": 0,
-    "unsupported": []
+    "unsupported": [
+     {
+      "document": "חוזה שירותי תחזוקה.docx",
+      "line": 1
+     }
+    ]
    },
    "tools": [
-    "get_document_overview",
     "search_document",
     "search_document",
     "search_document"
@@ -49,18 +53,18 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5528,
-     "ms": 520,
+     "estimatedInputTokens": 5518,
+     "ms": 579,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3611,
+      "inputTokens": 3601,
       "cachedInputTokens": 0,
-      "outputTokens": 49,
+      "outputTokens": 27,
       "thoughtTokens": 0
      },
      "finish": "complete",
      "finishReason": "STOP",
-     "toolCalls": 2
+     "toolCalls": 1
     },
     {
      "requestId": "req_2",
@@ -68,13 +72,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 12228,
-     "ms": 541,
+     "estimatedInputTokens": 10059,
+     "ms": 615,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 10330,
-      "cachedInputTokens": 2033,
-      "outputTokens": 39,
+      "inputTokens": 8153,
+      "cachedInputTokens": 0,
+      "outputTokens": 43,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -87,13 +91,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 3,
-     "estimatedInputTokens": 13622,
-     "ms": 596,
+     "estimatedInputTokens": 10140,
+     "ms": 672,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 11830,
-      "cachedInputTokens": 8133,
-      "outputTokens": 72,
+      "inputTokens": 8239,
+      "cachedInputTokens": 6087,
+      "outputTokens": 41,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -106,13 +110,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 4,
-     "estimatedInputTokens": 13786,
-     "ms": 755,
+     "estimatedInputTokens": 12853,
+     "ms": 1003,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 12009,
-      "cachedInputTokens": 8127,
-      "outputTokens": 46,
+      "inputTokens": 11197,
+      "cachedInputTokens": 8128,
+      "outputTokens": 69,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -120,7 +124,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "בחוזה שירותי התחזוקה ישנם בסך הכל **37** סעיפי קנס (לפי חיפוש מדויק של המילה \"קנס\" במסמך)."
+   "answer": "בחוזה שירותי התחזוקה ישנם **37** סעיפי קנס (סעיפים שבהם נקבע כי הספק ישלם למזמין קנס בגין הפרה או אי-עמידה בתנאים) (contract-1 L1-L202)."
   }
  ],
  "passed": true

@@ -31,11 +31,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 10805,
+   "inputTokens": 10785,
    "cachedInputTokens": 0,
-   "outputTokens": 102,
+   "outputTokens": 97,
    "thoughtTokens": 0,
-   "ms": 1935,
+   "ms": 2036,
    "ceilingReached": false,
    "citations": {
     "checked": 1,
@@ -55,11 +55,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5909,
-     "ms": 847,
+     "estimatedInputTokens": 5899,
+     "ms": 751,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3838,
+      "inputTokens": 3828,
       "cachedInputTokens": 0,
       "outputTokens": 32,
       "thoughtTokens": 0
@@ -74,13 +74,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 9347,
-     "ms": 1039,
+     "estimatedInputTokens": 9337,
+     "ms": 1201,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 6967,
+      "inputTokens": 6957,
       "cachedInputTokens": 0,
-      "outputTokens": 70,
+      "outputTokens": 65,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -88,7 +88,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "לפי מדיניות משאבי אנוש 2026 (סעיף 3.4), ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (policy-1 L23)."
+   "answer": "על פי סעיף 3.4 בנוהל משאבי אנוש (policy-1 L23), ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים."
   },
   {
    "turn": 2,
@@ -109,11 +109,11 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 7049,
-   "cachedInputTokens": 1000,
-   "outputTokens": 71,
+   "inputTokens": 7034,
+   "cachedInputTokens": 2001,
+   "outputTokens": 66,
    "thoughtTokens": 0,
-   "ms": 989,
+   "ms": 2100,
    "ceilingReached": false,
    "citations": {
     "checked": 1,
@@ -136,13 +136,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 9433,
-     "ms": 981,
+     "estimatedInputTokens": 9417,
+     "ms": 2079,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 7049,
-      "cachedInputTokens": 1000,
-      "outputTokens": 71,
+      "inputTokens": 7034,
+      "cachedInputTokens": 2001,
+      "outputTokens": 66,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -150,7 +150,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "לפי מדיניות משאבי אנוש 2026 (סעיף 6.1), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח** לכל קילומטר, לפי דיווח חודשי במערכת (policy-1 L47)."
+   "answer": "על פי סעיף 6.1 בנוהל משאבי אנוש (policy-1 L47), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח** לכל קילומטר, לפי דיווח חודשי במערכת."
   }
  ],
  "passed": true

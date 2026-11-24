@@ -26,16 +26,130 @@
     }
    ],
    "passed": true,
-   "requests": 3,
-   "inputTokens": 15491,
-   "cachedInputTokens": 4050,
-   "outputTokens": 178,
+   "requests": 4,
+   "inputTokens": 31946,
+   "cachedInputTokens": 12187,
+   "outputTokens": 195,
    "thoughtTokens": 0,
-   "ms": 1708,
+   "ms": 2774,
    "ceilingReached": false,
    "citations": {
     "checked": 0,
     "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "search_document",
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5824,
+     "ms": 637,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3692,
+      "cachedInputTokens": 0,
+      "outputTokens": 31,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 11953,
+     "ms": 700,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 9309,
+      "cachedInputTokens": 0,
+      "outputTokens": 50,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 12040,
+     "ms": 675,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 9402,
+      "cachedInputTokens": 6096,
+      "outputTokens": 52,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 4,
+     "estimatedInputTokens": 12169,
+     "ms": 680,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 9543,
+      "cachedInputTokens": 6091,
+      "outputTokens": 62,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי הלוג, שגיאות מסוג `PAY-5031` (כלומר `PAY-5031 card processor timeout`) הופיעו סך הכל **37 פעמים**, וכולן נרשמו ב-**`worker-3`**."
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 09:12",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 29229,
+   "cachedInputTokens": 14202,
+   "outputTokens": 170,
+   "thoughtTokens": 0,
+   "ms": 1983,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
     "unchecked": 0,
     "unsupported": []
    },
@@ -52,13 +166,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5833,
-     "ms": 431,
+     "estimatedInputTokens": 12216,
+     "ms": 591,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3702,
-      "cachedInputTokens": 0,
-      "outputTokens": 37,
+      "inputTokens": 9593,
+      "cachedInputTokens": 2031,
+      "outputTokens": 35,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -71,13 +185,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 7497,
-     "ms": 654,
+     "estimatedInputTokens": 12346,
+     "ms": 616,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5265,
-      "cachedInputTokens": 0,
-      "outputTokens": 57,
+      "inputTokens": 9722,
+      "cachedInputTokens": 6088,
+      "outputTokens": 63,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -90,13 +204,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 3,
-     "estimatedInputTokens": 8838,
-     "ms": 590,
+     "estimatedInputTokens": 12538,
+     "ms": 769,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 6524,
-      "cachedInputTokens": 4050,
-      "outputTokens": 84,
+      "inputTokens": 9914,
+      "cachedInputTokens": 6083,
+      "outputTokens": 72,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -104,65 +218,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "בלוג ישנן בדיוק **37** שגיאות מסוג `PAY-5031` (המופיעות תחת הודעה כמו `ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=...`).\n\nכל 37 השגיאות הללו נרשמו ב־**`worker-3`**."
-  },
-  {
-   "turn": 2,
-   "answered": true,
-   "facts": [
-    {
-     "fact": "says 09:12",
-     "status": "pass"
-    },
-    {
-     "fact": "answers in Hebrew",
-     "status": "pass"
-    }
-   ],
-   "passed": true,
-   "requests": 1,
-   "inputTokens": 6604,
-   "cachedInputTokens": 2025,
-   "outputTokens": 121,
-   "thoughtTokens": 0,
-   "ms": 1178,
-   "ceilingReached": false,
-   "citations": {
-    "checked": 1,
-    "supported": 0,
-    "unchecked": 0,
-    "unsupported": [
-     {
-      "document": "payments-service.log",
-      "line": 17280
-     }
-    ]
-   },
-   "tools": [],
-   "reads": 0,
-   "wholeReads": 0,
-   "log": [
-    {
-     "requestId": "req_1",
-     "role": "tools",
-     "purpose": "turn",
-     "model": "gemini-3.5-flash-lite",
-     "turn": 1,
-     "estimatedInputTokens": 8922,
-     "ms": 1173,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 6604,
-      "cachedInputTokens": 2025,
-      "outputTokens": 121,
-      "thoughtTokens": 0
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 0
-    }
-   ],
-   "answer": "השגיאה הראשונה מסוג `PAY-5031` נרשמה ב־**12 בנובמבר 2026 בשעה 09:12:00.000** (לפי שורת הלוג L17280):\n\n`2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=40960`"
+   "answer": "השגיאה הראשונה מסוג `PAY-5031` נרשמה ב-**`worker-3`** בתאריך 12 בנובמבר 2026 בשעה **09:12:00.000Z** (בשורה 17280 בלוג)."
   }
  ],
  "passed": true

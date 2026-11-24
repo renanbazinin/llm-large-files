@@ -22,15 +22,15 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 9236,
-   "cachedInputTokens": 1224,
-   "outputTokens": 408,
-   "thoughtTokens": 328,
-   "ms": 6795,
+   "inputTokens": 8979,
+   "cachedInputTokens": 1218,
+   "outputTokens": 327,
+   "thoughtTokens": 233,
+   "ms": 6832,
    "ceilingReached": false,
    "citations": {
-    "checked": 0,
-    "supported": 0,
+    "checked": 1,
+    "supported": 1,
     "unchecked": 0,
     "unsupported": []
    },
@@ -46,14 +46,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5904,
-     "ms": 3124,
+     "estimatedInputTokens": 5894,
+     "ms": 3033,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3832,
+      "inputTokens": 3822,
       "cachedInputTokens": 0,
-      "outputTokens": 129,
-      "thoughtTokens": 95
+      "outputTokens": 112,
+      "thoughtTokens": 78
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -65,21 +65,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 7512,
-     "ms": 3663,
+     "estimatedInputTokens": 7283,
+     "ms": 3794,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5404,
-      "cachedInputTokens": 1224,
-      "outputTokens": 279,
-      "thoughtTokens": 233
+      "inputTokens": 5157,
+      "cachedInputTokens": 1218,
+      "outputTokens": 215,
+      "thoughtTokens": 155
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "לפי מדיניות החברה (סעיף 3.5), עובד בעל ותק של 8 שנים ומעלה זכאי ל-**24 ימי חופשה** בשנה."
+   "answer": "לפי טבלת חופשה שנתית בנוהל (סעיף 3.5, שורה 31), עובד בעל ותק של 8 שנים ומעלה זכאי ל-**24 ימי חופשה** בשנה."
   }
  ],
  "passed": true

@@ -22,15 +22,15 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 6326,
+   "inputTokens": 6306,
    "cachedInputTokens": 0,
-   "outputTokens": 96,
+   "outputTokens": 81,
    "thoughtTokens": 0,
-   "ms": 1304,
+   "ms": 1446,
    "ceilingReached": false,
    "citations": {
-    "checked": 3,
-    "supported": 3,
+    "checked": 0,
+    "supported": 0,
     "unchecked": 0,
     "unsupported": []
    },
@@ -46,11 +46,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5022,
-     "ms": 627,
+     "estimatedInputTokens": 5012,
+     "ms": 684,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3077,
+      "inputTokens": 3067,
       "cachedInputTokens": 0,
       "outputTokens": 54,
       "thoughtTokens": 0
@@ -65,13 +65,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 5171,
-     "ms": 615,
+     "estimatedInputTokens": 5161,
+     "ms": 709,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3249,
+      "inputTokens": 3239,
       "cachedInputTokens": 0,
-      "outputTokens": 42,
+      "outputTokens": 27,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -79,7 +79,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "There are **500** refunded orders, and their total amount is **127,550.00** (orders.csv L7, L13, L19)."
+   "answer": "There are **500** refunded orders, and their total amount is **127,550.00**."
   }
  ],
  "passed": true

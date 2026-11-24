@@ -26,11 +26,11 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 7224,
+   "inputTokens": 7204,
    "cachedInputTokens": 0,
-   "outputTokens": 105,
+   "outputTokens": 115,
    "thoughtTokens": 0,
-   "ms": 1660,
+   "ms": 1426,
    "ceilingReached": false,
    "citations": {
     "checked": 0,
@@ -50,11 +50,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5474,
-     "ms": 788,
+     "estimatedInputTokens": 5464,
+     "ms": 760,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3520,
+      "inputTokens": 3510,
       "cachedInputTokens": 0,
       "outputTokens": 61,
       "thoughtTokens": 0
@@ -69,13 +69,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 5631,
-     "ms": 794,
+     "estimatedInputTokens": 5621,
+     "ms": 561,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3704,
+      "inputTokens": 3694,
       "cachedInputTokens": 0,
-      "outputTokens": 44,
+      "outputTokens": 54,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -83,7 +83,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "ישנם **750** חשבוניות בסטטוס 'באיחור', והסכום הכולל שלהן הוא **18,714,659.5**."
+   "answer": "בקובץ חשבוניות.csv נמצאו **750** חשבוניות בסטטוס 'באיחור'.\nהסכום הכולל שלהן הוא **18,714,659.5**."
   }
  ],
  "passed": true

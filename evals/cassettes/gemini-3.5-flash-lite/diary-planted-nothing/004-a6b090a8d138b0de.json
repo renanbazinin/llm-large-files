@@ -1,0 +1,74 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "a6b090a8d138b0de",
+  "bytes": 32037,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19872 chars #02ab0830"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- **יום שלישי, 17 בנובמבר 2026:**\n  - 03:20 (L702): התראת חום בחדר ה-UPS: מזגן 3 הפסיק לעבוד והטמפרטורה עלתה ל-34 מעלות.\n  - 03:45 (L704): הופעל מזגן נייד בחדר ה-UPS, והטמפרטורה התחילה לרדת.\n  - 11:15 (L717): טכנאי המיזוג תיקן את מזגן 3, והמזגן הנייד פונה.",
+        "thoughtSignature": "EpYBCpMBAWkUfRNEVQSkJEDa+rABrU95wEZ7923k/sH02GiNztIGzds/xzTuLbngfdEMiI4nAofWpUeY4MzlIL0yYK3Ov2lFC0opSBZTJcluPDjIfs82QcejFmunoWfaKFzNbmt1+279Nu7CQpGIcnccuLKRQ8bNUJC6VmzV1UarxYLlGaED71zjBy9XOWVLU85Im30Zp0P2"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12122,
+    "candidatesTokenCount": 154,
+    "totalTokenCount": 12276,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12122
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "IkcFa9a7DuGzvdIPztnRuQs"
+  }
+ }
+}

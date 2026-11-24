@@ -1,0 +1,74 @@
+{
+ "n": 12,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "6ad37e51cc13e253",
+  "bytes": 2372,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "1264 chars #f7a31490"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "172 chars #1eecc68f"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "### התחייבויות הספק (Lines 184-202):\n- להחזיק מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L184, L194).\n- כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים (L185, L195).\n- טכנאי הספק יגיע למחסן באשדוד בתוך 4 שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה (L186, L196).\n- הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות (L188).\n- לתאם מראש עם מנהל האתר כל עבודה במפעל בקריית גת שמחייבת השבתה (L189, L199).\n- למנות מנהל לקוח אחד שירכז את הקשר עם המזמין (L191, L201).\n- לבצע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון, ולמסור דוח על הביקור (L192, L202).\n- לבטח את עובדיו בביטוח חבות מעבידים ובביטוח צד שלישי (L197).\n\n### התחייבויות / זכויות המזמין (Lines 184-202):\n- המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L190, L200).\n\n### מקרים בהם הספק משלם קנס וסכומיהם (Lines 184-202):\n- בגין אי תיעוד של קריאת שירות במערכת במחסן באשדוד: 12,500 ש\"ח לכל מקרה (L187).\n- בגין השארת פסולת באתר לאחר העבודה במרכז הלוגיסטיקה בחולון: 14,250 ש\"ח לכל מקרה (L193).\n- בגין איחור בתגובה לקריאת שירות דחופה במשרדים בתל אביב: 16,000 ש\"ח לכל מקרה (L198).",
+        "thoughtSignature": "EpYBCpMBAWkUfRM6yx84Yq2SGxEwOIktxObpB/dq0YyrutdKvFfBBqAqE/bDyiIAo7V0e47bEuUDWqG61Mj0/WAaYxbsFc6s65JprhaeVm9/q2AjgFPhbMnXfezYOlmeiJr+1jGXkebZw112Fg1ahhOT4LRJbDuAc+BREPpzJ0u4JbrtLvF+Hf68n9QDrCakhCSfUWbWzjQl"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 669,
+    "candidatesTokenCount": 559,
+    "totalTokenCount": 1228,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 669
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "F0cFa4WCMq2E7M8PyoGzwQs"
+  }
+ }
+}
