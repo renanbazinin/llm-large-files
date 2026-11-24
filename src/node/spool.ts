@@ -2,9 +2,9 @@
 // file as it arrives. The file is the path `prepareUpload` gave (the application's, kept once its
 // document is stored), or a temporary file of the spool (`uploadSpool`), removed once the ingest
 // ends. Either way each piece of the body is counted against the upload limit (413) and waited for
-// no longer than the idle time (408), and so is each call to the disk (500 "ETIMEDOUT"; a removal
-// past it is left to end alone, and the upload answered all the same; since 0.10.0 it counts as a
-// stuck call of the process until it ends). A file is always made new: opened with "wx", so that a
+// no longer than the idle time (408), and so is each call to the disk (503 "ETIMEDOUT", with
+// Retry-After, since 0.10.0: a 500 before; a removal past it is left to end alone, and the upload
+// answered all the same; since 0.10.0 it counts as a stuck call of the process until it ends). A file is always made new: opened with "wx", so that a
 // file or a link already at its name is never written through. New in 0.9.0; the reading into
 // memory moved here from handlers.ts.
 import { randomUUID } from "node:crypto";
@@ -66,7 +66,8 @@ function withinIdle<T>(next: Promise<T>, idleMs: number): Promise<T> {
 /**
  * A call to the disk for an upload's file (`syscall`: the check of its folders, its opening, a
  * write, its closing) that did not end within the idle time: the volume stopped answering.
- * Answered as a system error, with its code only: 500 "Upload failed (ETIMEDOUT).".
+ * Answered as a system error, with its code only: 503 "Upload failed (ETIMEDOUT).", with
+ * Retry-After: 5 (since 0.10.0: a 500 before).
  */
 class DiskTimeout extends Error {
   readonly code = "ETIMEDOUT";
