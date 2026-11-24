@@ -2,8 +2,8 @@
 // tools read, and the text of each. `files.prepare()` runs it. Moved out of library.ts in 0.10.0,
 // with no change to what it does: the library hands it what it needs of the store and of the
 // documents kept in memory (`PrepareContext`), and the options of the call as they were given.
-import { callerOf, type AccessRules, type Caller } from "./access.js";
-import type { PrepareOptions } from "./library.js";
+import type { AccessRules, Caller } from "./access.js";
+import type { AccessOptions, PrepareOptions } from "./library.js";
 import { canBeReadWhole, CARD_LINES, documentToolsInstruction, planDocuments, renderCard, renderInline, type WholeRead } from "./plan.js";
 import { DocumentGoneError } from "./ranged.js";
 import { numberLines, type DocumentSource } from "./search.js";
@@ -11,6 +11,11 @@ import type { Budget, DocumentMeta, PreparedContext } from "./types.js";
 
 /** What planning a request needs of the library that asks for it. */
 export type PrepareContext = {
+  /**
+   * The caller of this call, from the options it was given: its owner and scope, checked against
+   * `rules`. Throws a TypeError for options the library does not accept.
+   */
+  callerOf(access: AccessOptions | undefined): Caller;
   /** The document, when `caller` may use it: one of another owner or scope is missing, not forbidden. */
   metaFor(id: string, caller: Caller): Promise<DocumentMeta | undefined>;
   /** A document ready to read and search, for `caller`. `known` is metadata just read from the store and checked. */
@@ -58,7 +63,7 @@ async function block(context: PrepareContext, id: string, meta: DocumentMeta, ca
  * caller gave `prepare`, passed on whole.
  */
 export async function prepareDocuments(context: PrepareContext, ids: string[], base: { tokens: number; bytes: number }, options?: PrepareOptions): Promise<PreparedContext> {
-  const caller = callerOf(options, context.rules);
+  const caller = context.callerOf(options);
   const budget = context.budgetFor(options?.budget);
   const analysis = options?.wholeDocumentAnalysis !== false;
   const unique = [...new Set(ids)];

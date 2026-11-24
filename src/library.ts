@@ -810,7 +810,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
   }
 
   /** What planning a request (`prepareDocuments`, src/prepare.ts) needs of this library. */
-  const planning: PrepareContext = { metaFor, load, stillOpened, budgetFor, viewableMeta, rules };
+  const planning: PrepareContext = { callerOf: (access) => callerOf(access, rules), metaFor, load, stillOpened, budgetFor, viewableMeta, rules };
 
   return {
     budget,
