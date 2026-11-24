@@ -2,7 +2,8 @@
 // (LLF-059), the size of a document whose lines are numbered (L12), and the fixed lines the loop
 // adds for files sent whole.
 import { describe, expect, it } from "vitest";
-import { resolveBudget, type DocumentMeta } from "llm-large-files";
+import { createLargeFiles, MemoryDocumentStore, resolveBudget, type DocumentMeta } from "llm-large-files";
+import { utf8 } from "llm-large-files/testing";
 import {
   CITATION_EXAMPLE_NAME,
   estimateParts,
@@ -55,6 +56,58 @@ describe("card sizes at the edge of a unit (LLF-059)", () => {
     expect(formatBytes(1_048_576)).toBe("1 MB");
     expect(formatBytes(1_572_864)).toBe("1.5 MB");
     expect(formatBytes(1_023)).toBe("1023 B");
+  });
+
+  it("writes it so in get_document_overview too, whose size is a result the model sees", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const line = "a line of a file of one megabyte, less 76 bytes\n";
+    const text = line.repeat(Math.floor(1_048_500 / line.length)) + "x".repeat(1_048_500 % line.length);
+    const document = await files.ingest({ name: "big.txt", bytes: utf8(text) });
+    expect(document.bytes).toBe(1_048_500);
+    const overview = await files.tools([document]).execute("get_document_overview", { document_id: document.id });
+    // "1024 KB" before 0.10.0.
+    expect(overview.size).toBe("1 MB");
+  });
+});
+
+describe("the cards counted in a plan (PlanOptions.cardSizes)", () => {
+  const budget = resolveBudget({ contextTokens: 20_000, reservedTokens: 4_000, inlineTokens: 12_000 });
+  const base = { tokens: 0, bytes: 0 };
+  const note = (id: string) => meta({ id, estimatedTokens: 100, textBytes: 400, jsonBytes: 420 });
+  const card = { tokens: 250, bytes: 1_000 };
+
+  it("keeps whole a file whose card is no smaller than it, over the room or not, within inlineTokens", () => {
+    const notes = Array.from({ length: 200 }, (_, i) => note(`doc_n${i}`));
+    const cardSizes = new Map(notes.map((document) => [document.id, card]));
+    // 200 notes of 100 tokens: 20,000, over the room of 16,000; as cards, 50,000.
+    expect(planDocuments(notes, budget, base).inline).toHaveLength(120);
+    const counted = planDocuments(notes, budget, base, { cardSizes });
+    // inlineTokens still holds: 120 notes.
+    expect(counted.inline).toHaveLength(120);
+    const roomy = planDocuments(notes, resolveBudget({ contextTokens: 20_000, reservedTokens: 4_000, inlineTokens: 16_000 }), { tokens: 2_000, bytes: 0 }, { cardSizes });
+    expect(roomy.inline).toHaveLength(160);
+  });
+
+  it("moves a file to the cards when that frees the room, and counts the cards it leaves", () => {
+    const runbook = meta({ id: "doc_runbook", estimatedTokens: 9_000, textBytes: 36_000 });
+    const log = meta({ id: "doc_log", estimatedTokens: 100_000, textBytes: 400_000 });
+    const cardSizes = new Map([[runbook.id, { tokens: 900, bytes: 3_000 }], [log.id, { tokens: 7_500, bytes: 30_000 }]]);
+    // As in 0.9, the runbook fits the room of 16,000 tokens, and the log's card is not counted.
+    expect(planDocuments([runbook, log], budget, base).inline).toEqual([runbook]);
+    // With the log's card counted, 9,000 + 7,500 is over: the runbook goes to the cards.
+    expect(planDocuments([runbook, log], budget, base, { cardSizes }).inline).toEqual([]);
+    expect(planDocuments([runbook, log], budget, { tokens: 0, bytes: 0 }, { cardSizes: new Map([[runbook.id, { tokens: 900, bytes: 3_000 }], [log.id, { tokens: 6_000, bytes: 30_000 }]]) }).inline).toEqual([runbook]);
+    // Pinned, the same: a pin stays only while it fits.
+    expect(planDocuments([runbook, log], budget, base, { cardSizes, pinned: [runbook.id] }).inline).toEqual([]);
+  });
+
+  it("counts a file sent whole at its measured size when that is larger (PlanOptions.measured)", () => {
+    const document = meta({ id: "doc_m", estimatedTokens: 10_000, textBytes: 30_000, jsonBytes: 31_000 });
+    const roomy = resolveBudget({ inlineTokens: 12_000 });
+    expect(planDocuments([document], roomy, base, { measured: new Map([[document.id, { tokens: 11_000, bytes: 40_000 }]]) })).toMatchObject({ inlineTokens: 11_000, inlineBytes: 40_000 });
+    expect(planDocuments([document], roomy, base, { measured: new Map([[document.id, { tokens: 13_000, bytes: 0 }]]) }).inline).toEqual([]);
+    // Smaller: the estimate.
+    expect(planDocuments([document], roomy, base, { measured: new Map([[document.id, { tokens: 1, bytes: 1 }]]) })).toMatchObject({ inlineTokens: 10_000, inlineBytes: 31_200 });
   });
 });
 
