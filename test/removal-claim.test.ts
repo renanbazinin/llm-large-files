@@ -2,7 +2,8 @@
 // document's metadata by renaming it to a name of its own (`<id>.json.<8 hex>.tmp`), then removing
 // that name, and counts the removal as its own only when that succeeds. On Windows two unlinks of
 // one file at the same moment can both succeed, so two sweeps counted 26 of 25, and two deletes
-// both said true. Here an unlink that also succeeds for a file already gone stands for that.
+// both said true. Here an unlink that found its file when it began, and is told it worked though
+// another removed it meanwhile, stands for that.
 import fsp, { mkdtemp, readdir, rm, utimes } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -38,13 +39,21 @@ function replace(method: keyof Table, make: (real: Table[keyof Table]) => Table[
   });
 }
 
-/** As on Windows, two unlinks of one file at once both succeed: an unlink of a file already gone is told it worked. */
+/**
+ * As on Windows, two unlinks of one file at once both succeed: an unlink that found the file when
+ * it began is told it worked, though another removed it meanwhile. An unlink of a name that was
+ * already gone when it began fails, on Windows too. (Two renames of one file can both succeed on
+ * Windows, as CI showed: the first name of the claim is then gone before its unlink begins. An
+ * unlink told it worked for any missing name gave both deletes true there.)
+ */
 function unlinkAsWindows(): void {
+  const lstat = fsp.lstat;
   replace("unlink", (real) => async function (this: unknown, ...args: unknown[]) {
+    const there = await lstat(args[0] as string).then(() => true, () => false);
     try {
       return await real.apply(this, args);
     } catch (error) {
-      if ((error as { code?: unknown }).code === "ENOENT") return undefined;
+      if (there && (error as { code?: unknown }).code === "ENOENT") return undefined;
       throw error;
     }
   });
