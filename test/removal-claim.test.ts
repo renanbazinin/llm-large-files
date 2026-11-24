@@ -136,16 +136,17 @@ describe("FileDocumentStore claims a removal before it counts it", () => {
     // delete, which no longer found it, said false for a document it had removed.
     const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
     for (const entry of await readdir(directory)) await utimes(path.join(directory, entry), old, old);
-    // utimes sets the change time as well: it is let age past the margin below, so that only the
-    // rename's change counts.
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // utimes sets the change time as well: it is let age well past the margin below, so that only
+    // the rename's change counts. Both are wide for Windows runners, whose clocks are coarse and
+    // whose renames a scanner can slow.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
     const other = new FileDocumentStore(directory);
     let swept: number | undefined;
     replace("unlink", (real) => async function (this: unknown, ...args: unknown[]) {
       if (swept === undefined && /\.json\.[a-f0-9]{8}\.tmp$/.test(String(args[0]))) {
         // Between the rename of the metadata and the removal of the claim. The other server's clock
         // reads orphanAgeMs (an hour) later, less a margin: the rename of a moment ago is younger.
-        swept = await other.sweep(new Date(Date.now() + 60 * 60 * 1000 - 250));
+        swept = await other.sweep(new Date(Date.now() + 60 * 60 * 1000 - 1500));
       }
       return real.apply(this, args);
     });
@@ -153,5 +154,5 @@ describe("FileDocumentStore claims a removal before it counts it", () => {
     expect(swept).toBe(0);
     expect(await readdir(directory)).toEqual([]);
     expect(await store.getMeta("a")).toBeUndefined();
-  });
+  }, 15_000);
 });
