@@ -1191,7 +1191,7 @@ facts are checked again as the cases say now.
 | `--baseline file.json` | The results to compare facts with (`evals/baseline/0.9.0.json` by default; `none` for no comparison). |
 | `--max-input-tokens N` | No question starts once the run has used this many input tokens. |
 | `--question-input-tokens N` | A question that uses more is stopped (1,500,000 by default). |
-| `--concurrency N` | Cases run at once (4 against the API, 8 in a replay, by default). |
+| `--concurrency N` | Cases run at once (4 against the API, 1 in a replay, by default: a replay runs the cases in the order they were recorded, as a model's part reads learn its output limit once in a process). |
 
 `node evals/cli.mjs report --results file.json` writes the report of a results file again.
 
