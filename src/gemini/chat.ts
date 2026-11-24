@@ -1,12 +1,8 @@
-import { askWithFiles, type AskLimits, type AskOptions, type AskResult } from "../ask.js";
-import type { LargeFiles } from "../library.js";
-import type { AskEvent } from "../events.js";
+import { askWithFiles, type AskOptions, type AskResult } from "../ask.js";
 import type { ChatMessage } from "../model.js";
-import type { RetryOptions } from "../retry.js";
-import type { Budget, DocumentScope } from "../types.js";
 import { fromGeminiContents, gemini, type GeminiContent } from "./adapter.js";
 import type { GeminiEndpoint } from "./endpoints.js";
-import type { GeminiToolFilePlacement } from "./generate.js";
+import type { GeminiRequestFields, GeminiToolFilePlacement } from "./generate.js";
 
 export { DocumentsNotFoundError } from "../model.js";
 export { EXPLORER_INSTRUCTION, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, FINAL_ANSWER_WITHOUT_TOOLS, partialResultOf } from "../ask.js";
@@ -15,8 +11,11 @@ export type { ChatTurn } from "../model.js";
 export type { GeminiContent, GeminiPart } from "./adapter.js";
 export { GeminiRequestError } from "./errors.js";
 
-export type AskGeminiOptions = {
-  files: LargeFiles;
+/**
+ * The options of `askGemini` that are its own. Every other option is `askWithFiles`'s
+ * (`AskOptions`), and goes to it as it is. New as a type of its own in 0.10.0.
+ */
+export type GeminiOwnOptions = {
   /**
    * Where the model is: the one that answers. When the endpoint also names an explorer model
    * (`explorerModel` in `geminiApi()` and `vertexAi()`, or `explorerUrl`), that model makes the
@@ -24,15 +23,6 @@ export type AskGeminiOptions = {
    * tools returned. Without an explorer, one model does both.
    */
   endpoint: GeminiEndpoint;
-  /** Documents this conversation may use. Where their text or cards go: see `documentPlacement`. */
-  documentIds: string[];
-  /**
-   * Where document text and cards are added. "first" (the default) puts them at the start of the
-   * first user turn, where they stay as the conversation grows, so Gemini's prompt cache can
-   * reuse them on every follow-up question. "last" appends them to the latest user turn, as 0.1.0
-   * did; the document then moves on every turn and is billed in full each time.
-   */
-  documentPlacement?: "first" | "last";
   /**
    * The chat history, as `askWithFiles` takes it; the last turn must be the user's question. It
    * may hold the tool rounds of earlier questions (`toolTurns` of their results), and turns with
@@ -42,7 +32,6 @@ export type AskGeminiOptions = {
   messages?: ChatMessage[];
   /** Your own Gemini `contents` (with images, inline PDFs, etc.). The last turn must be the user's. */
   contents?: GeminiContent[];
-  system?: string;
   /** Sent with every chat request: temperature, maxOutputTokens, thinkingConfig, and so on. */
   generationConfig?: Record<string, unknown>;
   /**
@@ -51,36 +40,29 @@ export type AskGeminiOptions = {
    * example. It is not used without an explorer model.
    */
   explorerGenerationConfig?: Record<string, unknown>;
-  /** The user asking. Documents ingested with a different owner are treated as missing. */
-  owner?: string;
   /**
-   * The scope of the question, such as [userId, chatId] (`AskOptions.scope`): documents ingested
-   * with another scope are treated as missing. New in 0.9.0.
+   * More fields for the body of every chat request of the model that answers: `safetySettings`,
+   * `labels` (Vertex AI; never a user ID), `serviceTier`, `cachedContent`. Merged last
+   * (`GeminiModelOptions.body`). New in 0.10.0.
    */
-  scope?: DocumentScope;
+  body?: GeminiRequestFields;
+  /** The same, for the requests of an explorer model. Defaults to `body`. New in 0.10.0. */
+  explorerBody?: GeminiRequestFields;
   /**
-   * What to do when documents of `documentIds` are missing: "throw" (the default), "drop", or a
-   * function that says (`AskOptions.onMissingDocuments`). New in 0.9.0.
+   * More fields for the body of a whole-document part read, given its output limit. The parts are
+   * read by the explorer model when there is one. New in 0.10.0.
    */
-  onMissingDocuments?: AskOptions["onMissingDocuments"];
-  /** The limits of the question: tool turns, calls in a turn, whole-file reads, tokens and requests. */
-  limits?: AskLimits;
+  analysisBody?: (maxOutputTokens: number) => GeminiRequestFields;
+  /** `functionCallingConfig` mode of the requests that offer tools: "AUTO" (the default) or "VALIDATED". New in 0.10.0. */
+  functionCallingMode?: "AUTO" | "VALIDATED";
+  /** How the request for the answer in text says so: "omit" (the default) or "mode_none" (`GeminiModelOptions`). New in 0.10.0. */
+  answerWithoutTools?: "omit" | "mode_none";
+  /** The longest time, in milliseconds, of one part read of a whole-file read. Defaults to 180,000; 0 sets none. New in 0.10.0. */
+  timeoutMs?: number;
   /** `limits.toolTurns`, under the name it had before 0.5.0. Defaults to 12. */
   maxToolTurns?: number;
   /** `limits.callsPerTurn`, under the name it had before 0.5.0. Defaults to 8. */
   maxToolCallsPerTurn?: number;
-  /** How a request that failed is sent again. Defaults to three more tries, with a wait that doubles. */
-  retry?: RetryOptions;
-  /** Budget fields for this question, in place of the library's. */
-  budget?: Partial<Budget>;
-  /** Offer `analyze_whole_document`, which reads a whole file in many model calls. Defaults to true. */
-  wholeDocumentAnalysis?: boolean;
-  /**
-   * Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`), so the model can
-   * look at pictures, charts and layout. Defaults to true. It changes nothing for a library that
-   * keeps no originals.
-   */
-  viewPages?: boolean;
   /**
    * Where the pages go in the request. "inside" (the default) puts the PDF in the function
    * response itself, which Gemini 3 models read. "beside" sends it in a user turn of its own,
@@ -103,23 +85,15 @@ export type AskGeminiOptions = {
    * arrive. Defaults to 300,000. 0 waits without end.
    */
   idleTimeoutMs?: number;
-  /** Answer text as it streams. Streaming is used when this is set (or `streamText` is true) and the endpoint has `streamUrl`. */
-  onText?: (delta: string) => void;
-  /** Whether to ask for the answer as it is written (`AskOptions.streamText`). Defaults to true when `onText` is given. New in 0.7.0. */
-  streamText?: boolean;
-  /** Short-lived status, such as "Searching app.log for “timeout”…". */
-  onActivity?: (text: string) => void;
-  /** A finished step, such as "Search app.log (exact) for “timeout” — 12 matching lines". */
-  onStep?: (text: string) => void;
-  /** Everything the question does, as typed events in order (`AskOptions.onEvent`). New in 0.7.0. */
-  onEvent?: (event: AskEvent) => void;
-  /** The `runId` of the events. Defaults to one made for the question ("run_…"). */
-  runId?: string;
-  /** Put each tool result in its `tool.end` event (`AskOptions.eventResults`). Off by default. */
-  eventResults?: boolean;
   fetch?: typeof fetch;
-  signal?: AbortSignal;
 };
+
+/**
+ * The options of `askGemini`: its own (`GeminiOwnOptions`), and every option of `askWithFiles` but
+ * the models, which it makes. Since 0.10.0 the options of `askWithFiles` are taken by their type, so
+ * an option new there reaches the loop through `askGemini` too; no option was removed.
+ */
+export type AskGeminiOptions = Omit<AskOptions, "model" | "explorer" | "messages"> & GeminiOwnOptions;
 
 /** What `askWithFiles` returns. `usage` is summed over the whole question; Gemini's own `usageMetadata` of the last response is `lastUsage`. */
 export type AskGeminiResult = AskResult;
@@ -131,42 +105,44 @@ export type AskGeminiResult = AskResult;
  * and the tool loop runs, ending with a request without tools so there is always an answer.
  */
 export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiResult> {
-  const { endpoint } = options;
+  const {
+    endpoint, messages, contents, generationConfig, explorerGenerationConfig, body, explorerBody, analysisBody, functionCallingMode,
+    answerWithoutTools, timeoutMs, maxToolTurns, maxToolCallsPerTurn, toolFilePlacement, analysisConfig, firstByteTimeoutMs, idleTimeoutMs,
+    fetch, limits, ...loop
+  } = options;
   // A second model for the requests that use tools. The answering model's own URL is not one.
   const explorerUrl = endpoint.explorerUrl && endpoint.explorerUrl !== endpoint.url ? endpoint.explorerUrl : undefined;
-  const shared = { toolFilePlacement: options.toolFilePlacement, analysisConfig: options.analysisConfig, firstByteTimeoutMs: options.firstByteTimeoutMs, idleTimeoutMs: options.idleTimeoutMs, fetch: options.fetch };
-  const model = gemini(endpoint, { ...shared, generationConfig: options.generationConfig });
+  const shared = {
+    toolFilePlacement, analysisConfig, firstByteTimeoutMs, idleTimeoutMs, fetch,
+    ...(analysisBody ? { analysisBody } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(functionCallingMode ? { functionCallingMode } : {}),
+    ...(answerWithoutTools ? { answerWithoutTools } : {}),
+  };
+  const model = gemini(endpoint, { ...shared, generationConfig, ...(body ? { body } : {}) });
   // The explorer is called with the same headers, in one piece, with its own settings when it has any.
+  const explorerBodyOf = explorerBody ?? body;
   const explorer = explorerUrl
-    ? gemini({ url: explorerUrl, headers: endpoint.headers }, { ...shared, generationConfig: options.explorerGenerationConfig ?? options.generationConfig })
+    ? gemini({
+        url: explorerUrl,
+        headers: endpoint.headers,
+        ...(endpoint.refreshable ? { refreshable: endpoint.refreshable } : {}),
+        ...(endpoint.nativeRounds !== undefined ? { nativeRounds: endpoint.nativeRounds } : {}),
+      }, { ...shared, generationConfig: explorerGenerationConfig ?? generationConfig, ...(explorerBodyOf ? { body: explorerBodyOf } : {}) })
     : undefined;
+  // Rounds stored as contents keep their signed turns when they go back in Gemini's own form: for
+  // the model that makes the tool calls.
+  const toolModel = explorer ?? model;
+  const native = loop.nativeRounds ?? toolModel.capabilities.nativeRounds ?? false;
   return askWithFiles({
-    files: options.files,
+    ...loop,
     model,
     explorer,
-    documentIds: options.documentIds,
-    ...(options.documentPlacement ? { documentPlacement: options.documentPlacement } : {}),
-    messages: options.contents ? fromGeminiContents(options.contents) : options.messages ?? [],
-    ...(options.system !== undefined ? { system: options.system } : {}),
-    ...(options.owner !== undefined ? { owner: options.owner } : {}),
-    ...(options.scope !== undefined ? { scope: options.scope } : {}),
-    ...(options.onMissingDocuments !== undefined ? { onMissingDocuments: options.onMissingDocuments } : {}),
+    messages: contents ? fromGeminiContents(contents, native ? { model: toolModel.id } : {}) : messages ?? [],
     limits: {
-      ...(options.maxToolTurns !== undefined ? { toolTurns: options.maxToolTurns } : {}),
-      ...(options.maxToolCallsPerTurn !== undefined ? { callsPerTurn: options.maxToolCallsPerTurn } : {}),
-      ...options.limits,
+      ...(maxToolTurns !== undefined ? { toolTurns: maxToolTurns } : {}),
+      ...(maxToolCallsPerTurn !== undefined ? { callsPerTurn: maxToolCallsPerTurn } : {}),
+      ...limits,
     },
-    ...(options.retry ? { retry: options.retry } : {}),
-    ...(options.budget ? { budget: options.budget } : {}),
-    ...(options.wholeDocumentAnalysis !== undefined ? { wholeDocumentAnalysis: options.wholeDocumentAnalysis } : {}),
-    ...(options.viewPages !== undefined ? { viewPages: options.viewPages } : {}),
-    ...(options.onText ? { onText: options.onText } : {}),
-    ...(options.streamText !== undefined ? { streamText: options.streamText } : {}),
-    ...(options.onActivity ? { onActivity: options.onActivity } : {}),
-    ...(options.onStep ? { onStep: options.onStep } : {}),
-    ...(options.onEvent ? { onEvent: options.onEvent } : {}),
-    ...(options.runId !== undefined ? { runId: options.runId } : {}),
-    ...(options.eventResults !== undefined ? { eventResults: options.eventResults } : {}),
-    ...(options.signal ? { signal: options.signal } : {}),
   });
 }

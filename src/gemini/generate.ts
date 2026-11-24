@@ -2,10 +2,37 @@
 // auth headers, so this works with the Gemini API, Vertex AI, or an enterprise gateway.
 import type { ToolAnswer, ToolCall } from "../model.js";
 import { completeWithinLimit, noTextReason, type LimitedReply } from "../output-limit.js";
-import { readJson } from "../http.js";
+import { base64, partTimer, readJson, resolveHeaderSource, type HeaderSource } from "../http.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
-import { finishOfGemini, geminiFailure, notJson, unreachable } from "./errors.js";
+import { errorBodyOf, finishOfGemini, geminiFailure, notJson, statusOfError, tooSlow, unreachable } from "./errors.js";
+
+/**
+ * More fields for the body of a Gemini request (`gemini({ body, analysisBody })`): `safetySettings`,
+ * `labels` (Vertex AI), `serviceTier`, `cachedContent` for an explicit cache, or any other field the
+ * API takes. They are merged last, after the library's. The fields the library writes itself are
+ * typed `never`: set `generationConfig` and `analysisConfig` for those. Nothing is refused at run
+ * time. New in 0.10.0.
+ */
+export type GeminiRequestFields = {
+  /** Safety settings, as the API takes them: `{ category, threshold, method? }`. */
+  safetySettings?: Array<{ category: string; threshold: string; method?: string }>;
+  /**
+   * Vertex AI only: labels for the billing export, keys and values in lower case, each at most 63
+   * characters. They reach every reader of the billing data: never put a user ID or other personal
+   * data in them.
+   */
+  labels?: Record<string, string>;
+  serviceTier?: string;
+  /** The name of an explicit context cache (`cachedContents/…`). */
+  cachedContent?: string;
+  contents?: never;
+  systemInstruction?: never;
+  tools?: never;
+  toolConfig?: never;
+  generationConfig?: never;
+  [key: string]: unknown;
+};
 
 /** Gemini accepts this package's JSON Schema subset as-is. */
 export function toGeminiTools(declarations: ToolDeclaration[]): { functionDeclarations: ToolDeclaration[] } {
@@ -45,8 +72,6 @@ export type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 
 /** A `user` turn: a `GeminiContent` that can go in `contents` as it is. */
 type UserTurn = GeminiContent & { role: "user" };
-
-const base64 = (bytes: Uint8Array) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
 
 /** One function response, with `files` inside it. */
 function functionResponse(call: GeminiFunctionCall, result: ToolResult, files: ToolFile[]): GeminiPart {
@@ -106,12 +131,30 @@ export { THINKING_OUTPUT_TOKENS } from "../output-limit.js";
  */
 export function createGeminiGenerateText(options: {
   url: string;
-  /** Request headers, or a function returning them. A function is called for every request: a whole-file read can outlast an access token. */
-  headers: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
+  /**
+   * Request headers, or a function returning them. A function is called for every request: a
+   * whole-file read can outlast an access token.
+   */
+  headers: HeaderSource;
   fetchImpl?: typeof fetch;
   /** The `generationConfig` of each request, from its output limit. Defaults to `{ maxOutputTokens }`. */
   generationConfig?: (maxOutputTokens: number) => Record<string, unknown>;
+  /**
+   * More fields for the body of each request, given its output limit, merged last
+   * (`gemini({ analysisBody })`). New in 0.10.0.
+   */
+  body?: (maxOutputTokens: number) => GeminiRequestFields;
+  /**
+   * The longest time, in milliseconds, a request may take, its whole reply included. Defaults to
+   * 180,000; 0 sets none. A request past it is a `GeminiRequestError` of kind "timeout" and status
+   * 0 (since 0.10.0; before, the abort of the timer), which a whole-file read sends again once.
+   */
   timeoutMs?: number;
+  /**
+   * A request refused with HTTP 401 is sent once more, with the headers of `headers({ refresh: true })`
+   * (the endpoint's `refreshable`). New in 0.10.0.
+   */
+  refreshable?: boolean | undefined;
 }): GenerateText {
   const fetchImpl = options.fetchImpl ?? fetch;
   const { url } = options;
@@ -120,60 +163,74 @@ export function createGeminiGenerateText(options: {
     let blocked = false;
     /** One request with an output limit: the text of the reply, why it ended, and what it thought. */
     const send = async (limit: number): Promise<LimitedReply> => {
-      const timeout = AbortSignal.timeout(options.timeoutMs ?? 180_000);
-      const headers = typeof options.headers === "function" ? await options.headers() : options.headers;
-      let response: Response;
+      const timer = partTimer(signal, options.timeoutMs);
+      // Stopped by the caller: reported as it is. Out of time: a timeout. Anything else is a connection that failed.
+      const lost = (error: unknown) => (timer.expired && !signal?.aborted ? tooSlow(timer.limitMs) : unreachable(error));
       try {
-        response = await fetchImpl(url, {
-          method: "POST",
-          headers,
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            systemInstruction: { role: "system", parts: [{ text: system }] },
-            // No temperature: Gemini 3.6 and later ignore it, and Google says later models will refuse it.
-            generationConfig: options.generationConfig?.(limit) ?? { maxOutputTokens: limit },
-          }),
+        const body = JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          systemInstruction: { role: "system", parts: [{ text: system }] },
+          // No temperature: Gemini 3.6 and later ignore it, and Google says later models will refuse it.
+          generationConfig: options.generationConfig?.(limit) ?? { maxOutputTokens: limit },
+          ...options.body?.(limit),
         });
-      } catch (error) {
-        // Stopped by the caller, or out of time: reported as it is. Anything else is a connection that failed.
-        if (signal?.aborted || timeout.aborted) throw error;
-        throw unreachable(error);
+        const post = async (refresh: boolean): Promise<Response> => {
+          const headers = await resolveHeaderSource(options.headers, refresh ? { refresh: true } : undefined);
+          try {
+            return await fetchImpl(url, { method: "POST", headers, ...(timer.signal ? { signal: timer.signal } : {}), body });
+          } catch (error) {
+            if (signal?.aborted) throw error;
+            throw lost(error);
+          }
+        };
+        let response = await post(false);
+        // A token that was refused may be one a cache kept past its time: one more try, with a new one.
+        if (response.status === 401 && options.refreshable) {
+          discard(response);
+          response = await post(true);
+        }
+        type Data = {
+          error?: { message?: string; code?: unknown; status?: unknown };
+          candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: unknown; thought?: boolean }> } }>;
+          usageMetadata?: Record<string, unknown>;
+          promptFeedback?: { blockReason?: unknown };
+        } | null;
+        // An error may have no JSON body. A reply must: one whose body could not be read is a
+        // connection that failed, and is sent again. A body that is a list is read by its first entry.
+        const data = errorBodyOf(response.ok
+          ? await readJson<unknown>(response, () => Boolean(signal?.aborted), lost, timer.signal ? { pulse: () => undefined, signal: timer.signal } : undefined, (error) => notJson(response, error))
+          : await response.json().catch(() => null)) as Data;
+        if (!response.ok) throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`);
+        // An error in a body of HTTP 200 (a gateway, or Vertex AI): thrown with its own status, so
+        // that a 503 is sent again rather than read as a reply with no text.
+        if (data?.error && typeof data.error === "object") throw geminiFailure(statusOfError(data.error), data, retryAfterMs(response.headers, data), "Gemini reported an error.");
+        onUsage?.(usageOfGemini(data?.usageMetadata));
+        const candidate = data?.candidates?.[0];
+        // A prompt Gemini blocked comes with 200, a reason and no candidate: the reply has no text,
+        // and says why ("The model returned no text (PROHIBITED_CONTENT).").
+        const blockReason = data?.promptFeedback?.blockReason;
+        if (!candidate && typeof blockReason === "string" && blockReason) {
+          blocked = true;
+          return { text: "", cutOff: false, stopped: true, reason: blockReason, thoughts: 0 };
+        }
+        const text = (candidate?.content?.parts ?? [])
+          .filter((part) => part.thought !== true && typeof part.text === "string")
+          .map((part) => part.text as string)
+          .join("");
+        const thoughts = data?.usageMetadata?.thoughtsTokenCount;
+        const finish = finishOfGemini(candidate?.finishReason);
+        return {
+          text,
+          cutOff: candidate?.finishReason === "MAX_TOKENS",
+          // Stopped before its end by a filter, or for another reason that is not the limit: what
+          // it wrote is not all there is.
+          stopped: finish === "filtered" || finish === "other",
+          ...(candidate?.finishReason ? { reason: candidate.finishReason } : {}),
+          thoughts: typeof thoughts === "number" ? thoughts : 0,
+        };
+      } finally {
+        timer.stop();
       }
-      type Data = {
-        error?: { message?: string };
-        candidates?: Array<{ finishReason?: string; content?: { parts?: Array<{ text?: unknown; thought?: boolean }> } }>;
-        usageMetadata?: Record<string, unknown>;
-        promptFeedback?: { blockReason?: unknown };
-      } | null;
-      // An error may have no JSON body. A reply must: one whose body could not be read is a
-      // connection that failed, and is sent again.
-      const data: Data = response.ok
-        ? await readJson<Data>(response, () => Boolean(signal?.aborted) || timeout.aborted, unreachable, undefined, (error) => notJson(response, error))
-        : await response.json().catch(() => null) as Data;
-      if (!response.ok) throw geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`);
-      onUsage?.(usageOfGemini(data?.usageMetadata));
-      const candidate = data?.candidates?.[0];
-      // A prompt Gemini blocked comes with 200, a reason and no candidate: the reply has no text,
-      // and says why ("The model returned no text (PROHIBITED_CONTENT).").
-      const blockReason = data?.promptFeedback?.blockReason;
-      if (!candidate && typeof blockReason === "string" && blockReason) {
-        blocked = true;
-        return { text: "", cutOff: false, stopped: true, reason: blockReason, thoughts: 0 };
-      }
-      const text = (candidate?.content?.parts ?? [])
-        .filter((part) => part.thought !== true && typeof part.text === "string")
-        .map((part) => part.text as string)
-        .join("");
-      const thoughts = data?.usageMetadata?.thoughtsTokenCount;
-      return {
-        text,
-        cutOff: candidate?.finishReason === "MAX_TOKENS",
-        // Stopped by the safety filters before its end: what it wrote is not all there is.
-        stopped: finishOfGemini(candidate?.finishReason) === "filtered",
-        ...(candidate?.finishReason ? { reason: candidate.finishReason } : {}),
-        thoughts: typeof thoughts === "number" ? thoughts : 0,
-      };
     };
     try {
       return await completeWithinLimit(url, maxOutputTokens, send, { signal, onTruncated });
@@ -183,4 +240,13 @@ export function createGeminiGenerateText(options: {
       throw error;
     }
   };
+}
+
+/** A response that is not read: its body is let go, without waiting for it. */
+export function discard(response: Response): void {
+  try {
+    void response.body?.cancel().catch(() => undefined);
+  } catch {
+    // A body that is locked, or a cancel that throws at once, holds nothing up.
+  }
 }
