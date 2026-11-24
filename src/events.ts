@@ -84,7 +84,7 @@ export type RequestPurpose = "turn" | "nudge" | "closing" | "answer_again" | "di
  *   with a pointer to it;
  * - "not_run": the turn had more calls than `limits.callsPerTurn`;
  * - "redacted": it ran, and `AskOptions.onToolResult` replaced its result: the model was sent the
- *   replacement. New in 0.10.0. Not given yet.
+ *   replacement. New in 0.10.0.
  *
  * A switch over every outcome must handle the outcomes added in a later version.
  */
@@ -110,9 +110,9 @@ export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_ru
  * - "page_looks_busy": a look at pages waited its turn (`maxConcurrentPageLooks`) longer than
  *   `pageLookWaitMs`, and was not run. The model was told so in the call's result. New in 0.9.0;
  * - "answer_filtered": a filter of the provider stopped the answer, with or without text
- *   (`AskResult.finish` "filtered"). New in 0.10.0. Not emitted yet;
+ *   (`AskResult.finish` "filtered"). New in 0.10.0;
  * - "answer_cut": the answer stopped at the output limit (`AskResult.finish` "cut"). New in
- *   0.10.0. Not emitted yet;
+ *   0.10.0;
  * - "placement_changed": the documents were planned afresh, not as `AskOptions.placement` had
  *   them: the state was of another version or of another start of the chat, or a document sent
  *   whole is searched with the tools now. New in 0.10.0. Not emitted yet;
@@ -162,7 +162,7 @@ export type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
    * `DocumentMeta` (owner, scope, the SHA-256 and the ref of the original, outline headings, the
    * commonest lines of a log) is left out unless `eventResults` is true. The returned result has
    * the full plan. Since 0.10.0 the type of the full metadata here has no owner, scope, `sha256`,
-   * `original` or `metaVersion`, which are to stay on the server. They are not dropped at run time yet.
+   * `original` or `metaVersion`, which stay on the server: they are left out at run time too.
    */
   plan: {
     inline: Array<DocumentRef | Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion">>;
@@ -217,9 +217,9 @@ export type AskEvent =
       finishReason?: string;
       /** How many tool calls the reply asked for. */
       toolCalls?: number;
-      /** The provider's ID of the response (`ModelReply.responseId`), when the adapter gives one. New in 0.10.0. Not set yet. */
+      /** The provider's ID of the response (`ModelReply.responseId`), when the adapter gives one. New in 0.10.0. */
       responseId?: string;
-      /** The model that wrote the response, as the provider names it (`ModelReply.responseModel`). New in 0.10.0. Not set yet. */
+      /** The model that wrote the response, as the provider names it (`ModelReply.responseModel`). New in 0.10.0. */
       responseModel?: string;
       /** With outcome "error": why. A request that failed may still be followed by others (an overflow made smaller, a part read in halves). */
       error?: EventError;
@@ -308,7 +308,6 @@ export type AskEvent =
       /**
        * With "answer_filtered", under `AskOptions.filteredAnswer: "drop"`: text of the answer was
        * already sent (`text` events, `onText`), and the page should take it away. New in 0.10.0.
-       * Not set yet.
        */
       discardText?: true;
     })
