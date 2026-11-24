@@ -363,11 +363,12 @@ export type ReplayReport = {
 };
 
 /** Picks the recording for a request, or throws CassetteMissError. Shared by fetch and model replays. */
-function matcher<T extends { n: number; request: { hash: string; outline: Outline } }>(entries: T[], label: string, match: "hash" | "order") {
+function matcher<T extends { n: number; request: { hash: string; outline: Outline; method?: string; url?: string } }>(entries: T[], label: string, match: "hash" | "order") {
   const used = new Set<number>();
   const misses: CassetteMissError[] = [];
   let requests = 0;
-  const take = (hash: string, outline: Outline, sameKind: (entry: T) => boolean, nearest?: (entry: T) => boolean): T => {
+  /** `where`: the method and normalized URL of a fetch request, compared before the body. */
+  const take = (hash: string, outline: Outline, sameKind: (entry: T) => boolean, nearest?: (entry: T) => boolean, where?: { method: string; url: string }): T => {
     const n = ++requests;
     const open = entries.filter((entry) => !used.has(entry.n) && sameKind(entry));
     const found = match === "hash" ? open.find((entry) => entry.request.hash === hash) : open[0]?.request.hash === hash ? open[0] : undefined;
@@ -380,7 +381,11 @@ function matcher<T extends { n: number; request: { hash: string; outline: Outlin
     if (!expected) {
       miss = new CassetteMissError(label, n, "request", `the recording has no request left (it holds ${entries.filter(sameKind).length}).`);
     } else {
-      const difference = firstDifference(expected.request.outline, outline) ?? { field: "body", was: `hash ${expected.request.hash}`, now: `hash ${hash}` };
+      const difference =
+        (where && expected.request.method !== undefined && expected.request.method !== where.method ? { field: "method", was: expected.request.method, now: where.method } : undefined)
+        ?? (where && expected.request.url !== undefined && expected.request.url !== where.url ? { field: "url", was: expected.request.url, now: where.url } : undefined)
+        ?? firstDifference(expected.request.outline, outline)
+        ?? { field: "body", was: `hash ${expected.request.hash}`, now: `hash ${hash}` };
       miss = new CassetteMissError(label, n, difference.field, `${difference.field} differs from recording ${expected.n} (was ${difference.was}, now ${difference.now}).`);
     }
     misses.push(miss);
@@ -402,7 +407,7 @@ export function replayFetch(directory: string, options: ReplayOptions = {}): typ
     const signal = init?.signal ?? (typeof input === "object" && !(input instanceof URL) ? input.signal : undefined);
     signal?.throwIfAborted();
     const request = await recordedRequestOf(input, init);
-    const entry = take(requestHash(request), outlineOf(request.body), () => true, (one) => one.request.url === request.url && one.request.method === request.method);
+    const entry = take(requestHash(request), outlineOf(request.body), () => true, (one) => one.request.url === request.url && one.request.method === request.method, { method: request.method, url: request.url });
     if ("error" in entry.response) throw Object.assign(new Error(entry.response.error.message), { name: entry.response.error.name });
     return responseOf(entry.response, signal);
   };

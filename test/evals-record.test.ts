@@ -206,6 +206,17 @@ describe("a replay that finds no recording", () => {
     expect(replay.misses[0]).toMatchObject({ request: 1 });
   });
 
+  it("names the URL when only the model or the endpoint changed", async () => {
+    const dir = folder();
+    const ask = (model: string, fetch: typeof globalThis.fetch) => gemini(geminiApi({ apiKey: "test-key", model }), { fetch }).send(REQUEST);
+    await ask("gemini-test", recordingFetch(dir, { fetch: geminiReplies("log-1").fetch }));
+    const replay = replayFetch(dir, { label: "c" });
+    await expect(ask("gemini-other", replay)).rejects.toThrow();
+    const [miss] = replay.misses;
+    expect(miss!.field).toBe("url");
+    expect(miss!.message).toContain("url differs from recording 1 (was https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent, now https://generativelanguage.googleapis.com/v1beta/models/gemini-other:generateContent)");
+  });
+
   it("matches in order when asked to, and says when the recording has no request left", async () => {
     const dir = folder();
     await askLog(await library(), recordingFetch(dir, { fetch: geminiReplies("log-1").fetch }));
