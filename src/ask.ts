@@ -1783,6 +1783,19 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const toolRole: RequestRole = explorer ? "explorer" : "tools";
     /** A call as one line of plain text. An unknown tool's name is quoted and cut: no step starts with what the model chose, at any length. */
     const labelOf = (call: ToolCall): string => stepLine(tools.has(call.name) ? tools.describe(call.name, call.args) : `Call ${unknownToolName(call.name)}`);
+    // The tools are there only for tables sent whole (`inlineTables`): without them, the question
+    // would be the one request of 0.9 (and of "text"). It is still that, without the tools, the
+    // line that says to count with them, or a notice, when not one tool turn fits: a ceiling or a
+    // count of requests sized for that one request, or `toolTurns: 1`.
+    const tablesOnly = !explorer && searchable.length === 0 && viewable.length === 0;
+    if (tablesOnly && (1 + (carried?.answered ?? 0) >= maxTurns || spent())) {
+      const plainLine = inlineInstruction({ plan: prepared.plan }, numbered);
+      const plain = [options.system?.trim(), prepared.instruction, plainLine, missingLine].filter(Boolean).join("\n\n");
+      // Its estimate, for a provider that reports no usage: no declarations, its own line.
+      meter.fixed.tokens += -estimateTokens(sentTools) - (inlineLine ? estimateTokens(inlineLine) : 0) + (plainLine ? estimateTokens(plainLine) : 0);
+      meter.fixed.bytes += -Buffer.byteLength(sentTools) - (inlineLine ? jsonBytes(inlineLine) : 0) + (plainLine ? jsonBytes(plainLine) : 0);
+      return answer(wrote(await send(model, () => ({ system: plain, messages }), true, { role: "answer", purpose: "direct" })));
+    }
     for (let round = 1 + (carried?.answered ?? 0); round < maxTurns && !outOfRoom; round++) {
       if (spent()) {
         budgetReached();

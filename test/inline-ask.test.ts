@@ -9,6 +9,7 @@ import {
   EXPLORER_INSTRUCTION,
   FINAL_ANSWER_REQUEST,
   MemoryDocumentStore,
+  type AskEvent,
   type AskOptions,
   type LargeFiles,
   type ModelReply,
@@ -243,6 +244,44 @@ describe("tables sent whole get the tools that count them (inlineTables)", () =>
     await askWithFiles({ files, model: plain, documentIds: [csv.id], messages: [question("כמה חשבוניות באיחור?")], inlineTables: "text" });
     expect(JSON.stringify(plain.requests[0])).not.toContain(csv.id);
     expect(plain.requests[0]!.tools).toBeUndefined();
+  });
+
+  it("asks a question over tables sent whole in one request without the tools when not one tool turn fits, with no notice", async () => {
+    const files = await library();
+    const meta = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices(600)) });
+    const run = async (shape: Pick<AskOptions, "inlineTables" | "limits">) => {
+      const events: AskEvent[] = [];
+      const model = fakeModel([says("Five columns.")]);
+      const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: [question("Which columns?")], onEvent: (event) => events.push(event), ...shape });
+      return {
+        result,
+        model,
+        notices: events.flatMap((event) => (event.type === "notice" ? [event.code] : [])),
+        starts: events.flatMap((event) => (event.type === "request.start" ? [event] : [])),
+      };
+    };
+    // A ceiling between one request with the table and two (sized for 0.9), one request, one tool turn.
+    for (const limits of [{ inputTokens: Math.ceil(meta.estimatedTokens * 1.6) }, { requests: 1 }, { toolTurns: 1 }]) {
+      const tools = await run({ limits });
+      const text = await run({ limits, inlineTables: "text" });
+      const label = JSON.stringify(limits);
+      expect(tools.model.requests, label).toHaveLength(1);
+      expect(tools.starts.map((start) => `${start.role} ${start.purpose}`), label).toEqual(["answer direct"]);
+      expect(tools.notices, label).toEqual([]);
+      expect(tools.result.answered, label).toBe(true);
+      // The request of "text": no tools, no line that says to count with them, no closing note.
+      const [sent] = tools.model.requests;
+      expect(sent!.tools, label).toBeUndefined();
+      expect(sent!.toolChoice, label).toBeUndefined();
+      expect(sent!.system, label).toBe(INLINE_CITATION_LINE);
+      expect(sent!.system, label).toBe(text.model.requests[0]!.system);
+      expect(textOf(sent!).endsWith("Which columns?"), label).toBe(true);
+      // Counted as that request: the same estimate.
+      expect(tools.starts[0]!.estimatedInputTokens, label).toBe(text.starts[0]!.estimatedInputTokens);
+    }
+    // With room for a tool turn, the tools.
+    const roomy = await run({ limits: { requests: 2 } });
+    expect(roomy.model.requests[0]!.tools?.map((tool) => tool.name)).toEqual(["search_document", "read_document", "aggregate_table"]);
   });
 
   it("refuses an inlineTables or numberInline it cannot be, before any request", async () => {
