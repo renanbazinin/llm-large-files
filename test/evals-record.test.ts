@@ -364,6 +364,23 @@ describe("runRecorder", () => {
     expect(recorder.requests()).toEqual([expect.objectContaining({ requestId: "req_1", role: "answer", purpose: "direct", outcome: "ok", usage: expect.objectContaining({ inputTokens: 40, cachedInputTokens: 10 }) })]);
     expect(recorder.events().every((event: AskEvent) => event.runId === "<run>" && event.time === 0)).toBe(true);
   });
+  it("zeroes the durations of its events, so two runs that took different times compare", async () => {
+    const { files } = await library();
+    const run = async (delay: number) => {
+      const recorder = runRecorder();
+      const model = fakeModel([async () => {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return says("Heron.");
+      }]);
+      await askWithFiles({ files, model, documentIds: ["notes-1"], messages: [{ role: "user", text: "Code word?" }], onEvent: recorder.listener });
+      return recorder;
+    };
+    const quick = await run(5);
+    const slow = await run(60);
+    expect(slow.events()).toEqual(quick.events());
+    // The requests keep their time: the latency of the report.
+    expect(slow.requests()[0]!.ms).toBeGreaterThan(quick.requests()[0]!.ms!);
+  });
 });
 
 describe("the facts of the eval cases", () => {

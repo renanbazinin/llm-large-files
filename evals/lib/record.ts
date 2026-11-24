@@ -647,7 +647,8 @@ export type RequestRecord = {
 
 /**
  * A listener for `onEvent` that keeps the requests of a question, the notices and the tool calls.
- * Its events are normalized: the run ID becomes "<run>" and each time 0, so two runs compare.
+ * Its events are normalized: the run ID becomes "<run>", each time 0, and each duration (`ms`, a
+ * retry's `delayMs`) 0, so two runs compare. The requests keep their `ms`: the report's latency.
  */
 export function runRecorder(): {
   listener: (event: AskEvent) => void;
@@ -661,7 +662,7 @@ export function runRecorder(): {
   const tools = new Map<string, { tool: string; outcome?: string }>();
   return {
     listener(event) {
-      events.push({ ...event, runId: "<run>", time: 0 } as AskEvent);
+      events.push({ ...event, runId: "<run>", time: 0, ...("ms" in event ? { ms: 0 } : {}), ...("delayMs" in event ? { delayMs: 0 } : {}) } as AskEvent);
       if (event.type === "request.start") {
         requests.set(event.requestId, {
           requestId: event.requestId, role: event.role, purpose: event.purpose, model: event.model,
