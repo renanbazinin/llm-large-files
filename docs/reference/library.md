@@ -1895,6 +1895,7 @@ type ExtractedText = {
   encoding?: string;
   replacedCharacters?: number;
   file?: { bytes: number; sha256: string }; // new in 0.9.0
+  headings?: Array<{ page: number; level: number; title: string }>; // new in 0.10.0
 };
 ```
 
@@ -1905,6 +1906,7 @@ type ExtractedText = {
 | `encoding` | `string \| undefined` | The older encoding the file was read in, when it is not UTF-8, such as `"windows-1255"`. Stored as `DocumentMeta.encoding` when it is a name (letters, digits, `.`, `_`, `:` and `-`, up to 40 characters) and not a name of UTF-8 or UTF-16 (`utf-8`, `utf8`, `unicode`, `utf-16be`…): a name `TextDecoder` does not know is kept. New in 0.6.0. |
 | `replacedCharacters` | `number \| undefined` | The characters that were not valid in the encoding the file was read in, each now U+FFFD (�). Stored as `DocumentMeta.replacedCharacters` when it is a whole number above 0. New in 0.6.0. |
 | `file` | `{ bytes, sha256 } \| undefined` | What an extractor that reads paths read from `ExtractInput.path`: the size of the file, and its SHA-256 as 64 lowercase hex digits. Stored as `DocumentMeta.bytes` and `sha256`. Read only for an ingest from a path whose extractor read it; left out otherwise, and ignored in another shape. New in 0.9.0. |
+| `headings` | `{ page, level, title }[] \| undefined` | A PDF's headings, found from the size of its type: each line set larger than the body, with its page (from 1), its level (1 is the top) and its text as pdf.js gives it (the words of right-to-left text can run together), in the order of the text. The built-in PDF extractor returns them when it finds any ([PDF outline](../guides/pdfs.md#pdf-outline)). `ingest` looks for each among the lines of its page (after the line `--- Page N ---`, the pages counted from 1), comparing the text without its spaces, and makes those it finds the outline when the text's own rules find fewer than 3 headings and these are more (see [`OutlineEntry`](#outlineentry)). Read for a PDF only: the first 10,000 entries, each with a page and a level that are whole numbers (the level from 1 to 6) and a title of up to 1,000 characters; other entries are skipped. An extractor that wraps the built-in one passes them on to keep that outline. New in 0.10.0. |
 
 The model is told of both, on the card and in the frame of a file sent whole (see
 [`PreparedContext`](#preparedcontext)).
@@ -1975,7 +1977,9 @@ writes each page as a line `--- Page N ---` followed by the page's text, and
 `[No text on this page. It may be a scan, a photo, or a chart.]` for a page without text. With
 `pictures`, a page that shows a picture or a drawing gets the line
 `[Picture on this page. This text cannot show it.]` under its page line. It returns the number of
-pages. It throws the PDF messages listed under [`defaultExtractors`](#defaultextractors).
+pages, and since 0.10.0 the lines set larger than the body as `headings`
+([`ExtractedText`](#extractedtext)), which `ingest` makes the outline of a PDF whose text has none.
+It throws the PDF messages listed under [`defaultExtractors`](#defaultextractors).
 
 ```ts
 import { createLargeFiles, createPdfExtractor, MemoryDocumentStore } from "llm-large-files";
@@ -2135,7 +2139,7 @@ browser instead.
 | `encoding` | `string \| undefined` | The older encoding a text file was read in, because it is not UTF-8, as `TextDecoder` names it: `"windows-1255"` for a Hebrew CSV that Excel saved, or `"windows-1256"`, `"windows-1251"`, `"shift_jis"`, `"windows-1252"`. Lines of it that are valid UTF-8 are read as UTF-8 all the same. Absent for valid UTF-8, for a file read as UTF-8 with characters that are not valid (see `replacedCharacters`), for UTF-16, for PDF, DOCX, PPTX and XLSX, and on documents from before 0.6.0. An HTML file is decoded as a text file is, and can have one. An extractor of your own may set another name ([`ExtractedText`](#extractedtext)). How the encoding is chosen: [Text encodings](../guides/pdfs.md#text-encodings). New in 0.6.0. |
 | `replacedCharacters` | `number \| undefined` | The characters of a text file that were not valid in the encoding it was read in (UTF-8, or `encoding`), such as a character cut in two at the end of a UTF-8 log, or a byte that `encoding` does not have: each is stored as U+FFFD (�). Absent when there were none, and on documents from before 0.6.0. New in 0.6.0. |
 | `originalKept` | `boolean \| undefined` | `true` when the uploaded file is kept (`keepOriginals`): in the store, or by its ref (`original`, 0.9.0). Absent otherwise. Documents ingested before you turned `keepOriginals` on have no original. |
-| `outline` | [`OutlineEntry[]`](#outlineentry) | The headings found in the text, at most 400. Empty for `log`, `json` and `csv`. |
+| `outline` | [`OutlineEntry[]`](#outlineentry) | The headings found in the text, at most 400. Empty for `log`, `json` and `csv`. For a PDF whose text gives fewer than 3, the lines set larger than its body, since 0.10.0. |
 | `logProfile` | [`LogProfile`](#logprofile) or `undefined` | The log profile, for a `log` document only. |
 | `pagesWithoutText` | `number[]` or `undefined` | The pages of a PDF with no text at all (scans, photos, charts), up to 200. Absent when there are none, and on documents from before 0.8.1. The card names them, and points to `view_pages` when they can be looked at. New in 0.8.1. |
 | `garbledPages` | `number[]` or `undefined` | The pages of a PDF whose text looks garbled: of at least 40 characters, fewer than 3 in 10 letters or digits, or more than max(6, 3%) replacement characters (a font without a Unicode map). Up to 200. The card says not to rely on them. New in 0.8.1. |
@@ -2194,7 +2198,12 @@ type OutlineEntry = { line: number; level: number; title: string };
 One heading of a document's outline. The headings are found in the text: Markdown headings (the
 slides of a PPTX are `## Slide N`), lines that start with "Chapter", "Part", "Book", "Section" or
 "Appendix" (or the Hebrew words for chapter, part and appendix), numbered headings such as `2.1 Results`, and short lines in capitals; all but the
-Markdown ones only after a blank line. When there are more than 400, the outline keeps only the
+Markdown ones only after a blank line. A PDF whose text gives fewer than 3 such headings (pdf.js
+gives no blank line between paragraphs, and Hebrew has no capitals) gets, since 0.10.0, the lines its
+extractor found set larger than its body ([`ExtractedText.headings`](#extractedtext)), when they are
+more: each is the line of the text it points to, and its level comes from its size, 1 to 3
+([PDF outline](../guides/pdfs.md#pdf-outline)). A PDF ingested before 0.10.0 keeps the outline it
+was given until it is uploaded again. When there are more than 400, the outline keeps only the
 top-level headings (of the shallowest level found) when there are at least 20 of them, and all the
 headings otherwise. With 20 to 400 top-level headings, each one is kept once, in order. Otherwise
 (more than 400 top-level headings, or fewer than 20) the outline has 400 entries, in order, taken

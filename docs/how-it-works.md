@@ -123,6 +123,10 @@ question ─► plan the documents for the room left in the request, smallest fi
      Logs, JSON and CSV get no outline. No heading is taken from a fenced code block, and in a
      plain text file that reads as code (a script, a configuration file) a `#` line is a comment,
      not a heading; in other plain text, only one after a blank line and not followed by another.
+     A PDF seldom has these (pdf.js gives no blank line between paragraphs, and Hebrew has no
+     capitals): when its text gives fewer than 3, its outline is the lines its extractor found set
+     in larger type than its body, from the sizes pdf.js gives, when they are more (since 0.10.0;
+     [PDF outline](./guides/pdfs.md#pdf-outline)).
    - For a log, build a **profile**: lines by level (ERR counts as ERROR, WARNING as WARN, CRITICAL
      as FATAL; since 0.8.0 also a level in lower case in brackets, after `level=` or in a JSON
      field, pino's numbers and klog's letter), the first and last timestamp, and the ERROR, FATAL
