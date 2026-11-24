@@ -1,6 +1,6 @@
 import { safeErrorMessage } from "./errors.js";
 import { until } from "./http.js";
-import { aggregateTable, ColumnsComparedError, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
+import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
 import { analyzeWholeDocument, listWholeDocumentItems, MAX_ITEM_LABELS, MAX_LABEL_CHARACTERS, NothingReadError, storeGaveUp, type WholeItemsResult } from "./map-reduce.js";
 import { cutPdfPages, type PageCut } from "./pdf-pages.js";
@@ -874,8 +874,8 @@ export function createDocumentTools(options: {
   declare?: readonly ToolName[];
   /**
    * The IDs of documents sent whole in the prompt: `analyze_whole_document` refuses them, as the
-   * model has every line of them already, and `aggregate_table` says how to cite their lines and
-   * where their rows are. New in 0.10.0.
+   * model has every line of them already, and `aggregate_table` says how to cite their lines. New in
+   * 0.10.0.
    */
   inline?: readonly string[];
 }): ToolSet {
@@ -1178,13 +1178,7 @@ export function createDocumentTools(options: {
       const limit = limitOf(limits);
       const document = await documentFor(args, signal);
       const request = aggregateRequest(args);
-      // A table sent whole is shown in full above, with its line numbers (since 0.10.0).
-      const shownInFull = inline.has(document.meta.id);
-      const result = await aggregateTable(document, request, signal).catch((error: unknown) => {
-        // A filter that compares two columns: the rows to compare are above, or read_document gives them.
-        if (error instanceof ColumnsComparedError) throw new ColumnsComparedError(`${error.message} ${shownInFull ? "The table is shown in full above, with its line numbers: compare the cells of each row there, and cite the lines of the rows you count." : "read_document gives the rows, with their line numbers."}`);
-        throw error;
-      });
+      const result = await aggregateTable(document, request, signal);
       const groups = result.groups.map((group) => ({
         ...(Object.keys(group.key).length > 0 ? { group: group.key } : {}),
         ...group.values,
@@ -1208,6 +1202,8 @@ export function createDocumentTools(options: {
         ...(result.repeatedHeaders > 0 ? { repeated_header_rows: result.repeatedHeaders } : {}),
         ...(result.distinctCapped ? { distinct_note: "count_distinct stopped telling values apart after 1,000,000 in all: its counts are lower bounds. Filter, or group by fewer values." } : {}),
         ...(result.irregularRows > 0 ? { irregular_rows: result.irregularRows, irregular_note: "Rows with values past the header's columns: check columns and header_rows." } : {}),
+        // A filter whose value named a column compared two cells of each row (since 0.10.0): said, so that no one takes it for a value.
+        ...(result.compared ? { filter_note: result.compared.map((one) => `Each row's ${JSON.stringify(one.column)} was compared with its own ${JSON.stringify(one.with)} (${one.op}), as the filter's value names that column.`).join(" ") } : {}),
       };
       const note = groups.length < result.totalGroups
         ? { note: `${groups.length} of the ${result.totalGroups} groups are shown, ${request.orderBy === "key" ? "in the order of their values" : "the largest first"}. Raise limit, or filter, for the others.` }
@@ -1215,7 +1211,7 @@ export function createDocumentTools(options: {
       // Over a table shown in full, Flash-Lite answered with the count alone, citing no line: the
       // result says how to cite the lines it lists, with the file's name (since 0.10.0).
       const firstLines = groups[0]?.lines ?? [];
-      const cite = shownInFull && firstLines.length > 0
+      const cite = inline.has(document.meta.id) && firstLines.length > 0
         ? { cite: `Cite the lines listed in your answer, like (${document.meta.name} ${firstLines.map((line) => `L${line}`).join(", ")}).` }
         : {};
       return fit({ ...base, ...note, groups, ...cite }, "groups", limit);

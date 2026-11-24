@@ -400,8 +400,7 @@ export type ToolOptions = {
   declare?: readonly ToolName[];
   /**
    * The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in
-   * full, and `aggregate_table` says how to cite their lines (`cite`) and, for a filter that
-   * compares two columns, that their rows are shown above. New in 0.10.0.
+   * full, and `aggregate_table` says how to cite their lines (`cite`). New in 0.10.0.
    */
   inline?: readonly string[];
 };

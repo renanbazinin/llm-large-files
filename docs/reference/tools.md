@@ -516,6 +516,7 @@ Result:
 | `groups` | array | One entry a group: `group` (the value of each group-by column, as its first row writes it), each metric by its name (`count`, `"sum:Revenue"`: null when no row of the group had a number there), `rows` when `count` was not asked, and `lines`, the lines of its first 3 rows. |
 | `note` | string, optional | "N of the M groups are shown…", when `limit` cut them. |
 | `cite` | string, optional | For a table sent whole (`ToolOptions.inline`), when a group was found: how to cite the lines listed, with the file's name, as "Cite the lines listed in your answer, like (orders-2026.csv L5, L10, L15)." Over a table shown in full, Flash-Lite answered with the count alone. Its last field. New in 0.10.0. |
+| `filter_note` | string, optional | A filter whose value names a column, compared with that column's cell in each row: "Each row's \"Q1 / Actual\" was compared with its own \"Q1 / Budget\" (>), as the filter's value names that column." New in 0.10.0. |
 | `values_not_numbers`, `other_rows`, `repeated_header_rows`, `irregular_rows` | optional | Cells left out of a metric, rows of groups past 10,000, header rows found again inside the table, and rows with values past the header's columns (a sign that the header was read wrong). |
 
 ```json
@@ -539,16 +540,16 @@ names 3 columns of this table: …. Name one of them in full.", "No table \"Budg
 has 3 sheets…", "This file has no table to aggregate…". `evidence` cites the header line and each
 group's lines; a result dropped to make room keeps its largest 30 groups.
 
-A filter compares the cells of a column with a value, never with another column. A filter that
-orders a column (`>`, `>=`, `<`, `<=`) against a value that is not a number and names a column (its
-full name, the lower part of a joined header, or a letter when the filter's own column is a letter
-too: `C` > `B`) is refused, since 0.10.0: "A filter compares a column with a value, and \"Q1 /
-Budget\" is a column of this table. aggregate_table cannot compare two columns of a row. To count
-the rows where \"Q1 / Actual\" > \"Q1 / Budget\", read the rows and compare their cells." Then, for a
-table sent whole, "The table is shown in full above, with its line numbers: compare the cells of each
-row there, and cite the lines of the rows you count.", and otherwise "read_document gives the rows,
-with their line numbers." Before, such a filter matched no row, and said nothing of why. `=`, `!=`
-and the text filters keep a value that is also a column's name ("Department" != "Total").
+A filter that orders a column (`>`, `>=`, `<`, `<=`) against a value that is not a number and
+names a column (its full name, the lower part of a joined header, or a letter when the filter's own
+column is a letter too: `C` > `B`) compares the two cells of each row, since 0.10.0: `{ "column":
+"Q1 / Actual", "op": ">", "value": "Q1 / Budget" }` keeps the rows that spent more than their Q1
+budget. Two numbers compare as numbers and two texts as text; a number against a text, or an empty
+cell, does not match. The result says so in `filter_note`. A value that is the lower part of
+several columns is an error that names them. Before, the value was compared as text: the filter
+matched no row, and said nothing of why. `=`, `!=` and the text filters keep a value that is also a
+column's name as a value ("Department" != "Total"). The description the model sees does not
+mention it: the models write such filters unasked.
 
 ## `read_document`
 
