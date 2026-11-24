@@ -626,8 +626,8 @@ as `tool.progress` events with the `callId` of the read, each part a `request.st
 **Items.** With `output: "items"` (new in 0.10.0, M9), the parts list what the task asks for, and no
 model writes the count. Each part replies with one JSON object a line, an item each: its line, a
 label from the call's `labels`, a value, and a quote of its line. Code reads the replies leniently,
-keeps an item only when its quote is on its line (compared without case, Hebrew points or final
-letters), or on just one other line of its part, which it then takes; counts the same item once;
+keeps an item only when its quote is on its line (compared without case, Hebrew points, final
+letters or direction marks), or on just one other line of its part, which it then takes; counts the same item once;
 and counts the items by label.
 There is no merge and no answer of the read: one request a part, so a read of 5 parts makes 5
 requests. A part whose list is cut at the output limit is read again in halves, two levels at

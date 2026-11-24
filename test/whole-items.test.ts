@@ -253,6 +253,17 @@ describe("quoteOnLine", () => {
     expect(quoteOnLine("INFO Worker   started", "2026 info worker started")).toBe(true);
   });
 
+  it("finds a quote on a line with direction marks or joiners in it, which a model does not copy", () => {
+    // An RLM around the number, as Hebrew text from Word and PDF files has; 0.10.0 before this fix refused these.
+    expect(quoteOnLine("קנס בסך 5,000 ש\"ח", "17. בגין איחור ישלם הספק קנס בסך \u200f5,000\u200f ש\"ח לכל מקרה.")).toBe(true);
+    expect(quoteOnLine("Fine of 5,000 NIS", "Fine of \u200e5,000\u200e NIS")).toBe(true);
+    expect(quoteOnLine("קנס בסך 5,000", "קנס בסך\u061c 5,000")).toBe(true);
+    expect(quoteOnLine("קנסבסך 5,000", "קנס\u200cבסך 5,000")).toBe(true);
+    // And the other way round: a mark the model wrote into its quote.
+    expect(quoteOnLine("קנס בסך \u200f5,000", line)).toBe(true);
+    expect(quoteOnLine("קנס בסך 6,000", "קנס בסך \u200f5,000")).toBe(false);
+  });
+
   it("does not find words that are not on the line, nor an empty quote", () => {
     expect(quoteOnLine("קנס בסך 6,000", line)).toBe(false);
     expect(quoteOnLine("קנס בסך … ביטול החוזה", line)).toBe(false);

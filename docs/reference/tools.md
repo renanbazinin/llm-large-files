@@ -677,8 +677,10 @@ merges them, and there is no answer of the read: one request a part.
   JSON object is skipped. A reply that says `NOTHING RELEVANT` has no item.
 - An item counts when its `quote` is on the line it names, within the part that listed it. They
   are compared composed (NFC) and folded as exact search folds text (case, quotes, dashes, spaces),
-  without Hebrew points, with final letters as plain ones (כסף is found in כספים), and with runs of
-  blanks as one space. A line number copied with the quote (`12| `) and the quote marks around it
+  without Hebrew points, with final letters as plain ones (כסף is found in כספים), without the
+  characters that show nothing (the direction marks U+200E, U+200F and U+061C that Hebrew text
+  from Word and PDF files often has next to a number, and the joiners), and with runs of blanks as
+  one space. A line number copied with the quote (`12| `) and the quote marks around it
   are left out, and a quote cut with `…` must have each of its pieces on the line, in order.
 - An item whose quote is not on the line it names, but on exactly one line of its part, is given
   that line: in a file whose lines start with numbers ("7| 5. …", clause 5 on line 7), a model may

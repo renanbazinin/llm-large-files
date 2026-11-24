@@ -776,12 +776,21 @@ const HEBREW_POINTS = /[֑-ׇֽֿׁׂׅׄ͏]/g;
 const HEBREW_FINALS: Record<string, string> = { "ך": "כ", "ם": "מ", "ן": "נ", "ף": "פ", "ץ": "צ" };
 
 /**
- * A text as quotes are compared with their lines: composed (NFC), folded as exact search folds it
- * (case, quotes, dashes, spaces), without Hebrew points, final letters as plain ones, and runs of
- * blanks as one space. "חוזה" then matches "חוֹזֶה", and "כסף" a "כספ" cut before a final letter.
+ * Characters that show nothing (format characters): the direction marks that the library keeps in
+ * stored text (U+200E, U+200F, U+061C), the joiners (U+200C, U+200D), and the rest of the kind. A
+ * model does not copy them into a quote: a Hebrew line from a Word or PDF file often has an RLM next
+ * to a number.
+ */
+const FORMAT_CHARACTERS = /\p{Cf}/gu;
+
+/**
+ * A text as quotes are compared with their lines: composed (NFC), without format characters,
+ * folded as exact search folds it (case, quotes, dashes, spaces), without Hebrew points, final
+ * letters as plain ones, and runs of blanks as one space. "חוזה" then matches "חוֹזֶה", "כסף" a
+ * "כספ" cut before a final letter, and "5,000 ש"ח" a line with an RLM around the number.
  */
 export function quoteForm(text: string): string {
-  return foldCase(composed(text)).replace(HEBREW_POINTS, "").replace(/[ךםןףץ]/g, (letter) => HEBREW_FINALS[letter]!).replace(/\s+/g, " ").trim();
+  return foldCase(composed(text).replace(FORMAT_CHARACTERS, "")).replace(HEBREW_POINTS, "").replace(/[ךםןףץ]/g, (letter) => HEBREW_FINALS[letter]!).replace(/\s+/g, " ").trim();
 }
 
 /**
