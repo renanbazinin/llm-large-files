@@ -829,7 +829,7 @@ const prepared = await files.prepare(documentIds, base, {
   ...(chat.placement ? { placement: chat.placement } : {}), // none for the first question
   reserve: { tokens: estimateTokens(sentDeclarations), bytes: jsonBytes(sentDeclarations) },
 });
-chat.placement = prepared.placement;
+chat.placement = prepared.placement!; // files.prepare always sets it
 const systemText = [system, prepared.guide].filter(Boolean).join("\n\n");
 const header = ["Attached files:", ...documentIds.flatMap((id) => prepared.listing?.get(id) ?? [])].join("\n");
 // The first user turn: the header, then the blocks in the order of documentIds, then the question.

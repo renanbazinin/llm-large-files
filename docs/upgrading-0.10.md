@@ -52,7 +52,7 @@ These do not compile:
 | A `DocumentHandlers` made by hand, such as a mock (TS2741) | `DocumentHandlers` has a required `stats()` | Add `stats`, or type the mock as the part you use |
 | A `LargeFiles` of your own with a member named `stats` or `toolsFor` of another type (TS2322, TS2416) | `LargeFiles` has optional methods of those names | Rename yours |
 | A type of your own that extends `ChatTurn`, `ToolTurn` or `ModelCapabilities` with a field named `notes`, `documentIds`, `native` or `nativeRounds` of another type (TS2430, TS2322) | The library has optional fields of those names | Rename yours |
-| A value typed `Parameters<typeof vertexAi>[0]` whose `project` or `location` you read as a string, or whose `accessToken` you call with no argument (TS2322, TS2554) | `vertexAi` takes `VertexAiOptions`, a union of the token form and express mode (`apiKey`), and its token function is typed with its `{ refresh }` argument | Type it `Extract<VertexAiOptions, { project: string }>`, and call `accessToken({ refresh: false })` |
+| A value typed `Parameters<typeof vertexAi>[0]` whose `project` you read as a string, or whose `accessToken` you call with no argument (TS2322, TS2554) | `vertexAi` takes `VertexAiOptions`, a union of the token form and express mode (`apiKey`), and its token function is typed with its `{ refresh }` argument | Type it `Extract<VertexAiOptions, { project: string }>`, and call `accessToken({ refresh: false })` |
 | A subclass of `UsageMeter` whose `add` takes a parameter of its own after `usage` (TS2416) | `add(model, usage, estimatedInputTokens?)` takes that place | Put yours after it |
 | `openAiToolTurns` passed as a callback: `histories.map(openAiToolTurns)` (TS2345) | Its new second parameter, `{ native }`, would get the index | `histories.map((turns) => openAiToolTurns(turns))` |
 
@@ -231,8 +231,9 @@ limit.
 A reply that a filter stopped part-way was an answer like any other in 0.9. Now `result.finish`
 says how the answer ended. An `answer_filtered` or `answer_cut` notice comes before `run.finish`.
 A reply ended by `"filtered"` or `"other"` is not asked for again: 2 requests over a searched file,
-where 0.9 made 4. Gemini's `MODEL_ARMOR` and image filters count as `"filtered"`; `OTHER`,
-`LANGUAGE` and four more as `"other"`. `MALFORMED_RESPONSE` is now `"malformed_call"`: the turn is
+where 0.9 made 4. Gemini's `MODEL_ARMOR` and the image filters new since 0.9
+(`IMAGE_PROHIBITED_CONTENT`, `IMAGE_RECITATION`, `IMAGE_OTHER`) count as `"filtered"`, as
+`IMAGE_SAFETY` did; `OTHER`, `LANGUAGE` and four more as `"other"`. `MALFORMED_RESPONSE` is now `"malformed_call"`: the turn is
 asked for once more.
 
 **Who:** every chat page.

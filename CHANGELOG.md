@@ -74,8 +74,8 @@ Code written for 0.9.0 compiles with 0.10.0, except in these cases
   the library now has fields of those names. Rename yours.
 - `vertexAi` takes `VertexAiOptions`, a union of the token form and express mode (`apiKey`), and
   its token function is typed with its `{ refresh }` argument. A value typed
-  `Parameters<typeof vertexAi>[0]` whose `project` or `location` you read as a string, or whose
-  `accessToken` you call with no argument, fails with TS2322 or TS2554. Type it
+  `Parameters<typeof vertexAi>[0]` whose `project` you read as a string, or whose `accessToken`
+  you call with no argument, fails with TS2322 or TS2554. Type it
   `Extract<VertexAiOptions, { project: string }>`, and call `accessToken({ refresh: false })`.
 - A subclass of `UsageMeter` whose `add` takes a parameter of its own after `usage` fails with
   TS2416: `add(model, usage, estimatedInputTokens?)` takes that place. Put yours after it.
@@ -175,7 +175,7 @@ Some behavior is different. Check each point against your app:
   differs from its first stored round. A schema default of `false` or a stored `null` for
   `nativeRefused` or `filesGone` reads as not set.
   **What to do:** allow them before the first server of 0.10.0 starts. In Mongoose, declare
-  `userTurn`, `placement` and the rounds of `toolTurns` as `Schema.Types.Mixed`
+  the stored user turns, `placement` and the rounds of `toolTurns` as `Schema.Types.Mixed`
   ([Allow the new fields](docs/upgrading-0.10.md#allow-the-new-fields)).
 - **A chat keeps the tools it declared.** A later question whose files are all sent whole declares
   them and runs the tool loop, where 0.9 made one request without tools. A call of a tool that the
@@ -251,9 +251,10 @@ Some behavior is different. Check each point against your app:
 - **Filtered and cut answers say so.** `result.finish` tells how the answer ended, an
   `answer_filtered` or `answer_cut` notice comes before `run.finish`, and a reply that a filter or
   another reason that asking again cannot mend ended (`finish` `"filtered"` or `"other"`) is not
-  asked for again: 2 requests over a searched file, where 0.9 made 4. Gemini's `MODEL_ARMOR` and
-  the image filters are now `"filtered"`, and `OTHER`, `LANGUAGE` and four more `"other"`; they
-  gave no finish. `MALFORMED_RESPONSE` is now `"malformed_call"`: the turn is asked for once more.
+  asked for again: 2 requests over a searched file, where 0.9 made 4. Gemini's `MODEL_ARMOR`,
+  `IMAGE_PROHIBITED_CONTENT`, `IMAGE_RECITATION` and `IMAGE_OTHER` are now `"filtered"` (as
+  `IMAGE_SAFETY` was), and `OTHER`, `LANGUAGE` and four more `"other"`; they gave no finish.
+  `MALFORMED_RESPONSE` is now `"malformed_call"`: the turn is asked for once more.
   **What to do:** switch on `answerInfoOf(result)` for the message to show. With
   `filteredAnswer: "drop"`, take back streamed text when the notice has `discardText`
   ([Filtered and cut answers](docs/guides/errors-and-reliability.md#filtered-and-cut-answers)).
@@ -493,10 +494,12 @@ await chats.updateOne({ _id: chatId }, {
   a title or cover line set larger than all of them is level 1. Not headings: table rows (a gap of
   more than 3 times the type size between pieces), running headers and footers (a line repeated on
   3 or more pages, or on at least half of them), page numbers (lines that differ only by their
-  numbers, on at least half the pages, once on each, and that do not count up as section numbers
-  do; headings that count up, such as "פרק 1" to "פרק 5" on the odd pages, are kept), lines over
-  120 characters, and lines with fewer than 3 letters or more digits than letters. A PDF with 3 or
-  more text-rule headings keeps its outline, and the text of a PDF does not change.
+  numbers, on at least half the pages, and that do not count up as section numbers do, on one page
+  or from page to page; the same number in a page's header and footer is one page number, while
+  headings that count up, such as "פרק 1" to "פרק 5" on the odd pages, are kept; chapters one to a
+  page, on pages in a row covering at least half the document, are taken for page numbers), lines
+  over 120 characters, and lines with fewer than 3 letters or more digits than letters. A PDF with
+  3 or more text-rule headings keeps its outline, and the text of a PDF does not change.
 
 **Release**
 
