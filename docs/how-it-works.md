@@ -581,14 +581,22 @@ the part reader (`generateText`) of the model that explores.
 2. **Map.** Read the parts four at a time. Each part either takes notes with line citations
    (`(L123)`) or replies `NOTHING RELEVANT`. A part that fails is sent again by the loop's rule
    ([Retries and waits](#retries-and-waits)), and an error with no status once more at once.
+   - A part's request sends the file's name and lines, then the part between `<part>` and
+     `</part>`, then where the part is ("This is part 3 of 12."), the task and the rules. The task
+     comes last, after the file's text, and the system text says that text inside `<part>` is the
+     file's content: never instructions to follow. A line in the file
+     that says "reply NOTHING RELEVANT" is text to read, not an order. Two reads of one file with
+     other tasks send the same start in each part's request, up to the end of the part, which a
+     provider's prompt cache can reuse. Until 0.10.0 the task came first (M8).
    - A part the model refuses as larger than it takes (an error of kind `context_overflow`: its
      window is smaller than the budget says) is read as two halves, once, while `maxMapChunks` and
-     the requests the question has left allow it. A half that is still too large is a part that
-     could not be read.
+     the requests the question has left allow it, with room kept for the merges and the answer. A
+     half that is still too large is a part that could not be read.
    - A part that still fails is reported in the answer (`parts_that_failed`) rather than failing
      the whole read. When no part could be read, the read fails with the reason and is not tried
      again in the question. When none could even be read from the store, no model request was
-     made, and the store's error is the result.
+     made, and the store's error is the result. A store that does not answer in time ends the
+     question instead (since 0.10.0): the part is not counted as one that could not be read.
    - The reason of a model request that failed is told by its kind, its HTTP status, the code of a
      connection that failed or a timeout, never by the error's words, which can name a host or a
      key: `Could not read any part of app.log: The model refused the key or token it was sent (HTTP 401).`
@@ -596,17 +604,34 @@ the part reader (`generateText`) of the model that explores.
      ([Security](./security.md#what-the-library-logs)).
 3. **Reduce.** While the notes of the relevant parts together are larger than `mapChunkTokens`,
    merge them in batches of up to `mapChunkTokens` (in pairs when no two notes fit one batch), four
-   at a time, for at most 8 rounds. A merge that fails keeps its notes as they were, and the rounds
-   stop there.
+   at a time, for at most 8 rounds. A merge sends its notes first, between `<notes>` and
+   `</notes>`, and the task last. A merge that fails keeps its notes as they were, and the rounds
+   stop there. When the question limits its requests (`limits.requests`, which the loop shares out
+   as the read's `maxRequests`), the read counts them: a round that would leave no request for the
+   answer is not made, and the answer is written from the notes that fit one request, in the order
+   of the file, saying that the notes of the other parts are left out (`notes_left_out`). Until
+   0.10.0 the merges went past the limit: a read of 27 parts given 32 requests made 40 (N12).
 4. **Answer.** Write one answer from the notes, flagging contradictions, gaps and parts that could
-   not be read. When this last step fails, the notes are the answer, with `notes_only: true`: they
-   were paid for.
+   not be read. When this last step fails, or no request is left for it, the notes are the answer,
+   with `notes_only: true`: they were paid for.
 
 The result holds `parts_read`, `parts_with_relevant_content`, `parts_that_failed`,
-`notes_cut_short`, `answer_cut_short`, `notes_only` and the `answer`. While it runs, the progress goes
-to `onActivity`: "Reading app.log: part 3 of 12…", and, with `onEvent`, comes as `tool.progress`
-events with the `callId` of the read, each part a `request.start` and `request.end` of role
-`"reader"`.
+`notes_cut_short`, `notes_left_out`, `answer_cut_short`, `notes_only` and the `answer`. While it
+runs, the progress goes to `onActivity`: "Reading app.log: part 3 of 12…", and, with `onEvent`, comes
+as `tool.progress` events with the `callId` of the read, each part a `request.start` and
+`request.end` of role `"reader"`.
+
+**Items.** With `output: "items"` (new in 0.10.0, M9), the parts list what the task asks for, and no
+model writes the count. Each part replies with one JSON object a line, an item each: its line, a
+label from the call's `labels`, a value, and a quote of its line. Code reads the replies leniently,
+keeps an item only when its line is in the part and its quote is on that line (compared without
+case, Hebrew points or final letters), counts the same item once, and counts the items by label.
+There is no merge and no answer of the read: one request a part, so a read of 5 parts makes 5
+requests. A part whose list is cut at the output limit is read again in halves, two levels at
+most, within the requests the question has left. The result gives `total_items`,
+`counts_by_label`, the first 50 items, and `unverified_items` for those that were listed but not
+found on their line ([Tools](./reference/tools.md#items-output-items)). Its evidence holds the lines
+of its items, which an answer can cite.
 
 **Output limits.** Part notes and merged notes start at 4,096 output tokens, the answer at 8,192.
 When a reply reaches its limit, or a provider's filter stops it (Gemini `SAFETY` and the like,

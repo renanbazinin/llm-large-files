@@ -6,7 +6,7 @@ loop of your own, show `steps` to users, keep `toolTurns`, or want to know exact
 was told and what it read.
 
 ```ts
-import { MAX_VIEW_PAGES, MAX_WHOLE_DOCUMENT_READS, REGEX_BUDGET_MS, TOOL_NAMES, toolResultSummary } from "llm-large-files";
+import { declarationsFor, MAX_VIEW_PAGES, MAX_WHOLE_DOCUMENT_READS, REGEX_BUDGET_MS, TOOL_NAMES, toolResultSummary } from "llm-large-files";
 import type { JsonSchema, ToolCallLimits, ToolDeclaration, ToolFile, ToolFileLimits, ToolOutput, ToolResult, ToolSet } from "llm-large-files";
 ```
 
@@ -19,7 +19,7 @@ Contents:
   [`analyze_whole_document`](#analyze_whole_document), [`view_pages`](#view_pages)
 - [The tool guide](#the-tool-guide)
 - [What `askWithFiles` adds to results](#what-askwithfiles-adds-to-results)
-- Exports: [`TOOL_NAMES`](#tool_names), [`MAX_VIEW_PAGES`](#max_view_pages),
+- Exports: [`TOOL_NAMES`](#tool_names), [declarationsFor(names)](#declarationsfornames), [`MAX_VIEW_PAGES`](#max_view_pages),
   [`MAX_WHOLE_DOCUMENT_READS`](#max_whole_document_reads), [`REGEX_BUDGET_MS`](#regex_budget_ms),
   [toolResultSummary(label, result)](#toolresultsummarylabel-result), [`ToolSet`](#toolset),
   [`ToolCallLimits`](#toolcalllimits), [`ToolFileLimits`](#toolfilelimits),
@@ -90,6 +90,19 @@ Through `files.tools(documents, options)` (a loop of your own, see [`ToolSet`](#
 - `view_pages` is declared when `options.viewPages` names at least one PDF whose `originalKept` is
   true and the store has `getOriginal`: `true` means every PDF in `documents`, and a list (such as
   `prepared.viewable`) means exactly those.
+- `options.declare` (new in 0.10.0) declares exactly the tools it names, in place of the rules
+  above, always in the order search, read, overview, aggregate, analyze, view, whatever the order
+  of the list: what [declarationsFor(names)](#declarationsfornames) gives. A chat whose tool set only
+  grows declares the tools of its earlier questions too, so a declared tool may have nothing to work
+  on: each call of it then answers with the reason, `No attached file has a table: aggregate_table
+  needs one.` for `aggregate_table` when no document may hold a table, `No attached file has pages
+  to look at: view_pages needs a PDF whose original file is kept. Answer from the text.` for
+  `view_pages` with no PDF to look at, and `Whole-document analysis is not enabled.` for
+  `analyze_whole_document` without `generate`. With today's set, `declare` gives today's bytes.
+- `options.inline` (new in 0.10.0) lists the IDs of documents whose text is in the prompt. Pass
+  them among `documents` too, so that the text tools can count and search them;
+  `analyze_whole_document` refuses them (see [its errors](#analyze_whole_document)), and
+  `wholeReadsLeft` is 0 for them.
 
 ## Rules for every tool
 
@@ -125,6 +138,23 @@ storage (EIO). Try the call again.", and a store that could not be read gives th
 | `Unknown document_id ID. No attached file is read with this tool in this conversation.` | `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`: the tool set has no document for these tools. |
 | `ID is no longer available on the server. Ask the user to attach the file again.` | The document was deleted or expired after the request was planned, or its text went while a search or read went through it. Since 0.9.0 the call's hooks are told (`ToolCallHooks.onDocumentGone`), and `askWithFiles` gives a `"document_gone"` notice. |
 | `Unknown tool “NAME”.` | The name is not a tool of this tool set. The name is cut at 64 characters, never in the middle of a character. Until 0.6.0: `Unknown tool NAME.`, with the whole name. |
+
+**Store timeouts.** Since 0.10.0 a call does not answer the model when the store did not answer in
+time: a [`DocumentStoreError`](./library.md#documentstoreerror) of code `"ETIMEDOUT"` (a store call
+past `storeTimeoutMs`, or a system error of that code), or of code `"STORE_STUCK"` (refused at once
+because too many store calls of the process are stuck). `execute` and `executeWithFiles` throw it,
+from any tool and from any part of a whole-file read, which would otherwise count as a part that
+could not be read. In `askWithFiles` the question then ends with a `run.error`, which
+[errorInfoOf(error)](./errors-and-retries.md#errorinfooferror) reads as a 503 to try again, and the model is sent no
+new text. Until 0.10.0 the model read "The document store could not be read (ETIMEDOUT). Try
+again." and went on, with a store that was not answering. Any other store error is still an error
+result for the model.
+
+**A call's own signal.** `ToolCallHooks.signal` (new in 0.10.0, the fourth argument of
+`executeWithFiles`) ends that call alone: its load of the document, its search, its regex time, its
+whole-file read, its wait for a turn to look at pages and its read of the original. It is joined
+with the tool set's `signal`. The call throws the signal's reason, as for the tool set's own; the
+other calls of the tool set go on.
 
 **Size.** One result is at most `toolResultCharacters` characters of JSON (a field of
 [`Budget`](./library.md#budget): 24,000 with the default budget, less for a model with a small
@@ -214,14 +244,18 @@ language.
   matches its plain form, as inside a longer word: כסף finds כספים. New in 0.8.0.
 - A passage is a run of whole lines of about 1,500 characters, or 40 lines at most. A passage that
   contains the whole query as a phrase (more than one term, up to 200 characters) is ranked higher.
-- Passages come best first. `score` is rounded to two decimals and only orders the results.
+- Passages come best first; of two with the same score, the one nearer the start of the file.
+  `score` is rounded to two decimals and only orders the results. Since 0.10.0 the search keeps only
+  the best passages as it goes, rather than sorting every passage it scored.
 - A query with no usable term, or with no hit, returns no passage and the note "No passage contains
   these keywords. Try other words, synonyms, or exact mode."
 
 **`exact`** finds every line that contains the text. A line counts once, however many times it
 contains the text. A text with a line break matches across lines and counts on each line where it
-starts, overlapping ones included: "a\na" counts 2 lines of "a\na\na" (1 until 0.8.0). The scan
-stops after 1,000,000 matching lines, and with `whole_word` or `group_by` after 3 seconds. The query is composed (NFC), as the text is at ingest, so
+starts, overlapping ones included: "a\na" counts 2 lines of "a\na\na" (1 until 0.8.0). Past
+1,000,000 matching lines the scan goes on counting within 3 seconds, the time of a regex search, and
+stops there (until 0.10.0 it stopped at 1,000,000, and a count of 1,200,000 lines read 1,000,000); with
+`whole_word` or `group_by` it stops after 3 seconds in all. The query is composed (NFC), as the text is at ingest, so
 "é" typed as "e" and an accent finds "é". Without `case_sensitive`, both sides are folded: lower
 case, Greek final sigma as σ, curly quotes and primes as `'` and `"`, dashes and the minus sign as
 `-`, no-break and thin spaces as a space, Hebrew geresh, gershayim and maqaf as `'`, `"` and `-`,
@@ -260,7 +294,7 @@ Results of `exact` and `regex`:
 | `total_matching_lines` | number | Every matching line in the file (or in `searched_lines`), not only those shown. This is the number to count with. |
 | `order` | `"last"`, optional | With `order: "last"` ([below](#the-last-matches-order-last)). |
 | `table_headers` | array, optional | When matches are rows of a table: the first row of each such table, as `{ line, text }`, up to 5: line 1 of a CSV file, the first row of each sheet of a workbook a match is in, the first row of each `\| cell \|` table elsewhere (looked for up to 20,000 lines above the match). Absent when no match is a row of a table, or the match is that first row. New in 0.8.1. |
-| `note` | string, optional | When more lines match than are shown: "N of the M matching lines are shown: the first K and the last (line L). To see the ones in between, search again with from_line F, or count them with group_by." ("the first and the last" when K is 1). Until 0.8.0 it ended "narrow the search." When the scan stopped (1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit): "The scan stopped early; the total is a lower bound, and the last match in the file is not known." Or a size-limit note (below). Absent when every match is shown. |
+| `note` | string, optional | When more lines match than are shown: "N of the M matching lines are shown: the first K and the last (line L). To see the ones in between, search again with from_line F, or count them with group_by." ("the first and the last" when K is 1). Until 0.8.0 it ended "narrow the search." When the scan stopped (3 seconds past 1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit): "The scan stopped early; the total is a lower bound, and the last match in the file is not known." Or a size-limit note (below). Absent when every match is shown. |
 | `next_from_line` | number, optional | When matches between the first ones and the last one are not shown: the line after the last of the first ones (F above). A search with `from_line` set to it shows the ones after. Absent when every match is shown, when the scan stopped early, with `order: "last"` and with `group_by`. New in 0.8.0. |
 | `matches` | array | The first `max_results` matching lines, in file order, then the last matching line of the file when it is not among them. A scan that stopped early shows no last line, since it did not reach the end. With `order: "last"`, the last `max_results` matching lines, in file order. |
 | `matches[].line` | number | The line number. |
@@ -338,7 +372,7 @@ To fit its room, it loses the earliest of them first, and keeps the very last. T
 file: the last match is on line L, and the first on line F. Narrow the query or read specific
 lines."
 
-When the scan stopped early (1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit), the lines shown are the last of
+When the scan stopped early (3 seconds past 1,000,000 lines, 3 seconds of a `whole_word` or `group_by` search, or a regex limit), the lines shown are the last of
 those it found, and the line of the first match is not named. The note is then "The scan stopped
 early; the total is a lower bound. These are the last N matching lines it found, in the order of
 the file. There may be later ones, after line L: search again with from_line F." (F is L + 1;
@@ -562,28 +596,52 @@ The description the model sees:
 The description the model sees:
 
 > Read an entire large file in parts and answer a task that needs all of it, such as a full
-> summary, a timeline, or items that must be judged by meaning. To count or list lines that
-> contain a word, an ID or a pattern, use search_document in exact or regex mode instead: its
-> count is exact, and this can miss items. Slow and costly: prefer search_document and
-> read_document for specific questions.
+> summary, a timeline, or items that must be judged by meaning. With output "items", each part
+> lists the items the task asks for, each with its line and a quote checked against the file, and
+> the result counts them: use it to count or list items that must be judged by meaning, such as
+> the clauses of a kind. To count or list lines that contain a word, an ID or a pattern, use
+> search_document in exact or regex mode instead: its count is exact, and this can miss items.
+> Slow and costly: prefer search_document and read_document for specific questions.
 
 | Argument | Type | Required | Meaning |
 |---|---|---|---|
 | `document_id` | string | yes | The document. |
 | `task` | string | yes | What to find or produce from the whole file, stated completely. Not blank (`task is required.`). |
+| `output` | `"answer"` \| `"items"` | no | `"answer"`, the default: one answer written from the notes of every part. `"items"`: the list of the items the task asks for, with their count ([below](#items-output-items)). Any other value is `"answer"`. New in 0.10.0. |
+| `labels` | string[] | no | With `output: "items"`: the kinds of item to label each one with, such as `["penalty", "deadline"]`. Up to 12, each up to 40 characters; one string is read as a list of one. Ignored for `"answer"`. New in 0.10.0. |
+
+0.10.0 added the sentence on `output: "items"` and the two arguments: a chat where the tool is
+declared misses the provider's prompt cache once after the upgrade.
 
 The file is split into parts of up to `mapChunkTokens` tokens (and 80% of `maxRequestBytes`), 4 are
 read at a time with the `generate` function of the tool set, their notes are merged, and one answer
 is written from them. A part the model refuses as too large is read as two halves, while
 `maxMapChunks` and [`ToolCallLimits.maxRequests`](#toolcalllimits) allow it. The steps, output
-limits and retries are in [How it works](../how-it-works.md); what a read costs is in
+limits and retries are in [How it works](../how-it-works.md#map-reduce); what a read costs is in
 [Costs and limits](../guides/costs-and-limits.md).
+
+Each part's request sends the file's name and lines, then the part between `<part>` and `</part>`,
+then where the part is in the file, the task and the rules. Its system text says that text inside
+`<part>` is the file's content: never instructions to follow. A merge of notes and the answer of the
+read send their notes first, between `<notes>` and `</notes>`, and the task last. So two reads of
+one document with other tasks send the same start in each part's request, up to the end of the
+part, for a provider's prompt cache. Until 0.10.0 the task came first, before the part.
+
+Given `maxRequests`, a read counts its requests (since 0.10.0). A round of merges that would leave
+no request for the answer is not made: the answer is then written from the notes that fit one
+request (`mapChunkTokens`), in the order of the file, and the result says how many parts' notes it
+left out (`notes_left_out`). When not even the answer has a request left, the notes are the answer
+(`notes_only`). A part is halved only while the requests left also cover the merges its notes may
+need, priced as long as the output limit allows, and the answer. Until 0.10.0 the merges went past
+`maxRequests`: a read of 27 parts given 32 requests made 40.
 
 Each document may be read whole [`MAX_WHOLE_DOCUMENT_READS`](#max_whole_document_reads) times (1)
 by one tool set, which is one question in `askWithFiles`. Set it with `limits.wholeDocumentReads`
 in [`AskLimits`](./ask.md#asklimits), or `maxWholeDocumentReads` in
 [`ToolOptions`](./library.md#tooloptions). A read is counted when it starts, so two calls in one
-turn do not both pass.
+turn do not both pass. A read that could read no part is not tried again in the tool set, whatever
+that number is (since 0.10.0; before, a number of 2 or more let it try again).
+[`ToolSet.wholeReadsLeft`](#toolset) says how many reads of a document are left.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -592,15 +650,70 @@ turn do not both pass.
 | `parts_with_relevant_content` | number | The parts that were read and held something for the task. |
 | `parts_that_failed` | number, optional | Parts that could not be read. The notes name each one: "[This part could not be read: reason]". |
 | `notes_cut_short` | number, optional | Notes of parts, and merges of notes, that stopped at the output limit or were cut off by the provider. |
+| `notes_left_out` | number, optional | The relevant parts whose notes are not in the answer: the read reached `maxRequests` before it could merge them. New in 0.10.0. |
 | `answer_cut_short` | `true`, optional | The final answer stopped at its output limit. |
-| `notes_only` | `true`, optional | The last step, which writes one answer from the notes, failed: `answer` is the notes of the parts, with their line citations. |
-| `note` | string, optional | With `notes_only`: "The last step of this read, which writes one answer from the notes of the parts, failed (REASON). The answer is those notes: answer from them.", plus "Some of them were cut off at the output limit, so they are incomplete: tell the user." when some were. Otherwise, when notes or the answer were cut short: "Incomplete: the model's output limit was reached, so some relevant items are missing from this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file." |
+| `notes_only` | `true`, optional | The last step, which writes one answer from the notes, failed, or (since 0.10.0) had no request left within `maxRequests`: `answer` is the notes of the parts, with their line citations. |
+| `note` | string, optional | With `notes_only`: "The last step of this read, which writes one answer from the notes of the parts, failed (REASON). The answer is those notes: answer from them.", or "This read reached the question's limit on model requests before its last step, which writes one answer from the notes of the parts. The answer is those notes: answer from them.", plus "Some of them were cut off at the output limit, so they are incomplete: tell the user." when some were. With `notes_left_out`: "Incomplete: this read reached the question's limit on model requests before it could combine the notes of every part, so the notes of N of the M relevant parts are not in this answer. Tell the user it is incomplete." and the same pointer to exact search as below. Otherwise, when notes or the answer were cut short: "Incomplete: the model's output limit was reached, so some relevant items are missing from this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file." |
 | `answer` | string | The answer. When no part held anything relevant: "No part of NAME contained anything relevant to: TASK", with the count of parts that could not be read, if any. |
 | `answer_shortened` | string, optional | "The rest of this answer did not fit in the room left in this conversation." The answer was cut at its end, which then reads `…`. |
 
 ```json
 { "document": "novel.txt", "parts_read": 4, "parts_with_relevant_content": 3, "answer": "Ada appears first in chapter 2 (L412) ..." }
 ```
+
+### Items: `output: "items"`
+
+New in 0.10.0. Each part replies with one JSON object for each item it finds, on a line of its own:
+`{"line": 123, "label": "penalty", "value": "5%", "quote": "a fine of 5% of the order"}`, the label
+only when the call gave `labels`. Code reads the replies, checks the items and counts them. No model
+merges them, and there is no answer of the read: one request a part.
+
+- A reply is read leniently: a line may start with a list mark (`- `, `1. `) and end with a comma,
+  code fences are passed over, and a JSON array of the objects is read too. A line that is not a
+  JSON object is skipped. A reply that says `NOTHING RELEVANT` has no item.
+- An item counts when its `line` is a line of the part that listed it and its `quote` is on that
+  line. They are compared composed (NFC) and folded as exact search folds text (case, quotes,
+  dashes, spaces), without Hebrew points, with final letters as plain ones (כסף is found in כספים),
+  and with runs of blanks as one space. A line number copied with the quote (`12| `) and the quote
+  marks around it are left out, and a quote cut with `…` must have each of its pieces on the line,
+  in order. Any other item counts in `unverified_items`, not in `total_items`.
+- The same item listed twice (the same line, label and value) counts once.
+- A label is matched to `labels` as quotes are compared, and given as the call spelled it. A label
+  that is not one of them is kept as the model wrote it.
+- A part whose list stops at the output limit is read again as two halves, and a half as two
+  quarters: two levels at most, while `maxRequests` allows it (without it, while the halves take no
+  more than `maxMapChunks` requests). A part the model refuses as too large is halved the same way.
+  A list still cut is counted as it is, and the result says that items may be missing.
+- The read is priced at its parts alone, each with the longer rules of a list, which is less than
+  an answer read, with its merges and its answer.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `document` | string | The file name. |
+| `total_items` | number | The items found, each once, whose quote is on their line. Counted by code. |
+| `counts_by_label` | object, optional | The items by label, when they have labels: `{ "penalty": 37 }`. An item with no label among labelled ones counts under `"unlabeled"`. |
+| `items` | array | The first 50 items, in the order of the file, each `{ line, label?, value?, quote }`. The value and the quote are as the model wrote them, up to 200 and 300 characters. |
+| `more_items` | number, optional | The items past the first 50. |
+| `unverified_items` | number | Items a part listed that are not counted: a line outside the part, or a quote not on its line. |
+| `parts_read` | number | The parts the file was read in, those that could not be read included; a halved part counts as its halves. |
+| `parts_failed` | number, optional | Parts that could not be read: their items are missing. |
+| `parts_cut_short` | number, optional | Parts whose list was still cut at the output limit. |
+| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK"; "The first 50 items are shown; total_items counts them all."; "N listed items are not counted: their line is not in the part that listed them, or their quote is not on that line."; "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
+
+```json
+{
+  "document": "contract.docx",
+  "total_items": 37,
+  "counts_by_label": { "penalty": 37 },
+  "items": [{ "line": 7, "label": "penalty", "value": "1,250", "quote": "קנס בסך 1,250 ש\"ח לכל מקרה" }],
+  "unverified_items": 0,
+  "parts_read": 5
+}
+```
+
+Cut to its room, it loses items from the end of its list and keeps its counts. Its evidence
+([`evidenceOf`](./ask.md#evidenceofcall-result)) is `whole: true` with the lines of the items it
+shows, and its stand-in keeps the counts and the first 20 items.
 
 Errors:
 
@@ -609,9 +722,11 @@ Errors:
 | `NAME was already read whole for this question, and is not read whole again. Use the answer of that read, or search_document and read_document for the details.` | The document was read whole as often as it may be (" N times" is added when that is more than 1). | no |
 | `Whole-file reads are turned off for this question. Use search_document and read_document on NAME.` | `maxWholeDocumentReads` (or `limits.wholeDocumentReads`) is 0. | no |
 | `The whole-file read of NAME failed earlier in this question (REASON), and is not tried again. Use search_document and read_document.` | An earlier read of it could read no part. | no |
+| `NAME is shown in full above: answer from it, and use search_document or aggregate_table for exact counts.` | The document is one of `ToolOptions.inline`: its text is in the prompt. Nothing is sent. New in 0.10.0. | no |
+| `labels takes up to 12 labels, each up to 40 characters.` | `output: "items"` with more labels, or a longer one. New in 0.10.0. | no |
 | `Reading all of NAME needs N model calls, over the limit of M. Use search_document to narrow the question first.` | The read counted more parts than `maxMapChunks`. Nothing was sent. | no |
 | `Could not read any part of NAME: REASON` | Every part failed at the model. | yes |
-| The store's error | No part could be read from the store. Nothing was sent. | no |
+| The store's error | No part could be read from the store. Nothing was sent. A store timeout is thrown instead ([Store timeouts](#rules-for-every-tool)). | no |
 
 REASON, in these errors, in the notes of a part that could not be read, and in the note of
 `notes_only`, says why a model request failed. Since 0.6.0 it is built from the error's kind, its
@@ -771,8 +886,9 @@ of this unless you write it.
   - For the same call twice in one turn: `{ "already_shown": true, "note": "Not run: call 1 of this turn is the same call, and its result is next to this one. Use it." }`
 
   A result of an earlier turn that failed, was cut (`truncated`, `text_cut`, a note that starts
-  "Showing "), came from a search that stopped early, or is itself a pointer or a stand-in is never
-  pointed to: the call runs, and may get more. A search whose note only says how many of its
+  "Showing "), came from a search that stopped early, is itself a pointer or a stand-in, or (since
+  0.10.0) was replaced by your `onToolResult` (`redacted: true`) is never pointed to: the call runs,
+  and may get more. A search whose note only says how many of its
   matches are shown ("21 of the 442 matching lines are shown: …") was not cut, and is pointed to.
   The same call made twice in one turn gets the pointer to the first whatever the first returns (an
   error, a cut result, a pointer); only when the first is refused for lack of room is the second
@@ -857,6 +973,23 @@ const TOOL_NAMES = {
 Compare a `ToolCall.name` with these rather than with string literals. See
 [Your own adapter and loop](../guides/own-adapter-and-loop.md).
 
+### declarationsFor(names)
+
+`declarationsFor(names: readonly ToolName[]): ToolDeclaration[]`
+
+The [declarations](#tooldeclaration) of the tools `names`, in the order a tool set declares them
+(search, read, overview, aggregate, analyze, view), whatever the order of `names`: the declarations
+of `files.tools(documents, { declare: names })`, byte for byte. A name that is not a tool's is left
+out. Use it to plan the size of a request before the tools are made. New in 0.10.0.
+
+```ts
+import { declarationsFor } from "llm-large-files";
+
+const declared = declarationsFor(["aggregate_table", "search_document", "read_document"]);
+// search_document, read_document, aggregate_table
+const bytes = Buffer.byteLength(JSON.stringify(declared));
+```
+
 ### `MAX_VIEW_PAGES`
 
 `5`. The most pages one `view_pages` call shows. [`ToolCallLimits.maxPages`](#toolcalllimits)
@@ -889,7 +1022,8 @@ throws.
 | `error` | ` — failed:` and the error, as in ` — failed: Unknown tool “do_magic”.` |
 | `total_matching_lines` (exact, regex) | ` — 1,203 matching lines` (numbers in en-US form), ` — 1 matching line` for one. With `total_groups` (`group_by`): ` — 214 matching lines in 3 groups`, ` in 1 group` for one |
 | `passages` (keywords) | ` — 5 passages`, ` — 1 passage` for one |
-| `parts_read` (whole-file read) | ` — 9 parts, 3 relevant` (` — 1 part, 1 relevant` for one), then `, notes only` with `notes_only`, or `, incomplete` with `notes_cut_short` or `answer_cut_short` |
+| `total_items` and `parts_read` (a whole-file read that lists items, since 0.10.0) | ` — 37 items in 5 parts` (` — 1 item in 1 part` for one), then `, 2 not counted` with `unverified_items`, and `, incomplete` with `parts_failed` or `parts_cut_short` |
+| `parts_read` (whole-file read) | ` — 9 parts, 3 relevant` (` — 1 part, 1 relevant` for one), then `, notes only` with `notes_only`, or `, incomplete` with `notes_cut_short`, `notes_left_out` (since 0.10.0) or `answer_cut_short` |
 | `lines` and `total_lines` (read) | ` — got 1200-1342` when the label does not end with the lines shown, else `""` |
 | `pages` and `total_pages` (view_pages) | ` — got page 2` or ` — got pages 2-3` when the label does not end with the pages shown, else `""` |
 | anything else (an overview, a cut result) | `""` |
@@ -920,6 +1054,7 @@ type ToolSet = {
   executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallLimits, hooks?: ToolCallHooks): Promise<ToolOutput>;
   describe(name: string, args: Record<string, unknown>): string;
   resultCharacters(name: string): number;
+  wholeReadsLeft?(documentId: string): number; // new in 0.10.0
 };
 ```
 
@@ -928,12 +1063,15 @@ type ToolSet = {
 | `declarations` | The tools to declare to the model, in this order: `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`, `view_pages`, those that are [offered](#which-tools-are-offered). |
 | `has(name)` | `true` for each declared tool. Also `true` for `analyze_whole_document` when `generate` was given and the text tools are declared, even if it is not declared because no document is small enough: a call then gets the reason. Use it to tell the calls of this tool set from others. |
 | `execute(name, args)` | Runs a call and returns its JSON result, within the tool's own cap. Failures come back as `{ error }`, as listed above. `view_pages` answers with an error here: it returns a file. |
-| `executeWithFiles(name, args, limits?, hooks?)` | Runs any call with [`ToolCallLimits`](#toolcalllimits), and returns the result with the files it produced (`files` is empty for every tool but `view_pages`). Use it in a loop that can send files to the model. `hooks` ([`ToolCallHooks`](./library.md#toolcallhooks), new in 0.7.0) are listeners for this call alone: the progress of a whole-file read, in place of `ToolOptions.onProgress`, and each of its model requests with their retries. Only `analyze_whole_document` calls them. |
-| `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters; since 0.8.0 followed by ` in lines 1941-end` with `from_line` or `to_line`, and by `, counted by hour` with `group_by` or `, the last ones` with `order: "last"` in exact and regex mode), `Read app.log lines 1200-1260` (`-1260` only when `end_line` is a number not below `start_line`), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A cut never splits an emoji. A file not yet known is "the file"; an unknown tool is its name, as it came (`askWithFiles` labels it `Call “NAME”` instead). The line quotes the model's words as they are: show it as plain text, or clean it as `askWithFiles` does its steps. In `askWithFiles`, this line, made one line of plain text, is the `label` of the call's `tool.start` event, the line `onActivity` gets with "…", and the start of its step. |
-| `resultCharacters(name)` | The most characters of a result of this tool: the larger of `toolResultCharacters` and 40,000 for `analyze_whole_document`, 600 for `view_pages` (its file is counted in bytes), and `toolResultCharacters` for any other name. What a loop sets aside in its request before it runs a call. |
+| `executeWithFiles(name, args, limits?, hooks?)` | Runs any call with [`ToolCallLimits`](#toolcalllimits), and returns the result with the files it produced (`files` is empty for every tool but `view_pages`). Use it in a loop that can send files to the model. `hooks` ([`ToolCallHooks`](./library.md#toolcallhooks), new in 0.7.0) are listeners for this call alone: the progress of a whole-file read, in place of `ToolOptions.onProgress`, and each of its model requests with their retries; a document found gone, and a look told the server is busy (0.9.0); and its own `signal` (0.10.0, [above](#rules-for-every-tool)). |
+| `describe(name, args)` | A short line for a progress UI, read from the arguments the way the tool reads them: `Search app.log (exact) for “timeout”` (the query cut to 80 characters; since 0.8.0 followed by ` in lines 1941-end` with `from_line` or `to_line`, and by `, counted by hour` with `group_by` or `, the last ones` with `order: "last"` in exact and regex mode), `Read app.log lines 1200-1260` (`-1260` only when the call gave an `end_line` not below `start_line`, read as the tool reads it: since 0.10.0 an `end_line` sent as text, `"250"`, shows too, and one past the 600 lines a read shows reads as its last line), `Read all of contract.docx for “every penalty”, as a list of items` (with `output: "items"`, since 0.10.0), `Overview of app.log`, `Read all of novel.txt for “list every character”` (the task cut to 100 characters), `Look at report.pdf pages 2-3`. A cut never splits an emoji. A file not yet known is "the file"; an unknown tool is its name, as it came (`askWithFiles` labels it `Call “NAME”` instead). The line quotes the model's words as they are: show it as plain text, or clean it as `askWithFiles` does its steps. In `askWithFiles`, this line, made one line of plain text, is the `label` of the call's `tool.start` event, the line `onActivity` gets with "…", and the start of its step. |
+| `resultCharacters(name)` | The most characters of a result of this tool: the larger of `toolResultCharacters` and 40,000 for `analyze_whole_document`, 600 for `view_pages` (its file is counted in bytes), 600 for a name the tool set does not answer (its error is a few words; since 0.10.0, before which it was `toolResultCharacters`), and `toolResultCharacters` for the other tools. What a loop sets aside in its request before it runs a call. |
+| `wholeReadsLeft(documentId)` | How many more times this tool set may read the document whole: 0 once a read of it could read no part, at the cap (`maxWholeDocumentReads`), for a document sent whole (`inline`), for one that is not among its documents, and without `generate`. `askWithFiles` asks it before it prices a read, so a read the tool would refuse is refused with the tool's reason, not its price. Optional in the type, so a tool set of your own still compiles. New in 0.10.0. |
 
-`execute` and `executeWithFiles` throw only when the tool set's `signal` was aborted: the error
-that ended the call is thrown again instead of being returned to the model.
+`execute` and `executeWithFiles` throw only when the tool set's `signal`, or (since 0.10.0) the
+call's own `signal`, was aborted, or the store did not answer in time ([Store
+timeouts](#rules-for-every-tool), since 0.10.0): the error that ended the call is thrown again
+instead of being returned to the model.
 
 A turn of your own loop, run with the tool set. `files` is your
 [`LargeFiles`](./library.md#largefiles), created once with
@@ -1002,7 +1140,7 @@ type ToolCallLimits = {
 | `maxFileBytes` | number | 3/8 of (`maxRequestBytes` − 262,144): 3,651,696 bytes with the default budget | `view_pages`: the most bytes its file may have. Pages are left off the end until the cut fits. Below 1,024 the call fails. Give the room left in your request, times 3/4 when you send files as base64. |
 | `maxPages` | number | [`MAX_VIEW_PAGES`](#max_view_pages) (5) | `view_pages`: the most pages this call may show, never more than 5. Below 1 the call fails. Lower it as the pages already shown use up your token budget. |
 | `maxResultCharacters` | number | The tool's own cap ([`resultCharacters`](#toolset)) | The most characters of the JSON result, when that is less than the tool's cap: the room left in the request. The result is cut to it and says where to go on. Never below 600. `view_pages` ignores it. |
-| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. It does not stop the read: a part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, a merge and the answer must fit). New in 0.6.0. |
+| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. New in 0.6.0. |
 | `maxWaitMs` | number | The library's `pageLookWaitMs` (30,000) | `view_pages`: the most milliseconds the look waits for its turn, when that is less than `pageLookWaitMs`. 0: it runs only when a turn is free now, and is told the server is busy if not. New in 0.9.0. |
 
 In `askWithFiles`, `maxFileBytes` is what is left of `maxRequestBytes` after the request so far
@@ -1137,3 +1275,8 @@ text, and `view_pages` with its guide when the pages of a PDF can be looked at.
 by group and paging; searching the bare form of a word) and the closing requests
 ([`FINAL_ANSWER_REQUEST`](./ask.md#final_answer_request) and the two others), so the cache misses
 once after upgrading to it too, the same way.
+
+0.10.0 changes the description and the arguments of `analyze_whole_document` (`output` and
+`labels`), so a chat where it is declared misses the cache once after the upgrade. The prompts of
+its part reads, merges and answer changed too: they reach the model that reads the parts, not the
+chat.
