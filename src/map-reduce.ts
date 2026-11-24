@@ -99,7 +99,10 @@ export type WholeItemsResult = {
   items: WholeItem[];
   /** The items by label, when they have labels. */
   countsByLabel: Record<string, number>;
-  /** Items a part listed that are not counted: their line is outside the part, or their quote is not on their line. */
+  /**
+   * Items a part listed that are not counted: their quote is on no line of the part and not near the
+   * line they name (`quoteNearLine`), or on several lines of it but not on theirs.
+   */
   unverified: number;
   /** The parts the file was read in, those that could not be read included; a halved part counts as its halves. */
   parts: number;

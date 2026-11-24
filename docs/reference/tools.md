@@ -729,15 +729,15 @@ merges them, and there is no answer of the read: one request a part.
 | Field | Type | Meaning |
 |---|---|---|
 | `document` | string | The file name. |
-| `total_items` | number | The items found, each once, whose quote is on their line. Counted by code. |
+| `total_items` | number | The items found, each once, whose quote is on their line, or near it as above. Counted by code. |
 | `counts_by_label` | object, optional | The items by label, when they have labels: `{ "penalty": 37 }`. An item with no label among labelled ones counts under `"unlabeled"`. |
 | `items` | array | The first 50 items, in the order of the file, each `{ line, label?, value?, quote }`. The value and the quote are as the model wrote them, up to 200 and 300 characters. |
 | `more_items` | number, optional | The items not shown: past the first 50, or past those kept when the result was cut to its room. |
-| `unverified_items` | number | Items a part listed that are not counted: a quote on no line of the part, or on several but not on the line the item names. |
+| `unverified_items` | number | Items a part listed that are not counted: a quote on no line of the part and not near the line the item names, or on several lines but not on that one. A quote near its line (15 characters or more, at most one letter in five wrong, every number a number of the line) counts there, so it is not among them. |
 | `parts_read` | number | The parts the file was read in, those that could not be read included; a halved part counts as its halves. |
 | `parts_failed` | number, optional | Parts that could not be read: their items are missing. |
 | `parts_cut_short` | number, optional | Parts whose list was still cut at the output limit. |
-| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK." (a stop is added to a task that has none); "No item was found on its line for: TASK." when items were listed and none is counted; "The first 50 items are shown; total_items counts them all.", or "The first K items are shown, to stay within the size limit; total_items counts them all." when the result was cut to its room; "N listed items are not counted: their quote is not on the line they name, nor on just one other line of the part."; "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
+| `note` | string, optional | What to tell the user, from these: "No part of NAME listed an item for: TASK." (a stop is added to a task that has none); "No item was found on its line for: TASK." when items were listed and none is counted; "The first 50 items are shown; total_items counts them all.", or "The first K items are shown, to stay within the size limit; total_items counts them all." when the result was cut to its room; "N listed items are not counted: their quote is not on the line they name, nor on just one other line of the part." (an item whose quote is near its line counts, so it is not among them); "N parts could not be read (REASON), so items may be missing: tell the user the count may be incomplete."; "N parts listed more items than fit the model's output limit, even read in smaller pieces, so items may be missing: tell the user the count may be incomplete." |
 
 ```json
 {

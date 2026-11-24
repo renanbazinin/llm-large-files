@@ -636,7 +636,7 @@ There is no merge and no answer of the read: one request a part, so a read of 5 
 requests. A part whose list is cut at the output limit is read again in halves, two levels at
 most, within the requests the question has left. The result gives `total_items`,
 `counts_by_label`, the first 50 items, and `unverified_items` for those that were listed but not
-found on their line ([Tools](./reference/tools.md#items-output-items)). Its evidence holds the lines
+found on or near their line ([Tools](./reference/tools.md#items-output-items)). Its evidence holds the lines
 of its items, which an answer can cite.
 
 **Output limits.** Part notes and merged notes start at 4,096 output tokens, the answer at 8,192.
