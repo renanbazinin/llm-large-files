@@ -9,7 +9,6 @@ export { askStream, askWithFiles, DEFAULT_INPUT_TOKENS, EXPLORER_INSTRUCTION, FI
 export type { AskLimits, AskOptions, AskResult, MissingDocumentsAction, MissingDocumentsContext, ToolResultContext, ToolResultVerdict } from "./ask.js";
 export * from "./answer-info.js";
 export * from "./citations.js";
-export { PLACEMENT_STATE_VERSION } from "./placement.js";
 export { classifyModelError, DocumentsNotFoundError, errorKindOf, ModelRequestError, TOOL_TURN_VERSION, UsageMeter } from "./model.js";
 export type {
   ChatMessage,

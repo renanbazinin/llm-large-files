@@ -3,12 +3,11 @@
 // compile); askGemini takes every option of askWithFiles by its type, those new in 0.10.0 too;
 // vertexAi takes a project with a token, or an API key of express mode, not both; and a token
 // function of no arguments, as 0.9 wrote it, still fits.
-import type { AskOptions, LargeFiles, PlacementState } from "llm-large-files";
+import type { AskOptions, LargeFiles } from "llm-large-files";
 import { askGemini, gemini, vertexAi, type AskGeminiOptions, type GeminiEndpoint, type GeminiRequestFields } from "llm-large-files/gemini";
 
 declare const files: LargeFiles;
 declare const endpoint: GeminiEndpoint;
-declare const placement: PlacementState;
 
 export const fields: GeminiRequestFields = {
   safetySettings: [{ category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_LOW_AND_ABOVE", method: "SEVERITY" }],
@@ -40,8 +39,8 @@ gemini(endpoint, { analysisBody: () => ({ systemInstruction: {} }) });
 export async function asked(): Promise<void> {
   // The options of askWithFiles that askGemini does not name, new in 0.10.0 among them.
   await askGemini({
-    files, endpoint, documentIds: [], messages: [{ role: "user", text: "?", documentIds: ["doc_1"] }],
-    documentPlacement: "attached", placement, nativeRounds: true, inlineTables: "tools", numberInline: true, filteredAnswer: "drop",
+    files, endpoint, documentIds: [], messages: [{ role: "user", text: "?" }],
+    documentPlacement: "last", inlineTables: "tools", numberInline: true, filteredAnswer: "drop",
     onToolResult: ({ result }) => ({ result }), limits: { wholeReadsPerQuestion: 2 },
     body: fields, explorerBody: { labels: { model: "explorer" } }, analysisBody: () => ({}), timeoutMs: 300_000, functionCallingMode: "AUTO", answerWithoutTools: "omit",
   });

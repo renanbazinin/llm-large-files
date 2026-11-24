@@ -1,45 +1,15 @@
-// The rounds of earlier questions in an OpenAI-compatible server's own form (A2, L15-ext; 0.10.0).
-// DeepSeek's thinking mode asks for the `reasoning_content` of every earlier turn in a request with
-// tools, and refuses one without it (HTTP 400; api-docs.deepseek.com/guides/thinking_mode, read on
-// 2026-11-24). `openAiToolTurns(turns, { native: true })` writes it back for an application that
-// keeps Chat Completions messages, and the adapters say they take their own turns back.
+// A DeepSeek turn within one question: its own assistant message, with its `reasoning_content`, goes
+// back to the explorer that wrote it, and the model that answers gets the calls alone. DeepSeek's
+// thinking mode asks for that reasoning in a request with tools (api-docs.deepseek.com/guides/
+// thinking_mode, read on 2026-11-24).
 import { describe, expect, it } from "vitest";
-import { askWithFiles, createLargeFiles, MemoryDocumentStore, type ToolTurn } from "llm-large-files";
-import { anthropic } from "llm-large-files/anthropic";
-import { openAiCompatible, openAiToolTurns } from "llm-large-files/openai";
+import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
+import { openAiCompatible } from "llm-large-files/openai";
 import { fakeFetch, serviceLog, utf8 } from "llm-large-files/testing";
 
 type Json = Record<string, any>;
 
-const search = { id: "call_1", name: "search_document", args: { document_id: "doc-1", query: "ERROR", mode: "exact" } };
-const asked = { role: "assistant", content: "", reasoning_content: "The log is large: search it for ERROR.", tool_calls: [{ id: "call_1", type: "function", function: { name: "search_document", arguments: JSON.stringify(search.args) } }] };
-const turn: ToolTurn = { role: "tools", version: 1, calls: [{ ...search, result: { total_matching_lines: 51, tool_turns_left: 3 } }], native: { model: "deepseek-v4-pro", turn: asked } };
-
-describe("openAiToolTurns(turns, { native }) since 0.10.0", () => {
-  it("writes the reasoning of a round's own assistant message back", () => {
-    expect(openAiToolTurns([turn], { native: true })).toEqual([
-      { role: "assistant", content: null, reasoning_content: "The log is large: search it for ERROR.", tool_calls: asked.tool_calls },
-      { role: "tool", tool_call_id: "call_1", content: JSON.stringify({ total_matching_lines: 51 }) },
-    ]);
-  });
-
-  it("writes what it wrote in 0.9 without native, or for a round with no reasoning", () => {
-    const plain = openAiToolTurns([{ ...turn, native: undefined }]);
-    expect(openAiToolTurns([turn])).toEqual(plain);
-    expect(openAiToolTurns([{ ...turn, native: undefined }], { native: true })).toEqual(plain);
-    // The turn of another provider, or one without reasoning, adds nothing.
-    expect(openAiToolTurns([{ ...turn, native: { model: "gemini-3", turn: { role: "model", parts: [] } } }], { native: true })).toEqual(plain);
-    expect(openAiToolTurns([{ ...turn, native: { model: "gpt-5.5", turn: { ...asked, reasoning_content: "" } } }], { native: true })).toEqual(plain);
-    expect(plain[0]).toEqual({ role: "assistant", content: null, tool_calls: asked.tool_calls });
-  });
-});
-
-describe("capabilities.nativeRounds of the OpenAI-compatible and Claude adapters, since 0.10.0", () => {
-  it("is true: they take their own turns back", () => {
-    expect(openAiCompatible({ model: "deepseek-v4-pro", baseUrl: "https://api.deepseek.com/v1" }).capabilities.nativeRounds).toBe(true);
-    expect(anthropic({ model: "claude-opus-5-5", apiKey: "k" }).capabilities.nativeRounds).toBe(true);
-  });
-
+describe("an OpenAI-compatible adapter's own turns within a question", () => {
   it("does not send an adapter's own turn to another model of the question", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });

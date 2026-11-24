@@ -5,29 +5,39 @@
 // its blocks and its instruction are those of 0.9.
 import type { AccessRules, Caller } from "./access.js";
 import type { AccessOptions, PrepareOptions } from "./library.js";
-import { checkedPlacement, nextPlacement } from "./placement.js";
 import {
   canBeReadWhole,
   CARD_LINES,
   documentToolsInstruction,
   inlineSize,
   isToolable,
-  listingLine,
   numberedText,
   planDocuments,
-  questionTools,
   REQUEST_BYTES_MARGIN,
   renderCard,
   renderInline,
-  renderListing,
-  toolGuide,
-  toolsInOrder,
   type WholeRead,
 } from "./plan.js";
 import { DocumentGoneError } from "./ranged.js";
 import { numberLines, type DocumentSource } from "./search.js";
 import { estimateTokens, jsonBytes } from "./text.js";
-import type { Budget, DocumentMeta, PreparedContext, ToolName } from "./types.js";
+import type { Budget, DocumentMeta, PreparedContext } from "./types.js";
+
+/**
+ * The mark of a `PreparedContext` that this package's `prepare` made (since 0.10.0): its blocks
+ * have numbered lines when `numberInline` asks for them. `askWithFiles` numbers the citations of
+ * the files sent whole only for a context with the mark. A `LargeFiles` of your own that returns
+ * the result of this package's `prepare`, or a copy of it made with spread, keeps it; one of 0.9
+ * has none, and its blocks are sent as they are. A registered symbol, so that another copy of the
+ * package knows it too. It is not part of the public types.
+ */
+export const PREPARED_HERE = Symbol.for("llm-large-files.prepared");
+
+/** Whether `prepared` was made by this package's `prepare` (`PREPARED_HERE`). */
+export const preparedHere = (prepared: PreparedContext): boolean => (prepared as Marked)[PREPARED_HERE] === true;
+
+/** A `PreparedContext` with the mark of this package's `prepare`. */
+type Marked = PreparedContext & { [PREPARED_HERE]?: true };
 
 /** What planning a request needs of the library that asks for it. */
 export type PrepareContext = {
@@ -98,24 +108,6 @@ async function block(context: PrepareContext, id: string, meta: DocumentMeta, ca
   return undefined;
 }
 
-/** A value as an error message quotes it: a string in quotes, so that "1" is not read as 1. */
-const quoted = (value: unknown) => (typeof value === "string" ? JSON.stringify(value) : String(value));
-
-/**
- * `PrepareOptions.reserve` checked: undefined when it is not given. A value that is not an object
- * of two numbers is a TypeError; a size that is not a finite number of 0 or more, a RangeError.
- */
-function reserveOf(value: unknown): Size | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError(`PrepareOptions.reserve must be an object: { tokens, bytes } (got ${Array.isArray(value) ? "an array" : quoted(value)}).`);
-  const { tokens, bytes } = value as { tokens?: unknown; bytes?: unknown };
-  for (const [name, size] of [["tokens", tokens], ["bytes", bytes]] as const) {
-    if (typeof size !== "number") throw new TypeError(`PrepareOptions.reserve.${name} must be a number (got ${quoted(size)}).`);
-    if (!Number.isFinite(size) || size < 0) throw new RangeError(`PrepareOptions.reserve.${name} must be a finite number of 0 or more (got ${size}).`);
-  }
-  return { tokens: tokens as number, bytes: bytes as number };
-}
-
 /** The options of 0.10.0 that shape the text, checked. */
 function shapeOf(options: PrepareOptions | undefined): Shape {
   const numbered: unknown = options?.numberInline;
@@ -124,46 +116,6 @@ function shapeOf(options: PrepareOptions | undefined): Shape {
   if (tables !== undefined && tables !== "tools" && tables !== "text") throw new TypeError(`PrepareOptions.inlineTables must be "tools" or "text" (got ${JSON.stringify(tables) ?? String(tables)}).`);
   return { numbered: numbered === true, tables: tables === "tools" };
 }
-
-/** Two strings in the order of their UTF-16 code units, as `<` compares them. */
-const byUnits = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
-
-/**
- * The order of two documents of the same name: by `createdAt`, then by ID. It is made from their
- * metadata alone, so it is the same whatever the order the question lists them in.
- */
-const earlierFirst = (left: DocumentMeta, right: DocumentMeta) => byUnits(String(left.createdAt), String(right.createdAt)) || byUnits(left.id, right.id);
-
-/**
- * The header line of each document (`PreparedContext.listing`), in the order of `documents`. A
- * document whose name an earlier document of the question has (names compared in NFC; earlier by
- * `createdAt`, then by ID) says that it replaces the latest of them.
- */
-function listingOf(documents: DocumentMeta[], inline: Set<string>, viewable: Set<string>): Map<string, string> {
-  // The documents of each name, each name made NFC once.
-  const byName = new Map<string, DocumentMeta[]>();
-  for (const meta of documents) {
-    const key = meta.name.normalize("NFC");
-    const named = byName.get(key);
-    if (named) named.push(meta);
-    else byName.set(key, [meta]);
-  }
-  const replaces = new Map<string, string>();
-  for (const named of byName.values()) {
-    if (named.length < 2) continue;
-    named.sort(earlierFirst);
-    for (let index = 1; index < named.length; index++) replaces.set(named[index]!.id, named[index - 1]!.id);
-  }
-  const listing = new Map<string, string>();
-  for (const meta of documents) {
-    const replaced = replaces.get(meta.id);
-    listing.set(meta.id, listingLine(meta, { inline: inline.has(meta.id), viewable: viewable.has(meta.id), ...(replaced ? { replaces: replaced } : {}) }));
-  }
-  return listing;
-}
-
-/** The size of a text in a request, as `askWithFiles` counts the text it sends. */
-const sizeOf = (text: string): Size => (text ? { tokens: estimateTokens(text), bytes: jsonBytes(text) } : { tokens: 0, bytes: 0 });
 
 const sum = (sizes: Iterable<Size>): Size => {
   const total = { tokens: 0, bytes: 0 };
@@ -177,8 +129,8 @@ const sum = (sizes: Iterable<Size>): Size => {
 /** How many times planning is made again when the request it planned does not fit. */
 const MOST_EXTRA_PLANS = 6;
 
-/** A plan and what goes with it, before the next placement is worked out. */
-type Planned = Omit<PreparedContext, "missing" | "placement"> & { tools: ToolName[] };
+/** A plan and what goes with it. */
+type Planned = Omit<PreparedContext, "missing">;
 
 /**
  * Plans one model request (`LargeFiles.prepare`): which documents go in whole and which become
@@ -187,20 +139,14 @@ type Planned = Omit<PreparedContext, "missing" | "placement"> & { tools: ToolNam
  *
  * The options new in 0.10.0: `numberInline` numbers the lines of the documents sent whole, and
  * plans them by that size; `inlineTables: "tools"` lists in `toolable` those whose tables the tools
- * can count; `placement` keeps each document where an earlier question of the chat placed it;
- * `reserve` keeps room free for the tool declarations, and has planning count the cards, the header
- * lines and the guide at their size. Without them, the blocks, the instruction and the plan are
- * those of 0.9. `guide`, `listing` and `placement` are always given.
+ * can count. Without them, the blocks, the instruction and the plan are those of 0.9. The result
+ * always has the mark of this package (`PREPARED_HERE`).
  */
 export async function prepareDocuments(context: PrepareContext, ids: string[], base: { tokens: number; bytes: number }, options?: PrepareOptions): Promise<PreparedContext> {
   const caller = context.callerOf(options);
   const budget = context.budgetFor(options?.budget);
   const analysis = options?.wholeDocumentAnalysis !== false;
   const shape = shapeOf(options);
-  const reserve = reserveOf(options?.reserve);
-  // A state of another version, or of another shape, is not used: the question is planned afresh.
-  const given = options?.placement === undefined ? undefined : checkedPlacement(options.placement);
-  const head: unknown = (options?.placement as { head?: unknown } | undefined)?.head;
   const unique = [...new Set(ids)];
   let documents: DocumentMeta[] = [];
   const missing: string[] = [];
@@ -213,9 +159,9 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
   }
   // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
   const viewableOf = () => (options?.viewPages ? documents.filter((meta) => context.viewableMeta(meta)) : []);
-  // With `reserve` or `numberInline`, the blocks read so far, by kind and ID: a plan made again
-  // reads each block once. Without them, the reads of 0.9.
-  const read = reserve || shape.numbered ? new Map<string, Rendered>() : undefined;
+  // With `numberInline`, the blocks read so far, by kind and ID: a plan made again reads each
+  // block once. Without it, the reads of 0.9.
+  const read = shape.numbered ? new Map<string, Rendered>() : undefined;
   const render = async (meta: DocumentMeta, whole: boolean, viewable: boolean): Promise<Rendered | undefined> => {
     const key = `${whole ? "whole" : "card"} ${meta.id}`;
     const known = read?.get(key);
@@ -225,48 +171,36 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     if (rendered) read?.set(key, rendered);
     return rendered;
   };
-  // What the request may hold of the documents, the cards, the header and the guide.
+  // What the request may hold of the documents.
   const limit: Size = {
-    tokens: budget.contextTokens - budget.reservedTokens - base.tokens - (reserve?.tokens ?? 0),
-    bytes: budget.maxRequestBytes - REQUEST_BYTES_MARGIN - base.bytes - (reserve?.bytes ?? 0),
+    tokens: budget.contextTokens - budget.reservedTokens - base.tokens,
+    bytes: budget.maxRequestBytes - REQUEST_BYTES_MARGIN - base.bytes,
   };
   // With `numberInline`, the size of the numbered text of each document read whole so far.
   const measured = new Map<string, Size>();
   /** How far a plan is over the room it has: 0 when it fits. */
   const excessOf = (planned: Planned): number => {
     const whole = { tokens: planned.plan.inlineTokens, bytes: planned.plan.inlineBytes };
-    const total = reserve
-      ? sum([whole, sizeOf(planned.guide!), sizeOf(renderListing([...planned.listing!.values()])), ...planned.plan.searchable.map((meta) => sizeOf(planned.blocks.get(meta.id)!))])
-      : whole;
-    const tokens = Math.max(0, total.tokens - limit.tokens, whole.tokens - budget.inlineTokens);
-    const bytes = Math.max(0, total.bytes - limit.bytes);
+    const tokens = Math.max(0, whole.tokens - limit.tokens, whole.tokens - budget.inlineTokens);
+    const bytes = Math.max(0, whole.bytes - limit.bytes);
     return tokens / Math.max(1, budget.contextTokens) + bytes / Math.max(1, budget.maxRequestBytes);
   };
-  const finish = ({ plan, blocks, instruction, viewable, toolable, guide, listing, tools }: Planned): PreparedContext => ({
+  const finish = ({ plan, blocks, instruction, viewable, toolable }: Planned): Marked => ({
     plan,
     blocks,
     instruction,
     missing,
     viewable,
     ...(toolable ? { toolable } : {}),
-    guide,
-    listing,
-    placement: nextPlacement(given, typeof head === "string" ? head : "", { ids: unique, plan, missing, tools }),
+    [PREPARED_HERE]: true,
   });
-  // With `reserve`, once a plan is found not to fit: the card of each document, and the room the
-  // guide and the header took.
-  let cardSizes: Map<string, Size> | undefined;
-  let extra: Size = { tokens: 0, bytes: 0 };
   let extraPlans = 0;
   let best: { planned: Planned; excess: number } | undefined;
   // Planning needs only the metadata. The text is read for the documents sent whole, and the
   // first lines for the others. One that is gone by then is missing, and the plan is made again.
   for (;;) {
-    const room = reserve ? { tokens: base.tokens + reserve.tokens + extra.tokens, bytes: base.bytes + reserve.bytes + extra.bytes } : base;
-    const plan = planDocuments(documents, budget, room, {
+    const plan = planDocuments(documents, budget, base, {
       numbered: shape.numbered,
-      ...(given ? { pinned: given.inline, cards: given.cards } : {}),
-      ...(cardSizes ? { cardSizes } : {}),
       ...(measured.size > 0 ? { measured } : {}),
     });
     const inline = new Set(plan.inline.map((meta) => meta.id));
@@ -296,9 +230,6 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     // small enough for it.
     const wholeReads = analysis && plan.searchable.some((meta) => canBeReadWhole(meta, budget));
     const toolable = shape.tables ? plan.inline.filter((meta) => toolableIds.has(meta.id)) : undefined;
-    // The tools declared: those of earlier questions of the chat, and those this one needs.
-    const tools = toolsInOrder([...given?.tools ?? [], ...questionTools({ searchable: plan.searchable, ...(toolable ? { toolable } : {}), viewable }, wholeReads)]);
-    const guide = toolGuide(tools, { fullTables: shape.tables, numberedInline: shape.numbered && plan.inline.length > 0 });
     // The numbered text is counted as it was measured, where that is larger than its estimate.
     const counted = shape.numbered ? sum(plan.inline.map((meta) => inlineSize(meta, true, measured.get(meta.id)))) : undefined;
     const planned: Planned = {
@@ -307,42 +238,16 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
       instruction: documentToolsInstruction(plan.searchable, viewable, wholeReads),
       viewable,
       ...(toolable ? { toolable } : {}),
-      guide,
-      listing: listingOf(documents, inline, shown),
-      tools,
     };
-    // Without `reserve` and `numberInline`, the plan of 0.9: the cards, the header and the guide
-    // are the caller's to count.
-    if (!reserve && !shape.numbered) return finish(planned);
-    // A plan that does not fit is made again with what it was found to need: the numbered text
-    // as measured, and with `reserve` the cards, the header and the guide. A plan made again that
-    // is no nearer to fitting is not used, and the nearest is.
+    // Without `numberInline`, the plan of 0.9: the cards are the caller's to count.
+    if (!shape.numbered) return finish(planned);
+    // A plan that does not fit is made again with the numbered text as measured. A plan made
+    // again that is no nearer to fitting is not used, and the nearest is.
     const excess = excessOf(planned);
     if (excess === 0) return finish(planned);
     if (best && excess >= best.excess) return finish(best.planned);
     best = { planned, excess };
     if (extraPlans >= MOST_EXTRA_PLANS) return finish(planned);
     extraPlans++;
-    if (reserve) {
-      // The room the guide and the header take is kept. And planning counts the card each
-      // document would become: a move to the cards that frees less room than it takes is not made.
-      const needed = sum([sizeOf(guide), sizeOf(renderListing([...planned.listing!.values()]))]);
-      extra = { tokens: Math.max(extra.tokens, needed.tokens), bytes: Math.max(extra.bytes, needed.bytes) };
-      if (!cardSizes) {
-        const sizes = new Map<string, Size>();
-        for (const meta of documents) {
-          const rendered = await render(meta, false, shown.has(meta.id));
-          if (rendered === undefined) gone.push(meta.id);
-          else sizes.set(meta.id, sizeOf(rendered.text));
-        }
-        if (gone.length > 0) {
-          missing.push(...gone);
-          documents = documents.filter((meta) => !gone.includes(meta.id));
-          best = undefined;
-          continue;
-        }
-        cardSizes = sizes;
-      }
-    }
   }
 }

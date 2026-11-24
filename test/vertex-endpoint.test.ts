@@ -158,17 +158,3 @@ describe("a Vertex AI token refused with HTTP 401, since 0.10.0", () => {
     expect(explorerTokens.asked.slice(0, 2)).toEqual([false, true]);
   });
 });
-
-describe("the rounds of earlier questions in Gemini's own form, since 0.10.0", () => {
-  it("go back to models of the Gemini API, and not yet to those of Vertex AI", () => {
-    expect(geminiApi({ apiKey: "k", model: "m" }).nativeRounds).toBe(true);
-    expect(gemini(geminiApi({ apiKey: "k", model: "m" })).capabilities.nativeRounds).toBe(true);
-    // Not until a live check on Vertex AI shows that it takes them.
-    expect(vertexAi({ project: "p", model: "m", accessToken: "t" }).nativeRounds).toBeUndefined();
-    expect(gemini(vertexAi({ project: "p", model: "m", accessToken: "t" })).capabilities.nativeRounds).toBeUndefined();
-    expect(gemini(vertexAi({ apiKey: "k", model: "m" })).capabilities.nativeRounds).toBeUndefined();
-    // An endpoint of your own says so itself.
-    expect(gemini({ url: "https://gateway.example/models/m:generateContent", headers: {} }).capabilities.nativeRounds).toBeUndefined();
-    expect(gemini({ url: "https://gateway.example/models/m:generateContent", headers: {}, nativeRounds: true }).capabilities.nativeRounds).toBe(true);
-  });
-});

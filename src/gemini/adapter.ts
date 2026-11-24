@@ -136,15 +136,6 @@ export type FromGeminiContentsOptions = {
    * false gives the turns of 0.8. New in 0.9.0.
    */
   rounds?: boolean;
-  /**
-   * The `id` of the adapter these contents go to (`gemini(...).id`). Given, a round whose model turn
-   * also has thought signatures, or text next to its calls (as `geminiToolTurns` writes a round
-   * that kept its `native` turn), is a stored round too, and keeps that turn as `ToolTurn.native`
-   * for this adapter: the loop sends it back as it is to an adapter of that id, and the calls alone
-   * to any other (`AskOptions.nativeRounds`). Left out, such a round stays as it is, as before.
-   * `askGemini` gives it when the rounds of earlier questions go back in Gemini's own form. New in 0.10.0.
-   */
-  model?: string;
 };
 
 /** The names of the library's tools. */
@@ -161,49 +152,24 @@ const soleField = (part: GeminiPart | undefined, name: string): Record<string, u
 };
 
 /**
- * The function call of a part of a signed model turn: a part with `functionCall` and, at most, a
- * `thoughtSignature`. Undefined for any other part.
- */
-const signedCall = (part: GeminiPart | undefined): Record<string, unknown> | undefined => {
-  if (!isPlainObject(part) || !isPlainObject(part.functionCall) || !onlyKeys(part, ["functionCall", "thoughtSignature"])) return undefined;
-  return part.functionCall;
-};
-
-/** A text part of a model turn, a thought or not, with its signature or none. */
-const isTextPart = (part: GeminiPart): boolean => isPlainObject(part) && typeof part.text === "string" && onlyKeys(part, ["text", "thought", "thoughtSignature"]);
-
-/**
  * A stored tool round of the library, in the form `geminiToolTurns` gives it: `asked` is a model
  * turn of calls of the library's tools and nothing else, and `answered` the turn of their
- * responses, in the same order. With `native` (an adapter's id), `asked` may also have thought
- * signatures and text parts: the round then keeps it as `ToolTurn.native`. Undefined for anything else.
+ * responses, in the same order. Undefined for anything else.
  */
-function liftedRound(asked: GeminiContent, answered: GeminiContent | undefined, native?: string): ToolTurn | undefined {
+function liftedRound(asked: GeminiContent, answered: GeminiContent | undefined): ToolTurn | undefined {
   if (asked.role !== "model" || answered?.role !== "user" || !Array.isArray(asked.parts) || !Array.isArray(answered.parts)) return undefined;
-  let plain = true;
-  const asking: Array<Record<string, unknown>> = [];
-  for (const part of asked.parts) {
-    const call = soleField(part, "functionCall") ?? (native !== undefined ? signedCall(part) : undefined);
-    if (call) {
-      if (Object.keys(part).length > 1) plain = false;
-      asking.push(call);
-    } else if (native !== undefined && isTextPart(part)) {
-      plain = false;
-    } else {
-      return undefined;
-    }
-  }
-  if (asking.length === 0 || answered.parts.length !== asking.length) return undefined;
+  if (asked.parts.length === 0 || answered.parts.length !== asked.parts.length) return undefined;
   const calls: ToolTurn["calls"] = [];
-  for (const [index, call] of asking.entries()) {
+  for (const [index, part] of asked.parts.entries()) {
+    const call = soleField(part, "functionCall");
     const response = soleField(answered.parts[index], "functionResponse");
-    if (!response || !onlyKeys(call, ["name", "args", "id"]) || !onlyKeys(response, ["name", "id", "response"])) return undefined;
+    if (!call || !response || !onlyKeys(call, ["name", "args", "id"]) || !onlyKeys(response, ["name", "id", "response"])) return undefined;
     const { name, args = {}, id } = call;
     if (typeof name !== "string" || !LIBRARY_TOOLS.has(name) || !isPlainObject(args) || (id !== undefined && typeof id !== "string")) return undefined;
     if (response.name !== name || response.id !== id || !isPlainObject(response.response)) return undefined;
     calls.push({ ...(id ? { id } : {}), name, args, result: response.response as ToolResult });
   }
-  return { role: "tools", version: TOOL_TURN_VERSION, calls, ...(plain || native === undefined ? {} : { native: { model: native, turn: asked } }) };
+  return { role: "tools", version: TOOL_TURN_VERSION, calls };
 }
 
 /**
@@ -243,7 +209,7 @@ export function fromGeminiContents(contents: GeminiContent[], options: FromGemin
     // A round is lifted only when a turn follows it. Responses that end `contents` are the turn the
     // model answers (an application that ran the tools in a loop of its own hands them over), and
     // stay as they are, as in 0.8.
-    const round = lift && at + 2 < contents.length ? liftedRound(content, contents[at + 1], options.model) : undefined;
+    const round = lift && at + 2 < contents.length ? liftedRound(content, contents[at + 1]) : undefined;
     if (round) {
       messages.push(round);
       at++;
@@ -256,29 +222,15 @@ export function fromGeminiContents(contents: GeminiContent[], options: FromGemin
 }
 
 /**
- * The model turn of a round in Gemini's own form (`ToolTurn.native`), when it is one that asks for
- * these calls: a `model` turn whose function calls have their names, in their order. Undefined for
- * anything else, such as the turn of another provider.
- */
-function nativeTurnOf(turn: ToolTurn): GeminiContent | undefined {
-  const own = turn.native?.turn as GeminiContent | undefined;
-  if (!isPlainObject(own) || own.role !== "model" || !Array.isArray(own.parts)) return undefined;
-  const names = own.parts.flatMap((part) => (isPlainObject(part) && isPlainObject(part.functionCall) ? [part.functionCall.name] : []));
-  return names.length === turn.calls.length && names.every((name, index) => name === turn.calls[index]!.name) ? own : undefined;
-}
-
-/**
  * The tool rounds a question returned (`AskResult.toolTurns`) as Gemini `contents`: a model turn
  * of function calls and a user turn of function responses for each. For an application that
- * keeps its history as `contents`: put them between the question and its answer. A round that kept
- * Gemini's own model turn (`ToolTurn.native`) is written with that turn, thought signatures
- * included (since 0.10.0); `fromGeminiContents` with `model` reads it back as such a round.
+ * keeps its history as `contents`: put them between the question and its answer.
  */
 export function geminiToolTurns(turns: ToolTurn[]): GeminiContent[] {
   return turns.flatMap((turn) => {
     // Sent again in later questions: without the tool turns this question had left.
     const answers = turn.calls.map(({ result, ...call }) => ({ call, result: laterResult(result) }));
-    return [nativeTurnOf(turn) ?? callsTurn(answers.map((answer) => answer.call)), ...geminiFunctionResponseTurns(answers)];
+    return [callsTurn(answers.map((answer) => answer.call)), ...geminiFunctionResponseTurns(answers)];
   });
 }
 
@@ -288,7 +240,7 @@ export function geminiToolTurns(turns: ToolTurn[]): GeminiContent[] {
  * model of its own, `gemini(geminiApi({ apiKey, model: "the-explorer" }))`. A `refreshable`
  * endpoint gets one more try, with headers asked for with `{ refresh: true }`, after a 401.
  */
-export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "headers" | "refreshable" | "nativeRounds">, options: GeminiModelOptions = {}): ModelAdapter {
+export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "headers" | "refreshable">, options: GeminiModelOptions = {}): ModelAdapter {
   const fetchImpl = options.fetch ?? fetch;
   const placement = options.toolFilePlacement ?? "inside";
   const refreshable = endpoint.refreshable === true;
@@ -330,7 +282,6 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
       ...(options.maxRequestBytes ? { maxRequestBytes: options.maxRequestBytes } : {}),
       toolFiles: placement,
       pageTokens: options.pageTokens ?? GEMINI_PAGE_TOKENS,
-      ...(endpoint.nativeRounds !== undefined ? { nativeRounds: endpoint.nativeRounds } : {}),
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request))),
     generateText: createGeminiGenerateText({

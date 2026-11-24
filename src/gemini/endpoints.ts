@@ -28,20 +28,7 @@ export type GeminiEndpoint = {
    * A second 401 is the error. `vertexAi()` sets it when `accessToken` is a function. New in 0.10.0.
    */
   refreshable?: true | undefined;
-  /**
-   * Whether the tool rounds of earlier questions may go back to this endpoint's models in Gemini's
-   * own form, thought signatures included: the `capabilities.nativeRounds` of `gemini()`, and so the
-   * default of `AskOptions.nativeRounds`. `geminiApi()` sets it; `vertexAi()` does not yet, until a
-   * live check on Vertex AI shows that it takes them. New in 0.10.0.
-   */
-  nativeRounds?: boolean | undefined;
 };
-
-/**
- * Whether Vertex AI takes the thought signatures of earlier questions: the `nativeRounds` of the
- * endpoints `vertexAi()` makes. False until the live check of a release shows that it does.
- */
-const VERTEX_NATIVE_ROUNDS: boolean = false;
 
 /**
  * The model that explores the documents, when one is named and it is not the answering model
@@ -76,7 +63,6 @@ export function geminiApi(options: {
     streamUrl: `${base}:streamGenerateContent?alt=sse`,
     headers: { "Content-Type": "application/json", "x-goog-api-key": options.apiKey },
     ...(explorer ? { explorerUrl: `${models}${encodeURIComponent(explorer)}:generateContent` } : {}),
-    nativeRounds: true,
   };
 }
 
@@ -184,7 +170,6 @@ export function vertexAi(options: VertexAiOptions): GeminiEndpoint {
     }),
     ...(explorer ? { explorerUrl: `${models}${encodeURIComponent(explorer)}:generateContent` } : {}),
     ...(typeof token === "function" ? { refreshable: true as const } : {}),
-    ...(VERTEX_NATIVE_ROUNDS ? { nativeRounds: true } : {}),
   };
 }
 

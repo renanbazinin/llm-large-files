@@ -40,13 +40,12 @@ const oneLine = (value: string | number) => String(value).replace(/[\r\n]+/g, " 
 /**
  * What `writeSseEvents` sends for an event by default: the event itself, `type`, `seq`, `runId`
  * and `time` included, with two smaller than they are. `run.finish` has a `result` without
- * `toolTurns`, `plan`, `budget`, `lastUsage`, `placement` and `userTurn`: `{ answered, text,
- * finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing }` (keep
- * `toolTurns`, `placement` and `userTurn` on the server, with the conversation). `run.error` has its
- * `error` and a `partial` with only the `steps`, `evidence`, `usage` and `missing` of the partial
- * result. Every other event is sent as it is. `missing`, the documents a question answered without,
- * is new in 0.9.0; `finish` and `citations`, how the answer ended and what its citations came to,
- * in 0.10.0.
+ * `toolTurns`, `plan`, `budget` and `lastUsage`: `{ answered, text, finish, finishReason,
+ * blockReason, citations, steps, evidence, turns, usage, missing }` (keep `toolTurns` on the
+ * server, with the conversation). `run.error` has its `error` and a `partial` with only the
+ * `steps`, `evidence`, `usage` and `missing` of the partial result. Every other event is sent as it
+ * is. `missing`, the documents a question answered without, is new in 0.9.0; `finish` and
+ * `citations`, how the answer ended and what its citations came to, in 0.10.0.
  */
 export function sseMessageOf<E extends { type: string; seq: number }>(event: E): SseMessage {
   const ask = event as unknown as AskEvent;

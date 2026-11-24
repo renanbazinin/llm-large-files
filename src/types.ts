@@ -394,7 +394,7 @@ export type ToolCallHooks = {
   onPagesBusy?: (documentId: string) => void;
   /**
    * Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. It is
-   * joined with the tool set's own signal (`ToolOptions.signal`). New in 0.10.0. Not read yet.
+   * joined with the tool set's own signal (`ToolOptions.signal`). New in 0.10.0.
    */
   signal?: AbortSignal;
 };
@@ -500,30 +500,6 @@ export type DocumentPlan = {
 export type ToolName = "search_document" | "read_document" | "get_document_overview" | "analyze_whole_document" | "view_pages" | "aggregate_table";
 
 /**
- * Where the documents of a chat were placed, so that the next question places them the same way
- * and the start of its requests stays the same (`AskResult.placement`, `AskOptions.placement`).
- * The application keeps it with the chat. It holds document IDs and a hash only: no names, owners
- * or text, and it is never sent to a model. A state of another version, or whose `head` does not
- * match the first user turn, is ignored. New in 0.10.0. Not set or read yet.
- */
-export type PlacementState = {
-  /** The version of this shape: `PLACEMENT_STATE_VERSION` (1). */
-  version: 1;
-  /** A hash of the text of the first user turn: a list trimmed or swapped at its start is seen. */
-  head: string;
-  /** The IDs of the documents sent whole, in the order they were first placed. */
-  inline: string[];
-  /** The IDs of the documents searched through the tools, in the order they were first placed. */
-  cards: string[];
-  /** The tools declared so far: the set only grows. */
-  tools: ToolName[];
-  /** How many earlier questions, counted from the start of `messages`, have their stored rounds sent as stand-ins. */
-  stubbedThrough: number;
-  /** The provider refused stored thought signatures once: later questions send the calls only. */
-  nativeRefused?: true;
-};
-
-/**
  * What `prepare` gives for one request. The fields new in 0.10.0 are optional, so that a
  * `LargeFiles` of your own still compiles: without them, `askWithFiles` works as in 0.9.
  */
@@ -541,22 +517,10 @@ export type PreparedContext = {
    */
   viewable: DocumentMeta[];
   /**
-   * Documents sent whole whose tables the tools can still count and search
-   * (`PrepareOptions.inlineTables: "tools"`): CSV and XLSX, and the others whose text has
-   * `| cell |` rows. New in 0.10.0. Not set yet.
+   * Documents sent whole whose tables the tools can still count and search: every CSV and XLSX
+   * file, and a file of another format that `aggregate_table` reads whose text has a `| cell |`
+   * table of at least 3 rows. Set when `prepare` was called with `inlineTables: "tools"`, else
+   * absent. `askWithFiles` makes the tools for them with the searched documents. New in 0.10.0.
    */
   toolable?: DocumentMeta[];
-  /**
-   * The tool guide for the system text, the same in every question of a chat: no file names or
-   * IDs, and no figure that changes from one question to the next. New in 0.10.0. Not set yet: use
-   * `instruction`.
-   */
-  guide?: string;
-  /**
-   * One header line per document ID, for the turn that holds its block: its name, its document_id,
-   * and whether it is shown in full or searched with the tools. New in 0.10.0. Not set yet.
-   */
-  listing?: Map<string, string>;
-  /** Where the documents were placed, for the next question (`PrepareOptions.placement`). New in 0.10.0. Not set yet. */
-  placement?: PlacementState;
 };

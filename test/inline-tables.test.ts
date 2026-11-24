@@ -5,10 +5,14 @@
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { serviceLog, utf8 } from "llm-large-files/testing";
-import { hasPipeRows, INLINE_CITATION_LINE, INLINE_TABLES_LINE, inlineInstruction, isToolable, questionTools, renderInline, toolGuide } from "../src/plan.js";
+import type { PreparedContext } from "llm-large-files";
+import { hasPipeRows, INLINE_CITATION_LINE, INLINE_TABLES_LINE, inlineInstruction, isToolable, questionTools, renderInline } from "../src/plan.js";
 import { p, word, zip } from "./word-fixtures.js";
 
 const base = { tokens: 0, bytes: 0 };
+
+/** The tools `askWithFiles` declares for a question with this plan (`questionTools`), whole reads offered. */
+const toolsOf = (prepared: PreparedContext) => questionTools({ searchable: prepared.plan.searchable, toolable: prepared.toolable ?? [], viewable: prepared.viewable }, true);
 
 /** probe4's CSV: 3,000 invoices in Hebrew, 750 of them late. */
 function invoices(): string {
@@ -47,11 +51,8 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
     expect(prepared.plan.inline.map((document) => document.id)).toEqual([meta.id]);
     expect(prepared.toolable?.map((document) => document.id)).toEqual([meta.id]);
     // An inline-only question: search, read and aggregate_table, not the overview or a whole read.
-    expect(prepared.placement?.tools).toEqual(["search_document", "read_document", "aggregate_table"]);
-    expect(prepared.guide).toContain(INLINE_TABLES_LINE);
-    expect(prepared.guide).toContain("use aggregate_table");
-    expect(prepared.guide).not.toContain("analyze_whole_document");
-    expect(prepared.guide).not.toContain("get_document_overview");
+    expect(toolsOf(prepared)).toEqual(["search_document", "read_document", "aggregate_table"]);
+    expect(inlineInstruction(prepared, false)).toBe(INLINE_TABLES_LINE);
     // The instruction stays that of "text". The block too, but for its document_id in the frame
     // line: the tools take it, and a file sent whole has no card that gives it.
     const text = await files.prepare([meta.id], base);
@@ -80,8 +81,8 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
     for (const prepared of [await files.prepare([meta.id], base), await files.prepare([meta.id], base, { inlineTables: "text" })]) {
       expect(prepared.toolable).toBeUndefined();
       expect(prepared.instruction).toBe("");
-      expect(prepared.placement?.tools).toEqual([]);
-      expect(prepared.guide).toBe("");
+      expect(toolsOf(prepared)).toEqual([]);
+      expect(inlineInstruction(prepared, false)).toBe("");
     }
   });
 
@@ -106,7 +107,7 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
     expect(prepared.plan.inline.map((document) => document.id).sort()).toEqual([short.id, plain.id].sort());
     expect(prepared.toolable).toEqual([]);
     // The CSV is searched: the tools of 0.9 for it.
-    expect(prepared.placement?.tools).toEqual(["search_document", "read_document", "get_document_overview", "aggregate_table", "analyze_whole_document"]);
+    expect(toolsOf(prepared)).toEqual(["search_document", "read_document", "get_document_overview", "aggregate_table", "analyze_whole_document"]);
   });
 
   it("asks for citations of the numbered lines of a table shown in full when no file is searched", async () => {
@@ -117,8 +118,6 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
     // The instruction of 0.9 asks for citations only in its guide to searched files: it is empty.
     expect(prepared.instruction).toBe("");
     expect(inlineInstruction(prepared, true)).toBe(`${INLINE_TABLES_LINE}\n${INLINE_CITATION_LINE}`);
-    // The guide that stays the same asks for them too.
-    expect(prepared.guide).toContain("Cite line numbers like (app.log L1203).");
     // Not numbered, the table line alone; without tools, the citation line alone.
     expect(inlineInstruction(await files.prepare([csv.id], base, { inlineTables: "tools" }), false)).toBe(INLINE_TABLES_LINE);
     expect(inlineInstruction(await files.prepare([csv.id], base, { numberInline: true }), true)).toBe(INLINE_CITATION_LINE);
@@ -160,6 +159,5 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
     expect(questionTools({ searchable: [log] }, true)).toEqual(["search_document", "read_document", "get_document_overview", "analyze_whole_document"]);
     expect(questionTools({ searchable: [log], toolable: [csv], viewable: [pdf] }, false)).toEqual(["search_document", "read_document", "get_document_overview", "aggregate_table", "view_pages"]);
     expect(questionTools({ searchable: [], viewable: [pdf] }, true)).toEqual(["view_pages"]);
-    expect(toolGuide(["search_document", "read_document", "aggregate_table"], { fullTables: true }).split("\n")[0]).toBe(INLINE_TABLES_LINE);
   });
 });

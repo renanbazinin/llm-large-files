@@ -1,4 +1,4 @@
-// The tool set's side of 0.10.0's placement and budget: `ToolOptions.declare` and `inline`,
+// The tool set's side of 0.10.0's budget and of tables sent whole: `ToolOptions.declare` and `inline`,
 // `declarationsFor`, `ToolSet.wholeReadsLeft` (LLF-058), the room kept for an unknown tool
 // (LLF-049), and no pointer to a result the application replaced.
 import { describe, expect, it } from "vitest";
