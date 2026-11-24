@@ -1,0 +1,58 @@
+{
+ "case": "deck-south",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 87",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 369,
+   "cachedInputTokens": 0,
+   "outputTokens": 51,
+   "thoughtTokens": 0,
+   "ms": 564,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 2332,
+     "ms": 563,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 369,
+      "cachedInputTokens": 0,
+      "outputTokens": 51,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

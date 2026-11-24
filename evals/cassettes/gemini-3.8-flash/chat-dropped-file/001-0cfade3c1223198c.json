@@ -1,0 +1,53 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "0cfade3c1223198c",
+  "bytes": 20901,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "11600 chars #7c814c8a"
+      },
+      {
+       "text": "38 chars #e43d8437"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "185 chars #ec541f91"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לפי נוהל החברה (סעיף 3), עובד במשרה מלא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5247,\"candidatesTokenCount\": 20,\"totalTokenCount\": 5577,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5247}],\"thoughtsTokenCount\": 310,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xO4Ea_amKNqDnsEPtfy3iAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ה זכאי בתחילת דרכו ל-**18 ימי חופשה בתשלום** בכל שנה ק\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5247,\"candidatesTokenCount\": 46,\"totalTokenCount\": 5603,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5247}],\"thoughtsTokenCount\": 310,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xO4Ea_amKNqDnsEPtfy3iAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לנדרית. \\n\\nמספר ימי החופשה עולה בהתאם לוותק:\\n*\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5247,\"candidatesTokenCount\": 70,\"totalTokenCount\": 5627,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5247}],\"thoughtsTokenCount\": 310,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xO4Ea_amKNqDnsEPtfy3iAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **ותק של 1–4 שנים:** 18 ימים בשנה.\\n* **ותק של 5 שנים:**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5247,\"candidatesTokenCount\": 98,\"totalTokenCount\": 5655,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5247}],\"thoughtsTokenCount\": 310,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xO4Ea_amKNqDnsEPtfy3iAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 19 ימים בשנה.\\n* **ותק של 6–7 שנים:** 21 י\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5247,\"candidatesTokenCount\": 122,\"totalTokenCount\": 5679,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5247}],\"thoughtsTokenCount\": 310,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xO4Ea_amKNqDnsEPtfy3iAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מים בשנה (כולל יום בחירה אחד).\\n* **ותק של 8 שנים ומעלה:** 24 י\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5247,\"candidatesTokenCount\": 151,\"totalTokenCount\": 5708,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5247}],\"thoughtsTokenCount\": 310,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xO4Ea_amKNqDnsEPtfy3iAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מים בשנה.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5247,\"candidatesTokenCount\": 155,\"totalTokenCount\": 5712,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5247}],\"thoughtsTokenCount\": 310,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xO4Ea_amKNqDnsEPtfy3iAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EoALCv0KAWkUfRPr++zRXQQD8Fg0/Et1ZOrLRFUSmtqxdWEOZVPPWz7tLeeF3tjlMH8VkZ6qDLdAZ1PsO69ZdLErv9KbAzdifCehANyCO4g4rT2jRtsA1lYKNi+4XxMhe/r+WVnJzHgjX9JdZzkOhv8yObU0ZOYwfyRxeib17JRJMQVAV9yTkJviYmPBZIpz3UYDfZYQ8bCjJtnez0BSw85xxZvh7JP/CM/UKCsr1tNXHPm+1e6pXjg77A9OrjQypak4kopx91Dqo3vRr7GoEKcilBJCu4vt3iFSuS2ypZPWctU9QM9sW93b70wr+RhgUUhVIzok/vajkrXcL5GE2Jx/jnGs0w63Wi7KsOTH4/eYjGkXGwefCpTm2ABNZMXj3iKXPVPY/VmBsnjdEPy8Dljgd7cLiWX9fR+5ZNCekuxrLpLRv9TYQexW5t8Jvv+f9Ckd7sYy/VLLFyxxM/OcMwJ4XSsypvZ1l+KkrzYcmkNKENG9NMSS9f7MEPlIIdX9Rkg6tpsVeHjAB+fL6lNDv/zcr0Kjsy+UkSnu70vtYQzWB4DJzWNjZDBLdKspeB2YLGpXQAsdzyGkXv34u5dmuYjnmsisOcg5GtDORQROBN7RgRCUyo5GxaCQKbOBOQWryO6wkU/2xtptlVqEGC1nMQf/nhmwQs9WMP3PwNivxioEAWekFbIJ6Bk8B6Coi9Yacd/ZRgdx3u+mVvCwa7XB0bGMX9UJA7xZZt8+E6ozsIyQPKwZwZwlvYwiUjGS0xPwKKAKuiDqyo9X1lzym1PVMrlQLKEeK1T0dK0bjZ74FVHX/6pblCKo4OcrRkV3EC+aUgwTtZZuXtoHZu6dlNMHdSM1oQDk7XgZE12dDzL5R7iY/qYxPHK2Q861G3tNABpGfnRSVdCkjjjSo9+Z1xI4OFIZOT2+FntbT0D01ZfmveUjzz1lFJ96Ai1tsw0kNFblWczbbHuo6GcrJqQaZRErUfGmsyRy3UTZnHcKEKV4Atfdk2wq6aaCA13MNnjTrdSeWIik7TaL/HczI4K6e2zQNnetZTfosG0SwazwgDYLHb4WbFm0aexix3JkJS/4kP2FL8q+FtM/OSjfutSxRxtUZWp9XU6OyUR95LcB0yTLDdzseVPmhsVF4BMNR4d1axGof0B23NAykSrwzn9NuFTTs7y/0xPms8N46EQLSqL0J7t7hUd3CzR7jBjRMyGbnw797GwWnoqTW2UQp0JYrxrWyVTqQ7Y8NHIqDhRtKh5xhOBHzQ99dY7QSksr97+5eHrGC6seWaTJj1xD8W5",
+   "NJTMLig9LI/U4rdhW8q+no60qj3qFxjbv0R6TjzRGB0PJqmCQhSoEE2jHJH9/bducZmWwengc5bu9cGOdMpiezKWjfvhL1CWWy1HcXzdW/d2bJ2y0hjUN0+K08Ei9uSURIOUDtvG4DwumH3seGXZWomiaJ8/7PfJ1MekW/Pj4AfF/mnlukgIVabqZWQoCfZGjJEFltzeojtVXm+vh0w12U60cv+dDpnR+l3mfTbF0QvPUyZC+uAL2DokuJJONs9IFakP10D3loWfs2kbR+KsIcOj4T9XGhSYYJgd1HniSN4Lujtv2gDVdfBVvFZVLwgf8PAAGF0u+5GkuNIBAJ1IwXXLoRHszZHmZpBJMov0GQooGgbRKeBmM0K812X9Sc8TBowO6IuwQYqqWc22tdcQFFBDT12Z0h/3mA68O+FQc+8MWndKNygrMGWlzGVnIfnCxs1A9RX4VXtYxsNL864dWW6Amj7NNobDCpEgUzHjWTFDjIczx9k+qq9mHX6xsx7wPaIaxKI64v5Tho95r4/43Hqzr6orhFTyL4o9IBu3p3ZNYpvtKE74CKywNZ3p2yiXa61hK80at2w==\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5247,\"candidatesTokenCount\": 155,\"totalTokenCount\": 5712,\"cachedContentTokenCount\": 3206,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5247}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3206}],\"thoughtsTokenCount\": 310,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xO4Ea_amKNqDnsEPtfy3iAM\"}\r\n\r\n"
+  ]
+ }
+}

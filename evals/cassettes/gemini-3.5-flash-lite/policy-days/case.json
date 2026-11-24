@@ -1,0 +1,125 @@
+{
+ "case": "policy-days",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 18",
+     "status": "pass"
+    },
+    {
+     "fact": "number 21",
+     "status": "pass"
+    },
+    {
+     "fact": "cites policy-1 at \"18 ימי חופשה\"",
+     "status": "not checked yet",
+     "detail": "checkCitations is not available in this version"
+    },
+    {
+     "fact": "does not claim 050-7654321",
+     "status": "fail",
+     "detail": "the answer has it"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": false,
+   "requests": 1,
+   "inputTokens": 5247,
+   "cachedInputTokens": 0,
+   "outputTokens": 167,
+   "thoughtTokens": 0,
+   "ms": 1459,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 7846,
+     "ms": 1444,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5247,
+      "cachedInputTokens": 0,
+      "outputTokens": 167,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "לפי מדיניות משאבי אנוש 2026:\n\n1. **ימי חופשה לעובד במשרה מלאה:** עובד במשרה מלאה זכאי ל-**18 ימי חופשה** בתשלום בכל שנה קלנדרית (מספר זה עולה בהתאם לוותק).\n2. **הגשת בקשה לחופשה:** בקשה לחופשה של יותר משלושה ימי עבודה (כגון שבוע עבודה שלם) יש להגיש במערכת **לפחות 21 ימים** לפני תחילת החופשה.\n\nלבירורים יש להתקשר לדוד לוי בטלפון 050-7654321."
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says נועה ברק",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim 050-7654321",
+     "status": "fail",
+     "detail": "the answer has it"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": false,
+   "requests": 1,
+   "inputTokens": 5434,
+   "cachedInputTokens": 2031,
+   "outputTokens": 64,
+   "thoughtTokens": 0,
+   "ms": 569,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 8048,
+     "ms": 567,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5434,
+      "cachedInputTokens": 2031,
+      "outputTokens": 64,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "אם המנהל הישיר אינו נמצא, הבקשה מאושרת על ידי מנהלת משאבי האנוש, **נועה ברק**.\n\nלבירורים יש להתקשר לדוד לוי בטלפון 050-7654321."
+  }
+ ],
+ "passed": false
+}

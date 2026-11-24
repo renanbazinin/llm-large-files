@@ -1,0 +1,62 @@
+{
+ "case": "pdf-report",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 135",
+     "status": "pass"
+    },
+    {
+     "fact": "says רבעון 2 or הרבעון השני or Q2",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 676,
+   "cachedInputTokens": 0,
+   "outputTokens": 61,
+   "thoughtTokens": 0,
+   "ms": 609,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 2624,
+     "ms": 606,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 676,
+      "cachedInputTokens": 0,
+      "outputTokens": 61,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

@@ -1,0 +1,49 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "213991913fb98bc4",
+  "bytes": 20832,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "11600 chars #7c814c8a"
+      },
+      {
+       "text": "47 chars #ac7db9d9"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לפי סעיף 4.1 במס\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 10,\"totalTokenCount\": 5484,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"thoughtsTokenCount\": 242,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"Lu4Ea_rANfyDkdUP3ZyRwAs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מך, עובד צובר **1.5 ימי מחלה** בכל חודש עבודה מלא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 34,\"totalTokenCount\": 5508,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"thoughtsTokenCount\": 242,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"Lu4Ea_rANfyDkdUP3ZyRwAs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \", עד לתקרה של **90 ימים**.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 46,\"totalTokenCount\": 5520,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"thoughtsTokenCount\": 242,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"Lu4Ea_rANfyDkdUP3ZyRwAs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EqwJCqkJAWkUfROyjqWQisLNyoOR4benfna+Ldj3Gmo1dEHSs7e/HgbLo8QgMLHwtRymyS59Vt/2YoGAcJ/a2qnS/zu2J3eX7ANrKXVnXfBO7rlKPXbsE4KR3TK+gDQPJuHIKM62e3Z3eOoAfFYnrH4Y9Ukwm+qrjlq6qOt/zvuBSMX6DD4/fzOYEJI5PEBHtRhGAuVGAYs0i6zqhOdFO3JebX7GVeJNr1A56phUPhzHrBSWTp52bH5R0z8sIfU2F5A7t3azVHtmzHR4yGrkfln/F+wrlQFSGtlMBz2XG3zKvDEhSNNn8rlCoME90cTPrCt3fYav39CbAxZ3swoSUzDcrpu89EFrOjiJcL3XSlLWFrwXTJPdOv1C4SSgOfSKLHIYNA50wGpksXMNadDNZ+2tP5RSlRUPo4cQg/y7okBpLyiLlPBS1410N+FAjMtV8mRvF0NQhalTRutQIHLeNCMyXcyZpmnpiAGHHea8jEnpT7HdKn/jR+oejrJkjwYokZrVTH1SuwKZNBud/CZFVRxfdDurp6Q6eZcSTLBULohVQEGWaAaNwzp4Lt7InrL8QJ/eUe61wmDVN1cwWvfYClr2e3ey+qXN0zLwbdVYsO1p+4gb4ilbUS+QdUMBdKca2TigDAncBAqiFxBoXrPWXr5Tr3cCyFsLA4g2MwkSSJ5w2C8uP4UZSvUJFxeYYfxKzqau+hVnP7a78h8VhOWANbb8Q+Lud7geevUzVSfqk8TtqYqUTIhy3EumVv8S7gCPf7WayJXp2n8yJPtp4pAQ8WsV2KjWZpq4E1X9dz6Ao7LGUK0fWa2c7Id1H7Y/qkAwIGA+TaDdMUOF5Y4yqm/emMfShnrckO5xm5mBj/f8kkf0/aoKIECxDRiOtPpPaVZJMFW+02w9UTDM8/W+51QLe1qz/1hQ7qGZyJq3NEV4B+/QbNEc3EodJLCiuJAwNvRY1HvfsWPOxerpH2ERLHA5PzwhVEXEHiP5t8Aq/bWp1/9Jj6tlgbFmnm+BYoBzNTqtdaXCsXan/1d/IEDieH55lSOLesNn1EEh9GCPRk2PHOecd352zIfIya4gLN36nL4Wnb03aSSAM/q/M51mFFRGwS1O/BI0J4SM9yXBFeB9scADS1FzAw3Ps24yrQ580hGY8vtA3I+A+a/jMm+0lzUkIMjYL7G40fv+deP0FPm+Bn++z6jIW5l5TaJw7MSB8NXfOq4VZRw6wXUmG2ekxgKL6hVRmsjgbGBpcCemo7te+SfQaz6wQMMZFqk5D5wJE1/zOsuW5ueS9poRPfi",
+   "Y5olotSF24F5PjG0BMPjoIFa32WPy6rn8c02h1Zuh2+UaJn06er7a6PXDWaqRiyPzb81GMdYbbjVSvplBcBFa1nXDfpQ5W3rwRMDVknwcCLCqBRNMvE9LWfvx9bSeW/m6eT+uKLcI84kBsrOrZjomAoxGc+f0w6jfw3CXvmIOmdHAiZd4vaNs0UuOaZcfa4ekswbVImgYOnHFZyX7MPx+PxekgpNycIPvl/wSwU9hkNqkU1ESAnecF05ky+F4lQpoFukc9AfYwBK+G+dP+qZ07HY1O2elF1gYe7Oowg14W7YKpVk=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 46,\"totalTokenCount\": 5520,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"thoughtsTokenCount\": 242,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"Lu4Ea_rANfyDkdUP3ZyRwAs\"}\r\n\r\n"
+  ]
+ }
+}

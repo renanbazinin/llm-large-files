@@ -1,0 +1,48 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "50b2eafbef288068",
+  "bytes": 1181,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "613 chars #f6f74f7d"
+      },
+      {
+       "text": "64 chars #b8424933"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"טבל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 380,\"candidatesTokenCount\": 2,\"totalTokenCount\": 382,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 380}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5mdJam7kdUP9-3biAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ת העמידה ביעדי המכירות מופיעה **בשקף 2**.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 380,\"candidatesTokenCount\": 22,\"totalTokenCount\": 402,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 380}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5mdJam7kdUP9-3biAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n\\nהיעד של אזור הצפון היה **1,200** אלפי ש\\\"ח.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 380,\"candidatesTokenCount\": 45,\"totalTokenCount\": 425,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 380}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5mdJam7kdUP9-3biAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfROzDPEblpi5oWH2NBjN8LEXtMeSXxuIB1cRrBf/lEc+vwPDMb1PiU+a//pyfOSe5g0lZOj/jUcFPJVyyY7sIYKy7DL1LgavN2rTLDkNVTiEPtSnat1XtwIQ/GI79z05BfmNcqh+guLeh6mhRg1aAztFLneAbxn0JlFSGzSi7qIaWYoSlnjZVLkKQ29xF25L\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 380,\"candidatesTokenCount\": 45,\"totalTokenCount\": 425,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 380}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5mdJam7kdUP9-3biAM\"}\r\n\r\n"
+  ]
+ }
+}

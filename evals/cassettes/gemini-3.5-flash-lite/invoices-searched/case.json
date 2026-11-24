@@ -1,0 +1,83 @@
+{
+ "case": "invoices-searched",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 750",
+     "status": "pass"
+    },
+    {
+     "fact": "number 18714659.5 ±1",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 6876,
+   "cachedInputTokens": 0,
+   "outputTokens": 145,
+   "thoughtTokens": 0,
+   "ms": 1280,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "aggregate_table"
+   ],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5307,
+     "ms": 529,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3346,
+      "cachedInputTokens": 0,
+      "outputTokens": 61,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 5464,
+     "ms": 686,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3530,
+      "cachedInputTokens": 0,
+      "outputTokens": 84,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

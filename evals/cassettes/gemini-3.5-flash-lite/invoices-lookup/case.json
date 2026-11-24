@@ -1,0 +1,65 @@
+{
+ "case": "invoices-lookup",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says בוטל",
+     "status": "fail",
+     "detail": "not in the answer"
+    },
+    {
+     "fact": "number 22046.34",
+     "status": "fail",
+     "detail": "numbers in the answer: 1234, 12317.43, 2026, 12, 4, 133"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": false,
+   "requests": 1,
+   "inputTokens": 103719,
+   "cachedInputTokens": 0,
+   "outputTokens": 88,
+   "thoughtTokens": 0,
+   "ms": 3483,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 115168,
+     "ms": 3483,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 103719,
+      "cachedInputTokens": 0,
+      "outputTokens": 88,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "על פי קובץ הנתונים (חשבוניות.csv), להלן הפרטים עבור חשבונית מספר 1234:\n\n* **סכום:** 12,317.43\n* **סטטוס:** באיחור\n* **תאריך:** 2026-12-04\n* **לקוח:** לקוח 133"
+  }
+ ],
+ "passed": false
+}

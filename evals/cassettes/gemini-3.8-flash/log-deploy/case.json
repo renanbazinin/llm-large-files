@@ -1,0 +1,120 @@
+{
+ "case": "log-deploy",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 4.18.2",
+     "status": "pass"
+    },
+    {
+     "fact": "says 10:05",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 4,
+   "inputTokens": 28435,
+   "cachedInputTokens": 15869,
+   "outputTokens": 423,
+   "thoughtTokens": 193,
+   "ms": 11466,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document"
+   ],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5660,
+     "ms": 2878,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3519,
+      "cachedInputTokens": 0,
+      "outputTokens": 102,
+      "thoughtTokens": 50
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 2
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 10586,
+     "ms": 2528,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8101,
+      "cachedInputTokens": 3540,
+      "outputTokens": 47,
+      "thoughtTokens": 14
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 10773,
+     "ms": 2075,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8303,
+      "cachedInputTokens": 6062,
+      "outputTokens": 54,
+      "thoughtTokens": 19
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 4,
+     "estimatedInputTokens": 10959,
+     "ms": 3960,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8512,
+      "cachedInputTokens": 6267,
+      "outputTokens": 220,
+      "thoughtTokens": 110
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

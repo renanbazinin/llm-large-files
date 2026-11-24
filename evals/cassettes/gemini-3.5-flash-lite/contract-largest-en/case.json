@@ -1,0 +1,280 @@
+{
+ "case": "contract-largest-en",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched",
+  "whole-read"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 48000",
+     "status": "pass"
+    },
+    {
+     "fact": "number 148",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 12,
+   "inputTokens": 278830,
+   "cachedInputTokens": 193695,
+   "outputTokens": 506,
+   "thoughtTokens": 0,
+   "ms": 10172,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document",
+    "read_document",
+    "read_document"
+   ],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5367,
+     "ms": 489,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3441,
+      "cachedInputTokens": 0,
+      "outputTokens": 27,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 9908,
+     "ms": 667,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7993,
+      "cachedInputTokens": 0,
+      "outputTokens": 28,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 14448,
+     "ms": 623,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12545,
+      "cachedInputTokens": 6106,
+      "outputTokens": 31,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 4,
+     "estimatedInputTokens": 18950,
+     "ms": 841,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 17069,
+      "cachedInputTokens": 12225,
+      "outputTokens": 32,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_5",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 5,
+     "estimatedInputTokens": 23494,
+     "ms": 915,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 21625,
+      "cachedInputTokens": 16310,
+      "outputTokens": 44,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_6",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 6,
+     "estimatedInputTokens": 25130,
+     "ms": 1293,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 23261,
+      "cachedInputTokens": 20386,
+      "outputTokens": 27,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_7",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 7,
+     "estimatedInputTokens": 29669,
+     "ms": 811,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 27812,
+      "cachedInputTokens": 22433,
+      "outputTokens": 31,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_8",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 8,
+     "estimatedInputTokens": 34171,
+     "ms": 708,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 32336,
+      "cachedInputTokens": 26519,
+      "outputTokens": 51,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_9",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 9,
+     "estimatedInputTokens": 34255,
+     "ms": 683,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 32429,
+      "cachedInputTokens": 28551,
+      "outputTokens": 50,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_10",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 10,
+     "estimatedInputTokens": 35385,
+     "ms": 1024,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 33608,
+      "cachedInputTokens": 30586,
+      "outputTokens": 36,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_11",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 11,
+     "estimatedInputTokens": 35836,
+     "ms": 858,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 34061,
+      "cachedInputTokens": 30579,
+      "outputTokens": 36,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_12",
+     "role": "answer",
+     "purpose": "closing",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 12,
+     "estimatedInputTokens": 36192,
+     "ms": 1243,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 32650,
+      "cachedInputTokens": 0,
+      "outputTokens": 113,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

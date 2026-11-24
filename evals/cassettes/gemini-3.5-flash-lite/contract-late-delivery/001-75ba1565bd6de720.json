@@ -1,0 +1,49 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "75ba1565bd6de720",
+  "bytes": 26491,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "14999 chars #35965a96"
+      },
+      {
+       "text": "61 chars #abfa082e"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7690,\"candidatesTokenCount\": 1,\"totalTokenCount\": 7691,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7690}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ie4Ea568B7aF3boPqeiAqAU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי חוזה שירותי התחזוקה (סעיף 63):\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7690,\"candidatesTokenCount\": 20,\"totalTokenCount\": 7710,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7690}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ie4Ea568B7aF3boPqeiAqAU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n\\n* **הקנס:** 5% מערך ההזמנה לכל שבוע איחור.\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7690,\"candidatesTokenCount\": 45,\"totalTokenCount\": 7735,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7690}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ie4Ea568B7aF3boPqeiAqAU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"* **מספר הסעיף:** סעיף 63.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7690,\"candidatesTokenCount\": 60,\"totalTokenCount\": 7750,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7690}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ie4Ea568B7aF3boPqeiAqAU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfROKtVn/HugVG9iFF2l+cdQWyUoOuIeRdsGKTrhTqK/WPmxdl26vWdwzF0Dyn3CfHZMUp4hjpAX8SDNeeBdfsVLoqFdOOL0c7mbNs8EEkged9A/SWgpoJrDCDetpcodcZs0x82fbXImQ5CrjjWnorluru8mnlPkCtX8GSLHIlcaf259zjK9bQt64Pf2GWuQ9\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7690,\"candidatesTokenCount\": 60,\"totalTokenCount\": 7750,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7690}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ie4Ea568B7aF3boPqeiAqAU\"}\r\n\r\n"
+  ]
+ }
+}

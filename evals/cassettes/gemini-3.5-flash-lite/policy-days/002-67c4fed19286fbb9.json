@@ -1,0 +1,65 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "67c4fed19286fbb9",
+  "bytes": 21631,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "11600 chars #7c814c8a"
+      },
+      {
+       "text": "85 chars #1830197b"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "341 chars #900f8bf2"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "42 chars #c2674dd0"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"אם\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5434,\"candidatesTokenCount\": 1,\"totalTokenCount\": 5435,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5434}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea63aJfPZ7M8P1dDZiAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" המנהל הישיר אינו נמצא, הבקשה מאושרת על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5434,\"candidatesTokenCount\": 19,\"totalTokenCount\": 5453,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5434}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea63aJfPZ7M8P1dDZiAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ידי מנהלת משאבי האנוש, **נועה ברק**.\\n\\nלבירורים יש להתקשר לדוד לוי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5434,\"candidatesTokenCount\": 48,\"totalTokenCount\": 5482,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5434}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea63aJfPZ7M8P1dDZiAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בטלפון 050-7654321.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5434,\"candidatesTokenCount\": 64,\"totalTokenCount\": 5498,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5434}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea63aJfPZ7M8P1dDZiAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNRdDP5FcuNw+9ny9v6PlYFuEDVOJFboThJ837o1ovcjwnjcp9ctNigDl8nKPxt4mYUynZrWdrUIjIy9rIg7YTGlyRyipC8VYa1UV7uusemICAZO8DjwvCDyD4KdgmUn+i6aPxryuAVU0y3TDL7OosOK3s3ne3/pL4OvUai4eAbG2ufU0QcbREtSpITS/OK\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5434,\"candidatesTokenCount\": 64,\"totalTokenCount\": 5498,\"cachedContentTokenCount\": 2031,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5434}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2031}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea63aJfPZ7M8P1dDZiAk\"}\r\n\r\n"
+  ]
+ }
+}

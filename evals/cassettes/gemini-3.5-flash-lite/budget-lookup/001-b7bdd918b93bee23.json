@@ -1,0 +1,48 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "b7bdd918b93bee23",
+  "bytes": 4002,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3076 chars #9a6174c5"
+      },
+      {
+       "text": "37 chars #1cf8cc12"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2107,\"candidatesTokenCount\": 1,\"totalTokenCount\": 2108,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2107}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"E-4Ea_XBGIOwvdIPmovDkAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"תקציב של מחלקת \\\"כספים - צפון\\\" ברבע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2107,\"candidatesTokenCount\": 19,\"totalTokenCount\": 2126,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2107}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"E-4Ea_XBGIOwvdIPmovDkAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ון 1 הוא **261** (באלפי ש\\\"ח).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2107,\"candidatesTokenCount\": 36,\"totalTokenCount\": 2143,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2107}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"E-4Ea_XBGIOwvdIPmovDkAM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfROEYGoso0vCrql4tI86xrYKSpx8aiU7S+4UblN03+5wO1LAMUALTE1xP1kBZYZq7tE8Tk9o0sw6RAJmToUsbVEsSueZu/RINXTUuLt8L/O1ZbqlDsJRJ+gFW35ewC3eyI159sC6S2x9KTObyeFLS+FSXUi9KxEUa0+M72VIcgBH+zGngL1GkYeJMVzhK9iO\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2107,\"candidatesTokenCount\": 36,\"totalTokenCount\": 2143,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2107}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"E-4Ea_XBGIOwvdIPmovDkAM\"}\r\n\r\n"
+  ]
+ }
+}

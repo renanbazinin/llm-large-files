@@ -1,0 +1,120 @@
+{
+ "case": "chat-dropped-file",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "dropped-file",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 18",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim /12 ימי/",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim 050-7654321",
+     "status": "fail",
+     "detail": "the answer has it"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": false,
+   "requests": 1,
+   "inputTokens": 5247,
+   "cachedInputTokens": 0,
+   "outputTokens": 174,
+   "thoughtTokens": 0,
+   "ms": 979,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 7845,
+     "ms": 976,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5247,
+      "cachedInputTokens": 0,
+      "outputTokens": 174,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "על פי מדיניות משאבי אנוש 2026, עובד במשרה מלאה זכאי ל-18 ימי חופשה בתשלום בכל שנה קלנדרית. \n\nמספר ימי החופשה עולה עם הוותק בהתאם לטבלה הבאה:\n* **ותק של 1-4 שנים:** 18 ימים\n* **ותק של 5 שנים:** 19 ימים\n* **ותק של 6-7 שנים:** 21 ימים (כולל יום בחירה אחד)\n* **ותק של 8 שנים ומעלה:** 24 ימים\n\nלבירורים יש להתקשר לדוד לוי בטלפון 050-7654321."
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 6",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim 050-7654321",
+     "status": "fail",
+     "detail": "the answer has it"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": false,
+   "requests": 1,
+   "inputTokens": 5437,
+   "cachedInputTokens": 2031,
+   "outputTokens": 83,
+   "thoughtTokens": 0,
+   "ms": 666,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 8052,
+     "ms": 666,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5437,
+      "cachedInputTokens": 2031,
+      "outputTokens": 83,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "על פי מדיניות משאבי אנוש 2026, ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים.\n\nלבירורים יש להתקשר לדוד לוי בטלפון 050-7654321."
+  }
+ ],
+ "passed": false
+}

@@ -1,0 +1,62 @@
+{
+ "case": "policy-expense-cap",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 150",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 5241,
+   "cachedInputTokens": 3200,
+   "outputTokens": 325,
+   "thoughtTokens": 271,
+   "ms": 4585,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 7837,
+     "ms": 4584,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5241,
+      "cachedInputTokens": 3200,
+      "outputTokens": 325,
+      "thoughtTokens": 271
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

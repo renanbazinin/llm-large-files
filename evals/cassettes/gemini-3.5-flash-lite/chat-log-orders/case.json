@@ -1,0 +1,158 @@
+{
+ "case": "chat-log-orders",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "searched",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 37",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 27493,
+   "cachedInputTokens": 12210,
+   "outputTokens": 93,
+   "thoughtTokens": 0,
+   "ms": 1986,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "search_document",
+    "search_document"
+   ],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 7011,
+     "ms": 615,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4899,
+      "cachedInputTokens": 0,
+      "outputTokens": 31,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 13140,
+     "ms": 620,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 10516,
+      "cachedInputTokens": 4070,
+      "outputTokens": 37,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 14803,
+     "ms": 684,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12078,
+      "cachedInputTokens": 8140,
+      "outputTokens": 25,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 500",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 24353,
+   "cachedInputTokens": 14237,
+   "outputTokens": 62,
+   "thoughtTokens": 0,
+   "ms": 1511,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "aggregate_table"
+   ],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 14824,
+     "ms": 765,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12099,
+      "cachedInputTokens": 4070,
+      "outputTokens": 47,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 14957,
+     "ms": 698,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12254,
+      "cachedInputTokens": 10167,
+      "outputTokens": 15,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

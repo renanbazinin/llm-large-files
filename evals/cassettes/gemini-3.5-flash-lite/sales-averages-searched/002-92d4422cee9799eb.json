@@ -1,0 +1,135 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "92d4422cee9799eb",
+  "bytes": 11453,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "1403 chars #38512733"
+      },
+      {
+       "text": "58 chars #af3d1e6c"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "aggregate_table",
+        "args": "{3 keys} #cfe73b7f",
+        "id": "call_5747264071260596943"
+       },
+       "thoughtSignature": "204 chars #5ed6e5e7"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "aggregate_table",
+        "id": "call_5747264071260596943",
+        "response": "{9 keys} #ac43cad9"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1973 chars #c1976643"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{2 keys} #64ffba42",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Based\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3309,\"candidatesTokenCount\": 1,\"totalTokenCount\": 3310,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3309}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"G-4Ea7OFH67-vdIPlceZqAI\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" on the sales data in `sales-2026.xlsx`, here\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3309,\"candidatesTokenCount\": 17,\"totalTokenCount\": 3326,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3309}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"G-4Ea7OFH67-vdIPlceZqAI\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" is the average revenue for every region:\\n\\n* **East:** 1,460.59\\n* **South\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3309,\"candidatesTokenCount\": 43,\"totalTokenCount\": 3352,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3309}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"G-4Ea7OFH67-vdIPlceZqAI\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \":** 1,447.91\\n* **West:** 1,447.31\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3309,\"candidatesTokenCount\": 67,\"totalTokenCount\": 3376,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3309}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"G-4Ea7OFH67-vdIPlceZqAI\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n* **Center:** 1,446.93\\n* **North:** 1,44\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3309,\"candidatesTokenCount\": 91,\"totalTokenCount\": 3400,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3309}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"G-4Ea7OFH67-vdIPlceZqAI\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"5.22\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3309,\"candidatesTokenCount\": 95,\"totalTokenCount\": 3404,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3309}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"G-4Ea7OFH67-vdIPlceZqAI\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNoSku5B5V9/u4VD22vN9+DJDx3loQOE3CY+CLDQ1+Y3EO79iQSCdPEJMFleNM8jQ8BIxMe0NAJFX3paWaHmgVY/EHxjmot4ZQ/oab3s+PZLl4WBw9H9KTxPSrhBcTsfzW+xiVp9BZ14CrUc9tXHlsmoz0hpMKl6vJ95naewkqdnjAEeOj7EdxucL6sRX+2\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3309,\"candidatesTokenCount\": 95,\"totalTokenCount\": 3404,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3309}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"G-4Ea7OFH67-vdIPlceZqAI\"}\r\n\r\n"
+  ]
+ }
+}

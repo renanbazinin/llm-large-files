@@ -1,0 +1,180 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "a1dc90e2ec8fcc21",
+  "bytes": 14622,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "52 chars #16e2c4bd"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #a6e9e936",
+        "id": "call_9505353662468944408"
+       },
+       "thoughtSignature": "204 chars #f2ffbf0f"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_9505353662468944408",
+        "response": "{7 keys} #d1424c93"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #0d7f75ec",
+        "id": "call_4184908810402660939"
+       },
+       "thoughtSignature": "204 chars #98f91972"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_4184908810402660939",
+        "response": "{2 keys} #ff164c71"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #43c3d61b",
+        "id": "call_1137850277805919347"
+       },
+       "thoughtSignature": "204 chars #69580871"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_1137850277805919347",
+        "response": "{7 keys} #8a57b3a7"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{2 keys} #64ffba42",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5321,\"candidatesTokenCount\": 1,\"totalTokenCount\": 5322,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5321}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Iu4Ea5Vf6oLE3w_C4vPhAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גיאות PAY-5031 מופיעות בלוג **37 פע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5321,\"candidatesTokenCount\": 18,\"totalTokenCount\": 5339,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5321}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Iu4Ea5Vf6oLE3w_C4vPhAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מים**, וכולן נרשמו ב-**worker-3** (לדוגמה בשורות 172\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5321,\"candidatesTokenCount\": 46,\"totalTokenCount\": 5367,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5321}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Iu4Ea5Vf6oLE3w_C4vPhAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"80 ו-25680).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5321,\"candidatesTokenCount\": 56,\"totalTokenCount\": 5377,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5321}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Iu4Ea5Vf6oLE3w_C4vPhAw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRM+8zPAV6hiaCNYu2Cc15ND9SJK4OMUZ4kNi4TkIiKEdBF0szAR0pXAPsPtcgl/DenUq44KvJ8ILJa7urd/q4wrC/Rn+E4DcOLIzW25jTjVELGkFljAgOzR4/HltzU6tTgISUtFiYGXHR0TQYl1zGJ5G1DysQGyURIF63HYAM8NN7jdyaI0CHPpsXIUg7RL\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5321,\"candidatesTokenCount\": 56,\"totalTokenCount\": 5377,\"cachedContentTokenCount\": 2016,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5321}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2016}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Iu4Ea5Vf6oLE3w_C4vPhAw\"}\r\n\r\n"
+  ]
+ }
+}

@@ -1,0 +1,50 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "effa183910bf504c",
+  "bytes": 20818,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "11600 chars #7c814c8a"
+      },
+      {
+       "text": "70 chars #a0bef3c2"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5223,\"candidatesTokenCount\": 1,\"totalTokenCount\": 5224,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5223}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ee4Ea9WxIKbs7M8Pz_ycgQM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי מדיניות משאבי אנוש 2026 (סעיף\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5223,\"candidatesTokenCount\": 19,\"totalTokenCount\": 5242,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5223}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ee4Ea9WxIKbs7M8Pz_ycgQM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 6.1), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5223,\"candidatesTokenCount\": 43,\"totalTokenCount\": 5266,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5223}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ee4Ea9WxIKbs7M8Pz_ycgQM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\\"ח לכל קילומטר**, לפי דיווח חודשי במערכת.\\n\\nלבירורים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5223,\"candidatesTokenCount\": 67,\"totalTokenCount\": 5290,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5223}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ee4Ea9WxIKbs7M8Pz_ycgQM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" יש להתקשר לדוד לוי בטלפון 050-7654321.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5223,\"candidatesTokenCount\": 91,\"totalTokenCount\": 5314,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5223}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ee4Ea9WxIKbs7M8Pz_ycgQM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNisxtjgzfwZ5MN/PX5zpMI8KQc7GcYRHs5FY7uu7YaQ6rH+mZv2bYfD1E4haozIQRnZl+rT/YnHFgPabTFQORklDyKkLmlDo6+19wu2yfuPzOJlqymxY8WpCz4qnche1nMxJq8DWxH4O54D49zDMII+usjaK4c/bTsilUILvSVcJj1Qs7uhkqF0R+yohir\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5223,\"candidatesTokenCount\": 91,\"totalTokenCount\": 5314,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5223}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ee4Ea9WxIKbs7M8Pz_ycgQM\"}\r\n\r\n"
+  ]
+ }
+}

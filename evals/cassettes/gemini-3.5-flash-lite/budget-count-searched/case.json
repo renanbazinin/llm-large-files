@@ -1,0 +1,199 @@
+{
+ "case": "budget-count-searched",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 23",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 8,
+   "inputTokens": 49658,
+   "cachedInputTokens": 20170,
+   "outputTokens": 1539,
+   "thoughtTokens": 0,
+   "ms": 8097,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "read_document",
+    "aggregate_table",
+    "aggregate_table",
+    "aggregate_table",
+    "search_document",
+    "search_document",
+    "read_document"
+   ],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5357,
+     "ms": 578,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3436,
+      "cachedInputTokens": 0,
+      "outputTokens": 33,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 7569,
+     "ms": 665,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5674,
+      "cachedInputTokens": 0,
+      "outputTokens": 57,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 7679,
+     "ms": 1099,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5799,
+      "cachedInputTokens": 2021,
+      "outputTokens": 68,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 4,
+     "estimatedInputTokens": 7870,
+     "ms": 674,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6030,
+      "cachedInputTokens": 2018,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_5",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 5,
+     "estimatedInputTokens": 7996,
+     "ms": 963,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6172,
+      "cachedInputTokens": 4032,
+      "outputTokens": 30,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_6",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 6,
+     "estimatedInputTokens": 9192,
+     "ms": 663,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7387,
+      "cachedInputTokens": 4037,
+      "outputTokens": 44,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_7",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 7,
+     "estimatedInputTokens": 9304,
+     "ms": 553,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7510,
+      "cachedInputTokens": 4033,
+      "outputTokens": 34,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_8",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 8,
+     "estimatedInputTokens": 9441,
+     "ms": 2876,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7650,
+      "cachedInputTokens": 4029,
+      "outputTokens": 1220,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

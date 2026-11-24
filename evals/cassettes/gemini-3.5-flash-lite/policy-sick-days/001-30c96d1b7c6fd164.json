@@ -1,0 +1,50 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "30c96d1b7c6fd164",
+  "bytes": 20832,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "11600 chars #7c814c8a"
+      },
+      {
+       "text": "47 chars #ac7db9d9"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על פי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 2,\"totalTokenCount\": 5234,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea4vtJNT_vdIPyK-ZWQ\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" סעיף 4.1 במסמך מדיניות משאבי אנוש 20\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 23,\"totalTokenCount\": 5255,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea4vtJNT_vdIPyK-ZWQ\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"26:\\n* עובד צובר **1.5 ימי מחלה** בכל חודש עבודה מלא.\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 51,\"totalTokenCount\": 5283,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea4vtJNT_vdIPyK-ZWQ\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"* התקרה לצבירה היא **90 ימים**.\\n\\nלבירורים יש להתקשר לדוד\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 75,\"totalTokenCount\": 5307,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea4vtJNT_vdIPyK-ZWQ\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לוי בטלפון 050-7654321.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 93,\"totalTokenCount\": 5325,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea4vtJNT_vdIPyK-ZWQ\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfROACNaEk9lrCQi/BssPpPcA9L4mJ1eneIBfYJzJ0KwrlFSP2xwE/WMhnumIEfuPLwp5oQfpv75WRNGlCAq0aqYUa15pjzh9XCoGWCNxe+Uf3uPohXkn7LiPKrvGKxWA4BO5OuZJeNr9DPyJYwpTPGb4PNQ/fqTIH8XxwUhzyF9dQlV+NlyQbOikh7wUdJsu\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5232,\"candidatesTokenCount\": 93,\"totalTokenCount\": 5325,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5232}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Eu4Ea4vtJNT_vdIPyK-ZWQ\"}\r\n\r\n"
+  ]
+ }
+}

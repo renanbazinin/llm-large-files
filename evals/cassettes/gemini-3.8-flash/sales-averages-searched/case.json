@@ -1,0 +1,111 @@
+{
+ "case": "sales-averages-searched",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says West",
+     "status": "pass"
+    },
+    {
+     "fact": "says Center",
+     "status": "pass"
+    },
+    {
+     "fact": "says North",
+     "status": "pass"
+    },
+    {
+     "fact": "says South",
+     "status": "pass"
+    },
+    {
+     "fact": "says East",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1447.31 ±0.5",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1446.93 ±0.5",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1445.22 ±0.5",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1447.91 ±0.5",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1460.59 ±0.5",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 6338,
+   "cachedInputTokens": 944,
+   "outputTokens": 565,
+   "thoughtTokens": 287,
+   "ms": 8112,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "aggregate_table"
+   ],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 4900,
+     "ms": 3011,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2961,
+      "cachedInputTokens": 0,
+      "outputTokens": 99,
+      "thoughtTokens": 53
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 5251,
+     "ms": 5073,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3377,
+      "cachedInputTokens": 944,
+      "outputTokens": 466,
+      "thoughtTokens": 234
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

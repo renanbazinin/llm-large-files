@@ -1,0 +1,65 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "ed98483d1d060061",
+  "bytes": 21819,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "11600 chars #7c814c8a"
+      },
+      {
+       "text": "85 chars #1830197b"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "461 chars #bbd3c3a6"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "42 chars #c2674dd0"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בהיעדרו של המנהל הישיר, הבקשה מאושר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5488,\"candidatesTokenCount\": 18,\"totalTokenCount\": 5730,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5488}],\"thoughtsTokenCount\": 224,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"NO4Ea9fvEfiVkdUPy7H0iQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ת על ידי מנהלת משאבי האנוש, **נועה ברק** (לפי סעי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5488,\"candidatesTokenCount\": 42,\"totalTokenCount\": 5754,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5488}],\"thoughtsTokenCount\": 224,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"NO4Ea9fvEfiVkdUPy7H0iQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ף 3.3).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5488,\"candidatesTokenCount\": 48,\"totalTokenCount\": 5760,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5488}],\"thoughtsTokenCount\": 224,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"NO4Ea9fvEfiVkdUPy7H0iQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EtcICtQIAWkUfRODQjqBXxkwnIu+CwVobpZEbnnW8A6CXq9F641a9LhELNtKlDw8qYtyTbl8GQgTEJvC579v3Ah2D8vHH3DLsvefSz3ft7ICgCDvKlx68FoqCHPmvTx3yc09WVpoQjfKkenEcyEQtV+Yu9mivSdm1/7Kxa5dMmtw/ehzCinGKkIxQJ2L87S1rKpwVt56gsnkLgnlah4vP7rAKpLUX9XXIUV4t8ekOIOrerYnkA4BrLrhu+1AEyVsP65DOr7PjtXCPWIELcy/2C4QVzeu46HN7JUYdgtRqGu6ATnBBJVD674p//LpDSOGq3GO/JzFgkplSKbuAEIiyh8XpJFE6oYmcp1QgCVGEwIFZfodWWqmmindLvDs6j4H+2qE5E6yH82+c1YOSizf1MSBMy957TpyhsWGCt5n9lwYQkueVh7cd/3Bb9YVXP7osGSApSk2MWDIvTbiHgP4Cf1WMYzS1Db+23LIpWkA8i8W70FdJDSTb2jR3m//LTUDURgLAMKjGFHhaOSFudIx6pZFe3FM2U2DCUKuab5u+SwbuRdKWuijpBBCHXYGXnzCsgAanJXjFzfg1zOBpxkoRtL67ZVx0ggKS96wrhk+lSQ7UrIK3b1rFbyTyggHPO8oPMbqKMUK5kMyXN+usWL/KxyWAJvGAsellLsfyxKHPe9N7N9ci3sgva+LhTEkTWSejehUMWvmMWIdTfeBJ2OFAD0OVFf1zpShkLrCnfJ0ck0tfh8Y7UUI7KU0h1y9Ezr+FkN+nnUTmuEyJPYfbHYQa6udg4ZEj/baQtvsfJQj4KcCl5mZPafWP6nNdVAwETEXYKAyMO4grTeG3URACsxrh6LlxNaVJdnDl80n4PNcfQ3H+hednlqzluR2nVZ2rOhXH9ZmF9jbg3g7XCg1i1a0XHXxp36uaagtdaTojrxiDQa1XAfnmbmSjiKGSrYDMnwYHmE09UbuVJvyX3Pd4jAaPOsV4GBkxZ2LSAcNT/S8hHm2EdoxPAlrtD6RAMVtIPT+ZYfM1ZnqQXZItSka5DPGG2JBFZlRP4dqRZuoH+5DGbKx4ZtWiK3vPlk2mxDbt7kzhnBY8zPmv6Z7AUqWTR3RB1Y7ixZrTzI56wjtY5QPBYrJEf5lmzWUDKrKE64WU6QN9ZQ8+y8rVcFI1j6laCbWp5SWqOptNsg5LnCHJQ0pZOFbCdpjOhvphdvl7NWH7l49J9DFXHFcauXtCXDNrQfIqx/9ajGI5gzWVimqmT2uV2H2QSEVfNrvcrBbs1atmyBmhGdOFJbalytPezJ",
+   "a5pL+Vt66WUuB12ckUa/tmDdA2X00FuiBUeqrl7nfIY6sJtSGHWFainGOegAIphUTDM5AwYGaEAQZ0S6lFBbQFHOJK1t62coe5oN9VpQYf47FbYGFWpuevoPORNj9MX9h4+cuqyyMCRoRgrU5O4ysnr8SrsXAuwZXdkCM+Ue1CEvMeO0ecYxiRYPwuXVdaw==\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5488,\"candidatesTokenCount\": 48,\"totalTokenCount\": 5760,\"cachedContentTokenCount\": 3207,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5488}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3207}],\"thoughtsTokenCount\": 224,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"NO4Ea9fvEfiVkdUPy7H0iQ4\"}\r\n\r\n"
+  ]
+ }
+}

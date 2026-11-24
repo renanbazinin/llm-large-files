@@ -1,0 +1,116 @@
+{
+ "case": "chat-dropped-file",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "dropped-file",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 18",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim /12 ימי/",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 5247,
+   "cachedInputTokens": 3206,
+   "outputTokens": 465,
+   "thoughtTokens": 310,
+   "ms": 4857,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 7845,
+     "ms": 4855,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5247,
+      "cachedInputTokens": 3206,
+      "outputTokens": 465,
+      "thoughtTokens": 310
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 6",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim 050-7654321",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 5418,
+   "cachedInputTokens": 3207,
+   "outputTokens": 379,
+   "thoughtTokens": 326,
+   "ms": 5300,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 8025,
+     "ms": 5299,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5418,
+      "cachedInputTokens": 3207,
+      "outputTokens": 379,
+      "thoughtTokens": 326
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}

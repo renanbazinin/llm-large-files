@@ -1,0 +1,67 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "c7143dd7538f8d88",
+  "bytes": 22283,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12215 chars #4baeea3b"
+      },
+      {
+       "text": "38 chars #e43d8437"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "263 chars #fa826701"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "55 chars #5e101e58"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לפי המצגת (\\\"\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5729,\"candidatesTokenCount\": 6,\"totalTokenCount\": 6182,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5729}],\"thoughtsTokenCount\": 447,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"w-4Ea4rGC-65kdUP9YSj8QM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"סקירה רבעונית - רבעון 3 2026\\\"), אחוז העמידה בי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5729,\"candidatesTokenCount\": 30,\"totalTokenCount\": 6206,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5729}],\"thoughtsTokenCount\": 447,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"w-4Ea4rGC-65kdUP9YSj8QM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"עד באזור הדרום היה **87%** (ביצוע של 783 אלפי ש\\\"ח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5729,\"candidatesTokenCount\": 54,\"totalTokenCount\": 6230,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5729}],\"thoughtsTokenCount\": 447,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"w-4Ea4rGC-65kdUP9YSj8QM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מתוך יעד של 900 אלפי ש\\\"ח).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5729,\"candidatesTokenCount\": 69,\"totalTokenCount\": 6245,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5729}],\"thoughtsTokenCount\": 447,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"w-4Ea4rGC-65kdUP9YSj8QM\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpsPCpgPAWkUfROTIaYLkWCArSJGOT66KOR6xN73IP/bNOiTlN65k2h5yyTO5rknQObX2QdphkUGwrRQDNHLeeuGkvbH0B5/geQBJWZbOmYVlwYFYtd9UK30rKeKdqXhR51/Z4gz9BPZrCENXEFeQExl5HExys0kqlSqnYHcaW1udn985SxCsMqmKCTdL/P1bR/flbxO1D+A7CK2Uq//YsZS4WoCZ8qoV9ixe9NqYzQJGnVSpUdu3xS/nAGgBNTlTv0c63qXpLh3gNbgqs/FdzsWMp+UA9acdNGfCrPjy78LfDB6m/ELfT48dkgSwahPUfcJyPe8kCtMtR0ZqYuKmzK9I6eZpkNJfPIAHfjaqIt0d9BvoHvIDk5fUakCOxpSnWescRy3lanKG5giucMGFCeJipKCLQrFJEO+QP3lgvPNq+uAPYHMM0Jf2wMuAgNEiQjtIT98uATGcPIQp9JgAEK0SXC7rUP5B2E4BnXjQHbv6r9JdXjYRlUB5YME2zvAjfUotSyVUxTXr/ydBSPqTEVk0IEtf7akPXLXHzT6CxFfbDR9aNe7mycHnANtOvKR5i1aha6BI3pnkKacQUq/4no6qP3EyHXfpbliIzj3vrmg8BPQ72rdxKKySOnFdtZW3F/MikyRD5Ec95P91sA6Y8/DonmDVN5Dlo+wwbxkQ43CK77eXZs9j2fRpCYHc+FRUJ2eUi/QExkaYYkeZ8yuK0ZMflffgCYH2DLeaDJW/fOVNsEVNlq3g8aOU9pho4nMKYPVOfSpek6mrJShx92uukJZvY9ZBr1ReEBn7BhJmhAy6m3PU1lbZVvodIk11/6QV0oqKv/cRqM4rcAMlwbCaquhSnRukW41nkqPmkhP58yR8glghpeWJJecBWcxXpqfS5QKeMDQmJWnLdkH/O/WyZS+QNIfg01V/jHrJOZuhM4EwyZS83lTI/t8xFrtL/Db3Lc3yNR1U2R+LEqhO0F3u3LmEdUi9CVyF2D4k70ox47/S7BktvRiKIfoa7Kjv4zr5fNePwm8jV3jiekZUm5ufeZ11Sx42jlaQ9WIyFx5eTMGVdYAa8Qz1gFbFZG++B5PTNPXqESmmnczdAmkNcJLZ5u2GQulmshbUCSiHdMVJ5SJQBOlqkbdzG35ieBA0chSuzdF4hVjTVGttTwt5JWUtNOiFREEdvKKoLH4rGptHHVSkuG3M+dHK0sRG3dcScVA+KE74oPLCNmCku8eVvZ1oDHTB04OLNmb+wYrA41MPAyAUVqBbEt/hF97Z7Kgo3OjZnSlRkCFyYjNsB4",
+   "tiap7CQ6Gx9yOdD+bIFe0ezDwuhDxxF5cw9YbM62j8p3SxTI+EHaylX5QFxbUi92nNw3Y9KTmv+c5YwoXJb27Az++0xcj00XXZoy+KFtcsp0yRItyvmy5DxoqapdKZoq7xHfwN73MR6pXCitqx8k+zUDBfAiKT9Yjbeix5Erdw3Qi+qr7SWYLNhsYCgakg05ySRdA1p645RI65kdkDnowcFWo3ryauFu6uUw+MwqN4ZzLh67ANcCQRE7bezZH7KhVHcHiPffmug5XXJM4OI9O+1oHZp72eFVLbjnjJLVOZ5sUptZwg1cguSWvYx9R3YyUXOlS2IjLn5vtFL5EFk6XSawCg3Mvxa8qEHk1YoNaaeZp/UCBg/QQ9d1+71s2ajbidd7B53Z9L4/0AQrwx3rr8OdAiPtPD9EJnxYGqpLqixmQbv6t8QwSgCk3MiXkY6t+a+W7qeNE7YfcDT7pL+R6YgOseINdi3L8CXB5Q3tJWjEL/3SDT+O2G4hkaZ53iVQPs/Ntn9DOskqlFPMIwdk0UitlrhpOb8XzMbXitr4aayJEZ4F+G/tMkjo6BF2nf9CLLnou5VUIFANsiASkRHa21JavrT0WcdihgeD9GaTz/ycTWrvF8cwT/Dqj25h/JJNaPerXJbFbQG1q8E+Feh4U3f/7YHKnBuv9z35O1ggLDWrPlUcPPJY0YlBBhcjmudVEwdOUMsmLpHD5pIRoejTrs1910AumEqgBeeQ2OXnl7YUp5tuxLpFzBVbdA+jkIOfvc/hUchUwK8Zq6il6REGusctSg5jWaGLWy/1PbQ1T70UGuvjMZx8kNjwfmPcw3ePGw2U7D+exty4r0lFxYs9J6qOD/6ir8Wl0c+0Cdq5uzF3CJJ82rWDV2JlCR4XpCzsCd45NaIglJyuU6oxENPmnpAO8eDyKNilwsOskX88op+RBEEFxaRKytwcabHwmYlpOp29ctJ7Sz/uwCw73SWXTq850U0J6GnS3+UyB17X5cgZ2KMo2dvN+JX2X2BT/1Jvf1k/Hruzdr2Y3umphlaJ4JkEXUXEWABaHEiO4+4sYhTZS+Clxichbh/uXnCYNjkgJXvwWmLkAxdDRGeA09ubq81WhxNqbeK0cId+//x7aPajnKKfU40VHFKphD1VMsldkrFXeDfgC22dfqjuPUa1GUO8jghg2PPk1DKwUDw2wh1SA/Ddk9/fezoGejPv1Y1clRF5MFHDwKYSajc6aquKQwbqXmRZimVw7hBbo104EsdEs9gRyojIHudvJG5DDH1M2SOMxxBUGyXDmvQ23b4T4QZJW\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\":",
+   " {\"promptTokenCount\": 5729,\"candidatesTokenCount\": 69,\"totalTokenCount\": 6245,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5729}],\"thoughtsTokenCount\": 447,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"w-4Ea4rGC-65kdUP9YSj8QM\"}\r\n\r\n"
+  ]
+ }
+}

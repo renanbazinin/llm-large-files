@@ -1,0 +1,68 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "8ad40fb0a89c366c",
+  "bytes": 2377,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "466 chars #06b3a1b3"
+      },
+      {
+       "text": "63 chars #f8b1bdf0"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "808 chars #939ed7f6"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "view_pages",
+       "description": "284 chars #fc39aebc",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #80d11510",
+        "required": "[2 items] #bfa97534"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"A salary of\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 700,\"candidatesTokenCount\": 3,\"totalTokenCount\": 905,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 700}],\"thoughtsTokenCount\": 202,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"pu4Ea9uSA_XPnsEPjqjs8Qw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **2,400.00 NIS** was credited to the account on **03/01**.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 700,\"candidatesTokenCount\": 27,\"totalTokenCount\": 929,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 700}],\"thoughtsTokenCount\": 202,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"pu4Ea9uSA_XPnsEPjqjs8Qw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"ErgGCrUGAWkUfRPjg+Yp1vg+lVyLKEFGkS09n9AZbeantTEpBJMG9/pfsiPwbsd6Ot1ccLqfv61elh3eWQk5vbJQ4ikQ/S8M9lEyLWcVUJHUWx2B3YE88VV4Vs7zY5C50uFqIdrM4oRHrhjKrTBR250eNXqV5kJ++2QVC8a43u4QbW5u45fRxipsOckdPgr4uWrALuLUha/HWyaNkKkGpzN9WDEl+ulHXwwt8od84UrdZ9STNWU7BWAT1ovQHl0KAkSpSqLPbs4DmtiJc0/rrRS58WsTHNa8J0XIa7XG3rqKlNZmEdeF8O9anJVmTmwgYyi+fxi9T42oXBmOKK0RWeyfiwbhrM1a5G3NNNr2gUWNpWRIYvz1pvWUOicFtOm9rFJNYlnIeCCmwTi1fEIY44ElYbfX0lgMDsUSLSe2jRlMSdhxeHQIxmlRvB2W21YBEOXcyskcvxWtokcQGj31ybxDY1YG11mMsTL5cE1lkx+uGJJsUyF79dtXurN8/IojwPQg/EVeT8iWNst6FJH/yL9fQFa166HBiWXjdkD8FVi7qemWejs4ZrDc0xihzew3453KtOEOlcQMEqTmKiUSnz1U7/NjbBjI0+hyIy6p5dKwDGjKs87hQe3fKhHPWs3ENWyBWJ7ad81n4T/Hxiu7xNHOd9f26CCO8aXSGn73A+ezAnqcTP4oMBlVpigQkzFF6o5T8ulfePtpTYVJ7BFMGJkqJirRQi0bpN8ZUNU040OW+o+MrIco0lAWT/QTaTBOMPfbhrsbIbauj7CMqf0jTzUPjLkriZLaaWQatrnDwJD29wXhc1exfAhg7iCV6UYeG7UfgYWNrGFvtLxRJ0s6BSi6O1wgwh2J9+YZbUOuwbGt6Kc+7lwQcx8TcZnEm9dbcBdkjXlopPt/noTfsps/1Hxspy8uY2TtmDgPOuCeOivNhEww9F+jxm6FJnMIZiEm/5av5QP1skDi6EXm2r7EwR4btINhg6j0bTxWsKBCMsZ0D+f/oZVzFXDk4pdSutd3OJxgLJl0o2dT1sXtwA/0lFDYzk3KMh83Qv8suY22vRBE6idk7JDTRXkmpzHxsdG3dS6kwFlVL4yJmd4=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 700,\"candidatesTokenCount\": 27,\"totalTokenCount\": 929,\"promptTokensDetails\": [{\"modality\": \"TEXT",
+   "\",\"tokenCount\": 700}],\"thoughtsTokenCount\": 202,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"pu4Ea9uSA_XPnsEPjqjs8Qw\"}\r\n\r\n"
+  ]
+ }
+}

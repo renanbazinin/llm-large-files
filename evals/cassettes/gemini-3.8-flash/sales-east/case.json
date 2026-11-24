@@ -1,0 +1,58 @@
+{
+ "case": "sales-east",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "count",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 32133",
+     "status": "pass"
+    },
+    {
+     "fact": "number 22",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 26706,
+   "cachedInputTokens": 24653,
+   "outputTokens": 3353,
+   "thoughtTokens": 2788,
+   "ms": 21755,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 30492,
+     "ms": 21754,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 26706,
+      "cachedInputTokens": 24653,
+      "outputTokens": 3353,
+      "thoughtTokens": 2788
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ]
+  }
+ ],
+ "passed": true
+}
