@@ -297,6 +297,8 @@ describe("the facts of the eval cases", () => {
     expect(numbersIn("יתרת הסגירה היא 4,167.90 ש\"ח, ו-118 לחשמל")).toEqual([4167.9, 118]);
     expect(hebrewShare("נמצאו 37 שגיאות PAY-5031 ב-worker-3 (payments-service.log L21280).", ["payments-service.log"])).toBe(1);
     expect(hebrewShare("There are 37 errors.")).toBe(0);
+    // A log line quoted in code is the file's language, not the answer's.
+    expect(hebrewShare("השגיאה הראשונה נרשמה ב-`09:12:00`:\n```text\n2026-11-12T09:12:00.000Z ERROR [worker-3] PAY-5031 card processor timeout\n```")).toBe(1);
   });
 
   it("does not take a cited line for a number of the answer", () => {

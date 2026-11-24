@@ -11,7 +11,7 @@ import { checkCitations, type CitationCheck, type DocumentFormat, type Evidence 
  *   `checkCitations`; "not checked yet" while it is not available);
  * - `{ mustNotClaim }`: none of this text, pattern, or number;
  * - `{ language: "he" }`: at least 60% of the answer's letters are Hebrew, once citations, file
- *   names, numbers and Latin words in quotes are left out.
+ *   names, numbers, code (a quoted log line) and Latin words in quotes are left out.
  */
 export type Fact =
   | { number: number; tolerance?: number }
@@ -67,9 +67,10 @@ export function citedLines(text: string): Array<[number, number]> {
   return out;
 }
 
-/** The share of an answer's letters that are Hebrew, once citations, file names, numbers and quoted Latin words are left out. */
+/** The share of an answer's letters that are Hebrew, once citations, file names, numbers, code and quoted Latin words are left out. */
 export function hebrewShare(text: string, names: string[] = []): number {
-  let plain = text;
+  // Code blocks and code spans quote the file (a log line), in its language, not the answer's.
+  let plain = text.replace(/```[\s\S]*?(?:```|$)/g, " ").replace(/`[^`\n]*`/g, " ");
   for (const name of names) plain = plain.split(name).join(" ");
   plain = plain
     .replace(/\([^()]*\bL\d+[^()]*\)/g, " ")

@@ -84,7 +84,8 @@ for (const model of models) {
             ...(apiKey ? { apiKey } : {}), ...(cap ? { cap } : {}), ...(questionInputTokens ? { questionInputTokens } : {}),
           });
           runs.push(run);
-          if (mode !== "replay") console.log(line(run));
+          // Written straight to the output: Vitest keeps a passing test's console to itself.
+          if (mode !== "replay") process.stdout.write(`${line(run)}\n`);
           if (run.replayProblems?.length) throw new Error(run.replayProblems.join("\n"));
         }
       });
@@ -108,5 +109,5 @@ afterAll(() => {
   mkdirSync(path.dirname(resultsFile), { recursive: true });
   writeFileSync(resultsFile, `${JSON.stringify(results, null, 1)}\n`);
   writeFileSync(resultsFile.replace(/\.json$/, "") + ".md", markdown(results, allCases));
-  console.log(`Results: ${path.relative(process.cwd(), resultsFile)} and its .md`);
+  process.stdout.write(`Results: ${path.relative(process.cwd(), resultsFile)} and its .md\n`);
 });
