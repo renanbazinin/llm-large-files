@@ -296,6 +296,27 @@ describe("the store calls of an ingest", () => {
     expect((await stored).id).toBe("upload-2");
   });
 
+  it("still remove what an ingest wrote once its caller left, while the process is at the limit", async () => {
+    const { store, files, a, b } = await setUp();
+    store.hung.add("put");
+    const leaving = new AbortController();
+    const ingest = files.ingest({ name: "c.txt", bytes: utf8("gamma\n"), signal: leaving.signal }).catch((error: unknown) => error);
+    await turnsUntil(() => store.calls.includes("put"));
+    // Two reads stuck past their limit: the process is at the default limit.
+    store.hung.add("getMeta");
+    const reads = [files.getMeta(a.id), files.getMeta(b.id)].map((read) => read.catch((error: unknown) => error));
+    await vi.advanceTimersByTimeAsync(30_000);
+    await Promise.all(reads);
+    expect(files.stats().stuckStoreCalls).toBe(2);
+    // The uploader leaves, then the write, which began under the limit, ends: what it wrote goes.
+    const reason = new Error("The uploader went away.");
+    leaving.abort(reason);
+    held.shift()!();
+    await turnsUntil(() => store.calls.includes("delete"));
+    expect(await ingest).toBe(reason);
+    expect(store.calls.filter((call) => call === "put" || call === "delete")).toEqual(["put", "delete"]);
+  });
+
   it("count the look-up of an application's ID once past the time the ingest gives it", async () => {
     const { store, files } = await setUp({ ingestTimeoutMs: 1_000 });
     store.hung.add("getMeta");

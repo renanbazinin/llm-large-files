@@ -127,12 +127,14 @@ async function claim(context: IngestContext, target: Target & { id: string }, na
  * be there: one the ingest was to replace (its delete failed), or one another server stored
  * meanwhile. It is left. "taken" when the ingest could not have replaced it: it has not expired, and
  * it is of another owner or scope. "left" for any other.
+ *
+ * Since 0.10.0 its calls count as stuck once they have run `slotCapMs`. They are not refused while
+ * too many calls are stuck: they follow writes of the ingest that began under the limit and have
+ * just ended, and a document left behind would be kept until it expires (for good, under
+ * `ttlMs: Infinity`) though its caller left or was told it failed.
  */
 async function removeOwn(context: IngestContext, target: Target, meta: DocumentMeta): Promise<"removed" | "left" | "taken"> {
-  const { store, now, maxStuck, slotCapMs } = context;
-  // Refused at once while too many calls of the process are stuck, as every store call is: what
-  // was written is left for the sweep.
-  checkStuck("delete", maxStuck);
+  const { store, now, slotCapMs } = context;
   if (target.id !== undefined) {
     const found = metaOf(await watchStuck(storeCall("read", () => store.getMeta(meta.id, target.context)), slotCapMs), meta.id);
     if (found && !(found.createdAt === meta.createdAt && heldBy(found, meta.owner, meta.scope))) {
@@ -772,11 +774,13 @@ async function ingestFile(
     && await settleWithin(claim(context, { ...target, id: target.id }, name), slotCapMs, () => storeTimeout(name, slotCapMs, "read"));
   // The files first, the document last: a document is there once its metadata is. Every call
   // carries the owner and scope of the document. Since 0.10.0 the writes are refused at once while
-  // too many calls of the process are stuck, and count as one stuck call once they have run
-  // `slotCapMs`, the time they are given: they are made one after the other, and hold one thread
-  // of the pool at a time.
+  // too many calls of the process are stuck (`writing` stays false: nothing is written, and nothing
+  // is to remove), and count as one stuck call once they have run `slotCapMs`, the time they are
+  // given: they are made one after the other, and hold one thread of the pool at a time.
+  let writing = false;
   const storing = (async () => {
     checkStuck("write", context.maxStuck);
+    writing = true;
     if (clear) {
       await store.delete(meta.id, target.context);
       forget(meta.id);
@@ -808,7 +812,7 @@ async function ingestFile(
     const remove = async () => {
       taken = await removeOwn(context, target, meta) === "taken";
     };
-    const removal = storing.then(remove, remove).catch(() => undefined).then(() => {
+    const removal = (writing ? storing.then(remove, remove) : Promise.resolve()).catch(() => undefined).then(() => {
       ended = true;
     });
     await settleWithin(removal, slotCapMs, () => new Error("")).catch(() => undefined);
