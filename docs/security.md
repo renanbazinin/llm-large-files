@@ -278,6 +278,91 @@ and the request is not sent again. A reply made of many events has no cap on its
 time while it keeps arriving. An endpoint you do not trust, such as a gateway run by someone else,
 can still take the memory of your server.
 
+## Tool results: `onToolResult`
+
+New in 0.10.0. `AskOptions.onToolResult` sees the result of every tool call that ran before the
+model does, and before the evidence, the steps, `toolTurns` and the events. It can let the result
+through (undefined), send a masked copy (`{ result }`, sent with `redacted: true`), or send an error
+in its place (`{ reject: "why" }`). Use it for data loss prevention: Israeli ID numbers (ת.ז.) and
+card numbers that a file holds, and that a user of the chat should not get through the model.
+
+```ts
+import { askWithFiles, type AskOptions, type AskResult, type ToolResult } from "llm-large-files";
+
+/** An Israeli ID number (9 digits, with its check digit), as it may be written in a file. */
+const ID_CANDIDATE = /(?<!\d)\d{5,9}(?!\d)/g;
+/** A card number: 13 to 19 digits, maybe in groups. */
+const CARD_CANDIDATE = /(?<!\d)\d(?:[ -]?\d){12,18}(?!\d)/g;
+
+const israeliId = (digits: string): boolean => {
+  const id = digits.padStart(9, "0");
+  let sum = 0;
+  for (let index = 0; index < 9; index++) {
+    const step = Number(id[index]) * (index % 2 === 0 ? 1 : 2);
+    sum += step > 9 ? step - 9 : step;
+  }
+  return sum % 10 === 0;
+};
+const luhn = (digits: string): boolean => {
+  let sum = 0;
+  for (let index = 0; index < digits.length; index++) {
+    let digit = Number(digits[digits.length - 1 - index]);
+    if (index % 2 === 1) digit = digit * 2 > 9 ? digit * 2 - 9 : digit * 2;
+    sum += digit;
+  }
+  return sum % 10 === 0;
+};
+const mask = (text: string): string => text
+  .replace(CARD_CANDIDATE, (found) => (luhn(found.replace(/\D/g, "")) ? "[מספר כרטיס]" : found))
+  .replace(ID_CANDIDATE, (found) => (found.length >= 8 && israeliId(found) ? "[ת.ז.]" : found));
+/** Every string of a result masked; numbers and keys as they are. */
+const masked = (value: unknown): unknown =>
+  typeof value === "string" ? mask(value)
+  : Array.isArray(value) ? value.map(masked)
+  : value !== null && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, field]) => [key, masked(field)]))
+  : value;
+
+// options are those of askWithFiles.
+export function askWithDlp(options: AskOptions): Promise<AskResult> {
+  return askWithFiles({
+    ...options,
+    onToolResult: ({ result }) => {
+      const clean = masked(result) as ToolResult;
+      return JSON.stringify(clean) === JSON.stringify(result) ? undefined : { result: clean };
+    },
+  });
+}
+```
+
+- **It may be async.** A call to a DLP service of your own gets the context's `signal`, which
+  aborts when the question is stopped or fails; the question does not wait for the hook once its
+  own signal aborts. Each call's hook starts as soon as its result is in, so the checks of one turn
+  run at the same time; their verdicts are applied in call order.
+- **It fails closed.** What the hook throws, or a value of another shape than `{ result }`,
+  `{ reject }` or undefined, ends the question with that error or a `TypeError`, at once: the other
+  calls of the turn stop, and no result of the turn reaches the model. A DLP service that is down
+  stops the question; the model never gets the unchecked result.
+- **It sees the whole result.** The hook gets what the tool returned, before it is fitted to the
+  room in the request. What it lets through is fitted then, a masked copy as the tool's own result
+  would be: a copy larger than the room is cut, and is still marked `redacted: true`.
+- **What the model saw is what is kept.** The evidence, the steps, `toolTurns` (stored with the
+  conversation, and sent again in later questions) and `tool.end` tell the masked result. A later
+  call is never answered with a pointer to a masked result: it runs again, through the hook. The
+  same call made twice in one turn gets the first one's verdict: the same masked copy, or the same
+  error.
+- **It sees tool results only.** The model gets other text of the files that no tool returns, and
+  the hook does not see it:
+  - a document small enough to be sent whole goes into the prompt as it is;
+  - the card of a searched document holds its first 25 lines, up to 40 outline headings, and for a
+    log up to 8 message templates;
+  - the parts of a whole-file read (`analyze_whole_document`) go to the model that reads them, in
+    full, through `generateText`; only the read's answer is a tool result;
+  - the pages of `view_pages` are a PDF next to the result.
+
+  For data that must never reach a model, redact it before you ingest the file (or keep it out of
+  the documents), and use the hook for what a search or a read brings back. To keep whole-file
+  reads off, set `wholeDocumentAnalysis: false`.
+
 ## Prompt injection
 
 The model reads text you do not control: the content of the files, their names, the pages it looks
@@ -1055,10 +1140,11 @@ question, whatever the model:
 
 - **Chat requests:** `limits.toolTurns` (12), counting the answer. Tools run in all but the last,
   with at most `limits.callsPerTurn` (8) calls run in each.
-- **Whole-file reads:** one of each document (`limits.wholeDocumentReads`). A read is up to
-  `maxMapChunks` (30) part requests of up to `mapChunkTokens` each (100,000 at the default window of
-  1M tokens: 3M input tokens), plus the requests that merge the notes and write the read's answer.
-  With an explorer model, that model reads the parts.
+- **Whole-file reads:** one of each document (`limits.wholeDocumentReads`), and 2 in all
+  (`limits.wholeReadsPerQuestion`, since 0.10.0). A read is up to `maxMapChunks` (30) part
+  requests of up to `mapChunkTokens` each (100,000 at the default window of 1M tokens: 3M input
+  tokens), plus the requests that merge the notes and write the read's answer. With an explorer
+  model, that model reads the parts.
 - **Pages:** at most 5 a call, and for the question what half of `reservedTokens` holds at the
   adapter's `pageTokens`. They stay in the later requests of the question, which bills them again,
   unless room runs out and older results are replaced by a note of what they showed (never for a
@@ -1068,11 +1154,13 @@ question, whatever the model:
   model whose conversation may only grow, as Claude's), and a question whose first request is too
   large, before any tool ran, is planned again once. None of these takes a tool turn. A retried
   request counts once in the usage.
-- **Ceilings, unset by default:** `limits.inputTokens` and `limits.requests` cover the whole question,
-  part reads included. A whole-file read that would pass one is refused before it starts. Once
-  `inputTokens` is reached, no more tools run, but the request that crosses it has already been
-  sent, and the answer request is still sent with the whole conversation: a question can pass the
-  ceiling by up to about two requests (the one that crosses it, and the answer). `requests` counts
+- **Ceilings:** `limits.inputTokens` and `limits.requests` cover the whole question, part reads
+  included. A whole-file read that would pass one is refused before it starts. Since 0.10.0
+  `inputTokens` has a default: the larger of 1,000,000 and `toolTurns` times the first request,
+  with room for the whole-file reads the question may make (`Infinity` for none). It is checked
+  before each tool request, looking ahead: when the next tool request and the answer would pass it,
+  no more tools run. So a question passes it by about one request at most, the answer. A request
+  that reports no usage counts by the library's estimate. `requests`, unset by default, counts
   answered requests and keeps one for the answer.
 
 `result.usage` is what a question used, in all and for each model. A question that fails or is
@@ -1087,8 +1175,9 @@ piece and 300 s between pieces, and is retried after waits of up to 60 s
 ([Errors and reliability](./guides/errors-and-reliability.md#waits-on-a-silent-model)). A question
 is up to 12 chat requests, not counting retries, and part reads besides, so it can run for many
 minutes. Give it a deadline with `signal`, and abort it too when the client goes away
-([Web app](./guides/web-app.md)). This sample sets a deadline and logs what each question used,
-failed ones included:
+([Web app](./guides/web-app.md)). Since 0.10.0 the question stops at once when its signal aborts,
+also while it waits for a store that does not answer, in planning or in a tool call. This sample
+sets a deadline and logs what each question used, failed ones included:
 
 ```ts
 import { askWithFiles, partialResultOf, type UsageTotals } from "llm-large-files";

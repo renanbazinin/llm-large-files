@@ -629,9 +629,11 @@ describe("the result in run.finish and run.error", () => {
       expect(sent).not.toContain("Quarterly Heron Plan");
     }
 
+    // With eventResults the plan has the full metadata, but never the owner (since 0.10.0).
     const full: AskEvent[] = [];
     await askWithFiles({ files, owner, model: fakeModel([says("Done.")]), documentIds: [log.id, page.id], messages: question("?"), eventResults: true, onEvent: (event) => full.push(event) });
-    expect(JSON.stringify((full.at(-1) as Of<"run.finish">).result.plan)).toContain(owner);
+    expect(JSON.stringify((full.at(-1) as Of<"run.finish">).result.plan)).toContain("Quarterly Heron Plan");
+    expect(JSON.stringify((full.at(-1) as Of<"run.finish">).result.plan)).not.toContain(owner);
   });
 });
 

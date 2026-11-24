@@ -200,12 +200,14 @@ describe("usage of a question", () => {
       calls([read], { usage: { inputTokens: 3_000 } }),
       (request) => (request.toolChoice === "none" ? says("From what I have.") : calls([read], { usage: { inputTokens: 3_000 } })),
     ], { generateText });
-    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), limits: { inputTokens: 7_000 } });
+    const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), limits: { inputTokens: 18_000 } });
     // The read of the whole file would take far more than is left: it is refused with the numbers.
     expect(parts).toBe(0);
     const [first] = roundsOf(model.requests[1]!.messages);
-    expect(first!.answers[0]!.result.error).toMatch(/^Not run: reading all of app\.log takes about [\d,]+ input tokens, and 5,000 are left of the 7,000 this question may use\./);
-    // 2,000 + 2,500 + 3,000 input tokens is over the ceiling: the next request is the answer.
+    expect(first!.answers[0]!.result.error).toMatch(/^Not run: reading all of app\.log takes about [\d,]+ input tokens, and 16,000 are left of the 18,000 this question may use\./);
+    // The loop looks ahead (since 0.10.0): with 2,000 + 2,500 + 3,000 input tokens spent, the next
+    // tool request and the answer's, of about 6,400 tokens each, would pass the ceiling. The next
+    // request is the answer.
     expect(model.requests.map((request) => request.toolChoice)).toEqual(["auto", "auto", "auto", "none"]);
     expect(result).toMatchObject({ text: "From what I have.", answered: true, turns: 4 });
 
@@ -516,8 +518,10 @@ describe("the edges of the loop", () => {
     const { files, meta } = await largeLog();
     const model = fakeModel([calls([{ id: "x", name: "do_magic", args: { document_id: meta.id } }]), says("No magic here.")]);
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") });
-    expect(roundsOf(model.requests[1]!.messages)[0]!.answers[0]!.result).toEqual({ error: "Unknown tool “do_magic”.", tool_turns_left: 10 });
-    expect(result).toMatchObject({ text: "No magic here.", answered: true, steps: ["Call “do_magic” — failed: Unknown tool “do_magic”."], evidence: [] });
+    // Since 0.10.0 it is not run, and the model is told which tools there are.
+    const refusal = "Unknown tool “do_magic”. The tools are: search_document, read_document, get_document_overview.";
+    expect(roundsOf(model.requests[1]!.messages)[0]!.answers[0]!.result).toEqual({ error: refusal, tool_turns_left: 10 });
+    expect(result).toMatchObject({ text: "No magic here.", answered: true, steps: [`Call “do_magic” — failed: ${refusal}`], evidence: [] });
   });
 
   it("shortens the rounds of earlier questions before those of this one", async () => {
@@ -555,7 +559,9 @@ describe("the edges of the loop", () => {
     expect(model.requests).toHaveLength(2);
     expect(model.requests[0]!.system).not.toContain("DONE");
     expect(result).toMatchObject({ text: "Reading.\n\nTwo lines.", answered: true, turns: 2 });
-    expect(result.usage).toEqual({ requests: 2, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, thoughtTokens: 0, byModel: { "fake-model": { requests: 2, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, thoughtTokens: 0 } } });
+    // Since 0.10.0 their input is counted by the estimate, apart from what providers reported.
+    expect(result.usage).toEqual({ requests: 2, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, thoughtTokens: 0, estimatedInputTokens: expect.any(Number), unmeasuredRequests: 2, byModel: { "fake-model": { requests: 2, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, thoughtTokens: 0 } } });
+    expect(result.usage.estimatedInputTokens).toBeGreaterThan(0);
     expect(result.lastUsage).toBeUndefined();
   });
 });

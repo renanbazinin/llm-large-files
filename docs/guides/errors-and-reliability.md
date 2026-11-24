@@ -402,14 +402,20 @@ that says what was wrong:
   `UNEXPECTED_TOOL_CALL`. The step says "The model's tool call could not be read: it was asked to
   send it again".
 - **A first reply with nothing in it**: no text and no tool call, before any tool call of the
-  question was answered, and not cut off at the output limit or stopped by a filter. The step says
-  "The model's first reply was empty: it was asked again".
+  question was answered, and not cut off at the output limit, stopped by a filter, or ended for
+  another reason that asking again does not mend (`finish: "other"`: Gemini's `OTHER`,
+  `LANGUAGE` and the like, since 0.10.0). The step says "The model's first reply was empty: it was
+  asked again".
 
 Without the second try, the answer would be written from the document cards alone and look like any
 other. At most two such second tries are made in a question, and each takes one of
 `limits.toolTurns`. When they are made, and which model keeps the note, is in
 [How it works](../how-it-works.md#empty-or-broken-turns). When the second try is empty too, the
 loop asks for the answer, as it does at the end of every question.
+
+A turn whose tool call could not be read is never the answer, even with a remark in it ("Let me
+look at the error lines."): on the last tool turn, or when its second try could not be read either,
+the loop asks for the answer (new in 0.10.0; before, the remark was taken for the answer).
 
 **The answer's second try.** The request for the answer (`toolChoice: "none"`) is asked for once
 more when its reply has no text: when it is empty, or holds a tool call the model was told not to
@@ -419,8 +425,10 @@ called in this reply: write the answer now, in text, from what is above.", and i
 step says "The model's answer was empty: it was asked again", or "The model called a tool instead
 of answering: it was asked again for the answer". It is one of the two second tries of the
 question, and it can be one request past `limits.toolTurns`. It is not made after a refusal, a
-filter, or a reply cut off at the output limit with nothing in it, nor once `limits.requests` or
-`limits.inputTokens` is reached. When its reply has no text either, `answered` is false.
+filter, another reason that asking again does not mend (`"other"`), or a reply cut off at the
+output limit with nothing in it, nor once `limits.requests` or the ceiling of input tokens is
+reached. When its reply has no text either, `answered` is false. So a reply that Gemini ends with
+`MODEL_ARMOR`, `OTHER` or `LANGUAGE` costs 2 requests, not 4 (once the adapter maps them).
 
 A single call that cannot be run is not a broken turn: arguments that are not a JSON object, a call
 cut off at the output limit, a Claude call whose block never closed. It is answered with an error
@@ -489,6 +497,11 @@ whose parts all failed. The question goes on, and can still be answered. A faile
 - in `toolTurns`, as a call whose `result.error` is a string;
 - not in `evidence`, which lists only what was shown.
 
+A tool call that rejects, instead of answering with an error, ends the question with that error
+(`run.error`): a tool set of your own whose `executeWithFiles` throws, or `onToolResult` when it
+throws. The model gets nothing of it. Since 0.10.0 a question also stops at once when its signal
+aborts while a tool call, or the planning of the documents, waits for a store that does not answer.
+
 A whole-file read tells the model why a model request failed by the error's kind, its HTTP status
 or the code of a connection that failed, never by the error's words: the provider's message, or an
 HTTP client's, can name a project, a host, a masked key, or a URL with a key in it. The same words
@@ -530,45 +543,107 @@ for (const call of failed) console.warn(`Tool ${call.name} failed: ${String(call
 
 ## When there is no answer: `answered` and `finishReason`
 
-A question can end without an error and without an answer. `answered` is false when the model's
-last turn had no text:
+A question can end without an error and without an answer. `answered` is false when the reply that
+should be the answer had no text:
 
 - **The provider refused the prompt.** `blockReason` says why: Gemini's `promptFeedback.blockReason`
   (such as "SAFETY"), "refusal" or "refusal: " and its category for Claude, "content_filter" for an
   OpenAI-compatible reply that was filtered with nothing in it. Nothing more is asked after it.
 - **The last reply ended without text**: cut off at the output limit before its first word, stopped
   by a filter, or an answer with no text (empty, or a tool call) after its one second try.
+- **The answer was filtered, and `filteredAnswer` is `"drop"`** (new in 0.10.0): `text` is `""`.
 
 `text` may then be empty, hold only a remark the model wrote before a tool call, or the start of a
 reply the provider then refused. Show your own message instead.
 
 `finishReason` is the provider's own word for how the last chat reply ended: "STOP", "MAX_TOKENS"
 or "SAFETY" from Gemini, "stop", "length" or "content_filter" from an OpenAI-compatible server,
-"end_turn", "max_tokens" or "refusal" from Claude. An answer can be `answered: true` and still be
-cut off at the output limit. Tell the user, or raise the model's output limit (`maxOutputTokens` in
-Gemini's `generationConfig`, the limit in `body` of `openAiCompatible()`, `maxTokens` of
-`anthropic()`). Claude's `model_context_window_exceeded` means its window filled: shorten the chat
-rather than raise the output limit.
+"end_turn", "max_tokens" or "refusal" from Claude. Since 0.10.0 `finish` says the same in the
+library's words, the same for every provider: `"complete"`, `"cut"` (the output limit),
+`"filtered"`, `"malformed_call"` or `"other"`. An answer can be `answered: true` and still be cut off
+at the output limit, or stopped by a filter part-way. Tell the user, or raise the model's output
+limit (`maxOutputTokens` in Gemini's `generationConfig`, the limit in `body` of
+`openAiCompatible()`, `maxTokens` of `anthropic()`). Claude's `model_context_window_exceeded` means
+its window filled: shorten the chat rather than raise the output limit.
+
+## Filtered and cut answers
+
+New in 0.10.0. A reply that a filter stopped part-way was an answer like any other in 0.9: "The
+employee's medical leave was", with `answered: true`. Now:
+
+- **`result.finish`** is the `finish` of the reply whose text is the answer, or of the last reply when
+  none answered. Absent when the adapter does not say.
+- **An `answer_filtered` notice** comes when a filter stopped the answer, with or without text, and
+  **an `answer_cut` notice** when the answer stopped at the output limit. Both come before
+  `run.finish`, with `display: "none"`: no callback of earlier versions gets them.
+- **`filteredAnswer: "drop"`** drops a filtered answer: `answered: false`, `text: ""`. The default,
+  `"keep"`, keeps its text, as 0.9 did. A cut answer is kept either way: it is not wrong, only
+  short.
+
+**Text already streamed cannot be taken back.** With `onText`, `streamText` or `askStream`, the
+filtered reply's text may have reached the page before the filter's word came. Under `"drop"`, the
+`answer_filtered` notice then has `discardText: true`: the page takes away the text it showed for
+the question, and shows your message instead. Text of a reply that was not streamed is never sent
+when it is to be dropped. Earlier remarks of the question (before a tool call) are dropped with it,
+and `discardText` covers them too.
 
 ```ts
-import type { AskResult } from "llm-large-files";
+import type { AskEvent } from "llm-large-files";
 
-/** The words of the output limit, as each provider says them. */
-const CUT_OFF = new Set(["MAX_TOKENS", "length", "max_tokens"]);
-
-export function shownAnswer(result: AskResult): { text: string; note?: string } {
-  if (!result.answered) {
-    return { text: result.blockReason ? "This question was blocked by the model's safety filters." : "No answer this time. Ask again, or ask more precisely." };
-  }
-  if (result.finishReason === "model_context_window_exceeded") {
-    return { text: result.text, note: "The answer was cut off: the chat filled the model's window." };
-  }
-  if (result.finishReason !== undefined && CUT_OFF.has(result.finishReason)) {
-    return { text: result.text, note: "The answer was cut off at the model's output limit." };
-  }
-  return { text: result.text };
+/** The answer as the page shows it, from the events of the question as they come. */
+export function answerView(render: (text: string) => void): (event: AskEvent) => void {
+  let shown = "";
+  return (event) => {
+    if (event.type === "text") render((shown += event.delta));
+    // A filter stopped the answer, and the server dropped it: take back what was shown.
+    if (event.type === "notice" && event.code === "answer_filtered" && event.discardText) render((shown = ""));
+  };
 }
 ```
+
+**`answerInfoOf(result)`** gives the reason in one value, as `errorInfoOf` does for errors:
+`complete`, and `reason` one of `"filtered"`, `"cut"`, `"blocked"`, `"language"`, `"no_answer"` or
+`"other"`, with `finish` and the provider's `finishReason`. `"language"` is Gemini's `LANGUAGE`: the
+model does not take the language of the question. It is not a filter, and a user should not be told
+that one stopped the answer. It reads `answered`, `finish`, `finishReason` and `blockReason`, so it
+works on `run.finish`'s result in the browser too.
+
+The messages of a chatbot for Hebrew speakers, with the English beside each:
+
+| `reason` | Hebrew | English |
+|---|---|---|
+| `"filtered"` | התשובה נעצרה על ידי מסנן התוכן, ולכן היא לא מוצגת. | A content filter stopped the answer, so it is not shown. |
+| `"cut"` | התשובה נקטעה כי הייתה ארוכה מדי. אפשר לבקש את ההמשך, או לשאול שאלה ממוקדת יותר. | The answer was cut off because it was too long. Ask for the rest, or ask a narrower question. |
+| `"blocked"` | אי אפשר לענות על השאלה הזו. נסו לנסח אותה אחרת. | This question cannot be answered. Try putting it another way. |
+| `"language"` | לא הצלחנו לענות בשפה של השאלה. נסו לנסח אותה שוב. | We could not answer in the language of the question. Try putting it again. |
+| `"no_answer"` | לא התקבלה תשובה הפעם. נסו לשאול שוב, או לשאול בצורה מדויקת יותר. | No answer this time. Ask again, or ask more precisely. |
+| `"other"` | משהו השתבש בזמן כתיבת התשובה. נסו שוב. | Something went wrong while the answer was written. Try again. |
+
+```ts
+import { answerInfoOf, type AnswerInfo, type AskResult } from "llm-large-files";
+
+const HEBREW: Record<NonNullable<AnswerInfo["reason"]>, string> = {
+  filtered: "התשובה נעצרה על ידי מסנן התוכן, ולכן היא לא מוצגת.",
+  cut: "התשובה נקטעה כי הייתה ארוכה מדי. אפשר לבקש את ההמשך, או לשאול שאלה ממוקדת יותר.",
+  blocked: "אי אפשר לענות על השאלה הזו. נסו לנסח אותה אחרת.",
+  language: "לא הצלחנו לענות בשפה של השאלה. נסו לנסח אותה שוב.",
+  no_answer: "לא התקבלה תשובה הפעם. נסו לשאול שוב, או לשאול בצורה מדויקת יותר.",
+  other: "משהו השתבש בזמן כתיבת התשובה. נסו שוב.",
+};
+
+/** The answer to show, and the note under it. Asked with filteredAnswer: "drop". */
+export function shownAnswer(result: Pick<AskResult, "answered" | "text" | "finish" | "finishReason" | "blockReason">): { text: string; note?: string } {
+  const info = answerInfoOf(result);
+  if (info.complete) return { text: result.text };
+  // A reason of a later version reads as "other".
+  const message = HEBREW[info.reason ?? "other"] ?? HEBREW.other;
+  // A cut answer has text worth reading: the message goes under it.
+  return result.answered && result.text ? { text: result.text, note: message } : { text: message };
+}
+```
+
+The Gemini reasons behind each `finish`, and which of them a Vertex AI project can see (Model Armor
+is Vertex only), are in [Vertex AI and Gemini](./vertex-and-gemini.md).
 
 ## Keeping what a failed question found
 
@@ -879,7 +954,7 @@ throws them: see [Testing](./testing.md).
   `ModelErrorKind`, `classifyModelError`, `errorKindOf`, `withRetry`, `RetryOptions`,
   `RetryNotice`, `isRetryableStatus`, `retryAfterMs`, the default waits.
 - [The tool loop](../reference/ask.md): `askWithFiles`, `AskResult`, `partialResultOf`,
-  `DocumentsNotFoundError`.
+  `DocumentsNotFoundError`, `answerInfoOf` and `AnswerInfo`.
 - [The library](../reference/library.md): `DocumentStoreError`, `ingest`, `prepare`.
 - The adapters and their options: [Gemini](../reference/gemini.md),
   [OpenAI-compatible](../reference/openai.md), [Claude](../reference/anthropic.md).
