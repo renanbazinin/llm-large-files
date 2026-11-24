@@ -281,9 +281,7 @@ The options of `askWithFiles`.
 | `explorer` | `ModelAdapter \| undefined` | none | A second model, of any provider, that makes the tool calls (search, read, look at pages) and reads whole files in parts. `model` then writes the answer from what the tools returned. Its requests get [`EXPLORER_INSTRUCTION`](#explorer_instruction), and its text is not shown. Left out, or the same object as `model`: one model does both. A question in which no file is searched and the tools are there for tables sent whole (`inlineTables`) does not use it: `model` runs the tools (since 0.10.0). |
 | `documentIds` | `string[]` | required | The documents this question may use. Duplicates count once. One that is missing throws [`DocumentsNotFoundError`](#documentsnotfounderror), unless `onMissingDocuments` says otherwise. |
 | `messages` | [`ChatMessage[]`](#chatmessage) | required | The conversation, oldest first. The last message must be the user's question. The loop works on copies: your array is not changed. |
-| `documentPlacement` | `"first" \| "last" \| "attached"` | `"first"` | Where document text and cards go. `"first"`: at the start of the first user turn, where they stay as the conversation grows, so the provider's prompt cache can reuse them on every follow-up question. `"last"`: after the text of the latest user turn; they then move on every turn and are billed in full each time. `"attached"`: at the start of the user turn whose `documentIds` lists the document first; new in 0.10.0, not applied yet (taken as `"first"`). |
-| `placement` | [`PlacementState`](./library.md#placementstate) | none | The placement state of this chat's last answer (`result.placement`): the documents keep the place they had. New in 0.10.0. Not read yet. |
-| `nativeRounds` | `boolean` | the model's `capabilities.nativeRounds`, else `false` | Send the rounds of earlier questions in their provider's own form (`ToolTurn.native`) to an adapter of the same id. New in 0.10.0. Not read yet. |
+| `documentPlacement` | `"first" \| "last"` | `"first"` | Where document text and cards go. `"first"`: at the start of the first user turn, where they stay as the conversation grows, so the provider's prompt cache can reuse them on every follow-up question. `"last"`: after the text of the latest user turn; they then move on every turn and are billed in full each time. |
 | `system` | `string` | none | Your system instruction. It is trimmed, and the guide to the document tools is added after it when a document is reached through tools or has pages to look at. |
 | `owner` | `string` | none | The user (or tenant) asking. A document ingested with another owner is treated as missing. Without `owner`, only documents ingested without one can be used. |
 | `scope` | [`DocumentScope`](./library.md#documentscope) | none | The scope of the question, such as `[userId, chatId]`. Every store call of the question carries it, and a document ingested with another scope is treated as missing. The tools check the owner and scope the store holds against `owner` and `scope` (`ToolOptions.access`). New in 0.9.0. |
@@ -362,8 +360,6 @@ question that failed.
 | `lastUsage` | `Record<string, unknown>`, optional | The provider's own usage object of the last chat reply that had one, as it came. |
 | `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call" \| "other"`, optional | How the reply whose text is the answer ended (`ModelReply.finish`), or the last reply of the chat when none answered. Absent when the adapter does not say. `"filtered"` and `"cut"` come with an `answer_filtered` or `answer_cut` notice. New in 0.10.0. |
 | `citations` | [`CitationCheck`](#citationcheck), optional | The line citations of `text`, checked against the evidence of the question: a document sent whole, or read whole, counts as shown, every line it has. Set when the question had documents. New in 0.10.0. |
-| `placement` | [`PlacementState`](./library.md#placementstate), optional | Where the documents of this chat were placed: keep it with the chat, and pass it as `AskOptions.placement` with the next question. New in 0.10.0. Not set yet. |
-| `userTurn` | [`ChatTurn`](#chatturn), optional | The latest user turn as it was sent: its text and `documentIds`, and the `notes` the library added. Store it in place of your own copy of that turn. New in 0.10.0. Not set yet. |
 
 Guides: [conversations](../guides/conversations.md) (`toolTurns`),
 [costs and limits](../guides/costs-and-limits.md) (`usage`),
@@ -777,32 +773,15 @@ Guide: [conversations](../guides/conversations.md).
 ### `ChatTurn`
 
 ```ts
-type ChatTurn = {
-  role: "user" | "assistant" | "model";
-  text: string;
-  documentIds?: string[]; // new in 0.10.0, not read yet
-  notes?: string[]; // new in 0.10.0, not set or read yet
-};
+type ChatTurn = { role: "user" | "assistant" | "model"; text: string };
 ```
 
 A plain turn of the user or of the model. `"model"` is taken as `"assistant"`.
 
-| Field | Type | What it holds |
-|---|---|---|
-| `role` | `"user" \| "assistant" \| "model"` | Who wrote the turn. |
-| `text` | `string` | Its text. |
-| `documentIds` | `string[]`, optional | The documents attached with this user turn, set by the application. With `documentPlacement: "attached"`, each document's block goes at the start of the turn that lists it first. Never sent to a model. New in 0.10.0. Not read yet. |
-| `notes` | `string[]`, optional | Lines the library added to this turn when it was asked, set by the library only (`AskResult.userTurn`), and sent again as they are in later questions. New in 0.10.0. Not set or read yet. |
-
 ### `ToolTurn`
 
 ```ts
-type ToolTurn = {
-  role: "tools";
-  version?: number;
-  calls: Array<ToolCall & { result: ToolResult }>;
-  native?: { model: string; turn: unknown }; // new in 0.10.0, not set or read yet
-};
+type ToolTurn = { role: "tools"; version?: number; calls: Array<ToolCall & { result: ToolResult }> };
 
 declare const TOOL_TURN_VERSION: 1;
 ```
@@ -825,10 +804,6 @@ sent to the model: of a stored round, only its calls are. A round of a higher ve
 newer version of the package, is refused with a `TypeError` ("A stored tool round (toolTurns) has
 version 2: …"), before any request. Catch it to ask again without the old rounds. A test that
 compares the rounds whole must expect `version`.
-
-| Field | Type | What it holds |
-|---|---|---|
-| `native` | `{ model: string; turn: unknown }`, optional | The model turn of this round in its provider's own form (`turn`, with Gemini's thought signatures), and the `id` of the adapter that made it (`model`). Sent back only to an adapter of that id; `model` is never sent to a model. New in 0.10.0. Not set or read yet. |
 
 ## The adapter contract
 
@@ -930,7 +905,6 @@ reference page.
 | `outputTokens` | `number` | none | Tokens set aside for the reply, when they come out of the same window as the prompt (Claude's `max_tokens`). The largest of the models' is kept free, but at least a quarter of the window is left for the prompt. |
 | `appendOnly` | `boolean` | `false` | True for a model whose earlier turns may not be rewritten (Claude ties its thinking blocks to the turns they were written in). When any model of the question says so, old tool results are not shortened to make room: when the room runs out, the question is answered with what it has, and an overflow is mended only by planning the documents again. When the model that explores is append-only, a note the loop adds after an empty or broken reply stays in its conversation for the rest of the question. |
 | `clearsToolResults` | `boolean` | `false` | True for a model whose provider may clear old tool results from the conversation on its side, before the model reads it: Claude's context editing with `clear_tool_uses`, or compaction. When any model of the question says so, no call is answered with a pointer to an earlier result: each call made again runs again, the same call twice in one turn runs twice, and pointers in stored rounds are sent as the stand-in that says to call again. The loop still counts every result as sent, so its room runs out where it would without it. `anthropic()` sets it from its `body`; set it in an adapter of your own whose provider does this. New in 0.6.0. |
-| `nativeRounds` | `boolean` | none | True when the rounds of earlier questions may be sent back to this model in its provider's own form (`ToolTurn.native`), thought signatures included: the default of `AskOptions.nativeRounds`. New in 0.10.0. Not read yet, and no built-in adapter sets it yet. |
 
 With an explorer, every field counts for the pair: the budget is planned for the smaller window
 and the larger scale, because both models get the same conversation. Guides:

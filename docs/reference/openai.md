@@ -23,7 +23,7 @@ The entry point needs no OpenAI SDK: it posts JSON to the URL you give, with `fe
   [`OpenAiCompatibleOptions`](#openaicompatibleoptions-1)
 - [Errors](#errors): [`OpenAiRequestError`](#openairequesterror)
 - [Chat Completions messages](#chat-completions-messages): [`OpenAiMessage`](#openaimessage),
-  [`fromOpenAiMessages()`](#fromopenaimessageshistory), [`openAiToolTurns()`](#openaitoolturnsturns-options)
+  [`fromOpenAiMessages()`](#fromopenaimessageshistory), [`openAiToolTurns()`](#openaitoolturnsturns)
 
 ## The model adapter
 
@@ -43,7 +43,7 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`, else `options.model`. It names the model in `usage.byModel` and in messages. |
-| `capabilities` | `toolFiles` is `"beside"` with `pdfInput`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set), so the loop counts a scale of 1 by default. `nativeRounds` is true (new in 0.10.0): its own assistant messages may go back in later questions as they came, with the `reasoning_content` DeepSeek asks for. No `outputTokens`, not `appendOnly`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
+| `capabilities` | `toolFiles` is `"beside"` with `pdfInput`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set), so the loop counts a scale of 1 by default. No `outputTokens`, not `appendOnly`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
 | `send(request, hooks?)` | One chat request, described below. |
 | `requestBytes(request)` | The size in bytes of the JSON body of that request, without the two fields a stream adds. |
 | `generateText` | The part reader of whole-file reads, described below. With it, `analyze_whole_document` can be offered when this adapter is the model that uses the tools (the explorer, when there is one), unless `wholeDocumentAnalysis` is `false`. |
@@ -358,10 +358,10 @@ A call that no `tool` message answers keeps the result
 Native parts reach every model of the question as they are. With a model of another provider (an
 explorer on Gemini, say), both models must read parts in OpenAI's form.
 
-### openAiToolTurns(turns, options?)
+### openAiToolTurns(turns)
 
 ```ts
-declare function openAiToolTurns(turns: ToolTurn[], options?: { native?: boolean }): OpenAiMessage[];
+declare function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[];
 ```
 
 The tool rounds a question returned ([`AskResult.toolTurns`](./ask.md#askresult)) as Chat
@@ -375,10 +375,6 @@ question (since 0.6.0, as `askWithFiles` sends stored rounds). No files: `toolTu
 call without one is given a new random ID, `call_` and 24 hex digits, a different one each time the
 function runs, so that the rounds of two questions kept in one history never share an ID. (Before
 0.6.0 such calls were numbered from 1.)
-
-| Option | Type | Default | What it does |
-|---|---|---|---|
-| `native` | `boolean` | `false` | A round that kept its own assistant message (`ToolTurn.native`) gets that message's `reasoning_content`, written between `content` and `tool_calls`. DeepSeek's thinking mode asks for the `reasoning_content` of every earlier assistant turn in a request with tools, a turn that made no tool call included, and refuses one without it (HTTP 400). The answer turns of earlier questions have none to give: the library does not keep an answer's reasoning yet ([DeepSeek](../guides/openai-compatible.md#deepseek)). A round without it, or whose `native` is not an assistant message with reasoning, is written as without the option. New in 0.10.0. |
 
 ```ts
 import { askWithFiles } from "llm-large-files";
