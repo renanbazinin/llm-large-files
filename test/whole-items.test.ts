@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { createLargeFiles, estimateTokens, evidenceOf, MemoryDocumentStore, stubResult, type GenerateText, type ToolResult } from "../src/index.js";
 import { parseItemLines, quoteForm, quoteNearLine, quoteOnLine } from "../src/map-reduce.js";
+import { MAX_LINE_CHARACTERS } from "../src/text.js";
 import { fitAnswer } from "../src/tools.js";
 import { wholeReadCost } from "../src/whole-cost.js";
 import { utf8 } from "./fake-model.js";
@@ -338,6 +339,66 @@ describe("quoteNearLine", () => {
     expect(quoteNearLine("המזמין רשאי … חלונות המטבח", offset)).toBe(false);
     expect(quoteNearLine("הספק ישלם קנס בגין איחור באספקת חומרי ניקוי", offset)).toBe(false);
     expect(quoteNearLine("ניקיון יומי של החדרים", lowered)).toBe(false);
+  });
+
+  describe("on a line longer than ingest stores, as a store of your own may give", () => {
+    // 400 clauses of a contract written to one pattern, each with its own amount, on one line of
+    // about 33,000 characters. Measured along all of a line of 118,759 characters, a quote of 270
+    // took 688 ms (0.10.0 before this fix), for each item that was not on its line.
+    const amount = (clause: number) => (1_000 + clause * 7).toLocaleString("en-US");
+    const clause = (k: number) => `${k + 1}. המזמין רשאי לקזז ${amount(k)} ש"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה באתר ${k % 9}.`;
+    const long = Array.from({ length: 400 }, (_, k) => clause(k)).join(" ");
+    /** The cells the near check would fill along all of the line. */
+    const along = (quote: string) => [...quoteForm(quote)].length * long.length;
+
+    it("finds a quote with a letter wrong around a word of it that is rare on the line, and measures only there", () => {
+      expect(long.length).toBeGreaterThan(15 * MAX_LINE_CHARACTERS);
+      const work = { cells: 0 };
+      // Clause 300 with השרים for השרתים: its amount is in one place on the line.
+      const near = `המזמין רשאי לקזז ${amount(299)} ש"ח מכל תשלום לספק בגין השארת דלת חדר השרים פתוחה`;
+      expect(quoteNearLine(near, long, work)).toBe(true);
+      expect(work.cells).toBeGreaterThan(0);
+      expect(work.cells).toBeLessThan(along(near) / 100);
+      // Another amount than the clause's, or other words around the amount: not near.
+      expect(quoteNearLine(near.replace(amount(299), "9,999"), long)).toBe(false);
+      expect(quoteNearLine(`הספק ישלם קנס בסך ${amount(299)} ש"ח בגין איחור באספקת חומרי ניקוי`, long)).toBe(false);
+    });
+
+    it("stays within a few windows of the quote for many quotes not on the line", () => {
+      // The quotes of 100 fines of another kind, each with an amount of the line: each is measured
+      // around its amount. 0.10.0 before this fix measured each along all of the line.
+      const quotes = Array.from({ length: 100 }, (_, k) => `הספק ישלם קנס בסך ${amount(k * 3)} ש"ח בגין איחור באספקת חומרי ניקוי לאתר`);
+      const work = { cells: 0 };
+      expect(quotes.filter((quote) => quoteNearLine(quote, long, work))).toEqual([]);
+      const most = quotes.reduce((sum, quote) => sum + along(quote), 0);
+      expect(work.cells).toBeGreaterThan(0);
+      expect(work.cells).toBeLessThan(most / 100);
+      // At most 2 words of 4 places each, a window of twice the quote and its margin around each.
+      for (const quote of quotes.slice(0, 5)) {
+        const each = { cells: 0 };
+        quoteNearLine(quote, long, each);
+        const letters = [...quoteForm(quote)].length;
+        expect(each.cells).toBeLessThanOrEqual(2 * 4 * 2 * Math.ceil(letters * 1.2) * letters);
+      }
+    });
+
+    it("does not measure a quote none of whose words is rare on the line, which a stored line of the same text measures whole", () => {
+      // Clause 1 without its amount, and with השרים for השרתים: near a line the library stores.
+      const quote = "המזמין רשאי לקזז ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרים פתוחה";
+      const stored = Array.from({ length: 22 }, (_, k) => clause(k)).join(" ");
+      expect(stored.length).toBeLessThanOrEqual(MAX_LINE_CHARACTERS);
+      expect(quoteNearLine(quote, stored)).toBe(true);
+      // On the long line each of its words is in 400 places, or in none: it is not looked for.
+      const work = { cells: 0 };
+      expect(quoteNearLine(quote, long, work)).toBe(false);
+      expect(work.cells).toBe(0);
+    });
+
+    it("finds a quote on a long line with letters outside the BMP", () => {
+      const emoji = Array.from({ length: 400 }, (_, k) => `📄 ${clause(k)}`).join(" 🔒 ");
+      expect(quoteNearLine(`📄 300. המזמין רשאי לקזז ${amount(299)} ש"ח מכל תשלום לספק בגין השארת דלת חדר השרים`, emoji)).toBe(true);
+      expect(quoteNearLine(`📄 הספק ישלם קנס בסך ${amount(299)} ש"ח בגין איחור באספקת חומרי ניקוי`, emoji)).toBe(false);
+    });
   });
 
   it("lets an item with such a quote count on the line it names, and no other", async () => {
