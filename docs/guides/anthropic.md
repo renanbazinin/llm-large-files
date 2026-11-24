@@ -67,7 +67,7 @@ is tested against the request and response shapes of the Messages API documentat
 | `tokenScale` | 1.35 | How many of Claude's tokens one token of the library's estimate comes to. |
 | `body`, `analysisBody` | none | More fields for every chat request, and `(maxOutputTokens) => fields` for the part reads of a whole-file read: `thinking`, `output_config`. |
 | `firstByteTimeoutMs`, `idleTimeoutMs` | 600,000 and 300,000 | Waits on a chat reply that sends nothing. 0 waits without end. |
-| `timeoutMs` | 180,000 | Milliseconds one part read of a whole-file read may take. |
+| `timeoutMs` | 180,000 | Milliseconds one part read of a whole-file read may take. 0 sets none (since 0.10.0). |
 
 The sections below explain each, and more: `stream` and `eagerInputStreaming` in
 [Streaming and waits](#streaming-and-waits), `cache` in [Prompt caching](#prompt-caching),
@@ -189,7 +189,10 @@ reading of the reply follow the options, not `body`.
   for such a connection to close, and took one that broke for a model that could not be reached,
   with the whole answer already shown.
 - **Part reads are not streamed.** Each may take `timeoutMs` (180 s); one that takes longer is
-  stopped and tried once more.
+  stopped and tried once more. Since 0.10.0 it is an `AnthropicRequestError` of kind `"timeout"`
+  and status 0 ("Claude took longer than 180 s to answer."), as in the other adapters; before, the
+  error of the timer's abort, with no status. The tool tells the model "The model took too long to
+  answer."
 
 Streaming the answer on to a browser is in [web app](./web-app.md), and proxies that cut long
 streams in [deployment](./deployment.md).

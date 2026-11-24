@@ -134,7 +134,7 @@ describe("gemini() as a model of askWithFiles", () => {
   it("is named after the model in its URL, and says what the model takes", () => {
     const model = gemini(geminiApi({ apiKey: "k", model: "gemini-3.8-flash" }));
     expect(model.id).toBe("gemini-3.8-flash");
-    expect(model.capabilities).toEqual({ toolFiles: "inside", pageTokens: 530 });
+    expect(model.capabilities).toEqual({ toolFiles: "inside", pageTokens: 530, nativeRounds: true });
     expect(gemini(vertexAi({ project: "p", model: "gemini-4-carbon", accessToken: "t" })).id).toBe("gemini-4-carbon");
     const custom: GeminiEndpoint = { url: "https://gateway.example/llm/answer", headers: {} };
     expect(gemini(custom).id).toBe("gateway.example");

@@ -75,7 +75,7 @@ describe("Claude through the Messages API", () => {
     let keys = 0;
     const model = anthropic({ model: "claude-opus-5-5", apiKey: () => `sk-${++keys}`, fetch: api.fetch });
     expect(model.id).toBe("claude-opus-5-5");
-    expect(model.capabilities).toEqual({ maxRequestBytes: 32_000_000, toolFiles: "inside", pageTokens: 3_500, tokenScale: 1.35, outputTokens: 64_000, appendOnly: true });
+    expect(model.capabilities).toEqual({ maxRequestBytes: 32_000_000, toolFiles: "inside", pageTokens: 3_500, tokenScale: 1.35, outputTokens: 64_000, appendOnly: true, nativeRounds: true });
     await model.send(request("Hi", { system: "Be brief." }));
     await model.send(request("Hi"));
     expect(api.sent[0]!.url).toBe("https://api.anthropic.com/v1/messages");
@@ -92,7 +92,7 @@ describe("Claude through the Messages API", () => {
       body: { output_config: { effort: "low" }, context_management: { edits: [{ type: "clear_tool_uses_20250919" }] } }, fetch: gateway.fetch,
     });
     // With context editing that clears tool results, the loop points to none of them.
-    expect(other.capabilities).toEqual({ contextTokens: 200_000, maxRequestBytes: 32_000_000, toolFiles: "none", pageTokens: 2_000, tokenScale: 1.2, outputTokens: 8_000, appendOnly: true, clearsToolResults: true });
+    expect(other.capabilities).toEqual({ contextTokens: 200_000, maxRequestBytes: 32_000_000, toolFiles: "none", pageTokens: 2_000, tokenScale: 1.2, outputTokens: 8_000, appendOnly: true, clearsToolResults: true, nativeRounds: true });
     expect((await other.send(request("Hi"))).text).toBe("ok");
     expect(gateway.sent[0]!.url).toBe("https://llm-gateway.corp.example/anthropic/v1/messages");
     expect(gateway.sent[0]!.headers).toEqual({ "Content-Type": "application/json", "anthropic-version": "2023-06-01", "anthropic-beta": "context-management-2025-06-27", Authorization: "Bearer tok", "X-Team": "search" });
@@ -222,6 +222,7 @@ describe("Claude through the Messages API", () => {
       calls: [{ id: "toolu_7", name: "read_document", args: { document_id: "doc_1", start_line: 96, end_line: 98 } }],
       raw: [thinking, text("Looking at it."), call],
       finishReason: "tool_use",
+      responseId: "msg_1",
       usage: { inputTokens: 710, cachedInputTokens: 700, outputTokens: 44, thoughtTokens: 0 },
       providerUsage: { input_tokens: 10, cache_read_input_tokens: 700, cache_creation_input_tokens: 0, output_tokens: 44 },
     });

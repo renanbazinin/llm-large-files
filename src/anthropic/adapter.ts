@@ -1,7 +1,7 @@
 // Claude (the Messages API) as a model of `askWithFiles`. No SDK, like the other adapters: the
 // caller gives a key or a token, and may give the URL of a gateway that speaks the same API.
 import { randomUUID } from "node:crypto";
-import { base64, idleWatch, noteCutReply, notJsonMessage, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, type HeaderSource, type IdleWatch, type SecretSource } from "../http.js";
+import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
@@ -94,7 +94,11 @@ export type AnthropicOptions = {
    * reports with each reply corrects it during a question.
    */
   tokenScale?: number | undefined;
-  /** Milliseconds a part read may take. Defaults to 180,000. */
+  /**
+   * Milliseconds a part read may take, its whole reply included. Defaults to 180,000; 0 sets none
+   * (since 0.10.0). A part past it is an `AnthropicRequestError` of kind "timeout" and status 0
+   * (since 0.10.0; before, the abort of the timer), which a whole-file read sends again once.
+   */
   timeoutMs?: number | undefined;
   /**
    * The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count:
@@ -376,10 +380,15 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
     ...options.body,
   });
 
-  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => AnthropicRequestError = unreachable, headers?: Record<string, string>): Promise<Response> => {
+  /**
+   * Sends a request. A `bounded` one (a part read, whose time limit is its signal) stops waiting
+   * when the signal aborts, even for a fetch that does not stop then itself.
+   */
+  const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => AnthropicRequestError = unreachable, headers?: Record<string, string>, bounded = false): Promise<Response> => {
     let response: Response;
     try {
-      response = await fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      const sent = fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      response = await (bounded ? until(sent, signal) : sent);
     } catch (error) {
       if (stopped()) throw error;
       throw lost(error);
@@ -388,8 +397,8 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
     return response;
   };
 
-  /** The reply, from the content of a finished message. */
-  const replyOf = (content: Block[], stopReason: unknown, stopDetails: Json | undefined, usage: Json | undefined, problems: Map<number, string>, text: string): ModelReply => {
+  /** The reply, from the content of a finished message. `named` is the message's own fields: its ID and model. */
+  const replyOf = (content: Block[], stopReason: unknown, stopDetails: Json | undefined, usage: Json | undefined, problems: Map<number, string>, text: string, named?: Json): ModelReply => {
     const boundary = content.map((block) => block?.type).lastIndexOf("fallback");
     const refused = stopReason === "refusal";
     // Cut off at the output limit with a call half-written: the call is answered, not run.
@@ -413,21 +422,33 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       ...(typeof stopReason === "string" ? { finishReason: stopReason } : {}),
       ...(finish ? { finish } : {}),
       ...(refused ? { blockReason: `refusal${category}` } : {}),
+      ...(typeof named?.id === "string" && named.id ? { responseId: named.id } : {}),
+      ...(typeof named?.model === "string" && named.model ? { responseModel: named.model } : {}),
       ...(usage ? { usage: usageOf(usage), providerUsage: usage } : {}),
     };
   };
 
   const generateText: GenerateText = ({ system, prompt, maxOutputTokens, signal, onTruncated, onUsage }) => {
     const send = async (limit: number): Promise<LimitedReply> => {
-      const timeout = AbortSignal.timeout(options.timeoutMs ?? 180_000);
+      const timer = partTimer(signal, options.timeoutMs);
+      try {
+        return await read(limit, timer);
+      } finally {
+        timer.stop();
+      }
+    };
+    /** One part read, within its time limit: past it, a timeout. A stop of the caller's is reported as it is. */
+    const read = async (limit: number, timer: PartTimer): Promise<LimitedReply> => {
+      const stopped = () => Boolean(signal?.aborted);
+      const lost = (error: unknown) => (timer.expired && !signal?.aborted ? tooSlow(timer.limitMs) : unreachable(error));
       const response = await post({
         model: options.model,
         max_tokens: limit,
         system,
         messages: [{ role: "user", content: prompt }],
         ...options.analysisBody?.(limit),
-      }, signal ? AbortSignal.any([signal, timeout]) : timeout, () => Boolean(signal?.aborted) || timeout.aborted);
-      const data = await readJson<Json>(response, () => Boolean(signal?.aborted) || timeout.aborted, unreachable, undefined, (error) => notJson(response, error));
+      }, timer.signal, stopped, lost, undefined, true);
+      const data = await readJson<Json>(response, stopped, lost, timer.signal ? { pulse: () => undefined, signal: timer.signal } : undefined, (error) => notJson(response, error));
       const used = usageOf(data.usage as Json | undefined);
       onUsage?.(used);
       const content: Block[] = Array.isArray(data.content) ? data.content : [];
@@ -461,6 +482,9 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       appendOnly: true,
       // With context editing, Claude may no longer have a result shown earlier: none is pointed to.
       ...(clearsToolResults(options.body) ? { clearsToolResults: true } : {}),
+      // Its own turns go back as they came, thinking blocks and their signatures included, within a
+      // question and in later ones.
+      nativeRounds: true,
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request, streaming))),
     generateText,
@@ -501,7 +525,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
         const content: Block[] = Array.isArray(data.content) ? data.content : [];
         const text = content.map((block) => (block?.type === "text" && typeof block.text === "string" ? block.text : "")).join("");
         if (text) hooks.onText?.(text);
-        return replyOf(content, data.stop_reason, data.stop_details as Json | undefined, data.usage as Json | undefined, problems, text);
+        return replyOf(content, data.stop_reason, data.stop_details as Json | undefined, data.usage as Json | undefined, problems, text, data);
       }
       const content: Block[] = [];
       const inputs = new Map<number, string>();
@@ -511,6 +535,8 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       let stopReason: unknown;
       let stopDetails: Json | undefined;
       let usage: Json | undefined;
+      /** The message's own fields, from `message_start`: its ID and model. */
+      let named: Json | undefined;
       // `message_stop` ends the reply: a gateway that leaves the connection open after it is not waited for.
       const end = replyEnd(watch);
       try {
@@ -523,6 +549,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
             end.reached();
           } else if (event.type === "message_start") {
             usage = { ...event.message?.usage };
+            named = event.message as Json | undefined;
           } else if (event.type === "content_block_start" && typeof event.index === "number") {
             content[event.index] = { ...event.content_block };
           } else if (event.type === "content_block_delta" && typeof event.index === "number") {
@@ -590,7 +617,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       // The problems were noted by the place of the block in the stream: the same place, with no gaps, in what is kept.
       const placed = new Map<number, string>();
       for (const [index, problem] of problems) placed.set(blocks.indexOf(content[index]!), problem);
-      return replyOf(blocks, stopReason, stopDetails, usage, placed, text);
+      return replyOf(blocks, stopReason, stopDetails, usage, placed, text, named);
     }
   }
 }
@@ -598,6 +625,11 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
 /** A body that came with a status of success but is no JSON (a gateway's page): it is not sent again. */
 function notJson(response: Response, error: unknown): AnthropicRequestError {
   return new AnthropicRequestError(notJsonMessage("Claude's", response), response.status, { kind: "invalid", cause: error });
+}
+
+/** A part read whose whole reply did not come within its time limit (`timeoutMs`). */
+function tooSlow(limitMs: number): AnthropicRequestError {
+  return new AnthropicRequestError(`Claude took longer than ${waitText(limitMs)} to answer.`, 0, { kind: "timeout" });
 }
 
 /** A request that got no answer: the reason, without the stack of the HTTP client. */

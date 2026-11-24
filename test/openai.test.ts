@@ -48,7 +48,7 @@ describe("an OpenAI-compatible endpoint", () => {
     let tokens = 0;
     const model = openAiCompatible({ baseUrl: "https://api.deepseek.com/v1/", model: "deepseek-v4-pro", apiKey: () => `key-${++tokens}`, headers: async () => ({ "X-Tenant": "acme" }), fetch: endpoint.fetch });
     expect(model.id).toBe("deepseek-v4-pro");
-    expect(model.capabilities).toEqual({ toolFiles: "none", pageTokens: 1_000 });
+    expect(model.capabilities).toEqual({ toolFiles: "none", pageTokens: 1_000, nativeRounds: true });
     await model.send(request("Hi"));
     await model.send(request("Hi again"));
     expect(endpoint.sent.map((sent) => sent.url)).toEqual(["https://api.deepseek.com/v1/chat/completions", "https://api.deepseek.com/v1/chat/completions"]);
@@ -62,7 +62,7 @@ describe("an OpenAI-compatible endpoint", () => {
     expect(azure.sent[0]!.url).toContain("/deployments/gpt/chat/completions?api-version=");
     expect(azure.sent[0]!.headers).toEqual({ "Content-Type": "application/json", "api-key": "k" });
     expect(openAiCompatible({ model: "gpt-5.5", fetch: azure.fetch, contextTokens: 400_000, maxRequestBytes: 20_000_000, tokenScale: 1.1 }).capabilities)
-      .toEqual({ contextTokens: 400_000, maxRequestBytes: 20_000_000, toolFiles: "none", pageTokens: 1_000, tokenScale: 1.1 });
+      .toEqual({ contextTokens: 400_000, maxRequestBytes: 20_000_000, toolFiles: "none", pageTokens: 1_000, tokenScale: 1.1, nativeRounds: true });
   });
 
   it("runs the tool loop: system first, the card in the first user message, tool results as tool messages", async () => {

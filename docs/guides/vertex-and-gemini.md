@@ -1,9 +1,9 @@
 # Gemini API and Vertex AI
 
 This guide sets up Gemini for production, on Vertex AI or on the Gemini API: endpoints and access
-tokens, `askGemini` or `askWithFiles` with `gemini()`, the waits on a model that thinks, thinking,
-the budget, an explorer model, whole-file reads, pages of PDFs, an enterprise gateway, quotas and
-errors. It is for developers who call Gemini from a server. Every export and option of
+tokens, `askGemini` or `askWithFiles` with `gemini()`, fields of your own in the request (safety
+settings, labels), the waits on a model that thinks, thinking, the budget, an explorer model,
+whole-file reads, pages of PDFs, an enterprise gateway, quotas and errors. It is for developers who call Gemini from a server. Every export and option of
 `llm-large-files/gemini` is listed in the [reference](../reference/gemini.md).
 
 ## Vertex AI or the Gemini API
@@ -14,8 +14,8 @@ headers differ.
 
 | | `vertexAi()` | `geminiApi()` |
 |---|---|---|
-| Sign-in | An OAuth access token, sent as `Authorization: Bearer …` | An API key, sent as the `x-goog-api-key` header |
-| Host | The host of the `location` you pick, `"global"` by default | `https://generativelanguage.googleapis.com` (`baseUrl`) |
+| Sign-in | An OAuth access token, sent as `Authorization: Bearer …`; or an API key of express mode (`apiKey`, since 0.10.0) | An API key, sent as the `x-goog-api-key` header |
+| Host | The host of the `location` you pick, `"global"` by default, or one of your own (`host`) | `https://generativelanguage.googleapis.com` (`baseUrl`) |
 | API version | `"v1"` (`apiVersion`) | `"v1beta"` (`apiVersion`) |
 | Streaming | `streamUrl` is set (`:streamGenerateContent?alt=sse`) | The same |
 | A second model that explores | `explorerModel` | `explorerModel` |
@@ -27,7 +27,7 @@ for prototypes and for tests.
 
 ### Vertex AI
 
-`vertexAi({ project, model, accessToken, location?, apiVersion?, explorerModel? })` builds the URL
+`vertexAi({ project, model, accessToken, location?, apiVersion?, explorerModel?, headers?, host? })` builds the URL
 `{host}/{apiVersion}/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent`,
 and the same with `:streamGenerateContent?alt=sse` for streaming. `location` defaults to
 `"global"`. The host follows the location: see [`vertexHost()`](../reference/gemini.md#vertexhostlocation).
@@ -37,6 +37,36 @@ your data must be processed there. Which models a location offers is Google's to
 the location does not have is refused, and the error has `kind` `"invalid"`. Set `apiVersion` only
 when you need another version of the API than `"v1"`. The library was checked live on Vertex AI in
 the `global` and `eu` locations: see [Measurements](../measurements.md).
+
+Three options are new in 0.10.0:
+
+- **`headers`**: more headers, merged after the library's, so a name you give replaces the
+  library's (`x-goog-user-project` for the project that is billed, `x-server-timeout`). A function
+  is called before every request, with the same context as the token function (below).
+- **`host`**: the https origin to send the requests to, in place of the host of the location: a
+  Private Service Connect endpoint, or a proxy that keeps Vertex AI's paths. It must be an origin
+  and nothing more (`"https://vertex.psc.example.internal"`, a port allowed): a path, a query, a
+  fragment or an `@` throws a `TypeError`, since the token would go to another host.
+- **`apiKey`**: Vertex AI express mode. The key goes in the `x-goog-api-key` header, and the URL
+  names no project or location: `https://aiplatform.googleapis.com/v1/publishers/google/models/{model}:generateContent`.
+  Give `apiKey`, or `project` and `accessToken`, not both.
+
+```ts
+import { vertexAi } from "llm-large-files/gemini";
+
+// accessToken as in Access tokens for Vertex AI below.
+const privateEndpoint = vertexAi({
+  project: process.env.GOOGLE_CLOUD_PROJECT!,
+  location: "europe-west4",
+  model: "gemini-3.8-flash",
+  accessToken,
+  host: process.env.VERTEX_HOST!, // "https://…": where your network reaches Vertex AI
+  headers: { "x-goog-user-project": process.env.BILLING_PROJECT! },
+});
+
+// Express mode: an API key, no project.
+const express = vertexAi({ apiKey: process.env.VERTEX_API_KEY!, model: "gemini-3.8-flash" });
+```
 
 ### Access tokens for Vertex AI
 
@@ -63,9 +93,12 @@ import { vertexAi } from "llm-large-files/gemini";
 const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
 
 // Called before every request. GoogleAuth keeps the token and fetches a new one when it is about
-// to expire, so the call is cheap.
-async function accessToken(): Promise<string> {
-  const token = await auth.getAccessToken();
+// to expire, so the call is cheap. After a 401 it is called with { refresh: true }: the token in the
+// cache was refused, so it is marked expired and a new one is fetched.
+async function accessToken({ refresh }: { refresh: boolean }): Promise<string> {
+  const client = await auth.getClient();
+  if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 });
+  const { token } = await client.getAccessToken();
   if (!token) throw new Error("No access token from the application default credentials.");
   return token;
 }
@@ -86,8 +119,18 @@ const endpoint = vertexAi({
 - **An error thrown by your function** has no HTTP status and no `kind`. In a chat request it ends
   the question with that error: the request is not sent again. In a part read it is tried once
   more, and the part is then reported as one that could not be read.
-- **A token that is refused** (HTTP 401 or 403: expired, a missing role, the Vertex AI API not
-  enabled in the project) is a `GeminiRequestError` with `kind` `"auth"`. It is not sent again.
+- **A token that is refused with HTTP 401** is asked for again, since 0.10.0, when `accessToken` is
+  a function: the function is called with `{ refresh: true }`, and the request is sent once more
+  with the token it returns. A token provider such as `google-auth-library` returns the token in
+  its cache until it nears its expiry, so calling it the same way again would send the token that
+  was refused: force a new one when `refresh` is true, as the sample does. That sample works for
+  the clients that keep their token in `credentials`: a service account, the metadata server
+  (Cloud Run, GKE, Compute Engine) and user credentials. A second 401 is the error: there is no
+  third try. If the function throws when it is asked to refresh, the first 401 is the error (a
+  `GeminiRequestError` of kind `"auth"`), with what the function threw as its `cause`. A token
+  given as a string, an API key and a gateway's headers get no second try.
+- **A token that is refused for good** (HTTP 401 twice, or 403: a missing role, the Vertex AI API
+  not enabled in the project) is a `GeminiRequestError` with `kind` `"auth"`. It is not sent again.
 
 ### The Gemini API
 
@@ -138,12 +181,17 @@ On top of `askWithFiles`, `askGemini` adds:
 - `contents`: the history as Gemini `contents`, with images or inline PDFs, in place of `messages`
   ([below](#gemini-history-stored-as-contents)).
 - `generationConfig` for the model that answers and `explorerGenerationConfig` for the explorer.
-- One value of `toolFilePlacement`, `analysisConfig`, `firstByteTimeoutMs`, `idleTimeoutMs` and
-  `fetch`, given to both models.
+- `body` for the model that answers and `explorerBody` for the explorer (new in 0.10.0;
+  [below](#fields-of-your-own-safety-settings-labels-and-more)).
+- One value of `toolFilePlacement`, `analysisConfig`, `analysisBody`, `functionCallingMode`,
+  `answerWithoutTools`, `timeoutMs`, `firstByteTimeoutMs`, `idleTimeoutMs` and `fetch`, given to
+  both models.
 - `maxToolTurns` and `maxToolCallsPerTurn`, the names that `limits.toolTurns` and
   `limits.callsPerTurn` had before 0.5.0. `limits` wins when both are set.
 
-Every other option goes to `askWithFiles` as it is. What `askGemini` cannot do:
+Every other option goes to `askWithFiles` as it is. Since 0.10.0 the type of `askGemini`'s options
+is that of `askWithFiles`'s, with the models taken out and the options above added: an option new
+in `askWithFiles` reaches the loop through `askGemini` too. What `askGemini` cannot do:
 
 | You need | `askGemini` | `askWithFiles` with `gemini()` |
 |---|---|---|
@@ -151,7 +199,7 @@ Every other option goes to `askWithFiles` as it is. What `askGemini` cannot do:
 | The cost of a page, the name in `usage.byModel` | No: 530 tokens, the model in the URL | `pageTokens`, `id` |
 | An explorer with other headers, or of another provider | No: the same headers (with `vertexAi()` or `geminiApi()`, the same project, location and key too) | `explorer`: any adapter |
 | Different waits, `fetch` or `toolFilePlacement` for each model | No: one value for both | Each adapter its own |
-| A part reader of your own ([below](#whole-file-reads-in-parts)) | No | Yes |
+| A part reader of your own | No | Yes: an adapter whose `generateText` is yours |
 
 Start with `askGemini`. Move to `askWithFiles` when you need a row of this table:
 
@@ -181,21 +229,78 @@ What the Gemini adapter does in either case:
   answering model.
 - **It never shows thoughts.** Parts that Gemini marks `"thought": true` are not in `text` and not
   passed to `onText`.
-- **The request that must be answered in text declares no tools.** Gemini can ignore
-  `functionCallingConfig` mode `NONE` and go on calling them.
+- **The request that must be answered in text declares no tools**, by default. Gemini can ignore
+  `functionCallingConfig` mode `NONE` and go on calling them. `answerWithoutTools: "mode_none"`
+  (new in 0.10.0) keeps the tools and sends mode `NONE`, so that the request starts as the ones
+  before it did, which may let Vertex AI's prompt cache serve more of it; a tool call that still
+  comes back is asked for again once. "omit" stays the default until a live measure says otherwise.
 - **A stream that ends without a `finishReason` was cut off** on its way (a proxy, a dropped
   connection). It is sent again when none of its text was shown, and is an error otherwise.
-- **A turn with `MALFORMED_FUNCTION_CALL` or `UNEXPECTED_TOOL_CALL`** is asked for once more, the
-  request for the answer included: there the note says that no tool can be called, and asks for
-  the answer in text.
-  `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII` and `IMAGE_SAFETY` mark a reply
-  that a filter stopped; `MAX_TOKENS`, one cut off at the output limit.
+- **A turn with `MALFORMED_FUNCTION_CALL`, `UNEXPECTED_TOOL_CALL` or (since 0.10.0)
+  `MALFORMED_RESPONSE`** is asked for once more, the request for the answer included: there the
+  note says that no tool can be called, and asks for the answer in text.
+- **Finish reasons.** `SAFETY`, `RECITATION`, `BLOCKLIST`, `PROHIBITED_CONTENT`, `SPII`,
+  `IMAGE_SAFETY` and, since 0.10.0, `MODEL_ARMOR` (Vertex AI's Model Armor), `IMAGE_PROHIBITED_CONTENT`,
+  `IMAGE_RECITATION` and `IMAGE_OTHER` mark a reply that a filter stopped: `finish` `"filtered"`.
+  `MAX_TOKENS` marks one cut off at the output limit: `"cut"`. Since 0.10.0 `OTHER`,
+  `FINISH_REASON_UNSPECIFIED`, `NO_IMAGE`, `TOO_MANY_TOOL_CALLS`, `MISSING_THOUGHT_SIGNATURE` and
+  `LANGUAGE` are `"other"`: a reason that asking again does not mend. `LANGUAGE` (a language the
+  model does not take) is no safety filter: tell a Hebrew user so, not that a filter stopped the
+  answer. The provider's own word is always in `finishReason`.
 
 **Usage.** `usage.byModel` is keyed by the model name in the URL (`"gemini-3.8-flash"`). Input
 tokens are `promptTokenCount` plus `toolUsePromptTokenCount`, cached tokens `cachedContentTokenCount`,
 and output tokens `candidatesTokenCount` plus `thoughtsTokenCount` (the thoughts are also
 `thoughtTokens`). `lastUsage` is Gemini's own `usageMetadata` of the last response. Turning that into
 a cost: [Costs and limits](./costs-and-limits.md).
+
+## Fields of your own: safety settings, labels and more
+
+`body` adds fields to the body of every chat request, the request for the answer included, and
+`analysisBody` to each part read of a whole-file read. They are merged last, after the library's,
+and are counted in the size of the request. New in 0.10.0, in the shape of the `body` and
+`analysisBody` of the [OpenAI-compatible](./openai-compatible.md) and [Claude](./anthropic.md)
+adapters.
+
+```ts
+import { askGemini, type GeminiRequestFields } from "llm-large-files/gemini";
+
+// files, endpoint, documentIds and messages as in the askGemini sample above.
+const body: GeminiRequestFields = {
+  safetySettings: [{ category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" }],
+  labels: { app: "chatbot", team: "hr" }, // Vertex AI: billing labels. No user IDs.
+};
+await askGemini({
+  files, endpoint, documentIds, messages,
+  body,                                        // the answering model, and the explorer
+  explorerBody: { labels: { app: "chatbot", role: "explorer" } }, // the explorer, when it needs other fields
+  analysisBody: () => ({ labels: { app: "chatbot", role: "parts" } }), // part reads
+  functionCallingMode: "VALIDATED",
+});
+```
+
+- **`GeminiRequestFields`** types `safetySettings`, `labels`, `serviceTier` and `cachedContent`, and
+  takes any other field of the API. The fields the library writes (`contents`,
+  `systemInstruction`, `tools`, `toolConfig`, `generationConfig`) are typed `never`, so setting one
+  fails to compile: `generationConfig` and `analysisConfig` set those. Nothing is refused at run
+  time.
+- **Labels reach the billing export** of the project, and everyone who reads it. Keys and values
+  are lower case, at most 63 characters. Never put a user ID, an email or other personal data in
+  them: label by app, team or feature. The Gemini API does not take labels.
+- **A reply a safety setting stops** has `finish` `"filtered"`, as one stopped by Gemini's own
+  filters.
+- **`cachedContent`** names an explicit context cache (`cachedContents/…`) that you made with the
+  API. The library makes none: Gemini 3 caches the start of a request by itself (implicit caching),
+  and the library keeps that start the same from one request to the next. A request that uses a
+  cache may not set `systemInstruction`, `tools` or `toolConfig`: they must be in the cache
+  ([Vertex AI](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/context-cache/context-cache-use)).
+  The requests of `askGemini` and `askWithFiles` send the system text in every request (part reads
+  included), and tools in the requests that offer them, so `cachedContent` does not fit them. It
+  fits only a loop of your own with `gemini()` whose requests have no `system` and no tools.
+- **`functionCallingMode: "VALIDATED"`** has Gemini check each call against the declaration of its
+  tool. It is sent only in a request that offers tools; `"AUTO"` is the default.
+- **`body` changes the bytes of every request**, so the first request after you set it or change it
+  misses the prompt cache once.
 
 ## Waits: a model that thinks sends nothing
 
@@ -237,7 +342,7 @@ What this means for your server:
 - **Keep the waits below the request timeout of what stands in front of your server**, or raise
   that timeout: a load balancer, a proxy, Cloud Run. Keep the stream to the browser alive while the
   model is silent: [Web app](./web-app.md) and [Deployment](./deployment.md).
-- **Part reads have a limit of their own**, 180 s a request: [below](#whole-file-reads-in-parts).
+- **Part reads have a limit of their own**, `timeoutMs` (180 s a request): [below](#whole-file-reads-in-parts).
 
 ## Thinking
 
@@ -363,30 +468,25 @@ await askWithFiles({
 
 `analyze_whole_document` reads a file in parts, four at a time, and writes one answer from the
 notes. `gemini()` reads the parts with `createGeminiGenerateText`: on the endpoint's `url` (not
-streamed), with its headers (asked for before each request), the adapter's `fetch` and
-`analysisConfig`. The parts follow the question's `retry`, as chat requests do.
+streamed), with its headers (asked for before each request, and once more with `{ refresh: true }`
+after a 401 on a `vertexAi()` endpoint with a token function), the adapter's `fetch`,
+`analysisConfig` and `analysisBody`. The parts follow the question's `retry`, as chat requests do.
+A part whose reply of HTTP 200 holds an error (a gateway, or Vertex AI) throws that error with its
+status since 0.10.0, so a 503 is tried again; before, it was "The model returned no text".
 
-Each part read may take 180 s. That is a limit of its own, not the waits above, and `gemini()` and
-`askGemini` cannot change it. A part that runs out of time is tried once more at once, and is then
-reported in the answer of the read as a part that could not be read. To give the parts more time,
-replace the adapter's part reader with your own (with `askWithFiles` only):
+Each part read may take `timeoutMs`: 180,000 ms by default, its whole reply included. That is a
+limit of its own, not the waits above. A part past it is a `GeminiRequestError` of kind
+`"timeout"` and status 0: it is tried once more, after the retry wait (`retry.baseDelayMs`: 250 to
+500 ms by default) and with a `request.retry` event, and is then reported in the answer of the read
+as "The model took too long to answer". Set `timeoutMs` on `gemini()` or `askGemini` (both
+models get it); 0 sets none. New in 0.10.0: before, the limit could be changed only by replacing
+the adapter's part reader, and a part past it came as the abort error of the timer.
 
 ```ts
-import type { ModelAdapter } from "llm-large-files";
-import { createGeminiGenerateText, gemini, vertexAi } from "llm-large-files/gemini";
+import { askGemini } from "llm-large-files/gemini";
 
-// accessToken as in Access tokens for Vertex AI.
-const readerEndpoint = vertexAi({ project: process.env.GOOGLE_CLOUD_PROJECT!, model: "gemini-3.5-flash-lite", accessToken });
-const reader: ModelAdapter = {
-  ...gemini(readerEndpoint),
-  generateText: createGeminiGenerateText({
-    url: readerEndpoint.url,
-    headers: readerEndpoint.headers,
-    timeoutMs: 300_000, // five minutes for each part read
-    generationConfig: (maxOutputTokens) => ({ maxOutputTokens }), // the default: no temperature
-  }),
-};
-// Give it as `explorer` (it reads the parts when there is one), or as `model` when it works alone.
+// files, endpoint, documentIds and messages as in the askGemini sample above.
+await askGemini({ files, endpoint, documentIds, messages, timeoutMs: 300_000 }); // five minutes a part
 ```
 
 A part that Gemini refuses as larger than it takes is read as two halves, while `maxMapChunks` and
@@ -457,8 +557,10 @@ const endpoint: GeminiEndpoint = {
   URL has none. With `askWithFiles`, name it with `gemini(endpoint, { id })`.
 - **A body limit** of the gateway goes in `maxRequestBytes` ([above](#the-window-and-the-budget)).
 
-The same form reaches Vertex AI on a host that `vertexAi()` does not build, such as a private
-endpoint of your network:
+A private endpoint of your network that keeps Vertex AI's paths needs no endpoint of your own
+since 0.10.0: give its origin as `vertexAi({ host })` ([above](#vertex-ai)), and the token keeps its
+second try after a 401. An endpoint of your own gets that try too when its `headers` function
+takes `{ refresh }` and it says `refreshable: true`:
 
 ```ts
 import type { GeminiEndpoint } from "llm-large-files/gemini";
@@ -469,7 +571,8 @@ const path = `/v1/projects/${process.env.GOOGLE_CLOUD_PROJECT}/locations/europe-
 const privateEndpoint: GeminiEndpoint = {
   url: `${host}${path}:generateContent`,
   streamUrl: `${host}${path}:streamGenerateContent?alt=sse`,
-  headers: async () => ({ "Content-Type": "application/json", Authorization: `Bearer ${await accessToken()}` }),
+  headers: async (context) => ({ "Content-Type": "application/json", Authorization: `Bearer ${await accessToken({ refresh: context?.refresh === true })}` }),
+  refreshable: true,
 };
 ```
 
@@ -552,14 +655,16 @@ not an overflow.
 
 | What happened | `status` | `kind` | Sent again |
 |---|---|---|---|
-| The token was refused: expired, a missing role, the API not enabled | 401, 403 | `"auth"` | No |
+| The token was refused: expired, a missing role, the API not enabled | 401, 403 | `"auth"` | A 401 once, with a new token, when `accessToken` is a function (since 0.10.0); otherwise no |
 | An API key of the Gemini API that is not valid (`API_KEY_INVALID`) | 400 | `"auth"` | No |
 | A setting the model does not take, a model the location does not have, another refusal | 400, 404, and any other 4xx not in this table | `"invalid"` | No |
 | The provider or a gateway timed out | 408 | `"timeout"` | Yes |
 | A conflict | 409 | `"invalid"` | Yes |
 | A gateway refused the body as too large | 413 | `"context_overflow"` | Made smaller, as in [A request too large](#a-request-too-large) |
 | Gemini failed on its side | 5xx | `"server"` | Yes |
+| An error inside a stream, or in a body of HTTP 200, without a numeric code | The status of its `google.rpc` name: `"UNAVAILABLE"` 503, `"RESOURCE_EXHAUSTED"` 429, `"DEADLINE_EXCEEDED"` 504, `"INVALID_ARGUMENT"` 400 …; 500 for a name it does not know. Before 0.10.0, 200. | By the status | Yes for 429 and 5xx, unless text was shown; a daily quota is `"quota"`, and is not |
 | Nothing came for `firstByteTimeoutMs` or `idleTimeoutMs` | 0 | `"timeout"` | Once |
+| A part read took longer than `timeoutMs` | 0 | `"timeout"` | Once (since 0.10.0) |
 | The connection failed, or a stream ended before its `finishReason` | 0 | `"unreachable"` | Yes, unless text was shown |
 | A reply of HTTP 200 whose body is empty | 0 | `"unreachable"` | Yes |
 | A reply of HTTP 200 whose body is not JSON (a gateway's page) | 200 | `"invalid"` | No |
@@ -623,8 +728,11 @@ import { askGemini, vertexAi } from "llm-large-files/gemini";
 
 const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
 
-async function accessToken(): Promise<string> {
-  const token = await auth.getAccessToken();
+// After a 401, { refresh: true }: the token in the cache was refused, and a new one is fetched.
+async function accessToken({ refresh }: { refresh: boolean }): Promise<string> {
+  const client = await auth.getClient();
+  if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 });
+  const { token } = await client.getAccessToken();
   if (!token) throw new Error("No access token from the application default credentials.");
   return token;
 }
@@ -666,6 +774,7 @@ export async function answer(question: {
       system: "You are our support assistant. Cite the lines you used.",
       generationConfig: { temperature: 0.3, thinkingConfig: { thinkingLevel: "high" } }, // the answering model
       explorerGenerationConfig: { temperature: 0.2 },                                     // the explorer
+      body: { labels: { app: "support-assistant" } },                                     // billing labels: no user IDs
       limits: { toolTurns: 12, inputTokens: 2_000_000, requests: 40 },
       retry: { retries: 5, baseDelayMs: 2_000 },
       signal,
