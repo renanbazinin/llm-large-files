@@ -427,6 +427,9 @@ function settleWithin<T>(work: Promise<T>, ms: number, late: () => Error): Promi
  * itself cannot be stopped; it holds no turn.
  */
 function lookWithin<T>(look: Promise<T>, signal: AbortSignal | undefined, ms: number, syscall: "lstat" | "read"): Promise<T> {
+  // Counted as stuck past `ms`, as a store call is, until it ends (0.10.2): a volume that does not
+  // answer holds a thread of the pool either way.
+  watchStuck(look, ms);
   return settleWithin(signal ? untilAborted(look, signal) : look, ms, () =>
     Object.assign(new Error(`The file to ingest did not answer within ${formatDuration(ms)}.`), { code: "ETIMEDOUT", syscall }));
 }
@@ -686,6 +689,8 @@ async function ingestFile(
    * read (422, "split it"), since 0.10.0. The ingest keeps its turn until the read ends (`IngestSlot`).
    */
   const readWithin = async <T>(read: Promise<T>): Promise<T> => {
+    // Counted as stuck past the time the ingest gives its store calls, until it ends (0.10.2).
+    watchStuck(read, slotCapMs);
     work.abandoned = read;
     let got: T;
     try {
