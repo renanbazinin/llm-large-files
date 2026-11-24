@@ -136,7 +136,15 @@ describe("calls past the time limit", () => {
     expect(limitWith("4")).toBe(2);
     expect(limitWith("1")).toBe(1);
     expect(limitWith("7")).toBe(3);
-    expect(limitWith("not a number")).toBe(2);
+    // As libuv reads it (atoi): no leading digits, or 0, is a pool of 1 thread, so a limit of 1;
+    // leading digits are read; a value below 0 is the most, 1,024 threads.
+    expect(limitWith("not a number")).toBe(1);
+    expect(limitWith("")).toBe(1);
+    expect(limitWith("0")).toBe(1);
+    expect(limitWith("32abc")).toBe(16);
+    expect(limitWith(" 8")).toBe(4);
+    expect(limitWith("4096")).toBe(512);
+    expect(limitWith("-1")).toBe(512);
     expect(limitWith("32", 5)).toBe(5);
     expect(limitWith(undefined, Number.POSITIVE_INFINITY)).toBe(Number.POSITIVE_INFINITY);
     expect(() => limitWith(undefined, Number.NaN)).toThrow(RangeError);

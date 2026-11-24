@@ -133,7 +133,9 @@ with calls that never end (opens of a FIFO with no writer, as a hung NFS mount b
 
 So on servers that use a network volume, set `UV_THREADPOOL_SIZE=32` in the environment of the
 process (the pool is made at the first call that needs it: setting it in your code later may do
-nothing).
+nothing). Check that the value reaches the process: libuv reads an empty value, 0, or one that
+does not start with digits as a pool of 1 thread, where one stuck call freezes every file call. A
+template whose value is unset can give an empty one.
 
 **Calls left stuck.** A call counts as stuck once it has run past `storeTimeoutMs`, whether its
 caller timed out or left, until it ends. One that ends within the limit never counts, so users who

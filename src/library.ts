@@ -179,11 +179,12 @@ export type LargeFilesOptions = {
    * new store call of this library, those of `ingest` included, fails at once, without calling the
    * store, with code "STORE_STUCK" (status 503). A store call is stuck past `storeTimeoutMs`, and
    * one of `ingest` past the time it gives its store calls (`ingestTimeoutMs`, 2 minutes when that
-   * is 0). The count is the process's, as the threads of libuv are: a store
-   * call that does not answer holds one of them, and with all of them held every file call and DNS
-   * look-up of the process waits. Defaults to half of `UV_THREADPOOL_SIZE` (4 when it is not set),
-   * read when the library is made, and at least 1: 2 by default, 16 with 32 threads. `Infinity`
-   * refuses nothing. New in 0.10.0.
+   * is 0). The count is the process's, as the threads of libuv are: a store call that does not
+   * answer holds one of them, and with all of them held every file call and DNS look-up of the
+   * process waits. Defaults to half of `UV_THREADPOOL_SIZE` (4 when it is not set), read when the
+   * library is made as libuv reads it (an empty value, 0, or one without leading digits is 1
+   * thread), and at least 1: 2 by default, 16 with 32 threads. `Infinity` refuses nothing. New in
+   * 0.10.0.
    */
   maxStuckStoreCalls?: number;
   /**
@@ -557,12 +558,19 @@ export const DEFAULT_WHOLE_DOCUMENT_BYTES = 2 * 1024 * 1024;
 export const DEFAULT_STORE_TIMEOUT_MS = 30_000;
 
 /**
- * Default for `maxStuckStoreCalls`: half of the threads of libuv's pool (`UV_THREADPOOL_SIZE`, 4
- * when it is not set, 1,024 at most), and at least 1.
+ * Default for `maxStuckStoreCalls`: half of the threads of libuv's pool, and at least 1. The pool
+ * is read from `UV_THREADPOOL_SIZE` as libuv reads it (`atoi`): 4 when it is not set; its leading
+ * digits ("32abc" is 32); 1 thread for a value without them or for 0 ("", "x", "0"), which a
+ * template with an empty value gives; 1,024 at most, and for a value below 0, which libuv reads as
+ * a number without a sign, past the most.
  */
 function defaultMaxStuck(): number {
-  const given = Number((globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.UV_THREADPOOL_SIZE);
-  const pool = Number.isFinite(given) && given >= 1 ? Math.min(1_024, Math.trunc(given)) : 4;
+  const value = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.UV_THREADPOOL_SIZE;
+  let pool = 4;
+  if (value !== undefined) {
+    const given = Number.parseInt(value, 10);
+    pool = Number.isNaN(given) || given === 0 ? 1 : given < 0 ? 1_024 : Math.min(1_024, given);
+  }
   return Math.max(1, Math.floor(pool / 2));
 }
 
