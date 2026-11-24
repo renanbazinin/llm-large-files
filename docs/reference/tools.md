@@ -699,8 +699,11 @@ merges them, and there is no answer of the read: one request a part.
   quarters: two levels at most, while `maxRequests` allows it (without it, while the halves take no
   more than `maxMapChunks` requests). A part the model refuses as too large is halved the same way.
   A list still cut is counted as it is, and the result says that items may be missing.
-- The read is priced at its parts alone, each with the longer rules of a list, which is less than
-  an answer read, with its merges and its answer.
+- The read costs its parts alone, each with the longer rules of a list, which is less than an
+  answer read, with its merges and its answer. In 0.10.0 the ceiling of `askWithFiles` does not
+  tell them apart yet: it prices every whole-file read, items or not, as an answer read (its
+  parts, a merge and its answer), so an items read can be refused by the ceiling at the higher
+  price.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -1077,7 +1080,7 @@ type ToolSet = {
 
 | Member | What it does |
 |---|---|
-| `declarations` | The tools to declare to the model, in this order: `search_document`, `read_document`, `get_document_overview`, `analyze_whole_document`, `view_pages`, those that are [offered](#which-tools-are-offered). |
+| `declarations` | The tools to declare to the model, in this order: `search_document`, `read_document`, `get_document_overview`, `aggregate_table`, `analyze_whole_document`, `view_pages`, those that are [offered](#which-tools-are-offered), or (since 0.10.0) exactly those `ToolOptions.declare` names, in the same order. |
 | `has(name)` | `true` for each declared tool. Also `true` for `analyze_whole_document` when `generate` was given and the text tools are declared, even if it is not declared because no document is small enough: a call then gets the reason. Use it to tell the calls of this tool set from others. |
 | `execute(name, args)` | Runs a call and returns its JSON result, within the tool's own cap. Failures come back as `{ error }`, as listed above. `view_pages` answers with an error here: it returns a file. |
 | `executeWithFiles(name, args, limits?, hooks?)` | Runs any call with [`ToolCallLimits`](#toolcalllimits), and returns the result with the files it produced (`files` is empty for every tool but `view_pages`). Use it in a loop that can send files to the model. `hooks` ([`ToolCallHooks`](./library.md#toolcallhooks), new in 0.7.0) are listeners for this call alone: the progress of a whole-file read, in place of `ToolOptions.onProgress`, and each of its model requests with their retries; a document found gone, and a look told the server is busy (0.9.0); and its own `signal` (0.10.0, [above](#rules-for-every-tool)). |
