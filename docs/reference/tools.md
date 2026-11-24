@@ -717,10 +717,10 @@ merges them, and there is no answer of the read: one request a part.
   more than `maxMapChunks` requests). A part the model refuses as too large is halved the same way.
   A list still cut is counted as it is, and the result says that items may be missing.
 - The read costs its parts alone, each with the longer rules of a list, which is less than an
-  answer read, with its merges and its answer. In 0.10.0 the ceiling of `askWithFiles` does not
-  tell them apart yet: it prices every whole-file read, items or not, as an answer read (its
-  parts, a merge and its answer), so an items read can be refused by the ceiling at the higher
-  price.
+  answer read, with its merges and its answer. The ceiling of `askWithFiles` prices it so: in input
+  tokens and in requests, an items read is its parts alone, and an answer read its parts, a merge
+  and its answer. So an items read can run where an answer read of the same file would pass the
+  ceiling.
 
 | Field | Type | Meaning |
 |---|---|---|

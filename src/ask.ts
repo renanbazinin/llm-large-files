@@ -1588,8 +1588,12 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const readsOfEach = limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS;
     // As the tool set reads its own count of reads of each document: whole numbers, none below 0.
     const readsInAll = Math.max(0, Math.trunc(limits.wholeReadsPerQuestion ?? DEFAULT_WHOLE_READS_PER_QUESTION));
-    /** The price of a whole-file read of `meta` by the model that explores, in its own tokens and requests. */
-    const priceOf = (meta: DocumentMeta) => wholeReadCost(meta, budget, scaleOf(toolModel));
+    /**
+     * The price of a whole-file read of `meta` by the model that explores, in its own tokens and
+     * requests: a read that lists items (`output: "items"`) is its parts alone; any other, its
+     * parts, the merges of their notes and its answer.
+     */
+    const priceOf = (meta: DocumentMeta, output: "answer" | "items" = "answer") => wholeReadCost(meta, budget, scaleOf(toolModel), output);
     /**
      * The ceiling on the input tokens of the question: `limits.inputTokens`, or by default the larger
      * of `DEFAULT_INPUT_TOKENS` and `toolTurns` times the first request, plus room for the
@@ -1655,11 +1659,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         return { refusal: `Not run: one question makes at most ${count(readsInAll)} whole-file ${readsInAll === 1 ? "read" : "reads"}, and this one has made ${readsInAll === 1 ? "it" : "them"}. Use search_document and read_document on ${meta.name}.` };
       }
       // The parts are read by the model that explores, in its own tokens: their lines numbered, the
-      // prompts, and the merges of their notes (`wholeReadCost`).
-      const price = priceOf(meta).inputTokens;
+      // prompts, and the merges of their notes (`wholeReadCost`). A read that lists items sends its
+      // parts alone, with the rules of a list.
+      const items = call.args.output === "items";
+      const price = priceOf(meta, items ? "items" : "answer").inputTokens;
       const tokens = Number.isFinite(price) ? price : Math.ceil(meta.estimatedTokens * scaleOf(toolModel));
-      // The parts, a merge of their notes, the answer of the read, and the answer of the question.
-      const requests = estimateParts(meta, budget) + 3;
+      // The parts, a merge of their notes, the answer of the read, and the answer of the question;
+      // for a list of items, the parts and the answer of the question.
+      const requests = estimateParts(meta, budget) + (items ? 1 : 3);
       if (ceiling < Number.POSITIVE_INFINITY) {
         const left = Math.max(0, ceiling - spentTokens() - reserved.inputTokens);
         if (tokens > left) return { refusal: `Not run: reading all of ${meta.name} takes about ${count(tokens)} input tokens, and ${count(left)} are left of the ${count(ceiling)} this question may use. Use search_document and read_document.` };
@@ -1672,7 +1679,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // The answer of the question is one request, whatever number of reads come before it.
       reserved.requests += requests - 1;
       reserved.reads.set(meta.id, (reserved.reads.get(meta.id) ?? 0) + 1);
-      // The read's own requests: its parts, a merge of their notes, and its answer.
+      // The read's own requests: its parts, a merge of their notes, and its answer; or its parts.
       return { own: requests - 1 };
     };
     /**
