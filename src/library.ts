@@ -98,7 +98,9 @@ export type LargeFilesOptions = {
   scannedPdfPages?: number;
   /**
    * The most memory, in bytes, that documents kept ready for repeated tool calls may take.
-   * Defaults to 256 MB. A document larger than this is read again for each call. 0 keeps none.
+   * Defaults to 256 MB. A document larger than this is not kept with the others: since 0.10.2 the
+   * last one is kept apart for a minute after its last use (P4), so the tool calls of a question
+   * do not each load it again; before, it was read again for each call. 0 keeps none.
    *
    * Every use of a kept document first asks the store whether it is still there, so a document
    * deleted or expired on another server sharing the store is never served from memory here.

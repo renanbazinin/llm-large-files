@@ -40,6 +40,12 @@ export class DocumentCache<T extends Sized> {
   /** Entries that belong to no other: the documents. */
   private documents = 0;
   private total = 0;
+  /**
+   * The last document larger than the whole cache, kept apart for `OVERSIZE_KEEP_MS` after its
+   * last use (P4, 0.10.2): the tool calls of one question that read it again do not each load and
+   * index it again, as they did over a store without `readTextRange`. One at most.
+   */
+  private oversize: { id: string; version: string; value: T; bytes: number; timer: ReturnType<typeof setTimeout> } | undefined;
 
   constructor(
     private readonly maxBytes: number,
@@ -47,9 +53,9 @@ export class DocumentCache<T extends Sized> {
     private readonly maxEntries = Number.POSITIVE_INFINITY,
   ) {}
 
-  /** Memory taken by the cached documents, by their own estimate. */
+  /** Memory taken by the cached documents, by their own estimate: the last oversize document too. */
   get bytes(): number {
-    return this.total;
+    return this.total + (this.oversize?.bytes ?? 0);
   }
 
   get size(): number {
@@ -58,7 +64,7 @@ export class DocumentCache<T extends Sized> {
 
   get(id: string, version: string): T | undefined {
     const entry = this.entries.get(id);
-    if (!entry) return undefined;
+    if (!entry) return this.lastOversize(id, version);
     if (entry.version !== version) {
       this.delete(id);
       return undefined;
@@ -78,7 +84,12 @@ export class DocumentCache<T extends Sized> {
     if (existing?.value === value && existing.version === version) return;
     this.delete(id);
     const bytes = Math.max(0, value.memoryBytes);
-    if (bytes > this.maxBytes || this.maxEntries < 1) return;
+    if (this.maxEntries < 1) return;
+    if (bytes > this.maxBytes) {
+      // A document (not a piece), with a cache that keeps any: the last one is kept apart.
+      if (owner === undefined && this.maxBytes > 0) this.keepOversize(id, version, value, bytes);
+      return;
+    }
     this.entries.set(id, { version, value, bytes, ...(owner !== undefined ? { owner } : {}) });
     this.total += bytes;
     if (owner === undefined) this.documents++;
@@ -103,6 +114,7 @@ export class DocumentCache<T extends Sized> {
   }
 
   delete(id: string): void {
+    if (this.oversize?.id === id) this.dropOversize();
     const entry = this.entries.get(id);
     if (!entry) return;
     this.entries.delete(id);
@@ -117,6 +129,36 @@ export class DocumentCache<T extends Sized> {
 
   /** Drops every entry whose key passes `test`: one document in every scope, with its pieces. */
   deleteWhere(test: (key: string) => boolean): void {
+    if (this.oversize && test(this.oversize.id)) this.dropOversize();
     for (const key of [...this.entries.keys()]) if (test(key)) this.delete(key);
   }
+
+  /** The last oversize document, when it is this one: its time is counted again from now. */
+  private lastOversize(id: string, version: string): T | undefined {
+    const kept = this.oversize;
+    if (kept?.id !== id) return undefined;
+    if (kept.version !== version) {
+      this.dropOversize();
+      return undefined;
+    }
+    kept.timer.refresh();
+    return kept.value;
+  }
+
+  private keepOversize(id: string, version: string, value: T, bytes: number): void {
+    this.dropOversize();
+    // A timer that does not keep the process alive: an idle server lets the document go.
+    const timer = setTimeout(() => this.dropOversize(), OVERSIZE_KEEP_MS);
+    timer.unref?.();
+    this.oversize = { id, version, value, bytes, timer };
+  }
+
+  private dropOversize(): void {
+    if (!this.oversize) return;
+    clearTimeout(this.oversize.timer);
+    this.oversize = undefined;
+  }
 }
+
+/** How long the last document larger than the whole cache is kept after its last use (P4). New in 0.10.2. */
+export const OVERSIZE_KEEP_MS = 60_000;
