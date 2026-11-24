@@ -29,7 +29,7 @@ export type StoreCheckEnvironment = {
 };
 
 /** A part of the store a check needs, which `skip` leaves out. */
-export type StoreCheckPart = "originals" | "ranges" | "index" | "sweep" | "shared";
+export type StoreCheckPart = "originals" | "ranges" | "index" | "sweep" | "shared" | "list" | "meta";
 
 export type DocumentStoreChecksOptions = {
   /** A new store over new, empty storage, named by `environment.storage`. */
@@ -53,7 +53,8 @@ export type DocumentStoreChecksOptions = {
    * The parts the store does not have: "originals" (`putOriginal`, `getOriginal`), "ranges"
    * (`readTextRange`), "index" (`putIndex`, `getIndex`), "sweep", or "shared" for a store whose
    * storage two stores cannot share (`MemoryDocumentStore`). A check of a part the store lacks, and
-   * that is not skipped, fails and says so.
+   * that is not skipped, fails and says so. Since 0.10.2, "list" (`list`) and "meta" (`putMeta`):
+   * those are checked only when the store has them, so a store written for 0.10.1 passes as before.
    */
   skip?: readonly StoreCheckPart[];
 };
@@ -492,6 +493,48 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
         await left("check-ends-a", "a");
         await left("check-ends-b", "b");
       }
+    }));
+  }
+
+  if (!skip.has("list")) {
+    checks.push(check("lists the documents of a scope, without the expired and the deleted, as copies (when it has list)", async ({ store, start, setClock, context }) => {
+      if (typeof store.list !== "function") return;
+      const put = (id: string, expiresAt: number, which: "a" | "b" = "a") => must(() => store.put({ meta: metaFor(id, TEXT, start, expiresAt, { scope: [...scopes[which]], owner: `owner-${which}` }), text: TEXT }, context(which)), "put");
+      await put("check-list-1", start + DAY);
+      await put("check-list-2", start + 2 * DAY);
+      await put("check-list-gone", start + DAY);
+      await put("check-list-soon", start + 60_000);
+      await put("check-list-other", start + DAY, "b");
+      await must(() => store.delete("check-list-gone", context()), "delete");
+      setClock(start + 120_000);
+      const listed = await must(() => store.list!(context()), "list");
+      if (!Array.isArray(listed)) fail("list must give an array of metadata.");
+      const ids = listed.map((meta) => meta.id).sort();
+      for (const id of ["check-list-1", "check-list-2"]) if (!ids.includes(id)) fail(`list left out ${id}, a document of the scope.`);
+      for (const id of ["check-list-gone", "check-list-soon"]) if (ids.includes(id)) fail(`list gave ${id}, ${id.endsWith("gone") ? "deleted" : "expired"}.`);
+      if (isolates && ids.includes("check-list-other")) fail("list gave a document of another scope: a store that keeps scopes apart (isolatesScopes) lists one scope.");
+      const first = listed.find((meta) => meta.id === "check-list-1")!;
+      same(first, metaFor("check-list-1", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a" }), "the metadata list gave");
+      first.name = "changed.txt";
+      same((await store.getMeta("check-list-1", context()))?.name, "notes.txt", "getMeta(id).name after the caller changed the metadata list gave");
+    }));
+  }
+
+  if (!skip.has("meta")) {
+    checks.push(check("replaces the metadata alone with putMeta, and writes nothing for a document that is not there (when it has putMeta)", async ({ store, start, context }) => {
+      if (typeof store.putMeta !== "function") return;
+      const meta = metaFor("check-meta", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a" });
+      await must(() => store.put({ meta, text: TEXT }, context()), "put");
+      const changed = { ...meta, expiresAt: new Date(start + 3 * DAY).toISOString(), appData: { row: "42", tags: ["a"] } };
+      same(await must(() => store.putMeta!(changed, context()), "putMeta"), true, "putMeta of a document that is there");
+      same(await store.getMeta("check-meta", context()), changed, "getMeta(id) after putMeta");
+      same((await store.get("check-meta", context()))?.text, TEXT, "get(id).text after putMeta, which must not change");
+      const unknown = metaFor("check-meta-unknown", TEXT, start, start + DAY);
+      same(await must(() => store.putMeta!(unknown, context()), "putMeta"), false, "putMeta of an unknown ID");
+      same(await store.getMeta("check-meta-unknown", context()), undefined, "getMeta(id) after putMeta of an unknown ID, which must write nothing");
+      await store.delete("check-meta", context());
+      same(await must(() => store.putMeta!(changed, context()), "putMeta"), false, "putMeta after delete");
+      same(await store.getMeta("check-meta", context()), undefined, "getMeta(id) after putMeta of a deleted document");
     }));
   }
 
