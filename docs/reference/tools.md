@@ -556,12 +556,18 @@ go on. When one line alone is longer than that, its text is cut to half of that 
 `text_cut` is `true`.
 
 A read cut short of its range that way also says, in `whole_file`, that the whole file can be
-read with `analyze_whole_document`, when all of these hold (new in 0.10.0):
+read with `analyze_whole_document`, when all of these hold (new in 0.10.0), so that it never points
+at a read that would be refused:
 
 - the tool set declares `analyze_whole_document` and has a part reader (`generate`);
-- the file can be read whole: it is not sent whole in the prompt (`ToolOptions.inline`), its
-  estimated parts are within `maxMapChunks`, and a whole read of it is left
-  (`maxWholeDocumentReads`, and no earlier read of it that could read no part);
+- the file can be read whole now: it is not sent whole in the prompt (`ToolOptions.inline`), a
+  whole read of it is left (`maxWholeDocumentReads`, and no earlier read of it that could read no
+  part), and its estimated parts are within `maxMapChunks` (without the margin of 5% that the
+  declaration and the card give the estimate: the read counts its parts, and may count one more)
+  and within the call's [`ToolCallLimits.maxRequests`](#toolcalllimits), when it has one. In
+  `askWithFiles` that is 0 when the question would not start a whole read of the file: one that
+  would pass its ceiling on input tokens or requests (`limits.inputTokens`, `limits.requests`), or
+  one more than its `wholeReadsPerQuestion`;
 - the result, with it, stays within its cap.
 
 A read that shows every line asked for, and one shortened only to 600 lines, have no `whole_file`.
@@ -578,7 +584,7 @@ Gemini 3.5 Flash-Lite and 3.8 Flash read a contract they were asked to summarize
 | `text_cut` | `true`, optional | The one line shown was cut: its end is missing. |
 | `next_start_line` | number, optional | The first line not shown, when the file goes on. |
 | `note` | `"End of file."`, optional | Instead of `next_start_line`, when the last line shown is the file's last. |
-| `whole_file` | string, optional | "Only N lines fit here. To read all M lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document." ("Only 1 line fits here" for one), on a read cut short of its range by the size limit when the file can be read whole (see above). New in 0.10.0. |
+| `whole_file` | string, optional | "Only N lines fit here. To read all M lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document." ("Only 1 line fits here" for one; "Not even one line fits here: the text of line N is cut." when `text_cut` is `true`), on a read cut short of its range by the size limit when the file can be read whole (see above). New in 0.10.0. |
 
 ```json
 { "document": "app.log", "lines": "1200-1399", "total_lines": 5000, "text": "1200| ...\n1201| ...", "next_start_line": 1400 }
@@ -731,12 +737,18 @@ counts them. No model merges them, and there is no answer of the read: one reque
   its part that is near its quote and starts with the number it names ("7| 5. …" for 5), when
   exactly one line is both: Gemini Flash-Lite named the clause for the line and copied a letter of
   the quote wrong (שילם for ישלם). When two lines start with that number and are near the quote,
-  as in a file whose numbering starts again, it is not counted. New in 0.10.0.
+  as in a file whose numbering starts again, it is not counted. A line that starts with a date or
+  a time (`5/11 …`, `5-11-2026 …`, `05:30:12 …`, `5.11.2026 …`) does not start with the number 5.
+  New in 0.10.0.
 - Any other item counts in `unverified_items`, not in `total_items`.
 - A backslash that starts no JSON escape (`ש\"\ח`, as Gemini Flash-Lite escapes a Hebrew letter) is
   taken out before a line is read again, and a `\u` with fewer than four hex digits is taken out
   with the digits it has (Flash-Lite wrote ט as `\u05d`, which left "u05d" in the quote).
-- The same item listed twice (the same line, label and value) counts once.
+- The same item listed twice (the same line, label and value) counts once. So does an item given
+  a line other than the one it named (either way above) when that line has an item with its label,
+  whatever its value: Gemini Flash-Lite listed a clause once by its line and once by the clause's
+  number, with the value written another way (`5,000 ש"ח` and `5000`). The item that named its own
+  line is the one kept. New in 0.10.0.
 - A label is matched to `labels` as quotes are compared, and given as the call spelled it. A label
   that is not one of them is kept as the model wrote it.
 - A part whose list stops at the output limit is read again as two halves, and a half as two
@@ -1204,14 +1216,16 @@ type ToolCallLimits = {
 | `maxFileBytes` | number | 3/8 of (`maxRequestBytes` − 262,144): 3,651,696 bytes with the default budget | `view_pages`: the most bytes its file may have. Pages are left off the end until the cut fits. Below 1,024 the call fails. Give the room left in your request, times 3/4 when you send files as base64. |
 | `maxPages` | number | [`MAX_VIEW_PAGES`](#max_view_pages) (5) | `view_pages`: the most pages this call may show, never more than 5. Below 1 the call fails. Lower it as the pages already shown use up your token budget. |
 | `maxResultCharacters` | number | The tool's own cap ([`resultCharacters`](#toolset)) | The most characters of the JSON result, when that is less than the tool's cap: the room left in the request. The result is cut to it and says where to go on. Never below 600. `view_pages` ignores it. |
-| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a read with more parts than this is refused before any request, a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. New in 0.6.0. |
+| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a read with more parts than this is refused before any request, a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. `read_document` (since 0.10.0): what a whole read of its file may make now; a read cut short of its range points at one (`whole_file`) only when the file's estimated parts are within it. New in 0.6.0. |
 | `maxWaitMs` | number | The library's `pageLookWaitMs` (30,000) | `view_pages`: the most milliseconds the look waits for its turn, when that is less than `pageLookWaitMs`. 0: it runs only when a turn is free now, and is told the server is busy if not. New in 0.9.0. |
 
 In `askWithFiles`, `maxFileBytes` is what is left of `maxRequestBytes` after the request so far
 and a tenth kept free (256 KiB at least), times 3/4; `maxPages` is what is left of
 `reservedTokens / 2 / pageTokens` pages for the question (60 with a `reservedTokens` of 64,000 and
 Gemini's 530 tokens a page); `maxRequests`, when `limits.requests` is set, is the read's own
-requests and a share of what the question has left of it; `maxWaitMs` is 0 for the looks of a
+requests and a share of what the question has left of it (for a `read_document` call, what the
+question has left of it with one request kept for the answer, and 0 when the question would not
+start a whole read of the file: since 0.10.0); `maxWaitMs` is 0 for the looks of a
 tool turn after one of them was told the server is busy, so that a wait that ends busy comes once
 in a turn. See
 [Your own adapter and loop](../guides/own-adapter-and-loop.md).

@@ -4,8 +4,10 @@
 // of about 16 lines and answered from those (evals/results/0100-t-live-3.md). Each test checks a
 // read that has the hint next to one that must not: each fails without it.
 import { describe, expect, it } from "vitest";
-import { createLargeFiles, MemoryDocumentStore, TOOL_NAMES, type GenerateText, type ToolSet } from "../src/index.js";
-import { serviceLog, utf8 } from "./fake-model.js";
+import { askWithFiles, createLargeFiles, MemoryDocumentStore, TOOL_NAMES, type GenerateText, type ToolCallLimits, type ToolSet } from "../src/index.js";
+import { canBeReadWhole, estimateParts } from "../src/plan.js";
+import { wholeReadCost } from "../src/whole-cost.js";
+import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
 
 const notes: GenerateText = async () => "The worker answered in time (L1).";
 
@@ -17,6 +19,8 @@ async function library(budget: Record<string, number> = {}) {
 }
 
 const read = (tools: ToolSet, id: string, start = 1, end = 200) => tools.execute(TOOL_NAMES.read, { document_id: id, start_line: start, end_line: end });
+/** A read with the limits of one call. */
+const readWith = async (tools: ToolSet, id: string, limits: ToolCallLimits, start = 1, end = 200) => (await tools.executeWithFiles(TOOL_NAMES.read, { document_id: id, start_line: start, end_line: end }, limits)).result;
 
 /** The hint of a read that shows `shown` lines of a file of `total`. */
 const hint = (shown: number, total: number) => `Only ${shown} ${shown === 1 ? "line fits" : "lines fit"} here. To read all ${total} lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document.`;
@@ -109,6 +113,63 @@ describe("read_document's whole_file", () => {
     expect(await read(failing, log.id)).not.toHaveProperty("whole_file");
   });
 
+  it("is left off once no whole read of the file is left after one that failed, while the cap allows two", async () => {
+    const { files, log } = await library();
+    // Two reads allowed: the count of reads alone would let a second one through.
+    const failing = files.tools([log], { generate: async () => { throw new Error("The model refused the request."); }, retry: { retries: 0 }, maxWholeDocumentReads: 2 });
+    expect(await read(failing, log.id)).toHaveProperty("whole_file");
+    expect(await failing.execute(TOOL_NAMES.analyze, { document_id: log.id, task: "Summarize the log." })).toHaveProperty("error");
+    expect(failing.wholeReadsLeft!(log.id)).toBe(0);
+    expect(await read(failing, log.id)).not.toHaveProperty("whole_file");
+    // A read that worked leaves the second one, and the hint.
+    const working = files.tools([log], { generate: notes, maxWholeDocumentReads: 2 });
+    expect(await working.execute(TOOL_NAMES.analyze, { document_id: log.id, task: "Summarize the log." })).toHaveProperty("answer");
+    expect(working.wholeReadsLeft!(log.id)).toBe(1);
+    expect(await read(working, log.id)).toHaveProperty("whole_file");
+  });
+
+  it("is left off when the file has more parts than the call's maxRequests, which analyze_whole_document refuses", async () => {
+    const { files, log } = await library();
+    const parts = estimateParts(log, files.budget);
+    expect(parts).toBeGreaterThan(1);
+    const tools = files.tools([log], { generate: notes });
+    expect(await readWith(tools, log.id, { maxRequests: parts })).toHaveProperty("whole_file");
+    expect(await readWith(tools, log.id, { maxRequests: Number.POSITIVE_INFINITY })).toHaveProperty("whole_file");
+    for (const maxRequests of [parts - 1, 1, 0]) expect(await readWith(tools, log.id, { maxRequests })).not.toHaveProperty("whole_file");
+    // The read it would point at is refused with those requests, before any of them is sent.
+    const refused = await tools.executeWithFiles(TOOL_NAMES.analyze, { document_id: log.id, task: "Summarize the log." }, { maxRequests: parts - 1 });
+    expect(String(refused.result.error)).toMatch(/^Reading all of app\.log takes \d+ model requests, one for each part/);
+  });
+
+  it("is left off at the border of maxMapChunks, which the declaration lets through", async () => {
+    // Parts of 500 tokens: the log has 21 or more by the estimate.
+    const small = await library({ mapChunkTokens: 500 });
+    const parts = estimateParts(small.log, small.files.budget);
+    expect(parts).toBeGreaterThanOrEqual(21);
+    const within = await library({ mapChunkTokens: 500, maxMapChunks: parts });
+    expect(await read(within.files.tools([within.log], { generate: notes }), within.log.id)).toHaveProperty("whole_file");
+    // One part fewer: within the margin of 5% that the declaration gives the estimate, so the read
+    // is declared, but it may count more parts than it may read.
+    const border = await library({ mapChunkTokens: 500, maxMapChunks: parts - 1 });
+    expect(canBeReadWhole(border.log, border.files.budget)).toBe(true);
+    const tools = border.files.tools([border.log], { generate: notes });
+    expect(tools.declarations.map((declaration) => declaration.name)).toContain(TOOL_NAMES.analyze);
+    expect(await read(tools, border.log.id)).not.toHaveProperty("whole_file");
+  });
+
+  it("says that not even one line fits when the first line of the range is cut", async () => {
+    const { files } = await library();
+    // Line 3 alone is longer than the room the result keeps for its text.
+    const text = ["first", "second", "word ".repeat(380).trim(), ...Array.from({ length: 40 }, (_, index) => `line ${index + 4}`)].join("\n");
+    const long = await files.ingest({ name: "long.txt", bytes: utf8(text) });
+    const cut = await read(files.tools([long], { generate: notes }), long.id, 3, 10);
+    expect(cut).toMatchObject({ lines: "3-3", text_cut: true, next_start_line: 4 });
+    expect(cut.whole_file).toBe(`Not even one line fits here: the text of line 3 is cut. To read all ${long.lines} lines for a task that needs all of them, such as a full summary or a timeline, use analyze_whole_document.`);
+    expect(JSON.stringify(cut).length).toBeLessThanOrEqual(2_000);
+    // One line that fits whole is still "Only 1 line fits here".
+    expect(await read(files.tools([long], { generate: notes }), long.id, 2, 3)).toMatchObject({ lines: "2-2", whole_file: expect.stringMatching(/^Only 1 line fits here\. /) });
+  });
+
   it("is left off when it would take the result past its cap", async () => {
     const { files, log } = await library();
     // A file name of 224 characters with 110 quote marks, each two characters in JSON: the lines
@@ -120,5 +181,60 @@ describe("read_document's whole_file", () => {
     expect(JSON.stringify(cut).length).toBeLessThanOrEqual(2_000);
     // The same lines of a file with a short name have it.
     expect(await read(files.tools([log], { generate: notes }), log.id)).toMatchObject({ lines: cut.lines, whole_file: hint(shownOf(cut), 400) });
+  });
+});
+
+describe("read_document's whole_file in askWithFiles", () => {
+  const question = [{ role: "user" as const, text: "Summarize the log." }];
+  const readCall = (id: string, callId = "r") => ({ id: callId, name: "read_document", args: { document_id: id, start_line: 1, end_line: 200 } });
+  const analyzeCall = (id: string) => ({ id: "a", name: "analyze_whole_document", args: { document_id: id, task: "Summarize the log." } });
+  /** What the model got for each call of its first tool turn. */
+  const firstTurn = async (files: Awaited<ReturnType<typeof library>>["files"], ids: string[], turn: ReturnType<typeof calls>, limits: Parameters<typeof askWithFiles>[0]["limits"]) => {
+    const model = fakeModel([turn, says("Done.")], { generateText: notes });
+    const result = await askWithFiles({ files, model, documentIds: ids, messages: question, ...(limits ? { limits } : {}) });
+    return result.toolTurns[0]!.calls.map((call) => call.result);
+  };
+
+  it("is left off when the whole read would pass the question's ceiling on input tokens", async () => {
+    const { files, log } = await library();
+    const price = wholeReadCost(log, files.budget, 1).inputTokens;
+    const turn = calls([readCall(log.id)], { usage: { inputTokens: 1_000 } });
+    // Room for the read past the 1,000 tokens of the first request, and for one token less.
+    const [fits] = await firstTurn(files, [log.id], turn, { inputTokens: 1_000 + price });
+    expect(fits).toMatchObject({ whole_file: expect.stringMatching(/use analyze_whole_document\.$/) });
+    const [over] = await firstTurn(files, [log.id], turn, { inputTokens: 1_000 + price - 1 });
+    expect(shownOf(over!)).toBe(shownOf(fits!));
+    expect(over).not.toHaveProperty("whole_file");
+    // The read it would point at is refused there.
+    const [refused] = await firstTurn(files, [log.id], calls([analyzeCall(log.id)], { usage: { inputTokens: 1_000 } }), { inputTokens: 1_000 + price - 1 });
+    expect(String(refused!.error)).toMatch(/^Not run: reading all of app\.log takes about [\d,]+ input tokens/);
+  });
+
+  it("is left off when the whole read would pass the question's ceiling on requests", async () => {
+    const { files, log } = await library();
+    const parts = estimateParts(log, files.budget);
+    const turn = calls([readCall(log.id)]);
+    // One request made; the read takes its parts, a merge, its answer, and the answer of the question.
+    expect(await firstTurn(files, [log.id], turn, { requests: 1 + parts + 3 }).then(([result]) => result)).toHaveProperty("whole_file");
+    expect(await firstTurn(files, [log.id], turn, { requests: 1 + parts + 2 }).then(([result]) => result)).not.toHaveProperty("whole_file");
+    const [refused] = await firstTurn(files, [log.id], calls([analyzeCall(log.id)]), { requests: 1 + parts + 2 });
+    expect(String(refused!.error)).toMatch(/^Not run: reading all of app\.log takes about [\d,]+ model requests/);
+  });
+
+  it("is left off when the question has made its whole reads, or one of this turn takes the file's read", async () => {
+    const { files, log } = await library();
+    const turn = calls([readCall(log.id)]);
+    expect(await firstTurn(files, [log.id], turn, {}).then(([result]) => result)).toHaveProperty("whole_file");
+    expect(await firstTurn(files, [log.id], turn, { wholeReadsPerQuestion: 0 }).then(([result]) => result)).not.toHaveProperty("whole_file");
+    // A read of the file in the same turn as its one whole read, called before it.
+    const [cut, whole] = await firstTurn(files, [log.id], calls([readCall(log.id), analyzeCall(log.id)]), {});
+    expect(whole).toHaveProperty("answer");
+    expect(shownOf(cut!)).toBeLessThan(200);
+    expect(cut).not.toHaveProperty("whole_file");
+    // Another file's read is still pointed at.
+    const other = await files.ingest({ name: "other.log", bytes: utf8(serviceLog(400)) });
+    const [first, , second] = await firstTurn(files, [log.id, other.id], calls([readCall(log.id), analyzeCall(log.id), readCall(other.id, "r2")]), {});
+    expect(first).not.toHaveProperty("whole_file");
+    expect(second).toHaveProperty("whole_file");
   });
 });

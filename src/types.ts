@@ -341,7 +341,11 @@ export type ToolCallLimits = {
   /**
    * The most model requests a whole-file read (`analyze_whole_document`) may make: what the
    * question has left of `limits.requests`. A part the model refuses as too large is read as two
-   * halves only while that and `maxMapChunks` allow it.
+   * halves only while that and `maxMapChunks` allow it. Given to a `read_document` call (since
+   * 0.10.0), it is what a whole read of its file may make now: a read cut short of its range points
+   * at one (`whole_file`) only when the file's parts are within it. `askWithFiles` gives a read 0
+   * when the question would not start a whole read of its file (a ceiling it would pass, or its
+   * whole reads made).
    */
   maxRequests?: number;
   /**

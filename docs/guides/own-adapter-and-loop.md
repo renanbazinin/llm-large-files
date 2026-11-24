@@ -965,9 +965,12 @@ into. Fill it from your own request, as the sample above does:
 - `maxFileBytes`: the room left in your request for the pages of this call, times 3/4 when files go
   as base64.
 - `maxPages`: the pages the question may still show. Lower it as the pages add up.
-- `maxRequests`: what your ceiling on requests has left, for a whole-file read. It only limits how
-  many parts refused as too large are read again as two halves: a read that needs more parts than
-  this still makes all of them, the merges of their notes and an answer.
+- `maxRequests`: what your ceiling on requests has left, for a whole-file read. Since 0.10.0 a read
+  with more parts than this is refused before any request, and makes its merges within it; before,
+  it only limited how many parts refused as too large were read again as two halves. Give it to
+  `read_document` calls too, as the sample does (since 0.10.0): a read cut short of its range
+  points at a whole read of its file (`whole_file`) only when the file's parts are within it. Give
+  0 there when your loop would not run a whole read now, as `askWithFiles` does.
 - `maxWaitMs` (new in 0.9.0): the most a look at pages waits for its turn, when that is less than
   the library's `pageLookWaitMs`. `askWithFiles` gives 0 to the looks of a turn after one was told
   the server is busy (`onPagesBusy`, below), so that a wait that ends busy comes once in a turn. Do

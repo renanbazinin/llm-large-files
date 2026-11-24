@@ -485,6 +485,71 @@ describe("quoteNearLine", () => {
     }
   });
 
+  it("does not take a line that starts with a date or a time for one that starts with the clause's number", async () => {
+    // Clause 5 on line 3, and a log line of 5 November, or of 05:30, near the same quote on line 7.
+    const lines = (second: string) => [
+      "הסכם שירותי ניקיון",
+      "פרק א",
+      offset.replace(/^3\./, "5."),
+      "6. הספק יבצע ניקיון יומי של המשרדים.",
+      "7. הספק יבצע ניקיון יומי של המטבח.",
+      "יומן",
+      `${second} המזמין רשאי לקזז 810 ש"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה באגף ב.`,
+    ].join("\n");
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const generate: GenerateText = async () => JSON.stringify({ line: 5, value: "810", quote: "מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה" });
+    for (const date of ["5/11", "5/11/2026", "05:30:12", "5:30", "5.11.2026", "5-11-2026", "[05:30:12]"]) {
+      const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(lines(date)) });
+      const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "sanctions", output: "items" });
+      // 0.10.0 before this fix: "5/11" and "05:30:12" started with 5, so two lines did, and neither was taken.
+      expect(result, date).toMatchObject({ total_items: 1, unverified_items: 0 });
+      expect((result.items as Array<{ line: number }>).map((item) => item.line), date).toEqual([3]);
+    }
+  });
+
+  it("counts once a clause listed by its line and again by its number, with its value written another way", async () => {
+    const { files, meta, penaltyLines } = await library();
+    // As Gemini Flash-Lite listed clauses of the eval's contract (0.10.0's live measures): once on
+    // its line with the amount as the line writes it, and once named by the clause's number ("7| 5. …"
+    // named 5) with the amount written another way. The second is moved to the line of its quote.
+    const twice = (byNumberFirst: boolean): GenerateText => lister([], (items) => items.flatMap((item) => {
+      const byLine = JSON.stringify(item);
+      const byNumber = JSON.stringify({ ...item, line: item.line - 2, value: `${item.value.replaceAll(",", "")} ש"ח` });
+      return byNumberFirst ? [byNumber, byLine] : [byLine, byNumber];
+    }).join("\n"));
+    for (const byNumberFirst of [false, true]) {
+      const result = await files.tools([meta], { generate: twice(byNumberFirst) }).execute("analyze_whole_document", { document_id: meta.id, task: TASK, output: "items", labels: ["penalty"] });
+      // 0.10.0 before this fix: 74, each clause twice.
+      expect(result, `by number first: ${byNumberFirst}`).toMatchObject({ total_items: 37, counts_by_label: { penalty: 37 }, unverified_items: 0 });
+      const items = result.items as Array<{ line: number; value: string }>;
+      expect(items.map((item) => item.line)).toEqual(penaltyLines);
+      // The item that named its own line is kept, with the value as it wrote it.
+      expect(items[0]!.value).toBe("1,250");
+    }
+  });
+
+  it("still counts the items its reply placed on one line with one label and other values", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", "4. בגין איחור ינוכו 1,200 ש\"ח, ובגין כל יום נוסף ינוכו 300 ש\"ח, ובגין נזק ינוכו 500 ש\"ח מהתמורה."].join("\n")) });
+    const late = { label: "penalty", value: "1,200", quote: "בגין איחור ינוכו 1,200 ש\"ח" };
+    const daily = { label: "penalty", value: "300", quote: "ובגין כל יום נוסף ינוכו 300 ש\"ח" };
+    const damage = { label: "penalty", value: "500", quote: "ובגין נזק ינוכו 500 ש\"ח" };
+    /** The values a read counts of a reply of these items, in this order. */
+    const counted = async (items: Array<Record<string, unknown>>) => {
+      const generate: GenerateText = async () => items.map((item) => JSON.stringify(item)).join("\n");
+      const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "fines", output: "items", labels: ["penalty"] });
+      expect(result).toMatchObject({ unverified_items: 0 });
+      return (result.items as Array<{ value: string }>).map((item) => item.value).sort();
+    };
+    // Two on their line, and the first again named by its clause's number (4), moved to line 2.
+    expect(await counted([{ line: 2, ...late }, { line: 2, ...daily }, { line: 4, ...late, value: "1200" }])).toEqual(["1,200", "300"]);
+    // The moved one first, then the same item on its own line, then another: both are kept.
+    expect(await counted([{ line: 4, ...daily }, { line: 2, ...daily }, { line: 2, ...late }])).toEqual(["1,200", "300"]);
+    // The moved one first, dropped for another item on its line; then the same item on its own
+    // line, which counts, and a third, which does not take it out.
+    expect(await counted([{ line: 4, ...daily }, { line: 2, ...late }, { line: 2, ...daily }, { line: 2, ...damage }])).toEqual(["1,200", "300", "500"]);
+  });
+
   it("counts an item whose quote had a \\u escape with three hex digits, on its line", async () => {
     const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
     const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", "4. בגין הפרת הוראות הבטיחות באתר ינוכו 1,200 ש\"ח מהתמורה החודשית של הספק."].join("\n")) });

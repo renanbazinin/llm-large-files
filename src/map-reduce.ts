@@ -1097,10 +1097,12 @@ function itemText(value: unknown, most: number): string | undefined {
 
 /**
  * Whether a line in `quoteForm` starts with the number `named`, after any marks before it ("5. …",
- * "(5) …", "## 5. …"): a whole number, not the start of a longer one ("50. …", "5,000 …", "5.1 …").
+ * "(5) …", "## 5. …"): a whole number, not the start of a longer one ("50. …", "5,000 …", "5.1 …"),
+ * nor of a date or a time ("5/11 …", "5-11-2026", "05:30:12 …", "5.11.2026"): a log line of 5
+ * November is no clause 5.
  */
 function startsWithNumber(form: string, named: number): boolean {
-  const lead = /^[^\p{L}\p{N}]*(\d+)(?![\d]|[.,]\d)/u.exec(form);
+  const lead = /^[^\p{L}\p{N}]*(\d+)(?!\d|[.,/:-]\d)/u.exec(form);
   return lead !== null && Number(lead[1]) === named;
 }
 
@@ -1112,12 +1114,13 @@ function startsWithNumber(form: string, named: number): boolean {
  * wrong, the same numbers), keeps that line. One whose quote is on no line of the part, nor near the
  * line it names, is given the line of the part near its quote that starts with the number it named,
  * when exactly one line is both: Flash-Lite named clause 5 for line 7 and copied ישלם as שילם (0.10.0's
- * live measures). Undefined for any other: it is counted as unverified.
+ * live measures). Undefined for any other: it is counted as unverified. `moved` is true for an item
+ * given a line other than the one it named.
  * A label is matched to the read's labels in `quoteForm`, and given as the read spelled it.
  * `formOf` gives a line of the part, by its index, in `quoteForm`: made once for the part, as an
  * item that is not on its line is looked for on every line of it.
  */
-function checkedItem(object: Record<string, unknown>, from: number, lines: readonly string[], formOf: (index: number) => string, labels: readonly string[] | undefined): WholeItem | undefined {
+function checkedItem(object: Record<string, unknown>, from: number, lines: readonly string[], formOf: (index: number) => string, labels: readonly string[] | undefined): { item: WholeItem; moved: boolean } | undefined {
   const named = typeof object.line === "number" ? object.line : typeof object.line === "string" && object.line.trim() ? Number(object.line) : Number.NaN;
   const quote = itemText(object.quote, QUOTE_CHARACTERS);
   if (quote === undefined) return undefined;
@@ -1138,14 +1141,15 @@ function checkedItem(object: Record<string, unknown>, from: number, lines: reado
   const given = itemText(object.label, MAX_LABEL_CHARACTERS);
   const label = given === undefined ? undefined : labels?.find((known) => quoteForm(known) === quoteForm(given)) ?? given;
   const value = itemText(object.value, 200);
-  return { line: number, ...(label !== undefined ? { label } : {}), ...(value !== undefined ? { value } : {}), quote };
+  return { item: { line: number, ...(label !== undefined ? { label } : {}), ...(value !== undefined ? { value } : {}), quote }, moved: number !== named };
 }
 
 /**
  * Lists the items a task asks for across the whole document (`output: "items"`, new in 0.10.0,
  * M9): each part replies with JSON lines, one an item, with its line, label, value and a quote of
  * its line. Code reads them, checks each against its line, drops the same item listed twice (by
- * line, label and value), and counts them: no merge, no final request, and no count made by a
+ * line, label and value, or, for an item moved to another line than it named, by line and label),
+ * and counts them: no merge, no final request, and no count made by a
  * model. A part whose list stops at the output limit is read again as two halves, two levels at
  * most, while `maxRequests` allows it (without it, while the halves take no more than
  * `maxMapChunks` requests). A part the model refuses as too large is halved the same way.
@@ -1171,7 +1175,12 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
   let skippedLines = 0;
   let firstFailure = "";
   let firstError: unknown;
+  /** The items kept, by line, label and value. */
   const found = new Map<string, WholeItem>();
+  /** The keys of the items kept on each line with each label (`placeOf`), and which of them were moved there (`checkedItem`). */
+  const atPlace = new Map<string, Set<string>>();
+  const moved = new Set<string>();
+  const placeOf = (item: WholeItem) => `${item.line}\u0000${quoteForm(item.label ?? "")}`;
   const fail = (error: unknown, reason: string) => {
     pieces++;
     failed++;
@@ -1226,13 +1235,37 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
     const forms: Array<string | undefined> = [];
     const formOf = (index: number): string => (forms[index] ??= quoteForm(lines[index]!));
     for (const object of objects) {
-      const item = checkedItem(object, from, lines, formOf, labels);
-      if (!item) {
+      const checked = checkedItem(object, from, lines, formOf, labels);
+      if (!checked) {
         unverified++;
         continue;
       }
-      const key = `${item.line}\u0000${quoteForm(item.label ?? "")}\u0000${quoteForm(item.value ?? "")}`;
-      if (!found.has(key)) found.set(key, item);
+      const { item } = checked;
+      const place = placeOf(item);
+      const key = `${place}\u0000${quoteForm(item.value ?? "")}`;
+      if (found.has(key)) {
+        // The same item: kept as the one that named its own line, when this one did.
+        if (!checked.moved && moved.delete(key)) found.set(key, item);
+        continue;
+      }
+      const there = atPlace.get(place) ?? new Set<string>();
+      // An item moved to a line (named by its clause's number, say) that has an item with its label
+      // is that item listed twice, its value written another way ("5,000 ש"ח" and "5000"): Gemini
+      // Flash-Lite listed a clause once by its line and once by its number. It counts once, as the
+      // item that named its own line, whichever of the two came first.
+      if (checked.moved) {
+        if (there.size > 0) continue;
+        moved.add(key);
+      } else {
+        for (const other of there) {
+          if (!moved.delete(other)) continue;
+          found.delete(other);
+          there.delete(other);
+        }
+      }
+      found.set(key, item);
+      there.add(key);
+      atPlace.set(place, there);
     }
   };
   await pool(parts.length, options.concurrency ?? 4, async (index) => {
