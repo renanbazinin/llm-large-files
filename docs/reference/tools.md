@@ -706,10 +706,11 @@ merges them, and there is no answer of the read: one request a part.
   out in all. Gemini Flash-Lite copies Hebrew quotes with a letter or a word changed (השרים for
   השרתים, מקוזז for לקזז, ש"ץ for ש"ח). A quote with an amount other than the line's is not near
   it, so neither is the quote of the next clause of a contract written to the same pattern. A line
-  longer than ingest stores (2,000 characters), which a store of your own may give, is looked at
-  only around the two longest words of the quote that are on it in at most 4 places: a quote none
-  of whose words is so is not near it. Measured along all of a line of 118,759 characters, one
-  quote took 688 ms.
+  of up to 2,000 characters, the longest that ingest stores, is compared whole. A longer line, which
+  a store of your own may give, is looked at only around the two longest words of each piece of the
+  quote that are on it in 1 to 4 places: a piece none of whose words is so counts as wrong in all
+  its letters, and a quote none of whose words is so is not near it. Measured along all of a line
+  of 118,759 characters, one quote took 688 ms, and one cut with "…" into 41 short pieces 677 ms.
 - Any other item counts in `unverified_items`, not in `total_items`.
 - A backslash that starts no JSON escape (`ש\"\ח`, as Gemini Flash-Lite escapes a Hebrew letter) is
   taken out before a line is read again.

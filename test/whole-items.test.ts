@@ -387,6 +387,28 @@ describe("quoteNearLine", () => {
       }
     });
 
+    it("stays within a few windows of each piece of a quote cut with an ellipsis into many short pieces", () => {
+      // 16 pieces of 15 letters, each of another clause, with לקזוז for לקזז: none is on the line,
+      // and each is near a run of it. 0.10.0 before this fix chose by the piece's letters times the
+      // line's characters, which a short piece kept under its bound, and so measured each piece
+      // along all of the line (41 pieces on a line of 118,759 characters: 677 ms).
+      const pieces = Array.from({ length: 16 }, (_, k) => `לקזוז ${amount(k * 25)} ש"ח`);
+      const quote = pieces.join(" … ");
+      const letters = pieces.map((piece) => [...quoteForm(piece)].length);
+      expect(letters.every((each) => each === 15)).toBe(true);
+      expect(pieces.every((piece) => !long.includes(piece))).toBe(true);
+      const work = { cells: 0 };
+      expect(quoteNearLine(quote, long, work)).toBe(true);
+      // Measured along all of the line, each piece would fill its letters times the line's characters.
+      const along = letters.reduce((sum, each) => sum + each * long.length, 0);
+      expect(work.cells).toBeGreaterThan(0);
+      expect(work.cells).toBeLessThan(along / 100);
+      // Each piece: at most 2 words of 4 places each, a window of the piece and its margin around
+      // each, the margin at most a fifth of the quote's letters.
+      const most = Math.floor(letters.reduce((sum, each) => sum + each, 0) * 0.2);
+      expect(work.cells).toBeLessThanOrEqual(letters.reduce((sum, each) => sum + 2 * 4 * 2 * (each + most) * each, 0));
+    });
+
     it("does not measure a quote none of whose words is rare on the line, which a stored line of the same text measures whole", () => {
       // Clause 1 without its amount, and with השרים for השרתים: near a line the library stores.
       const quote = "המזמין רשאי לקזז ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרים פתוחה";

@@ -24,10 +24,13 @@ const FINAL_SYSTEM = "You write a complete answer from notes taken across every 
 /**
  * The tokens of a request of a read besides the text it reads or the notes it merges: its system
  * text, the task and the rules. By `estimateTokens`, the fixed words take 146 tokens in a part
- * read, 81 in a merge and 94 in the answer of the read; the rest is room for a task of a few lines
- * (a task of 160 characters takes 39). The heading a part may start with is `PART_HEADING_TOKENS`.
+ * read, 81 in a merge and 94 in the answer of the read; the rest is room for a task of a few lines.
+ * A task of 160 characters takes 39 tokens in English and up to 74 in Hebrew: a part read of a file
+ * with a Hebrew name then frames 189 tokens with the English task and 218 to 224 with a Hebrew one.
+ * It only prices a read (`wholeReadCost`, `estimateMerges`): no text sent depends on it. The heading
+ * a part may start with is `PART_HEADING_TOKENS`.
  */
-export const REQUEST_FRAME_TOKENS = 200;
+export const REQUEST_FRAME_TOKENS = 240;
 /**
  * The same for a part read that lists items (`output: "items"`): its fixed words take 292 tokens
  * with no label and 311 with two; with `MAX_ITEM_LABELS` labels of `MAX_LABEL_CHARACTERS`, 464 in
@@ -958,15 +961,6 @@ const numbersOf = (text: string): string[] => (text.match(/\d(?:[\d,.]*\d)?/g) ?
 
 /** The most characters of an item's quote that are kept. */
 const QUOTE_CHARACTERS = 300;
-/**
- * Up to this many cells (the letters of a piece of a quote times the characters of its line), the
- * nearest run of the piece is looked for along the whole line: a quote of `QUOTE_CHARACTERS` on a
- * line of `MAX_LINE_CHARACTERS`, the longest that ingest stores, about 12 ms. So every line the
- * library stores is measured whole. A longer line, which a store of your own may give, is looked at
- * only around a word of the piece (`nearestRunWithin`): measured along all of a line of 118,759
- * characters, a quote of 270 took 688 ms, for each item that was not on its line.
- */
-const NEAR_LINE_CELLS = QUOTE_CHARACTERS * MAX_LINE_CHARACTERS;
 /** On a long line, the words of a piece of a quote around which its near run is looked for: the longest that are rare on the line. */
 const NEAR_ANCHOR_WORDS = 2;
 /** The most places a word of a quote may have on a long line to be one of those words. */
@@ -1003,19 +997,26 @@ function nearestRun(wanted: readonly string[], line: string, work: NearWork | un
 
 /**
  * `nearestRun` of a piece of a quote on `target`, its line, both in `quoteForm`, when it is at
- * most `most`: past that, it may be more than the true distance. Along the whole line while the
- * piece's letters times the line's characters are at most `NEAR_LINE_CELLS`. On a longer line, only
- * around the `NEAR_ANCHOR_WORDS` longest words of the piece that are on the line in 1 to
- * `NEAR_ANCHOR_PLACES` places: from `most` letters before where the piece would start at such a
+ * most `most`: past that, it may be more than the true distance. Along the whole line when it has
+ * at most `MAX_LINE_CHARACTERS`, the longest that ingest stores: so every line the library stores is
+ * measured whole, and the pieces of a quote fill no more cells together (the letters of each piece
+ * times the line's characters) than its letters times `MAX_LINE_CHARACTERS`, about 12 ms for a quote
+ * of `QUOTE_CHARACTERS`. A longer line, which a store of your own may give, is looked at, for each
+ * piece, only around the `NEAR_ANCHOR_WORDS` longest words of the piece that are on the line in 1
+ * to `NEAR_ANCHOR_PLACES` places: from `most` letters before where the piece would start at such a
  * place, to `most` letters after where it would end. A run that holds none of those words where the
  * piece holds it is not found, and a piece none of whose words is on the line so counts as wrong
  * in all its letters. The work is then a few windows of about the piece's length, whatever the
  * line's: at most `NEAR_ANCHOR_WORDS` × `NEAR_ANCHOR_PLACES` × 2 × (letters + `most`) characters
  * (twice that on a line with letters outside the BMP), each measured against every letter of the piece.
+ * Measured along all of a line of 118,759 characters, a quote of 270 took 688 ms. A quote cut with
+ * "…" into 41 short pieces took 677 ms on it in 0.10.0 before this fix, which chose by the piece's
+ * letters times the line's characters and so measured each short piece along all of the line; 15 ms
+ * since.
  */
 function nearestRunWithin(piece: string, target: string, most: number, work: NearWork | undefined): number {
   const wanted = [...piece];
-  if (wanted.length * target.length <= NEAR_LINE_CELLS) return nearestRun(wanted, target, work);
+  if (target.length <= MAX_LINE_CHARACTERS) return nearestRun(wanted, target, work);
   // The places are in UTF-16 units: a letter outside the BMP takes two, so the margins are doubled
   // on a line that has one.
   const unit = /[\uD800-\uDBFF]/.test(target) ? 2 : 1;
