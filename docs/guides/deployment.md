@@ -138,12 +138,14 @@ nothing).
 **Calls left stuck.** A call counts as stuck once it has run past `storeTimeoutMs`, whether its
 caller timed out or left, until it ends. One that ends within the limit never counts, so users who
 press stop during slow but healthy reads do not raise it. The count is the process's, as the pool
-is: the calls of every library, and the upload handlers' calls to the disk past
-`uploadIdleTimeoutMs`. While it is at `maxStuckStoreCalls`, every new store call of the library
-fails at once with code `"STORE_STUCK"` (503), without touching the volume, so that the threads
-left keep serving file calls and DNS. The default is half the pool, read from
-`UV_THREADPOOL_SIZE` when the library is made: 2 with 4 threads, 16 with 32. Deletes of one library
-run one at a time, so a volume that hangs holds one thread for them, not one for each.
+is: the calls of every library, the writes and look-ups of `ingest` past `ingestTimeoutMs` (the
+time it gives them, so that a large upload written slowly is not counted at 30 s), and the upload
+handlers' calls to the disk past `uploadIdleTimeoutMs`. While it is at `maxStuckStoreCalls`, every
+new store call of the library, those of `ingest` included, fails at once with code `"STORE_STUCK"`
+(503), without touching the volume, so that the threads left keep serving file calls and DNS. The
+default is half the pool, read from `UV_THREADPOOL_SIZE` when the library is made: 2 with 4
+threads, 16 with 32. Deletes of one library run one at a time, so a volume that hangs holds one
+thread for them, not one for each.
 
 **Alerts and readiness.** `files.stats()` and `handlers.stats()` read counters only, with no store
 call: call them as often as your metrics need.

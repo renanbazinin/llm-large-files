@@ -1,7 +1,7 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
-import { checkMetaVersion, checkOwner, formatDuration, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, type AccessRules } from "./access.js";
+import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
@@ -33,8 +33,16 @@ export type IngestContext = {
   readonly extractors: Partial<Record<DocumentFormat, Extractor>> | undefined;
   /** The ingests doing their work, and those waiting their turn (`maxConcurrentIngests`). */
   readonly ingests: Limiter;
-  /** How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). */
+  /**
+   * How long work an ingest waits on, or gave up on, may keep its turn (see `IngestSlot`). Its
+   * store calls are given this long too, and count as stuck past it (`watchStuck`).
+   */
   readonly slotCapMs: number;
+  /**
+   * While this many calls of the process are stuck, the ingest's store calls fail at once, without
+   * calling the store (`maxStuckStoreCalls`). New in 0.10.0.
+   */
+  readonly maxStuck: number;
   /**
    * Whether the uploaded file of a document of this format is kept: by its ref (`IngestInput.original`,
    * read by `LargeFilesOptions.originals`), or else as a copy in the store (`putOriginal`).
@@ -96,11 +104,14 @@ const exists = (name: string) => new IngestError("exists", `${name}: a document 
  * call would say so of a document that is there. A document written by a newer version of the
  * package is never replaced (`DocumentStoreError` "NEWER_VERSION"). Returns true when there is a
  * document to delete before the new one is written: the one being replaced, or one expired.
+ *
+ * Since 0.10.0 the look-up is refused at once while too many calls of the process are stuck
+ * ("STORE_STUCK"), and counts as stuck once it has run `slotCapMs`, the time the ingest gives it.
  */
 async function claim(context: IngestContext, target: Target & { id: string }, name: string): Promise<boolean> {
-  const { store, now } = context;
+  const { store, now, maxStuck, slotCapMs } = context;
   const { id } = target;
-  const found = metaOf(await storeCall("read", () => store.getMeta(id, target.context)), id);
+  const found = metaOf(await watchStuck(storeCall("read", () => store.getMeta(id, target.context), { maxStuck }), slotCapMs), id);
   if (!found) return false;
   if (Date.parse(found.expiresAt) <= now().getTime()) return true;
   if (target.ifExists === "fail") throw exists(name);
@@ -117,17 +128,20 @@ async function claim(context: IngestContext, target: Target & { id: string }, na
  * meanwhile. It is left. "taken" when the ingest could not have replaced it: it has not expired, and
  * it is of another owner or scope. "left" for any other.
  */
-async function removeOwn(context: Pick<IngestContext, "store" | "now">, target: Target, meta: DocumentMeta): Promise<"removed" | "left" | "taken"> {
-  const { store, now } = context;
+async function removeOwn(context: IngestContext, target: Target, meta: DocumentMeta): Promise<"removed" | "left" | "taken"> {
+  const { store, now, maxStuck, slotCapMs } = context;
+  // Refused at once while too many calls of the process are stuck, as every store call is: what
+  // was written is left for the sweep.
+  checkStuck("delete", maxStuck);
   if (target.id !== undefined) {
-    const found = metaOf(await storeCall("read", () => store.getMeta(meta.id, target.context)), meta.id);
+    const found = metaOf(await watchStuck(storeCall("read", () => store.getMeta(meta.id, target.context)), slotCapMs), meta.id);
     if (found && !(found.createdAt === meta.createdAt && heldBy(found, meta.owner, meta.scope))) {
       // As `claim` sees it: a date that cannot be read has not expired.
       const expired = Date.parse(found.expiresAt) <= now().getTime();
       return !expired && !heldBy(found, target.owner, target.scope) ? "taken" : "left";
     }
   }
-  await store.delete(meta.id, target.context);
+  await watchStuck(Promise.resolve(store.delete(meta.id, target.context)), slotCapMs);
   return "removed";
 }
 
@@ -757,8 +771,12 @@ async function ingestFile(
   const clear = target.id !== undefined
     && await settleWithin(claim(context, { ...target, id: target.id }, name), slotCapMs, () => storeTimeout(name, slotCapMs, "read"));
   // The files first, the document last: a document is there once its metadata is. Every call
-  // carries the owner and scope of the document.
+  // carries the owner and scope of the document. Since 0.10.0 the writes are refused at once while
+  // too many calls of the process are stuck, and count as one stuck call once they have run
+  // `slotCapMs`, the time they are given: they are made one after the other, and hold one thread
+  // of the pool at a time.
   const storing = (async () => {
+    checkStuck("write", context.maxStuck);
     if (clear) {
       await store.delete(meta.id, target.context);
       forget(meta.id);
@@ -775,6 +793,7 @@ async function ingestFile(
     await store.put({ meta, text }, target.context);
     wrote(true);
   })();
+  watchStuck(storing, slotCapMs);
   try {
     // A store that does not answer fails the ingest after `slotCapMs`: it held the ingest's turn,
     // and the upload handler's room for the file, for as long as it did not answer.

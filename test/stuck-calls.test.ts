@@ -41,7 +41,7 @@ class Holding implements DocumentStore {
   }
 
   put(document: StoredDocument, context?: DocumentContext) {
-    return this.#inner.put(document, context);
+    return this.#maybe("put", () => this.#inner.put(document, context));
   }
   get(id: string, context?: DocumentContext) {
     return this.#maybe("get", () => this.#inner.get(id, context));
@@ -69,6 +69,14 @@ class Holding implements DocumentStore {
 
 /** Lets the promises that are due settle. */
 const settle = () => vi.advanceTimersByTimeAsync(0);
+/**
+ * Turns of the event loop (real ones: an ingest pauses with setImmediate, which the fake timers
+ * leave alone) until `reached` holds. The fake clock does not move meanwhile.
+ */
+async function turnsUntil(reached: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 10_000 && !reached(); turn++) await new Promise((resolve) => setImmediate(resolve));
+  expect(reached()).toBe(true);
+}
 /** The clock of the timers, from here on: moved by the test. */
 const fakeTimers = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
@@ -227,6 +235,67 @@ describe("calls past the time limit", () => {
     const result = await look;
     expect(JSON.stringify(result)).toContain("ETIMEDOUT");
     expect(files.stats()).toMatchObject({ stuckStoreCalls: 1, pageLooks: { active: 0, waiting: 0 } });
+    releaseAll();
+    await settle();
+    expect(files.stats().stuckStoreCalls).toBe(0);
+  });
+});
+
+describe("the store calls of an ingest", () => {
+  it("count once past the time the ingest gives them, and are refused at the limit without calling the store", async () => {
+    const { store, files, a } = await setUp({ ingestTimeoutMs: 1_000 });
+    store.hung.add("put");
+    const first = files.ingest({ name: "c.txt", bytes: utf8("gamma\n") }).catch((error: unknown) => error);
+    // Its turn of the clock comes once the text is read: the time limit of its writes starts then.
+    await turnsUntil(() => store.calls.includes("put"));
+    await vi.advanceTimersByTimeAsync(999);
+    expect(files.stats().stuckStoreCalls).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(files.stats().stuckStoreCalls).toBe(1);
+    // Its removal of what was written waits for the write, as long again.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await first).toMatchObject({ name: "DocumentStoreError", code: "ETIMEDOUT", operation: "write" });
+    expect(files.stats().stuckStoreCalls).toBe(1);
+
+    // A read past the limit brings the process to 2, the default limit.
+    store.hung.add("getMeta");
+    const read = files.getMeta(a.id).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await read).toMatchObject({ code: "ETIMEDOUT" });
+    expect(files.stats().stuckStoreCalls).toBe(2);
+
+    // An ingest now is refused at its writes, and the store is not called.
+    store.hung.clear();
+    const calls = store.calls.length;
+    const events: string[] = [];
+    const refused = files.ingest({ name: "d.txt", bytes: utf8("delta\n"), onEvent: (event) => events.push(event.type) }).catch((error: unknown) => error);
+    await turnsUntil(() => events.includes("ingest.error"));
+    expect(await refused).toMatchObject({ name: "DocumentStoreError", code: "STORE_STUCK", operation: "write", status: 503 });
+    expect(store.calls.length).toBe(calls);
+    // So is an ingest under an application's ID, at its first look at the store.
+    await expect(files.ingest({ name: "e.txt", bytes: utf8("epsilon\n"), id: "upload-1" })).rejects.toMatchObject({ code: "STORE_STUCK", operation: "read" });
+    expect(store.calls.length).toBe(calls);
+
+    // The calls that hung end: the count drops, and ingests are stored again.
+    releaseAll();
+    await settle();
+    expect(files.stats().stuckStoreCalls).toBe(0);
+    const stored = files.ingest({ name: "f.txt", bytes: utf8("zeta\n"), id: "upload-2" });
+    await turnsUntil(() => store.calls.includes("put"));
+    expect((await stored).id).toBe("upload-2");
+  });
+
+  it("count the look-up of an application's ID once past the time the ingest gives it", async () => {
+    const { store, files } = await setUp({ ingestTimeoutMs: 1_000 });
+    store.hung.add("getMeta");
+    const ingest = files.ingest({ name: "c.txt", bytes: utf8("gamma\n"), id: "upload-1" }).catch((error: unknown) => error);
+    await settle();
+    expect(store.calls).toEqual(["getMeta"]);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(files.stats().stuckStoreCalls).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await ingest).toMatchObject({ name: "DocumentStoreError", code: "ETIMEDOUT", operation: "read" });
+    expect(files.stats().stuckStoreCalls).toBe(1);
     releaseAll();
     await settle();
     expect(files.stats().stuckStoreCalls).toBe(0);

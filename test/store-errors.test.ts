@@ -44,7 +44,15 @@ function failBoth(matches: (target: string) => boolean, code: string): () => voi
 
 let directory: string | undefined;
 let restore: (() => void) | undefined;
+/**
+ * Store calls the tests hold, let go at each test's end: a call left past its time limit counts as
+ * stuck in the process until it ends (0.10.0), and would refuse the store calls of the next tests.
+ */
+const held: Array<() => void> = [];
+const hold = <T>(): Promise<T> => new Promise<T>((resolve) => held.push(() => resolve(undefined as T)));
 afterEach(async () => {
+  for (const release of held.splice(0)) release();
+  await new Promise((resolve) => setImmediate(resolve));
   restore?.();
   restore = undefined;
   if (directory) await rm(directory, { recursive: true, force: true });
@@ -192,7 +200,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
   it("is a DocumentStoreError of code ETIMEDOUT when the store does not finish writing in time", async () => {
     class Hanging extends MemoryDocumentStore {
       override put(): Promise<void> {
-        return new Promise(() => {});
+        return hold();
       }
     }
     const files = createLargeFiles({ store: new Hanging(), ingestTimeoutMs: 100 });
@@ -206,7 +214,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
       looks = 0;
       override getMeta(id: string, context?: DocumentContext) {
         // The look before the file is read answers; the one just before the writes does not.
-        return ++this.looks === 1 ? super.getMeta(id, context) : new Promise<undefined>(() => {});
+        return ++this.looks === 1 ? super.getMeta(id, context) : hold<undefined>();
       }
     }
     const store = new Hanging();

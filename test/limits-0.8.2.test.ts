@@ -34,7 +34,14 @@ async function heapKept(): Promise<number> {
 
 let directory: string | undefined;
 let server: Server | undefined;
+/**
+ * Store writes the tests hold, let go at each test's end: a write left past its time limit counts
+ * as stuck in the process until it ends (0.10.0), and would refuse the store calls of the next tests.
+ */
+const held: Array<() => void> = [];
 afterEach(async () => {
+  for (const release of held.splice(0)) release();
+  await new Promise((resolve) => setImmediate(resolve));
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   server = undefined;
   if (directory) await rm(directory, { recursive: true, force: true });
@@ -177,13 +184,15 @@ describe("maxConcurrentIngests (0.8.2)", () => {
       override async put(document: StoredDocument): Promise<void> {
         if (this.hung < 2) {
           this.hung++;
-          return new Promise<void>(() => {});
+          return new Promise<void>((resolve) => held.push(resolve));
         }
         return super.put(document);
       }
     }
     const store = new HangingStore();
-    const files = createLargeFiles({ store, ingestTimeoutMs: 300 });
+    // Two writes stuck past their limit would refuse the third ingest's writes at the default limit
+    // of stuck calls (0.10.0): this test is about the turn.
+    const files = createLargeFiles({ store, ingestTimeoutMs: 300, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const hung = [files.ingest({ name: "a.txt", bytes: utf8("a") }), files.ingest({ name: "b.txt", bytes: utf8("b") })].map((ingest) => ingest.catch((error: unknown) => error));
     await until(() => store.hung === 2);
     // The third gets a turn once the writes have failed, 300 ms later.
@@ -367,13 +376,15 @@ describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
       override async put(document: StoredDocument): Promise<void> {
         if (this.hung < 2) {
           this.hung++;
-          return new Promise<void>(() => {});
+          return new Promise<void>((resolve) => held.push(resolve));
         }
         return super.put(document);
       }
     }
     const store = new HangingStore();
-    const files = createLargeFiles({ store, maxUploadBytes: 1_000, ingestTimeoutMs: 300 });
+    // Two writes stuck past their limit would refuse the next upload's writes at the default limit
+    // of stuck calls (0.10.0): this test is about the room.
+    const files = createLargeFiles({ store, maxUploadBytes: 1_000, ingestTimeoutMs: 300, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const documents = createDocumentHandlers(files);
     server = createServer((request, response) => void documents.upload(request, response));
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));

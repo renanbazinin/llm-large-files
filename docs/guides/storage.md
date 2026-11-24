@@ -940,8 +940,9 @@ tool call ends with `run.error`. Before, a call that never settled held the ques
 - **`delete` runs one at a time** in a library: a delete waits for the one before it to settle, for
   at most `storeTimeoutMs`.
 - **`ingest`** keeps its own limits: its writes, and its look-ups of an application's ID, end within
-  `ingestTimeoutMs` (2 minutes when it is 0), as before. **`sweep`** has `sweepTimeoutMs`, no limit by
-  default, and never counts as stuck.
+  `ingestTimeoutMs` (2 minutes when it is 0), as before. Past them they count as stuck too, and
+  while too many calls are stuck an ingest fails at its first store call with `"STORE_STUCK"`.
+  **`sweep`** has `sweepTimeoutMs`, no limit by default, and never counts as stuck.
 - Keep `storeTimeoutMs` above your slowest healthy call: a `get` of the largest text loaded whole
   (`wholeDocumentBytes`, 2 MB by default), or a `getOriginal` of the largest original, at the store's
   busiest. 0 sets no limit.

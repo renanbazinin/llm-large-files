@@ -170,14 +170,16 @@ export type LargeFilesOptions = {
    * itself goes on, as nothing can stop it, and counts as stuck until it ends. A call inside a
    * question's tool call ends the question. Defaults to 30,000; 0 sets no limit, and so does a time
    * past what a timer can wait. Keep it above the time your store takes to read the largest text
-   * loaded whole (`wholeDocumentBytes`). `ingest` keeps its own limits (`ingestTimeoutMs`), and
-   * `sweep` has `sweepTimeoutMs`. New in 0.10.0.
+   * loaded whole (`wholeDocumentBytes`). `ingest` keeps its own limits (`ingestTimeoutMs`), past
+   * which its store calls count as stuck too, and `sweep` has `sweepTimeoutMs`. New in 0.10.0.
    */
   storeTimeoutMs?: number;
   /**
-   * How many calls of this process may be stuck (past `storeTimeoutMs`, and not ended) before every
-   * new store call of this library fails at once, without calling the store, with code
-   * "STORE_STUCK" (status 503). The count is the process's, as the threads of libuv are: a store
+   * How many calls of this process may be stuck (past their time limit, and not ended) before every
+   * new store call of this library, those of `ingest` included, fails at once, without calling the
+   * store, with code "STORE_STUCK" (status 503). A store call is stuck past `storeTimeoutMs`, and
+   * one of `ingest` past the time it gives its store calls (`ingestTimeoutMs`, 2 minutes when that
+   * is 0). The count is the process's, as the threads of libuv are: a store
    * call that does not answer holds one of them, and with all of them held every file call and DNS
    * look-up of the process waits. Defaults to half of `UV_THREADPOOL_SIZE` (4 when it is not set),
    * read when the library is made, and at least 1: 2 by default, 16 with 32 threads. `Infinity`
@@ -481,7 +483,8 @@ export type LargeFilesStats = {
   cache: { bytes: number; entries: number; maxBytes: number };
   /**
    * Calls of this process that ran past their time limit and have not settled: the store calls of
-   * every library, and the calls to the disk of the upload handlers (`uploadIdleTimeoutMs`).
+   * every library (past `storeTimeoutMs`, or for `ingest` past `ingestTimeoutMs`), and the calls to
+   * the disk of the upload handlers (`uploadIdleTimeoutMs`).
    */
   stuckStoreCalls: number;
   /** This library's limit on them (`maxStuckStoreCalls`). */
@@ -734,6 +737,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
     },
     ingests,
     slotCapMs,
+    maxStuck: maxStuckStoreCalls,
     keeps,
     readsRefs: originals !== undefined,
     forget,

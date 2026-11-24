@@ -533,7 +533,12 @@ describe("prepareUpload with a path", () => {
     // One look at a time: each upload left one look that does not end (one thread of libuv's pool
     // held), at the root of the ref, and never looked at its folder.
     expect(disk.realpaths).toEqual([root, root]);
+    // Two looks stuck: at the default limit of stuck calls, the store is not called (0.10.0).
+    expect(files.stats()).toMatchObject({ stuckStoreCalls: 2, maxStuckStoreCalls: 2 });
+    // The volume answers again: the looks end.
     disk.realpathHeldUnder = undefined;
+    for (const release of disk.realpathsHeld.splice(0)) release();
+    await expect.poll(() => files.stats().stuckStoreCalls).toBe(0);
     disk.realpaths.length = 0;
     expect((await upload(base, "notes.txt", "The meeting is on Tuesday.")).status).toBe(201);
     expect(await uploads()).toEqual(["up-3"]);

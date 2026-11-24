@@ -337,7 +337,9 @@ describe("uploadSpool", () => {
   // A volume that stopped answering while the file was ingested: its removal held the answer, and
   // the room of the spool for good, so that the next upload got a 503.
   it("answers once the ingest ends when the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    // Removals stuck past uploadIdleTimeoutMs count as stuck calls: two of them would refuse the
+    // third ingest at the default limit (0.10.0). This test is about the answer and the room.
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     let release!: () => void;
     disk.removalsHeld = { under: spool, gate: new Promise<void>((resolve) => (release = resolve)) };
