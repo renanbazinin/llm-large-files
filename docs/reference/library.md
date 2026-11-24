@@ -888,14 +888,15 @@ type PrepareOptions = AccessOptions & {
   budget?: Partial<Budget>;
   viewPages?: boolean;
   wholeDocumentAnalysis?: boolean;
-  placement?: PlacementState; // new in 0.10.0, not read yet
-  numberInline?: boolean; // new in 0.10.0, not read yet
-  inlineTables?: "tools" | "text"; // new in 0.10.0, not read yet
-  reserve?: { tokens: number; bytes: number }; // new in 0.10.0, not read yet
+  numberInline?: boolean; // new in 0.10.0
+  inlineTables?: "tools" | "text"; // new in 0.10.0
+  placement?: PlacementState; // new in 0.10.0
+  reserve?: { tokens: number; bytes: number }; // new in 0.10.0
 };
 ```
 
-The options of [`files.prepare`](#filesprepareids-base-options).
+The options of [`files.prepare`](#filesprepareids-base-options). Without the four options new in
+0.10.0, `prepare` gives the plan, the blocks and the instruction of 0.9.
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
@@ -904,10 +905,19 @@ The options of [`files.prepare`](#filesprepareids-base-options).
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for this request, as in `LargeFilesOptions.budget`. `askWithFiles` passes the budget fitted to its model. |
 | `viewPages` | `boolean` | `false` | Says that your loop can pass files to the model. `viewable` then lists the PDFs whose original is kept (with a store that has `getOriginal`), and the instruction and the cards tell the model about `view_pages`. Without it, `viewable` is empty and nothing mentions `view_pages`. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Says whether your tool set has `analyze_whole_document`. Pass `false` when you call `tools` without `generate`: the instruction then does not name it, and the cards do not offer a whole-file read or say that a file is too large for one. Each says `This file is NOT in your context. Use the document tools to search it and to read line ranges.` `askWithFiles` passes `false` when the model that explores has no `generateText`, and when its own `wholeDocumentAnalysis` is `false`. |
-| `placement` | [`PlacementState`](#placementstate) | none | The placement state of the chat's last question: the documents keep the place they had. New in 0.10.0. Not read yet. |
-| `numberInline` | `boolean` | `false` | Number the lines of the documents sent whole, as the tools number them. `false` here gives the blocks of 0.9. New in 0.10.0. Not read yet. |
-| `inlineTables` | `"tools" \| "text"` | `"text"` | `"tools"`: list in `toolable` the documents sent whole whose tables the tools can count. `"text"`: as in 0.9. New in 0.10.0. Not read yet. |
-| `reserve` | `{ tokens: number; bytes: number }` | none | Room to keep free in the request besides `base`: the tool declarations, the guide, the header lines and the cards, at their rendered size. New in 0.10.0. Not read yet. |
+| `numberInline` | `boolean` | `false` | Numbers the lines of each document sent whole, as the tools number them: `12| ` before each line, from 1, a line ending at each newline and none after the last. The document is planned by its numbered size, about 8% to 16% more tokens (see below), so a document at the edge of `inlineTokens` may become a card. `plan.inlineTokens` and `plan.inlineBytes` are the numbered sizes. The frame lines do not change. A value that is not a boolean throws a `TypeError`. New in 0.10.0. |
+| `inlineTables` | `"tools" \| "text"` | `"text"` | `"tools"`: `toolable` lists the documents sent whole whose tables the tools can count, and the guide says how (see [`PreparedContext`](#preparedcontext)). `"text"`: no `toolable`, as in 0.9. Another value throws a `TypeError`. New in 0.10.0. |
+| `placement` | [`PlacementState`](#placementstate) | none | The state of the chat's last question (`prepared.placement` of that question). A document it lists as sent whole is placed first, in the order first placed, and stays whole while it fits; one that no longer fits becomes a card. A document it lists as searched stays a card, even when it would fit now. Its tools stay declared. A state of another version, or of another shape, is not used: the question is planned afresh. `prepare` does not know your conversation, so it cannot check the state's `head`: pass a state only to the same conversation. New in 0.10.0. |
+| `reserve` | `{ tokens: number; bytes: number }` | none | Room to keep free in the request besides `base`: the tool declarations you offer. With it, planning also counts the cards, the header lines and the guide at their rendered size, and plans again when they need more room than it left them: with many cards, fewer documents go in whole. Without it, as in 0.9, only the documents sent whole are counted. A value that is not an object throws a `TypeError`, and a negative or NaN size a `RangeError`. New in 0.10.0. |
+
+`numberInline` counts a document as `estimatedTokens` + 1.2 tokens a digit of its line numbers + 1.5
+tokens a line, and its bytes as its JSON bytes + the digits + 4 a line: the formula of
+`estimateParts`. That is 15.5% more tokens for a CSV of 3,000 short rows, 9.4% for a service log,
+and 8.4% for Hebrew prose, and a little more than the estimate of the numbered text itself.
+
+Planning stored rounds at their stand-in size, as `askWithFiles` does since 0.10.0, is the caller's
+part: pass a `base` that counts the tool rounds of earlier questions as their stand-ins
+(`stubResult`), and the documents of the state stay in place as the chat grows.
 
 Guide: [your own adapter and loop](../guides/own-adapter-and-loop.md).
 
@@ -956,10 +966,10 @@ type PreparedContext = {
   instruction: string;
   missing: string[];
   viewable: DocumentMeta[];
-  toolable?: DocumentMeta[]; // new in 0.10.0, not set yet
-  guide?: string; // new in 0.10.0, not set yet
-  listing?: Map<string, string>; // new in 0.10.0, not set yet
-  placement?: PlacementState; // new in 0.10.0, not set yet
+  toolable?: DocumentMeta[]; // new in 0.10.0
+  guide?: string; // new in 0.10.0
+  listing?: Map<string, string>; // new in 0.10.0
+  placement?: PlacementState; // new in 0.10.0
 };
 ```
 
@@ -972,13 +982,30 @@ What [`files.prepare`](#filesprepareids-base-options) returns.
 | `instruction` | `string` | The guide to the tools, for the system prompt, when a document is searchable or viewable; `""` otherwise. It names `analyze_whole_document` when a searchable file is small enough for it and `prepare` was not given `wholeDocumentAnalysis: false`. Then give `generate` to `tools`, or a call of it is answered as an unknown tool. |
 | `missing` | `string[]` | The IDs that were not found: never uploaded, not a document ID, deleted, expired, or another owner's. |
 | `viewable` | `DocumentMeta[]` | The PDFs whose pages `view_pages` can show, whether their text is in the prompt or searched. Empty unless `prepare` was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`. |
-| `toolable` | `DocumentMeta[]`, optional | Documents sent whole whose tables the tools can still count and search (`inlineTables: "tools"`): CSV and XLSX, and the others whose text has `\| cell \|` rows. New in 0.10.0. Not set yet. |
-| `guide` | `string`, optional | The tool guide for the system text, the same in every question of a chat: no file names or IDs, and no figure that changes from one question to the next. New in 0.10.0. Not set yet: use `instruction`. |
-| `listing` | `Map<string, string>`, optional | One header line per document ID, for the turn that holds its block: its name, its `document_id`, and whether it is shown in full or searched with the tools. New in 0.10.0. Not set yet. |
-| `placement` | [`PlacementState`](#placementstate), optional | Where the documents were placed, for the next question (`PrepareOptions.placement`). New in 0.10.0. Not set yet. |
+| `toolable` | `DocumentMeta[]`, optional | With `inlineTables: "tools"`: the documents sent whole whose tables the tools can still count and search. A CSV or an XLSX workbook always; a DOCX, PPTX, PDF, HTML or Markdown file when its text has at least 3 `\| cell \|` rows (a line that starts and ends with `\|`, not a `\| --- \|` separator), as `aggregate_table` reads them. Absent with `"text"`. Give them to `tools` with the searched documents, and declare for them `search_document`, `read_document` and `aggregate_table`. New in 0.10.0. |
+| `guide` | `string`, optional | The tool guide for the system text that stays the same from one question of a chat to the next: it names no file and no document ID, and gives no count of turns (it says that the last turn is marked). It is made from the tools declared alone (`placement.tools`), so it changes only when a tool is declared for the first time. With `inlineTables: "tools"` and `aggregate_table` declared, it says that files shown in full can still be counted. For a question without tools whose files sent whole are numbered, it is the one line `Cite line numbers like (report.docx L12).`, whose name is always that example. `""` when there is nothing to say. Use it in place of `instruction` with `listing`. New in 0.10.0. |
+| `listing` | `Map<string, string>`, optional | One header line per document found, by ID, in the order asked: which file it is, and where. Put the lines of a group of blocks before the blocks, under `Attached files:` (see below). New in 0.10.0. |
+| `placement` | [`PlacementState`](#placementstate), optional | Where the documents were placed, for the next question: pass it as `placement` to the next `prepare` of the same conversation. Its documents sent whole and searched are in the order first placed; those found missing are left out; `tools` holds the tools of earlier questions and those this one needs, in the order a tool set declares them. Its `head` is that of the state given, or `""` without one; `stubbedThrough` and `nativeRefused` are kept as given. Never send it to a model. New in 0.10.0. |
 
 The fields new in 0.10.0 are optional, so that a `LargeFiles` of your own still compiles: without
-them, `askWithFiles` works as in 0.9.
+them, `askWithFiles` works as in 0.9. The one `createLargeFiles` makes always gives `guide`,
+`listing` and `placement`, and `toolable` with `inlineTables: "tools"`.
+
+The header of a group of blocks, new in 0.10.0, is made from the documents' metadata and their
+place alone, so its bytes stay the same while those do:
+
+```text
+Attached files:
+- "runbook.md" (document_id doc_2f…): shown in full below
+- "app.log" (document_id doc_8a…): searched with the tools
+- "report.pdf" (document_id doc_c1…, 12 pages): shown in full below; it replaces doc_9e…, an earlier file of the same name
+```
+
+- The name is a JSON string, as in the frame of a file sent whole.
+- `12 pages` is there for a PDF whose pages `view_pages` can show (`viewable`).
+- `it replaces …` is on the later of two documents of the same name (by `createdAt`; names compared
+  in Unicode NFC), and names the latest document before it. The earlier document's line does not
+  change.
 
 A document sent whole sits between these two lines (new in 0.6.0, for every document):
 
@@ -987,6 +1014,9 @@ A document sent whole sits between these two lines (new in 0.6.0, for every docu
 <the text>
 --- End attached file [mark <mark>] ---
 ```
+
+With `numberInline` (new in 0.10.0), `<the text>` has its lines numbered as `read_document` shows
+them: `1| first line`, `2| `, `3| third line`. The frame lines are the same.
 
 - `<mark>` is eight hex digits made from the document ID, the same in every request, so a
   provider's prompt cache reuses the file. After an upgrade from 0.5.0, the first request of each
@@ -1012,7 +1042,8 @@ starts every frame.
 
 A card starts with `--- Large attached file: <name> ---`, as before. Its third line is
 `<format> · <size> · <lines> lines · <pages> pages · about <tokens> tokens`, with `1 line` and
-`1 page` for one. For a text file that was not valid UTF-8, a line after the way to read it says
+`1 page` for one. A size that rounds to 1,024 KB reads `1 MB`, and a count that rounds to 1,000K
+reads `1.0M` (since 0.10.0; `1024 KB` and `1000K` before). For a text file that was not valid UTF-8, a line after the way to read it says
 `This file is not in UTF-8. Its text was read as windows-1255: if its letters look wrong, ask the user to save it as UTF-8.`,
 followed, when some characters were not valid in it, by
 ` 3 characters of it were not valid in windows-1255, and show as �.`; or, for a file read as UTF-8,

@@ -720,6 +720,21 @@ refusing a whole-file read that would pass a ceiling of the question before it s
      bytes of the inline text.
    - `viewable`: the PDFs whose pages `view_pages` can show, because their uploaded file is kept
      (`keepOriginals`). Empty unless you pass `viewPages: true` and the store keeps originals.
+   - New in 0.10.0: `guide`, `listing` and `placement`, for a loop that keeps the start of its
+     requests the same ([below](#a-start-of-the-request-that-stays-the-same)), and `toolable` with
+     `inlineTables: "tools"`. `instruction` and the blocks stay those of 0.9 unless you ask for
+     `numberInline` or `inlineTables`.
+
+   Two options of 0.10.0 change the text, and are off unless you ask for them:
+   - `numberInline: true` numbers the lines of each file sent whole as the tools number them
+     (`12| `), so that the model can cite its lines as it cites those of a searched file. The file is
+     planned by its numbered size, about 8% to 16% more tokens, so a file at the edge of
+     `inlineTokens` may become a card. With no tools in the question, add
+     `Cite line numbers like (report.docx L12).` to the system text: `guide` is that line then.
+   - `inlineTables: "tools"` lists in `toolable` the files sent whole whose tables the tools can
+     count: a CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with at least 3
+     `| cell |` rows. Give them to `tools` with the searched files, so that a count over a table
+     shown in full is exact (`aggregate_table`), not done by eye.
 2. **No tools needed?** When `plan.searchable` and `viewable` are both empty, every document is in
    the prompt: send one request without tools.
 3. **Tools.** `files.tools(prepared.plan.searchable, options)` gives a `ToolSet`. The options that
@@ -767,6 +782,58 @@ Plan and run the tools with the same budget. The library's own fits a model with
 unless you set `budget.contextTokens` in `createLargeFiles`. For a budget of one request, pass
 `budget` to both `prepare` and `tools`; `files.budgetFor(overrides, { contextTokens, maxRequestBytes })`
 gives one that fits a model's limits.
+
+### A start of the request that stays the same
+
+New in 0.10.0. A provider's prompt cache (the implicit cache of Gemini on Vertex AI, for one) bills
+the start of a request at a lower price when it is byte for byte the start of an earlier request.
+`instruction` names the files that are searched, so it changes with each upload, and a file sent
+whole can become a card as the chat grows. For a chat whose requests should start the same from
+one question to the next, `prepare` gives what does not change:
+
+- **`guide`**, for the system text in place of `instruction`. It names no file and no document ID,
+  and gives no count of turns: it says that the turns are limited and that the last one is marked,
+  so say so in your last tool turn. It is made from the tools declared alone, and changes only when
+  a tool is declared for the first time in the chat.
+- **`listing`**, one header line per document: its name, its `document_id`, `shown in full below`
+  or `searched with the tools`, its pages when `view_pages` can show them, and
+  `it replaces doc_…, an earlier file of the same name` for a file uploaded again under its name.
+  Put the lines of a group of blocks before the blocks, in the same turn, under a line
+  `Attached files:`. A line is made from the document's metadata and its place alone.
+- **`placement`**, a `PlacementState`: keep it with the chat, never send it to a model, and pass it
+  as `placement` to the next `prepare` of the same chat. A file sent whole stays whole while it fits,
+  and becomes a card only when it does not; a searched file stays searched. `placement.tools` holds
+  the tools declared so far: declare all of them in every later question, in that order
+  (`ToolOptions.declare`), even when every file is sent whole now. A state of another version or
+  shape is not used. `prepare` cannot see your messages: when you trim or replace the start of the
+  list, plan the next question without a state. Its `head` is kept as you give it.
+- **`reserve`**: pass the size of the tool declarations you send, `{ tokens, bytes }`. Planning then
+  counts the cards, the header and the guide as well, at their size, and sends fewer files whole when
+  many cards fill the window.
+
+Plan with the tool rounds of earlier questions at their stand-in size: count each result as its
+`stubResult(call, result, hadFiles)` when you work out `base`. Then a file sent whole stays whole as
+the chat grows, and it is the stored rounds that make room: when free room runs short, replace the
+results of the oldest questions with their stand-ins, several questions at once, and keep them so in
+later questions. Each such change rewrites the turns after it, so make them seldom.
+
+```ts
+const prepared = await files.prepare(documentIds, base, {
+  owner,
+  numberInline: true,
+  inlineTables: "tools",
+  placement: chat.placement, // undefined for the first question
+  reserve: { tokens: estimateTokens(sentDeclarations), bytes: jsonBytes(sentDeclarations) },
+});
+chat.placement = prepared.placement;
+const systemText = [system, prepared.guide].filter(Boolean).join("\n\n");
+const header = ["Attached files:", ...documentIds.flatMap((id) => prepared.listing?.get(id) ?? [])].join("\n");
+// The first user turn: the header, then the blocks in the order of documentIds, then the question.
+```
+
+Under this, a file uploaded in the middle of a chat still changes the first user turn, where every
+block sits. To keep that turn too, put each file's header line and block at the start of the turn
+it was uploaded with, and send that turn again with the same bytes in later questions.
 
 ### A loop on Vertex AI
 
