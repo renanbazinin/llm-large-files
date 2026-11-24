@@ -220,3 +220,71 @@ describe("storeRounds and compactToolTurns", () => {
     await expect(askWithFiles({ ...asked, model: script(), storeRounds: "small" as never })).rejects.toThrow('storeRounds must be "full" or "compact"');
   });
 });
+
+describe("dedupe", () => {
+  it("gives back the document of the same owner and scope with the same file, and stores another for anyone else", async () => {
+    const time = clock();
+    for (const [kind, store] of await stores(time.now)) {
+      const files = createLargeFiles({ store, now: time.now, ttlMs: 2 * HOUR });
+      const chat = { owner: "u1", scope: ["u1", "c1"] };
+      const bytes = utf8("id,amount\n1,10\n2,20\n");
+      const first = await files.ingest({ name: "orders.csv", bytes, ...chat, dedupe: true, appData: { row: 1 } });
+      time.advance(HOUR);
+      const again = await files.ingest({ name: "orders (1).csv", bytes, ...chat, dedupe: true, appData: { row: 2 } });
+      // The same document, its name and appData its own, its expiry counted again from now.
+      expect(again.id, kind).toBe(first.id);
+      expect(again.name, kind).toBe("orders.csv");
+      expect(again.appData, kind).toEqual({ row: 1 });
+      expect(again.expiresAt, kind).toBe(new Date(time.now().getTime() + 2 * HOUR).toISOString());
+      expect((await files.list!(chat)).length, kind).toBe(1);
+      // Another owner, another scope, other bytes, or no dedupe: another document.
+      const ids = new Set([first.id]);
+      ids.add((await files.ingest({ name: "orders.csv", bytes, owner: "u2", scope: ["u1", "c1"], dedupe: true })).id);
+      ids.add((await files.ingest({ name: "orders.csv", bytes, owner: "u1", scope: ["u1", "c2"], dedupe: true })).id);
+      ids.add((await files.ingest({ name: "orders.csv", bytes: utf8("id,amount\n1,11\n"), ...chat, dedupe: true })).id);
+      ids.add((await files.ingest({ name: "orders.csv", bytes, ...chat })).id);
+      expect(ids.size, kind).toBe(5);
+    }
+  });
+
+  it("stores the file again when the text of the document found is gone", async () => {
+    const time = clock();
+    const [, store] = (await stores(time.now))[1]!;
+    const files = createLargeFiles({ store, now: time.now });
+    const bytes = utf8("alpha beta");
+    const first = await files.ingest({ name: "a.txt", bytes, dedupe: true });
+    await rm(path.join(directory!, `${first.id}.txt`));
+    const again = await files.ingest({ name: "a.txt", bytes, dedupe: true });
+    expect(again.id).not.toBe(first.id);
+    expect((await files.tools([again]).execute("read_document", { document_id: again.id })).text ?? "").toContain("alpha");
+  });
+
+  it("never removes the document it found, even when the listener of ingest.finish throws", async () => {
+    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const bytes = utf8("alpha beta");
+    const first = await files.ingest({ name: "a.txt", bytes, dedupe: true });
+    const failing = files.ingest({ name: "a.txt", bytes, dedupe: true, onEvent: (event) => { if (event.type === "ingest.finish") throw new Error("listener"); } });
+    await expect(failing).rejects.toThrow("listener");
+    expect(await files.getMeta(first.id)).toBeDefined();
+  });
+
+  it("is a TypeError with id, over a store without list, or when it is not a boolean", async () => {
+    const memory = new MemoryDocumentStore();
+    const bare: DocumentStore = { put: (d, c) => memory.put(d, c), get: (id, c) => memory.get(id, c), getMeta: (id, c) => memory.getMeta(id, c), delete: (id, c) => memory.delete(id, c) };
+    await expect(createLargeFiles({ store: memory }).ingest({ name: "a.txt", bytes: utf8("a"), id: "upload-1", dedupe: true })).rejects.toThrow("dedupe and id cannot be given together");
+    await expect(createLargeFiles({ store: bare }).ingest({ name: "a.txt", bytes: utf8("a"), dedupe: true })).rejects.toThrow("dedupe needs a store with list()");
+    await expect(createLargeFiles({ store: memory }).ingest({ name: "a.txt", bytes: utf8("a"), dedupe: "yes" as never })).rejects.toThrow("dedupe must be true or false");
+  });
+
+  it("works for a file ingested from a path", async () => {
+    const time = clock();
+    const [, store] = (await stores(time.now))[1]!;
+    const files = createLargeFiles({ store, now: time.now });
+    const source = path.join(directory!, "upload.txt");
+    await writeFile(source, "gamma delta");
+    const first = await files.ingest({ name: "upload.txt", source: { path: source }, dedupe: true });
+    const again = await files.ingest({ name: "upload.txt", source: { path: source }, dedupe: true });
+    expect(again.id).toBe(first.id);
+    expect(first.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+});

@@ -283,6 +283,15 @@ export type IngestInput = {
    * New in 0.10.2.
    */
   appData?: AppData;
+  /**
+   * When the store already has a document of the same owner and scope whose file has the same
+   * SHA-256, and its text is there, give back that document instead of storing another: its name,
+   * ID and `appData` stay its own, and its expiry is counted again from now when the store has
+   * `putMeta`. The file is hashed first and not read further. It needs a store with `list`
+   * (another is a TypeError), and it cannot be given with `id` (a TypeError). Never across owners
+   * or scopes (H6). New in 0.10.2.
+   */
+  dedupe?: boolean;
 };
 
 /** A file to ingest from where it is, rather than from bytes in memory (`IngestFromSource`). New in 0.9.0. */

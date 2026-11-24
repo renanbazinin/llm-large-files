@@ -79,6 +79,8 @@ type Target = {
   readonly context: DocumentContext;
   /** `IngestInput.appData`, checked and copied (0.10.2). */
   readonly appData?: AppData;
+  /** `IngestInput.dedupe` (0.10.2). */
+  readonly dedupe: boolean;
 };
 
 /** The TypeError of an `IngestInput.id` of another shape. It does not repeat the ID, which may hold what it must not. */
@@ -96,7 +98,10 @@ function targetOf(input: IngestInput | IngestFromSource, rules: AccessRules): Ta
   // Null is none, as a database gives a field that was left out.
   const given: unknown = input.appData ?? undefined;
   const appData = given === undefined ? undefined : checkAppData(given, "appData");
-  return { id, ifExists, owner: input.owner, scope, context: storeContext(scope, input.owner), ...(appData !== undefined ? { appData } : {}) };
+  const dedupe: unknown = input.dedupe ?? false;
+  if (typeof dedupe !== "boolean") throw new TypeError("dedupe must be true or false.");
+  if (dedupe && id !== undefined) throw new TypeError("dedupe and id cannot be given together: an application's ID names its own document.");
+  return { id, ifExists, owner: input.owner, scope, context: storeContext(scope, input.owner), ...(appData !== undefined ? { appData } : {}), dedupe };
 }
 
 /** The refusal of an application's ID that is taken (`ifExists`). It says nothing of the document that has it. */
@@ -124,6 +129,45 @@ async function claim(context: IngestContext, target: Target & { id: string }, na
   checkMetaVersion(found);
   if (heldBy(found, target.owner, target.scope)) return true;
   throw exists(name);
+}
+
+/**
+ * The document of the same owner and scope whose file has this SHA-256 (`IngestInput.dedupe`), as
+ * the store lists them (`list`), when its text is still there: the latest stored, when several
+ * are. Expired documents, and those of a newer version, are not it. Its expiry is counted again
+ * from now when the store can write metadata alone (`putMeta`), as `files.touch` does. Undefined
+ * when there is none. Each store call is refused at once while too many calls are stuck, and
+ * counts as stuck past `slotCapMs`, as the look-up of an application's ID does. New in 0.10.2.
+ */
+async function sameDocument(context: IngestContext, target: Target, sha256: string): Promise<DocumentMeta | undefined> {
+  const { store, now, ttlMs, maxStuck, slotCapMs } = context;
+  const call = <T>(operation: "read" | "write", run: () => Promise<T>) => watchStuck(storeCall(operation, run, { maxStuck }), slotCapMs);
+  const listed: unknown = await call("read", () => store.list!(target.context));
+  const at = now().getTime();
+  const candidates: DocumentMeta[] = [];
+  for (const item of Array.isArray(listed) ? listed : []) {
+    const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
+    if (!meta || meta.sha256 !== sha256 || !(Date.parse(meta.expiresAt) > at) || !heldBy(meta, target.owner, target.scope)) continue;
+    const version: unknown = meta.metaVersion ?? 0;
+    if (typeof version === "number" && version <= DOCUMENT_META_VERSION) candidates.push(meta);
+  }
+  // The latest first: an older copy may be on its way out.
+  candidates.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  for (const meta of candidates) {
+    // Metadata whose text is gone is not a document: a byte of the text, or the whole text from a
+    // store that cannot read a range.
+    const there = typeof store.readTextRange === "function"
+      ? await call("read", () => store.readTextRange!(meta.id, 0, 1, target.context)) !== undefined
+      : await call("read", () => store.get(meta.id, target.context)) !== undefined;
+    if (!there) continue;
+    const expiresAt = expiryAfter(now(), ttlMs);
+    if (typeof store.putMeta === "function" && Date.parse(expiresAt) > Date.parse(meta.expiresAt)) {
+      const touched = { ...meta, expiresAt };
+      if (await call("write", () => store.putMeta!(touched, target.context)) === true) return touched;
+    }
+    return meta;
+  }
+  return undefined;
 }
 
 /**
@@ -566,6 +610,11 @@ type IngestWork = {
    * stays held in `ingesting` until they have ended, since they may still land.
    */
   writes?: Promise<unknown>;
+  /**
+   * The document the ingest gives back was stored before, by another ingest (`IngestInput.dedupe`):
+   * it is never removed for this one, whatever happens to it (0.10.2).
+   */
+  reused?: true;
 };
 
 /**
@@ -628,6 +677,8 @@ async function ingestFile(
   let sha256 = "";
   /** The bytes to keep in the store (`putOriginal`), until they are written. */
   let copy: Uint8Array | undefined;
+  /** The size and SHA-256 of a file at a path that its extractor reads, taken before for `dedupe`. */
+  let early: { bytes: number; sha256: string } | undefined;
   /**
    * A read of the file at `path`, or the signal's reason once it aborts. A volume that does not
    * answer within the ingest's time is the server's trouble, not the file's: a system error
@@ -674,6 +725,21 @@ async function ingestFile(
       sha256 = got.sha256;
       got = undefined;
     }
+    // With `dedupe`, the document of the same owner and scope with the same SHA-256 is the answer,
+    // when there is one: the file is hashed first, and not extracted (0.10.2).
+    if (target.dedupe) {
+      if (path === undefined) sha256 = await sha256InSlices(bytes!, slicer);
+      else if (extractorReads) {
+        const got = await readWithin(readSource(path, maxUploadBytes, { keep: false, slicer, signal }));
+        early = { bytes: checkedSize(name, got.size, maxUploadBytes), sha256: got.sha256 };
+        sha256 = got.sha256;
+      }
+      const same = await sameDocument(context, target, sha256);
+      if (same) {
+        work.reused = true;
+        return jsonCopy(same);
+      }
+    }
     // In a function of its own, so that the text as extracted is let go once it is prepared:
     // the steps after it hold only the prepared text.
     const read = async () => {
@@ -719,11 +785,11 @@ async function ingestFile(
     // Bytes given are hashed once the extractor is done with them, a slice at a time: the extractor
     // is called at once at the ingest's turn, as before 0.9.0, so the ingests of one turn reach it
     // in the order they came, and the SHA-256 is that of the bytes a kept copy holds.
-    if (path === undefined) sha256 = await sha256InSlices(bytes!, slicer);
+    if (path === undefined && !target.dedupe) sha256 = await sha256InSlices(bytes!, slicer);
     if (path !== undefined && extractorReads) {
       // What the extractor read of the file: its size and SHA-256. One that did not say is hashed
       // here, a slice at a time, and nothing of it is kept.
-      let hashed = done.file;
+      let hashed = done.file ?? early;
       if (!hashed) {
         const got = await readWithin(readSource(path, maxUploadBytes, { keep: false, slicer, signal }));
         hashed = { bytes: got.size, sha256: got.sha256 };
@@ -917,6 +983,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
     if (events.active) events.emit({ type: "ingest.start", ...startOf(input, stated?.size) });
     checkOwner(input.owner);
     const target = targetOf(input, context.rules);
+    if (target.dedupe && typeof context.store.list !== "function") throw new TypeError("dedupe needs a store with list(): MemoryDocumentStore and FileDocumentStore have it.");
     // The path looked at, as it was made absolute then (the working directory may have changed
     // since); checked again for an input it was not taken from, which throws here.
     const path = quietPath ?? sourcePathOf(input);
@@ -968,14 +1035,21 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
       throw toIngestError(error);
     }
     // Once more, before the document is told stored: a caller that has left by now gets its reason.
-    if (input.signal?.aborted) await removeAbandoned(context, target, meta, work, input.signal.reason);
+    // A document stored before (`dedupe`) is not this ingest's to remove.
+    if (input.signal?.aborted) {
+      if (work.reused) throw input.signal.reason;
+      await removeAbandoned(context, target, meta, work, input.signal.reason);
+    }
     try {
       events.emit({ type: "ingest.finish", document: toDocumentSummary(meta) });
     } catch (error) {
       // The caller never gets the id: the document goes, as on a throw of the listener a moment
-      // earlier, while it is this ingest's own. The listener's error is passed on as it is.
-      await removeOwn(context, target, meta).catch(() => undefined);
-      forget(meta.id);
+      // earlier, while it is this ingest's own (not one stored before, `dedupe`). The listener's
+      // error is passed on as it is.
+      if (!work.reused) {
+        await removeOwn(context, target, meta).catch(() => undefined);
+        forget(meta.id);
+      }
       throw error;
     }
     return meta;
