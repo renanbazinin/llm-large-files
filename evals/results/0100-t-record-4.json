@@ -7,7 +7,7 @@
   "- **contract-summary on Flash** read one range of the contract, got the hint, and read the contract whole as an answer: 17 requests, every fact right, the 48,000 fine included. Its recording held a whole read before too, after a read and three searches.",
   "- **cleaning-sanctions on Flash** read a range, searched once, and read the agreement whole as an answer, which listed the 37 sanctions: 37 and 4,790, both right. It counted with a regular expression in its two earlier recordings (30) and in the 3 runs of `0100-t-live-3.md` (28).",
   "- **diary-planted-nothing on Flash** was not recorded again: once contract-summary was, the replay passed it as it was.",
-  "- **Every recording replays:** `npm run eval:replay` with no key passed 90 of 90 after these runs. No recording holds a read that lists items (each `analyze_whole_document` call in the cassettes asks for an answer).",
+  "- **Every recording replays:** `npm run eval:replay` with no key passed 90 of 90 after these runs. Replayed 8 cases at a time, as it was then, Flash's cleaning-sanctions failed 1 replay of 5 (\"prompt changed\": its first part read asked 4,096 output tokens, recorded at 32,768): Flash's output limit is learned once in a process, and cleaning-sanctions was recorded after contract-summary's read had learned it, which the replay raced. The replay now runs one case at a time, in the order the cassettes are recorded (`vitest.evals.config.ts`): 90 of 90 in 5 of 5 replays, about 15 seconds each. No recording holds a read that lists items (each `analyze_whole_document` call in the cassettes asks for an answer).",
   "- **Input tokens,** the sum of the usage the API reported: 89,199."
  ],
  "runs": [

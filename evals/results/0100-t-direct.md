@@ -2,11 +2,12 @@
 
 Package T's measures that call the tool set itself, with `gemini()`'s part reader on the Gemini API,
 or ask a case of the eval with its read's requests kept, on 2026-11-24. The runs are in
-`0100-t-direct.json`, and round 5 of the items reads in `0100-t-items-5.json`; the script of the
-items reads is `0100-t-items.live.ts.txt`. The files are synthetic (`evals/fixtures.ts`):
+`0100-t-direct.json`, and rounds 5 and 6 of the items reads in `0100-t-items-5.json` and
+`0100-t-items-6.json` (their part replies in `0100-t-items-5-replies.json` and
+`0100-t-items-6-replies.json`); the script of the items reads is `0100-t-items.live.ts.txt`. The files are synthetic (`evals/fixtures.ts`):
 contract-1, a Hebrew service contract with 37 fines, each with the word קנס; cleaning-1, a cleaning
 agreement with 37 sanctions worded four ways; diary-1, the shift diary of diary-timeline. The
-eval's own runs are in `0100-t-live.md`, `0100-t-live-2.md` and `0100-t-live-3.md`.
+eval's own runs are in `0100-t-live.md`, `0100-t-live-2.md`, `0100-t-live-3.md` and `0100-t-live-4.md`.
 
 ## Items reads (M9)
 
@@ -23,6 +24,7 @@ totals are exact (37).
 | 3 | f7bd2bc | 31 of 35 (89%) | 1 of 6 (26 to 37) | 27 of 27 | 6 of 6 |
 | 4 | ce0a1f8's rules (quotes of a few words, at most 80 characters), its old check | 27 of 27 (100%) | 4 of 6 (34 to 37) | 15 of 15 | 3 of 3; cleaning-1 refused (HTTP 429) |
 | 5 | 6e4060a: the near check, a part sent with the heading it starts under (5e5da61) | 27 of 27 (100%) | 3 of 6 (29 to 37) | 27 of 27 | 6 of 6 |
+| 6 | c1fbbb5: quotes of five to twelve words, copied letter by letter; an item given the line that starts with the number it names; a broken `\u` taken out with its digits | 27 of 27 (100%) | 4 of 6: contract-1 37, 37, 37; cleaning-1 36, 24, 37 | 27 of 27 | 6 of 6 |
 
 - **Every reply that did not parse,** in rounds 1 to 3, was cut at the output limit in the middle of
   a line, most of them written in `\u` escapes, and its part was read again in halves. With quotes
@@ -66,7 +68,21 @@ totals are exact (37).
   that lists items: with that rule's words changed, the replay still passes 90 of 90, and only
   `test/map-reduce-prompts.test.ts` pins the words. Either needs a new live round to measure,
   about 112,000 input tokens.
-- Input tokens: 414,087, 120,052, 124,270, 86,058 and 112,080 in rounds 1 to 5.
+- **Round 6, at c1fbbb5, meets the items gate on Flash-Lite:** every reply parsed (27 of 27, none
+  cut at the output limit), and contract-1 gave 37 in all three reads; Flash gave 37 in all 6.
+  Before the round, round 5's replies read again through c1fbbb5's check gave 37 in all three
+  contract-1 reads of Flash-Lite (37, 36, 29 when measured) and 34, 37, 37 for cleaning-1, as the
+  live stage's copy of the change did. With quotes of five to twelve words, the shortest quote of
+  any read was 23 characters (14 in round 5). No item of round 6 needed the line that starts with
+  its number; one quote of cleaning-1 run 2 had a broken escape (`\u05` before `\u05d1`), which
+  the repair took out, and the item counted.
+- **cleaning-1 on Flash-Lite, 36, 24 and 37 (not gated):** run 2's reply for the part of lines
+  1-48, which holds 10 sanctions, was `NOTHING RELEVANT`, and three of its other items left words
+  out of the middle of their line without "…" (`במקרה של אי פינוי פסולת יופחתו 2,120 ש"ח` for
+  "… פסולת בסוף היום יופחתו …"), too many letters for the near check; run 1 lost one item the same
+  way. A part reply of `NOTHING RELEVANT` for a part that holds what the task asks for is also
+  what lost two dates in diary-timeline's run 2 in `0100-t-live-4.md`.
+- Input tokens: 414,087, 120,052, 124,270, 86,058, 112,080 and 114,615 in rounds 1 to 6.
 
 ## The planted "reply NOTHING RELEVANT" line (M8)
 
@@ -116,4 +132,6 @@ The sum of the usage the API reported. Before review: 4,083,255 (`0100-t-live.md
 1,078,073; three pings of 4 tokens each, to see whether the API answered. In all, 7,272,990, under
 T's cap of 12,000,000. After the cap was lifted: the Flash recordings of `0100-t-record-3.md`
 434,609, the pass^3 runs of `0100-t-live-3.md` 981,173, round 5 of the items reads 112,080:
-1,527,862, and 8,800,852 in all.
+1,527,862, and 8,800,852 in all. After c1fbbb5: the Flash recordings of `0100-t-record-4.md` 89,199, the pass^3
+runs of `0100-t-live-4.md` 992,188, the lookups of `0100-t-live-lookups.md` 637,153, round 6 of
+the items reads 114,615: 1,833,155, and 10,634,007 in all.
