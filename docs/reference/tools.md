@@ -556,19 +556,26 @@ go on. When one line alone is longer than that, its text is cut to half of that 
 `text_cut` is `true`.
 
 A read cut short of its range that way also says, in `whole_file`, that the whole file can be
-read with `analyze_whole_document`, when all of these hold (new in 0.10.0), so that it never points
-at a read that would be refused:
+read with `analyze_whole_document`, when all of these hold (new in 0.10.0), so that it points only
+at a read that the tool set and the question's limits would let through on the model's next turn,
+by the read's estimated parts:
 
 - the tool set declares `analyze_whole_document` and has a part reader (`generate`);
-- the file can be read whole now: it is not sent whole in the prompt (`ToolOptions.inline`), a
+- the file can be read whole: it is not sent whole in the prompt (`ToolOptions.inline`), a
   whole read of it is left (`maxWholeDocumentReads`, and no earlier read of it that could read no
   part), and its estimated parts are within `maxMapChunks` (without the margin of 5% that the
   declaration and the card give the estimate: the read counts its parts, and may count one more)
   and within the call's [`ToolCallLimits.maxRequests`](#toolcalllimits), when it has one. In
-  `askWithFiles` that is 0 when the question would not start a whole read of the file: one that
-  would pass its ceiling on input tokens or requests (`limits.inputTokens`, `limits.requests`), or
-  one more than its `wholeReadsPerQuestion`;
+  `askWithFiles` that is what `limits.requests` leaves once the next turn, which calls the read,
+  and the answer of the question have their requests; and 0 when the question would not start a
+  whole read of the file on that turn: one that would pass its ceiling on input tokens or requests
+  (`limits.inputTokens`, `limits.requests`) with that turn's request counted, or one more than its
+  `wholeReadsPerQuestion`;
 - the result, with it, stays within its cap.
+
+At a border the hint can still point at a read that is then refused, before it sends any request:
+the read can count one part more than the estimate, and the next turn's request is counted at the
+size of the conversation before this turn's results.
 
 A read that shows every line asked for, and one shortened only to 600 lines, have no `whole_file`.
 Gemini 3.5 Flash-Lite and 3.8 Flash read a contract they were asked to summarize in ranges of about
@@ -1216,7 +1223,7 @@ type ToolCallLimits = {
 | `maxFileBytes` | number | 3/8 of (`maxRequestBytes` − 262,144): 3,651,696 bytes with the default budget | `view_pages`: the most bytes its file may have. Pages are left off the end until the cut fits. Below 1,024 the call fails. Give the room left in your request, times 3/4 when you send files as base64. |
 | `maxPages` | number | [`MAX_VIEW_PAGES`](#max_view_pages) (5) | `view_pages`: the most pages this call may show, never more than 5. Below 1 the call fails. Lower it as the pages already shown use up your token budget. |
 | `maxResultCharacters` | number | The tool's own cap ([`resultCharacters`](#toolset)) | The most characters of the JSON result, when that is less than the tool's cap: the room left in the request. The result is cut to it and says where to go on. Never below 600. `view_pages` ignores it. |
-| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a read with more parts than this is refused before any request, a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. `read_document` (since 0.10.0): what a whole read of its file may make now; a read cut short of its range points at one (`whole_file`) only when the file's estimated parts are within it. New in 0.6.0. |
+| `maxRequests` | number | No limit | `analyze_whole_document`: the most model requests the read may make. A part the model refuses as too large is read as two halves only while this and `maxMapChunks` allow it (the parts, their merges and the answer must fit). Since 0.10.0 the read keeps to it: a read with more parts than this is refused before any request, a round of merges that would pass it is not made ([above](#analyze_whole_document)), and a read that lists items reads a cut list again in halves only within it. `read_document` (since 0.10.0): what a whole read of its file may make on the model's next turn, the first it can call one on; a read cut short of its range points at one (`whole_file`) only when the file's estimated parts are within it. New in 0.6.0. |
 | `maxWaitMs` | number | The library's `pageLookWaitMs` (30,000) | `view_pages`: the most milliseconds the look waits for its turn, when that is less than `pageLookWaitMs`. 0: it runs only when a turn is free now, and is told the server is busy if not. New in 0.9.0. |
 
 In `askWithFiles`, `maxFileBytes` is what is left of `maxRequestBytes` after the request so far

@@ -1692,17 +1692,21 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       return { own: requests - 1 };
     };
     /**
-     * The requests a whole-file read of the document of a `read_document` call may make now
-     * (`ToolCallLimits.maxRequests`), with the reads of this turn reserved: 0 when the question would
-     * not start one (`noReadLeft`, `readNeeds`), so that a read cut short of its range does not point
-     * at it (`whole_file`); what is left of `limits.requests` with one kept for the answer, when that
-     * is set; undefined otherwise.
+     * The requests a whole-file read of the document of a `read_document` call may make
+     * (`ToolCallLimits.maxRequests`), judged as on the next turn, the first the model can call it on:
+     * with the reads of this turn reserved, and that turn's request, of the conversation with
+     * `pending` at least (its results are not in it yet). 0 when the question would not start one
+     * then (`noReadLeft`, `readNeeds`), so that a read cut short of its range does not point at it
+     * (`whole_file`); what is left of `limits.requests` with one kept for the answer, when that is
+     * set; undefined otherwise.
      */
-    const wholeReadRequests = (call: ToolCall, reserved: Reserved): number | undefined => {
+    const wholeReadRequests = (call: ToolCall, reserved: Reserved, pending: ModelToolRound): number | undefined => {
       const meta = searchable.find((document) => document.id === call.args.document_id);
       if (!meta) return undefined;
-      if (noReadLeft(meta, reserved) || readNeeds(meta, reserved).refusal !== undefined) return 0;
-      return limits.requests === undefined ? undefined : Math.max(0, limits.requests - usage.totals.requests - 1 - reserved.requests);
+      const nextTurn = meter.current(viewFor(toolModel, [...messages, pending])).tokens * scaleOf(toolModel);
+      const later: Reserved = { ...reserved, inputTokens: reserved.inputTokens + nextTurn, requests: reserved.requests + 1 };
+      if (noReadLeft(meta, later) || readNeeds(meta, later).refusal !== undefined) return 0;
+      return limits.requests === undefined ? undefined : Math.max(0, limits.requests - usage.totals.requests - 1 - later.requests);
     };
     /**
      * A pointer for a call whose result is already in the conversation, in full: an earlier result
@@ -1813,10 +1817,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         for (const plan of reads) plan.limits = { ...plan.limits, maxRequests: plan.own! + Math.floor(slack / reads.length) };
       }
       // A read of lines points at a whole read of its file only when the question would start one
-      // now, past the whole reads of this turn: each is told the requests one may make.
+      // on the next turn, past the whole reads of this turn: each is told the requests one may make.
       for (const plan of planned) {
         if (plan.refusal || plan.call.name !== TOOL_NAMES.read) continue;
-        const most = wholeReadRequests(plan.call, reserved);
+        const most = wholeReadRequests(plan.call, reserved, pending);
         if (most !== undefined) plan.limits = { ...plan.limits, maxRequests: most };
       }
       // The calls that return text, and the most they may return: a call that is refused, or

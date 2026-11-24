@@ -946,13 +946,14 @@ export function createDocumentTools(options: {
    * first line was cut): that `analyze_whole_document` reads all of it. Gemini Flash-Lite and Flash
    * read a contract to summarize in ranges of about 16 lines, and answered from those
    * (`evals/results/0100-t-live-3.md`). Only when this tool set declares the read and would run it on
-   * the file now, so that it never points at a read that is refused: a part reader, a file not sent
-   * whole, a read of it left, and its parts within `maxMapChunks` and within the requests the call
-   * says a whole read may make (`limits.maxRequests`), the checks the read makes before it sends a
-   * part (`partsToRead`). The parts are `estimateParts`'s, without the margin `canBeReadWhole` gives
-   * the estimate: a file at the border is not pointed at, as the read may count one part too many.
-   * `askWithFiles` gives a read 0 requests when the question would not start a whole read of its
-   * file now (its ceilings on input tokens and requests, its whole reads made). New in 0.10.0.
+   * the file, by the estimate of its parts: a part reader, a file not sent whole, a read of it left,
+   * and its parts within `maxMapChunks` and within the requests the call says a whole read may make
+   * (`limits.maxRequests`), the checks the read makes before it sends a part (`partsToRead`). The
+   * parts are `estimateParts`'s, without the margin `canBeReadWhole` gives the estimate. The read
+   * counts its own, and at a border may count one more than the estimate: then it is refused, before
+   * it sends a request. `askWithFiles` gives a read 0 requests when the question would not start a
+   * whole read of its file on the next turn, the first the model can call it on (its ceilings on
+   * input tokens and requests, with that turn's request counted, its whole reads made). New in 0.10.0.
    */
   const wholeFileHint = (document: DocumentSource, start: number, shown: number, cut: boolean, limits: ToolCallLimits): string | undefined => {
     const id = document.meta.id;

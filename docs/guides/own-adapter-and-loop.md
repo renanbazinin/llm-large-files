@@ -969,8 +969,10 @@ into. Fill it from your own request, as the sample above does:
   with more parts than this is refused before any request, and makes its merges within it; before,
   it only limited how many parts refused as too large were read again as two halves. Give it to
   `read_document` calls too, as the sample does (since 0.10.0): a read cut short of its range
-  points at a whole read of its file (`whole_file`) only when the file's parts are within it. Give
-  0 there when your loop would not run a whole read now, as `askWithFiles` does.
+  points at a whole read of its file (`whole_file`) only when the file's parts are within it. The
+  model can call that read on its next turn at the earliest: `askWithFiles` keeps that turn's
+  request out of what it gives a `read_document` call, and gives 0 when it would not run a whole
+  read on that turn. Do the same in your loop.
 - `maxWaitMs` (new in 0.9.0): the most a look at pages waits for its turn, when that is less than
   the library's `pageLookWaitMs`. `askWithFiles` gives 0 to the looks of a turn after one was told
   the server is busy (`onPagesBusy`, below), so that a wait that ends busy comes once in a turn. Do

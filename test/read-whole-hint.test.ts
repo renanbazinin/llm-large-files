@@ -195,29 +195,48 @@ describe("read_document's whole_file in askWithFiles", () => {
     return result.toolTurns[0]!.calls.map((call) => call.result);
   };
 
-  it("is left off when the whole read would pass the question's ceiling on input tokens", async () => {
+  /**
+   * What the model got for each call of its first two tool turns: a read of lines, then the whole
+   * read the hint points at, which it can call only on the turn after the read's.
+   */
+  const twoTurns = async (files: Awaited<ReturnType<typeof library>>["files"], id: string, usage: [number, number] | undefined, limits: Parameters<typeof askWithFiles>[0]["limits"]) => {
+    const [first, second] = usage ? usage.map((inputTokens) => ({ usage: { inputTokens } })) : [{}, {}];
+    const model = fakeModel([calls([readCall(id)], first), calls([analyzeCall(id)], second), says("Done.")], { generateText: notes });
+    const result = await askWithFiles({ files, model, documentIds: [id], messages: question, ...(limits ? { limits } : {}) });
+    return result.toolTurns.map((turn) => turn.calls[0]!.result);
+  };
+
+  it("is left off when the whole read, called on the next turn, would pass the question's ceiling on input tokens", async () => {
     const { files, log } = await library();
     const price = wholeReadCost(log, files.budget, 1).inputTokens;
-    const turn = calls([readCall(log.id)], { usage: { inputTokens: 1_000 } });
-    // Room for the read past the 1,000 tokens of the first request, and for one token less.
-    const [fits] = await firstTurn(files, [log.id], turn, { inputTokens: 1_000 + price });
-    expect(fits).toMatchObject({ whole_file: expect.stringMatching(/use analyze_whole_document\.$/) });
-    const [over] = await firstTurn(files, [log.id], turn, { inputTokens: 1_000 + price - 1 });
-    expect(shownOf(over!)).toBe(shownOf(fits!));
+    // Room for the read past the 1,000 tokens of the first request, but not for the request of the
+    // next turn, which calls it: no hint, and the read the hint would point at is refused there.
+    const [over, refused] = await twoTurns(files, log.id, [1_000, 1_000], { inputTokens: 1_000 + price });
+    expect(shownOf(over!)).toBeLessThan(200);
     expect(over).not.toHaveProperty("whole_file");
-    // The read it would point at is refused there.
-    const [refused] = await firstTurn(files, [log.id], calls([analyzeCall(log.id)], { usage: { inputTokens: 1_000 } }), { inputTokens: 1_000 + price - 1 });
     expect(String(refused!.error)).toMatch(/^Not run: reading all of app\.log takes about [\d,]+ input tokens/);
+    // Room for the read past the first request and a second of 20,000 tokens, far more than the
+    // conversation the first turn counts for it: the hint, and the read of the next turn runs.
+    const [fits, read] = await twoTurns(files, log.id, [1_000, 20_000], { inputTokens: 1_000 + 20_000 + price });
+    expect(shownOf(fits!)).toBe(shownOf(over!));
+    expect(fits).toMatchObject({ whole_file: expect.stringMatching(/use analyze_whole_document\.$/) });
+    expect(read).toHaveProperty("answer");
+    expect(read).not.toHaveProperty("error");
   });
 
-  it("is left off when the whole read would pass the question's ceiling on requests", async () => {
+  it("is left off when the whole read, called on the next turn, would pass the question's ceiling on requests", async () => {
     const { files, log } = await library();
     const parts = estimateParts(log, files.budget);
-    const turn = calls([readCall(log.id)]);
-    // One request made; the read takes its parts, a merge, its answer, and the answer of the question.
-    expect(await firstTurn(files, [log.id], turn, { requests: 1 + parts + 3 }).then(([result]) => result)).toHaveProperty("whole_file");
-    expect(await firstTurn(files, [log.id], turn, { requests: 1 + parts + 2 }).then(([result]) => result)).not.toHaveProperty("whole_file");
-    const [refused] = await firstTurn(files, [log.id], calls([analyzeCall(log.id)]), { requests: 1 + parts + 2 });
+    // One request made, one for the next turn, which calls the read; the read takes its parts, a
+    // merge and its answer; and one is the answer of the question.
+    const [cut, read] = await twoTurns(files, log.id, undefined, { requests: parts + 5 });
+    expect(cut).toHaveProperty("whole_file");
+    expect(read).toHaveProperty("answer");
+    expect(read).not.toHaveProperty("error");
+    // One fewer: no hint, and the read the hint would point at is refused on the next turn.
+    const [over, refused] = await twoTurns(files, log.id, undefined, { requests: parts + 4 });
+    expect(shownOf(over!)).toBe(shownOf(cut!));
+    expect(over).not.toHaveProperty("whole_file");
     expect(String(refused!.error)).toMatch(/^Not run: reading all of app\.log takes about [\d,]+ model requests/);
   });
 
@@ -236,5 +255,24 @@ describe("read_document's whole_file in askWithFiles", () => {
     const [first, , second] = await firstTurn(files, [log.id, other.id], calls([readCall(log.id), analyzeCall(log.id), readCall(other.id, "r2")]), {});
     expect(first).not.toHaveProperty("whole_file");
     expect(second).toHaveProperty("whole_file");
+  });
+
+  it("is left off when a whole read of this turn takes the file's last read, before the tool set counts it", async () => {
+    const { files, log } = await library();
+    // Four calls of a turn run at once: the whole read, the fifth, starts once a read of lines has
+    // ended, so the tool set's own count of reads does not have it yet. The ceilings are far above
+    // the read, and the question may make two: only the file's one read, taken in the turn, holds the hint back.
+    const reads = [1, 41, 81, 121].map((start, index) => ({ ...readCall(log.id, `r${index}`), args: { document_id: log.id, start_line: start, end_line: start + 199 } }));
+    const turn = calls([...reads, analyzeCall(log.id)]);
+    const results = await firstTurn(files, [log.id], turn, { inputTokens: 100_000_000 });
+    expect(results.at(-1)).toHaveProperty("answer");
+    for (const cut of results.slice(0, 4)) {
+      expect(shownOf(cut!)).toBeLessThan(200);
+      expect(cut).not.toHaveProperty("whole_file");
+    }
+    // Two reads of the file allowed: one is left after the turn's, and each read of lines points at it.
+    const two = await firstTurn(files, [log.id], turn, { inputTokens: 100_000_000, wholeDocumentReads: 2 });
+    expect(two.at(-1)).toHaveProperty("answer");
+    for (const cut of two.slice(0, 4)) expect(cut).toHaveProperty("whole_file");
   });
 });
