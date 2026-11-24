@@ -30,38 +30,43 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 5247,
-   "cachedInputTokens": 3206,
-   "outputTokens": 465,
-   "thoughtTokens": 310,
-   "ms": 4857,
+   "inputTokens": 7255,
+   "cachedInputTokens": 0,
+   "outputTokens": 665,
+   "thoughtTokens": 507,
+   "ms": 6787,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 2,
+    "supported": 2,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 7845,
-     "ms": 4855,
+     "estimatedInputTokens": 9758,
+     "ms": 6781,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5247,
-      "cachedInputTokens": 3206,
-      "outputTokens": 465,
-      "thoughtTokens": 310
+      "inputTokens": 7255,
+      "cachedInputTokens": 0,
+      "outputTokens": 665,
+      "thoughtTokens": 507
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "לפי נוהל החברה (סעיף 3), עובד במשרה מלאה זכאי בתחילת דרכו ל-**18 ימי חופשה בתשלום** בכל שנה קלנדרית. \n\nמספר ימי החופשה עולה בהתאם לוותק:\n* **ותק של 1–4 שנים:** 18 ימים בשנה.\n* **ותק של 5 שנים:** 19 ימים בשנה.\n* **ותק של 6–7 שנים:** 21 ימים בשנה (כולל יום בחירה אחד).\n* **ותק של 8 שנים ומעלה:** 24 ימים בשנה."
+   "answer": "לפי מדיניות החברה, עובד במשרה מלאה זכאי למספר ימי חופשה בתשלום בכל שנה קלנדרית בהתאם לוותק שלו (מדיניות משאבי אנוש 2026.docx L17, L25–L31):\n\n* **ותק של 1–4 שנים:** 18 ימים (לפי חוק חופשה שנתית)\n* **ותק של 5 שנים:** 19 ימים\n* **ותק של 6–7 שנים:** 21 ימים (כולל יום בחירה אחד)\n* **ותק של 8 שנים ומעלה:** 24 ימים"
   },
   {
    "turn": 2,
@@ -82,38 +87,43 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 5418,
-   "cachedInputTokens": 3207,
-   "outputTokens": 379,
-   "thoughtTokens": 326,
-   "ms": 5300,
+   "inputTokens": 7429,
+   "cachedInputTokens": 5209,
+   "outputTokens": 61,
+   "thoughtTokens": 0,
+   "ms": 2356,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 8025,
-     "ms": 5299,
+     "estimatedInputTokens": 9944,
+     "ms": 2352,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5418,
-      "cachedInputTokens": 3207,
-      "outputTokens": 379,
-      "thoughtTokens": 326
+      "inputTokens": 7429,
+      "cachedInputTokens": 5209,
+      "outputTokens": 61,
+      "thoughtTokens": 0
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "לפי סעיף 3.4 בנוהל, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים."
+   "answer": "ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (מדיניות משאבי אנוש 2026.docx L23)."
   }
  ],
  "passed": true

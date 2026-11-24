@@ -1,0 +1,87 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "1731cf55603d9207",
+  "bytes": 27188,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12074 chars #2cd3f701"
+      },
+      {
+       "text": "67 chars #03d8e604"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7249,\"candidatesTokenCount\": 1,\"totalTokenCount\": 7250,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7249}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa7-CGbeS3boP_crLuAc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי מדיניות משאבי אנוש 2026, התקרה החוד\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7249,\"candidatesTokenCount\": 21,\"totalTokenCount\": 7270,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7249}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa7-CGbeS3boP_crLuAc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שית להחזר הוצאות טלפון נייד היא **150 ש\\\"ח**, ו**לא נדרש**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7249,\"candidatesTokenCount\": 50,\"totalTokenCount\": 7299,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7249}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa7-CGbeS3boP_crLuAc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לכך אישור מנהל (policy-1 L53).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7249,\"candidatesTokenCount\": 65,\"totalTokenCount\": 7314,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7249}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa7-CGbeS3boP_crLuAc\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRP1PjDFID3kzyDdIqMMNkI0MXl/tGZ+UW+LPv0caduBxp5MW4mknVq9Jspsx9kovOq1bXpeb8myoTpgSvxJ2oHtkT8BrQPOWqA3rWiv3RQtMtUxn38l46q5J+9KUaEEThw6/00I3xagvp2Wkb2lNTZbM7tT4SYy99TQ2POsFV4H4dQPyOm0Y8b0hVgKAnmo\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7249,\"candidatesTokenCount\": 65,\"totalTokenCount\": 7314,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7249}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"uHQFa7-CGbeS3boP_crLuAc\"}\r\n\r\n"
+  ]
+ }
+}

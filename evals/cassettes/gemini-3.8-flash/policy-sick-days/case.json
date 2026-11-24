@@ -30,38 +30,43 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 5232,
+   "inputTokens": 7240,
    "cachedInputTokens": 0,
-   "outputTokens": 288,
-   "thoughtTokens": 242,
-   "ms": 3717,
+   "outputTokens": 312,
+   "thoughtTokens": 245,
+   "ms": 4332,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 7828,
-     "ms": 3716,
+     "estimatedInputTokens": 9741,
+     "ms": 4281,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5232,
+      "inputTokens": 7240,
       "cachedInputTokens": 0,
-      "outputTokens": 288,
-      "thoughtTokens": 242
+      "outputTokens": 312,
+      "thoughtTokens": 245
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "לפי סעיף 4.1 במסמך, עובד צובר **1.5 ימי מחלה** בכל חודש עבודה מלא, עד לתקרה של **90 ימים**."
+   "answer": "לפי סעיף 4.1 במסמך, עובד צובר **1.5 ימי מחלה** בכל חודש עבודה מלא, עד לתקרה של **90 ימים** (מדיניות משאבי אנוש 2026.docx L33)."
   }
  ],
  "passed": true

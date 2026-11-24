@@ -26,15 +26,15 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 5228,
+   "inputTokens": 7236,
    "cachedInputTokens": 0,
-   "outputTokens": 464,
-   "thoughtTokens": 295,
-   "ms": 5086,
+   "outputTokens": 650,
+   "thoughtTokens": 471,
+   "ms": 6303,
    "ceilingReached": false,
    "citations": {
-    "checked": 0,
-    "supported": 0,
+    "checked": 2,
+    "supported": 2,
     "unchecked": 0,
     "unsupported": []
    },
@@ -44,25 +44,25 @@
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 7824,
-     "ms": 5086,
+     "estimatedInputTokens": 9737,
+     "ms": 6300,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5228,
+      "inputTokens": 7236,
       "cachedInputTokens": 0,
-      "outputTokens": 464,
-      "thoughtTokens": 295
+      "outputTokens": 650,
+      "thoughtTokens": 471
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "על פי מדיניות משאבי האנוש (סעיף 3), עובד במשרה מלאה זכאי ל-18 ימי חופשה בתשלום בשנה קלנדרית כבסיס. \n\nמספר הימים עולה עם הוותק בחברה לפי המפתח הבא:\n* **ותק של 1–4 שנים:** 18 ימי חופשה בשנה.\n* **ותק של 5 שנים:** 19 ימי חופשה בשנה.\n* **ותק של 6–7 שנים:** 21 ימי חופשה בשנה (כולל יום בחירה אחד).\n* **ותק של 8 שנים ומעלה:** 24 ימי חופשה בשנה."
+   "answer": "לפי מדיניות החברה, עובד במשרה מלאה זכאי ל-**18 ימי חופשה בתשלום** בכל שנה קלנדרית (מדיניות משאבי אנוש 2026.docx L17).\n\nמספר ימי החופשה עולה בהתאם לוותק של העובד (מדיניות משאבי אנוש 2026.docx L25–L31):\n* **ותק של 1–4 שנים:** 18 ימים\n* **ותק של 5 שנים:** 19 ימים\n* **ותק של 6–7 שנים:** 21 ימים (כולל יום בחירה אחד)\n* **ותק של 8 שנים ומעלה:** 24 ימים"
   },
   {
    "turn": 2,
@@ -83,15 +83,15 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 5752,
+   "inputTokens": 7837,
    "cachedInputTokens": 0,
-   "outputTokens": 332,
-   "thoughtTokens": 267,
-   "ms": 4614,
+   "outputTokens": 446,
+   "thoughtTokens": 374,
+   "ms": 4896,
    "ceilingReached": false,
    "citations": {
-    "checked": 0,
-    "supported": 0,
+    "checked": 1,
+    "supported": 1,
     "unchecked": 0,
     "unsupported": []
    },
@@ -101,25 +101,25 @@
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 8315,
-     "ms": 4611,
+     "estimatedInputTokens": 10314,
+     "ms": 4889,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5752,
+      "inputTokens": 7837,
       "cachedInputTokens": 0,
-      "outputTokens": 332,
-      "thoughtTokens": 267
+      "outputTokens": 446,
+      "thoughtTokens": 374
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "לפי המצגת (\"סקירה רבעונית\"), אחוז העמידה ביעד באזור הדרום ברבעון 3 עמד על **87%** (ביצוע של 783 אלפי ש\"ח מתוך יעד של 900 אלפי ש\"ח)."
+   "answer": "לפי המצגת, אחוז העמידה ביעד באזור הדרום ברבעון 3 עמד על **87%** (ביצוע של 783 אלפי ש\"ח מתוך יעד של 900 אלפי ש\"ח) (סקירה רבעונית.pptx L11)."
   },
   {
    "turn": 3,
@@ -140,16 +140,16 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 20635,
-   "cachedInputTokens": 7464,
-   "outputTokens": 354,
-   "thoughtTokens": 273,
-   "ms": 6085,
+   "inputTokens": 23112,
+   "cachedInputTokens": 8709,
+   "outputTokens": 369,
+   "thoughtTokens": 256,
+   "ms": 7225,
    "ceilingReached": false,
    "citations": {
     "checked": 0,
     "supported": 0,
-    "unchecked": 0,
+    "unchecked": 2,
     "unsupported": []
    },
    "tools": [
@@ -164,14 +164,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 12187,
-     "ms": 2738,
+     "estimatedInputTokens": 13404,
+     "ms": 2748,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 9498,
+      "inputTokens": 10745,
       "cachedInputTokens": 0,
-      "outputTokens": 113,
-      "thoughtTokens": 76
+      "outputTokens": 96,
+      "thoughtTokens": 59
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -183,13 +183,13 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 13851,
-     "ms": 3337,
+     "estimatedInputTokens": 15068,
+     "ms": 4449,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 11137,
-      "cachedInputTokens": 7464,
-      "outputTokens": 241,
+      "inputTokens": 12367,
+      "cachedInputTokens": 8709,
+      "outputTokens": 273,
       "thoughtTokens": 197
      },
      "finish": "complete",
@@ -197,7 +197,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "בלוג שהעלית ישנן **37** שגיאות מסוג `PAY-5031` (כולן שגיאות של `card processor timeout after 30000ms`)."
+   "answer": "בקובץ הלוג (`payments-service.log`) ישנן **37** שגיאות של `PAY-5031` (כולן מהסוג `PAY-5031 card processor timeout after 30000ms`, החל משורה 17280 ועד שורה 25680)."
   }
  ],
  "passed": true

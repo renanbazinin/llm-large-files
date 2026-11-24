@@ -1,0 +1,114 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "61b2586a6e3c61f3",
+  "bytes": 167449,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "131962 chars #d39dfcb9"
+      },
+      {
+       "text": "38 chars #ce72e4d8"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "aggregate_table",
+        "args": "{3 keys} #8dfd22dc",
+        "id": "25 chars #4c3bd16d"
+       },
+       "thoughtSignature": "204 chars #c5769353"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "aggregate_table",
+        "id": "25 chars #4c3bd16d",
+        "response": "{8 keys} #bd16a5d6"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בקוב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 122374,\"candidatesTokenCount\": 2,\"totalTokenCount\": 122376,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 122374}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"wHQFa870KIujkdUPnd-2qAs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ץ יש **750** חשבוניות בסטטוס 'באיחור' (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 122374,\"candidatesTokenCount\": 23,\"totalTokenCount\": 122397,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 122374}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"wHQFa870KIujkdUPnd-2qAs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חשבוניות.csv L4).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 122374,\"candidatesTokenCount\": 31,\"totalTokenCount\": 122405,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 122374}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"wHQFa870KIujkdUPnd-2qAs\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRPiFF1Ud0ilqoX7VvAUlj5rzXMFi9KHPCyve8MlSU9HFZyONZvjQKNURWYDTseNzV5IICayurVEt0lsUJ8a9awUdhO+RZ2G8dP3v6n4Fae/AxVVylCVh74zyVvNdMdEORUqSfVDKz9CHgC6ObA0/xwVNlKmVWH83rrWgeYCJ6xfhW8IAEQMATGdpQYfqZws\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 122374,\"candidatesTokenCount\": 31,\"totalTokenCount\": 122405,\"cachedContentTokenCount\": 118726,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 122374}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 118726}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"wHQFa870KIujkdUPnd-2qAs\"}\r\n\r\n"
+  ]
+ }
+}

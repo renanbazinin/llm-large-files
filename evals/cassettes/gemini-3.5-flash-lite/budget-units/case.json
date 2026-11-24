@@ -1,0 +1,65 @@
+{
+ "case": "budget-units",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says thousands of shekels",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 3862,
+   "cachedInputTokens": 0,
+   "outputTokens": 62,
+   "thoughtTokens": 0,
+   "ms": 721,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 1,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5737,
+     "ms": 718,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3862,
+      "cachedInputTokens": 0,
+      "outputTokens": 62,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי קובץ התקציב (שורה 3 בגיליון), כותרת גיליון התקציב היא:\n**תקציב מחלקות 2026**\n\nוהסכומים מוצגים ב**אלפי ש\"ח**."
+  }
+ ],
+ "passed": true
+}

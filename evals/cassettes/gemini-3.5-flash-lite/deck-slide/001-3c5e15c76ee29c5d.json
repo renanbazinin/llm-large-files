@@ -1,0 +1,87 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "3c5e15c76ee29c5d",
+  "bytes": 7121,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "708 chars #4880cb3c"
+      },
+      {
+       "text": "64 chars #b8424933"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ט\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2038,\"candidatesTokenCount\": 1,\"totalTokenCount\": 2039,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2038}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"xXQFa6W4Kv6e3boP3Yvi2Q8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בלת העמידה ביעדים מופיעה ב**שקף 2** (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2038,\"candidatesTokenCount\": 21,\"totalTokenCount\": 2059,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2038}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"xXQFa6W4Kv6e3boP3Yvi2Q8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Slide 2).\\n\\nהיעד של אזור הצפון היה **1,200 אלפי ש\\\"ח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2038,\"candidatesTokenCount\": 46,\"totalTokenCount\": 2084,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2038}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"xXQFa6W4Kv6e3boP3Yvi2Q8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"** (1,200,000 ש\\\"ח).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2038,\"candidatesTokenCount\": 61,\"totalTokenCount\": 2099,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2038}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"xXQFa6W4Kv6e3boP3Yvi2Q8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNjfJgRvXNU5BKcWT1fKrbUPFwhV15oXunN33vplAZB/k4qcbN1zqDR2VSnGGOHL0hcP9rr/ji6gR1zbj82VvHd7wsoYq9rPHG/Y5y2DhXfE6feSbyiBHc56TCi6zR29CmUo3xNX4IDZI8G8BtVQye/JXik5h61sTz9ftO+H42yFqgKrueIhjr4Nbg7srdJ\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2038,\"candidatesTokenCount\": 61,\"totalTokenCount\": 2099,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2038}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"xXQFa6W4Kv6e3boP3Yvi2Q8\"}\r\n\r\n"
+  ]
+ }
+}

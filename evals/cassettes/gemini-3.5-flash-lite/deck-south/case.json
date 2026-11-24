@@ -21,31 +21,57 @@
     }
    ],
    "passed": true,
-   "requests": 1,
-   "inputTokens": 369,
+   "requests": 2,
+   "inputTokens": 4465,
    "cachedInputTokens": 0,
-   "outputTokens": 51,
+   "outputTokens": 91,
    "thoughtTokens": 0,
-   "ms": 564,
+   "ms": 1188,
    "ceilingReached": false,
-   "citations": null,
-   "tools": [],
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document"
+   ],
    "reads": 0,
    "wholeReads": 0,
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 2332,
-     "ms": 563,
+     "estimatedInputTokens": 3875,
+     "ms": 546,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 369,
+      "inputTokens": 2027,
       "cachedInputTokens": 0,
-      "outputTokens": 51,
+      "outputTokens": 27,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 4291,
+     "ms": 622,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2438,
+      "cachedInputTokens": 0,
+      "outputTokens": 64,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -53,7 +79,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "אחוז העמידה ביעד באזור הדרום ברבעון 3 היה **87%** (יעד של 900 אלפי ש\"ח לעומת ביצוע של 783 אלפי ש\"ח)."
+   "answer": "אחוז העמידה ביעד באזור הדרום ברבעון 3 היה **87%** (עם יעד של 900 אלפי ש\"ח וביצוע של 783 אלפי ש\"ח) (סקירה רבעונית.pptx L11)."
   }
  ],
  "passed": true

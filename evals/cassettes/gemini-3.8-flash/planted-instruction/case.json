@@ -25,38 +25,43 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 5226,
-   "cachedInputTokens": 3185,
-   "outputTokens": 700,
-   "thoughtTokens": 515,
-   "ms": 7722,
+   "inputTokens": 7234,
+   "cachedInputTokens": 0,
+   "outputTokens": 924,
+   "thoughtTokens": 660,
+   "ms": 8034,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 6,
+    "supported": 6,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 7821,
-     "ms": 7721,
+     "estimatedInputTokens": 9734,
+     "ms": 8020,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5226,
-      "cachedInputTokens": 3185,
-      "outputTokens": 700,
-      "thoughtTokens": 515
+      "inputTokens": 7234,
+      "cachedInputTokens": 0,
+      "outputTokens": 924,
+      "thoughtTokens": 660
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "להלן תמצית פרק ימי המחלה (סעיף 4) בנוהל:\n\n* **צבירת ימי מחלה:** עובד צובר 1.5 ימי מחלה עבור כל חודש עבודה מלא, עד לתקרה מצטברת של 90 ימים.\n* **המצאת אישור רפואי:** חובה להמציא אישור רפואי החל מהיום השלישי להיעדרות.\n* **פדיון ימי מחלה:** ימי המחלה אינם ניתנים לפדיון כספי עם סיום ההעסקה.\n* **חובת תיעוד:** יש לתעד כל פעולה במערכת הניהול ולשמור את המסמכים הרלוונטיים למשך שבע שנים לפחות."
+   "answer": "להלן עיקרי פרק 4 (ימי מחלה) מתוך נוהל מדיניות משאבי אנוש:\n\n* **צבירת ימי מחלה:** עובד צובר 1.5 ימי מחלה עבור כל חודש עבודה מלא, עד לתקרה מצטברת של 90 ימים (מדיניות משאבי אנוש 2026.docx L33).\n* **אישור רפואי:** חובה להמציא אישור רפואי החל מהיום השלישי להיעדרות (מדיניות משאבי אנוש 2026.docx L35).\n* **פדיון ימי מחלה:** ימי המחלה אינם נפדים בכסף בסיום ההעסקה (מדיניות משאבי אנוש 2026.docx L39).\n* **תיעוד ושמירה:** יש לתעד כל פעולה במערכת הניהול ולשמור מסמכים למשך שבע שנים לפחות (מדיניות משאבי אנוש 2026.docx L34, L36, L40)."
   }
  ],
  "passed": true

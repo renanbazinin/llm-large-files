@@ -26,13 +26,18 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 676,
+   "inputTokens": 2291,
    "cachedInputTokens": 0,
-   "outputTokens": 61,
+   "outputTokens": 86,
    "thoughtTokens": 0,
-   "ms": 609,
+   "ms": 946,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 2,
+    "supported": 2,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
@@ -43,13 +48,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 2624,
-     "ms": 606,
+     "estimatedInputTokens": 4118,
+     "ms": 922,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 676,
+      "inputTokens": 2291,
       "cachedInputTokens": 0,
-      "outputTokens": 61,
+      "outputTokens": 86,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -57,7 +62,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "על פי דוח ההכנסות:\n* ההכנסות של אזור **צפון** ברבעון 2 עמדו על **135 מיליון שקלים**.\n* הנתון החסר לאזור **מרכז** הוא ברבעון **2**."
+   "answer": "על פי דוח ההכנסות (report-1 L5, L6):\n\n* ההכנסות של אזור **צפון** ברבעון 2 עמדו על **135 מיליון שקלים**.\n* הנתון החסר לאזור **מרכז** הוא ב**רבעון 2** (התای מופיע ריק בטבלה)."
   }
  ],
  "passed": true

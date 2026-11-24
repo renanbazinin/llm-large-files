@@ -1,0 +1,85 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "777ccacbde39bb89",
+  "bytes": 10064,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3301 chars #256dd039"
+      },
+      {
+       "text": "56 chars #e71ad872"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"aggregate_table\",\"args\": {\"metrics\": [\"sum:4\"],\"document_id\": \"budget-1\"},\"id\": \"call_3439090938605958996\"},\"thoughtSignature\": \"EuoHCucHAWkUfRNmHJYrv4KqYI+RwgmAXat0nkQtrFRVPC8mv5/I+3YFxV/8q/+4pKfYB1xBPoNHoT+W3WfcA+W2/c2mgnOSvxYf56JRHYiHMZBu0GDzbxJiUWMFtWTwl+10xaJ1e6IhyO0aBeD93343r8JHPhul9aESUPhFJKpmHIb7NzMle+UM3Hap4G6i3jYMprG3f9X/AWBQJgWmjZMUyPyiHFeILf9Vlj6fnOvzv3L2WVo3HLlmHvD+hZKupKgBxjuom+0qyRelGlul13CVAosCVm8akUkacD7+gr4qQNXW95B09y7lmQoCqEW/xbr5rlVZvbsxeZNVB89LVKbK9v9KlKWznrU9E7TUZCacDiXJLTt10ExAXo0S8Wr1TAf8POXTdJsnTnxnAUGeN2OqBxTYbqCZolG5Rm8+8gszW2qN3P6Xy0I50knM/+QHpZ5PyGNRM42SM0B0Dse7PW5B7tRm166JXVSz709ke2xqsniNmrhjAVvXu3JmJKcPjc6yWiGWV/xdCvMqyKgPXaQwaU7jGFv5wO3h8gUBn551vyK0vOdUCjHRzkZtYLd32pXEP7dCFcKWk82UF6MfUz3PmdLFK77FdQzstAc7uXpwlHMJFLv41twpanF8shzrGRYDz+53yyxvPAkvNP6PB+5NfGP6L0FJKOHRzGmvPAz8+6vLFBXyVn3gbNAcGRhedfinUOXvAFZTqsjmY58rJtCCbBxQK/NK6rY12809HzF6SrmvV9J4ZZoeY0wvBrr",
+   "Z5UCXITbbV+Yku68yPFotoWpez+frj9adkDnttRBvF63Nn37aiB4DO6/l/20VfoQ7k8rtoJYur8R7nJTYLJ9mVzuNtwf8C+fEpeHwIt3Uc/9+hyYLcDqWNmocDOS6J7+i+RZ8BvTh87C25QV1nMs+tzbLvm0Oh4YYZQ8cf48UnibTAPB2a6q6R+13dcHyQARkDHLR1b/opAPtrGPTSpAUCEJ1OYyYwlZXFUO5mF1gvN6wkBxIkUOXZxGdJmu1I2Qaf261BHxVU2RcrvZ4I/ehX/ih5nn5QT8MfZc3YytrcgF1AocFaH0LECYYEzIzX3nWi0m8yfB5b5nk/CycgiIruZjbReeQ7YxacJlEaPlsmRUGzdfwizImGFQOTJ7vwsd6FK3iljnTlsypDl54R6simxPiIGkycXpB9OXBeMztZOdRxnDztSADN0g932W/46nf6dTh6z4mrxtSjDop/xd+Y+mmq2efcs5qOsu58PZptRbYDJY2l6cBZeYTUJo+ZO3VVoT6VgsrdE1eHpDb7J1K6VqqYorYpQ/1O4Jy9W4enZ7YZplA/3ZnBGjCpBqr\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3847,\"candidatesTokenCount\": 28,\"totalTokenCount\": 4106,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3847}],\"thoughtsTokenCount\": 231,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"AnUFa_j5GcWxnsEP1rmV4Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3847,\"candidatesTokenCount\": 28,\"totalTokenCount\": 4106,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3847}],\"thoughtsTokenCount\": 231,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"AnUFa_j5GcWxnsEP1rmV4Ag\"}\r\n\r\n"
+  ]
+ }
+}

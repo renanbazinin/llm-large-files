@@ -1,0 +1,86 @@
+{
+ "case": "invoices-xlsx-late",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "count",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 750",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 307857,
+   "cachedInputTokens": 151747,
+   "outputTokens": 274,
+   "thoughtTokens": 154,
+   "ms": 9847,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 3,
+    "supported": 3,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 165103,
+     "ms": 6213,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 153812,
+      "cachedInputTokens": 0,
+      "outputTokens": 116,
+      "thoughtTokens": 61
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 165250,
+     "ms": 3479,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 154045,
+      "cachedInputTokens": 151747,
+      "outputTokens": 158,
+      "thoughtTokens": 93
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "בגיליון ישנן **750** חשבוניות בסטטוס \"באיחור\" (מתוך 3,000 חשבוניות בסך הכל) (חשבוניות 2026.xlsx L6, L10, L3002)."
+  }
+ ],
+ "passed": true
+}

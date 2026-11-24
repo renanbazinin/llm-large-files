@@ -30,38 +30,43 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 2123,
+   "inputTokens": 3871,
    "cachedInputTokens": 0,
-   "outputTokens": 466,
-   "thoughtTokens": 382,
-   "ms": 5581,
+   "outputTokens": 584,
+   "thoughtTokens": 483,
+   "ms": 6294,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 2,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 4079,
-     "ms": 5580,
+     "estimatedInputTokens": 5746,
+     "ms": 6279,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2123,
+      "inputTokens": 3871,
       "cachedInputTokens": 0,
-      "outputTokens": 466,
-      "thoughtTokens": 382
+      "outputTokens": 584,
+      "thoughtTokens": 483
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "על פי הנתונים בקובץ:\n\n* המחלקה **\"בקרת איכות - מרכז\"** מופיעה ב**שורה 32**.\n* נתוני הביצוע שלה ב**רבעון 2** עומדים על **250** (באלפי ש\"ח, כלומר 250,000 ש\"ח)."
+   "answer": "המחלקה **\"בקרת איכות - מרכז\"** מופיעה ב-**Row 32** (שורה 32 בגיליון) (`תקציב מחלקות 2026.xlsx` L34).\n\nנתוני השורה:\n* **ביצוע ברבעון 2:** **250** (באלפי ש\"ח, כלומר 250,000 ש\"ח)."
   }
  ],
  "passed": true

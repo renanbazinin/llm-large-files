@@ -1,0 +1,87 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "64f22a2f7189f6d9",
+  "bytes": 10072,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3301 chars #256dd039"
+      },
+      {
+       "text": "37 chars #1cf8cc12"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"התקציב של **כספים - צפון** בר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3855,\"candidatesTokenCount\": 15,\"totalTokenCount\": 4258,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3855}],\"thoughtsTokenCount\": 388,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"8XQFa6CyDP77xs0P3unvsAY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בעון 1 הוא **261 אלפי ש\\\"ח** (261,000 ש\\\"ח) (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3855,\"candidatesTokenCount\": 43,\"totalTokenCount\": 4286,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3855}],\"thoughtsTokenCount\": 388,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"8XQFa6CyDP77xs0P3unvsAY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"תקציב מחלקות 2026.xlsx, Row 7, L9).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3855,\"candidatesTokenCount\": 65,\"totalTokenCount\": 4308,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3855}],\"thoughtsTokenCount\": 388,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"8XQFa6CyDP77xs0P3unvsAY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EsMKCsAKAWkUfRNsuep0PA75sTG4EsczQQNATs6L4m+DI5wRPmxTyx4Dr0SqV8VPxu3oJ0+UJbbtoaGyin/byFWXDgUlQdrG8y1tdVLiKjTISIxZQf+W45hYQcdvo6+HKTuhVhavmdDp89AJxdpaGOc3+8AD9zpAbzDErb3GMuoWiBpkx7+WMUoAGgLBKg4vSWlRdvIRpSilTQ93E4ckXiew1tqywO63Ifpc6WbUGVIsTwcBIHL4fSKGXrI/Hc2uW4vyM14aiS+AMCucXo8GfSQpj423aUdyIyagb926rU92oVhOozeED4J8bhK4Ce6U4issX5EO4HXc2a0tAmA9awuQPYAOenSQlL7hVbPLgHIBbbT1uSTDeGa8sA84HAlPBhNBqWIOQFBcC+RvcI/v6FbLx5DOc2PcDze6APtJyVhxi8sJkomd4EDCsRXQJ/VwRc/BtKgmMdQnBdsXyzPpd+h3PvB9tf7GlCPH9MCUWExB2Dh6wxg6XRs4eSWlm3CqCQqPC9KN1fb7q2IMuZVUYJWxLdMrTbejwaGLJ0buIZiD6Mt7nRolgrAoVFq7jqW9ZNVF+llQL7XKvQ7GrS82plPG9NMgpXglbV23OzDd3Qp+M8p31WqTg1N9RX5TxT/xTQbKge1+6WrXK+pV+dkdFrCrI+Xl6FUavKfngSy8Ma9MbFxg4ZRPqmXxpYInQGGQLTWIJxJriw233H+GhV+yQiS1hC1dV0uMX1bUBdosbFWf7+KEXTXSPdA3akmdcd+QVt/H5ZCi05NygmHtaR2j/vvPOvhUFyuGS/5BYv98pWNDg1CJulEinsr39JpVIWmvGVVKXHvUouad3AHVUDdFr8IQK98IgTewtYkTvq9fhPvjEDHDRZ4L8Wpxz2wgr5iDLkATSVFhTV2H3cvNlkVGN48sm8Ip8RhuaG5WtiYeMtOvIPg7b4lX58/Y3VgLT1rNp5z4N8RbAsz+iHyst0CQ2XJW/4oHWiXZHmAoWjEWbBs63i2om4iBrVuVXM9+w+8bbdV/79zZ/NUDphDQfRgMGtVoQcCJFUXwVRYQfHjpPHoEHSP/dtrPKowRizcETYwEjKk23W4OpQao5w3/NXdFE4Pbvh7UwsmgDGdgAPq2n/GfCYm28o9wYSa5X1XZ5J+hPizmFVvVpZOqOCAy5bW0TqWzyhM8iBc1gFyk1bRZXHcJUoFCDJ3NHH4FmssZn0htH2IblsAOohKyuNFcf/W2DVgEUFlIpY8+DbJiXJrbfFyn9WAh0UGcpxOmX5U+ptKOvwMH5qGH64colWb",
+   "m6y17Fme3ygH488urR1/vb81tw2RjppzNmC42ZI9O29WMJkKaCIFJ92bz+OVIj34bh9dBCVbwCbsATMAOy4n+oUZ2wqcemXYoxVCiURUcez94TzpWriRS70cYNftI1Drp/0y+4ByZ7Dm6RB/YUqBUQeXdZ73I6oXm+8WqJnKc1SGU1sMeMxFn1d0WFkleVOH/M5ma+55+Q21FdZJWYCThKQSF6OjZHRcJLcEYhLVnL516Nl7PS41oGYsT2T97nK2gZlyLmX3wzGfsdgokuHhApEYR9z7nHVKAE+09sMnbeHytIBxvNhMrMyY12iWhZEX2oSe6M82XQX1p1ujXvOBvOa4oJO4dw7n2dIcpCUt5lMTrDPviKveO5hIGje5XYQ5/QDP6FV6j987tmJ8NmdpweOwiISn5mX0I0kBqSFOHx5ASPvXFYeZMpbHjEeba2rfcwAsawmID3pQkMJtUwlmWXeo55ZtY4hyMisESkifa6/Tvxi/I808AFYEc\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3855,\"candidatesTokenCount\": 65,\"totalTokenCount\": 4308,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3855}],\"thoughtsTokenCount\": 388,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"8XQFa6CyDP77xs0P3unvsAY\"}\r\n\r\n"
+  ]
+ }
+}

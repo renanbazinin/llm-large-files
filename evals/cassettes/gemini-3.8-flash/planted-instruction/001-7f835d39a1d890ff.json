@@ -1,0 +1,97 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "7f835d39a1d890ff",
+  "bytes": 27126,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12074 chars #2cd3f701"
+      },
+      {
+       "text": "33 chars #5ee0f125"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "369 chars #612bd181"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"להלן עיקרי פרק 4 (ימי מחלה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 15,\"totalTokenCount\": 7909,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \") מתוך נוהל מדיניות משאבי אנוש:\\n\\n* **צבירת ימי מחלה:**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 41,\"totalTokenCount\": 7935,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" עובד צובר 1.5 ימי מחלה עבור כל חודש עבודה מלא, עד לתקרה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 67,\"totalTokenCount\": 7961,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מצטברת של 90 ימים (מדיניות משאבי אנוש 2026.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 92,\"totalTokenCount\": 7986,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"docx L33).\\n* **אישור רפואי:** חובה להמציא אישור רפואי הח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 120,\"totalTokenCount\": 8014,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ל מהיום השלישי להיעדרות (מדיניות משאבי אנוש 202\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 144,\"totalTokenCount\": 8038,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"6.docx L35).\\n* **פדיון ימי מחלה:** ימי המחלה אינם נפדים בכ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 171,\"totalTokenCount\": 8065,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"סף בסיום ההעסקה (מדיניות משאבי אנוש 2026.docx\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 195,\"totalTokenCount\": 8089,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" L39).\\n* **תיעוד ושמירה:** יש לתעד כל פעולה במערכת הניהול ול\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 222,\"totalTokenCount\": 8116,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שמור מסמכים למשך שבע שנים לפחות (מדיניות משאבי אנוש 202\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 249,\"totalTokenCount\": 8143,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"6.docx L34, L36, L40).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 264,\"totalTokenCount\": 8158,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EvEVCu4VAWkUfROmBmnEoG8M7nHVf0SD7OV3zcD8GtPCnaS/tJ1jkO4ONFSVA85Ah353cvMcTjFnRGQH6I8CMd7QvlrDZr5IpL7L5aZokL8G6leZ4eBHYyviczhPg/b043ad65fvIqrY/KhSjB9qVe7DgFunoTaK60OuF+SulSBXSANe1NWw5WKsufqE0GwKxenCNfdwbnnCoEqg4aNjZLk9hUbLxzGff1OWIAbK3wPUWiI13aNrCfdeX5SWZgWBEiNu+i55rhCeeso2yrglSZLog1jl4NVL0x9glbL4vBjtXARrjeAOcha2aG1Fx92OMVirmn7r45M9PZacSI/O8gHfEHT8jMpgvUBy8cbbpcf6L4f4AoiiWkyChJfNmXRfJmGcT3eEuPHFDNHOrdTa70/VIyMJ4dOyBMRQ62mcIsRwS5zIj2YsbgTs9gVHuCo1IFeAWcLXav0dwCPrqz4WxOE/VNSXZ62C+GmbeCL+d25EactNUSjvG/3UBx7xrS5AujSZosNl2iPbTwJTmf4Jd8YqUt/5jZUO0hgnCZnlpIw3CoiGbG/nEvd6S+VHQ2qVekrMLkqax/0ks5TIm0lQfE/mf/Kg+9monikUQcvg7eukTjXqBckut3nXcZWj1mrQZXeWWBzBzaDHr/pWnvvMwVvDVLdj4JDRzggoqTez64xfn6wBUIQk3OfUl5xn9cuCbTMhGYV3qHkbL2mZRnciZT6yHyIPBZKfawqWJCthFKhYTKBlepqIvWKHTpdINpXp8RoLO1Ap26lp9dkVKVrU+csYqCdxuPc28Dlo2LsBW0l2V16lsmMDP6BeNXB2rTB9CANoteYUiVJxk1ytZVkMC4uONro+Xy4DTmt3gMRnVYfGF6ploC3WHaMuVtzzlSYn8dN32yg9Tc8fKSI4Wkp1RwrBs807fClVdnr5q485HlQSijcjZnSoqK9agH1jNMoRY7915eVO26LE3QTRUakQZxWzjS94q3u+trW8ANQ/MB2Qih8NE9wKIBDhNLcmYgiHqJIwKH6wlwEai0d1gkUs3UT8RWKB4avMLd37W34b/3vlr/WhKa+OMPaBZGJekXqclRl9Ubh2pecAiTN4r1t5aFO8d883OzHOu8DLP0KnYiw6rtNnf0Cc3kWO/8TnOe+whRY0BwxLtMAFNckyra9S83m5u+KgAdfDW+lgR85REYP6oFJ07AC4yIimgQzblH6yDLdPVrnm5TuRPsucgQh+7OYq6JDQArIlxnTscBTthXN+SsrnhA2JETsC8cFToUbajyuUFkjwb/FDT5",
+   "LvGhyUgpQft74m27G3e8PEnfPwU6B3GMn/5QVCO/Vzxay+XH3gIqTMD4oMT2n3JYDXFRMzH36Wo1YU90uET/JuLa32FFLzK0tkt83hTDdEUeGS/EiB1AGNK8KoXNHWIJPIZNVfjuDuRbxYYD6pzSwkrN9QYnr0zqLvz+KQiBMVx69J2N2heoYZAXAORVr3l6mltdwM4mZhAGoprWg6EPbBB+gAEwQoPnz4Si6hF0+juxvv4MPTR4fmx4z6HqM/pi/1UAzBtUaxQxXW55XXNrusDpA7qAnSaVuP76w0PSLvr9Q3CSVTOpsqXwmm0cIFP2kZoi3jltHbgmBR5ZZH7uiOnYGp+mAA6WAWkZShZPNJTuQsgD/lyI15f8A39Un5eUSaGSI+/wceql4STe1jLaywj5lUFKCwfqPQYGy+V/wq/JFZQu3jBXq5xB4F5vd3dZGEw1/0GNzz/3vDX3Nzqz/4Mu+UGkO6faSOFKMBquEjTRCEdafLAI+mHjDCXzZBtsN3FVs5sIzHJswHa9t8xg6DcCWjj49H7bcAT1vqNfyTydOwWgMSZU6YukkKWg/TiSq30G8jX5Hxah0TAZQJ9LeApYd5SgKa9fHB0V/df2gHeJnDwR3q2iDK/++2DnjorC2ysyt4WfAZVsIZb98BCav7PhmzfCNoRzdoolOXb8lAqft4oeH1PLgDwPu9j93rSlrutWeZPVQyQgsszn45T9S9w5FFs43poewnJQb2pUI1t+i6s22XujUjWqgMu5LQ5HVvMO23+34H0aG0gpYM/H2QkTmoSqssjtYkqZ2X8jSOhjUhCtAajmU77QYJmk6FmbiJcZ7u0V4tY2lH0BKgvijrAPmn2HTCUVQnPoIj2+MIhA/VKBeB/e8b60PUGf24ePfaziZ9SNZkavqSe0jDwL2K4CmqtSlvfr2kyHjv70CHtpVS5WJ0Ict9DikLiyw5fLUmT4GCeHBwrsHjkML1eq2qU9p/w7n8j+LtgYnT6MdniNrUEGtdyn9cJ2/5Bu1d1jQmczCZKclMmyv/7pO8VByfLUL82gfgr4nulNAtZGI6lC4J2FrrTHv7o5bTo+4rPLJ+pX+yhRmkLBij8tMxjimRTWDTTwTZ/1JnD36voH9/oxON0LihO9S8VvV1dOsrVMoQg7gBXTTMLru5paTarC1t6gacoNRj/SeQLhz2fLHr66pVD2UUAiOutpXHmDS+0bnIUMpRubexDdqT0eGe4Dllo1suPIZMor4A8kBB5FYr+HvhrIC5X//yXyGf1j/Z6QG7qV2kZtVvsALDbH+IRJIEng6qpzEaTWAyykEHWzXXrGcrHL2s4aKZpPIEEXFwEj+Snp/K6smPUSct2ElBRa66rcu4kYBo/sUP",
+   "qEkMy96f06L/kV9s//P3cHlMwslCIgxuuSyorWE7m3N/CXmq2lc/pallSI/fNvDaz4yqZfIWLpWAUOdakCs5kh6uVvwN12qrKWrazD5yve1UufUHwGWWdiJL23ZRVrC9KCer0/LAVDUHoi4BhHC8SDEu0AZmS+2ITIJQKEupaKAzJL2KJ/oo17iApz3MlA0XxYv2rWsnZsdRhdVlscNEtkTAsolkLEUwpZnQrN6iBGvGttX4M/w996Ff8ZprxcOtYaaNZWoMSbXa75fpJvGmTafAh5xft7njjO2eZofP5y2leWovdmKUTVePMNhh0wwYaogcXuXbi6bUxutKJ7Drwdd5+Td+qv2MRi4hH/JJ+wuzf7J1Bgh0n5JkZC6kvEQAsZ4BVjTr+/J1LGdF283JJY4lVbui4bxVpXCd03KbnJ8eJ2e1COl5qT/WdY5DT1/dlLTKkhSzQS+mXG7IOBYoOiAnSFTLqQl4dlKfHBi6wC8WSGgWto4UgredgkHkvlWjTIgKfKPfh0YzhurrmajhW/UewdlLsz8DtzmAboY9PHgqalgr5sIgfTNipOF3rL8o3J2q24A0VYolk6W9NQEq/eZ4jbGnNe+rmxPYBlFTg8sCoBjiRqETKY78tk9e9MhyoRnzEA9fMU7AxSlsppxscVkNOQLEV6a7VDaQ7eO1cjYkJ5DKw4qtM+f3AIyZxRbG4tHwogSbYmTwnGPZk6RgyZEx7LrjSUzidiqK0m7s9fKJvnE7vuZD31SO4ICa6alZ9fRiitahVFovkubINRMrdfPYXgnkRv2X27kv8tUjFwkfTA0uVke9l4jl7evyaP9tiO2ZnTUdEmDfwSt0ffNuLD+lvKrX664yJ+2z1yXCXL53kP04OTS1fvQO+MdRUJRL/DtZ+Q3btABzgy1BJZrt5QpZBTuu36+2ZgqGLJtSD1TmSJnIS5A8sSPgSK2P6ubGs772FYGqnE9ENCYB7PfkKhj69cDVU/TuVaHu3Ds3nERNy1/f1Tpzy/O8pArwJqoAYWK7KcbJ6wduzNnDclzpqh8jn4x5cfR0WQgUL2f7RzU=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7234,\"candidatesTokenCount\": 264,\"totalTokenCount\": 8158,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7234}],\"thoughtsTokenCount\": 660,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"resp",
+   "onseId\": \"4nQFa7axOPfPvdIP-LGFsA8\"}\r\n\r\n"
+  ]
+ }
+}

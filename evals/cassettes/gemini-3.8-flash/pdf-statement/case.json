@@ -26,13 +26,18 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 710,
+   "inputTokens": 2324,
    "cachedInputTokens": 0,
-   "outputTokens": 260,
-   "thoughtTokens": 188,
-   "ms": 3786,
+   "outputTokens": 452,
+   "thoughtTokens": 353,
+   "ms": 5511,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 2,
+    "supported": 2,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
@@ -43,21 +48,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 2644,
-     "ms": 3785,
+     "estimatedInputTokens": 4135,
+     "ms": 5493,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 710,
+      "inputTokens": 2324,
       "cachedInputTokens": 0,
-      "outputTokens": 260,
-      "thoughtTokens": 188
+      "outputTokens": 452,
+      "thoughtTokens": 353
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "על פי דף החשבון:\n\n* **יתרת הסגירה:** 4,167.90 ש\"ח\n* **הסכום ששולם לחברת החשמל:** 118.00 ש\"ח (הוראת קבע בתאריך 05/01)"
+   "answer": "על פי דף החשבון:\n\n* **יתרת הסגירה:** 4,167.90 ש\"ח (דף חשבון ינואר.pdf L8).\n* **הסכום ששולם לחברת החשמל:** 118.00 ש\"ח (בהוראת קבע מיום 05/01) (דף חשבון ינואר.pdf L6)."
   }
  ],
  "passed": true

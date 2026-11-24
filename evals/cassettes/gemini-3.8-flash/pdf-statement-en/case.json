@@ -22,13 +22,18 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 700,
+   "inputTokens": 2314,
    "cachedInputTokens": 0,
-   "outputTokens": 229,
-   "thoughtTokens": 202,
-   "ms": 3430,
+   "outputTokens": 330,
+   "thoughtTokens": 272,
+   "ms": 4142,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
@@ -39,21 +44,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 2636,
-     "ms": 3429,
+     "estimatedInputTokens": 4127,
+     "ms": 4139,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 700,
+      "inputTokens": 2314,
       "cachedInputTokens": 0,
-      "outputTokens": 229,
-      "thoughtTokens": 202
+      "outputTokens": 330,
+      "thoughtTokens": 272
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "A salary of **2,400.00 NIS** was credited to the account on **03/01**."
+   "answer": "Based on the bank statement (\"דף חשבון ינואר.pdf\", line 5):\n\n* **Amount credited:** 2,400.00 ILS (ש\"ח)\n* **Date:** January 3 (03/01)"
   }
  ],
  "passed": true

@@ -1,0 +1,50 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "5f46b001011f34c4",
+  "bytes": 27438,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "15901 chars #7e5898cc"
+      },
+      {
+       "text": "61 chars #abfa082e"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "146 chars #9eacfc9a"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 1,\"totalTokenCount\": 8801,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"thoughtsTokenCount\": 198,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"QnUFa5GnIqqH28oPjdnEoAY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קנס על איחור באספקה של חלקי חילוף הוא **5% מערך הה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 25,\"totalTokenCount\": 8825,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"thoughtsTokenCount\": 198,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"QnUFa5GnIqqH28oPjdnEoAY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"זמנה לכל שבוע איחור**, והוא מופיע ב**סעיף 63** (`חוזה ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 54,\"totalTokenCount\": 8854,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"thoughtsTokenCount\": 198,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"QnUFa5GnIqqH28oPjdnEoAY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ירותי תחזוקה.docx L65`).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 66,\"totalTokenCount\": 8866,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"thoughtsTokenCount\": 198,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"QnUFa5GnIqqH28oPjdnEoAY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Er4HCrsHAWkUfRN/FvIyNxnW2ZsLXi2AfQOOK7iBYlJwWeq0BI91FVFmM29sMFi9fHxHpgvL+hcaYQBDdrHNy5tYKBycNrMHkfTw1tQLeUNCZOLKV+qgt12oBYfDcJT96zcvX1QpnT4tqRU/3kvNQAGNaCn+PhbKtTNUxxCN7pIZB8mivEaFQDg40N3YT7YvtBr2KkLYjk7ex7yr/A+ItShFVDeZJXH6+gJeETvSJmZzt+gVozcA0I1CitBEmDJ3xmrFKPa2eL0OzVIXlji7KSX+PEagOsHIMIa3ByUl9owYd738AmJpq1tSrXP8DVxpP0u4zzaZAAvEzTaGLs97IDkzRvHlljcOXwK1+LHFkVDr++qtAD3HLLdAvTPTGg9DVh1CAvvy5sg+60H6kcIItlCTEjdcEq/pljH/rdvvsDUFyRtgqUsJPCeaK1IK3zo8uQC7xI/uJ072yOw6JWZ7Rgsf6VqAqEfxmj22W2fvZWZRJ76/SIUvO9YskYLgZp+vdOIph4NfsUQJKVEUHa7+Ofs00Vj+8sqHEzTCaAbo3tqJ/6ArJGdi1hu+Gn/dVq+ZoHrk7kLL1WDdE9FRuRV5UKMneCZLJNWXsDcuBENO4F5ko/UtZGA+beM9fu2eHvVLOV0FyVShhmkLGrWCs47qJUcepZx9Png2z6M7vLkxhWsxED26/Ah+FUSVJFEErn2eTZMybOEwBVhOv82r/BAnxt/hGCjYljObt0jTzr6ikIgE1aOwWkd20CyfTQyWlcG48qQnk+e0La1l0tvHp+J6bSFAlLXM3wUJKj/RJkRaOARISwr+V14ducV+CwgZ7VbAhXwsndM5c+qmMjYbG+Uk+rnn9aE3nxMdyc+AM46iexeduaBwyOQPthRTvi2Vooit8m9lAye1V0t0alYSwlO2gPScdWJKtC1svUak2mOrpEQaqB+VUinPF8M+W3TfSZI4wc04g5WkQcU9AngV+H1eLQ6REaLr6hoR1X2b13azCthbhRcM2Bbj7d1rnW/RPdZjpnH4LzeoCwWcd4JFyAZL8CquNpAq2yxtMpeRl2C8G8h8hv2ore8TIO0aDJzIsil5iEdv6Tja0RbUguJDec6WGMMoy/q83eLa/L1tm66RrDaL6kbeGvW4PJJFZuXOErRh0Yy9BeXx6xFIYz8jvT1irXQnnfmeTsgVnB2QGYF96h33OI8TtbIooV6DH+SgOe5qFuNz9hpe2kygOFQ1hW5vMalzdDpuTQ6R5moCKu/xwaG2oPR/i9Hdm7eyPt6TgYCYyg==\"}],\"role\":",
+   " \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 8602,\"candidatesTokenCount\": 66,\"totalTokenCount\": 8866,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8602}],\"thoughtsTokenCount\": 198,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"QnUFa5GnIqqH28oPjdnEoAY\"}\r\n\r\n"
+  ]
+ }
+}

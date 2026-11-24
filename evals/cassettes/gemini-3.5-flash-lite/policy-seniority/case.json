@@ -26,30 +26,35 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 5231,
+   "inputTokens": 7239,
    "cachedInputTokens": 0,
-   "outputTokens": 33,
+   "outputTokens": 70,
    "thoughtTokens": 0,
-   "ms": 1077,
+   "ms": 1361,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
    "log": [
     {
      "requestId": "req_1",
-     "role": "answer",
-     "purpose": "direct",
+     "role": "tools",
+     "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 7827,
-     "ms": 1069,
+     "estimatedInputTokens": 9740,
+     "ms": 1293,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5231,
+      "inputTokens": 7239,
       "cachedInputTokens": 0,
-      "outputTokens": 33,
+      "outputTokens": 70,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -57,7 +62,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "עובד עם ותק של 6 שנים זכאי ל-21 ימי חופשה בשנה (כולל יום בחירה אחד)."
+   "answer": "על פי מדיניות משאבי אנוש 2026, עובד עם ותק של 6 שנים זכאי ל-21 ימי חופשה בשנה, הכוללים יום בחירה אחד (מדיניות משאבי אנוש 2026.docx L30)."
   }
  ],
  "passed": true

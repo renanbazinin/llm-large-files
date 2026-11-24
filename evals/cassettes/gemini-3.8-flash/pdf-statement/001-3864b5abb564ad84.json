@@ -1,0 +1,97 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "3864b5abb564ad84",
+  "bytes": 8204,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "515 chars #1bfdb283"
+      },
+      {
+       "text": "49 chars #dcbef1aa"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1074 chars #3c1bbabb"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "view_pages",
+       "description": "284 chars #fc39aebc",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #80d11510",
+        "required": "[2 items] #bfa97534"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על פי דף החשבון:\\n\\n* **יתרת הסגירה:** 4,167.90\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2324,\"candidatesTokenCount\": 27,\"totalTokenCount\": 2704,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2324}],\"thoughtsTokenCount\": 353,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PXUFa4LBBdmN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ש\\\"ח (דף חשבון ינואר.pdf L8).\\n* **הסכום שש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2324,\"candidatesTokenCount\": 53,\"totalTokenCount\": 2730,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2324}],\"thoughtsTokenCount\": 353,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PXUFa4LBBdmN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ולם לחברת החשמל:** 118.00 ש\\\"ח (בהוראת קבע מ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2324,\"candidatesTokenCount\": 77,\"totalTokenCount\": 2754,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2324}],\"thoughtsTokenCount\": 353,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PXUFa4LBBdmN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"יום 05/01) (דף חשבון ינואר.pdf L6).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2324,\"candidatesTokenCount\": 99,\"totalTokenCount\": 2776,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2324}],\"thoughtsTokenCount\": 353,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PXUFa4LBBdmN7M8PlIys-Ak\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EqsKCqgKAWkUfRPp7iyRgVX0ra+HkqcF89NG29zn3IHeIYzr/9N0Wt0mI0nfMApH3XUGLqzG1t8TDX8txnhzZQCIH66V36JNzCimqxrQsc77EtFrLRWA9WsJpZG/pL6R8QTQp05pvZbrGzG6Yjl1qY2SFNznkDxc6vmm21dB4qyCuPj3HHiV4e8fD6bSXiIYrCbKQEYk8DjgvLDkED451B94K/NDuDTGharQ4VXaJUl1kU6tJr0CWUBTh9n60GjgR7zPegdM6vsMcK3QZTJbGsM25abNxO44lxkXMbZq1mshaHejOkf6DXYQp8WTCm+CKCz7UT3+hLtmJUHwG82IhxBBhMrfO/eMSA+SsqUd4BUjplMLjA8DRr/KOMG3g2It8q98P5kjTmt2iqWTdRqk9WpWosPMEy9UpqNPYsxx7oDU+4cF+H7Q+IuSA42i7VIAkvutRZKsbfcbM+nKKsij2vsHHrP+godvzP3G4djqCAB2ZvVfvbQdGiDPkCJTGVzhSkA2UmwJkf6MkwgYmxqdQF1mfbZczFUsVf46SYAgbi9uM+lv/PNAei1oIvBN0lJ29Pgrvph90mCaEvjtjWegQO8koxgCC9i0OXHspWKTn8FFlP1VY3WjTR7Chj5KC1XbkkJNYrO3r35yfU4IAJncmhG693XllI8QZzjdJFPLEQglwFHb0GQ+m3bQTYidkLPAgMeqS/+L1Yzqc/NdIWNQ2e/A7/nynyqGwV82N3DwVZPV47YnuLBrWCxXMxSo9EWGku36usqs6RhuN/GwZyuPKrtj99+l3zmKhkIk9TDDrP4FutTcQ4jSyqnbpLWGWj7DGX8HpUlnD9JZrNuEELWsETcorKlZBcuE0TSMPmOMqxLmuwaBYrxOGMA7owUpdyc3tZQAxiBKfz756+ASNieXuxy1hbSlAy0BOuxUlaGwI+zcflhMtoSYJdMU2NSfFLp8iOySdbsFTbVmZJa45RjsdgsIXGVS1n/1hHR64+P7tfjIxGnueSUSzsaPx+XZ3IKoRLZV//qzpnAGXEWQ2+PCJNIHJNcislIFerNJC2xYCs+QfVI6TPySJM+eti66VdB2jLJoRFomAvJwzLW/nWIPmzFSa6gU1L5oBUiXOF19WkXVf5QNTmhp8LYW/OdFgykiSThLCjU57IfJYW/4WBXPpu17zjrbbOSHn//185ldh2Y70UvJbvxtmUE2DtAYSRo4K1VI2wklM0ChCKIArzDDphdyTqhrgHqIXNM/qZVNJwHpko94T2p8BvcZCpCh7GHB2r9YssjdLk2fltk",
+   "jOqiCfZk1s8awoFPIG+T6764O9IA7m/c/7+czywdC8yQbIuFZCyHpS4X7fz4OAn/orIHcXlJs9tfZef4J6NZu/JS2f6uEyDjnOv71euozVdJOBXcHCKNqD8D0TcFpxIAqrKELWmQzoR1tFdSWsNwHLIdGtv4IIoY8Cs7ELw8r2xdptte6GUow8xYY92o7pnGXloChl416DaCmrgAuzQE2RfK5s6Jl35gAPeGWNKWBii7fJB27COi6LLbdJJ7AAHldZWED5oh2RiHy8IhW2YxAw7UA3asXJqVQqn8XHRHPubjpX3w4X66ub3XgDWkegUmUvKbW6t/IZh3m40MM3fAjvhMauVRdXrBu97825uOMihZwltQskd0ZRQn34KlJWxppPKMrb2zr1EsjCy7l2VToUq21hFlQIVGwN+bN/Daqizhuq/YTiWmgzlCkMQnorgdYOqWmPQkA4S7ZVM5ESTL2LLMm\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2324,\"candidatesTokenCount\": 99,\"totalTokenCount\": 2776,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2324}],\"thoughtsTokenCount\": 353,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PXUFa4LBBdmN7M8PlIys-Ak\"}\r\n\r\n"
+  ]
+ }
+}

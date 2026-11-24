@@ -26,13 +26,18 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 676,
+   "inputTokens": 2291,
    "cachedInputTokens": 0,
-   "outputTokens": 375,
-   "thoughtTokens": 315,
-   "ms": 4044,
+   "outputTokens": 463,
+   "thoughtTokens": 377,
+   "ms": 4795,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 3,
+    "supported": 3,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
@@ -43,21 +48,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 2624,
-     "ms": 4043,
+     "estimatedInputTokens": 4118,
+     "ms": 4780,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 676,
+      "inputTokens": 2291,
       "cachedInputTokens": 0,
-      "outputTokens": 375,
-      "thoughtTokens": 315
+      "outputTokens": 463,
+      "thoughtTokens": 377
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "על פי דוח ההכנסות:\n\n* **הכנסות אזור צפון ברבעון 2:** 135 מיליון ש\"ח.\n* **הרבעון שבו חסר נתון לאזור מרכז:** רבעון 2."
+   "answer": "לפי דוח ההכנסות:\n\n* **הכנסות אזור צפון ברבעון 2:** **135 מיליון ש\"ח** (דוח הכנסות.pdf L3, L5).\n* **הרבעון שבו חסר נתון לאזור מרכז:** **רבעון 2** (דוח הכנסות.pdf L6)."
   }
  ],
  "passed": true

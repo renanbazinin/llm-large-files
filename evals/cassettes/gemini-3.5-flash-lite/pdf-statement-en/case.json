@@ -22,13 +22,18 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 700,
+   "inputTokens": 2314,
    "cachedInputTokens": 0,
-   "outputTokens": 33,
+   "outputTokens": 53,
    "thoughtTokens": 0,
-   "ms": 440,
+   "ms": 559,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
@@ -39,13 +44,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 2636,
-     "ms": 440,
+     "estimatedInputTokens": 4127,
+     "ms": 552,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 700,
+      "inputTokens": 2314,
       "cachedInputTokens": 0,
-      "outputTokens": 33,
+      "outputTokens": 53,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -53,7 +58,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "According to the account statement, the salary credited to the account was **2,400.00** ₪ on **03/01**."
+   "answer": "Based on the bank statement (\"דף חשבון ינואר.pdf\"), the salary was credited on **03/01**, in the amount of **2,400.00 ש\"ח** (statement-1 L5)."
   }
  ],
  "passed": true

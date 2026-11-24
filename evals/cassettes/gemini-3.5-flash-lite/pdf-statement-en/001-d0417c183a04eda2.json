@@ -1,0 +1,96 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "d0417c183a04eda2",
+  "bytes": 8179,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "515 chars #1bfdb283"
+      },
+      {
+       "text": "63 chars #f8b1bdf0"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1074 chars #3c1bbabb"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "view_pages",
+       "description": "284 chars #fc39aebc",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #80d11510",
+        "required": "[2 items] #bfa97534"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Based\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2314,\"candidatesTokenCount\": 1,\"totalTokenCount\": 2315,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2314}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa67ELaGc28oP2oexuA4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" on the bank statement (\\\"דף חשבון ינואר.pdf\\\"),\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2314,\"candidatesTokenCount\": 17,\"totalTokenCount\": 2331,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2314}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa67ELaGc28oP2oexuA4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" the salary was credited on **03/01**, in the amount of **2,400.00\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2314,\"candidatesTokenCount\": 42,\"totalTokenCount\": 2356,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2314}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa67ELaGc28oP2oexuA4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ש\\\"ח** (statement-1 L5).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2314,\"candidatesTokenCount\": 53,\"totalTokenCount\": 2367,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2314}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa67ELaGc28oP2oexuA4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRMOIwBjFxr+Ux7AcqsAhzyiAd07S1OjBNIgyfPaoovfwReoxYiOWG34KxtgRRSgW8k0pwrckbCZ9rmyA4qY+bh8tyNt0+5ZrjeYIDSXyJpsnFArt2qxtiSTSDCX+Uq8FLDDS41wtccGdQVWCGShOuXcxlBjgwcC+4mNiAxO9Ri6/mgF+zTvcKt/cZ9onMIo\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2314,\"candidatesTokenCount\": 53,\"totalTokenCount\": 2367,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2314}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"ynQFa67ELaGc28oP2oexuA4\"}\r\n\r\n"
+  ]
+ }
+}

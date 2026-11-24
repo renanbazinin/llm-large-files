@@ -1,0 +1,81 @@
+{
+ "case": "invoices-columns",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says מספר",
+     "status": "pass"
+    },
+    {
+     "fact": "says לקוח",
+     "status": "pass"
+    },
+    {
+     "fact": "says סכום",
+     "status": "pass"
+    },
+    {
+     "fact": "says סטטוס",
+     "status": "pass"
+    },
+    {
+     "fact": "says תאריך",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 122208,
+   "cachedInputTokens": 0,
+   "outputTokens": 199,
+   "thoughtTokens": 138,
+   "ms": 4398,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 134212,
+     "ms": 4374,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 122208,
+      "cachedInputTokens": 0,
+      "outputTokens": 199,
+      "thoughtTokens": 138
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "בקובץ החשבוניות ישנן 5 עמודות (חשבוניות.csv L1):\n\n1. **מספר**\n2. **לקוח**\n3. **סכום**\n4. **סטטוס**\n5. **תאריך**"
+  }
+ ],
+ "passed": true
+}

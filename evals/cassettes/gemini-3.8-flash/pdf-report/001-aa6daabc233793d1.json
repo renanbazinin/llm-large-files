@@ -1,0 +1,97 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "aa6daabc233793d1",
+  "bytes": 8320,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "506 chars #34a3b784"
+      },
+      {
+       "text": "88 chars #03da1ee5"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1067 chars #3333db2c"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "view_pages",
+       "description": "284 chars #fc39aebc",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #80d11510",
+        "required": "[2 items] #bfa97534"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לפי דוח ההכנסות:\\n\\n* **הכנסות אזור צפון ברבעון\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 21,\"totalTokenCount\": 2689,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"thoughtsTokenCount\": 377,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PHUFa9TUIJ6xvdIPtK2KiQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 2:** **135 מיליון ש\\\"ח** (דוח הכנסות.pdf L3, L5\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 48,\"totalTokenCount\": 2716,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"thoughtsTokenCount\": 377,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PHUFa9TUIJ6xvdIPtK2KiQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \").\\n* **הרבעון שבו חסר נתון לאזור מרכז:** **רבעון \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 73,\"totalTokenCount\": 2741,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"thoughtsTokenCount\": 377,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PHUFa9TUIJ6xvdIPtK2KiQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"2** (דוח הכנסות.pdf L6).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 86,\"totalTokenCount\": 2754,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"thoughtsTokenCount\": 377,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PHUFa9TUIJ6xvdIPtK2KiQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpILCo8LAWkUfRMa5lByuh44wPF6osB4EP5K+5yo8H9TgADVMoYulna61AvfVC/7GYp6Af3gHGG2r8ISl2l0izTUxudF2+YAVGuXHnjt3QcAUrsEPBbFZXaxPxHnZ+D3EdexpMJyHc/5tKqMPRZJrrtaLx+TQrlJFRxpVXQ7WPsoWQhjIr/oYc0TVA30vzddnIPB2uwThAnI5RfZEinDZnNTeqd5K6uobw10i01kveDP+S2bZ3MFGeWGQ9LakQyRuF/FHlK2P5WvgerEGPtolHYluhVnuh/eyFLwYkkCFCr7mZupxBfXFGShngipgn7xKzvwjYJzGZwQvQ/oZVNLX3/VLnb2wYNrv8Bs+4UHDoMWLk4k5ycX2MgM3qhXsbN2+DW3w8bARxZoDNTt/ZGNrHug7tWE8Sp293ytouG4Tjg2A2VJSD+/NIdqldUd7G7bT9TnLYUDd/IndxILaKIzoddYsx6dcTovxTgyK8j9lIIDkRjYKAUcXX3G8t8+pMqxUxB0ZrId87uGzIDC6b9kD0JSxgvR6nG8IimOQZY34KVYncHjNgjIPSVvxFQlRz4xEwgnFyrt/SlDbc4l97wn/DiU8Fw2bs3EaLaQmzTLnCN6AtCApNjwlXTI8CzSy7LmEUdiGsBbQqNRZ51K9VtPgAtwyeR8i4B6TNg8u+U8bQCwFvB6eizqT2cN8yKlvXdd4d1MCqMrplfzLo39W3CZm6KEv9QUcFpU1iozS4HimkZwyI2541Q6odmRVC3U6TgXEJT3s4zF6UMklqGoh5dIofxBKa/E7n6GSKTP5BBVun5OE7m8UVUAHVuBzgH/o1s0w1Z5UmL1ekwuRN9TYuwaR8nAJfjW6mgHXQhsU+GA/RVs/aZvSv/hlakIqoa6XVX0Ju/FmOlN9WTyBNnpNa6trLV3GSrz6XxyyduR9VtfKp1RQp/N4n4JtY7fg4jcifbLi9GOay+zIxh9hOQo5EEpcmR3bLdWy6cN1WIDEKLBqu26OJ0xjp3MDdJFk2ze652rDtfDG/bTpmFbv6RM/BcuHCCvMhfqx/BEr23zApklATaCbR+91WSMkH5gCLKaHK8xcuVLnsynrbKok7W3M3qO1vJAgoJj4Kec6/mepothGEOnSoCwI1N5VbYaJMo8PCQLieh17J1Ge9GDs5SLrlQFT0w3115uykDemIdP/VoHbbm5gPyp7I+TuLBtE4bNJJSpiHDba4SSTXSzrIAYyMHB2Wq2P1iJaYuIL+8eA2evPDCQFe0qP0X9DD4C4SKSu9WaOstR9gb8n3GFKMt",
+   "0/WeCUyBZO/UU5sKI2Lw7HiQfj7dU3MLNhToOaqzeBHJBwEJWzvy+/sNT9xykOb/1Scn1yFINl6AumwmfnbAzYl9kb93yGa0Yvk4JTbTdEC8vqSNv+rxMvKU90kb7/YE1GLbaaFMv4LHOhpBjbfO7BmTx6N8JcUYazoROuNDL8TVfkn5N89tTq15pZu0SrZWEOZNnCqdSNIqrDqGFIef9lnIdOGgjHiEc1N4Xi71wHR3+Ppg1sboIZBbroI6iLbeAjxY5tAWEiSv1GXCaHTi+rocbllMODCtEmt/VqcxTyFVvNfEd3Y05lYi+ETY8dbQDj+xYpjimvgTDwyk4nYyxa9gKpzJciJkslv7aWhDL3qfRyBlqyGha6T90WHvZpyp4cvZQRS6Tmz/rzi71sLEqQ9iMYxjytgJNju5+9q1BUrMBhQ4+kmopF735UGYMGpE0Sa/ELzjdGV9MEht/Y7Mn2u9CzQYnsKZkkeB3Ux8lC8dgTpBDz1gFhkriBU2LJ6SmqjmoKekljPZpd05lz1XpCR4qV3mho1sIjXf4Rw6Z8/a7CANQxp+D7vGdbsHxsoCRaGMi/hAqbG7O4wbL8CGboxqzSTHUNaQooQ==\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 2291,\"candidatesTokenCount\": 86,\"totalTokenCount\": 2754,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 2291}],\"thoughtsTokenCount\": 377,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PHUFa9TUIJ6xvdIPtK2KiQo\"}\r\n\r\n"
+  ]
+ }
+}
