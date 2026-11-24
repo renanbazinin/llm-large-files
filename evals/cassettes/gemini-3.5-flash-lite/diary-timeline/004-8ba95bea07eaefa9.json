@@ -1,0 +1,74 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "8ba95bea07eaefa9",
+  "bytes": 32055,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19838 chars #0d0759cb"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- יום שני, 19 באוקטובר 2026, 09:30 (L801): אירוע חריג - צוות אבטחת המידע זיהה התחברות חשודה מחוץ לארץ לחשבון של עובדת במחלקת הכספים. החשבון ננעל והסיסמה אופסה.\n- 19 באוקטובר 2026, 10:15 (L804): נבדקו כל הפעולות שנעשו מהחשבון בשבוע האחרון.\n- 19 באוקטובר 2026, 11:00 (L806): הבדיקה הסתיימה: לא הוצא מידע, והחשבון נפתח מחדש עם אימות דו-שלבי (סיום האירוע החריג).",
+        "thoughtSignature": "EpYBCpMBAWkUfRMmREYHJ6IqvijkpbZVOuVrFZlGN+jDVNQ18FiYHSErA0C6jFRdgOnYovOyqpOvlBPmQNj7bDHGpeMEGcv/FRVfK8XD22zoerJbTFhxmlmecJI5QVUwctr/w3d/O+AOy/5+Y0G+tZl2cwXHHlAeKJZj9+yn5uucKNUa8zeBPwOBx2OPzX+9pit7/GMA62Er"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12127,
+    "candidatesTokenCount": 205,
+    "totalTokenCount": 12332,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12127
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "mCIFa4jqC7axvdIP986e0Qk"
+  }
+ }
+}

@@ -22,13 +22,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 6094,
+   "inputTokens": 6442,
    "cachedInputTokens": 0,
    "outputTokens": 97,
    "thoughtTokens": 0,
-   "ms": 1264,
+   "ms": 1123,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "aggregate_table"
    ],
@@ -41,11 +46,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 4906,
-     "ms": 605,
+     "estimatedInputTokens": 5073,
+     "ms": 555,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 2967,
+      "inputTokens": 3141,
       "cachedInputTokens": 0,
       "outputTokens": 53,
       "thoughtTokens": 0
@@ -60,11 +65,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 5048,
-     "ms": 642,
+     "estimatedInputTokens": 5215,
+     "ms": 530,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3127,
+      "inputTokens": 3301,
       "cachedInputTokens": 0,
       "outputTokens": 44,
       "thoughtTokens": 0
@@ -74,7 +79,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "Based on the sales data in `sales-2026.xlsx`:\n\n- **Total revenue of the East region:** 32,133\n- **Number of East rows:** 22"
+   "answer": "Based on the sales data in `sales-2026.xlsx`:\n\n* **Total Revenue for the East region:** 32,133\n* **Number of East rows:** 22"
   }
  ],
  "passed": true

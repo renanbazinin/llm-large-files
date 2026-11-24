@@ -1,0 +1,66 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "303f5f47e8175956",
+  "bytes": 22099,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "12215 chars #4baeea3b"
+      },
+      {
+       "text": "38 chars #e43d8437"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "143 chars #64ab3565"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "55 chars #5e101e58"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לפי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5656,\"candidatesTokenCount\": 2,\"totalTokenCount\": 5658,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5656}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nCIFa__rIeu9vdIPrq2Q6Q4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" המצגת (\\\"סקירה רבעונית.pptx\\\"), אחוז\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5656,\"candidatesTokenCount\": 18,\"totalTokenCount\": 5674,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5656}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nCIFa__rIeu9vdIPrq2Q6Q4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" העמידה ביעד באזור הדרום היה **87%** (יעד של 900 אלף\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5656,\"candidatesTokenCount\": 43,\"totalTokenCount\": 5699,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5656}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nCIFa__rIeu9vdIPrq2Q6Q4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ש\\\"ח מול ביצוע של 783 אלף ש\\\"ח).\\n\\nלבירורים יש להתקשר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5656,\"candidatesTokenCount\": 69,\"totalTokenCount\": 5725,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5656}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nCIFa__rIeu9vdIPrq2Q6Q4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לדוד לוי בטלפון 050-7654321.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5656,\"candidatesTokenCount\": 89,\"totalTokenCount\": 5745,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5656}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nCIFa__rIeu9vdIPrq2Q6Q4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNoPG9XMU8fv05bqS4xQn8tgR3YXOyw6f85yv4s9p9KpSMoEd89kX4LTnwVZ73m0vcgajcWl1Aux+P9Q5HxmBlRlDtjRlRkIZfE80l1BCpR6NuXebPymOWBxC/iEj4LZxqba+BxqXOs/Vx0dpQAOe6bXH+QXDPfiKYiV+bc0X8KuVJ0UJ54Xa5N+D/hG0hb\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5656,\"candidatesTokenCount\": 89,\"totalTokenCount\": 5745,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5656}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nCIFa__rIeu9vdIPrq2Q6Q4\"}\r\n\r\n"
+  ]
+ }
+}

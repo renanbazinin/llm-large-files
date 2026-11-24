@@ -1,0 +1,74 @@
+{
+ "n": 6,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "becedfec9f503b4b",
+  "bytes": 6869,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "4003 chars #36ac4b01"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- **התחייבויות הספק:**\n  - מינוי מנהל לקוח אחד לריכוז הקשר עם המזמין (L141, L151, L181).\n  - ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון ומסירת דוח (L142, L152, L162, L170).\n  - החזקת מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L144, L154, L164, L174).\n  - הגעת טכנאי למחסן באשדוד בתוך 4 שעות מקריאה דחופה וביומיים מקריאה רגילה (L146, L156, L176).\n  - ביטוח עובדים בביטוח חבות מעבידים וצד שלישי (L147, L157, L167).\n  - שמירת סודיות על כל מידע שהגיע במסגרת ההתקשרות (L148, L158, L168, L178).\n  - תיאום מראש עם מנהל האתר לכל עבודה במפעל בקריית גת המחייבת השבתה (L149, L159, L169, L179).\n  - כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים (L165, L175).\n\n- **התחייבויות המזמין:**\n  - תשלום התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L143, L153, L163, L173, L183).\n  - המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L160, L170, L180).\n\n- **מקרים בהם הספק משלם קנסות וסכומיהם:**\n  - אי עמידה בזמני התיקון בנספח השירות במרכז הלוגיסטיקה בחולון: 20,750 ש\"ח לכל מקרה (L140).\n  - השבתת מערכת הקירור מעבר ל-4 שעות במשרדים בתל אביב: 22,500 ש\"ח לכל מקרה (L145).\n  - דליפת מידע של לקוחות המזמין באחריות הספק: 48,000 ש\"ח, בנוסף לכל סעד אחר (L150).\n  - החלפת טכנאי ללא הודעה מוקדמת בסניף בחיפה: 2,000 ש\"ח לכל מקרה (L155).\n  - שימוש בחלקי חילוף שאינם מקוריים במחסן באשדוד: 3,750 ש\"ח לכל מקרה (L161).\n  - הפרת הוראות הבטיחות באתר במרכז הלוגיסטיקה בחולון: 5,500 ש\"ח לכל מקרה (L166).\n  - אובדן ציוד של המזמין במשרדים בתל אביב: 7,250 ש\"ח לכל מקרה (L171).\n  - אי ביצוע תחזוקה מונעת במועד במפעל בקריית גת: 9,000 ש\"ח לכל מקרה (L177).\n  - עבודה ללא אישור כניסה בתוקף בסניף בחיפה: 10,750 ש\"ח לכל מקרה (L182).",
+        "thoughtSignature": "EpYBCpMBAWkUfRNBr/tXtQV5FwtrfLENWIvNk81+z2CZ0DcxKTXfulEQXhCPMOS1SK9nuSjZz+rn5Sgb7PmUYsTeG5CM4XxJy97hPsQFAnQ6GEC67p8En5b6nIAwH4Qms0IV8PUHuqENUHN0kwx62H1mFHIhM/DuQYIN7z6iNZk+YuNHzK7d3dgnMZdUt/PxprJ9ONz6YZZQ"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2111,
+    "candidatesTokenCount": 907,
+    "totalTokenCount": 3018,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2111
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "JSUFa7bPE4_jkdUPmeaboA8"
+  }
+ }
+}

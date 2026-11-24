@@ -1,0 +1,74 @@
+{
+ "n": 6,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "e493d84a215b0ac3",
+  "bytes": 2916,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "1755 chars #627f5426"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- 12:00, משמרת בוקר: טכנאי הרשת עדכן את תיעוד הכבילה בארון 8 (L1280).\n- 12:36, משמרת בוקר: נבדקו לוחות החשמל: העומס רגיל (L1281).\n- 13:12, משמרת בוקר: סבב ניקיון בחדר הציוד (L1282).\n- 13:48, משמרת בוקר: נשלחה למשתמשים הודעה על חלון התחזוקה של יום שישי (L1283).\n- 14:24, משמרת בוקר: נבדק מלאי הסולר של הגנרטור: 94 אחוזים (L1284).\n- 15:00, משמרת ערב: סבב בדיקה בחדר השרתים: הטמפרטורה 20 מעלות, הכול תקין (L1285).\n- 15:36, משמרת ערב: נבדקה מערכת כיבוי האש בגז: הלחץ תקין (L1286).\n- 16:12, משמרת ערב: בדיקת הגנרטור השבועית עברה כסדרה (L1287).\n- 16:48, משמרת ערב: קלטות הגיבוי הוחלפו והועברו לכספת (L1288).\n- 17:24, משמרת ערב: עדכון תוכנה מתוכנן הותקן על שרתי הדואר (L1289).\n- 18:00, משמרת ערב: החלפת משמרת: אין משימות פתוחות (L1290).\n- 18:36, משמרת ערב: טכנאי המיזוג ביצע תחזוקה מתוכננת במזגן 2 (L1291).\n- 19:12, משמרת ערב: נבדקו מצלמות האבטחה: כולן מקליטות (L1292).\n- 19:48, משמרת ערב: נוקו מסנני האוויר במזגנים 1 ו-2 (L1293).\n- 20:24, משמרת ערב: התקבל משלוח דיסקים חדש, ונרשם במלאי (L1294).\n- 21:00, משמרת ערב: טכנאי הרשת עדכן את תיעוד הכבילה בארון 5 (L1295).\n- 21:36, משמרת ערב: נבדקו לוחות החשמל: העומס רגיל (L1296).\n- 22:12, משמרת ערב: סבב ניקיון בחדר הציוד (L1297).\n- 22:48, משמרת ערב: נשלחה למשתמשים הודעה על חלון התחזוקה של יום שישי (L1298).\n- 23:24, משמרת לילה: נבדק מלאי הסולר של הגנרטור: 84 אחוזים (L1299).",
+        "thoughtSignature": "EpYBCpMBAWkUfROWknD2CQcfQ70oCbYnrtWmfVblDci7nSsTaVcXMwF8Uwy9u09TCZK/YjnXylFaCR9jWpmDbkL1BF2fB8d6koFX/zRSjrv8KuIwnnM4MffQiPms8K3QDDT63Os7T3R2iBZ2E6DWTy/+cCQMqfttpIhqfQtNZT5Ebw4gYTkbIEm7R+nAW/djuX79A4TqVmzu"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 988,
+    "candidatesTokenCount": 812,
+    "totalTokenCount": 1800,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 988
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "QSQFa9CQHNyW3boP8rCEoQ4"
+  }
+ }
+}

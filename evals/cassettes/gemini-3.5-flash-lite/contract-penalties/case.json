@@ -4,8 +4,7 @@
  "language": "he",
  "kinds": [
   "count",
-  "searched",
-  "whole-read"
+  "searched"
  ],
  "questions": [
   {
@@ -22,15 +21,22 @@
     }
    ],
    "passed": true,
-   "requests": 3,
-   "inputTokens": 22373,
-   "cachedInputTokens": 6101,
-   "outputTokens": 118,
+   "requests": 4,
+   "inputTokens": 37780,
+   "cachedInputTokens": 18293,
+   "outputTokens": 206,
    "thoughtTokens": 0,
-   "ms": 2003,
+   "ms": 2444,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
+    "get_document_overview",
+    "search_document",
     "search_document",
     "search_document"
    ],
@@ -43,18 +49,18 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5361,
-     "ms": 660,
+     "estimatedInputTokens": 5528,
+     "ms": 520,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3437,
+      "inputTokens": 3611,
       "cachedInputTokens": 0,
-      "outputTokens": 27,
+      "outputTokens": 49,
       "thoughtTokens": 0
      },
      "finish": "complete",
      "finishReason": "STOP",
-     "toolCalls": 1
+     "toolCalls": 2
     },
     {
      "requestId": "req_2",
@@ -62,13 +68,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 9902,
-     "ms": 601,
+     "estimatedInputTokens": 12228,
+     "ms": 541,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 7989,
-      "cachedInputTokens": 0,
-      "outputTokens": 41,
+      "inputTokens": 10330,
+      "cachedInputTokens": 2033,
+      "outputTokens": 39,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -81,13 +87,32 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 3,
-     "estimatedInputTokens": 12615,
-     "ms": 735,
+     "estimatedInputTokens": 13622,
+     "ms": 596,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 10947,
-      "cachedInputTokens": 6101,
-      "outputTokens": 50,
+      "inputTokens": 11830,
+      "cachedInputTokens": 8133,
+      "outputTokens": 72,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 4,
+     "estimatedInputTokens": 13786,
+     "ms": 755,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 12009,
+      "cachedInputTokens": 8127,
+      "outputTokens": 46,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -95,7 +120,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "בחוזה שירותי התחזוקה ישנם **37** סעיפי קנס (סעיפים העוסקים בתשלום קנסות מטעם הספק למזמין בגין הפרות שונות)."
+   "answer": "בחוזה שירותי התחזוקה ישנם בסך הכל **37** סעיפי קנס (לפי חיפוש מדויק של המילה \"קנס\" במסמך)."
   }
  ],
  "passed": true

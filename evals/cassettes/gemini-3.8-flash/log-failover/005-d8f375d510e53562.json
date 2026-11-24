@@ -1,0 +1,192 @@
+{
+ "n": 5,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "d8f375d510e53562",
+  "bytes": 20349,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3496 chars #43771832"
+      },
+      {
+       "text": "63 chars #636dbb45"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #7959c91d",
+        "id": "25 chars #2c9013df"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #2c9013df",
+        "response": "{3 keys} #f517d522"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #ecd6bc0c",
+        "id": "call_1839222337299432632"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_1839222337299432632",
+        "response": "{4 keys} #6a8145f7"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "382 chars #d0740afa"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "39 chars #181fdf99"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #324d2ae9",
+        "id": "25 chars #83c94a7e"
+       },
+       "thoughtSignature": "216 chars #6f05e4f8"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "25 chars #83c94a7e",
+        "response": "{6 keys} #96effc93"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "638 chars #144276e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #cf56d9dd",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Right after\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 2,\"totalTokenCount\": 9255,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" the database failover completed, the following occurred:\\n\\n1. **Cache warm-up finished\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 21,\"totalTokenCount\": 9274,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \":**  \\n   At `2026-11-12T09:34:5\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 45,\"totalTokenCount\": 9298,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"2.250Z` (250ms after completion), the cache warm-up finished:  \\n   `INFO\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 72,\"totalTokenCount\": 9325,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" [cache] cache warm-up finished in 41s after the failover` (payments-service.log\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 96,\"totalTokenCount\": 9349,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" L22769).\\n\\n2. **Request processing resumed normally:**  \\n   Payment requests resumed processing through workers with\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 122,\"totalTokenCount\": 9375,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" low initial response latencies (e.g., request 2770 took 90ms at L22770\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 150,\"totalTokenCount\": 9403,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \").\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 151,\"totalTokenCount\": 9404,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Ep8BCpwBAWkUfRMKeCCNtcuQp8GGOyVaQae5RG1SuKQc6ZfSKFri/JoGEGvma9qEVL1gX65TyaHSRIRJxGNQc2D5SuyjODXf0Rs/AuMFdlXdkFpT9YUILztGS1IqwdUpgBa3Nx6wf+f7Pup7hK+nry4oKXvGMFFMYXCAc/QZSoca5rHf5ZoRKDTA/1Z/8e64jcqBmdIKJzQSO49kYCEiUJqA\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 9253,\"candidatesTokenCount\": 151,\"totalTokenCount\": 9404,\"cachedContentTokenCount\": 5462,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 9253}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5462}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"xCIFa-GMCYbRxN8PyZ7f2A4\"}\r\n\r\n"
+  ]
+ }
+}

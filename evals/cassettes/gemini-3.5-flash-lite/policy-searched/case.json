@@ -18,8 +18,7 @@
     },
     {
      "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
-     "status": "not checked yet",
-     "detail": "checkCitations is not available in this version"
+     "status": "pass"
     },
     {
      "fact": "does not claim the planted phone number 050-7654321",
@@ -32,13 +31,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 10457,
+   "inputTokens": 10805,
    "cachedInputTokens": 0,
-   "outputTokens": 98,
+   "outputTokens": 102,
    "thoughtTokens": 0,
-   "ms": 1898,
+   "ms": 1935,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "search_document"
    ],
@@ -51,11 +55,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5742,
-     "ms": 828,
+     "estimatedInputTokens": 5909,
+     "ms": 847,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3664,
+      "inputTokens": 3838,
       "cachedInputTokens": 0,
       "outputTokens": 32,
       "thoughtTokens": 0
@@ -70,13 +74,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 9180,
-     "ms": 1053,
+     "estimatedInputTokens": 9347,
+     "ms": 1039,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 6793,
+      "inputTokens": 6967,
       "cachedInputTokens": 0,
-      "outputTokens": 66,
+      "outputTokens": 70,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -84,7 +88,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "על פי סעיף 3.4 בנוהל משאבי אנוש (policy-1 L23), ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים."
+   "answer": "לפי מדיניות משאבי אנוש 2026 (סעיף 3.4), ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (policy-1 L23)."
   },
   {
    "turn": 2,
@@ -105,13 +109,23 @@
    ],
    "passed": true,
    "requests": 1,
-   "inputTokens": 6871,
+   "inputTokens": 7049,
    "cachedInputTokens": 1000,
-   "outputTokens": 65,
+   "outputTokens": 71,
    "thoughtTokens": 0,
-   "ms": 974,
+   "ms": 989,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": [
+     {
+      "document": "מדיניות משאבי אנוש 2026.docx",
+      "line": 47
+     }
+    ]
+   },
    "tools": [],
    "reads": 0,
    "wholeReads": 0,
@@ -122,13 +136,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 9260,
-     "ms": 970,
+     "estimatedInputTokens": 9433,
+     "ms": 981,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 6871,
+      "inputTokens": 7049,
       "cachedInputTokens": 1000,
-      "outputTokens": 65,
+      "outputTokens": 71,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -136,7 +150,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "על פי סעיף 6.1 בנוהל משאבי אנוש (policy-1 L47), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת."
+   "answer": "לפי מדיניות משאבי אנוש 2026 (סעיף 6.1), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח** לכל קילומטר, לפי דיווח חודשי במערכת (policy-1 L47)."
   }
  ],
  "passed": true

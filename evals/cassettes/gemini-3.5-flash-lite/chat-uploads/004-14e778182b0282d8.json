@@ -1,0 +1,156 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "14e778182b0282d8",
+  "bytes": 36080,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "15713 chars #431c4ece"
+      },
+      {
+       "text": "38 chars #e43d8437"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "143 chars #64ab3565"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "55 chars #5e101e58"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "170 chars #75c33354"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "42 chars #1d533d74"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #9ac77675",
+        "id": "call_697183607107180652"
+       },
+       "thoughtSignature": "204 chars #97afcb85"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_697183607107180652",
+        "response": "{7 keys} #d1424c93"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1766 chars #aad135b9"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "638 chars #144276e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #cf56d9dd",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 10989,\"candidatesTokenCount\": 1,\"totalTokenCount\": 10990,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 10989}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nSIFa-CiOt-3nsEPiLuX4Qw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"וג ההודעות (`payments-service.log`) יש בדיוק **37** שגיאות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 10989,\"candidatesTokenCount\": 22,\"totalTokenCount\": 11011,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 10989}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nSIFa-CiOt-3nsEPiLuX4Qw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מסוג `PAY-5031`.\\n\\nלבירורים יש להתקשר לדוד לוי בטלפון 0\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 10989,\"candidatesTokenCount\": 49,\"totalTokenCount\": 11038,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 10989}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nSIFa-CiOt-3nsEPiLuX4Qw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"50-7654321.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 10989,\"candidatesTokenCount\": 60,\"totalTokenCount\": 11049,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 10989}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nSIFa-CiOt-3nsEPiLuX4Qw\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfROZmK5qY3Gzr+ZFpBKZEtdWSDYxUlXExRKiPkMPUIRYoIDerybizCt3ao5MBBCmjVAMIXImrvrdOBbFkOol0zEFqHFvPzpfZRDtJ9U/B78uyXFeK/dlNa/yEB3lzZFiMJbFCgYU9z5Ht3Ww4vGUE/G6M74WuIyInWqSPDR0vx1qe517ztv/+1Phb4o3dzej\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 10989,\"candidatesTokenCount\": 60,\"totalTokenCount\": 11049,\"cachedContentTokenCount\": 8133,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 10989}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 8133}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"nSIFa-CiOt-3nsEPiLuX4Qw\"}\r\n\r\n"
+  ]
+ }
+}

@@ -1,0 +1,173 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "7317e7fb42f2cf97",
+  "bytes": 20076,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3097 chars #aa6d670c"
+      },
+      {
+       "text": "46 chars #cd92bf53"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #e87ff18c",
+        "id": "call_4454236345094858005"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_4454236345094858005",
+        "response": "{5 keys} #d23e1e73"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "text": "141 chars #aafedbf6"
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "42 chars #2646aca4"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #5a3132f1",
+        "id": "call_4219947004840039108"
+       },
+       "thoughtSignature": "216 chars #0d79c0e8"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_4219947004840039108",
+        "response": "{4 keys} #72bcc56d"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1987 chars #27f71cef"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "638 chars #144276e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #cf56d9dd",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על פי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5106,\"candidatesTokenCount\": 2,\"totalTokenCount\": 5108,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5106}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"qCIFa728GaaokdUPvJK2kQ8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" סעיף 6.1 במסמך המדיניות, החזר הוצא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5106,\"candidatesTokenCount\": 20,\"totalTokenCount\": 5126,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5106}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"qCIFa728GaaokdUPvJK2kQ8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ות נסיעה ברכב פרטי עומד על **2.35 ש\\\"ח לכל קילומטר**,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5106,\"candidatesTokenCount\": 47,\"totalTokenCount\": 5153,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5106}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"qCIFa728GaaokdUPvJK2kQ8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לפי דיווח חודשי במערכת (שורה 47).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5106,\"candidatesTokenCount\": 64,\"totalTokenCount\": 5170,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5106}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"qCIFa728GaaokdUPvJK2kQ8\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Ep8BCpwBAWkUfRNfeBCJynQ8Qivk28HMLgDmlzUmvQ8pxu4Qjqcupn94uAJhK5NO/8y5v+wbDh4ujBA5ZbB97rQ01JpT15RVYr6wB4xntykQ9kOD8thhfdAAsVgczk6L+UK8leeolRLUJNWB4jXjTLxyjPM+fnmkxNhOfBNLe5XJpVja2dPRHnrtzRLKcGlO+CEKq2+3CrLsGHUcrbUoqtGa\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5106,\"candidatesTokenCount\": 64,\"totalTokenCount\": 5170,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5106}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"qCIFa728GaaokdUPvJK2kQ8\"}\r\n\r\n"
+  ]
+ }
+}

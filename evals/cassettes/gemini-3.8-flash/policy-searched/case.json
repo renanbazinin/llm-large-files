@@ -18,8 +18,7 @@
     },
     {
      "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
-     "status": "not checked yet",
-     "detail": "checkCitations is not available in this version"
+     "status": "pass"
     },
     {
      "fact": "does not claim the planted phone number 050-7654321",
@@ -32,13 +31,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 8023,
-   "cachedInputTokens": 2311,
-   "outputTokens": 274,
-   "thoughtTokens": 177,
-   "ms": 5413,
+   "inputTokens": 8170,
+   "cachedInputTokens": 1811,
+   "outputTokens": 230,
+   "thoughtTokens": 126,
+   "ms": 5790,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "read_document"
    ],
@@ -51,14 +55,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5742,
-     "ms": 2880,
+     "estimatedInputTokens": 5909,
+     "ms": 3244,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3664,
+      "inputTokens": 3838,
       "cachedInputTokens": 0,
-      "outputTokens": 154,
-      "thoughtTokens": 120
+      "outputTokens": 153,
+      "thoughtTokens": 119
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -70,21 +74,21 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 6362,
-     "ms": 2530,
+     "estimatedInputTokens": 6319,
+     "ms": 2541,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4359,
-      "cachedInputTokens": 2311,
-      "outputTokens": 120,
-      "thoughtTokens": 57
+      "inputTokens": 4332,
+      "cachedInputTokens": 1811,
+      "outputTokens": 77,
+      "thoughtTokens": 7
      },
      "finish": "complete",
      "finishReason": "STOP",
      "toolCalls": 0
     }
    ],
-   "answer": "לפי סעיף 3.4 במסמך המדיניות, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו (ימים מעבר לכך אינם נצברים ואינם נפדים) (שורה 23)."
+   "answer": "על פי סעיף 3.4 במסמך המדיניות, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (סעיף 3.4, שורה 23)."
   },
   {
    "turn": 2,
@@ -105,13 +109,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 10236,
-   "cachedInputTokens": 4060,
+   "inputTokens": 9401,
+   "cachedInputTokens": 1810,
    "outputTokens": 92,
    "thoughtTokens": 0,
-   "ms": 4377,
+   "ms": 3839,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "search_document"
    ],
@@ -124,12 +133,12 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 6439,
-     "ms": 2064,
+     "estimatedInputTokens": 6403,
+     "ms": 1772,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4314,
-      "cachedInputTokens": 1639,
+      "inputTokens": 4295,
+      "cachedInputTokens": 1810,
       "outputTokens": 28,
       "thoughtTokens": 0
      },
@@ -143,12 +152,12 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 8195,
-     "ms": 2308,
+     "estimatedInputTokens": 7292,
+     "ms": 2060,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 5922,
-      "cachedInputTokens": 2421,
+      "inputTokens": 5106,
+      "cachedInputTokens": 0,
       "outputTokens": 64,
       "thoughtTokens": 0
      },
@@ -157,7 +166,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "לפי סעיף 6.1 במסמך המדיניות, החזר הוצאות נסיעה ברכב פרטי עומד על **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת (שורה 47)."
+   "answer": "על פי סעיף 6.1 במסמך המדיניות, החזר הוצאות נסיעה ברכב פרטי עומד על **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת (שורה 47)."
   }
  ],
  "passed": true

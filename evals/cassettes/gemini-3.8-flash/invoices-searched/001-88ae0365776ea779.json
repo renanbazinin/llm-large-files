@@ -1,0 +1,103 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "88ae0365776ea779",
+  "bytes": 11307,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "1477 chars #8882f103"
+      },
+      {
+       "text": "54 chars #b23fe5d4"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1973 chars #64f24237"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "638 chars #144276e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #cf56d9dd",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"aggregate_table\",\"args\": {\"document_id\": \"invoices-1\",\"metrics\": [\"count\",\"sum:סכום\"],\"filters\": [{\"op\": \"=\",\"column\": \"סטטוס\",\"value\": \"באיחור\"}]},\"id\": \"call_13762014031050188360\"},\"thoughtSignature\": \"EqQECqEEAWkUfRNnV4IzuFnPhKU/XU5Hdpl3n+QS4cgfem2exuEQS3e7X0TMbFJP5bOz9wKMZ3mZp05XHvypzJPM8Z19JyvetYguGvWEyfH49MzelPm3eARySrnD6od7/7rNZbAO5GcPtNvNYbSjOHNmfgSFbK3q4y/k7drAkxyVj1pGlJkNDREw/MECJ+zazOSDgsg9Lwt3uya4k2sgO/7sTDM3ucecnuRAUiE6Dza7hmjuF1dQ2vLu/GMPOE3he1XiN1SmPpQy8Wolbym2AOFSVRhBktQzdp8dcTi1q11qkpwr14aBlOKSKWFe1UzObKxGJU6V9ZdkzbXIXcMt22l4gX5CnWJ6MmdRCm8qzXFBCuwuW/Y/W67xZ4l2ZQbg8BAzlk/bZg8MnOhKiBeoxTFPAnsP1B6MBizAdEKqoM4w0HlVE4LqxEjiiMs7TNPP4cyPzFlsruAq/ixKgfyHZoOsggevUX+/2nOnmWIVRzDhcpueEpn7Tf+CZsryr4E3qm87z3oIJ1WiBV3ZbWEQz2ijpAlHnqje6U1lRH29seVbnizj3XrXi3qJmWf6FO0XoDECeqYt5dmzJg9cWH5tBZh4+TdEzlge9+CeJBQk7CDFxT9sEjINd9kV9msQHeW8dUGlUrSM5+PNwNgAzjRDJQdq3l0Lus2hT4mDd",
+   "c8oSOHFBG4kUnGVyCM97XvObVZfwNuWIESNADDLmTX20HUVrtt66/bQesM=\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3520,\"candidatesTokenCount\": 61,\"totalTokenCount\": 3677,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3520}],\"thoughtsTokenCount\": 96,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"oCIFa_GvM_SovdIPwbib0Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3520,\"candidatesTokenCount\": 61,\"totalTokenCount\": 3677,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3520}],\"thoughtsTokenCount\": 96,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"oCIFa_GvM_SovdIPwbib0Ag\"}\r\n\r\n"
+  ]
+ }
+}

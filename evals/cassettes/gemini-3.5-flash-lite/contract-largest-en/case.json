@@ -4,8 +4,7 @@
  "language": "en",
  "kinds": [
   "lookup",
-  "searched",
-  "whole-read"
+  "searched"
  ],
  "questions": [
   {
@@ -22,28 +21,32 @@
     }
    ],
    "passed": true,
-   "requests": 12,
-   "inputTokens": 278830,
-   "cachedInputTokens": 193695,
-   "outputTokens": 506,
+   "requests": 11,
+   "inputTokens": 122393,
+   "cachedInputTokens": 83171,
+   "outputTokens": 494,
    "thoughtTokens": 0,
-   "ms": 10172,
+   "ms": 7585,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "search_document",
     "search_document",
+    "get_document_overview",
     "search_document",
     "search_document",
     "search_document",
     "search_document",
     "search_document",
     "search_document",
-    "search_document",
-    "read_document",
     "read_document"
    ],
-   "reads": 2,
+   "reads": 1,
    "wholeReads": 0,
    "log": [
     {
@@ -52,11 +55,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5367,
-     "ms": 489,
+     "estimatedInputTokens": 5534,
+     "ms": 530,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3441,
+      "inputTokens": 3615,
       "cachedInputTokens": 0,
       "outputTokens": 27,
       "thoughtTokens": 0
@@ -71,13 +74,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 9908,
-     "ms": 667,
+     "estimatedInputTokens": 10075,
+     "ms": 602,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 7993,
+      "inputTokens": 8167,
       "cachedInputTokens": 0,
-      "outputTokens": 28,
+      "outputTokens": 33,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -90,13 +93,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 3,
-     "estimatedInputTokens": 14448,
-     "ms": 623,
+     "estimatedInputTokens": 10205,
+     "ms": 846,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 12545,
-      "cachedInputTokens": 6106,
-      "outputTokens": 31,
+      "inputTokens": 8299,
+      "cachedInputTokens": 6087,
+      "outputTokens": 22,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -109,13 +112,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 4,
-     "estimatedInputTokens": 18950,
-     "ms": 841,
+     "estimatedInputTokens": 12363,
+     "ms": 664,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 17069,
-      "cachedInputTokens": 12225,
-      "outputTokens": 32,
+      "inputTokens": 10467,
+      "cachedInputTokens": 8124,
+      "outputTokens": 43,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -128,13 +131,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 5,
-     "estimatedInputTokens": 23494,
-     "ms": 915,
+     "estimatedInputTokens": 13079,
+     "ms": 618,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 21625,
-      "cachedInputTokens": 16310,
-      "outputTokens": 44,
+      "inputTokens": 11183,
+      "cachedInputTokens": 8121,
+      "outputTokens": 48,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -147,13 +150,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 6,
-     "estimatedInputTokens": 25130,
-     "ms": 1293,
+     "estimatedInputTokens": 13294,
+     "ms": 776,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 23261,
-      "cachedInputTokens": 20386,
-      "outputTokens": 27,
+      "inputTokens": 11412,
+      "cachedInputTokens": 8115,
+      "outputTokens": 50,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -166,13 +169,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 7,
-     "estimatedInputTokens": 29669,
-     "ms": 811,
+     "estimatedInputTokens": 13576,
+     "ms": 660,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 27812,
-      "cachedInputTokens": 22433,
-      "outputTokens": 31,
+      "inputTokens": 11709,
+      "cachedInputTokens": 8110,
+      "outputTokens": 50,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -185,13 +188,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 8,
-     "estimatedInputTokens": 34171,
-     "ms": 708,
+     "estimatedInputTokens": 14350,
+     "ms": 721,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 32336,
-      "cachedInputTokens": 26519,
-      "outputTokens": 51,
+      "inputTokens": 12526,
+      "cachedInputTokens": 10137,
+      "outputTokens": 45,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -204,13 +207,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 9,
-     "estimatedInputTokens": 34255,
-     "ms": 683,
+     "estimatedInputTokens": 15761,
+     "ms": 601,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 32429,
-      "cachedInputTokens": 28551,
-      "outputTokens": 50,
+      "inputTokens": 14043,
+      "cachedInputTokens": 10141,
+      "outputTokens": 61,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -223,12 +226,12 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 10,
-     "estimatedInputTokens": 35385,
-     "ms": 1024,
+     "estimatedInputTokens": 16869,
+     "ms": 613,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 33608,
-      "cachedInputTokens": 30586,
+      "inputTokens": 15215,
+      "cachedInputTokens": 12170,
       "outputTokens": 36,
       "thoughtTokens": 0
      },
@@ -242,32 +245,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 11,
-     "estimatedInputTokens": 35836,
-     "ms": 858,
+     "estimatedInputTokens": 17415,
+     "ms": 906,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 34061,
-      "cachedInputTokens": 30579,
-      "outputTokens": 36,
-      "thoughtTokens": 0
-     },
-     "finish": "complete",
-     "finishReason": "STOP",
-     "toolCalls": 1
-    },
-    {
-     "requestId": "req_12",
-     "role": "answer",
-     "purpose": "closing",
-     "model": "gemini-3.5-flash-lite",
-     "turn": 12,
-     "estimatedInputTokens": 36192,
-     "ms": 1243,
-     "outcome": "ok",
-     "usage": {
-      "inputTokens": 32650,
-      "cachedInputTokens": 0,
-      "outputTokens": 113,
+      "inputTokens": 15757,
+      "cachedInputTokens": 12166,
+      "outputTokens": 79,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -275,7 +259,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "Based on the contract, the largest fine is **48,000 NIS**, which is specified for a breach involving customer data leaks (contract-1 L150). \n\nIt is located in **Clause 148** (contract-1 L150):\n> \"בגין דליפת מידע של לקוחות המזמין באחריות הספק ישלם הספק למזמין קנס בסך 48,000 ש\"ח, בנוסף לכל סעד אחר.\""
+   "answer": "הקנס הגבוה ביותר בחוזה הוא בסך **48,000 ש\"ח** (בנוסף לכל סעד אחר), והוא מופיע ב**סעיף 148** (contract-1 L150), שעניינו דליפת מידע של לקוחות המזמין באחריות הספק."
   }
  ],
  "passed": true

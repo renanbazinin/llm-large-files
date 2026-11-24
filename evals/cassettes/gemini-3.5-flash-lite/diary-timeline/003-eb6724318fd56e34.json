@@ -1,0 +1,74 @@
+{
+ "n": 3,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "eb6724318fd56e34",
+  "bytes": 32068,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19847 chars #fa8e2c8d"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- **יום ראשון, 11 באוקטובר 2026** (L462-466):\n  - **אירוע חריג (תקלה בנתב הליבה):**\n    - **מתי התחיל:** 11 באוקטובר 2026, בשעה 14:05 (L462): \"לקוחות מדווחים שאתר ההזמנות אינו נטען. צוות הרשת מצא שנתב הליבה הראשי נתקע.\"\n    - **מה קרה בביניים:** בשעה 14:30 נעשה ניסיון לאתחל את נתב הליבה, אך הוא לא עזר (L464).\n    - **מתי הסתיים:** 11 באוקטובר 2026, בשעה 15:20 (L466): \"נתב הליבה הוחלף בנתב הגיבוי, ואתר ההזמנות זמין שוב.\"",
+        "thoughtSignature": "EpYBCpMBAWkUfRO2GsHHfnn26MSoBqj4QVJ9UVCuwzGHO8UYzQAGQ5rOi75rAcRkcD/1a1K07Mgwl5MoTHixgFc+Up4N0MDTx70OqXYjMUoU2KeVLK+80qEM5Npw2WDH1nrGHCrjQicHr25EBaZ01/6McmiUr4P0nBWN92QEScrt1OVzqg0Tyv6DfD6GAF3iW7BKd5EDijP9"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12145,
+    "candidatesTokenCount": 238,
+    "totalTokenCount": 12383,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12145
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "mCIFa9K8BsG_vdIPyNytwAk"
+  }
+ }
+}

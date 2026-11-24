@@ -1,0 +1,74 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "02ee4bd3708884ab",
+  "bytes": 32083,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19828 chars #211d8c87"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- **שבוע 1 (1–8 בנובמבר 2026, חלק ראשון):**\n  - **1 בנובמבר:** פעילות שוטפת (בדיקת מצלמות, ניקיון מסננים, בדיקת חשמל, גנרטור, בדיקת טמפרטורה בחדר השרתים ב-20 מעלות וכו').\n  - **2 בנובמבר:** פעילות שוטפת.\n  - **3 בנובמבר:** פעילות שוטפת.\n  - **4 בנובמבר:** פעילות שוטפת.\n  - **5 בנובמבר (אירוע חריג):**\n    - התחלה: 01:50, משמרת לילה: \"מערכת הניטור התריעה שאחד מספקי הכוח בארון 12 כבה, והשרתים בארון עברו לספק הגיבוי\" (L181).\n    - סיום: 09:30, משמרת בוקר: \"טכנאי היצרן החליף את ספק הכוח בארון 12, והבדיקות עברו\" (L194).\n  - **6 בנובמבר:** פעילות שוטפת.\n  - **7 בנובמבר:** פעילות שוטפת.\n  - **8 בנובמבר (עד 10:12):** פעילות שוטפת כמפורט עד שורה 325.",
+        "thoughtSignature": "EpYBCpMBAWkUfRMtbjMRrS+CADR3IFEIoOGfDsNet0qrGorlTxVYrq7ajr0gJ+2q0Ae097c4oRUTEKq4waa6hLrjMQUGa9IGvwhPBda3SxmcvnNdUVzy5U5C/OwtfXHho/7nDwZGzd8rsepfa5/hQgA/wdsF24g/9H4iOpGVdWdtMNSp69Ms8NYt3JPzrJJk766XEhLWT11w"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12076,
+    "candidatesTokenCount": 332,
+    "totalTokenCount": 12408,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12076
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "QCQFa8kOhaHdug-X04noCw"
+  }
+ }
+}

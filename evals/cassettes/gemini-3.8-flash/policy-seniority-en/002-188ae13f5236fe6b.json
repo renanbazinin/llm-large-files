@@ -1,0 +1,133 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "188ae13f5236fe6b",
+  "bytes": 20864,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3097 chars #aa6d670c"
+      },
+      {
+       "text": "70 chars #8eaab04c"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #aa936232",
+        "id": "25 chars #b06e7c61"
+       },
+       "thoughtSignature": "712 chars #b3af7cf4"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "25 chars #b06e7c61",
+        "response": "{6 keys} #b690f245"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1987 chars #27f71cef"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "638 chars #144276e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #cf56d9dd",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לפי מדיניות החברה (סעיף 3.5),\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5309,\"candidatesTokenCount\": 15,\"totalTokenCount\": 5557,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5309}],\"thoughtsTokenCount\": 233,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"oyIFa-vqO96N28oP_M2umQY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" עובד בעל ותק של 8 שנים ומעלה זכאי ל-**24 ימי חופ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5309,\"candidatesTokenCount\": 41,\"totalTokenCount\": 5583,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5309}],\"thoughtsTokenCount\": 233,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"oyIFa-vqO96N28oP_M2umQY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שה** בשנה.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5309,\"candidatesTokenCount\": 46,\"totalTokenCount\": 5588,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5309}],\"thoughtsTokenCount\": 233,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"oyIFa-vqO96N28oP_M2umQY\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EowICokIAWkUfRPz6/hNbrTJY6nQSXOvLGgOP0Oe7tu6Od9po0nk0OhqpGMMUVDNNNvteOkmmBlvwJc+SuFxB72RzDCO4mTiEhB8BmHh7t6vTYUkkcCOsYBQ1jOGCfSSa9jxd9KTKkcemwc19NbdyuRGhIpZHLioZ7e4Q2fUPNHSvxagTTn6+ms2vFLf4Q1TnnNOyFTvBc4vHLbMbPIU4uJdQKgeXRDD+NnVc6rxOLpttdlSezjkGdJH1tjFvr2Kh9Y6dFw8Qlp/GxGc6qOiVNlWSvxSZ/SzbQClDGyQyc6UeC+atamNS7/HThvUo3msXvAD306sXV1Fq2lrNd0kAIMtlq1oAKC+mV1WIMWTcugTTUsZ8Ib6lGA5kviKMz35tslM21ouBCj1YOLwm4tJVKThhxQT9o+guh1hx5FB/ah95Sc9KQKdfjGK/uqj1pDbmlyoo06oRcxGwqQMjEDzOELoYOnOzem1cErzJEo/aFJRbAXh5yN0xLQvPy4CrMWKJ0wM2wdoqXvaqGWoiNKdBG28NqHN/55CGqP0qdXOUM7/KPIRcFOD8YPHpoJmIFvB9CRIhaXPLeixo/qQHqeVQe2iyMOXnDTD22Fa2N9CK/Hn2pj3C5gnIwk9Mq6u+dTE8+9UV4BFSkYfAq5H42krLQFOiUkYRsmbC25yuk8iJBvbO7mPYi8gUm0XzjphlWPzQG7byYB+4PpTNbAZ8hllgaRSDi1kl9m3rZt9yDPy73HIZE8+UA5zwd+kiAejrSW6uwuKDdYlqHyC0j1HxOmrGPx2Kre24JVfb5m6KPgrB8etZd8WSEZo/YfMeAXw6Nz6cIEuW1NRQ6NDdXN6/p458d5nvzqtbwOfybgjNA08kKQH/GkuWLMJopuEvykA8LDGqkPKdUWlcPUSV1n7FZMFsy7K0Bk3e/Apakp3RhrOm+33FY7apZQWHvL0+psK8oyiifL9IGHvxYIdm1rQ/9j1Cio0+iUv5wL/R+aodZExtuNTgmvUIioejnesE/v3IdmKPW13Iu6X8Tpa5ndUywcQyUJ16N/1ejvpm3xrYVKGokkF/YleX6ggOQ+IF68GDvnlNn822NXtyNrhuXdFUDh+GdpDSo0Y+5eIDqXcc132BtaFRplikns9N2TTHOhtSiGF6innec5XVnR/7cQi7o9A6EPaP2EKGj2Tdf4cPiraUSb57dbSJyABjf+Cac87d9hCG/83XIrbkVhJIKnz3DYuz/KROi5FphhYSzK/FaL6sifaEwzkDXJzrlf6eG283b8Nx1qqDKSnVexvmzc",
+   "bjT5+q921dcKf0zeDwrp6QbylUF9/6E014cwn1EqLvb1HJcYynfbqZu7xRvg/lYEAml6qwjzscK3CtjUfj7kYp0Crlw==\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 5404,\"candidatesTokenCount\": 46,\"totalTokenCount\": 5683,\"cachedContentTokenCount\": 1224,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5404}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 1224}],\"thoughtsTokenCount\": 233,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"oyIFa-vqO96N28oP_M2umQY\"}\r\n\r\n"
+  ]
+ }
+}

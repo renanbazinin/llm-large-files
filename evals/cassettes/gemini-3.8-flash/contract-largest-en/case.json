@@ -4,8 +4,7 @@
  "language": "en",
  "kinds": [
   "lookup",
-  "searched",
-  "whole-read"
+  "searched"
  ],
  "questions": [
   {
@@ -23,21 +22,26 @@
    ],
    "passed": true,
    "requests": 6,
-   "inputTokens": 37993,
-   "cachedInputTokens": 23642,
-   "outputTokens": 1515,
-   "thoughtTokens": 1231,
-   "ms": 22453,
+   "inputTokens": 38662,
+   "cachedInputTokens": 22008,
+   "outputTokens": 1542,
+   "thoughtTokens": 1261,
+   "ms": 26438,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 1,
+    "supported": 1,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "search_document",
     "search_document",
-    "read_document",
-    "read_document",
-    "search_document"
+    "search_document",
+    "search_document",
+    "read_document"
    ],
-   "reads": 2,
+   "reads": 1,
    "wholeReads": 0,
    "log": [
     {
@@ -46,14 +50,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 1,
-     "estimatedInputTokens": 5367,
-     "ms": 2364,
+     "estimatedInputTokens": 5534,
+     "ms": 2516,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3441,
-      "cachedInputTokens": 1419,
-      "outputTokens": 83,
-      "thoughtTokens": 50
+      "inputTokens": 3615,
+      "cachedInputTokens": 0,
+      "outputTokens": 106,
+      "thoughtTokens": 73
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -65,14 +69,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 2,
-     "estimatedInputTokens": 6756,
-     "ms": 2437,
+     "estimatedInputTokens": 6923,
+     "ms": 4937,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 4986,
-      "cachedInputTokens": 2310,
-      "outputTokens": 58,
-      "thoughtTokens": 17
+      "inputTokens": 5183,
+      "cachedInputTokens": 2483,
+      "outputTokens": 69,
+      "thoughtTokens": 28
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -84,14 +88,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 3,
-     "estimatedInputTokens": 7911,
-     "ms": 8367,
+     "estimatedInputTokens": 8078,
+     "ms": 4764,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 6224,
-      "cachedInputTokens": 3543,
-      "outputTokens": 969,
-      "thoughtTokens": 933
+      "inputTokens": 6432,
+      "cachedInputTokens": 3739,
+      "outputTokens": 139,
+      "thoughtTokens": 105
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -103,14 +107,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 4,
-     "estimatedInputTokens": 8270,
-     "ms": 2380,
+     "estimatedInputTokens": 8154,
+     "ms": 3224,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 7513,
-      "cachedInputTokens": 5058,
-      "outputTokens": 67,
-      "thoughtTokens": 31
+      "inputTokens": 6620,
+      "cachedInputTokens": 4401,
+      "outputTokens": 60,
+      "thoughtTokens": 27
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -122,14 +126,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 5,
-     "estimatedInputTokens": 8586,
-     "ms": 2991,
+     "estimatedInputTokens": 9554,
+     "ms": 3040,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 7862,
-      "cachedInputTokens": 5482,
-      "outputTokens": 56,
-      "thoughtTokens": 22
+      "inputTokens": 8152,
+      "cachedInputTokens": 5262,
+      "outputTokens": 151,
+      "thoughtTokens": 115
      },
      "finish": "complete",
      "finishReason": "STOP",
@@ -141,14 +145,14 @@
      "purpose": "turn",
      "model": "gemini-3.8-flash",
      "turn": 6,
-     "estimatedInputTokens": 8662,
-     "ms": 3909,
+     "estimatedInputTokens": 9950,
+     "ms": 7946,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 7967,
-      "cachedInputTokens": 5830,
-      "outputTokens": 282,
-      "thoughtTokens": 178
+      "inputTokens": 8660,
+      "cachedInputTokens": 6123,
+      "outputTokens": 1017,
+      "thoughtTokens": 913
      },
      "finish": "complete",
      "finishReason": "STOP",

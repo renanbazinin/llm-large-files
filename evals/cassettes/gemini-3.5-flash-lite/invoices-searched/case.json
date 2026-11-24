@@ -26,13 +26,18 @@
    ],
    "passed": true,
    "requests": 2,
-   "inputTokens": 6876,
+   "inputTokens": 7224,
    "cachedInputTokens": 0,
-   "outputTokens": 145,
+   "outputTokens": 105,
    "thoughtTokens": 0,
-   "ms": 1280,
+   "ms": 1660,
    "ceilingReached": false,
-   "citations": null,
+   "citations": {
+    "checked": 0,
+    "supported": 0,
+    "unchecked": 0,
+    "unsupported": []
+   },
    "tools": [
     "aggregate_table"
    ],
@@ -45,11 +50,11 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 1,
-     "estimatedInputTokens": 5307,
-     "ms": 529,
+     "estimatedInputTokens": 5474,
+     "ms": 788,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3346,
+      "inputTokens": 3520,
       "cachedInputTokens": 0,
       "outputTokens": 61,
       "thoughtTokens": 0
@@ -64,13 +69,13 @@
      "purpose": "turn",
      "model": "gemini-3.5-flash-lite",
      "turn": 2,
-     "estimatedInputTokens": 5464,
-     "ms": 686,
+     "estimatedInputTokens": 5631,
+     "ms": 794,
      "outcome": "ok",
      "usage": {
-      "inputTokens": 3530,
+      "inputTokens": 3704,
       "cachedInputTokens": 0,
-      "outputTokens": 84,
+      "outputTokens": 44,
       "thoughtTokens": 0
      },
      "finish": "complete",
@@ -78,7 +83,7 @@
      "toolCalls": 0
     }
    ],
-   "answer": "בטבלת החשבוניות נמצאו:\n\n* **מספר החשבוניות בסטטוס 'באיחור':** 750 חשבוניות.\n* **הסכום הכולל שלהן:** 18,714,659.5 (מתוך שורות הנתונים בקובץ `חשבוניות.csv`)."
+   "answer": "ישנם **750** חשבוניות בסטטוס 'באיחור', והסכום הכולל שלהן הוא **18,714,659.5**."
   }
  ],
  "passed": true

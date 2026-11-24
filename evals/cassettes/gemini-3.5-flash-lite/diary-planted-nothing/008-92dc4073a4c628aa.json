@@ -1,0 +1,186 @@
+{
+ "n": 8,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "92dc4073a4c628aa",
+  "bytes": 21345,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2940 chars #b374ba51"
+      },
+      {
+       "text": "154 chars #6f523d6a"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "analyze_whole_document",
+        "args": "{3 keys} #293e54ce",
+        "id": "call_1895896416611152042"
+       },
+       "thoughtSignature": "204 chars #affbd768"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "analyze_whole_document",
+        "id": "call_1895896416611152042",
+        "response": "{7 keys} #8f42d670"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1984 chars #f3fbce98"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "638 chars #144276e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #cf56d9dd",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1,\"totalTokenCount\": 6320,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי יומן המשמרות של נובמבר 2026 (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 17,\"totalTokenCount\": 6336,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"`diary-2`), להלן ציר הזמן החודשי, שבוע אחר שבוע (הערה: חלק מהנתונים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 47,\"totalTokenCount\": 6366,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" והתיאורים במסמך חלקיים ומוצגים בתקציר עקב מגבלת הי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 72,\"totalTokenCount\": 6391,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קף):\\n\\n---\\n\\n### שבוע 1 (1–7 בנובמבר 2026)\\n* **1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 100,\"totalTokenCount\": 6419,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"–4 בנובמבר:** פעילות שוטפת ויומיומית הכוללת בדיקות מצלמות אבטחה,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 129,\"totalTokenCount\": 6448,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ניקוי מסנני אוויר במזגנים, רישום משלוחי דיסקים,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 153,\"totalTokenCount\": 6472,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" עדכוני כבילה בארונות תקשורת, בדיקת עומסים בלוחות חשמל, ניקיון ח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 181,\"totalTokenCount\": 6500,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"דר הציוד, הודעות למשתמשים על חלונות תחזוקה, בדיקות מלאי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 205,\"totalTokenCount\": 6524,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" סולר לגנרטורים (כ-84%), בדיקת טמפרטורה יציבה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 229,\"totalTokenCount\": 6548,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בחדר השרתים (20 מעלות), בדיקות מערכת כיבוי אש בגז\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 253,\"totalTokenCount\": 6572,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \", בדיקות גנרטור שבועיות, החלפת קלטות גיבוי והעברתן\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 277,\"totalTokenCount\": 6596,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לכספת, עדכוני תוכנה לשרתי דואר ותחזוקת מזגנים.\\n* **5\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 305,\"totalTokenCount\": 6624,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בנובמבר (אירוע חריג בארון 12):**\\n  * **התחלה:** 01\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 334,\"totalTokenCount\": 6653,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \":50 (משמרת לילה) – מערכת הניטור התריעה כי אחד מספקי הכ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 358,\"totalTokenCount\": 6677,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"וח בארון 12 כבה, והשרתים בארון עברו באופן אוטומטי לספק הגיבוי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 386,\"totalTokenCount\": 6705,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (L181).\\n  * **סיום:** 09:30 (משמרת בוקר) – ט\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 415,\"totalTokenCount\": 6734,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"כנאי היצרן הגיע, החליף את ספק הכוח החידתי בארון 12,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 442,\"totalTokenCount\": 6761,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" והבדיקות עברו בהצלחה (L194).\\n* **6–7 בנובמבר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 466,\"totalTokenCount\": 6785,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \":** המשך שגרת משמרות רגילה (בדיקות ציוד, טמפרטורות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 490,\"totalTokenCount\": 6809,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \", מזגנים, חשמל וגנרטורים).\\n\\n---\\n\\n### שבוע 2 (8\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 514,\"totalTokenCount\": 6833,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"–14 בנובמבר 2026)\\n* **8–10 בנובמבר:** ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 538,\"totalTokenCount\": 6857,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גרת פעילות מרובה וקבועה (בדיקות מצלמות, ניקיון מסנ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 562,\"totalTokenCount\": 6881,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"נים, קבלת דיסקים, עדכוני כבילה, מעקב אחרי עומסי חשמל, בדיקת ס\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 590,\"totalTokenCount\": 6909,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ולר לגנרטור שנע בין 74% ל-94%, שמירה על טמפרטורה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 616,\"totalTokenCount\": 6935,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" של 20 מעלות, תחזוקת מזגנים והחלפת קלטות גיבוי)\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 640,\"totalTokenCount\": 6959,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (L326–L433).\\n* *הערה:* הרישומים במהלך ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 664,\"totalTokenCount\": 6983,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בוע זה נחתכים לעיתים באמצע הימים (לדוגמה, ב-10 בנובמבר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 688,\"totalTokenCount\": 7007,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" הרישום מסתיים בשעה 21:00).\\n\\n---\\n\\n### שבוע 3 (1\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 713,\"totalTokenCount\": 7032,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"5–21 בנובמבר 2026)\\n* **15–16 בנובמבר:** ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 739,\"totalTokenCount\": 7058,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גרת בדיקות ופעילות שוטפת במרכז הנתונים.\\n* **17 בנובמבר (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 765,\"totalTokenCount\": 7084,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"אירוע חריג בחדר ה-UPS):**\\n  * **התחלה:** 03:\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 792,\"totalTokenCount\": 7111,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"20 (משמרת לילה) – התקבלה התראת חום בחדר ה-UPS עקב הפ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 819,\"totalTokenCount\": 7138,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"סקת פעילות של מזגן 3. הטמפרטורה בחדר טיפסה ל-34 מע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 845,\"totalTokenCount\": 7164,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לות (L702).\\n  * **טיפול:** 03:45 (משמרת לילה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 871,\"totalTokenCount\": 7190,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \") – הופעל מזגן נייד בחדר ה-UPS על מנת לבלום את על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 895,\"totalTokenCount\": 7214,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"יית החום, והטמפרטורה החלה לרדת (L704).\\n  * **ס\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 920,\"totalTokenCount\": 7239,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"יום:** 11:15 (משמרת בוקר) – טכנאי המיזוג סיים את תי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 949,\"totalTokenCount\": 7268,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קון מזגן 3, המזגן הראשי חזר לפעול והמזגן הני\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 973,\"totalTokenCount\": 7292,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"יד פונה (L717).\\n* **18–21 בנובמבר:** חזרה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 997,\"totalTokenCount\": 7316,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לשגרת משמרות תקינה.\\n\\n---\\n\\n### שבוע 4 (22–28 בנובמבר \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1025,\"totalTokenCount\": 7344,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"2026)\\n* **22–25 בנובמבר:** סבבי בדיקות, ניקי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1050,\"totalTokenCount\": 7369,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ון, בדיקת מצלמות, ניטור טמפרטורה, ועדכוני תוכנה ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1074,\"totalTokenCount\": 7393,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גרתיים.\\n* **26 בנובמבר (אירוע חריג – תעודת א\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1098,\"totalTokenCount\": 7417,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בטחה פגה):**\\n  * **התחלה:** 20:10 – ת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1122,\"totalTokenCount\": 7441,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"עודת האבטחה של פורטל הלקוחות פגה, ולקוחות שגשו למערכת החלו לק\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1150,\"totalTokenCount\": 7469,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בל אזהרת אבטחה בדפדפן (L1120).\\n  * **סיום:**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1176,\"totalTokenCount\": 7495,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 21:05 – הותקנה תעודת האבטחה החדשה ואזהרות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1200,\"totalTokenCount\": 7519,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" הדפדפן נעלמו (L1123).\\n* **27–28 בנובמבר:** פעילות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1228,\"totalTokenCount\": 7547,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" שגרתית ללא אירועים חריגים נוספים.\\n\\n---\\n\\n### שבוע 5 (2\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1253,\"totalTokenCount\": 7572,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"9–30 בנובמבר 2026)\\n* **29–30 בנובמבר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1277,\"totalTokenCount\": 7596,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (והמשך רצף השורות עד לסוף הקובץ):** שגרת משמרות מלא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1302,\"totalTokenCount\": 7621,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ה הכוללת עדכוני שרתי דואר, בדיקות גנרטור, ניקיון מסננים, בדי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1330,\"totalTokenCount\": 7649,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קות מצלמות, מעקב סולר, בדיקת לחץ במערכת כיבוי אש ות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1354,\"totalTokenCount\": 7673,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חזוקת מזגנים וארונות תקשורת (L1215–L1299).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1380,\"totalTokenCount\": 7699,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n\\n*(הערה: חלק מהפרטים המלאים והרצפים המדויקים עשויים להיות ח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1407,\"totalTokenCount\": 7726,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לקיים עקב אורכו של הקובץ ומגבלת היקף הפלט).*\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1428,\"totalTokenCount\": 7747,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRNhaWXWx7sh1JPCG6LCs/HCWeoboPz2C/UeSQ/JG8N0wYjh5BOtHVQRj6pgRS5cbtZMVfCGsTSF/XKMLRxJmcK4vddmAE9FjPk8gCYHClPD33Hi7I+iw65FWPgq4ffM6eDka0wHHiSEQSs+4GrAMf4Syy7X1tTzIPeHFXzKC3Pzr3LqNaGpd/rg02nztGd1\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6319,\"candidatesTokenCount\": 1428,\"totalTokenCount\": 7747,\"cachedContentTokenCount\": 4053,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6319}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4053}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"TiQFa-_FAvSovdIPwrqb2Ag\"}\r\n\r\n"
+  ]
+ }
+}

@@ -1,0 +1,135 @@
+{
+ "case": "cleaning-sanctions",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "count",
+  "whole-read",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 37",
+     "status": "fail",
+     "detail": "numbers in the answer: 18, 18, 1, 3, 810, 2, 7, 1490, 3, 11, 2170, 4"
+    },
+    {
+     "fact": "number 4790",
+     "status": "fail",
+     "detail": "numbers in the answer: 18, 18, 1, 3, 810, 2, 7, 1490, 3, 11, 2170, 4"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": false,
+   "requests": 4,
+   "inputTokens": 19178,
+   "cachedInputTokens": 2018,
+   "outputTokens": 1172,
+   "thoughtTokens": 0,
+   "ms": 5250,
+   "ceilingReached": false,
+   "citations": {
+    "checked": 19,
+    "supported": 19,
+    "unchecked": 0,
+    "unsupported": []
+   },
+   "tools": [
+    "search_document",
+    "search_document",
+    "search_document",
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5596,
+     "ms": 830,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3671,
+      "cachedInputTokens": 0,
+      "outputTokens": 42,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 6611,
+     "ms": 662,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4710,
+      "cachedInputTokens": 0,
+      "outputTokens": 97,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 2
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 7644,
+     "ms": 587,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5850,
+      "cachedInputTokens": 2018,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "answer",
+     "purpose": "closing",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 4,
+     "estimatedInputTokens": 8578,
+     "ms": 3095,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4947,
+      "cachedInputTokens": 0,
+      "outputTokens": 980,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "בהתאם לתוצאות החיפוש והבדיקה במסמך, ישנם בסך הכל **18 סעיפים** שבהם הספק משלם כסף או שמנכים ממנו סעיפים עקב הפרה או איחור (המנוסחים כקנס או כזכות קיזוז למזמין). \n\nלהלן פירוט כל 18 הסעיפים שנמצאו במסמך עם מספרי השורות שלהם:\n1. **סעיף 3** (L7) – קיזוז 810 ש\"ח בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11) – קיזוז 1,490 ש\"ח בגין החלפת עובד ניקיון ללא הודעה.\n3. **סעיף 11** (L15) – קיזוז 2,170 ש\"",
+   "answer": "בהתאם לתוצאות החיפוש והבדיקה במסמך, ישנם בסך הכל **18 סעיפים** שבהם הספק משלם כסף או שמנכים ממנו סעיפים עקב הפרה או איחור (המנוסחים כקנס או כזכות קיזוז למזמין). \n\nלהלן פירוט כל 18 הסעיפים שנמצאו במסמך עם מספרי השורות שלהם:\n1. **סעיף 3** (L7) – קיזוז 810 ש\"ח בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11) – קיזוז 1,490 ש\"ח בגין החלפת עובד ניקיון ללא הודעה.\n3. **סעיף 11** (L15) – קיזוז 2,170 ש\"ח בגין אי ניקוי השירותים בקומה לפי הלוח.\n4. **סעיף 16** (L20) – קנס בסך 3,020 ש\"ח בגין אי פינוי פסולת בסוף היום.\n5. **סעיף 20** (L24) – קנס בסך 3,700 ש\"ח בגין איחור של יותר משעה בתחילת המשמרת.\n6. **סעיף 24** (L28) – קנס בסך 4,380 ש\"ח בגין עבודה ללא תג עובד.\n7. **סעיף 28** (L32) – קנס בסך 360 ש\"ח בגין נזק לרהוט במהלך הניקיון.\n8. **סעיף 32** (L36) – קנס בסך 1,040 ש\"ח בגין שימוש בחומרי ניקוי שלא אושרו.\n9. **סעיף 79** (L83) – קיזוז 4,330 ש\"ח בגין אי ביצוע ניקוי חלונות רבעוני.\n10. **סעיף 83** (L87) – קיזוז 310 ש\"ח בגין השארת דלת חדר השרתים פתוחה.\n11. **סעיף 87** (L91) – קיזוז 990 ש\"ח בגין החלפת עובד ניקיון ללא הודעה.\n12. **סעיף 91** (L95) – קיזוז 1,670 ש\"ח בגין אי ניקוי השירותים בקומה לפי הלוח.\n13. **סעיף 95** (L99) – קיזוז 2,350 ש\"ח בגין אי מילוי סבונים ומגבות נייר.\n14. **סעיף 100** (L104) – קנס בסך 3,200 ש\"ח בגין איחור של יותר משעה בתחילת המשמרת.\n15. **סעיף 104** (L108) – קנס בסך 3,880 ש\"ח בגין עבודה ללא תג עובד.\n16. **סעיף 108** (L112) – קנס בסך 4,560 ש\"ח בגין נזק לרהוט במהלך הניקיון.\n17. **סעיף 112** (L116) – קנס בסך 540 ש\"ח בגין שימוש בחומרי ניקוי שלא אושרו.\n18. **סעיף 116** (L120) – קנס בסך 1,220 ש\"ח בגין אי פינוי פסולת בסוף היום.\n\n**הסכום הגבוה ביותר** מבין כל הסעיפים האלו הוא **4,560 ש\"ח** (מופיע בסעיף 108, L112)."
+  }
+ ],
+ "passed": false
+}

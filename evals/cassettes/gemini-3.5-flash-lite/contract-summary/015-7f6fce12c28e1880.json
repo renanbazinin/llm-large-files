@@ -1,0 +1,248 @@
+{
+ "n": 15,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "7f6fce12c28e1880",
+  "bytes": 26131,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2283 chars #7227fca5"
+      },
+      {
+       "text": "143 chars #a9a4300b"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "get_document_overview",
+        "args": "{1 keys} #98779ea4",
+        "id": "call_9723884793687355097"
+       },
+       "thoughtSignature": "204 chars #d8790986"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "get_document_overview",
+        "id": "call_9723884793687355097",
+        "response": "{4 keys} #3bfe16c3"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "analyze_whole_document",
+        "args": "{2 keys} #8628f84f",
+        "id": "25 chars #b73ff98f"
+       },
+       "thoughtSignature": "204 chars #8c2b95f6"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "analyze_whole_document",
+        "id": "25 chars #b73ff98f",
+        "response": "{5 keys} #4694d805"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1984 chars #76e73369"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "638 chars #144276e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{4 keys} #cf56d9dd",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"להל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2,\"totalTokenCount\": 7827,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ן סיכום מלא של חוזה שירותי התחזוקה מס'\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 20,\"totalTokenCount\": 7845,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" 2026/114 שנחתם בין חברת **אורן מערכות בע\\\"מ (\\\"\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 45,\"totalTokenCount\": 7870,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"המזמין\\\")** לבין חברת **קור-טק שירותים בע\\\"מ (\\\"הספק\\\")\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 70,\"totalTokenCount\": 7895,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"**:\\n\\n---\\n\\n### 1. התחייבויות הספק (קור-טק שירותים בע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 94,\"totalTokenCount\": 7919,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\\"מ)\\n* **אחזקת מלאי:** החזקת מלאי חלקי חילוף זמין לש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 121,\"totalTokenCount\": 7946,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ירות המפעל בקריית גת.\\n* **זמני הגעה ותגובה:** הגעת ט\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 146,\"totalTokenCount\": 7971,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"כנאי למחסן באשדוד בתוך 4 שעות מקריאה דחופה, וב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 170,\"totalTokenCount\": 7995,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"תוך יומיים מקריאה רגילה.\\n* **שמירת סודיות:** שמירת סודיות מוח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 198,\"totalTokenCount\": 8023,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לטת על כל מידע שהגיע אליהם במסגרת ההתקשרות.\\n* **ע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 222,\"totalTokenCount\": 8047,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"בודות והשבתה:** תיאום מראש עם מנהל האתר של כל עבודה במפעל בקר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 249,\"totalTokenCount\": 8074,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"יית גת המחייבת השבתה.\\n* **ניהול קשר:** מינוי מנהל לקוח אחד ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 277,\"totalTokenCount\": 8102,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ירכז את הקשר השוטף עם המזמין.\\n* **ביטוח:** ביטוח הע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 301,\"totalTokenCount\": 8126,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ובדים בביטוח חבות מעבידים ובביטוח צד שלישי.\\n* **ת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 325,\"totalTokenCount\": 8150,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חזוקה חודשית:** ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחול\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 354,\"totalTokenCount\": 8179,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ון ומסירת דוח על הביקור.\\n* **שינויים:** כל שינוי בהיקף השירות יי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 382,\"totalTokenCount\": 8207,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"עשה בכתב ובחתימת שני הצדדים.\\n\\n### 2. התחייבויות המזמין (א\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 411,\"totalTokenCount\": 8236,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ורן מערכות בע\\\"מ)\\n* **תשלום:** תשלום התמורה בתוך \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 435,\"totalTokenCount\": 8260,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"45 ימים מיום קבלת חשבונית מס כדין.\\n* **ביקורת:** מת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 459,\"totalTokenCount\": 8284,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ן אפשרות למזמין לבצע ביקורת על איכות השירות בכל עת, בתיא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 483,\"totalTokenCount\": 8308,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ום מראש.\\n\\n---\\n\\n### 3. מקרים שבהם הספק משלם קנס וב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 508,\"totalTokenCount\": 8333,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"אילו סכומים\\nבחוזה מפורטים עשרות סעיפי קנסות בגין\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 532,\"totalTokenCount\": 8357,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מקרים ותקלות שונות (בפילוח לפי אתרים וסוגי חריגות):\\n\\n* **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 560,\"totalTokenCount\": 8385,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קריאות שירות ותגובה דחופה:**\\n  * איחור בתגובה לקריאת שירות ד\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 587,\"totalTokenCount\": 8412,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חופה במרכז הלוגיסטיקה בחולון: **1,000 ש\\\"ח** (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 612,\"totalTokenCount\": 8437,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"L7)\\n  * איחור בתגובה לקריאת שירות דחופה במשרדים בתל אביב:\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 640,\"totalTokenCount\": 8465,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **16,000 ש\\\"ח** (L198)\\n  * איחור בת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 664,\"totalTokenCount\": 8489,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"גובה לקריאת שירות דחופה במחסן באשדוד: **19,00\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 688,\"totalTokenCount\": 8513,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"0 ש\\\"ח** (L134)\\n  * איחור בתגובה לקריאת ש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 712,\"totalTokenCount\": 8537,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ירות דחופה במפעל בקריית גת: **22,000 ש\\\"ח**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 736,\"totalTokenCount\": 8561,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (L71)\\n\\n* **השבתות ומערכת קירור:**\\n  * השבתת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 761,\"totalTokenCount\": 8586,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מערכת הקירור מעבר ל-4 שעות במחסן באשדוד: **1,500\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 787,\"totalTokenCount\": 8612,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" ש\\\"ח** (L81)\\n  * השבתת מערכת הקירור מעבר ל-\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 811,\"totalTokenCount\": 8636,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"4 שעות במפעל בקריית גת: **4,500 ש\\\"ח** (L\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 835,\"totalTokenCount\": 8660,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"18)\\n  * השבתת מערכת הקירור מעבר ל-4 שעות במשרדים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 859,\"totalTokenCount\": 8684,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" בתל אביב: **22,500 ש\\\"ח** (L145)\\n\\n*\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 883,\"totalTokenCount\": 8708,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **חלקי חילוף:**\\n  * שימוש בחלקי חילוף שאינם מקוריים\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 907,\"totalTokenCount\": 8732,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" במחסן באשדוד: **3,750 ש\\\"ח** (L161)\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 931,\"totalTokenCount\": 8756,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n  * שימוש בחלקי חילוף שאינם מקוריים במפעל בקריית ג\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 955,\"totalTokenCount\": 8780,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ת: **6,750 ש\\\"ח** (L97)\\n  * שימוש בחל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 979,\"totalTokenCount\": 8804,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קי חילוף שאינם מקוריים במרכז הלוגיסטיקה בחולון: **9\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1003,\"totalTokenCount\": 8828,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \",750 ש\\\"ח** (L34)\\n  * איחור באספקה של\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1027,\"totalTokenCount\": 8852,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" חלקי חילוף: **5% מערך ההזמנה לכל שבוע איחור**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1051,\"totalTokenCount\": 8876,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (L65)\\n\\n* **דוחות ותחזוקה מונעת:**\\n  * אי הג\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1075,\"totalTokenCount\": 8900,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שת דוח תחזוקה חודשי במועד בסניף בחיפה: **6,250 ש\\\"\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1103,\"totalTokenCount\": 8928,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ח** (L23)\\n  * אי הגשת דוח תחזוקה חודשי במו\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1127,\"totalTokenCount\": 8952,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"עד במרכז הלוגיסטיקה בחולון: **3,250 ש\\\"ח** (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1151,\"totalTokenCount\": 8976,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"L87)\\n  * אי ביצוע תחזוקה מונעת במועד במפעל ב\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1175,\"totalTokenCount\": 9000,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"קריית גת: **9,000 ש\\\"ח** (L177)\\n  *\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1199,\"totalTokenCount\": 9024,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" אי ביצוע תחזוקה מונעת במועד במרכז הלוגיסטיקה בחולון\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1223,\"totalTokenCount\": 9048,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \": **12,000 ש\\\"ח** (L113)\\n  * אי ביצוע תחזוקה\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1251,\"totalTokenCount\": 9076,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" מונעת במועד בסניף בחיפה: **15,000 ש\\\"ח**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1275,\"totalTokenCount\": 9100,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (L49)\\n\\n* **החלפת צוות / טכנאים:**\\n  * החל\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1299,\"totalTokenCount\": 9124,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"פת טכנאי ללא הודעה מוקדמת בסניף בחיפה: **2,0\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1323,\"totalTokenCount\": 9148,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"00 ש\\\"ח** (L155)\\n  * החלפת טכנאי ללא\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1347,\"totalTokenCount\": 9172,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" הודעה מוקדמת במשרדים בתל אביב: **5,000 ש\\\"ח**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1371,\"totalTokenCount\": 9196,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" (L92)\\n  * החלפת טכנאי ללא הודעה מוקדמת במ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1395,\"totalTokenCount\": 9220,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חסן באשדוד: **8,000 ש\\\"ח** (L28)\\n\\n*\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1419,\"totalTokenCount\": 9244,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **בטיחות, אישורי כניסה ופסולת באתרים:**\\n  * הפרת הוראות הבטיחות באתר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1448,\"totalTokenCount\": 9273,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" במרכז הלוגיסטיקה בחולון: **5,500 ש\\\"ח** (L\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1472,\"totalTokenCount\": 9297,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"166)\\n  * הפרת הוראות הבטיחות באתר בסניף בחיפה: **8\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1496,\"totalTokenCount\": 9321,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \",500 ש\\\"ח** (L102)\\n  * הפרת הוראות הבטיחות\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1520,\"totalTokenCount\": 9345,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" באתר במשרדים בתל אביב: **11,500 ש\\\"ח** (L39\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1544,\"totalTokenCount\": 9369,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \")\\n  * עבודה ללא אישור כניסה בתוקף בסניף בחיפה: **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1568,\"totalTokenCount\": 9393,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"10,750 ש\\\"ח** (L182)\\n  * עבודה ללא אי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1592,\"totalTokenCount\": 9417,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"שור כניסה בתוקף במשרדים בתל אביב: **13,750 ש\\\"\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1616,\"totalTokenCount\": 9441,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ח** (L118)\\n  * עבודה ללא אישור כניסה בתוקף במ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1640,\"totalTokenCount\": 9465,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חסן באשדוד: **16,750 ש\\\"ח** (L55)\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1664,\"totalTokenCount\": 9489,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"  * השארת פסולת באתר לאחר העבודה במרכז הלוגיסטיקה בחולון: **14\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1691,\"totalTokenCount\": 9516,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \",250 ש\\\"ח** (L193)\\n  * השארת פסולת באתר\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1715,\"totalTokenCount\": 9540,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לאחר העבודה בסניף בחיפה: **17,250 ש\\\"ח** (L129\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1741,\"totalTokenCount\": 9566,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \")\\n\\n* **תיעוד ואובדן ציוד:**\\n  * אובדן ציוד של המז\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1767,\"totalTokenCount\": 9592,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מין במשרדים בתל אביב: **7,250 ש\\\"ח** (L171)\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1792,\"totalTokenCount\": 9617,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n  * אובדן ציוד של המזמין במחסן באשדוד: **10\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1816,\"totalTokenCount\": 9641,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \",250 ש\\\"ח** (L108)\\n  * אובדן ציוד של\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1840,\"totalTokenCount\": 9665,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" המזמין במפעל בקריית גת: **13,250 ש\\\"ח** (\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1864,\"totalTokenCount\": 9689,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"L44)\\n  * אי תיעוד קריאת שירות במערכת במחסן באשדוד\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1890,\"totalTokenCount\": 9715,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \": **12,500 ש\\\"ח** (L187)\\n  * אי תיעוד של קרי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1918,\"totalTokenCount\": 9743,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"את שירות במערכת במפעל בקריית גת: **15,500 ש\\\"ח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1943,\"totalTokenCount\": 9768,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"** (L124)\\n  * אי תיעוד של קריאת שירות במערכת במ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1967,\"totalTokenCount\": 9792,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"רכז הלוגיסטיקה בחולון: **18,500 ש\\\"ח** (L\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 1991,\"totalTokenCount\": 9816,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"60)\\n\\n* **עמידה בזמני תיקון:**\\n  * אי עמידה בז\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2015,\"totalTokenCount\": 9840,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מני התיקון שנקבעו בנספח השירות במשרדים בתל אביב:\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2039,\"totalTokenCount\": 9864,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" **2,750 ש\\\"ח** (L12)\\n  * אי עמידה בזמ\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2063,\"totalTokenCount\": 9888,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ני התיקון בנספח השירות במרכז הלוגיסטיקה בחולון: **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2087,\"totalTokenCount\": 9912,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"20,750 ש\\\"ח** (L140)\\n  * אי עמידה בז\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2111,\"totalTokenCount\": 9936,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"מני התיקון שנקבעו בנספח השירות בסניף בחיפה: **2\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2136,\"totalTokenCount\": 9961,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"3,750 ש\\\"ח** (L76)\\n\\n* **אבטחת מידע:**\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2160,\"totalTokenCount\": 9985,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\n  * דליפת מידע של לקוחות המזמין באחריות הספק: **48\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2184,\"totalTokenCount\": 10009,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \",000 ש\\\"ח** (בנוסף לכל סעד אחר המוקנה למזמין על\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2208,\"totalTokenCount\": 10033,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" פי דין) (L150).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2218,\"totalTokenCount\": 10043,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRPHh0hnxoXcHGDk3q4NlOESvZ3yx5CcJ8tXyNdlc+pioDrSFHYqKvAcFCadmOgJuY35j/tJNtm9Ireb2Bf1jTpig+WkKebtdW/rgNxjBZMb0IpxXvFhxsOWVZhmCgFom4/uj8ZFoi5eHRTf0AMlJAR+YlyzSRqah209KEd5g9R8JFBejDCsOUG1n/6vDFj6\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7825,\"candidatesTokenCount\": 2218,\"totalTokenCount\": 10043,\"cachedContentTokenCount\": 4056,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7825}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4056}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"OyUFa8aOGZSLxN8P4tmkwQ4\"}\r\n\r\n"
+  ]
+ }
+}

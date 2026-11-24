@@ -1,0 +1,74 @@
+{
+ "n": 5,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "2ed2f73eec723405",
+  "bytes": 31356,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19521 chars #a58486ee"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- **שבוע 4 (המשך - 23 עד 28 בנובמבר 2026)**:\n  - יום חמישי, 26 בנובמבר 2026: אירוע חריג - תעודת האבטחה של פורטל הלקוחות פגה ב-20:10 והלקוחות קיבלו אזהרה בדפדפן (L1120). התעודה החדשה הותקנה ב-21:05 והאזהרה נעלמה (L1123).\n\n- **שבוע 5 (29 עד 30 בנובמבר 2026)**:\n  - שגרת משמרות רגילה (עדכון שרתי דואר, בדיקות גנרטור, ניקיון, בדיקות טמפרטורה, מזגנים וכדומה) ללא אירועים חריגים בימים ראשון ושני (29-30 בנובמבר 2026) (L1215-L1279).",
+        "thoughtSignature": "EpYBCpMBAWkUfRPsvsxuZvyRYZb/89e2B7qJnWVs7v5WfcVffLyYkHu/tyGj87tO0KFhmaiZnTzVzyke7LuRlDUDoBQUMPkJ+BhZ5dK86Fl7SCXv2p+g27UQsLTQ/YtXlUHq1daRdGBs6SrHPN7oXOTSWIlwLIF7fDDcdLyveq6utiRJ8yQdASTs6NnAa6uN+WGus9tgVdrM"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12054,
+    "candidatesTokenCount": 242,
+    "totalTokenCount": 12296,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12054
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "QSQFa_b7G6qH28oPjdnEoAY"
+  }
+ }
+}

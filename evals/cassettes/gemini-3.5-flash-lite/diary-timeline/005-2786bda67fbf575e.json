@@ -1,0 +1,74 @@
+{
+ "n": 5,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "2786bda67fbf575e",
+  "bytes": 31462,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19575 chars #49c8fd67"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "145 chars #4d7b109a"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- יום חמישי, 22 באוקטובר 2026 (משמרת ערב):\n  - אירוע חריג (אזעקת אש):\n    - התחלה: 22:45 (L998): \"אזעקת אש בבניין: אנשי המשמרת יצאו לנקודת הכינוס בחניון.\"\n    - הגעת כבאים: 22:58 (L1000): \"כוחות הכבאות הגיעו לבניין.\"\n    - סיום / פתרון: 23:10 (L1001): \"הכבאים קבעו שזו אזעקת שווא מגלאי עשן תקול, והמשמרת חזרה לבניין.\"\n\n- יום רביעי, 28 באוקטובר 2026 (משמרת לילה/בוקר):\n  - אירוע חריג (תקלת גיבוי עקב חוסר מקום במערך האחסון):\n    - התחלה: 06:00 (L1188): \"גיבוי הלילה לא הושלם: מערך האחסון התמלא, ואין מקום לעותק חדש.\"\n    - פتרון זמני: 09:10 (L1194): \"נמחקו עותקים ישנים שתוקפם פג, כדי לפנות מקום זמני.\"\n    - סיום מלא: 13:30 (L1202): \"נוסף מדף דיסקים למערך האחסון, והגיבוי הושלם.\"",
+        "thoughtSignature": "EpYBCpMBAWkUfRMPLAdW7RSZQ1GhyGcgtfNObI1BUe0xlL0/DVovIZGnN45MGI0WBR4sLNg0ROoVIIO1wAXNGXYVcWvqalXMX9aDEDiHwuR+MPUbDhyekQkIH4GGkWl8xSXuprUMUW0tMjG70ayZ+dLdA5hCeaEwFwX+LaWG1jEdiLIhzcOmvhUcSy/T2i8GIxx0oupVyXks"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12063,
+    "candidatesTokenCount": 385,
+    "totalTokenCount": 12448,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12063
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "mCIFa5PpBuikkdUPqZqnwAo"
+  }
+ }
+}
