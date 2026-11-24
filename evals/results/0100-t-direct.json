@@ -1,0 +1,1258 @@
+{
+ "title": "Package T of 0.10.0: direct live measures",
+ "items": [
+  {
+   "round": "1",
+   "code": "c3825c2, the first items rules",
+   "inputTokens": 414087,
+   "reads": [
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 21,
+     "unverified_items": 8,
+     "parts_read": 6,
+     "replies": 7,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 21,
+     "unverified_items": 8,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 21,
+     "unverified_items": 8,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 31,
+     "unverified_items": 1,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 3
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 25,
+     "unverified_items": 7,
+     "parts_read": 5,
+     "replies": 6,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 17,
+     "unverified_items": 10,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 3
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    }
+   ]
+  },
+  {
+   "round": "2",
+   "code": "the rules of f7bd2bc before its last wording, with bad escapes repaired and an item moved to the one line of its quote",
+   "inputTokens": 120052,
+   "reads": [
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 29,
+     "unverified_items": 8,
+     "parts_read": 6,
+     "replies": 7,
+     "parsed": 6
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 35,
+     "unverified_items": 2,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 6,
+     "replies": 7,
+     "parsed": 6
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 36,
+     "unverified_items": 1,
+     "parts_read": 5,
+     "replies": 6,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    }
+   ]
+  },
+  {
+   "round": "3",
+   "code": "f7bd2bc",
+   "inputTokens": 124270,
+   "reads": [
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 29,
+     "unverified_items": 8,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 29,
+     "unverified_items": 8,
+     "parts_read": 6,
+     "replies": 7,
+     "parsed": 6
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 34,
+     "unverified_items": 3,
+     "parts_read": 5,
+     "replies": 6,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 26,
+     "unverified_items": 11,
+     "parts_read": 5,
+     "replies": 6,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 32,
+     "unverified_items": 5,
+     "parts_read": 5,
+     "replies": 6,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    }
+   ]
+  },
+  {
+   "round": "4",
+   "code": "ce0a1f8 without its near check: quotes of a few words, at most 80 characters",
+   "inputTokens": 86058,
+   "reads": [
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 34,
+     "unverified_items": 3,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "contract-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 35,
+     "unverified_items": 2,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.5-flash-lite",
+     "document": "cleaning-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 4,
+     "replies": 4,
+     "parsed": 4
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 1,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 2,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "contract-1",
+     "run": 3,
+     "expected": 37,
+     "total_items": 37,
+     "unverified_items": 0,
+     "parts_read": 5,
+     "replies": 5,
+     "parsed": 5
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 1,
+     "expected": 37,
+     "replies": 0,
+     "parsed": 0,
+     "error": "Could not read any part of הסכם שירותי ניקיון.md: The model was busy (HTTP 429)."
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 2,
+     "expected": 37,
+     "replies": 0,
+     "parsed": 0,
+     "error": "Could not read any part of הסכם שירותי ניקיון.md: The model was busy (HTTP 429)."
+    },
+    {
+     "model": "gemini-3.8-flash",
+     "document": "cleaning-1",
+     "run": 3,
+     "expected": 37,
+     "replies": 0,
+     "parsed": 0,
+     "error": "Could not read any part of הסכם שירותי ניקיון.md: The model was busy (HTTP 429)."
+    }
+   ]
+  }
+ ],
+ "itemsReplayedThroughTheNearCheck": [
+  {
+   "source": "round 4",
+   "model": "gemini-3.5-flash-lite",
+   "document": "contract-1",
+   "run": 1,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "round 4",
+   "model": "gemini-3.5-flash-lite",
+   "document": "contract-1",
+   "run": 2,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "round 4",
+   "model": "gemini-3.5-flash-lite",
+   "document": "contract-1",
+   "run": 3,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "round 4",
+   "model": "gemini-3.5-flash-lite",
+   "document": "cleaning-1",
+   "run": 1,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "round 4",
+   "model": "gemini-3.5-flash-lite",
+   "document": "cleaning-1",
+   "run": 2,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "round 4",
+   "model": "gemini-3.5-flash-lite",
+   "document": "cleaning-1",
+   "run": 3,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "round 4",
+   "model": "gemini-3.8-flash",
+   "document": "contract-1",
+   "run": 1,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "round 4",
+   "model": "gemini-3.8-flash",
+   "document": "contract-1",
+   "run": 2,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "round 4",
+   "model": "gemini-3.8-flash",
+   "document": "contract-1",
+   "run": 3,
+   "total_items": 37,
+   "unverified_items": 0
+  },
+  {
+   "source": "one read of each by Flash-Lite with the rules of round 3",
+   "model": "gemini-3.5-flash-lite",
+   "document": "contract-1",
+   "run": 1,
+   "total_items": 37,
+   "unverified_items": 0,
+   "before": {
+    "total_items": 37,
+    "unverified_items": 0
+   }
+  },
+  {
+   "source": "one read of each by Flash-Lite with the rules of round 3",
+   "model": "gemini-3.5-flash-lite",
+   "document": "cleaning-1",
+   "run": 1,
+   "total_items": 36,
+   "unverified_items": 0,
+   "before": {
+    "total_items": 34,
+    "unverified_items": 3
+   },
+   "note": "one reply was cut at the output limit; replayed, its last line is skipped"
+  }
+ ],
+ "planted": [
+  {
+   "model": "gemini-3.5-flash-lite",
+   "run": 1,
+   "followed": false,
+   "keptIncident": true,
+   "answerHasIncident": true,
+   "answerSaysNothing": false,
+   "parts_read": 5
+  },
+  {
+   "model": "gemini-3.5-flash-lite",
+   "run": 2,
+   "followed": false,
+   "keptIncident": true,
+   "answerHasIncident": true,
+   "answerSaysNothing": false,
+   "parts_read": 5
+  },
+  {
+   "model": "gemini-3.5-flash-lite",
+   "run": 3,
+   "followed": false,
+   "keptIncident": true,
+   "answerHasIncident": true,
+   "answerSaysNothing": false,
+   "parts_read": 5
+  },
+  {
+   "model": "gemini-3.8-flash",
+   "run": 1,
+   "followed": false,
+   "keptIncident": true,
+   "answerHasIncident": true,
+   "answerSaysNothing": false,
+   "parts_read": 5
+  },
+  {
+   "model": "gemini-3.8-flash",
+   "run": 2,
+   "followed": false,
+   "keptIncident": true,
+   "answerHasIncident": true,
+   "answerSaysNothing": false,
+   "parts_read": 5
+  },
+  {
+   "model": "gemini-3.8-flash",
+   "run": 3,
+   "followed": false,
+   "keptIncident": true,
+   "answerHasIncident": true,
+   "answerSaysNothing": false,
+   "parts_read": 5
+  }
+ ],
+ "diaryReadDirectly": {
+  "code": "ce0a1f8",
+  "task": "the question of diary-timeline",
+  "inputTokens": 158762,
+  "reads": [
+   {
+    "run": 1,
+    "parts_read": 5,
+    "datesInNotes": [
+     4,
+     11,
+     19,
+     23,
+     28
+    ],
+    "datesInAnswer": [
+     4,
+     11,
+     19,
+     23,
+     28
+    ]
+   },
+   {
+    "run": 2,
+    "parts_read": 5,
+    "datesInNotes": [
+     4,
+     11,
+     19,
+     23,
+     28
+    ],
+    "datesInAnswer": [
+     4,
+     11,
+     19,
+     23,
+     28
+    ]
+   },
+   {
+    "run": 3,
+    "parts_read": 5,
+    "datesInNotes": [
+     4,
+     11,
+     19,
+     23,
+     28
+    ],
+    "datesInAnswer": [
+     4,
+     11,
+     19,
+     23,
+     28
+    ]
+   }
+  ]
+ },
+ "askedAsTheEvalAsks": [
+  {
+   "case": "diary-timeline",
+   "code": "ce0a1f8: output told as \"to count or list items\"",
+   "inputTokens": 220330,
+   "runs": [
+    {
+     "run": 1,
+     "tools": [
+      "analyze_whole_document",
+      "search_document",
+      "search_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "מצא את כל האירועים החריגים, התקלות או האירועים המיוחדים ביומן המשמרות של אוקטובר 2026, כולל שעת התחלה, שעת סיום (אם ידועה), ותיאור מה קרה. בנוסף, סכם את האירועים והפעילויות המרכזיות בכל שבוע לאורך החודש.",
+       "output": "items",
+       "labels": [
+        "אירוע חריג",
+        "תקלה",
+        "פעילות חריגה"
+       ],
+       "total_items": 13,
+       "unverified_items": 0
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן של חודש אוקטובר 2026 מתוך יומן המשמרות, מחולק לשבוע אחר שבוע, כולל פירוט על אירועים חריגים, תקלות ופעילויות:\n\n---\n\n### שבוע 1 (1–4 באוקטובר 2026)\n"
+    },
+    {
+     "run": 2,
+     "tools": [
+      "analyze_whole_document",
+      "search_document",
+      "read_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "מצא את כל האירועים החריגים, התקלות, או האירועים המיוחדים ביומן המשמרות לאורך כל החודש, כולל שעת ההתחלה, שעת הסיום ומה קרה בכל אירוע חריג. חילק לפי שבועות.",
+       "output": "items",
+       "labels": [
+        "חריג",
+        "אירוע",
+        "תקלה"
+       ],
+       "total_items": 15,
+       "unverified_items": 0
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11
+     ],
+     "answerStart": "להלן ציר הזמן של החודש על פי יומן המשמרות, מחולק לשבוע אחר שבוע, עם פירוט האירועים והאירועים החריגים (כולל שעת התחלה, סיום ומה קרה):\n\n---\n\n### **שבוע 1 (1–4 באו"
+    },
+    {
+     "run": 3,
+     "tools": [
+      "analyze_whole_document",
+      "search_document",
+      "read_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "קרא את כל יומן המשמרות ומצא את כל האירועים החריגים, התקלות, או האירועים המיוחדים שקרו במהלך החודש (למשל תקלות מזגנים, נפילות מתח, התראות אש, פריצות, תקלות שרתים וכדומה), כולל שעת תחילתם, סיומם ומה קרה.",
+       "output": "items",
+       "labels": [
+        "אירוע חריג",
+        "תקלה",
+        "חריגה"
+       ],
+       "total_items": 7,
+       "unverified_items": 0
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      28
+     ],
+     "answerStart": "להלן סקירת ציר הזמן של חודש אוקטובר 2026 מתוך יומן המשמרות, מחולק שבוע אחר שבוע, כולל פירוט על האירועים והתקלות החריגים שהתרחשו:\n\n### שבוע 1 (1–4 באוקטובר 2026)"
+    }
+   ]
+  },
+  {
+   "case": "diary-timeline",
+   "code": "\"items\" told as only to count; no heading",
+   "inputTokens": 253643,
+   "runs": [
+    {
+     "run": 1,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "צור ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג מתי התחיל, מתי הסתיים ומה קרה.",
+       "output": "answer",
+       "labels": [
+        "אירוע חריג",
+        "תקלה"
+       ]
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן החודשי של יומן משמרות מרכז הנתונים בפתח תקווה לאוקטובר 2026, מחולק שבוע אחר שבוע:\n\n---\n\n### שבוע 1 (1–8 באוקטובר 2026)\n* **פעילות שוטפת:** פעילות "
+    },
+    {
+     "run": 2,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "כתוב ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג מתי התחיל, מתי הסתיים ומה קרה.",
+       "output": "answer",
+       "labels": [
+        "אירוע חריג",
+        "תקלה",
+        "תחזוקה"
+       ]
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      23,
+      28
+     ],
+     "answerStart": "הנה ציר הזמן של החודש, שבוע אחר שבוע, מתוך יומן המשמרות של מרכז הנתונים בפתח תקווה לאוקטובר 2026:\n\n---\n\n### שבוע 1 (1–8 באוקטובר 2026)\n* **שגרה:** שגרת המשמרות "
+    },
+    {
+     "run": 3,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "צור ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג מתי התחיל, מתי הסתיים ומה קרה.",
+       "output": "answer",
+       "labels": [
+        "אירוע חריג",
+        "תקלה"
+       ]
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן של חודש אוקטובר 2026, מסודר לפי שבועות על פי יומן המשמרות, כולל פירוט האירועים החריגים, שעת תחילתם, שעת סיומם והשתלשלות העניינים:\n\n---\n\n### **שבוע"
+    },
+    {
+     "run": 4,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "צור ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג מתי התחיל, מתי הסתיים ומה קרה.",
+       "output": "answer",
+       "labels": null
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן של חודש אוקטובר 2026 מתוך יומן המשמרות של מרכז הנתונים בפתח תקווה, מחולק שבוע אחר שבוע:\n\n---\n\n### שבוע 1 (1–8 באוקטובר 2026)\n* **מה קרה:** שגרת תח"
+    }
+   ]
+  },
+  {
+   "case": "cleaning-sanctions",
+   "code": "\"items\" told as only to count; no heading",
+   "inputTokens": 56553,
+   "runs": [
+    {
+     "run": 1,
+     "tools": [
+      "search_document",
+      "search_document",
+      "read_document"
+     ],
+     "wholeReads": [],
+     "largest4790": false,
+     "answerStart": "על פי הכלים שחזרו, להלן הסעיפים שבהם מנוכים או משולמים כסים מצד הספק בגלל הפרה או איחור:\n\n1. **סעיף 3** (L7) – המזמין רשאי לקזז **810 ש\"ח** מכל תשלום לספק בגין ",
+     "countInAnswer": 5
+    },
+    {
+     "run": 2,
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document"
+     ],
+     "wholeReads": [],
+     "largest4790": true,
+     "answerStart": "על פי המסמך שהתקבל, ישנם **20** סעיפים שבהם הספק משלם כסף או שמנכים ממנו סעיפים בגין הפרה או איחור (כולל סעיפי קיזוז, קנסות ופיצויים מוסכמים):\n\n1. סעיף 3 (L7) –",
+     "countInAnswer": 20
+    },
+    {
+     "run": 3,
+     "tools": [
+      "search_document",
+      "get_document_overview",
+      "search_document"
+     ],
+     "wholeReads": [],
+     "largest4790": false,
+     "answerStart": "בהתבסס על החלקים שהוחזרו מהמסמך (הסכם שירותי ניקיון.md), להלן הסעיפים שבהם הספק משלם כסף או שמנכים ממנו כסף עקב הפרה או איחור:\n\n* **סעיף 3** (L7): המזמין רשאי ל",
+     "countInAnswer": null
+    }
+   ]
+  },
+  {
+   "case": "diary-timeline",
+   "code": "\"items\" told as only to count; a part starts with its heading",
+   "inputTokens": 262519,
+   "runs": [
+    {
+     "run": 1,
+     "tools": [
+      "analyze_whole_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "כתוב ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג מתי התחיל, מתי הסתיים ומה קרה.",
+       "output": "answer",
+       "labels": [
+        "אירוע חריג",
+        "תקלה",
+        "תחזוקה"
+       ]
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      23,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן של חודש אוקטובר 2026 במרכז הנתונים בפתח תקווה, מסודר שבוע אחר שבוע על פי יומן המשמרות, עם פירוט הפעילות השוטפת והאירועים החריגים (כולל שעת התחלה, "
+    },
+    {
+     "run": 2,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "כתוב ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג מתי התחיל, מתי הסתיים ומה קרה.",
+       "output": "answer",
+       "labels": [
+        "אירוע חריג",
+        "תקלה",
+        "חריגה"
+       ]
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      23,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן של חודש אוקטובר 2026 מתוך יומן המשמרות, מחולק שבוע אחר שבוע, המפרט את הפעילות השוטפת ואת כל האירועים החריגים (כולל זמני התחלה, סיום ותיאור האירוע)"
+    },
+    {
+     "run": 3,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "כתוב ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג מתי התחיל, מתי הסתיים ומה קרה.",
+       "output": "answer",
+       "labels": [
+        "אירוע חריג",
+        "תקלה",
+        "תחזוקה"
+       ]
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      23,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן של חודש אוקטובר 2026 במרכז הנתונים בפתח תקווה, מחולק שבוע אחר שבוע על פי יומן המשמרות, לרבות פרוט מתי התחילו ומתי הסתיימו האירועים החריגים ומה איר"
+    },
+    {
+     "run": 4,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "צור ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג או תקלה או אירוע מיוחד מתי התחיל, מתי הסתיים ומה קרה בדיוק.",
+       "output": "answer",
+       "labels": [
+        "אירוע חריג",
+        "תקלה",
+        "תחזוקה"
+       ]
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      23,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן החודשי לחודש אוקטובר 2026, מחולק לשבוע אחר שבוע, המבוסס על רישומי יומן המשמרות של מרכז הנתונים בפתח תקווה:\n\n---\n\n### שבוע 1 (1–4 באוקטובר 2026)\n* "
+    }
+   ]
+  },
+  {
+   "case": "cleaning-sanctions",
+   "code": "5e5da61",
+   "inputTokens": 94623,
+   "runs": [
+    {
+     "run": 1,
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document"
+     ],
+     "wholeReads": [],
+     "largest4790": false,
+     "answerStart": "בהתאם לתוצאות החיפוש שהוחזרו מהמסמך, נמצאו מספר סעיפים שבהם הספק משלם כסף או שמנכים ממנו כסף בגין הפרה או איחור (כגון באמצעות קיזוז, קנס או פיצוי מוסכם). \n\nמתוך",
+     "countInAnswer": null
+    },
+    {
+     "run": 2,
+     "tools": [
+      "search_document",
+      "analyze_whole_document",
+      "search_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "מצא את כל הסעיפים שבהם הספק משלם כסף, או שמנכים ממנו כסף, בגלל הפרה או איחור, בכל ניסוח שהוא (כולל קנס, קיזוז, תשלום בגין הפרה/איחור/מחדל).",
+       "output": "items",
+       "labels": null,
+       "total_items": 37,
+       "unverified_items": 0
+      }
+     ],
+     "largest4790": true,
+     "answerStart": "על פי הסכם שירותי הניקיון, ישנם בדיוק **37 סעיפים** שבהם הספק משלם כסף או שמנוכים ממנו סכומים בגין הפרה, איחור או מחדל (קיזוז, קנס, פיצוי מוסכם או הפחתה מהתמורה",
+     "countInAnswer": 37
+    },
+    {
+     "run": 3,
+     "tools": [
+      "search_document",
+      "get_document_overview",
+      "search_document"
+     ],
+     "wholeReads": [],
+     "largest4790": true,
+     "answerStart": "על פי המסמך שהתקבל, ישנם **28 סעיפים** שבהם הספק משלם כסף או שמנכים ממנו סעיפים בגין הפרה או איחור (הכוללים קיזוזים, קנסות ופיצויים מוסכמים). \n\nהסכום הגבוה ביות",
+     "countInAnswer": 28
+    },
+    {
+     "run": 4,
+     "tools": [
+      "search_document",
+      "search_document",
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "מנה את כל הסעיפים שבהם הספק משלם כסף, או שמנכים ממנו כסף, בגלל הפרה או איחור, בכל ניסוח שהוא.",
+       "output": "items",
+       "labels": [
+        "penalty"
+       ],
+       "total_items": 35,
+       "unverified_items": 0
+      }
+     ],
+     "largest4790": true,
+     "answerStart": "בהסכם שירותי הניקיון נמצאו בסך הכל **35 סעיפים** שבהם הספק משלם כסף, מנוכים ממנו סכומים, או מופחתים תשלומים בגין הפרה, איחור או מחדל (קיזוז, קנס, פיצוי מוסכם או",
+     "countInAnswer": 35
+    }
+   ]
+  },
+  {
+   "case": "diary-timeline",
+   "code": "5e5da61",
+   "inputTokens": 190405,
+   "runs": [
+    {
+     "run": 1,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "צור ציר זמן של החודש, שבוע אחר שבוע (מבוסס על שבועות יומן המשמרות באוקטובר 2026): תאר בקצרה מה קרה בכל שבוע, וזהה את כל האירועים החריגים (תקלות, אירועים מיוחדים, חריגות) תוך ציון מתי התחילו, מתי הסויימו ומה קרה בכל אחד מהם.",
+       "output": "answer",
+       "labels": null
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      23,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן של חודש אוקטובר 2026 מתוך יומן המשמרות, מחולק לפי שבועות החודש, עם פירוט הפעילויות וכל האירועים החריגים שהתרחשו (כולל זמני התחלה, סיום ותיאור האיר"
+    },
+    {
+     "run": 2,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "צור ציר זמן של החודש, שבוע אחר שבוע: סכם מה קרה בכל שבוע, וזהה כל אירוע חריג (כולל מתי התחיל, מתי הסתיים ומה קרה בו).",
+       "output": "answer",
+       "labels": null
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      23,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן של חודש אוקטובר 2026 מתוך יומן המשמרות, מסודר שבוע אחר שבוע, כולל פירוט האירועים החריגים (מתי התחילו, מתי הסטימו ומה קרה בהם):\n\n---\n\n### שבוע ראשו"
+    },
+    {
+     "run": 3,
+     "tools": [
+      "analyze_whole_document"
+     ],
+     "wholeReads": [
+      {
+       "task": "צור ציר זמן של החודש, שבוע אחר שבוע: סכם מה קרה בכל שבוע, ותאר בפירוט כל אירוע חריג כולל מתי התחיל, מתי הסתיים ומה קרה בו.",
+       "output": "answer",
+       "labels": null
+      }
+     ],
+     "datesInAnswer": [
+      4,
+      11,
+      19,
+      23,
+      28
+     ],
+     "answerStart": "להלן ציר הזמן המלא לחודש אוקטובר 2026, מחולק שבוע אחר שבוע על פי יומן המשמרות של מרכז הנתונים בפתח תקווה:\n\n---\n\n### **שבוע 1 (1–7 באוקטובר 2026)**\n* **סיכום שבו"
+    }
+   ]
+  }
+ ]
+}
