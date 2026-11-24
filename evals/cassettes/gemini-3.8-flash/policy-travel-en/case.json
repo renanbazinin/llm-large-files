@@ -1,0 +1,59 @@
+{
+ "case": "policy-travel-en",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 2.35",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 5223,
+   "cachedInputTokens": 3182,
+   "outputTokens": 261,
+   "thoughtTokens": 222,
+   "ms": 3482,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 7822,
+     "ms": 3481,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5223,
+      "cachedInputTokens": 3182,
+      "outputTokens": 261,
+      "thoughtTokens": 222
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "According to section 6.1 of the policy, the travel reimbursement rate for a private car is **2.35 NIS per kilometer** (based on a monthly report in the system)."
+  }
+ ],
+ "passed": true
+}

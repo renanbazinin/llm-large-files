@@ -1,0 +1,74 @@
+{
+ "n": 4,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "9ff1c00f616fa9b6",
+  "bytes": 31837,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19706 chars #6e0e9dcb"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "111 chars #101f0539"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "**אירועים מרכזיים (חריגים/בדיקות שוטפות משמעותיות) בחלק זה (16–23 באוקטובר 2026):**\n\n- **יום שני, 19 באוקטובר 2026:**\n  - **אירוע חריג - התחברות חשודה:** \n    - *מתי התחיל:* 09:30 (L801) - \"צוות אבטחת המידע זיהה התחברות חשודה מחוץ לארץ לחשבון של עובדת במחלקת הכספים. החשבון ננעל והסיסמה אופסה.\" (L801)\n    - *מה קרה במהלך האירוע:* נבדקו כל הפעולות שנעשו מהחשבון בשבוע האחרון החל מהשעה 10:15 (L804).\n    - *מתי הסתיים:* 11:00 (L806) - \"הבדיקה הסתיימה: לא הוצא מידע, והחשבון נפתח מחדש עם אימות דו-שלבי.\" (L806)\n\n- **פעילות שוטפת לאורך התקופה (16 עד 23 באוקטובר 2026):**\n  - שגרת תחזוקה הכוללת: החלפת קלטות גיבוי והעברתן לכספת, התקנת עדכוני תוכנה על שרתי הדואר, תחזוקה מתוכננת למזגנים וניקוי מסנני אוויר, בדיקות מצלמות אבטחה, עדכון תיעוד כבילה בארונות תקשורת שונים, בדיקות לוחות חשמל ועומסים, ניקיון בחדר הציוד, שליחת הודעות למשתמשים על חלון התחזוקה של יום שישי, בדיקות מלאי סולר לגנרטור (נע בין 74% ל-94%), בדיקות טמפרטורה בחדר השרתים (קבועה על 20 מעלות), בדיקות מערכת כיבוי אש בגז ובדיקות גנרטור שבועיות.",
+        "thoughtSignature": "EpYBCpMBAWkUfROkEWISopyIAw6LsjmeomEYpsoLa4RxS/yOZdUxypzrXl+9jYkB4Gg8GSJd6Tvjz1tNW52KuVe8PfnQgLzbsnfTTU10XYHKk+X/5G9tjb6dtU8VdX5iJEpQJTZlVedGL3wcV/DdNb1uLiydAh15oHLAV9NF6o8Df6Mi234+CfQpKqV6zAcT4rUqnUS6wVTP"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12068,
+    "candidatesTokenCount": 516,
+    "totalTokenCount": 12584,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12068
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "kwoFa8mSEtHvxs0Piu6FuA4"
+  }
+ }
+}

@@ -1,0 +1,101 @@
+{
+ "case": "log-disk",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says db-2",
+     "status": "pass"
+    },
+    {
+     "fact": "number 95",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 13739,
+   "cachedInputTokens": 2021,
+   "outputTokens": 125,
+   "thoughtTokens": 0,
+   "ms": 2149,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "search_document",
+    "read_document"
+   ],
+   "reads": 1,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5657,
+     "ms": 718,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3517,
+      "cachedInputTokens": 0,
+      "outputTokens": 27,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 6944,
+     "ms": 756,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4706,
+      "cachedInputTokens": 0,
+      "outputTokens": 40,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 7821,
+     "ms": 667,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5516,
+      "cachedInputTokens": 2021,
+      "outputTokens": 58,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the log file, node **db-2** reported high disk usage (payments-service.log L11340):\n\n* **Node:** `db-2` (`/var/lib/postgres`)\n* **Disk fullness:** **95%**"
+  }
+ ],
+ "passed": true
+}

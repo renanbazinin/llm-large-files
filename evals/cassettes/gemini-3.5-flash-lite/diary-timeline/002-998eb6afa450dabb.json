@@ -1,0 +1,74 @@
+{
+ "n": 2,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "998eb6afa450dabb",
+  "bytes": 32107,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "19833 chars #3323b290"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "111 chars #101f0539"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "- **שבוע 1 (1–8 באוקטובר 2026)**:\n  - **יום ראשון, 4 באוקטובר 2026 (אירוע חריג)**:\n    - מתי התחיל: 02:17 (L138)\n    - מתי הסתיים: 07:40 (L149)\n    - מה קרה: התראת לחות בחדר השרתים בקומה 3 עקב צינור שהתפוצץ בקומה שמעל ומים שטיפו מהתקרה מעל ארונות 4 עד 6. ארונות 4 עד 6 כובו כדי להגן על הציוד והשירותים הועברו לאתר המשני (L138-L140). לאחר ייבוש ובדיקה, הארונות הודלקו מחדש והשירותים חזרו לאתר הראשי (L149).",
+        "thoughtSignature": "EpYBCpMBAWkUfRPSDhxeoMn108bwudoNf0DOFLmw7kSdWfRfop2ZvBoysVxM0sEft3s6kxBCLCWE3dSznC+ewBi2b3gcSEx0jwk4fk+RywHNv2F72637xuTH1QtgZpO0RmpdftHnWX4C4fQ/IULhYZnUu90piErtOMjhwRoByJoDY6tzQXt4h0CROPGrwy1ycjRNJm2nye1w"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 12090,
+    "candidatesTokenCount": 224,
+    "totalTokenCount": 12314,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 12090
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "kgoFa-THCpqM28oP0M7usQE"
+  }
+ }
+}

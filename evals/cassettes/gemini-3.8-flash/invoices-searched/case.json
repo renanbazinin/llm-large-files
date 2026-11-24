@@ -1,0 +1,85 @@
+{
+ "case": "invoices-searched",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 750",
+     "status": "pass"
+    },
+    {
+     "fact": "number 18714659.5 ±1",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 6961,
+   "cachedInputTokens": 1323,
+   "outputTokens": 396,
+   "thoughtTokens": 255,
+   "ms": 11797,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5307,
+     "ms": 7948,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3346,
+      "cachedInputTokens": 0,
+      "outputTokens": 146,
+      "thoughtTokens": 85
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 5464,
+     "ms": 3764,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3615,
+      "cachedInputTokens": 1323,
+      "outputTokens": 250,
+      "thoughtTokens": 170
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "על פי הנתונים בקובץ **חשבוניות.csv**:\n\n* **כמות החשבוניות בסטטוס 'באיחור':** 750 חשבוניות.\n* **הסכום הכולל שלהן:** 18,714,659.5 ש\"ח (או יחידות מטבע)."
+  }
+ ],
+ "passed": true
+}

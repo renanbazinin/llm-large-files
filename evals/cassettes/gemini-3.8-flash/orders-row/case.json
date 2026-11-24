@@ -1,0 +1,60 @@
+{
+ "case": "orders-row",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says pending",
+     "status": "pass"
+    },
+    {
+     "fact": "number 93.7",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 51527,
+   "cachedInputTokens": 49473,
+   "outputTokens": 179,
+   "thoughtTokens": 135,
+   "ms": 3760,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 61105,
+     "ms": 3760,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 51527,
+      "cachedInputTokens": 49473,
+      "outputTokens": 179,
+      "thoughtTokens": 135
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the file, the details for order **41877** are:\n\n* **Status:** pending\n* **Amount:** $93.70 (or 93.70)"
+  }
+ ],
+ "passed": true
+}

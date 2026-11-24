@@ -1,0 +1,337 @@
+{
+ "case": "contract-summary",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "whole-read",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says 45 days",
+     "status": "pass"
+    },
+    {
+     "fact": "says four hours",
+     "status": "pass"
+    },
+    {
+     "fact": "number 48000",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 18,
+   "inputTokens": 51733,
+   "cachedInputTokens": 5298,
+   "outputTokens": 45285,
+   "thoughtTokens": 21324,
+   "ms": 231893,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "read_document",
+    "read_document",
+    "analyze_whole_document"
+   ],
+   "reads": 2,
+   "wholeReads": 1,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5418,
+     "ms": 3436,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3492,
+      "cachedInputTokens": 0,
+      "outputTokens": 182,
+      "thoughtTokens": 148
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 6129,
+     "ms": 2501,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4358,
+      "cachedInputTokens": 2306,
+      "outputTokens": 117,
+      "thoughtTokens": 82
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 6832,
+     "ms": 6897,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5154,
+      "cachedInputTokens": 2340,
+      "outputTokens": 547,
+      "thoughtTokens": 317
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.8-flash",
+     "detail": "part 1 of 5",
+     "callId": "call_3",
+     "ms": 11299,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2218,
+      "cachedInputTokens": 0,
+      "outputTokens": 1453,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_5",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.8-flash",
+     "detail": "part 2 of 5",
+     "callId": "call_3",
+     "ms": 22252,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2257,
+      "cachedInputTokens": 0,
+      "outputTokens": 1290,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_6",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.8-flash",
+     "detail": "part 3 of 5",
+     "callId": "call_3",
+     "ms": 22380,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2229,
+      "cachedInputTokens": 0,
+      "outputTokens": 1316,
+      "thoughtTokens": 0
+     }
+    },
+    {
+     "requestId": "req_7",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.8-flash",
+     "detail": "part 4 of 5",
+     "callId": "call_3",
+     "ms": 30535,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2238,
+      "cachedInputTokens": 0,
+      "outputTokens": 2633,
+      "thoughtTokens": 1562
+     }
+    },
+    {
+     "requestId": "req_8",
+     "role": "reader",
+     "purpose": "part",
+     "model": "gemini-3.8-flash",
+     "detail": "part 5 of 5",
+     "callId": "call_3",
+     "ms": 15973,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 1132,
+      "cachedInputTokens": 0,
+      "outputTokens": 2101,
+      "thoughtTokens": 1412
+     }
+    },
+    {
+     "requestId": "req_9",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.8-flash",
+     "detail": "round 1: 1 of 4",
+     "callId": "call_3",
+     "ms": 17658,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 1714,
+      "cachedInputTokens": 0,
+      "outputTokens": 2043,
+      "thoughtTokens": 1150
+     }
+    },
+    {
+     "requestId": "req_10",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.8-flash",
+     "detail": "round 1: 2 of 4",
+     "callId": "call_3",
+     "ms": 11542,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 1552,
+      "cachedInputTokens": 0,
+      "outputTokens": 1482,
+      "thoughtTokens": 228
+     }
+    },
+    {
+     "requestId": "req_11",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.8-flash",
+     "detail": "round 1: 3 of 4",
+     "callId": "call_3",
+     "ms": 17719,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 1579,
+      "cachedInputTokens": 0,
+      "outputTokens": 2475,
+      "thoughtTokens": 1294
+     }
+    },
+    {
+     "requestId": "req_12",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.8-flash",
+     "detail": "round 1: 4 of 4",
+     "callId": "call_3",
+     "ms": 19651,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2036,
+      "cachedInputTokens": 0,
+      "outputTokens": 2845,
+      "thoughtTokens": 1600
+     }
+    },
+    {
+     "requestId": "req_13",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.8-flash",
+     "detail": "round 2: 1 of 2",
+     "callId": "call_3",
+     "ms": 22322,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2401,
+      "cachedInputTokens": 0,
+      "outputTokens": 3327,
+      "thoughtTokens": 1694
+     }
+    },
+    {
+     "requestId": "req_14",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.8-flash",
+     "detail": "round 2: 2 of 2",
+     "callId": "call_3",
+     "ms": 58520,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5360,
+      "cachedInputTokens": 652,
+      "outputTokens": 8238,
+      "thoughtTokens": 5192
+     }
+    },
+    {
+     "requestId": "req_15",
+     "role": "reader",
+     "purpose": "merge",
+     "model": "gemini-3.8-flash",
+     "detail": "round 3: 1 of 1",
+     "callId": "call_3",
+     "ms": 40779,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3523,
+      "cachedInputTokens": 0,
+      "outputTokens": 6001,
+      "thoughtTokens": 3497
+     }
+    },
+    {
+     "requestId": "req_16",
+     "role": "reader",
+     "purpose": "final",
+     "model": "gemini-3.8-flash",
+     "detail": "the answer",
+     "callId": "call_3",
+     "ms": 52161,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2776,
+      "cachedInputTokens": 0,
+      "outputTokens": 6871,
+      "thoughtTokens": 3148
+     }
+    },
+    {
+     "requestId": "req_17",
+     "role": "answer",
+     "purpose": "closing",
+     "model": "gemini-3.8-flash",
+     "turn": 4,
+     "estimatedInputTokens": 10938,
+     "ms": 17391,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7714,
+      "cachedInputTokens": 0,
+      "outputTokens": 2364,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "להלן סיכום מלא ומקיף של חוזה שירותי תחזוקה מס' 2026/114 שנחתם בין **אורן מערכות בע\"מ** (\"המזמין\") לבין **קור-טק שירותים בע\"מ** (\"הספק\") (contract-1 L1–L2), בהתבסס על כל סעיפי החוזה מתחילתו ועד סופו:\n\n---\n\n### 1. מה הספק מתחייב לעשות\n* **הגעת טכנאי וזמני תגובה:** הגעת טכנאי למחסן באשדוד בתוך **4 שעות** מקריאה דחופה, ובתוך **יומיים** מקריאה רגילה (contract-1 L6, L16, L26 ועוד).\n* **מלאי חלקי חילוף:** החזקת מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (contract-1 L4, L14, L24 ועוד).\n* **ביקורי תחזוקה ודיווח:** ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון ומסירת דוח על הביקור (contract-1 L22, L32 ועוד).\n* **תיאום השבתות מראש:** תיאום מראש עם מנהל האתר לפני כל עבודה במפעל בקריית גת שמחייבת השבתה (contract-1 L9, L19, L29 ועוד).\n* **ניהול לקוח:** מינוי מנהל לקוח אחד שירכז את הקשר עם המזמין (contract-1 L11, L21, L31 ועוד).\n* **ביטוחים:** ביטוח עובדי הספק בביטוח חבות מעבידים ובביטוח צד שלישי (contract-1 L17, L27, L37 ועוד).\n\n---\n\n### 2. מה המזמין מתחייב לעשות (וזכויותיו)\n* **תשלום תמורה:** תשלום התמורה בתוך **45 ימים** מיום קבלת חשבונית מס כדין (contract-1 L3, L13, L33 ועוד).\n* **זכות ביקורת:** המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (contract-1 L10, L20, L30 ועוד).\n\n---\n\n### 3. התחייבויות הדדיות של שני הצדדים\n* **סודיות:** שני הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות (contract-1 L8, L38 ועוד).\n* **שינויים בהסכם:** כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים (contract-1 L5, L15, L25 ועוד).\n\n---\n\n### 4. באילו מקרים הספק משלם קנס ובאילו סכומים\nבחוזה מוגדרים קנסות רבים, רובם פרטניים לפי אתרי החברה, לצד קנסות כלליים:\n\n#### א. מרכז הלוגיסטיקה בחולון\n* איחור בתגובה לקריאת שירות דחופה – **1,000 ש\"ח** לכל מקרה (contract-1 L7).\n* אי-הגשת דוח תחזוקה חודשי במועד – **3,250 ש\"ח** לכל מקרה (contract-1 L87).\n* הפרת הוראות בטיחות באתר – **5,500 ש\"ח** לכל מקרה (contract-1 L166).\n* שימוש בחלפים לא מקוריים – **9,750 ש\"ח** לכל מקרה (contract-1 L34).\n* אי-ביצוע תחזוקה מונעת במועד – **12,000 ש\"ח** לכל מקרה (contract-1 L113).\n* השארת פסולת באתר לאחר עבודה – **14,250 ש\"ח** לכל מקרה (contract-1 L193).\n* אי-תיעוד קריאת שירות במערכת – **18,500 ש\"ח** לכל מקרה (contract-1 L60).\n* אי-עמידה בזמני התיקון שנקבעו בנספח השירות – **20,750 ש\"ח** לכל מקרה (contract-1 L140).\n\n#### ב. המשרדים בתל אביב\n* אי-עמידה בזמני התיקון שנקבעו בנספח השירות – **2,750 ש\"ח** לכל מקרה (contract-1 L12).\n* החלפת טכנאי ללא הודעה מוקדמת – **5,000 ש\"ח** לכל מקרה (contract-1 L92).\n* אובדן ציוד המזמין – **7,250 ש\"ח** לכל מקרה (contract-1 L171).\n* הפרת הוראות בטיחות – **11,500 ש\"ח** לכל מקרה (contract-1 L39).\n* עבודה ללא אישור כניסה בתוקף – **13,750 ש\"ח** לכל מקרה (contract-1 L118).\n* איחור בתגובה לקריאה דחופה – **16,000 ש\"ח** לכל מקרה (contract-1 L198).\n* השבתת מערכת הקירור מעבר לארבע שעות – **22,500 ש\"ח** לכל מקרה (contract-1 L145).\n\n#### ג. המפעל בקריית גת\n* השבתת מערכת הקירור מעבר לארבע שעות – **4,500 ש\"ח** לכל מקרה (contract-1 L18).\n* שימוש בחלקי חילוף לא מקוריים – **6,750 ש\"ח** לכל מקרה (contract-1 L97).\n* אי-ביצוע תחזוקה מונעת במועד – **9,000 ש\"ח** לכל מקרה (contract-1 L177).\n* אובדן ציוד המזמין – **13,250 ש\"ח** לכל מקרה (contract-1 L44).\n* אי-תיעוד קריאת שירות במערכת – **15,500 ש\"ח** לכל מקרה (contract-1 L124).\n* איחור בתגובה לקריאה דחופה – **22,000 ש\"ח** לכל מקרה (contract-1 L71).\n\n#### ד. הסניף בחיפה\n* החלפת טכנאי ללא הודעה מוקדמת – **2,000 ש\"ח** לכל מקרה (contract-1 L155).\n* אי-הגשת דוח תחזוקה חודשי במועד – **6,250 ש\"ח** לכל מקרה (contract-1 L23).\n* הפרת הוראות בטיחות באתר – **8,500 ש\"ח** לכל מקרה (contract-1 L102).\n* עבודה ללא אישור כניסה בתוקף – **10,750 ש\"ח** לכל מקרה (contract-1 L182).\n* אי-ביצוע תחזוקה מונעת במועד – **15,000 ש\"ח** לכל מקרה (contract-1 L49).\n* השארת פסולת באתר לאחר עבודה – **17,250 ש\"ח** לכל מקרה (contract-1 L129).\n* אי-עמידה בזמני התיקון שנקבעו בנספח השירות – **23,750 ש\"ח** לכל מקרה (contract-1 L76).\n\n#### ה. המחסן באשדוד\n* השבתת מערכת הקירור מעבר לארבע שעות – **1,500 ש\"ח** לכל מקרה (contract-1 L81).\n* שימוש בחלקי חילוף לא מקוריים – **3,750 ש\"ח** לכל מקרה (contract-1 L161).\n* החלפת טכנאי ללא הודעה מוקדמת – **8,000 ש\"ח** לכל מקרה (contract-1 L28).\n* אובדן ציוד המזמין – **10,250 ש\"ח** לכל מקרה (contract-1 L108).\n* אי-תיעוד קריאת שירות במערכת – **12,500 ש\"ח** לכל מקרה (contract-1 L187).\n* עבודה ללא אישור כניסה בתוקף – **16,750 ש\"ח** לכל מקרה (contract-1 L55).\n* איחור בתגובה לקריאה דחופה – **19,000 ש\"ח** לכל מקרה (contract-1 L134).\n\n#### ו. קנסות כלליים\n* **איחור באספקת חלקי חילוף:** קנס בשיעור של **5% מערך ההזמנה** לכל שבוע של איחור (contract-1 L65).\n* **דליפת מידע של לקוחות המזמין:** פיצוי/קנס בסך **48,000 ש\"ח** (contract-1 L150).\n\n*(הערת מבנה: החוזה בנוי במתכונת מחזורית שבה עשרת סעיפי היסוד של התחייבויות הצדדים חוזרים ונשנים בין סעיפי הקנסות השונים לכל אורך 202 שורות המסמך).*"
+  }
+ ],
+ "passed": true
+}

@@ -1,0 +1,49 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "ce7bd95308e47ce3",
+  "bytes": 1146,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "613 chars #f6f74f7d"
+      },
+      {
+       "text": "45 chars #bb299897"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "103 chars #6ff30f98"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"א\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 369,\"candidatesTokenCount\": 1,\"totalTokenCount\": 370,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 369}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5voA72d3boPycak8AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"חוז העמידה ביעד באזור הדרום ברבעון 3 היה **\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 369,\"candidatesTokenCount\": 18,\"totalTokenCount\": 387,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 369}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5voA72d3boPycak8AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"87%** (יעד של 900 אלפי ש\\\"ח לעומת ביצוע של \"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 369,\"candidatesTokenCount\": 42,\"totalTokenCount\": 411,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 369}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5voA72d3boPycak8AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"783 אלפי ש\\\"ח).\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 369,\"candidatesTokenCount\": 51,\"totalTokenCount\": 420,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 369}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5voA72d3boPycak8AU\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRO/I/HgsH4NJkCGCiVVogA6+mZoK+KWXzS+XZ1r7Yoxkl/v68vJ6oWyc8FD7NcsUfwi7ymV+K8DaIQuQIJ7ojGQbWYBvPeyLnuztcCV2VcK3oyGnWd6Dt5f3O3eYTdqiqewHCmkSlYBD1aFcIta4ABgGyZHsXK2Pktviunr6ZHwRpqnlaH3nTF0Sb2arQLy\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 369,\"candidatesTokenCount\": 51,\"totalTokenCount\": 420,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 369}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ge4Ea5voA72d3boPycak8AU\"}\r\n\r\n"
+  ]
+ }
+}

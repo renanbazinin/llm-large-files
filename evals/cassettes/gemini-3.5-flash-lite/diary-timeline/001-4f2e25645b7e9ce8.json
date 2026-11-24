@@ -1,0 +1,102 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "4f2e25645b7e9ce8",
+  "bytes": 13574,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3046 chars #48a1a980"
+      },
+      {
+       "text": "144 chars #97e5e7a9"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1985 chars #96da3494"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{2 keys} #64ffba42",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"analyze_whole_document\",\"args\": {\"task\": \"צור ציר זמן של החודש, שבוע אחר שבוע: מה קרה בכל שבוע, ולכל אירוע חריג מתי התחיל, מתי הסתיים ומה קרה.\",\"document_id\": \"diary-1\"},\"id\": \"call_12638540319498977720\"},\"thoughtSignature\": \"EpYBCpMBAWkUfROWbAEROkMwo5ycOh02f2tC0T5xCycWVW7WgN/N+miVx1rsuqJYTGtQqEI2SwWpSILOOnJbRV0j9tOKrV1vjooztguHj2mZUD5R9wK8L3egigja48l/WB9kU2/3FF7YjGpHXtNQIr1/LwMQ0a5yFbeIfr58v69oWsINXpK+fTxIicqnyx7kNZqsJeh8x5nB\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4123,\"candidatesTokenCount\": 71,\"totalTokenCount\": 4194,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4123}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"kQoFa-6ZD6iUvdIP66ur2As\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 4123,\"candidatesTokenCount\": 71,\"totalTokenCount\": 4194,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 4123}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"kQoFa-6ZD6iUvdIP66ur2As\"}\r\n\r\n"
+  ]
+ }
+}

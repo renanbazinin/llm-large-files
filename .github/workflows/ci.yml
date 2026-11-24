@@ -129,3 +129,18 @@ jobs:
             for (const name of ["lines", "statements", "functions", "branches"]) console.log(`| ${name} | ${total[name].pct}% | ${total[name].covered} of ${total[name].total} |`);
             if (process.argv[1] !== "success") console.log("\nnpm run coverage failed: a test failed, or a total is under its threshold in vitest.config.ts (see that step). The figures count the tests that ran.");
           ' "${{ steps.coverage.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+
+  evals-replay:
+    # The eval cases (evals/), replayed from their recordings in evals/cassettes, without the network
+    # or a key: a fork's pull request runs it too. A change to what the library sends a model fails
+    # with "prompt changed: re-record", naming the case and the request; a fact that an answer held
+    # when it was recorded must hold again. CONTRIBUTING.md says how to record them again.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run eval:replay

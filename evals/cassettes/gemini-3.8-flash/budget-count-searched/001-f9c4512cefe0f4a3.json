@@ -1,0 +1,103 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "f9c4512cefe0f4a3",
+  "bytes": 11090,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "1873 chars #329af82b"
+      },
+      {
+       "text": "45 chars #6f91a3f8"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1981 chars #719d3441"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{2 keys} #64ffba42",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"read_document\",\"args\": {\"end_line\": 55,\"start_line\": 1,\"document_id\": \"budget-1\"},\"id\": \"call_6195384185955392137\"},\"thoughtSignature\": \"EosECogEAWkUfRPgQNk2MCssRSSM/ELBx4bQmRBizbfCJjqHQJVkXXbjIuRMaPJqe9wQBSELx5Vxpw5MPmFJ18TfLnJ5JDNJOOIw60jY3vi5EGkjLgnh1ALR8gtIbWEcMdtvS7C/NqhEc0cUOc/rpML7nEkEeYKT/yp/LbHBrgWNvPd/ei6pKgZL9Lvb3EYUeXFQWn8sv91B+6JfgKs87GbKteUKq2ozQN8OakMT0n40J9zjUF5oqCdsVpb7YwGnghtGik9xl8wj/bPNku+zztfZADtZ4MXenfkKpB3VcMHkWFd3S7Rm/cfp5arJC+N4DGN+0auhp22x1vbN2T18VPS6i5A53yixFYMIf9Sj42bDRpCGwEYay6sD5MqtiTczKsVy5tpzJS7VjmwdA6EiEbrupgMPHfnjQn5srgIRDzXNQlB1TKjDDOXsExk2MxVTT8W9f8hWbU5SArrAdH9tomkkQT3kSz97DW+DFTzgHKsqLU9/syMFTpJ0MqfdLMzvZ7SJqMK7LiGwtAmbcI+dE3Il2XOOwFiw07uzFXn9hM547FCtWdldIPLtCaL4ZKfXYlSqRrbUnJNwTMzWsL0Xql+wCCpHVxorjA+cLBUdlkIrzwRH+zIVd0raUBY7YpVqc8iYcP3Jn2zYNxqPiZi21Oqpi2ELFQEj/6I3hQUqRPHEjmIKlVgWjHQOhh6IyA==\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"pr",
+   "omptTokenCount\": 3436,\"candidatesTokenCount\": 33,\"totalTokenCount\": 3554,\"cachedContentTokenCount\": 1414,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3436}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 1414}],\"thoughtsTokenCount\": 85,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PO4Ea_6TKvSovdIP7Lqb2Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 3436,\"candidatesTokenCount\": 33,\"totalTokenCount\": 3554,\"cachedContentTokenCount\": 1414,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 3436}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 1414}],\"thoughtsTokenCount\": 85,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"PO4Ea_6TKvSovdIP7Lqb2Ag\"}\r\n\r\n"
+  ]
+ }
+}

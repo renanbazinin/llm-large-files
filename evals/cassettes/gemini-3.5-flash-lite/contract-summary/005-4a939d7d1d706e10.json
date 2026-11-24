@@ -1,0 +1,74 @@
+{
+ "n": 5,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "4a939d7d1d706e10",
+  "bytes": 6726,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "3970 chars #3b5318f7"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "111 chars #101f0539"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "**Supplier Obligations:**\n* Any change in the scope of service must be made in writing and signed by both parties (L95, L105, L115, L125, L135).\n* Supplier's technician shall arrive at the warehouse in Ashdod within 4 hours for an urgent call, and within 2 days for a regular call (L96, L106, L116, L126, L136).\n* Both parties shall keep secret any information received within the framework of the engagement (L98, L128, L138).\n* The supplier shall coordinate in advance with the site manager any work at the Kiryat Gat plant that requires a shutdown (L99, L107, L117, L119, L139).\n* The supplier shall appoint one client manager to coordinate communication with the client (L101, L111, L121, L131).\n* The supplier shall maintain an available spare parts inventory to service the Kiryat Gat plant (L104, L114).\n* The supplier shall insure its employees with employers' liability insurance and third-party insurance (L107, L115, L127, L137).\n* The supplier shall perform a monthly maintenance visit at the logistics center in Holon and submit a report on the visit (L112, L122, L132).\n\n**Client Obligations:**\n* The client is entitled to inspect the quality of service at any time, with prior coordination (L100, L110, L120, L130).\n* The client shall pay the consideration within 45 days from receipt of a lawful tax invoice (L103, L123, L133).\n\n**Fines:**\n* Use of non-original spare parts at the Kiryat Gat plant: 6,750 NIS per case (L97).\n* Breach of safety instructions on site at the Haifa branch: 8,500 NIS per case (L102).\n* Loss of client equipment at the Ashdod warehouse: 10,250 NIS per case (L108).\n* Failure to perform preventive maintenance on time at the Holon logistics center: 12,000 NIS per case (L113).\n* Working without a valid entry permit at the Tel Aviv offices: 13,750 NIS per case (L118).\n* Failure to document a service call in the system at the Kiryat Gat plant: 15,500 NIS per case (L124).\n* Leaving waste on site after work at the Haifa branch: 17,250 NIS per case (L129).\n* Delay in responding to an urgent service call at the Ashdod warehouse: 19,000 NIS per case (L134).",
+        "thoughtSignature": "EpYBCpMBAWkUfRMr46mkODE9/iyr5VF13FBZORYg/Gr7THJ0mhMMtCrcPTM1q+VZRVHG40ABBCVx+jqKoosovJplC3flLxzftnhljCIcSsV/64r0P/Jn0YaaVY9K5gAAZ0UMOd9L2nu5kPlA3zgJeBCMWEfHzJwA6O1B2MqlXWOxD8tUocEnEpaJgRRFPHbcpOyOulZ74uVe"
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 2051,
+    "candidatesTokenCount": 658,
+    "totalTokenCount": 2709,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 2051
+     }
+    ],
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.5-flash-lite",
+   "responseId": "kwoFa_SFIMGe3boP1Py0oQQ"
+  }
+ }
+}

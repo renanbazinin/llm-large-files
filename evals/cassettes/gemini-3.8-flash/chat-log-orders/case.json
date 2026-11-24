@@ -1,0 +1,162 @@
+{
+ "case": "chat-log-orders",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "searched",
+  "follow-up"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 37",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 19712,
+   "cachedInputTokens": 10194,
+   "outputTokens": 655,
+   "thoughtTokens": 432,
+   "ms": 10292,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "search_document",
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 7011,
+     "ms": 2085,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4899,
+      "cachedInputTokens": 2321,
+      "outputTokens": 87,
+      "thoughtTokens": 50
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 8675,
+     "ms": 4055,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 6512,
+      "cachedInputTokens": 2871,
+      "outputTokens": 264,
+      "thoughtTokens": 225
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 10341,
+     "ms": 4123,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8301,
+      "cachedInputTokens": 5002,
+      "outputTokens": 304,
+      "thoughtTokens": 157
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "There are **37** `PAY-5031` errors in `payments-service.log` (occurring between line 17280 and line 25680). \n\nAll 37 occurrences are card processor timeout errors on `[worker-3]` formatted as:\n```text\n2026-11-12T... ERROR [worker-3] PAY-5031 card processor timeout after 30000ms order=<order_id>\n```\n(e.g., lines 17280, 17513, 17747, ..., 25680)."
+  },
+  {
+   "turn": 2,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 500",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 16493,
+   "cachedInputTokens": 12204,
+   "outputTokens": 79,
+   "thoughtTokens": 0,
+   "ms": 3975,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 10500,
+     "ms": 1723,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8169,
+      "cachedInputTokens": 6070,
+      "outputTokens": 47,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 10633,
+     "ms": 2212,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 8324,
+      "cachedInputTokens": 6134,
+      "outputTokens": 32,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "There are **500** orders with the status **pending** in `orders.csv` (out of 3,000 total orders)."
+  }
+ ],
+ "passed": true
+}

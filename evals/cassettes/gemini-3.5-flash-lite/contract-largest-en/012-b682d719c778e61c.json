@@ -1,0 +1,367 @@
+{
+ "n": 12,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "b682d719c778e61c",
+  "bytes": 105885,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2283 chars #7227fca5"
+      },
+      {
+       "text": "68 chars #aed93e91"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #2eae5094",
+        "id": "call_7451633340601258591"
+       },
+       "thoughtSignature": "204 chars #a796dd59"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_7451633340601258591",
+        "response": "{4 keys} #22d6ecfd"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #15d25bd3",
+        "id": "call_1682574649133294047"
+       },
+       "thoughtSignature": "204 chars #cbfd7119"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_1682574649133294047",
+        "response": "{4 keys} #c55e606d"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #ce8b9ed2",
+        "id": "call_7439432665224748144"
+       },
+       "thoughtSignature": "204 chars #bd7c98d8"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_7439432665224748144",
+        "response": "{4 keys} #4c4d2a22"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #0bc9cc59",
+        "id": "call_8199983222462150808"
+       },
+       "thoughtSignature": "204 chars #11bea7c0"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_8199983222462150808",
+        "response": "{4 keys} #985d8ff5"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #9f064e2d",
+        "id": "25 chars #c407ee47"
+       },
+       "thoughtSignature": "204 chars #57a3f403"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #c407ee47",
+        "response": "{5 keys} #f0ae9d31"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #963ca68d",
+        "id": "25 chars #72b4a3e8"
+       },
+       "thoughtSignature": "204 chars #96c6d596"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #72b4a3e8",
+        "response": "{4 keys} #8b9b8590"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{2 keys} #a2286cd1",
+        "id": "call_6705495739185520357"
+       },
+       "thoughtSignature": "204 chars #c4722dd4"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_6705495739185520357",
+        "response": "{4 keys} #5a084a2a"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #c14d5724",
+        "id": "call_4753894394612492122"
+       },
+       "thoughtSignature": "204 chars #976d632a"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_4753894394612492122",
+        "response": "{2 keys} #5f1eb47f"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #a14d0ab4",
+        "id": "25 chars #9f680d91"
+       },
+       "thoughtSignature": "204 chars #598399c4"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "25 chars #9f680d91",
+        "response": "{7 keys} #20ae4268"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #c626b9bd",
+        "id": "call_695371946161804320"
+       },
+       "thoughtSignature": "204 chars #b6a7492c"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_695371946161804320",
+        "response": "{6 keys} #16b88692"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #f0c16c3e",
+        "id": "call_8722754214088295204"
+       },
+       "thoughtSignature": "204 chars #8fd89e55"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_8722754214088295204",
+        "response": "{6 keys} #0d171cf7"
+       }
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "179 chars #5bc1634b"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1984 chars #76e73369"
+     }
+    ]
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Based\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 32650,\"candidatesTokenCount\": 1,\"totalTokenCount\": 32651,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 32650}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ku4Ea-3HF8nRxN8PipPbkAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" on the contract, the largest fine is **48,000 NIS\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 32650,\"candidatesTokenCount\": 17,\"totalTokenCount\": 32667,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 32650}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ku4Ea-3HF8nRxN8PipPbkAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"**, which is specified for a breach involving customer data leaks (contract-1 L150). \\n\\nIt is located\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 32650,\"candidatesTokenCount\": 42,\"totalTokenCount\": 32692,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 32650}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ku4Ea-3HF8nRxN8PipPbkAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" in **Clause 148** (contract-1 L150):\\n\\u003e \\\"בגין ד\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 32650,\"candidatesTokenCount\": 66,\"totalTokenCount\": 32716,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 32650}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ku4Ea-3HF8nRxN8PipPbkAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ליפת מידע של לקוחות המזמין באחריות הספק ישלם הספק למזמין\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 32650,\"candidatesTokenCount\": 90,\"totalTokenCount\": 32740,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 32650}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ku4Ea-3HF8nRxN8PipPbkAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" קנס בסך 48,000 ש\\\"ח, בנוסף לכל סעד אחר.\\\"\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 32650,\"candidatesTokenCount\": 113,\"totalTokenCount\": 32763,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 32650}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ku4Ea-3HF8nRxN8PipPbkAk\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfRMsNxRmsC9gJnYyyMaONGEQAv+FwjgyFgY5nefmF5K9GvMwrWqKmWGCd2TzTePrfL2XhcdKS5RAYoG95TttAcU8Mnnu9Eh09C6BiN2BTojH6S9PIHUs/7gpaFZHntaTEu2ZkUQ26KjB8sXuLITSfAvI2pUgpIt4Ge2Y38B2V0c0D+g+uNkO1REvDsrZN0wE\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 32650,\"candidatesTokenCount\": 113,\"totalTokenCount\": 32763,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 32650}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"Ku4Ea-3HF8nRxN8PipPbkAk\"}\r\n\r\n"
+  ]
+ }
+}

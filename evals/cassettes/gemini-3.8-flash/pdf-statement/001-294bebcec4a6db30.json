@@ -1,0 +1,70 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "294bebcec4a6db30",
+  "bytes": 2402,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "466 chars #06b3a1b3"
+      },
+      {
+       "text": "49 chars #dcbef1aa"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "808 chars #939ed7f6"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "view_pages",
+       "description": "284 chars #fc39aebc",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #80d11510",
+        "required": "[2 items] #bfa97534"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על פי דף החשבון:\\n\\n* **יתרת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 710,\"candidatesTokenCount\": 14,\"totalTokenCount\": 912,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 710}],\"thoughtsTokenCount\": 188,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"ou4Ea5OMLK6H28oPkZym8Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" הסגירה:** 4,167.90 ש\\\"ח\\n* **הסכום שש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 710,\"candidatesTokenCount\": 39,\"totalTokenCount\": 937,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 710}],\"thoughtsTokenCount\": 188,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"ou4Ea5OMLK6H28oPkZym8Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ולם לחברת החשמל:** 118.00 ש\\\"ח (הוראת קבע בת\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 710,\"candidatesTokenCount\": 63,\"totalTokenCount\": 961,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 710}],\"thoughtsTokenCount\": 188,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"ou4Ea5OMLK6H28oPkZym8Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"אריך 05/01)\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 710,\"candidatesTokenCount\": 72,\"totalTokenCount\": 970,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 710}],\"thoughtsTokenCount\": 188,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"ou4Ea5OMLK6H28oPkZym8Ag\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"Eq8GCqwGAWkUfRMvbQYD5cB3GqikWq56MhU0PuiKmj+oPS0uTblfGDSza0yWAhcyDsdZ8BMSfjqDShwCEeGXqNTQshqFr2uEf8YW73rjpYydc9Pg/fuQbHMNdIiOA5DnYvoJd3H+6nSfEL75DQBRBQaTkQmS0kTkKvQt/76AKVW9p5pt//VgEPc2b7gmUDhR/AlXuAyW555z0TSYAkYgZuwJkjriSfqC7VVB58MHrzakjiWp334POT/KWkz6c5vi+BdX6bv/59N2xM9//GboS4LAWapSqsc2ktXTCQg6bFogg8RPT1ypMfKYyn4+IdhIcJzsIKCimchSiF/Sc10AmPxwvW5j9YBcmgdKUQGzdVheszMGTSiKWuyCtP9ycnY0RK2o1nf5C6XlGMTizIh9B1YKFEuIJIebbpn4Q201LAg7GzZT06UjhdOImJuyOrjYf6NKzLvAR3JxNsU6L5ryrDQuXyjOMXk7ptBKIVZw+LChAG3UsKaZK3Sae3yUykHX+++Bqnz7j+FiFnUjVO9VUs8yraHBXwF1OxvXFjm3kZLUcQdtbbBuiGfjaq18UyWCVVwPVChxnttonhKWL/7/vVswxqaCvy2rUJ6T2kd6IFqweK5OhRVhfBxQLOcRfigPRdKmwPkcg2iyMwkWKeP9ItZvu52ikHHrBXz0s7Q+J29+3bCHRMpQcqakIe23e6owmVhgggwC1npMoL57u3OaHmabi8t6Bk0WvM6U2EoiGxXQRvdW1t4VCJcFycstK44HJMSawhxamnnYbNpLYfOMtaa0jELFAc+VeIuddpYt1stj1Pas05rV34TBZz0qbluC04Pt3sioH2yMXGOzcosUnpMfTS4hlrBeQzCX7uy8E+mQr4gH0wTF7yHY7J/9v1tsR6ka9KVJcKUICefCRBKB7PDtzQsmhuheuyvuidibyec900Vzt6hDKLbs0Dd4ZyCWMTwPEp+ljbHzFHh4MIGUW48KDxpdv1TobsV9aSDZjRbUfgA5Enefe030a22Rvtgtate6TNGCFD7kjkxkl3vEGHnfNEwnO3aHK2nGS+3W8VDHD+jrxQdetRgFbPRnifCFYN0=\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 710,\"candidatesTokenCount\": 72,\"totalTokenCount\": 970,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCoun",
+   "t\": 710}],\"thoughtsTokenCount\": 188,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"ou4Ea5OMLK6H28oPkZym8Ag\"}\r\n\r\n"
+  ]
+ }
+}

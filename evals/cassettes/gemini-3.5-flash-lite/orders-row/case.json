@@ -1,0 +1,62 @@
+{
+ "case": "orders-row",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says pending",
+     "status": "pass"
+    },
+    {
+     "fact": "number 93.7",
+     "status": "fail",
+     "detail": "numbers in the answer: 41877, 80.9"
+    }
+   ],
+   "passed": false,
+   "requests": 1,
+   "inputTokens": 51527,
+   "cachedInputTokens": 0,
+   "outputTokens": 37,
+   "thoughtTokens": 0,
+   "ms": 1037,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 61105,
+     "ms": 1036,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 51527,
+      "cachedInputTokens": 0,
+      "outputTokens": 37,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "Based on the orders file, here are the details for **order 41877**:\n\n* **Status:** pending\n* **Amount:** $80.90",
+   "answer": "Based on the orders file, here are the details for **order 41877**:\n\n* **Status:** pending\n* **Amount:** $80.90"
+  }
+ ],
+ "passed": false
+}

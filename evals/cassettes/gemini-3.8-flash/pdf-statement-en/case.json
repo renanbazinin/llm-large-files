@@ -1,0 +1,60 @@
+{
+ "case": "pdf-statement-en",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 2400",
+     "status": "pass"
+    },
+    {
+     "fact": "says 03/01 (3 January)",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 700,
+   "cachedInputTokens": 0,
+   "outputTokens": 229,
+   "thoughtTokens": 202,
+   "ms": 3430,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 2636,
+     "ms": 3429,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 700,
+      "cachedInputTokens": 0,
+      "outputTokens": 229,
+      "thoughtTokens": 202
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "A salary of **2,400.00 NIS** was credited to the account on **03/01**."
+  }
+ ],
+ "passed": true
+}

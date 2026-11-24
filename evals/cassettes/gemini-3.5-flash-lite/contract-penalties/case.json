@@ -1,0 +1,102 @@
+{
+ "case": "contract-penalties",
+ "model": "gemini-3.5-flash-lite",
+ "language": "he",
+ "kinds": [
+  "count",
+  "searched",
+  "whole-read"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 37",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 3,
+   "inputTokens": 22373,
+   "cachedInputTokens": 6101,
+   "outputTokens": 118,
+   "thoughtTokens": 0,
+   "ms": 2003,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "search_document",
+    "search_document"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 5361,
+     "ms": 660,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3437,
+      "cachedInputTokens": 0,
+      "outputTokens": 27,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 9902,
+     "ms": 601,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 7989,
+      "cachedInputTokens": 0,
+      "outputTokens": 41,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 3,
+     "estimatedInputTokens": 12615,
+     "ms": 735,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 10947,
+      "cachedInputTokens": 6101,
+      "outputTokens": 50,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "בחוזה שירותי התחזוקה ישנם **37** סעיפי קנס (סעיפים העוסקים בתשלום קנסות מטעם הספק למזמין בגין הפרות שונות)."
+  }
+ ],
+ "passed": true
+}

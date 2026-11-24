@@ -1134,6 +1134,77 @@ The credentials are the application default credentials, as on your servers: see
 [Gemini and Vertex AI](./vertex-and-gemini.md). For another provider, swap the adapter:
 [OpenAI-compatible endpoints](./openai-compatible.md), [Claude](./anthropic.md).
 
+## The library's own evals
+
+The repository has an eval suite in `evals/`: about 50 Hebrew and English questions over synthetic
+files (a Hebrew policy in Word, a budget workbook with two header rows, a windows-1255 CSV of 3,000
+rows, a deck, a 3 MB service log, a shift diary, Hebrew PDFs, a contract), each with the facts its
+answer must hold. It is how the library checks that a change to what it sends a model keeps the
+answers right. It is not part of the package. To run it, clone the repository and `npm install`:
+
+```bash
+npm run eval:replay                        # every case from its recording: no network, no key
+npm run eval:recheck                       # the facts checked again on the recorded answers
+GEMINI_API_KEY=… npm run eval:record       # each case once against the Gemini API, recorded
+GEMINI_API_KEY=… npm run eval:live -- --k 3
+```
+
+- **Replay** answers each request from `evals/cassettes`, and checks the facts again on the
+  recorded answers. CI runs it on every pull request. A request that changed fails with
+  "prompt changed: re-record", with the case, the request and the first field that differs (the
+  method, the URL, or a field of the body). A fact that held when recorded must hold again. A case
+  that asks for a whole-file read must have made one when it was recorded, so its part, merge and
+  final requests are in its cassette and a change to those prompts fails too.
+- **Recheck** is a replay that writes each case's facts, checked on its recorded answer, to the
+  cassette. Run it after you change a fact and no request: a replay whose facts changed since the
+  recording fails with "facts changed" until you do.
+- **Record** runs each case once on each model (Gemini 3.5 Flash-Lite and 3.8 Flash by default), and
+  writes its cassette: each request as a hash with an outline of its fields, and the response. A
+  cassette holds no request text and no project ID. Request headers are written from a short list
+  (content-type, accept, anthropic-version, anthropic-beta); every other header value, and every
+  URL parameter but `alt` and `api-version`, is written as `<redacted>`.
+- **Live** runs each case k times. A case passes only when every run passes (pass^k): a real model
+  answers a little differently each time. A workflow of the repository runs it every week and on
+  demand, once the repository has the `GEMINI_API_KEY` secret; until then it skips with a notice.
+
+Record and live fail a case when a question ends with an error (a refused key, a quota), when a case
+not known to fail on 0.9.0 misses pass^k, or when a fact that held in every run of the baseline
+fails now. Each writes a report, `evals/results/<mode>.md`, with the runs as JSON beside it
+(`<mode>.json`, answers included). A replay or a recheck writes one only when given `--results`.
+The report gives, for each case and model, whether it passed, the requests (mean and median), the
+share of questions answered in one request, reads and whole reads per question, input tokens, the
+cached share, latency, whether the question's input-token ceiling was reached, and the line
+citations checked per answer. For each model it figures the release gates: counts right, Hebrew
+lookups right, Hebrew answered in Hebrew, citations inside what the tools showed, the requests of
+inline-table questions, and the facts lost against the baseline, which it lists. The baseline is
+the report of 0.9.0, `evals/baseline/0.9.0.md` (runs in `0.9.0.json`). Its answers are kept, so its
+facts are checked again as the cases say now.
+
+| Option | What it does |
+| --- | --- |
+| `--k 3` | Runs of each case, live. |
+| `--models a,b` | The Gemini models. |
+| `--cases id,id` | Only these cases (their IDs are in `evals/cases.ts`). |
+| `--results file.json` | Adds the runs to this file, and writes its report beside it. |
+| `--title "…"` | The title of the report. |
+| `--notes notes.md` | Markdown put under the report's title. |
+| `--baseline file.json` | The results to compare facts with (`evals/baseline/0.9.0.json` by default; `none` for no comparison). |
+| `--max-input-tokens N` | No question starts once the run has used this many input tokens. |
+| `--question-input-tokens N` | A question that uses more is stopped (1,500,000 by default). |
+| `--concurrency N` | Cases run at once (4 against the API, 8 in a replay, by default). |
+
+`node evals/cli.mjs report --results file.json` writes the report of a results file again.
+
+A fact is a number (to a tolerance, and next to its label when the value belongs to one row), a
+text the answer must say or must not say, a line the answer must cite, or the language: a Hebrew
+question is answered with at least 60% Hebrew letters, once citations, file names, numbers, code,
+identifiers, names and Latin glosses are left out. Facts read the answer without its markdown
+emphasis.
+
+The record and replay under it is internal to `evals/` for now. It becomes public in
+`llm-large-files/testing` in 0.10.x, for recording the questions of your own app the same way;
+until then, [Recorded replies](#recorded-replies) shows a small version to copy.
+
 ## Reference
 
 - `fakeModel`, `says`, `calls`, `httpError`, `fakeFetch`, `sse`, `utf8`, `serviceLog` and

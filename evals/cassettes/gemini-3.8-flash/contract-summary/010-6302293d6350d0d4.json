@@ -1,0 +1,75 @@
+{
+ "n": 10,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "6302293d6350d0d4",
+  "bytes": 4664,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2790 chars #2e3c8041"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "role": "system",
+    "parts": [
+     {
+      "text": "107 chars #5e01f2d7"
+     }
+    ]
+   },
+   "generationConfig": {
+    "maxOutputTokens": 4096
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "application/json; charset=UTF-8"
+  },
+  "json": {
+   "candidates": [
+    {
+     "content": {
+      "parts": [
+       {
+        "text": "להלן סיכום ממוזג וממצה של פרטי החוזה (שורות 48–94):\n\n### 1. התחייבויות הספק\n* **מינוי מנהל לקוח:** מינוי מנהל לקוח יחיד לריכוז הקשר מול המזמין (סעיפים 49, 59, 89; L51, L61, L91).\n* **תחזוקה שוטפת ודיווח:** ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון והגשת דוח ביקור (סעיפים 50, 60, 70, 80; L52, L62, L72, L82).\n* **חלקי חילוף:** החזקת מלאי חלקי חילוף זמין לטובת המפעל בקריית גת (סעיפים 52, 62, 72, 82, 92; L54, L64, L74, L84, L94).\n* **זמני הגעה וקריאות שירות:** הגעת טכנאי למחסן באשדוד בתוך 4 שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה (סעיפים 54, 64, 84; L56, L66, L86).\n* **ביטוח:** החזקת ביטוח חבות מעבידים וביטוח צד שלישי לעובדי הספק (סעיפים 55, 65, 75; L57, L67, L77).\n* **תיאום השבתות:** תיאום מראש עם מנהל האתר של כל עבודה במפעל בקריית גת הדורשת השבתה (סעיפים 57, 67, 77, 87; L59, L69, L79, L89).\n\n### 2. התחייבויות וזכויות המזמין\n* **תשלום:** תשלום התמורה בתוך 45 ימים מקבלת חשבונית מס כדין (סעיפים 51, 61, 71, 81, 91; L53, L63, L73, L83, L93).\n* **ביקורת:** זכות לבקר את איכות השירות בכל עת בתיאום מראש (סעיפים 48, 68, 78, 88; L50, L70, L80, L90).\n\n### 3. התחייבויות הדדיות\n* **סודיות:** חובת סודיות הדדית על כל מידע שנחשף במסגרת ההתקשרות (סעיפים 46, 56, 66, 76, 86; L48, L58, L68, L78, L88).\n* **שינוי תנאים:** כל שינוי בהיקף השירות מחייב הסכמה בכתב וחתימת שני הצדדים (סעיפים 73, 83; L75, L85).\n\n### 4. סעיפי קנסות\n* **סניף חיפה:**\n  * אי-ביצוע תחזוקה מונעת במועד: **15,000 ש\"ח** לכל מקרה (סעיף 47; L49).\n  * אי-עמידה בזמני תיקון לפי נספח השירות: **23,750 ש\"ח** לכל מקרה (סעיף 74; L76).\n* **מחסן באשדוד:**\n  * עבודה ללא אישור כניסה בתוקף: **16,750 ש\"ח** לכל מקרה (סעיף 53; L55).\n  * השבתת מערכת הקירור מעבר ל-4 שעות: **1,500 ש\"ח** לכל מקרה (סעיף 79; L81).\n* **מרכז לוגיסטיקה בחולון:**\n  * אי-תיעוד קריאת שירות במערכת: **18,500 ש\"ח** לכל מקרה (סעיף 58; L60).\n  * אי-הגשת דוח תחזוקה חודשי במועד: **3,250 ש\"ח** לכל מקרה (סעיף 85; L87).\n* **מפעל בקריית גת:**\n  * איחור במענה לקריאת שירות דחופה: **22,000 ש\"ח** לכל מקרה (סעיף 69; L71).\n* **משרדים בתל אביב:**\n  * החלפת טכנאי ללא הודעה מוקדמת: **5,000 ש\"ח** לכל מקרה (סעיף 90; L92).\n* **חלקי חילוף (כללי):**\n  * איחור באספקה: **5% מערך ההזמנה לכל שבוע איחור** (סעיף 63; L65).",
+        "thoughtSignature": "EoMICoAIAWkUfRM0dGtlbypbQozzzrEC5VFUTwI8LRK/vLc2OElf5ZWCA+/JPAVnXI4ioJ4nI9K8FVWeZxn5y4vXeQHc6FWurzty4gIDaE/xJRyqoY4XZfVIKNTJqoHnqIv+8N0CUxap43023z4wt/x1wZTGw5EpEuKzaZ/HghK1bTLO91dp+xTAqMa8xlfIk61iFJbs4cjyEklk8dQj+ew/RUH2YpBEOtn6cBDLFFOp5Ax/NRV7mdv45Suk4z5G2L5MEfRemGcLw7FGKpNt3cEoBAEniiPhsi5OvDblqmEwZ84IA3a3Z/xH+5FWr8ckNq26TnxoQBCs3OppQvft7zNLf9/0TpwmOnoSEb/qEU1VTilesoZ1YLNRcU0w1/wqkQLxcDfzxFjtO/W1ZSTXvGf+9mMro7ZF6l6Qle/yhrcdOaB38UE3gZ3kMG/YWpeAeJmmNeyBMXkjOzkObGvKRRuVGvtBrPcobZTZoxlnOvNbYsgfU+fm+oaEqtUVXu1K24OfLt902Mm0Q8SBowiWa5YRLinOTjOepdcEAQBfQHuUSvfRsrN1jTN8/v/Gp6MVHx2bX32ve9SBeEcRSTdnfm4/Z2SYZ3Tpld+qjVBMwxHQ1YKzx1u25goVXwNJM2Q46Y9zaGmR2vPlicfgoSO2PaYUOEd2lwA53mTrsuB5xQnuedU/j4dhZ5GvOJAUIh7kBdf8z6ZNZeqKEfPSqSHktxSpIBbP9UA1JoAhABlhQi0ddAR2CzHmGzaQz/zw8Uc5ffXC+KCmx44FrOo1624KdmdmcsH92jZV0Ce3PpsugSYghyAsAXVwOJ6GORosRKlJeKydx7KdT7aGvCxIy47HdtqhOhc/mJDVfYJcj3+ykbd6AXeuO7eHy0iQt/mzT1df8p+kUbSXsyzTy7YjpS39SzZw44jB/nX/aOU88wq1A06bY9dSRAC/ftxPyxpfu1s4wmvoNfdKcL9O2x9OaC7r+mHH2Cu4HRkXaUfgbhUc7cUgdQFX0s23PmBiQEBTioyM71UrqxTmi+G+4SD/rrFv8TaxEUqclcl9QyilQPiyFwiSg7z2HDLdj1Iy69CFJb/SPqUqBq/6kS5HU8sL01jUr/NMZfruKA09l2L/DYH4O7OZLzrt97f/17i874/YCcq8k58BwC7VkIu7Cdt/ACGJ93rOYzTKeAMjMxElCkKTXA5yQZjIajqG6bgnK19d2MDLwyzkxED8kmD5mUiO/caNt9kqoOQW67OMeBkEJ7iloCCu7b69pJEo4yAHIVHGpOYdlgmd3PioARO7X1o4yKdf/vkx+svMRZApMdRxtJ1Qg4T4W/NYfLvUi0kyMlLeefqUsCctyYTSZzLT/PQIvJX3SOkfwcgQkQ=="
+       }
+      ],
+      "role": "model"
+     },
+     "finishReason": "STOP",
+     "index": 0
+    }
+   ],
+   "usageMetadata": {
+    "promptTokenCount": 1552,
+    "candidatesTokenCount": 1254,
+    "totalTokenCount": 3034,
+    "promptTokensDetails": [
+     {
+      "modality": "TEXT",
+      "tokenCount": 1552
+     }
+    ],
+    "thoughtsTokenCount": 228,
+    "serviceTier": "standard"
+   },
+   "modelVersion": "gemini-3.8-flash",
+   "responseId": "1QoFa63MF5uf3boPmqu-gQ8"
+  }
+ }
+}

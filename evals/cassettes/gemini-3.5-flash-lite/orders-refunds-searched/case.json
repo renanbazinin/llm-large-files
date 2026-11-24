@@ -1,0 +1,81 @@
+{
+ "case": "orders-refunds-searched",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 500",
+     "status": "pass"
+    },
+    {
+     "fact": "number 127550 ±1",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 5978,
+   "cachedInputTokens": 0,
+   "outputTokens": 81,
+   "thoughtTokens": 0,
+   "ms": 1182,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 4855,
+     "ms": 496,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2903,
+      "cachedInputTokens": 0,
+      "outputTokens": 54,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 5004,
+     "ms": 636,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3075,
+      "cachedInputTokens": 0,
+      "outputTokens": 27,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "There are **500** refunded orders, and their total amount is **127,550.00**."
+  }
+ ],
+ "passed": true
+}

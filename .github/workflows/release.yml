@@ -7,9 +7,21 @@ name: Release
 # installs it, without an identity token: the tests and the dependencies run where nothing can ask
 # for one. "publish" holds the identity token, and runs no code of the repository or of its
 # dependencies: it stages the very tarball that "build" checked.
+#
+# Run from the Actions tab (workflow_dispatch), it is a dry run unless told otherwise: "build" runs
+# on the branch or tag chosen, and "publish-dry" does what "publish" does up to the publish itself,
+# then runs `npm publish --dry-run` on the tarball. It has no identity token, so nothing can reach
+# npm. A dispatch with dry_run off stages for real, and only on a tag. docs/publishing.md has the
+# checklist for the first run of a changed workflow.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and check the tarball, and run npm publish --dry-run: nothing is staged. Off stages the version, and works only on a tag."
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -36,7 +48,14 @@ jobs:
       # No install scripts. Nothing in the tree needs one: esbuild (under vitest) has a postinstall
       # that only checks its binary, which it finds in its @esbuild/<platform> package without it.
       - run: npm ci --ignore-scripts
+      - name: A dispatch that stages must run on a tag
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run && github.ref_type != 'tag'
+        run: |
+          echo "::error::With dry_run off the workflow stages the version, so it must run on a version tag, and ${GITHUB_REF_NAME} is a branch."
+          exit 1
+      # On a branch (a dry run), there is no tag to check.
       - name: Check the tag matches package.json
+        if: github.ref_type == 'tag'
         run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
       # The typecheck, the tests, and the build into dist/.
       - run: npm run check
@@ -66,6 +85,8 @@ jobs:
 
   publish:
     needs: build
+    # A pushed tag, or a dispatch on a tag with dry_run off.
+    if: github.event_name == 'push' || (inputs.dry_run == false && github.ref_type == 'tag')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -109,3 +130,41 @@ jobs:
       # package (it runs prepublishOnly and the like only for a folder). The path starts with "./":
       # npm would read "release/llm-large-files-0.9.0.tgz" as a GitHub repository.
       - run: npm stage publish "./release/${TARBALL}" --provenance --access public --loglevel verbose
+
+  publish-dry:
+    # The publish job without its identity token: the same download and checks, then npm publish
+    # --dry-run, which packs nothing again and sends nothing. A changed workflow runs this first
+    # (docs/publishing.md).
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      TARBALL: ${{ needs.build.outputs.tarball }}
+      SHA256: ${{ needs.build.outputs.sha256 }}
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package
+          path: release
+      - name: Check the tarball is the one the build job checked
+        run: echo "${SHA256}  release/${TARBALL}" | sha256sum --check --strict
+      - name: Check this npm can stage (npm 11.15.0 or later)
+        run: |
+          npm --version
+          node -e 'const [major, minor] = process.argv[1].split(".").map(Number); if (major < 11 || (major === 11 && minor < 15)) { console.log("::error::npm " + process.argv[1] + " has no npm stage publish: it needs npm 11.15.0 or later."); process.exit(1); }' "$(npm --version)"
+      - name: Check that this job has no identity token
+        run: |
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL}" ]; then
+            echo "::error::The dry run has an identity token. It must not: remove id-token from its permissions."
+            exit 1
+          fi
+      # What npm would publish, from the tarball the build job checked. Without --provenance, which
+      # needs the identity token.
+      - run: npm publish "./release/${TARBALL}" --access public --dry-run

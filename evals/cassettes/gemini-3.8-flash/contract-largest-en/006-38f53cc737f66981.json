@@ -1,0 +1,247 @@
+{
+ "n": 6,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "38f53cc737f66981",
+  "bytes": 28963,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "2283 chars #7227fca5"
+      },
+      {
+       "text": "68 chars #aed93e91"
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #b17a1599",
+        "id": "call_7876823033470891644"
+       },
+       "thoughtSignature": "504 chars #184fd1cf"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_7876823033470891644",
+        "response": "{7 keys} #7678f0c7"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{4 keys} #a38219ea",
+        "id": "call_2287930454504419155"
+       },
+       "thoughtSignature": "312 chars #a703938b"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_2287930454504419155",
+        "response": "{6 keys} #b455abd8"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #6c8e0b48",
+        "id": "call_5615917066274092747"
+       },
+       "thoughtSignature": "3384 chars #a90f6cdc"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_5615917066274092747",
+        "response": "{6 keys} #059bcec7"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "read_document",
+        "args": "{3 keys} #5d1b1b84",
+        "id": "call_1738350343871414450"
+       },
+       "thoughtSignature": "408 chars #41d3a336"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "read_document",
+        "id": "call_1738350343871414450",
+        "response": "{6 keys} #de538adf"
+       }
+      }
+     ]
+    },
+    {
+     "role": "model",
+     "parts": [
+      {
+       "functionCall": {
+        "name": "search_document",
+        "args": "{3 keys} #a55f0eb8",
+        "id": "call_9630157929334627758"
+       },
+       "thoughtSignature": "348 chars #97fe71d3"
+      },
+      {
+       "text": ""
+      }
+     ]
+    },
+    {
+     "role": "user",
+     "parts": [
+      {
+       "functionResponse": {
+        "name": "search_document",
+        "id": "call_9630157929334627758",
+        "response": "{5 keys} #4fdbcea1"
+       }
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "1984 chars #76e73369"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "search_document",
+       "description": "756 chars #62835e6d",
+       "parameters": {
+        "type": "object",
+        "properties": "{11 keys} #cf11ebae",
+        "required": "[2 items] #ed0d14da"
+       }
+      },
+      {
+       "name": "read_document",
+       "description": "147 chars #afd25fd9",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #12a4570e",
+        "required": "[2 items] #c3bc8577"
+       }
+      },
+      {
+       "name": "get_document_overview",
+       "description": "161 chars #16a4294a",
+       "parameters": {
+        "type": "object",
+        "properties": "{1 keys} #e50ed57a",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "aggregate_table",
+       "description": "593 chars #a1ba99e3",
+       "parameters": {
+        "type": "object",
+        "properties": "{8 keys} #50b9840c",
+        "required": "[1 items] #76ec37c0"
+       }
+      },
+      {
+       "name": "analyze_whole_document",
+       "description": "394 chars #b1d5a277",
+       "parameters": {
+        "type": "object",
+        "properties": "{2 keys} #64ffba42",
+        "required": "[2 items] #6511a94f"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"הקנס הגבוה ביותר בחוזה הוא בסך **48,000 ש\\\"ח**,\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6914,\"candidatesTokenCount\": 23,\"totalTokenCount\": 7115,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6914}],\"thoughtsTokenCount\": 178,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wO4Ea4HOL6D7nsEPuOqr4Q0\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" והוא מופיע ב**סעיף 148** (שורה 150):\\n\\n\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6914,\"candidatesTokenCount\": 47,\"totalTokenCount\": 7139,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6914}],\"thoughtsTokenCount\": 178,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wO4Ea4HOL6D7nsEPuOqr4Q0\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\\u003e **148.** בגין דליפת מידע של לקוחות המזמין באחריות הספק יש\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6914,\"candidatesTokenCount\": 74,\"totalTokenCount\": 7166,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6914}],\"thoughtsTokenCount\": 178,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wO4Ea4HOL6D7nsEPuOqr4Q0\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"לם הספק למזמין קנס בסך 48,000 ש\\\"ח, בנוסף\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6914,\"candidatesTokenCount\": 98,\"totalTokenCount\": 7190,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6914}],\"thoughtsTokenCount\": 178,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wO4Ea4HOL6D7nsEPuOqr4Q0\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" לכל סעד אחר.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 6914,\"candidatesTokenCount\": 104,\"totalTokenCount\": 7196,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 6914}],\"thoughtsTokenCount\": 178,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wO4Ea4HOL6D7nsEPuOqr4Q0\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EvIGCu8GAWkUfRNm94YNntdR+HOkInG3sBU/Z0ZUFAexsiadUu+pGSMVHxkRZaycmCxxc/1Ge+AFY2TPKT6KirvjpCXzCin1RuetS5vVtCbaKbUF5ZBCAZU2LmyWz7s5cDPwVY747Ny57P+Qi3ylhpUL5bqSqWnfDrK+omT4uz8oQLr9U12MfxztP6UBz/p8a8bAz0uYtcIavhd79e7BVwiVR8xoCH5nr3bItqNILzC8F8QinDpu8XTEy+TpZrA7+6paTRO1X/zM+HTho644djQ0GesHw2F8vu7MymHSzXSjl0duVuMNDqqHKccSN56vuKi8h6G78HOFe8S/bwaPFrNT6NejN/rLTPY+Gg0SaaMaoND93y+lvESJr8yoXLG0PDtPMPggI9Zzq4NJz6ayRJtcpWBa+9a89Ew32X20upDmKSSKLbex7PJDZ8iR/mcQwcxSJd+DN8wnGMOvNvcAwIc78Eyiu37zve9YHLdlGSuyS4isKNkXVVdHc8vyfrezaFjsMPFCHKmFRdThAawBUZWoHTkQNShNGYXajyhGJS/KFGNGPjXbvPqittR54cYZCR5i3IvMiLAWkbfkkFyszuzTetqTOK/iDASx7542uefi9OMLOxoOy5yOozDQfbq32OKHKTr58ILMWW6d5HhjPv0DfHlVB1O5gByyXLrdTF1EoTAYCvZ2wQ9uZMi4coOr/U5FGY6McxVJ9osCtrQYegapiM1iO9mHlUzKxICRylxryVLR5xJPeNgvTe1V8TB6G9pOlU/F07rrTx/OCx4TxbCmUaCV7eT9eXMNF8WpornFnYDnQAbr2l0zyIjOOc8eXo9NvpYVtkvcPKgdNodgUIFq4TZlMjud21vl2nIMl0PwVSGXtmll2N/fVnM5Kuc9DE2KAW/zxk3awxWTgpd6yNSfPfyMWVSJ3bzcPhiNondQm4y5Evo4uRqLt53nRiXKApVfPWOeS3W1uW65XNKoubMXr33+Ed64x7XcBq0FLehKFyVbiJMmX6kj9ue5BQSH3kmJxsaidOKsu8bjU4c2knw1W13+CGNU9UzhlsUsQsKeYnHKqIJno3JJFoltljifXJP0tQBKtSyo1JPWbWxL9V6H9XjVvnz/AjCXu+aTsyMcscPqnfxIfgU4NvL9SfiVumVgEHv4TcWWUWKRUknX4ylyVBp3\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 7967,\"candidatesToke",
+   "nCount\": 104,\"totalTokenCount\": 8249,\"cachedContentTokenCount\": 5830,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 7967}],\"cacheTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 5830}],\"thoughtsTokenCount\": 178,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.8-flash\",\"responseId\": \"wO4Ea4HOL6D7nsEPuOqr4Q0\"}\r\n\r\n"
+  ]
+ }
+}

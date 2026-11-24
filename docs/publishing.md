@@ -113,13 +113,17 @@ Pushing the tag starts the release workflow.
    ```
 
    `files` in package.json publishes all of `dist/`, `src/` and `docs/`. CONTRIBUTING.md,
-   `examples/`, `scripts/` and `test/` are not published. `check-tarball.mjs` is what the release
+   `evals/`, `examples/`, `scripts/` and `test/` are not published. `check-tarball.mjs` is what the release
    workflow runs on the tarball it publishes ([below](#what-the-release-workflow-does)); it
    installs into temporary projects from the npm registry, so it needs the network.
 
 4. Commit, push, and open a pull request titled "Release 0.6.0: what the version is about". Wait
    for CI (the tests on Node 22, 24 and 26, on Ubuntu and Windows; the tarball check on Node 22
-   and 26; the coverage report), then squash-merge it.
+   and 26; the coverage report; the replayed evals), then squash-merge it. When release.yml
+   changed since the last release, run its dry run first
+   ([below](#the-first-run-of-a-changed-workflow)): on the branch when the release.yml of `main`
+   already has the `workflow_dispatch` trigger, or else on `main` after the merge and before the
+   tag.
 
 5. Tag the merged commit and push the tag:
 
@@ -175,7 +179,8 @@ Pushing the tag starts the release workflow.
 `.github/workflows/release.yml` runs when a tag that starts with `v` is pushed. It has two jobs, on
 Ubuntu with Node 24 and no dependency cache (a poisoned cache would run its code in the job). The
 actions it uses are pinned by the commit of their release, as in `ci.yml`, which says how to update
-them.
+them. Run by hand, it is a dry run with a third job in place of the publish job:
+[A dry run of the release workflow](#a-dry-run-of-the-release-workflow).
 
 **The build job** has `contents: read` and no identity token: the tests and the dependencies run in
 a job that cannot ask npm for a token. Its steps:
@@ -183,7 +188,8 @@ a job that cannot ask npm for a token. Its steps:
 | Step | Fails when |
 | --- | --- |
 | `npm ci --ignore-scripts` | package-lock.json does not match package.json. No install script runs: nothing in the tree needs one (esbuild, under Vitest, finds its binary without its `postinstall`). |
-| Check the tag matches package.json | The tag is not `v` + the `version` in package.json: for example `v0.6.0` on a commit whose package.json still says 0.5.0. |
+| A dispatch that stages must run on a tag | Only in a run by hand with `dry_run` off: the run is on a branch. |
+| Check the tag matches package.json | The tag is not `v` + the `version` in package.json: for example `v0.6.0` on a commit whose package.json still says 0.5.0. Skipped on a branch (a dry run). |
 | `npm run check` | The typecheck, a test or the build fails. |
 | Pack | `npm pack` fails. The step prints the tarball's `npm shasum`, `npm integrity` and SHA-256: npm shows the first two for the version once it is published. |
 | Check the tarball as npm installs it | `node scripts/check-tarball.mjs` on that tarball finds a fault (below). |
@@ -257,6 +263,72 @@ publish step.
 that built it. npm can make one only inside a supported CI job, so a version published by hand has
 none. npm checks the trusted publisher only at publish time, and says why it refused an identity
 only in the verbose log: that is why the step runs with `--loglevel verbose`.
+
+## A dry run of the release workflow
+
+The release workflow also runs by hand, from the Actions tab (Release, then Run workflow) or with
+`gh`, on any branch or tag. Its one input, `dry_run`, is on by default. GitHub offers the run only
+when the release.yml of the default branch, `main`, has the `workflow_dispatch` trigger; the run
+then uses the release.yml of the branch or tag it runs on. So the release that adds the trigger
+(0.10.0) cannot be dry-run on its branch before it merges: see
+[The first run of a changed workflow](#the-first-run-of-a-changed-workflow).
+
+```bash
+gh workflow run release.yml --ref release/0.6.0      # a dry run
+gh run list --workflow release.yml --limit 1
+gh run watch <run-id>
+```
+
+With `dry_run` on, the build job runs as for a release, without the tag check on a branch: the
+checks, the tarball, the tarball check, the artifact `package`. Then the `publish-dry` job runs in
+place of the publish job. It has `contents: read` and no identity token, so nothing in it can reach
+npm as the package. Its steps:
+
+| Step | Fails when |
+| --- | --- |
+| Download the tarball | As in the publish job. |
+| Check the tarball is the one the build job checked | As in the publish job. |
+| Check this npm can stage | As in the publish job. |
+| Check that this job has no identity token | The job has one: its permissions grant `id-token`. |
+| `npm publish ./release/llm-large-files-<version>.tgz --access public --dry-run` | npm cannot read the tarball, or refuses the version. npm prints what it would publish (the files, the version, the shasum) and sends nothing. |
+
+Run it on the release branch, after the version bump of [At release](#at-release): there the
+version is not on npm yet. On `main` between releases, package.json names a version npm already
+has, and npm may refuse the dry run for it.
+
+With `dry_run` off, the run stages the version as a pushed tag does, and only on a tag: on a branch
+the build job stops at its first check. Use it to run the release of a pushed tag again, instead of
+deleting and pushing the tag.
+
+### The first run of a changed workflow
+
+A change to release.yml is tried in a dry run before a tag depends on it. A change that is wrong
+there costs a deleted tag and a new pull request; in a dry run, nothing.
+
+1. The pull request that changes the workflow passed CI.
+2. Run the workflow by hand with `dry_run` on. When the release.yml of `main` already has the
+   `workflow_dispatch` trigger, run it on the release branch (or the branch of that pull request):
+   the run uses that branch's release.yml. When it does not, because this change adds the trigger,
+   GitHub refuses a run on any ref (`gh workflow run release.yml --ref release/0.10.0` fails). Then
+   either merge the release.yml change to `main` in a pull request of its own first, and run the
+   dry run on the release branch; or merge the release pull request, run the dry run on `main`
+   before you tag (the version is not on npm yet, so npm takes the dry run), and tag only once it
+   passed.
+3. In the build job: `npm ci --ignore-scripts`, `npm run check`, Pack and the tarball check passed;
+   the tag check was skipped (on a branch); Pack printed the npm shasum, the integrity and the
+   SHA-256.
+4. The run has the artifact `package`, with one tarball named for the version of package.json.
+5. In `publish-dry`: the SHA-256 check, the npm version check and the identity-token check passed,
+   and `npm publish --dry-run` listed the files of `files` in package.json and ended with
+   `+ llm-large-files@<version>`, without publishing.
+6. The publish job was skipped.
+7. Each `uses:` the change added is pinned by a full commit SHA, with its tag in a comment (ci.yml
+   says how to find it).
+8. The publish job still checks out nothing and installs nothing, and has `contents: read` and
+   `id-token: write` only: no code of the repository or of a dependency runs where the identity
+   token is.
+9. Merge (unless step 2 merged already), and tag as in [Releasing a version](#releasing-a-version). Watch the first tagged run to
+   its end (step 6 there): the dry run cannot try trusted publishing itself.
 
 ## When the publish job fails
 

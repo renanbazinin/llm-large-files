@@ -1,0 +1,69 @@
+{
+ "n": 1,
+ "request": {
+  "method": "POST",
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse",
+  "headers": {
+   "content-type": "application/json",
+   "x-goog-api-key": "<redacted>"
+  },
+  "hash": "b0c76b92abfed1ca",
+  "bytes": 2518,
+  "outline": {
+   "contents": [
+    {
+     "role": "user",
+     "parts": [
+      {
+       "text": "457 chars #ade81a3c"
+      },
+      {
+       "text": "88 chars #03da1ee5"
+      }
+     ]
+    }
+   ],
+   "systemInstruction": {
+    "parts": [
+     {
+      "text": "801 chars #8d496c2e"
+     }
+    ]
+   },
+   "tools": [
+    {
+     "functionDeclarations": [
+      {
+       "name": "view_pages",
+       "description": "284 chars #fc39aebc",
+       "parameters": {
+        "type": "object",
+        "properties": "{3 keys} #80d11510",
+        "required": "[2 items] #bfa97534"
+       }
+      }
+     ]
+    }
+   ],
+   "toolConfig": {
+    "functionCallingConfig": {
+     "mode": "AUTO"
+    }
+   }
+  }
+ },
+ "response": {
+  "status": 200,
+  "statusText": "OK",
+  "headers": {
+   "content-type": "text/event-stream"
+  },
+  "chunks": [
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"על פי\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 676,\"candidatesTokenCount\": 2,\"totalTokenCount\": 678,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 676}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"IO4Ea-z6CKiJ7M8PhbLaiQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" דוח ההכנסות:\\n* ההכנסות של אזור **צפון** ברבע\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 676,\"candidatesTokenCount\": 22,\"totalTokenCount\": 698,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 676}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"IO4Ea-z6CKiJ7M8PhbLaiQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"ון 2 עמדו על **135 מיליון שקלים**.\\n* הנתון הח\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 676,\"candidatesTokenCount\": 46,\"totalTokenCount\": 722,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 676}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"IO4Ea-z6CKiJ7M8PhbLaiQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"סר לאזור **מרכז** הוא ברבעון **2**.\"}],\"role\": \"model\"},\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 676,\"candidatesTokenCount\": 61,\"totalTokenCount\": 737,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 676}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"IO4Ea-z6CKiJ7M8PhbLaiQo\"}\r\n\r\n",
+   "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"\",\"thoughtSignature\": \"EpYBCpMBAWkUfROptvUC8V+mZI3dkLFz4gj1k97pqwA/+eR8JYAhqStKopmzakoh77jqxuMjWPb187RfhMApkAytIL6cFk9Hmc174/MtPB2jH+9j5AkpOrRKlNg0jISEZDDaCvoaY/ZxaqsJpW+AOK1RhfBTgJfJXxZ/Bke+X0AYVVYXsVXZ+48CmK/K2p/wLxkHfqS1YGYC\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0}],\"usageMetadata\": {\"promptTokenCount\": 676,\"candidatesTokenCount\": 61,\"totalTokenCount\": 737,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 676}],\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-3.5-flash-lite\",\"responseId\": \"IO4Ea-z6CKiJ7M8PhbLaiQo\"}\r\n\r\n"
+  ]
+ }
+}

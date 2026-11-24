@@ -1,0 +1,60 @@
+{
+ "case": "budget-lookup",
+ "model": "gemini-3.8-flash",
+ "language": "he",
+ "kinds": [
+  "lookup",
+  "inline-table"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 261",
+     "status": "pass"
+    },
+    {
+     "fact": "answers in Hebrew",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 1,
+   "inputTokens": 2107,
+   "cachedInputTokens": 0,
+   "outputTokens": 350,
+   "thoughtTokens": 308,
+   "ms": 4782,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 4060,
+     "ms": 4781,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2107,
+      "cachedInputTokens": 0,
+      "outputTokens": 350,
+      "thoughtTokens": 308
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "התקציב של **כספים - צפון** ברבעון 1 הוא **261 אלפי ש\"ח** (261,000 ש\"ח)."
+  }
+ ],
+ "passed": true
+}

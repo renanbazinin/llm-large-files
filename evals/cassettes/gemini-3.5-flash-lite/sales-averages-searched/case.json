@@ -1,0 +1,93 @@
+{
+ "case": "sales-averages-searched",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 1447.31 ±0.06 next to West",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1446.93 ±0.06 next to Center",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1445.22 ±0.06 next to North",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1447.91 ±0.06 next to South",
+     "status": "pass"
+    },
+    {
+     "fact": "number 1460.59 ±0.06 next to East",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 6270,
+   "cachedInputTokens": 0,
+   "outputTokens": 131,
+   "thoughtTokens": 0,
+   "ms": 1342,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 4900,
+     "ms": 503,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2961,
+      "cachedInputTokens": 0,
+      "outputTokens": 36,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 5245,
+     "ms": 822,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3309,
+      "cachedInputTokens": 0,
+      "outputTokens": 95,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the sales data in `sales-2026.xlsx`, here is the average revenue for every region:\n\n* **East:** 1,460.59\n* **South:** 1,447.91\n* **West:** 1,447.31\n* **Center:** 1,446.93\n* **North:** 1,445.22"
+  }
+ ],
+ "passed": true
+}

@@ -1,0 +1,121 @@
+{
+ "case": "log-disk",
+ "model": "gemini-3.8-flash",
+ "language": "en",
+ "kinds": [
+  "lookup",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "says db-2",
+     "status": "pass"
+    },
+    {
+     "fact": "number 95",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 4,
+   "inputTokens": 16653,
+   "cachedInputTokens": 5693,
+   "outputTokens": 467,
+   "thoughtTokens": 247,
+   "ms": 11119,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "search_document",
+    "read_document",
+    "search_document"
+   ],
+   "reads": 1,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 1,
+     "estimatedInputTokens": 5657,
+     "ms": 2483,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3517,
+      "cachedInputTokens": 0,
+      "outputTokens": 91,
+      "thoughtTokens": 59
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 2,
+     "estimatedInputTokens": 5790,
+     "ms": 2563,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3714,
+      "cachedInputTokens": 1540,
+      "outputTokens": 150,
+      "thoughtTokens": 110
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_3",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 3,
+     "estimatedInputTokens": 6667,
+     "ms": 2744,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4634,
+      "cachedInputTokens": 1542,
+      "outputTokens": 49,
+      "thoughtTokens": 15
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_4",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.8-flash",
+     "turn": 4,
+     "estimatedInputTokens": 6801,
+     "ms": 3320,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 4788,
+      "cachedInputTokens": 2611,
+      "outputTokens": 177,
+      "thoughtTokens": 63
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the logs, node **`db-2`** reported high disk usage:\n\n* **Node:** `db-2` (`/var/lib/postgres`)\n* **Disk usage:** **95%** full\n\n**Log reference:**\n> `2026-11-12T08:47:15.000Z WARN [node-monitor] disk usage 95% on node db-2 (/var/lib/postgres)` (line 11340)"
+  }
+ ],
+ "passed": true
+}

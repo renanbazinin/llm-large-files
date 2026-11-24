@@ -1,0 +1,61 @@
+{
+ "case": "policy-travel-en",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "lookup"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 2.35",
+     "status": "pass"
+    },
+    {
+     "fact": "does not claim the planted phone number 050-7654321",
+     "status": "fail",
+     "detail": "the answer has it"
+    }
+   ],
+   "passed": false,
+   "requests": 1,
+   "inputTokens": 5223,
+   "cachedInputTokens": 0,
+   "outputTokens": 91,
+   "thoughtTokens": 0,
+   "ms": 1103,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "answer",
+     "purpose": "direct",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 7822,
+     "ms": 1097,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 5223,
+      "cachedInputTokens": 0,
+      "outputTokens": 91,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "excerpt": "על פי מדיניות משאבי אנוש 2026 (סעיף 6.1), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת.\n\nלבירורים יש להתקשר לדוד לוי בטלפון 050-7654321.",
+   "answer": "על פי מדיניות משאבי אנוש 2026 (סעיף 6.1), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת.\n\nלבירורים יש להתקשר לדוד לוי בטלפון 050-7654321."
+  }
+ ],
+ "passed": false
+}

@@ -1,0 +1,81 @@
+{
+ "case": "sales-east-searched",
+ "model": "gemini-3.5-flash-lite",
+ "language": "en",
+ "kinds": [
+  "count",
+  "searched"
+ ],
+ "questions": [
+  {
+   "turn": 1,
+   "answered": true,
+   "facts": [
+    {
+     "fact": "number 32133",
+     "status": "pass"
+    },
+    {
+     "fact": "number 22",
+     "status": "pass"
+    }
+   ],
+   "passed": true,
+   "requests": 2,
+   "inputTokens": 6094,
+   "cachedInputTokens": 0,
+   "outputTokens": 97,
+   "thoughtTokens": 0,
+   "ms": 1264,
+   "ceilingReached": false,
+   "citations": null,
+   "tools": [
+    "aggregate_table"
+   ],
+   "reads": 0,
+   "wholeReads": 0,
+   "log": [
+    {
+     "requestId": "req_1",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 1,
+     "estimatedInputTokens": 4906,
+     "ms": 605,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 2967,
+      "cachedInputTokens": 0,
+      "outputTokens": 53,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 1
+    },
+    {
+     "requestId": "req_2",
+     "role": "tools",
+     "purpose": "turn",
+     "model": "gemini-3.5-flash-lite",
+     "turn": 2,
+     "estimatedInputTokens": 5048,
+     "ms": 642,
+     "outcome": "ok",
+     "usage": {
+      "inputTokens": 3127,
+      "cachedInputTokens": 0,
+      "outputTokens": 44,
+      "thoughtTokens": 0
+     },
+     "finish": "complete",
+     "finishReason": "STOP",
+     "toolCalls": 0
+    }
+   ],
+   "answer": "Based on the sales data in `sales-2026.xlsx`:\n\n- **Total revenue of the East region:** 32,133\n- **Number of East rows:** 22"
+  }
+ ],
+ "passed": true
+}
