@@ -185,7 +185,11 @@ export type AskOptions = {
    */
   messages: ChatMessage[];
   system?: string;
-  /** The user asking. Documents ingested with a different owner are treated as missing. */
+  /**
+   * The user asking. Documents ingested with a different owner are treated as missing. Required
+   * unless the library has `requireOwner: false` (since 0.99.9): documents of another owner, or
+   * without one under the default, are missing.
+   */
   owner?: string;
   /**
    * The scope of the question, such as [userId, chatId] (`DocumentScope`). It is passed to every

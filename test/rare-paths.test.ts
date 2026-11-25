@@ -68,7 +68,7 @@ function failRename(times: number, code: string): string[] {
 describe("FileDocumentStore when a rename is refused for a moment (Windows)", () => {
   it("tries the rename again, and stores the document whole", async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir) });
     const targets = failRename(2, "EPERM");
     const meta = await files.ingest({ name: "app.log", bytes: utf8(log(50)) });
     // The first file written was renamed on the third try.
@@ -82,7 +82,7 @@ describe("FileDocumentStore when a rename is refused for a moment (Windows)", ()
 
   it("gives up after about 2.6 seconds of tries, and leaves no file behind", { timeout: 30_000 }, async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir) });
     const targets = failRename(Number.POSITIVE_INFINITY, "EBUSY");
     const started = performance.now();
     await expect(files.ingest({ name: "app.log", bytes: utf8(log(50)) })).rejects.toMatchObject({ code: "EBUSY" });
@@ -95,7 +95,7 @@ describe("FileDocumentStore when a rename is refused for a moment (Windows)", ()
 
   it("does not try again a rename that fails for another reason", async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir) });
     const targets = failRename(1, "ENOSPC");
     await expect(files.ingest({ name: "app.log", bytes: utf8(log(50)) })).rejects.toMatchObject({ code: "ENOSPC" });
     expect(targets).toHaveLength(1);
@@ -108,7 +108,7 @@ describe("createDocumentHandlers and the size of an upload", () => {
 
   /** A server whose framework may have read the body already (express.raw(), express.json()). */
   async function start(parsed?: () => unknown): Promise<number> {
-    const documents = createDocumentHandlers(createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: LIMIT }));
+    const documents = createDocumentHandlers(createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxUploadBytes: LIMIT }));
     server = createServer((request, response) => {
       const body = parsed?.();
       if (body !== undefined) (request as typeof request & { body?: unknown }).body = body;
@@ -164,9 +164,9 @@ describe("page numbers of a PDF read by range", () => {
 
   it("are those of the same PDF loaded whole", async () => {
     const bytes = numberedPdf(40);
-    const whole = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const whole = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     // wholeDocumentBytes 0: every document is read by range, as a large one is.
-    const ranged = createLargeFiles({ store: new FileDocumentStore(await folder()), keepOriginals: ["pdf"], wholeDocumentBytes: 0, scanChunkBytes: 256 });
+    const ranged = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(await folder()), keepOriginals: ["pdf"], wholeDocumentBytes: 0, scanChunkBytes: 256 });
     const results = async (files: LargeFiles) => {
       const meta: DocumentMeta = await files.ingest({ name: "book.pdf", bytes });
       const tools = files.tools([meta], { viewPages: true });
@@ -233,7 +233,7 @@ describe("a pointer to an earlier result, when older results are shortened in th
       const n = i + 1;
       return `2026-11-12T08:00:${String(n % 60).padStart(2, "0")}Z ${n % 50 === 0 ? "ERROR" : "INFO"} [w-${n % 8}] req=${(n * 2654435761 >>> 0).toString(16)} GET /api/orders/${n} took ${(n * 37) % 900}ms`;
     });
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 40_000, inlineTokens: 1_000, toolResultCharacters: 30_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 40_000, inlineTokens: 1_000, toolResultCharacters: 30_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(lines.join("\n")) });
     const turns = script(meta.id);
     const model = fakeModel([(_request, call) => {

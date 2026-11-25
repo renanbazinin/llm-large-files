@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore, type ToolResult } from "../src/index.js";
 import { utf8 } from "./fake-model.js";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
 type Match = { line: number; section?: string; text: string };
 const matchesOf = (result: ToolResult) => result.matches as Match[];
 
@@ -17,7 +17,7 @@ describe("where a search hit sits", () => {
 
   it("gives the first row of each sheet a hit is in, and the sheet as its section", async () => {
     const text = ["## Sheet 1: North", "Columns: | A | B |", "Row 1: | City | Amount |", "Row 2: | Haifa | 10 |", "", "## Sheet 2: South", "Columns: | A | B |", "Row 1: | City | Amount |", "Row 2: | Eilat | 20 |", "Row 3: | Beersheba | 30 |"].join("\n");
-    const own = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 }, extractors: { xlsx: async () => ({ text }) } });
+    const own = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 }, extractors: { xlsx: async () => ({ text }) } });
     const meta = await own.ingest({ name: "cities.xlsx", bytes: utf8("PK") });
     const result = await own.tools([meta]).execute("search_document", { document_id: meta.id, query: "\\| \\d0 \\|", mode: "regex" });
     expect(result.table_headers).toEqual([{ line: 3, text: "Row 1: | City | Amount |" }, { line: 8, text: "Row 1: | City | Amount |" }]);
@@ -80,7 +80,7 @@ describe("the quality of a document's text, on its card", () => {
       page(4, "�".repeat(20) + " some words here and there to fill the page with characters"),
       page(5, ["השוכר ישלם דמי שכירות חודשיים בסך 4,750 ש\"ח, כולל מע\"מ.", "Payment by bank transfer to the account of ACME Ltd."].join("\n")),
     ].join("\n\n").repeat(1);
-    const own = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 }, extractors: { pdf: async () => ({ text: text + "\n" + "השוכר ".repeat(60), pages: 5 }) } });
+    const own = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 }, extractors: { pdf: async () => ({ text: text + "\n" + "השוכר ".repeat(60), pages: 5 }) } });
     const meta = await own.ingest({ name: "lease.pdf", bytes: utf8("%PDF-1.4") });
     expect(meta.pagesWithoutText).toEqual([2]);
     expect(meta.garbledPages).toEqual([3, 4]);

@@ -29,7 +29,7 @@ function contract(): { text: string; penaltyLines: number[] } {
 }
 
 async function library(budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 1_500, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 1_500, ...budget } });
   const { text, penaltyLines } = contract();
   const meta = await files.ingest({ name: "חוזה תחזוקה.txt", bytes: utf8(text) });
   return { files, meta, penaltyLines };
@@ -226,7 +226,7 @@ describe("a read that lists items", () => {
   });
 
   it("counts labels named like the members of every object", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
     const lines = ["1. the constructor pays a fine of 100", "2. the constructor pays a fine of 200", "3. the owner pays a fee of 300", "4. late delivery costs 400"];
     const meta = await files.ingest({ name: "c.txt", bytes: utf8(lines.join("\n")) });
     const generate: GenerateText = async () => [
@@ -242,7 +242,7 @@ describe("a read that lists items", () => {
   });
 
   it("says so when items were listed and none is on its line, and ends the task with a stop", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
     const meta = await files.ingest({ name: "f.txt", bytes: utf8(["1. a fine of 100", "2. a fee of 200", "3. late delivery"].join("\n")) });
     const wrong: GenerateText = async () => [1, 2, 3].map((line) => JSON.stringify({ line, quote: "words not in the file" })).join("\n");
     const tools = files.tools([meta], { generate: wrong, maxWholeDocumentReads: 2 });
@@ -254,7 +254,7 @@ describe("a read that lists items", () => {
   });
 
   it("cut to its room, says how many items it shows, and counts the others in more_items", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1, mapChunkTokens: 100_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1, mapChunkTokens: 100_000 } });
     const lines = Array.from({ length: 120 }, (_, index) => `${index + 1}. the supplier pays a fine of ${1_000 + index} for breach ${index + 1}`);
     const meta = await files.ingest({ name: "f.txt", bytes: utf8(lines.join("\n")) });
     const generate: GenerateText = async () => lines.map((text, index) => JSON.stringify({ line: index + 1, value: String(1_000 + index), quote: text.slice(text.indexOf("the")) })).join("\n");
@@ -441,7 +441,7 @@ describe("quoteNearLine", () => {
   });
 
   it("lets an item with such a quote count on the line it names, and no other", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
     const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", offset, lowered, "4. הספק יבצע ניקיון יומי."].join("\n")) });
     const generate: GenerateText = async () => [
       { line: 2, value: "810", quote: "מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה" },
@@ -465,7 +465,7 @@ describe("quoteNearLine", () => {
       "פרק ב",
       `${second} המזמין רשאי לקזז 810 ש"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה באגף ב.`,
     ].join("\n");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
     // Named for clause 5, on line 5, which holds clause 7, with לקזז copied as מקוזז.
     const generate: GenerateText = async () => JSON.stringify({ line: 5, value: "810", quote: "מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה" });
     const read = async (text: string) => {
@@ -496,7 +496,7 @@ describe("quoteNearLine", () => {
       "יומן",
       `${second} המזמין רשאי לקזז 810 ש"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה באגף ב.`,
     ].join("\n");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
     const generate: GenerateText = async () => JSON.stringify({ line: 5, value: "810", quote: "מקוזז 810 ש\"ח מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה" });
     for (const date of ["5/11", "5/11/2026", "05:30:12", "5:30", "5.11.2026", "5-11-2026", "[05:30:12]"]) {
       const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(lines(date)) });
@@ -529,7 +529,7 @@ describe("quoteNearLine", () => {
   });
 
   it("still counts the items its reply placed on one line with one label and other values", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
     const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", "4. בגין איחור ינוכו 1,200 ש\"ח, ובגין כל יום נוסף ינוכו 300 ש\"ח, ובגין נזק ינוכו 500 ש\"ח מהתמורה."].join("\n")) });
     const late = { label: "penalty", value: "1,200", quote: "בגין איחור ינוכו 1,200 ש\"ח" };
     const daily = { label: "penalty", value: "300", quote: "ובגין כל יום נוסף ינוכו 300 ש\"ח" };
@@ -551,7 +551,7 @@ describe("quoteNearLine", () => {
   });
 
   it("counts an item whose quote had a \\u escape with three hex digits, on its line", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1 } });
     const meta = await files.ingest({ name: "ניקיון.txt", bytes: utf8(["הסכם שירותי ניקיון", "4. בגין הפרת הוראות הבטיחות באתר ינוכו 1,200 ש\"ח מהתמורה החודשית של הספק."].join("\n")) });
     // ט written as \u05d, as Gemini Flash-Lite wrote it: the escape is bad JSON.
     const generate: GenerateText = async () => '{"line": 2, "value": "1,200", "quote": "בגין הפרת הוראות הב\\u05dיחות באתר ינוכו 1,200 ש\\"ח"}';

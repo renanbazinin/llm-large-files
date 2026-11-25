@@ -15,7 +15,8 @@ const MODEL = process.env.MODEL ?? "gemini-3.5-flash-lite";
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 const model = gemini(geminiApi({ apiKey, model: MODEL }));
-const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_500 } });
+// One user: no owner checks.
+const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_500 }, requireOwner: false });
 const enc = new TextEncoder();
 const only = process.argv[2];
 

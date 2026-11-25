@@ -44,7 +44,7 @@ export function heldExtractor() {
  */
 export async function uploadServer(handlerOptions: Parameters<typeof createDocumentHandlers>[1], maxUploadBytes: number, store: MemoryDocumentStore, keep: (server: Server) => void) {
   const held = heldExtractor();
-  const files = createLargeFiles({ store, extractors: { text: held.extract }, maxUploadBytes, maxConcurrentIngests: 10 });
+  const files = createLargeFiles({ requireOwner: false, store, extractors: { text: held.extract }, maxUploadBytes, maxConcurrentIngests: 10 });
   const documents = createDocumentHandlers(files, handlerOptions);
   const server = createServer((request, response) => {
     // As express.raw() leaves it: the body already read, in request.body.

@@ -92,7 +92,7 @@ describe("errorInfoOf and transient system errors", () => {
   });
 
   it("answers an upload whose hook fails on a database that did not answer: 503 with Retry-After, without the host", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const handlers = createDocumentHandlers(files, {
       onUploaded: () => {
         throw system("ETIMEDOUT");
@@ -123,7 +123,7 @@ describe("a path upload whose read does not answer (LO-4)", () => {
     const at = path.join(directory, "stuck.log");
     await writeFile(at, "one\ntwo\n");
     reads.stuck = at;
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 50 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ingestTimeoutMs: 50 });
     const events: IngestEvent[] = [];
     const thrown = await files.ingest({ name: "stuck.log", source: { path: at }, onEvent: (event) => events.push(event) }).catch((error: unknown) => error);
     expect(thrown).not.toBeInstanceOf(IngestError);
@@ -135,7 +135,7 @@ describe("a path upload whose read does not answer (LO-4)", () => {
     expect(JSON.stringify(error)).not.toContain(directory);
     // A file that takes too long to extract is still "timeout", 422: the file's trouble, not the server's.
     unstick();
-    const slow = createLargeFiles({
+    const slow = createLargeFiles({ requireOwner: false,
       store: new MemoryDocumentStore(),
       ingestTimeoutMs: 50,
       extractors: { log: () => new Promise(() => undefined), text: () => new Promise(() => undefined) },

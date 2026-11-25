@@ -83,7 +83,7 @@ async function save(bytes: Uint8Array, ref = REF): Promise<string> {
 
 /** A library over `store` that keeps PDFs by their ref, and one PDF in it, ingested from where it is saved. */
 async function withRef(bytes = numberedPdf(3), store: DocumentStore = new CountingStore(), reader: OriginalsReader = fileOriginals(root)) {
-  const files = createLargeFiles({ store, keepOriginals: ["pdf"], originals: reader });
+  const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], originals: reader });
   const at = await save(bytes);
   const meta = await files.ingest({ name: "report.pdf", source: { path: at }, original: { ref: REF }, ...ACCESS });
   const view = async (from = 1) => (await files.tools([meta], { viewPages: true, access: ACCESS }).executeWithFiles("view_pages", { document_id: meta.id, from_page: from, to_page: from + 1 }));
@@ -172,7 +172,7 @@ describe("originals by reference", () => {
       await expect(reader.read(ref, context)).rejects.toThrow(new TypeError("The ref of an original must be a relative path to a file inside the folder of fileOriginals."));
     }
     // Through the library: the ingest records the ref; reading it back fails as the store's read.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: reader });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: reader });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(3), original: { ref: "../secret" } });
     const error = await files.getOriginal(meta.id).catch((caught: unknown) => caught);
     expect(DocumentStoreError.is(error)).toBe(true);
@@ -197,7 +197,7 @@ describe("originals by reference", () => {
   });
 
   it("accepts a scanned PDF when a reader reads it back, over a store that keeps no copies", async () => {
-    const files = createLargeFiles({ store: storeWithoutOriginals(), keepOriginals: ["pdf"], originals: fileOriginals(root) });
+    const files = createLargeFiles({ requireOwner: false, store: storeWithoutOriginals(), keepOriginals: ["pdf"], originals: fileOriginals(root) });
     const at = await save(scan(2));
     const meta = await files.ingest({ name: "scan.pdf", source: { path: at }, original: { ref: REF } });
     expect(meta).toMatchObject({ pages: 2, originalKept: true });
@@ -207,17 +207,17 @@ describe("originals by reference", () => {
   });
 
   it("keeps the formats of keepOriginals only, and needs a reader", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: fileOriginals(root) });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: fileOriginals(root) });
     const notes = await files.ingest({ name: "notes.md", bytes: new TextEncoder().encode("# Notes"), original: { ref: REF } });
     expect(notes.originalKept).toBeUndefined();
     expect(notes.original).toBeUndefined();
-    const without = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const without = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     await expect(without.ingest({ name: "report.pdf", bytes: numberedPdf(3), original: { ref: REF } })).rejects.toThrow(new TypeError("original needs LargeFilesOptions.originals, which reads the file from its ref."));
     await expect(files.ingest({ name: "report.pdf", bytes: numberedPdf(3), original: { ref: "x".repeat(1_025) } })).rejects.toThrow(new TypeError("original.ref must be a string of 1 to 1,024 characters."));
-    expect(() => createLargeFiles({ store: new MemoryDocumentStore(), originals: {} as OriginalsReader })).toThrow(TypeError);
+    expect(() => createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), originals: {} as OriginalsReader })).toThrow(TypeError);
     // A library over the same store without a reader cannot show those pages, and does not offer them.
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(3), original: { ref: REF } });
-    const other = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const other = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     expect(await other.getOriginal(meta.id)).toBeUndefined();
   });
 
@@ -233,7 +233,7 @@ describe("originals by reference", () => {
   });
 
   it("never sends the ref, the SHA-256, the scope, the owner or the MIME type to the model, nor the ref and the SHA-256 in events or summaries", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: fileOriginals(root), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: fileOriginals(root), budget: { inlineTokens: 1 } });
     const at = await save(numberedPdf(3));
     const ingestEvents: IngestEvent[] = [];
     const meta = await files.ingest({ name: "report.pdf", mimeType: "application/x-llf-upload", source: { path: at }, original: { ref: REF }, ...ACCESS, onEvent: (event) => ingestEvents.push(event) });
@@ -257,7 +257,7 @@ describe("originals by reference", () => {
   // of the question, so neither run.error nor errorInfoOf has anything to read, and it names
   // neither the ref nor the folder.
   it("tells the model that a file changed, and the question goes on to its answer", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: fileOriginals(root), budget: { inlineTokens: 1 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], originals: fileOriginals(root), budget: { inlineTokens: 1 } });
     const at = await save(numberedPdf(3));
     const meta = await files.ingest({ name: "report.pdf", source: { path: at }, original: { ref: REF }, ...ACCESS });
     await writeFile(at, numberedPdf(4));

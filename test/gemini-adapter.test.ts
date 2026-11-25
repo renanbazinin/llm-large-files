@@ -31,7 +31,7 @@ const quickRetry = () => {
 };
 
 async function largeLog(budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
   return { files, meta };
 }
@@ -217,7 +217,7 @@ describe("createGeminiGenerateText since 0.5.0", () => {
 
 describe("gemini(), since the review of 0.5.0", () => {
   it("sends a request again when the connection failed while the body of the reply arrived", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "note.txt", bytes: utf8("The total is 42.\n") });
     const broken = () => new Response(new ReadableStream({
       start(controller) {

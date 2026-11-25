@@ -100,7 +100,7 @@ describe("an ingest from a path that is not a file the library reads", () => {
   }
 
   it("is the server's trouble, with its code and no path, in errorInfoOf of the error and of its ingest.error", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     for (const [code, at] of await paths()) {
       const { thrown, event } = await failed(files, { name: "notes.log", source: { path: at } });
       expect(thrown, code).toMatchObject({ code });
@@ -117,7 +117,7 @@ describe("an ingest from a path that is not a file the library reads", () => {
     const at = path.join(directory, "slow.log");
     await writeFile(at, "slow\n");
     looks.stuck = at;
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 100 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ingestTimeoutMs: 100 });
     const { thrown, event } = await failed(files, { name: "slow.log", source: { path: at } });
     expect(thrown).toMatchObject({ code: "ETIMEDOUT", syscall: "lstat", message: "The file to ingest did not answer within 100 ms." });
     // A volume that did not answer: 503, to try again in a moment, since 0.10.0 (a 500 before).
@@ -134,7 +134,7 @@ describe("an ingest from a path that is not a file the library reads", () => {
     await writeFile(real, "real\n");
     const linked = path.join(directory, "upload.txt");
     await symlink(real, linked);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     // A LargeFiles of your own that ingests each upload from where it saved it: here, a link.
     const own: LargeFiles = { ...files, ingest: ({ bytes: _bytes, ...rest }) => files.ingest({ ...rest, source: { path: linked } }) };
     const documents = createDocumentHandlers(own);
@@ -158,7 +158,7 @@ describe("an ingest from a path that is not a file the library reads", () => {
 // its events gave the host to the browser ("Upload failed (bucket-prod.internal.corp:443).").
 describe("an extractor of your own that fails with a host in a system error's code", () => {
   it("is told without the code, in the error's answer, its ingest.error and the handlers' event", async () => {
-    const files = createLargeFiles({
+    const files = createLargeFiles({ requireOwner: false,
       store: new MemoryDocumentStore(),
       extractors: { pdf: async () => { throw Object.assign(new Error(`connect ECONNREFUSED ${HOST}:443`), { code: `${HOST}:443`, syscall: "connect" }); } },
     });
@@ -190,7 +190,7 @@ describe("an extractor of your own that refuses a file with its own subclass of 
   }
 
   it("emits an ingest.error that errorInfoOf reads as the refused file the error is", async () => {
-    const files = createLargeFiles({
+    const files = createLargeFiles({ requireOwner: false,
       store: new MemoryDocumentStore(),
       extractors: { pdf: async () => { throw new OcrRefusal("no_text", "scan.pdf has no text layer."); } },
     });
@@ -207,7 +207,7 @@ describe("an extractor of your own that refuses a file with its own subclass of 
 // it cannot use): their ingest.error read "unknown", while the errors read "input".
 describe("an ingest refused for a mistake in the call", () => {
   it("emits an ingest.error that errorInfoOf reads as the input error the error is", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const inputs: Array<Parameters<LargeFiles["ingest"]>[0]> = [
       { name: "a.txt", bytes: utf8("a"), source: { path: path.join(directory, "a.txt") } } as unknown as Parameters<LargeFiles["ingest"]>[0],
       { name: "a.txt", source: { path: "" } },
@@ -243,7 +243,7 @@ describe("a store that fails during an ingest", () => {
           throw fails();
         }
       }
-      const files = createLargeFiles({ store: new FailingStore() });
+      const files = createLargeFiles({ requireOwner: false, store: new FailingStore() });
       const { thrown, event } = await failed(files, { name: "notes.md", bytes: utf8("# Notes") });
       expect(DocumentStoreError.is(thrown)).toBe(true);
       expect(event).toEqual({ message: "The document could not be stored. Try again later.", name: "DocumentStoreError", status: 503 });
@@ -264,7 +264,7 @@ describe("a store that fails during an ingest", () => {
         throw new BucketStoreError(down(), "read");
       }
     }
-    const files = createLargeFiles({ store: new FailingStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new FailingStore() });
     const { thrown, event } = await failed(files, { name: "notes.md", id: "upload-1", bytes: utf8("# Notes") });
     expect(thrown).toBeInstanceOf(BucketStoreError);
     expect(event).toEqual({ message: "The document store could not be read (EIO). Try again.", name: "DocumentStoreError", status: 503 });
@@ -284,7 +284,7 @@ describe("an ingest whose caller leaves while the store writes", () => {
   for (const [what, reasonOf, expected] of reasons) {
     it(`throws the signal's reason, read by errorInfoOf as its ingest.error is: ${what}`, async () => {
       const store = new RangedStoreOf08();
-      const files = createLargeFiles({ store, ttlMs: Infinity });
+      const files = createLargeFiles({ requireOwner: false, store, ttlMs: Infinity });
       const put = store.holds.hold("put");
       const controller = new AbortController();
       const reason = reasonOf();
@@ -325,7 +325,7 @@ describe("an upload whose client leaves while the store writes it", () => {
       }
     }
     const store = new SlowStore();
-    const files = createLargeFiles({ store, ttlMs: Infinity });
+    const files = createLargeFiles({ requireOwner: false, store, ttlMs: Infinity });
     const onUploaded = vi.fn();
     let ended!: (error: unknown) => void;
     const ingestEnded = new Promise<unknown>((resolve) => (ended = resolve));

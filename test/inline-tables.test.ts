@@ -45,7 +45,7 @@ const deckWithTable = () => zip({
 
 describe("files sent whole whose tables the tools count (inlineTables)", () => {
   it("lists probe4's CSV, sent whole, with the tools that count it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices()) });
     const prepared = await files.prepare([meta.id], base, { inlineTables: "tools" });
     expect(prepared.plan.inline.map((document) => document.id)).toEqual([meta.id]);
@@ -66,7 +66,7 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
   });
 
   it("puts no document_id in the frame of a file sent whole whose tables the tools do not count", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const note = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\n| one |\n\ntext\n\n| two |\n\nmore\n\n| three |\n") });
     const tools = await files.prepare([note.id], base, { inlineTables: "tools", numberInline: true });
     const text = await files.prepare([note.id], base, { numberInline: true });
@@ -76,7 +76,7 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
   });
 
   it("gives no toolable list for \"text\", the default", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices()) });
     for (const prepared of [await files.prepare([meta.id], base), await files.prepare([meta.id], base, { inlineTables: "text" })]) {
       expect(prepared.toolable).toBeUndefined();
@@ -87,7 +87,7 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
   });
 
   it("lists a Hebrew Word file and a deck whose tables have three rows", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const docx = await files.ingest({ name: "נוהל.docx", bytes: await hebrewDocx() });
     const pptx = await files.ingest({ name: "מצגת.pptx", bytes: await deckWithTable() });
     const markdown = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n") });
@@ -99,7 +99,7 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
   });
 
   it("leaves out a table of two rows, a text file's rows, and a file that is searched", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 5_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 5_000 } });
     const short = await files.ingest({ name: "short.md", bytes: utf8("| a | b |\n| --- | --- |\n| 1 | 2 |\n") });
     const plain = await files.ingest({ name: "rows.txt", bytes: utf8("| a | b |\n| 1 | 2 |\n| 3 | 4 |\n") });
     const big = await files.ingest({ name: "big.csv", bytes: utf8(invoices()) });
@@ -111,7 +111,7 @@ describe("files sent whole whose tables the tools count (inlineTables)", () => {
   });
 
   it("asks for citations of the numbered lines of a table shown in full when no file is searched", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 5_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 5_000 } });
     const csv = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices().split("\n").slice(0, 21).join("\n")) });
     const prepared = await files.prepare([csv.id], base, { inlineTables: "tools", numberInline: true });
     expect(prepared.toolable?.map((document) => document.id)).toEqual([csv.id]);

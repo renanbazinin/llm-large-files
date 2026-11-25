@@ -623,6 +623,20 @@ type IngestWork = {
 };
 
 /**
+ * The mark of a document `ingest` gave back because it was stored before (`IngestInput.dedupe`): a
+ * registered symbol, so that the upload handlers of another copy of the package read it too, and a
+ * property that is not enumerable, so that neither `Object.keys`, JSON nor a copy made with spread
+ * has it. A copy of the metadata drops it. Not part of the public types. New in 0.99.9.
+ */
+export const REUSED_HERE = Symbol.for("llm-large-files.reused");
+
+/**
+ * Whether `meta` is a document `ingest` gave back because it was stored before (`dedupe`), and not
+ * one it stored: its mark (`REUSED_HERE`). New in 0.99.9.
+ */
+export const reusedHere = (meta: DocumentMeta): boolean => (meta as DocumentMeta & { [REUSED_HERE]?: true })[REUSED_HERE] === true;
+
+/**
  * Where the file of an ingest is: `path` for one from a path (`IngestFromSource`), else its bytes
  * (`IngestInput.bytes`); and `ref`, where the application keeps it (`IngestInput.original`).
  */
@@ -1073,6 +1087,9 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
       }
       throw error;
     }
+    // A document stored before is marked so, for the upload handlers, which must not delete it:
+    // without a field that a store, an event or a summary would see.
+    if (work.reused) Object.defineProperty(meta, REUSED_HERE, { value: true });
     return meta;
   } catch (error) {
     // A store's own error may name a host or a path, whatever it is: the event, which a browser

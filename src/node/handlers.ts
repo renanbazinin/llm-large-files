@@ -4,6 +4,7 @@ import path from "node:path";
 import { errorInfoOf, retryAfterOfCode, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE } from "../error-info.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type IngestErrorCode } from "../errors.js";
 import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
+import { checkAppData, reusedHere } from "../ingest.js";
 import { checkOwner, cleanFileName, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles } from "../library.js";
 import { DocumentsNotFoundError, errorKindOf, ModelRequestError, type ModelErrorKind } from "../model.js";
 import { formatBytes } from "../plan.js";
@@ -35,9 +36,19 @@ export type UploadedContext = {
   /**
    * The path the body was saved to: the `path` that `prepareUpload` returned. Only for such an
    * upload: the file is yours, and stays (unless this hook throws). A file of the spool
-   * (`uploadSpool`) is gone by now, and is not told. New in 0.9.0.
+   * (`uploadSpool`) is gone by now, and is not told. Not told either for a document `dedupe` gave
+   * back (`reused`): no document refers to the file, which is removed before this hook. New in
+   * 0.9.0.
    */
   path?: string;
+  /**
+   * True when `dedupe` (from `prepareUpload`) gave back a document stored before, not one this
+   * upload stored: it keeps its own name, `createdAt` and `appData`. The handlers never delete such
+   * a document, even when this hook throws. Absent otherwise. A `LargeFiles` of your own must give
+   * back the `DocumentMeta` its library's `ingest` gave, not a copy, for this to be known. New in
+   * 0.99.9.
+   */
+  reused?: true;
 };
 
 /** What `prepareUpload` is told of an upload, before its body is read. New in 0.9.0. */
@@ -54,8 +65,10 @@ export type PrepareUploadInfo = {
 };
 
 /**
- * What `prepareUpload` may return for an upload: the document's ID, where to save its body, and
- * the ref of that file for `LargeFilesOptions.originals`. Each is optional. New in 0.9.0.
+ * What `prepareUpload` may return for an upload: the document's ID, where to save its body, the
+ * ref of that file for `LargeFilesOptions.originals`, and since 0.99.9 `dedupe` and `appData` for
+ * `ingest`. Each is optional. They are the server's values: the handlers read no JSON of the
+ * client's. New in 0.9.0.
  */
 export type PreparedUpload = {
   /**
@@ -81,6 +94,22 @@ export type PreparedUpload = {
    * before its body is read: a 500 "Upload failed (ELOOP).".
    */
   original?: { ref: string };
+  /**
+   * `IngestInput.dedupe`: when the store already has a document of the request's owner and scope
+   * whose file has the same SHA-256, the upload gives back that document instead of storing
+   * another (a 201 with its summary; `onUploaded` is told `reused: true`), with its expiry counted
+   * again from now. Not with `id`. It needs a store with `list`: another fails the upload with a
+   * 500 "Upload failed.", after its body is read. The file saved to `path` for such an upload is
+   * removed: no document refers to it. New in 0.99.9.
+   */
+  dedupe?: boolean;
+  /**
+   * `IngestInput.appData`: the application's own data about the document, a JSON object of at most
+   * `MAX_APP_DATA_BYTES` as JSON, checked before the body is read. Build it on the server: never
+   * pass on what a client sent as it is. Not applied to a document given back by `dedupe`, which
+   * keeps its own. Never in the answer. New in 0.99.9.
+   */
+  appData?: object;
 };
 
 /** Where `uploadSpool` writes the bodies of uploads, and which ones. New in 0.9.0. */
@@ -123,15 +152,18 @@ export type UploadAnswer = {
 export type DocumentHandlerOptions = {
   /**
    * The signed-in user for this request. When set, uploads are owned by that user and other
-   * users cannot read or delete them. Return undefined to allow anonymous access. An empty owner
+   * users cannot read or delete them. Required unless the library has `requireOwner: false`
+   * (since 0.99.9; a `LargeFiles` of your own without `access` counts as requiring an owner).
+   * Under `requireOwner: false`, return undefined to allow anonymous access. An empty owner
    * ("", spaces only, or null from JavaScript) is the server's mistake: the upload is answered with a 500
    * `{"error":"Upload failed (empty owner)."}`, before its body is read. So is an owner from
    * JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`,
    * say): `{"error":"Upload failed (owner is not a string)."}`.
    *
-   * When the library requires an owner (`requireOwner`), it is required here: the handlers cannot
-   * be made without it, and an undefined owner (or null, from JavaScript) is answered 401
-   * `{"error":"Sign in first."}` before the body is read, on every route (new in 0.9.0). An empty
+   * When the library requires an owner (`requireOwner`, the default since 0.99.9), it is required
+   * here: the handlers cannot be made without it, and an undefined owner (or null, from JavaScript)
+   * is answered 401 `{"error":"Sign in first."}` before the body is read, on every route (new in
+   * 0.9.0). An empty
    * owner is then a 500 on every route too, without calling the library: `get` answers
    * `{"error":"The file could not be looked up (empty owner)."}`, and `remove`
    * `{"error":"The file could not be deleted (empty owner)."}`.
@@ -167,7 +199,8 @@ export type DocumentHandlerOptions = {
    * (best effort) and the upload is answered as for an error of `ingest`: with the error's status
    * (400 to 599) and message, or a 500 `{"error":"Upload failed."}`. The delete is waited for within
    * the library's `storeTimeoutMs` (since 0.10.0): past it, it goes on alone, and the upload is
-   * answered all the same. New in 0.9.0.
+   * answered all the same. A document `dedupe` gave back (`reused`) is never deleted (0.99.9): it
+   * was stored before, by another upload. New in 0.9.0.
    */
   onUploaded?: (document: DocumentMeta, context: UploadedContext) => UploadedResult | Promise<UploadedResult>;
   /**
@@ -178,8 +211,8 @@ export type DocumentHandlerOptions = {
   onRemoved?: (id: string, context: RemovedContext) => void | Promise<void>;
   /**
    * Called for each upload after `getOwner` and `getScope`, before its body is read: returns the
-   * document's `id`, a `path` to save the body to, and the `original` ref of that file (see
-   * `PreparedUpload`), or nothing. With a `path`, the body is written there as it arrives (under
+   * document's `id`, a `path` to save the body to, the `original` ref of that file, and since
+   * 0.99.9 `dedupe` and `appData` (see `PreparedUpload`), or nothing. With a `path`, the body is written there as it arrives (under
    * the same limits: `maxUploadBytes`, `uploadIdleTimeoutMs`), then ingested from the file, which
    * stays once the document is stored and is removed when the upload fails, whatever the reason
    * (a process that is killed cannot remove it).
@@ -266,6 +299,16 @@ export type DocumentHandlers = {
    * with `Retry-After` (0.10.0).
    */
   remove(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
+  /**
+   * GET: the documents of the request's owner and scope (`files.list`), the oldest first, as
+   * `{ documents: DocumentSummary[] }`, with no paging. Nothing is read from the request but what
+   * `getOwner` and `getScope` read: no query, header or body. A request with neither an owner nor
+   * a scope (possible only under `requireOwner: false`) is answered 401 `{"error":"Sign in
+   * first."}`: it would list every document without an owner, whose IDs work like passwords. A
+   * store that cannot be read is a 503 with `Retry-After`; a store or a `LargeFiles` without
+   * `list`, a 500 "The files could not be listed.". New in 0.99.9.
+   */
+  list(request: IncomingMessage, response: ServerResponse): Promise<void>;
   /** Counters of the uploads these handlers hold, for metrics and alerts: read without waiting. New in 0.10.0. */
   stats(): DocumentHandlerStats;
 };
@@ -607,17 +650,19 @@ function fileModeOf(value: unknown): number {
   return value;
 }
 
-const PREPARED_SHAPE = "prepareUpload must return nothing, or { id?, path?, original? }: id a string, path an absolute path, original { ref } with a path.";
+const PREPARED_SHAPE = "prepareUpload must return nothing, or { id?, path?, original?, dedupe?, appData? }: id a string, path an absolute path, original { ref } with a path, dedupe true or false.";
 
 /**
  * What `prepareUpload` returned, checked (a copy). Null fields are left out, as a database gives
  * them. Anything else is a TypeError, the server's mistake: a 500 "Upload failed.". The rules of
- * `id` and `original.ref` are the library's, checked by `ingest`.
+ * `id` and `original.ref` are the library's, checked by `ingest`. `appData` is checked here, as
+ * `ingest` checks it (a JSON copy; a TypeError, or a RangeError past `MAX_APP_DATA_BYTES`), so that
+ * a wrong one fails before the body is read (0.99.9).
  */
 function preparedOf(value: unknown): PreparedUpload {
   if (value === undefined || value === null) return {};
   if (typeof value !== "object") throw new TypeError(PREPARED_SHAPE);
-  const { id, path: at, original } = value as { id?: unknown; path?: unknown; original?: unknown };
+  const { id, path: at, original, dedupe, appData } = value as { id?: unknown; path?: unknown; original?: unknown; dedupe?: unknown; appData?: unknown };
   const prepared: PreparedUpload = {};
   if (id !== undefined && id !== null) {
     if (typeof id !== "string") throw new TypeError(PREPARED_SHAPE);
@@ -633,6 +678,12 @@ function preparedOf(value: unknown): PreparedUpload {
     if (typeof ref !== "string" || prepared.path === undefined) throw new TypeError(PREPARED_SHAPE);
     prepared.original = { ref };
   }
+  if (dedupe !== undefined && dedupe !== null) {
+    if (typeof dedupe !== "boolean") throw new TypeError(PREPARED_SHAPE);
+    if (dedupe && prepared.id !== undefined) throw new TypeError("prepareUpload cannot return dedupe with id: an application's ID names its own document.");
+    if (dedupe) prepared.dedupe = true;
+  }
+  if (appData !== undefined && appData !== null) prepared.appData = checkAppData(appData, "prepareUpload's appData");
   return prepared;
 }
 
@@ -685,9 +736,10 @@ function drain(request: IncomingMessage, response: ServerResponse): void {
 }
 
 /**
- * Upload, get, and delete handlers for any Node HTTP server (node:http, Express, Fastify via
- * `request.raw`/`reply.raw`, Next.js API routes on the Node runtime). Responses are JSON, except an upload that asks for
- * `text/event-stream`: it is answered with its ingest events.
+ * Upload, get, delete and (since 0.99.9) list handlers for any Node HTTP server (node:http,
+ * Express, Fastify via `request.raw`/`reply.raw`, Next.js API routes on the Node runtime).
+ * Responses are JSON, except an upload that asks for `text/event-stream`: it is answered with its
+ * ingest events. `getOwner` is required unless the library has `requireOwner: false` (since 0.99.9).
  */
 export function createDocumentHandlers(files: LargeFiles, options: DocumentHandlerOptions = {}): DocumentHandlers {
   const tooLarge = `The file is larger than the ${formatBytes(files.maxUploadBytes)} upload limit.`;
@@ -700,11 +752,13 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
     if (options[name] !== undefined && typeof options[name] !== "function") throw new TypeError(`${name} must be a function, and is ${typeof options[name]}.`);
   }
   // A library that requires an owner or a scope on every call cannot be served without them: every
-  // request would fail, after its body was read.
-  const requireOwner = files.access?.requireOwner === true;
+  // request would fail, after its body was read. Owners are required unless the library says
+  // `requireOwner: false` (0.99.9): a `LargeFiles` of your own without `access` counts as requiring
+  // one, the default of the library it wraps, so that it fails closed.
+  const requireOwner = files.access?.requireOwner !== false;
   const requireScope = files.access?.requireScope === true;
   if (requireOwner && typeof options.getOwner !== "function") {
-    throw new TypeError("createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner).");
+    throw new TypeError("createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner, on by default). Give getOwner, or create the library with requireOwner: false.");
   }
   if (requireScope && typeof options.getScope !== "function") {
     throw new TypeError("createDocumentHandlers needs getScope: the library requires a scope on every call (requireScope).");
@@ -768,16 +822,19 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
   /**
    * Runs `onUploaded` for a stored document. When it throws, or its `answer` is not a plain object
    * that JSON can hold, the document is deleted (a failure to delete is not told: the upload has
-   * failed either way) and the error is what the upload answers.
+   * failed either way) and the error is what the upload answers. A document `dedupe` gave back
+   * (`reused`, 0.99.9) is never deleted: it was stored before, by another upload. Its saved file
+   * is not told: it is gone.
    */
-  async function uploaded(meta: DocumentMeta, request: IncomingMessage, caller: Caller, clientGone: boolean, saved: string | undefined): Promise<Hooked> {
+  async function uploaded(meta: DocumentMeta, request: IncomingMessage, caller: Caller, clientGone: boolean, saved: string | undefined, reused: boolean): Promise<Hooked> {
     if (!options.onUploaded) return {};
     try {
-      const returned: unknown = await options.onUploaded(meta, { request, ...caller, clientGone, ...(saved !== undefined ? { path: saved } : {}) });
+      const context: UploadedContext = { request, ...caller, clientGone, ...(saved !== undefined && !reused ? { path: saved } : {}), ...(reused ? { reused: true } : {}) };
+      const returned: unknown = await options.onUploaded(meta, context);
       return hookAnswerOf(returned);
     } catch (error) {
       // A delete of your own that throws at once is told no more than one that rejects.
-      await Promise.resolve().then(() => files.delete(meta.id, caller)).catch(() => undefined);
+      if (!reused) await Promise.resolve().then(() => files.delete(meta.id, caller)).catch(() => undefined);
       return { failure: error };
     }
   }
@@ -811,6 +868,21 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         send(response, 200, { deleted });
       } catch (error) {
         fail(response, error, "The file could not be deleted", tooLarge);
+      }
+    },
+
+    async list(request, response) {
+      try {
+        // The owner's shape is checked under every rule, as for an upload: a list hands out IDs.
+        const caller = await callerOf(request, "The files could not be listed", true);
+        // Without an owner and a scope, it would list every document without an owner: the IDs of
+        // other people's uploads, which work like passwords.
+        if (caller.owner === undefined && caller.scope === undefined) throw new HttpError(401, "Sign in first.");
+        if (typeof files.list !== "function") throw new TypeError("The list route needs files.list(), as createLargeFiles makes it.");
+        const listed = await files.list(caller);
+        send(response, 200, { documents: listed.map(toDocumentSummary) });
+      } catch (error) {
+        fail(response, error, "The files could not be listed", tooLarge);
       }
     },
 
@@ -872,18 +944,24 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         // or its file closed (where a network volume writes what it held back), or before a body
         // a framework read was taken.
         if (response.destroyed || request.socket?.destroyed) onClose();
-        const chosen = { ...(prepared.id !== undefined ? { id: prepared.id } : {}), ...(prepared.original !== undefined ? { original: prepared.original } : {}) };
+        const chosen = {
+          ...(prepared.id !== undefined ? { id: prepared.id } : {}),
+          ...(prepared.original !== undefined ? { original: prepared.original } : {}),
+          ...(prepared.dedupe ? { dedupe: true } : {}),
+          ...(prepared.appData !== undefined ? { appData: prepared.appData } : {}),
+        };
         /**
          * Starts the upload's ingest, once. A body in memory is then the ingest's alone: it is
          * freed when the ingest ends, while `onUploaded` may still run. The input is built in
          * this function, whose frame ends at once: a value in the frame of `upload`, an async
          * function, is kept until it returns, the hook's wait included. A body in a file is
          * ingested from its path: the file of the spool is removed when the ingest ends, and the
-         * application's file when the ingest fails.
+         * application's file when the ingest fails, or gave back a document stored before
+         * (`dedupe`), which does not refer to it.
          */
         const start: StartIngest = (more) => {
           const input = { name, ...(mimeType ? { mimeType } : {}), ...chosen, ...caller, signal: gone.signal, ...more };
-          if (file) return file.settle(files.ingest({ ...input, source: { path: file.path } }));
+          if (file) return file.settle(files.ingest({ ...input, source: { path: file.path } }), (meta) => !reusedHere(meta));
           const bytes = body!;
           body = undefined;
           return files.ingest({ ...input, bytes });
@@ -891,9 +969,11 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         // The path is told only for the application's own file: the spool's is gone by then.
         const saved = file?.kept ? file.path : undefined;
         const hook = async (meta: DocumentMeta): Promise<Hooked> => {
-          const hooked = await uploaded(meta, request, caller, gone.signal.aborted, saved);
+          // A document stored before (`dedupe`): never deleted here, and its upload's file is gone.
+          const reused = reusedHere(meta);
+          const hooked = await uploaded(meta, request, caller, gone.signal.aborted, saved, reused);
           // The document is deleted: the file saved for it goes too.
-          if ("failure" in hooked) await file?.remove();
+          if ("failure" in hooked && !reused) await file?.remove();
           return hooked;
         };
         try {

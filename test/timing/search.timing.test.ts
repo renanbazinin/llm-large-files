@@ -97,7 +97,7 @@ describe("a ranged keyword search reads and counts only what it needs (13, 53, 5
 
 describe("a regex that cannot get past a line", () => {
   it("stops the search at that line, long before the time limit, and keeps what was found", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(trapped(300)) });
     const tools = files.tools([meta]);
     const { value, ms, turns } = await watched(() => tools.execute("search_document", { document_id: meta.id, query: SLOW, mode: "regex" }));
@@ -112,7 +112,7 @@ describe("a regex that cannot get past a line", () => {
 
   it("does the same for a document read by range", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-limits-"));
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0, scanChunkBytes: 4_096, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: 0, scanChunkBytes: 4_096, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(trapped(300)) });
     const tools = files.tools([meta]);
     const { value, ms } = await watched(() => tools.execute("search_document", { document_id: meta.id, query: SLOW, mode: "regex" }));
@@ -151,7 +151,7 @@ describe("a large document held in memory (LLF-044)", () => {
 describe("order \"last\" when the scan stopped early (findings 14, 33, 51, 52)", () => {
   const doc = (text: string) => new SearchableDocument({ meta: { id: "doc_t", name: "t.txt" } as never, text });
   const linesOf = (result: ToolResult) => (result.matches as Array<{ line: number }>).map((match) => match.line);
-  const budget = createLargeFiles({ store: new MemoryDocumentStore() }).budget;
+  const budget = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).budget;
   /** Tools over one document held in memory, with the time for regex searches given. */
   const toolsOver = (text: string, regexBudgetMs?: number) =>
     createDocumentTools({ load: async () => doc(text), documentIds: ["doc_t"], budget, ...(regexBudgetMs !== undefined ? { regexBudgetMs } : {}) });

@@ -307,12 +307,14 @@ export class BodyFile {
 
   /**
    * Follows the ingest of the file (`ingesting`): when it ends, a temporary file is removed, and
-   * the application's file too when it failed. It settles once that is done, as the ingest did.
+   * the application's file too when it failed, or when `keeps` says that the document the ingest
+   * gave back does not refer to it (one stored before, `dedupe`; new in 0.99.9). It settles once
+   * that is done, as the ingest did.
    */
-  async settle<T>(ingesting: Promise<T>): Promise<T> {
+  async settle<T>(ingesting: Promise<T>, keeps: (value: T) => boolean = () => true): Promise<T> {
     try {
       const value = await ingesting;
-      this.#stored = true;
+      this.#stored = keeps(value);
       return value;
     } finally {
       await this.end();

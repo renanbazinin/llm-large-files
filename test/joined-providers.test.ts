@@ -13,7 +13,7 @@ const notices = (events: AskEvent[]) => events.filter((event): event is Notice =
 
 /** A log too large to send whole: the question runs the tool loop. */
 async function library(): Promise<{ files: LargeFiles; log: string }> {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)), id: "log-1" });
   return { files, log: meta.id };
 }

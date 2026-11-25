@@ -16,7 +16,7 @@ const SCANNED_PAGE = "[Picture on this page. This text cannot show it.]\n[No tex
 
 describe("a PDF without any text", () => {
   it("is refused when its pages cannot be shown, as it always was", async () => {
-    const plain = createLargeFiles({ store: new MemoryDocumentStore() });
+    const plain = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await expect(plain.ingest({ name: "scan.pdf", bytes: scan(3) })).rejects.toThrow(REFUSED);
 
     // Originals are asked for, but this store cannot keep them.
@@ -27,17 +27,17 @@ describe("a PDF without any text", () => {
       getMeta: async (id) => documents.get(id)?.meta,
       delete: async (id) => documents.delete(id),
     };
-    await expect(createLargeFiles({ store, keepOriginals: ["pdf"] }).ingest({ name: "scan.pdf", bytes: scan(3) })).rejects.toThrow(REFUSED);
+    await expect(createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] }).ingest({ name: "scan.pdf", bytes: scan(3) })).rejects.toThrow(REFUSED);
 
     // Originals of other formats do not help a PDF.
-    await expect(createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["docx"] }).ingest({ name: "scan.pdf", bytes: scan(3) })).rejects.toThrow(REFUSED);
+    await expect(createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["docx"] }).ingest({ name: "scan.pdf", bytes: scan(3) })).rejects.toThrow(REFUSED);
     // And the caller can keep refusing scans.
-    await expect(createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], scannedPdfPages: 0 }).ingest({ name: "scan.pdf", bytes: scan(3) })).rejects.toThrow(REFUSED);
+    await expect(createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], scannedPdfPages: 0 }).ingest({ name: "scan.pdf", bytes: scan(3) })).rejects.toThrow(REFUSED);
   });
 
   it("is accepted when its original is kept: each page says that it has no text and shows a picture", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "scan.pdf", bytes: scan(3) });
     expect(meta).toMatchObject({ format: "pdf", pages: 3, originalKept: true, lines: 11 });
     expect((await store.get(meta.id))!.text).toBe([1, 2, 3].map((page) => `--- Page ${page} ---\n${SCANNED_PAGE}`).join("\n\n"));
@@ -47,12 +47,12 @@ describe("a PDF without any text", () => {
   });
 
   it("is refused past the number of pages that can be looked at, and the message says so", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     expect((await files.ingest({ name: "scan.pdf", bytes: scan(30) })).pages).toBe(30);
     await expect(files.ingest({ name: "scan.pdf", bytes: scan(31) })).rejects.toThrow(
       "This PDF has no text layer (it may be scanned) and 31 pages. Without text it can only be read by looking at its pages, which works for up to 30 pages. It needs OCR first.",
     );
-    const generous = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], scannedPdfPages: 40 });
+    const generous = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], scannedPdfPages: 40 });
     expect((await generous.ingest({ name: "scan.pdf", bytes: scan(31) })).pages).toBe(31);
   });
 
@@ -62,7 +62,7 @@ describe("a PDF without any text", () => {
     for (let page = 0; page < 40; page++) builder.page(paint("Im1", 612, 792, 0, 0), { Im1: builder.image() });
     // 41 pages, 40 of them scans: accepted with and without originals, as in 0.2.0.
     for (const options of [{}, { keepOriginals: ["pdf" as const] }]) {
-      const meta = await createLargeFiles({ store: new MemoryDocumentStore(), ...options }).ingest({ name: "mixed.pdf", bytes: builder.build() });
+      const meta = await createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ...options }).ingest({ name: "mixed.pdf", bytes: builder.build() });
       expect(meta.pages).toBe(41);
     }
   });
@@ -76,7 +76,7 @@ describe("a PDF without any text", () => {
   });
 
   it("gets view_pages from askGemini, which is the only way to read it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "scan.pdf", bytes: scan(3) });
     const bodies: Array<Record<string, any>> = [];
     const replies = [

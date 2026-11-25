@@ -5,7 +5,7 @@ import { createLargeFiles, MemoryDocumentStore, toolResultSummary } from "../src
 import { serviceLog, utf8 } from "./fake-model.js";
 
 async function tools() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
   return { tools: files.tools([meta]), id: meta.id };
 }

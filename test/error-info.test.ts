@@ -197,7 +197,7 @@ describe("errorInfoOf", () => {
   // kind, and errorInfoOf read them as "unknown": a 429 was not "rate_limit", a 503 kept 503, and a
   // 401, the server's own key, kept 401 for the browser.
   it("reads the run.error, retry and request.end of a model error without a kind as the error itself", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     // The third item: whether the request is sent again, when that is not what `retryable` says.
     const cases: Array<[Error, Partial<ErrorInfo>, boolean?]> = [

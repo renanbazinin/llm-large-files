@@ -123,7 +123,7 @@ describe("Word files (F4, F5, LLF-024)", () => {
   });
 
   it("gives the document an outline, and finds a clause by its number", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "lease.docx", bytes: await lease() });
     expect(meta.outline.map((entry) => `${entry.level} ${entry.title}`)).toEqual(expect.arrayContaining(["1 1. Definitions", "2 1.1 Scope", "1 2. Payment", "2 2.1 Rent", "1 Footnotes"]));
     const found = await files.tools([meta]).execute("search_document", { document_id: meta.id, query: "2.1", mode: "exact" });
@@ -232,7 +232,7 @@ describe("Excel files (F7)", () => {
   it("is detected by name and type, ingested, and searched by row", async () => {
     expect(detectFormat("q3.XLSX", "")).toBe("xlsx");
     expect(detectFormat("report", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).toBe("xlsx");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "sales.xlsx", bytes: await workbook(SHEET) });
     expect(meta.format).toBe("xlsx");
     expect(meta.outline.map((entry) => entry.title)).toEqual(["Sheet 1: Sales 2026", "Sheet 2: Notes (hidden sheet)"]);
@@ -314,7 +314,7 @@ describe("HTML pages (F13)", () => {
     expect(detectFormat("index.htm", "")).toBe("html");
     expect(detectFormat("page", "text/html")).toBe("html");
     const hebrew = new Uint8Array([...utf8("<html><body><p>"), 0xe9, 0xf8, 0xe5, 0xf9, 0xec, 0xe9, 0xed, ...utf8(" &amp; more</p></body></html>")]);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "city.html", bytes: hebrew });
     expect(meta.format).toBe("html");
     expect(meta.encoding).toBe("windows-1255");
@@ -375,7 +375,7 @@ describe("logs in other dialects (LLF-017, F12) and outlines of code (LLF-016)",
 
   it("profiles a log of lower-case levels, and knows access and JSON logs as logs", async () => {
     const nginx = Array.from({ length: 20 }, (_, index) => `2026/11/10 14:${String(index).padStart(2, "0")}:00 [${index % 4 === 0 ? "error" : "warn"}] 77#0: upstream timed out (110) while reading`).join("\n");
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "error.txt", bytes: utf8(nginx) });
     expect(meta.format).toBe("log");
     expect(meta.logProfile?.levels).toEqual({ ERROR: 5, WARN: 15 });

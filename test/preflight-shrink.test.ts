@@ -9,7 +9,7 @@ import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
 
 /** Four earlier questions, each with a stored read of 200 lines: about 13,700 estimated tokens a round. */
 async function history() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
   const tools = files.tools([meta]);
   const messages: ChatMessage[] = [];

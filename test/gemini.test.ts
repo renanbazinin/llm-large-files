@@ -37,7 +37,7 @@ describe("endpoints", () => {
 
 describe("askGemini", () => {
   it("sends a document that fits in full, without tools", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: encoder.encode("# Notes\n\nThe code word is heron.") });
     const fetch = vi.fn(async () => Response.json(text("Heron.")));
     const result = await askGemini({ files, endpoint, fetch, documentIds: [meta.id], system: "Be brief.", messages: [{ role: "user", text: "What is the code word?" }] });
@@ -54,7 +54,7 @@ describe("askGemini", () => {
   });
 
   it("keeps the document in the first user turn, so a follow-up question shares its prefix", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: encoder.encode("# Notes\n\nThe code word is heron.") });
     const bodies: Array<Record<string, any>> = [];
     const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -78,7 +78,7 @@ describe("askGemini", () => {
   });
 
   it("streams a tool loop for a document that does not fit", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: encoder.encode(log(5_000)) });
     const bodies: Array<Record<string, any>> = [];
     const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -113,7 +113,7 @@ describe("askGemini", () => {
   });
 
   it("finishes with a tool-free turn when the model keeps calling tools", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: encoder.encode(log(5_000)) });
     const bodies: Array<Record<string, any>> = [];
     const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
@@ -140,7 +140,7 @@ describe("askGemini", () => {
   });
 
   it("asks for the answer when the model's last turn has no text, instead of returning an earlier remark", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: encoder.encode(log(5_000)) });
     const bodies: Array<Record<string, any>> = [];
     const replies = [
@@ -172,13 +172,13 @@ describe("askGemini", () => {
 
   it("reports a blocked prompt instead of an empty answer", async () => {
     const blocked = vi.fn(async () => Response.json({ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } }));
-    const small = createLargeFiles({ store: new MemoryDocumentStore() });
+    const small = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const inline = await small.ingest({ name: "a.txt", bytes: encoder.encode("alpha") });
     expect(await askGemini({ files: small, endpoint, fetch: blocked, documentIds: [inline.id], messages: [{ role: "user", text: "?" }] }))
       .toMatchObject({ text: "", answered: false, blockReason: "PROHIBITED_CONTENT", turns: 1 });
 
     // With tools on offer too, and without a second request that would only be blocked again.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const large = await files.ingest({ name: "app.log", bytes: encoder.encode(log(5_000)) });
     blocked.mockClear();
     expect(await askGemini({ files, endpoint, fetch: blocked, documentIds: [large.id], messages: [{ role: "user", text: "?" }] }))
@@ -198,7 +198,7 @@ describe("askGemini", () => {
   });
 
   it("treats other owners' documents as missing and reports HTTP errors", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "a.txt", bytes: encoder.encode("secret"), owner: "alice" });
     const fetch = vi.fn(async () => Response.json({ error: { message: "quota exceeded" } }, { status: 429 }));
     await expect(askGemini({ files, endpoint, fetch, documentIds: [meta.id], owner: "bob", messages: [{ role: "user", text: "?" }] }))
@@ -211,7 +211,7 @@ describe("askGemini", () => {
   });
 
   it("accepts raw Gemini contents and leaves the caller's array untouched", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "a.txt", bytes: encoder.encode("alpha") });
     const contents = [{ role: "user" as const, parts: [{ text: "Describe the image and the file." }, { inlineData: { mimeType: "image/png", data: "iVBORw0KGgo=" } }] }];
     const fetch = vi.fn(async () => Response.json(text("ok")));

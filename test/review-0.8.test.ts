@@ -23,7 +23,7 @@ describe("search", () => {
   // 33.5 to 35.5 s under coverage on a busy machine.
   it("says that the last matches of a search that stopped early are the last it found", { timeout: 120_000 }, async () => {
     const text = Array.from({ length: 300_000 }, (_, index) => `line ${index} ${"ab".repeat(30)}`).join("\n");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "slow.txt", bytes: utf8(text) });
     // The scan must find some lines and stop before the end. On a slow runner (Windows CI, 0.10.0)
     // 5 ms ran out before the first match, so the time is doubled until a scan finds lines: the

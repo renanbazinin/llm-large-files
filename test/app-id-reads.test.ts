@@ -162,8 +162,8 @@ class RecordThenText extends TextThenRecord {
  * is stored, and bob is refused with "exists".
  */
 async function raceForOneId(store: TextThenRecord, options: { wholeDocumentBytes?: number } = {}) {
-  const one = createLargeFiles({ store, ...options });
-  const two = createLargeFiles({ store, ...options });
+  const one = createLargeFiles({ requireOwner: false, store, ...options });
+  const two = createLargeFiles({ requireOwner: false, store, ...options });
   const alice = { owner: "alice", scope: ["alice", "c1"] };
   const bob = { owner: "bob", scope: ["bob", "c9"] };
   const bobAtPut = gate();
@@ -189,8 +189,8 @@ async function raceForOneId(store: TextThenRecord, options: { wholeDocumentBytes
 describe("a document read whole", () => {
   it("is missing when the store gives back another document than the one checked: replaced on another server meanwhile", async () => {
     const store = new StoreOf08();
-    const one = createLargeFiles({ store });
-    const two = createLargeFiles({ store });
+    const one = createLargeFiles({ requireOwner: false, store });
+    const two = createLargeFiles({ requireOwner: false, store });
     const alice = { owner: "alice", scope: ["alice", "s1"] };
     const bob = { owner: "bob", scope: ["bob", "s1"] };
     await one.ingest({ name: "report.txt", bytes: utf8("alice's report\n"), id: "report", ...alice });
@@ -222,7 +222,7 @@ describe("a document read whole", () => {
         return (await super.get(id, context))?.meta;
       }
     }
-    const files = createLargeFiles({ store: new KeptById() });
+    const files = createLargeFiles({ requireOwner: false, store: new KeptById() });
     await files.ingest({ name: "a.txt", bytes: utf8("alpha text\n"), id: "shared", scope: ["a"] });
     await files.ingest({ name: "b.txt", bytes: utf8("bravo text\n"), id: "shared", scope: ["b"] });
     expect(await textOf(files, "shared", { scope: ["a"] })).toContain("alpha text");
@@ -249,7 +249,7 @@ describe("a document read whole", () => {
         return document && { ...document, text: document.text.replace("\n", " ") };
       }
     }
-    const files = createLargeFiles({ store: new OneLine() });
+    const files = createLargeFiles({ requireOwner: false, store: new OneLine() });
     await files.ingest({ name: "a.txt", bytes: utf8("first line\nsecond line\n"), id: "two-lines" });
     const prepared = await files.prepare(["two-lines"], base);
     expect(prepared.missing).toEqual(["two-lines"]);
@@ -273,7 +273,7 @@ describe("a document read whole", () => {
         { store: new RangedStore(), wholeDocumentBytes: 0 },
       ];
       for (const { store, ...options } of stores) {
-        const files = createLargeFiles({ store, ...options });
+        const files = createLargeFiles({ requireOwner: false, store, ...options });
         for (const [id, text] of Object.entries(texts)) await files.ingest({ name: `${id}.txt`, bytes: utf8(text), id });
         const prepared = await files.prepare(Object.keys(texts), base);
         expect(prepared.missing).toEqual([]);
@@ -307,8 +307,8 @@ describe("a document read by range", () => {
     // alice's and fails at the record. The saved index is alice's, and fits her metadata; bob's text
     // has her lines' byte lengths, and two lines more. Its end is not where her index says.
     const store = new TextThenRecord();
-    const one = createLargeFiles({ store, wholeDocumentBytes: 0 });
-    const two = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const one = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 });
+    const two = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 });
     const alice = { owner: "alice", scope: ["alice", "c1"] };
     const bob = { owner: "bob", scope: ["bob", "c9"] };
     const lines = (who: string, count: number) => Array.from({ length: count }, (_, at) => `line ${String(at).padStart(4, "0")} ${who}\n`).join("");
@@ -341,7 +341,7 @@ describe("a document read by range", () => {
     // The same store and texts, ingested once each: the saved index is read, and the end of the
     // text checked against it, without building the index again.
     const store = new TextThenRecord();
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 });
     const meta = await files.ingest({ name: "a.log", bytes: utf8(Array.from({ length: 300 }, (_, at) => `line ${at} alice\n`).join("")), id: "up-2" });
     expect(store.indexes.has("up-2")).toBe(true);
     let built = 0;
@@ -358,8 +358,8 @@ describe("a document read by range", () => {
   for (const sameSize of [true, false]) {
     it(`is missing when another server put another document under the ID while it was read (a text of ${sameSize ? "the same" : "another"} size)`, async () => {
       const store = new RangedStoreOf08();
-      const one = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
-      const two = createLargeFiles({ store, wholeDocumentBytes: 0 });
+      const one = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+      const two = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 });
       const alice = { owner: "alice", scope: ["alice", "s1"] };
       const bob = { owner: "bob", scope: ["bob", "s1"] };
       const meta = await one.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "report", ...alice });
@@ -382,8 +382,8 @@ describe("a document read by range", () => {
     it(`is missing when another owner stored the ID in the same scope during a search of a kept copy (${servers === 2 ? "on another server" : "in the same library"})`, async () => {
       // A store that keeps scopes apart, as the contract asks: the two owners share one scope.
       const store = new HeldRangedMemoryStore();
-      const one = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
-      const other = servers === 2 ? createLargeFiles({ store, wholeDocumentBytes: 0 }) : one;
+      const one = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+      const other = servers === 2 ? createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 }) : one;
       const scope = ["org"];
       const x = { owner: "x", scope };
       const y = { owner: "y", scope };
@@ -405,8 +405,8 @@ describe("a document read by range", () => {
 
   it("is missing from prepare when another server put another document under the ID while its text was read", async () => {
     const store = new RangedStoreOf08();
-    const one = createLargeFiles({ store, wholeDocumentBytes: 0 });
-    const two = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const one = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 });
+    const two = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 });
     const alice = { owner: "alice", scope: ["alice", "s1"] };
     const bob = { owner: "bob", scope: ["bob", "s1"] };
     await one.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "report", ...alice });
@@ -427,8 +427,8 @@ describe("a document read by range", () => {
       // aggregate_table names the columns it read when asked for one that is not there.
       const csv = (header: string) => [header, ...Array.from({ length: 300 }, (_, i) => `${i},${i * 2},${i * 3}`)].join("\n");
       const store = kind === "two servers" ? new RangedStoreOf08() : new HeldRangedMemoryStore();
-      const one = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
-      const two = kind === "two servers" ? createLargeFiles({ store, wholeDocumentBytes: 0 }) : one;
+      const one = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+      const two = kind === "two servers" ? createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 }) : one;
       const alice = kind === "two servers" ? { owner: "alice", scope: ["alice", "s1"] } : { owner: "x", scope: ["org"] };
       const bob = kind === "two servers" ? { owner: "bob", scope: ["bob", "s1"] } : { owner: "y", scope: ["org"] };
       const meta = await one.ingest({ name: "t.csv", bytes: utf8(csv("ida,colb,colc")), id: "report", ...alice });
@@ -449,7 +449,7 @@ describe("a document read by range", () => {
 
   it("asks the store once more after a call, however many ranges the call read", async () => {
     const store = new RangedStore();
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "report" });
     const tools = files.tools([meta], { access: {} });
     store.calls.length = 0;
@@ -480,8 +480,8 @@ describe("the original file", () => {
   it("is missing when another server put another document under the ID while it was read", async () => {
     const store = new StoreOf08();
     // One clock, and files of one size: only the owner and the scope tell the two documents apart.
-    const one = createLargeFiles({ store, keepOriginals: ["text"], now: () => CLOCK });
-    const two = createLargeFiles({ store, keepOriginals: ["text"], now: () => CLOCK });
+    const one = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"], now: () => CLOCK });
+    const two = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"], now: () => CLOCK });
     const alice = { owner: "alice", scope: ["alice", "s1"] };
     const bob = { owner: "bob", scope: ["bob", "s1"] };
     await one.ingest({ name: "report.txt", bytes: utf8("alice's report\n"), id: "report", ...alice });
@@ -497,8 +497,8 @@ describe("the original file", () => {
 
   it("shows no pages of another document put under the ID while view_pages read it", async () => {
     const store = new StoreOf08();
-    const one = createLargeFiles({ store, keepOriginals: ["pdf"], now: () => CLOCK });
-    const two = createLargeFiles({ store, keepOriginals: ["pdf"], now: () => CLOCK });
+    const one = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], now: () => CLOCK });
+    const two = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], now: () => CLOCK });
     const alice = { owner: "alice", scope: ["alice", "s1"] };
     const bob = { owner: "bob", scope: ["bob", "s1"] };
     const meta = await one.ingest({ name: "report.pdf", bytes: pdfWithPages([textLine("alice page one")]), id: "report", ...alice });
@@ -521,7 +521,7 @@ describe("the original file", () => {
         return (await super.getOriginal(id, context))?.subarray(0, 4);
       }
     }
-    const files = createLargeFiles({ store: new Cut(), keepOriginals: ["text"] });
+    const files = createLargeFiles({ requireOwner: false, store: new Cut(), keepOriginals: ["text"] });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("a whole file\n") });
     expect(await files.getOriginal(meta.id)).toBeUndefined();
   });
@@ -546,7 +546,7 @@ describe("copies kept in memory, once IDs are reused", () => {
         return this.documents.delete(this.key(id, context));
       }
     }
-    const files = createLargeFiles({ store: new ByOwner(), now: () => CLOCK });
+    const files = createLargeFiles({ requireOwner: false, store: new ByOwner(), now: () => CLOCK });
     const scope = ["org"];
     await files.ingest({ name: "r.txt", bytes: utf8("x's text\n"), id: "report", owner: "x", scope });
     await files.ingest({ name: "r.txt", bytes: utf8("y's text\n"), id: "report", owner: "y", scope });
@@ -559,7 +559,7 @@ describe("copies kept in memory, once IDs are reused", () => {
   for (const ranged of [false, true]) {
     it(`are not served after another server deleted the document and another owner stored the ID at the same instant (${ranged ? "read by range" : "loaded whole"})`, async () => {
       const store = ranged ? new RangedStore(() => CLOCK) : new MemoryDocumentStore({ now: () => CLOCK });
-      const options = { store, now: () => CLOCK, ...(ranged ? { wholeDocumentBytes: 0, scanChunkBytes: 4_096 } : {}) };
+      const options = { requireOwner: false, store, now: () => CLOCK, ...(ranged ? { wholeDocumentBytes: 0, scanChunkBytes: 4_096 } : {}) };
       const one = createLargeFiles(options);
       const two = createLargeFiles(options);
       const scope = ["org"];
@@ -581,7 +581,7 @@ describe("copies kept in memory, once IDs are reused", () => {
 describe("the context of the reads of a document's text", () => {
   it("is the document's own, whoever's call opened the copy that is shared", async () => {
     const store = new RangedStore();
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, scanChunkBytes: 4_096 });
     const scope = ["org"];
     // A document of the scope, of no owner: every owner of the scope may use it.
     const meta = await files.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "shared-log", scope });
@@ -598,7 +598,7 @@ describe("the context of the reads of a document's text", () => {
     for (const call of reads) expect(call.context, call.method).toEqual({ scope });
 
     // The same for a document loaded whole, which `get` reads.
-    const whole = createLargeFiles({ store });
+    const whole = createLargeFiles({ requireOwner: false, store });
     store.calls.length = 0;
     expect(await textOf(whole, "shared-log", { owner: "x", scope })).toContain("alpha request 0000");
     expect(store.calls.map((call) => [call.method, call.context])).toEqual([["getMeta", { scope, owner: "x" }], ["get", { scope }]]);
@@ -607,7 +607,7 @@ describe("the context of the reads of a document's text", () => {
   for (const ranged of [false, true]) {
     it(`is the caller's scope for a document whose metadata has none, found in that scope (${ranged ? "read by range" : "loaded whole"})`, async () => {
       const store = ranged ? new RangedStore() : new MemoryDocumentStore();
-      const files = createLargeFiles({ store, ...(ranged ? { wholeDocumentBytes: 0 } : {}) });
+      const files = createLargeFiles({ requireOwner: false, store, ...(ranged ? { wholeDocumentBytes: 0 } : {}) });
       // Ingested without a scope, as in 0.8, then moved into scope ["a"] by the application.
       const meta = await files.ingest({ name: "old.txt", bytes: utf8("an old document\n") });
       await store.put((await store.get(meta.id))!, { scope: ["a"] });
@@ -631,7 +631,7 @@ describe("the context of the reads of a document's text", () => {
       }
     }
     const store = new NoSavedIndex();
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0 });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0 });
     const scope = ["org"];
     const meta = await files.ingest({ name: "app.log", bytes: utf8(log("alpha")), id: "shared-log", scope });
     store.calls.length = 0;

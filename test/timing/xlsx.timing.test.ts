@@ -19,7 +19,7 @@ describe("a row that names one long shared string many times (#0, #46)", () => {
     const cells = '<c t="s"><v>0</v></c>'.repeat(3_000);
     const bytes = await workbook(`<row>${cells}</row>`, { strings: [`${"a".repeat(1_000_000)} b`] });
     expect(bytes.byteLength).toBeLessThan(5_000);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const { value, ms } = await timedSettled(() => files.ingest({ name: "fanout.xlsx", bytes }));
     expect((value as Error).message).toMatch(/more text than is (kept|read) from one file/);
     expect(ms).toBeLessThan(3_000);

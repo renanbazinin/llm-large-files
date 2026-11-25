@@ -44,7 +44,7 @@ class Ranged implements DocumentStore {
 /** A log read by range, opened once while the store answers, so that the calls after read its text by range. */
 async function opened(options: { storeTimeoutMs?: number } = {}) {
   const store = new Ranged();
-  const files = createLargeFiles({ store, budget: { inlineTokens: 10, mapChunkTokens: 2_000 }, wholeDocumentBytes: 0, cacheBytes: 0, scanChunkBytes: 4_096, ...options });
+  const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10, mapChunkTokens: 2_000 }, wholeDocumentBytes: 0, cacheBytes: 0, scanChunkBytes: 4_096, ...options });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(800)) });
   const tools = files.tools([meta]);
   await tools.execute("read_document", { document_id: meta.id, start_line: 1, end_line: 2 });

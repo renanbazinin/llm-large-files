@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 async function inMemory() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(LOG) });
   return { files, meta, tools: files.tools([meta]) };
 }
@@ -86,7 +86,7 @@ describe("the last match of an exact or regex search", () => {
     const beforePassage = `req=(${hex(50)}|${hex(start - 1)})`;
     for (const scanChunkBytes of [1, 4_096]) {
       // No cache, so that every search reads its pieces, and the reads of two searches can be compared.
-      const files = createLargeFiles({ store: new Counting(directory), wholeDocumentBytes: 0, scanChunkBytes, cacheBytes: 0, budget: { inlineTokens: 10 } });
+      const files = createLargeFiles({ requireOwner: false, store: new Counting(directory), wholeDocumentBytes: 0, scanChunkBytes, cacheBytes: 0, budget: { inlineTokens: 10 } });
       const meta = await files.ingest({ name: "app.log", bytes: utf8(LOG) });
       const tools = files.tools([meta]);
       for (const [query, mode] of [["ERROR", "exact"], ["took 300ms", "exact"], [atPassage, "regex"]] as const) {
@@ -113,7 +113,7 @@ describe("the last match of an exact or regex search", () => {
   });
 
   it("carries its page in a PDF whose pages can be shown", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const text = [1, 2, 3, 4].flatMap((page) => [`--- Page ${page} ---`, `row ${page}.1 hit`, `row ${page}.2`, `row ${page}.3 hit`]).join("\n");
     const document = new SearchableDocument({ meta: { id: "doc_pdf", name: "report.pdf" } as never, text });
     const tools = createDocumentTools({ load: async () => document, documentIds: ["doc_pdf"], viewableIds: ["doc_pdf"], loadOriginal: async () => undefined, budget: files.budget });
@@ -134,7 +134,7 @@ describe("the last match of an exact or regex search", () => {
     // Room for one match only: the last one, which no other search can show.
     const long = Array.from({ length: 10 }, (_, index) => `${index + 1} hit ${"x".repeat(300)}`).join("\n");
     const document = new SearchableDocument({ meta: { id: "doc_long", name: "long.txt" } as never, text: long });
-    const narrow = createDocumentTools({ load: async () => document, documentIds: ["doc_long"], budget: createLargeFiles({ store: new MemoryDocumentStore() }).budget });
+    const narrow = createDocumentTools({ load: async () => document, documentIds: ["doc_long"], budget: createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).budget });
     const only = (await narrow.executeWithFiles("search_document", { document_id: "doc_long", query: "hit", mode: "exact" }, { maxResultCharacters: 600 })).result;
     expect(JSON.stringify(only).length).toBeLessThanOrEqual(600);
     expect(linesOf(only)).toEqual([10]);
@@ -142,7 +142,7 @@ describe("the last match of an exact or regex search", () => {
   });
 
   it("keeps its line when the room is too small for the note of a cut result", async () => {
-    const budget = createLargeFiles({ store: new MemoryDocumentStore() }).budget;
+    const budget = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).budget;
     const search = async (filler: string, width: number) => {
       const text = Array.from({ length: 10 }, (_, index) => `${index + 1} hit ${filler.repeat(width)}`).join("\n");
       const document = new SearchableDocument({ meta: { id: "doc_long", name: "long.txt" } as never, text });
@@ -182,7 +182,7 @@ describe("the last match of an exact or regex search", () => {
     expect(result.stoppedEarly).toBe(true);
     expect(result.totalMatchingLines).toBeGreaterThanOrEqual(12);
     expect(result.last).toBeUndefined();
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const tools = createDocumentTools({ load: async () => document, documentIds: ["doc_t"], budget: files.budget, regexBudgetMs: 150 });
     const found = await tools.execute("search_document", { document_id: "doc_t", query: "(a|a)+$", mode: "regex", max_results: 3 });
     expect(linesOf(found)).toEqual([1, 2, 3]);
@@ -193,7 +193,7 @@ describe("the last match of an exact or regex search", () => {
     // Twenty long lines that match at once, then one the pattern cannot get past.
     const text = [...Array.from({ length: 20 }, (_, index) => `line ${index + 1} ${"x".repeat(80)} a`), `${"a".repeat(40)}!`, "end a"].join("\n");
     const document = new SearchableDocument({ meta: { id: "doc_t", name: "trap.txt" } as never, text });
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const tools = createDocumentTools({ load: async () => document, documentIds: ["doc_t"], budget: files.budget, regexBudgetMs: 150 });
     const call = { name: "search_document", args: { document_id: "doc_t", query: "(a|a)+$", mode: "regex", context_lines: 3 } };
     const cut = (await tools.executeWithFiles(call.name, call.args, { maxResultCharacters: 2_000 })).result;

@@ -20,9 +20,9 @@ const linesOf = (result: ToolResult) => (result.matches as Array<{ line: number 
 
 /** The same file in memory, and read by range from a folder, with small pieces: the results must agree. */
 async function bothWays(name: string, text: string): Promise<Array<{ files: LargeFiles; meta: DocumentMeta; how: string }>> {
-  const memory = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+  const memory = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
   directory = await mkdtemp(path.join(tmpdir(), "llf-search-08-"));
-  const ranged = createLargeFiles({ store: new FileDocumentStore(directory), budget: { inlineTokens: 10 }, wholeDocumentBytes: 0, scanChunkBytes: 2_048 });
+  const ranged = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), budget: { inlineTokens: 10 }, wholeDocumentBytes: 0, scanChunkBytes: 2_048 });
   return [
     { files: memory, meta: await memory.ingest({ name, bytes: utf8(text) }), how: "in memory" },
     { files: ranged, meta: await ranged.ingest({ name, bytes: utf8(text) }), how: "by range" },
@@ -31,7 +31,7 @@ async function bothWays(name: string, text: string): Promise<Array<{ files: Larg
 
 describe("text and queries in one Unicode form", () => {
   it("composes decomposed text at ingest, so a composed query finds it (LLF-045)", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "menu.txt", bytes: utf8("Le café est ouvert\nUne crème brûlée\n") });
     const tools = files.tools([meta]);
     const exact = await tools.execute("search_document", { document_id: meta.id, query: "café", mode: "exact" });
@@ -203,7 +203,7 @@ describe("searching part of a file, and the last matches (M3)", () => {
   });
 
   it("pages through the matches with next_from_line", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(LOG) });
     const tools = files.tools([meta]);
     const seen: number[] = [];
@@ -221,7 +221,7 @@ describe("searching part of a file, and the last matches (M3)", () => {
   });
 
   it("refuses a range past the end or upside down", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(LOG) });
     const tools = files.tools([meta]);
     expect((await tools.execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact", from_line: 601 })).error).toBe("from_line 601 is past the end of the file, which has 600 lines.");
@@ -258,7 +258,7 @@ describe("counts by group (M2)", () => {
   });
 
   it("counts by the regex's first group, the largest first", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(LOG) });
     const tools = files.tools([meta]);
     const result = await tools.execute("search_document", { document_id: meta.id, query: "PAY-(\\d+)", mode: "regex", group_by: "capture" });
@@ -277,7 +277,7 @@ describe("counts by group (M2)", () => {
 
   it("counts by message shape, and counts lines with no key apart", async () => {
     const text = ["2026-11-10 10:00:01 ERROR db timeout after 30s id=17", "2026-11-10 10:00:02 ERROR db timeout after 45s id=99", "ERROR disk full on /dev/sda1", "no time here ERROR", "Nov 11 09:15:00 host ERROR db timeout after 5s id=1"].join("\n");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "mixed.log", bytes: utf8(text) });
     const tools = files.tools([meta]);
     const shape = await tools.execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact", group_by: "shape" });
@@ -302,7 +302,7 @@ describe("counts by group (M2)", () => {
   });
 
   it("keeps the counts when a result is dropped to make room", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(LOG) });
     const call = { id: "c1", name: "search_document", args: { document_id: meta.id, query: "request", mode: "exact", group_by: "minute" } };
     const result = await files.tools([meta]).execute(call.name, call.args);
@@ -343,7 +343,7 @@ describe("the token estimate of runs of spaces (LLF-046)", () => {
 describe("a result of order \"last\" cut to its room", () => {
   it("says so with a note that starts with \"Showing \", so a later call is run again", async () => {
     const { alreadyShown } = await import("../src/tools.js");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(LOG) });
     const args = { document_id: meta.id, query: "ERROR", mode: "exact", order: "last", max_results: 50, context_lines: 5 };
     const cut = (await files.tools([meta]).executeWithFiles("search_document", args, { maxResultCharacters: 3_000 })).result;

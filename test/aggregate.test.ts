@@ -163,8 +163,8 @@ describe("the aggregate_table tool", () => {
     const path = await import("node:path");
     const { createLargeFiles, FileDocumentStore, MemoryDocumentStore } = await import("../src/index.js");
     const bytes = new TextEncoder().encode(SALES);
-    const memory = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
-    const ranged = createLargeFiles({ store: new FileDocumentStore(await mkdtemp(path.join(tmpdir(), "llf-agg-"))), budget: { inlineTokens: 10 }, wholeDocumentBytes: 0, scanChunkBytes: 1_024 });
+    const memory = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const ranged = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(await mkdtemp(path.join(tmpdir(), "llf-agg-"))), budget: { inlineTokens: 10 }, wholeDocumentBytes: 0, scanChunkBytes: 1_024 });
     return [
       { files: memory, meta: await memory.ingest({ name: "sales.csv", bytes }), how: "in memory" },
       { files: ranged, meta: await ranged.ingest({ name: "sales.csv", bytes }), how: "by range" },
@@ -200,7 +200,7 @@ describe("the aggregate_table tool", () => {
 
   it("says when a filter compared two cells of each row, as its value names a column (0.10.0)", async () => {
     const { createLargeFiles, MemoryDocumentStore } = await import("../src/index.js");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "budget.csv", bytes: new TextEncoder().encode("Department,Budget,Actual\nSales,10,12\nSupport,10,8\nOps,5,9\n") });
     const result = await files.tools([meta]).execute("aggregate_table", { document_id: meta.id, filters: [{ column: "Actual", op: ">", value: "Budget" }] });
     expect(result.rows_matched).toBe(2);
@@ -241,7 +241,7 @@ describe("the aggregate_table tool", () => {
 
   it("is not offered for a log, and the tool guide names it only with a table", async () => {
     const { createLargeFiles, MemoryDocumentStore } = await import("../src/index.js");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const log = await files.ingest({ name: "app.log", bytes: new TextEncoder().encode("2026-01-01 10:00:00 INFO x\n".repeat(200)) });
     const csv = await files.ingest({ name: "s.csv", bytes: new TextEncoder().encode(SALES) });
     expect(files.tools([log]).declarations.map((declaration) => declaration.name)).not.toContain("aggregate_table");

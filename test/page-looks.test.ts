@@ -132,7 +132,7 @@ describe("looks at pages", () => {
 
   it("refuse a limit that is not a number", async () => {
     const store = new MemoryDocumentStore();
-    expect(() => createLargeFiles({ store, maxConcurrentPageLooks: "2" as unknown as number })).toThrow(new TypeError('maxConcurrentPageLooks must be a number, and is "2".'));
-    expect(() => createLargeFiles({ store, pageLookWaitMs: Number.NaN })).toThrow(new RangeError("pageLookWaitMs must be a number, and is NaN. Leave it out for the default."));
+    expect(() => createLargeFiles({ requireOwner: false, store, maxConcurrentPageLooks: "2" as unknown as number })).toThrow(new TypeError('maxConcurrentPageLooks must be a number, and is "2".'));
+    expect(() => createLargeFiles({ requireOwner: false, store, pageLookWaitMs: Number.NaN })).toThrow(new RangeError("pageLookWaitMs must be a number, and is NaN. Leave it out for the default."));
   });
 });

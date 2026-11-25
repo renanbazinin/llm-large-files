@@ -13,7 +13,7 @@ const question = (text: string) => ({ role: "user" as const, text });
 const resultsOf = (request: ModelRequest): ToolResult[] => request.messages.filter((message): message is ModelToolRound => message.role === "tools").flatMap((round) => round.answers.map((answer) => answer.result));
 
 async function library(budget: Record<string, number> = {}): Promise<LargeFiles> {
-  return createLargeFiles({ store: new MemoryDocumentStore(), budget });
+  return createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget });
 }
 
 describe("a whole-file read that lists items is priced at its parts", () => {

@@ -35,7 +35,7 @@ function fakeEndpoint(replies: Array<object | Response | ((sent: Sent) => object
 }
 
 async function largeLog() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
   const meta = await files.ingest({ name: "prod.log", bytes: utf8(serviceLog(5_000)) });
   return { files, meta };
 }
@@ -258,7 +258,7 @@ describe("an OpenAI-compatible endpoint", () => {
   });
 
   it("can be sent the pages of a PDF, in a user message after the tool results, when its model reads PDFs", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const script = () => fakeEndpoint([
       reply({ content: null, tool_calls: [toolCall("call_1", "view_pages", { document_id: meta.id, from_page: 2, to_page: 3 })] }, "tool_calls"),
@@ -334,7 +334,7 @@ describe("an OpenAI-compatible endpoint, since the review of 0.5.0", () => {
     },
   }), { status: 200, headers: { "Content-Type": "application/json" } });
   const smallNote = async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "note.txt", bytes: utf8("The meeting moved to Tuesday.\n") });
     return { files, meta };
   };
@@ -501,7 +501,7 @@ describe("an error in a body that came with 200 (LLF-009)", () => {
 
   it("is sent again like any 502, and the answer that follows is used", async () => {
     const endpoint = fakeEndpoint([failed, reply({ content: "Fine now." })]);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.txt", bytes: utf8("short notes") });
     const result = await askWithFiles({ files, model: openAiCompatible({ model: "m", baseUrl: "https://llm.example/v1", fetch: endpoint.fetch }), documentIds: [meta.id], messages: question("?"), retry: { random: () => 1, sleep: async () => undefined } });
     expect(endpoint.sent).toHaveLength(2);

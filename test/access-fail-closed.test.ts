@@ -24,7 +24,7 @@ import { fakeFetch } from "llm-large-files/testing";
 import { calls, fakeModel, says, utf8 } from "./fake-model.js";
 import { numberedPdf } from "./pdf-fixtures.js";
 
-const OWNER_REQUIRED = "owner is required: requireOwner is on";
+const OWNER_REQUIRED = "owner is required: requireOwner is on (the default). Pass the user's ID as owner, or create the library with requireOwner: false to allow calls without one.";
 const SCOPE_REQUIRED = "scope is required: requireScope is on";
 const question = (text: string) => [{ role: "user" as const, text }];
 const base = { tokens: 0, bytes: 0 };
@@ -60,18 +60,19 @@ async function eachPath(files: LargeFiles, id: string, access: { owner?: string;
 const PATHS = ["ingest", "getMeta", "getOriginal", "prepare", "askWithFiles", "askStream", "askGemini", "tools", "delete"];
 
 describe("requireOwner and requireScope", () => {
-  it("are off by default, and the library says which are on", () => {
-    expect(createLargeFiles({ store: new MemoryDocumentStore() }).access).toEqual({ requireOwner: false, requireScope: false });
-    expect(createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: true }).access).toEqual({ requireOwner: true, requireScope: false });
-    expect(createLargeFiles({ store: new MemoryDocumentStore(), requireScope: true }).access).toEqual({ requireOwner: false, requireScope: true });
+  it("check owners by default, not scopes, and the library says which are on", () => {
+    expect(createLargeFiles({ store: new MemoryDocumentStore() }).access).toEqual({ requireOwner: true, requireScope: false });
+    expect(createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false }).access).toEqual({ requireOwner: false, requireScope: false });
+    expect(createLargeFiles({ store: new MemoryDocumentStore(), requireScope: true }).access).toEqual({ requireOwner: true, requireScope: true });
     expect(Object.isFrozen(createLargeFiles({ store: new MemoryDocumentStore() }).access)).toBe(true);
   });
 
   it("refuse a call without an owner on every path", async () => {
     const store = new MemoryDocumentStore();
-    const open = createLargeFiles({ store });
+    const open = createLargeFiles({ requireOwner: false, store });
     const meta = await open.ingest({ name: "a.txt", bytes: utf8("a\n"), owner: "alice" });
-    const files = createLargeFiles({ store, requireOwner: true });
+    // The default: owners are required.
+    const files = createLargeFiles({ store });
     const thrown = await eachPath(files, meta.id, {});
     expect(Object.keys(thrown)).toEqual(PATHS);
     for (const name of PATHS) expect(thrown[name], name).toEqual(new TypeError(OWNER_REQUIRED));
@@ -86,7 +87,7 @@ describe("requireOwner and requireScope", () => {
 
   it("refuse a call without a scope on every path, but not a sweep of every scope", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, requireScope: true });
+    const files = createLargeFiles({ requireOwner: false, store, requireScope: true });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("a\n"), scope: ["u1", "s1"] });
     const thrown = await eachPath(files, meta.id, { owner: "alice" });
     for (const name of PATHS) expect(thrown[name], name).toEqual(new TypeError(SCOPE_REQUIRED));
@@ -100,13 +101,13 @@ describe("requireOwner and requireScope", () => {
 
   it("read documents stored without an owner or a scope as missing", async () => {
     const store = new MemoryDocumentStore();
-    const open = createLargeFiles({ store, keepOriginals: ["text"], budget: { inlineTokens: 10 } });
+    const open = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"], budget: { inlineTokens: 10 } });
     const unowned = await open.ingest({ name: "app.log", bytes: utf8(log("alpha")) });
     const scopeless = await open.ingest({ name: "b.log", bytes: utf8(log("bravo")), owner: "alice" });
     for (const [rules, access, meta] of [
-      [{ requireOwner: true }, { owner: "alice" }, unowned],
-      [{ requireScope: true }, { scope: ["u1"] }, scopeless],
-      [{ requireScope: true }, { owner: "alice", scope: ["u1"] }, scopeless],
+      [{}, { owner: "alice" }, unowned],
+      [{ requireOwner: false, requireScope: true }, { scope: ["u1"] }, scopeless],
+      [{ requireOwner: false, requireScope: true }, { owner: "alice", scope: ["u1"] }, scopeless],
     ] as const) {
       const files = createLargeFiles({ store, ...rules, budget: { inlineTokens: 10 } });
       expect(await files.getMeta(meta.id, access)).toBeUndefined();
@@ -131,7 +132,7 @@ describe("an owner of null from a store", () => {
 
   it("is no owner: open to any caller, and the metadata leaves it out", async () => {
     const store = new NullOwners();
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(log("alpha")) });
     expect((await store.getMeta(meta.id))!.owner).toBeNull();
     const read = await files.getMeta(meta.id, { owner: "bob" });
@@ -146,7 +147,7 @@ describe("an owner of null from a store", () => {
 
   it("is missing under requireOwner", async () => {
     const store = new NullOwners();
-    await createLargeFiles({ store }).ingest({ name: "a.txt", bytes: utf8("a\n") });
+    await createLargeFiles({ requireOwner: false, store }).ingest({ name: "a.txt", bytes: utf8("a\n") });
     const [id] = [...(store as unknown as { documents: Map<string, unknown> }).documents.keys()];
     const files = createLargeFiles({ store, requireOwner: true });
     expect(await files.getMeta(id!, { owner: "alice" })).toBeUndefined();
@@ -156,7 +157,7 @@ describe("an owner of null from a store", () => {
 
 describe("the scope rule", () => {
   it("serves a document with a scope only to a caller of that scope, segment by segment", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     // A store that keeps scopes apart would not even find it in another scope: this one does (see
     // the next test), so the rule is the library's.
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("a\n"), scope: ["u1", "s1"] });
@@ -183,7 +184,7 @@ describe("the scope rule", () => {
         return this.documents.delete(id);
       }
     }
-    const files = createLargeFiles({ store: new StoreOf08(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new StoreOf08(), budget: { inlineTokens: 10 } });
     const A = { owner: "u1", scope: ["u1", "s1"] };
     const B = { owner: "u1", scope: ["u1", "s2"] };
     const meta = await files.ingest({ name: "app.log", bytes: utf8(log("alpha")), ...A });
@@ -201,11 +202,11 @@ describe("the scope rule", () => {
     // A document of no scope serves a caller of any scope, when the library does not require one.
     const open = await files.ingest({ name: "open.txt", bytes: utf8("open\n"), owner: "u1" });
     expect(await files.getMeta(open.id, B)).toBeDefined();
-    expect(await createLargeFiles({ store: new StoreOf08(), requireScope: true }).getMeta(open.id, B)).toBeUndefined();
+    expect(await createLargeFiles({ requireOwner: false, store: new StoreOf08(), requireScope: true }).getMeta(open.id, B)).toBeUndefined();
   });
 
   it("refuses a scope that is not valid with a DocumentScopeError, on every path", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("a\n") });
     for (const scope of [[], ["a/b"], [".."], ["x".repeat(257)], "u1"] as unknown as string[][]) {
       const thrown = await eachPath(files, meta.id, { scope });
@@ -237,9 +238,9 @@ describe("a store that drops the context", () => {
   it("fails closed: what it stored in a scope is never served to another, and what it cannot find is missing", async () => {
     const inner = new MemoryDocumentStore();
     // Written in scope A by a library over the store itself: the wrapper looks for it without a scope.
-    const direct = createLargeFiles({ store: inner });
+    const direct = createLargeFiles({ requireOwner: false, store: inner });
     const kept = await direct.ingest({ name: "a.txt", bytes: utf8("alpha\n"), scope: ["u1", "s1"] });
-    const files = createLargeFiles({ store: new ForwardsTheIdOnly(inner) });
+    const files = createLargeFiles({ requireOwner: false, store: new ForwardsTheIdOnly(inner) });
     expect(await files.getMeta(kept.id, { scope: ["u1", "s1"] })).toBeUndefined();
     expect((await files.prepare([kept.id], base, { scope: ["u1", "s1"] })).missing).toEqual([kept.id]);
 
@@ -256,7 +257,7 @@ describe("a store that drops the context", () => {
 describe("tools() and the owner the store holds (S3)", () => {
   it("checks access against the store, not against the metadata handed in", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-access-"));
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), keepOriginals: ["pdf"], budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), keepOriginals: ["pdf"], budget: { inlineTokens: 10 } });
     const log8 = await files.ingest({ name: "app.log", bytes: utf8(log("alpha")), owner: "alice" });
     const report = await files.ingest({ name: "report.pdf", bytes: numberedPdf(2), owner: "alice" });
     // Metadata read from the store itself, owner and all, handed in for bob.
@@ -279,7 +280,7 @@ describe("tools() and the owner the store holds (S3)", () => {
   });
 
   it("checks the scope the store holds against the scope of access, and without access against the handed one", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     // A store that keeps scopes apart: a caller of another scope does not find it at all. A
     // document of no scope is asked for with the handed scope, and refused for it.
     const open = await files.ingest({ name: "app.log", bytes: utf8(log("alpha")) });

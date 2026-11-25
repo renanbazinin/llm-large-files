@@ -129,6 +129,9 @@ Add a test for every change in behavior. No test calls a real model:
   machine (a child process started within 8 s). `npx vitest run --project unit` runs the rest
   alone.
 
+A test that is not about owners makes its library with `requireOwner: false`; a test of ownership
+uses the default, and passes an owner on every call, as a server does.
+
 A test of the loop, from start to answer:
 
 ```ts
@@ -142,7 +145,8 @@ describe("the tool loop", () => {
     // The log (about 440 KB, about 326,000 estimated tokens) is over the default inlineTokens of
     // 200,000, so the model gets a card and reads it through tools. A small inlineTokens keeps it
     // a card if the default changes.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    // One user: no owner checks (requireOwner is on by default).
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 }, requireOwner: false });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
     const search = { id: "c1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
     const model = fakeModel([calls([search]), says("51 errors, the first at line 97.")]);

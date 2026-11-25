@@ -72,7 +72,7 @@ const GUIDE_0_2_0 = (names: string, tables = false) => [
 
 describe("askGemini with PDFs whose pages can be shown", () => {
   it("offers only view_pages for a PDF whose text is sent whole, and puts the pages inside the function response", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const gemini = fakeGemini([call("view_pages", { document_id: meta.id, from_page: 2, to_page: 3 }, "call-1"), say("Page 2 shows a bar chart.")]);
     const activity: string[] = [];
@@ -110,7 +110,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
   });
 
   it("offers view_pages next to the text tools for a PDF that is searched", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { inlineTokens: 20 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { inlineTokens: 20 } });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const gemini = fakeGemini([
       { candidates: [{ content: { parts: [
@@ -143,7 +143,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
   it.each(PLACEMENTS)("keeps every request under the byte limit, however many pages the model asks for (pages %s)", async (toolFilePlacement) => {
     // Twelve pages with a picture of 60,000 bytes each, and a connector that takes 900,000 bytes.
     const limit = 900_000;
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { maxRequestBytes: limit } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { maxRequestBytes: limit } });
     const meta = await files.ingest({ name: "album.pdf", bytes: pdfWithPictures(12) });
     // A model that goes on from where the last look stopped, for as long as it is told a next page.
     const gemini = fakeGemini([(body) => {
@@ -176,7 +176,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
 
   it.each(PLACEMENTS)("counts several looks in one turn against the same room (pages %s)", async (toolFilePlacement) => {
     const limit = 700_000;
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { maxRequestBytes: limit } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { maxRequestBytes: limit } });
     const meta = await files.ingest({ name: "album.pdf", bytes: pdfWithPictures(12) });
     const look = (from: number) => ({ functionCall: { name: "view_pages", args: { document_id: meta.id, from_page: from, to_page: from + 3 } } });
     const gemini = fakeGemini([{ candidates: [{ content: { parts: [look(1), look(5), look(9)] } }] }, say("Seen.")]);
@@ -191,7 +191,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
 
   it("counts the pages against the tokens the budget keeps free", async () => {
     // 3,000 reserved tokens: half of them, at about 530 a page, pay for two pages.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { reservedTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { reservedTokens: 3_000 } });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(8) });
     const gemini = fakeGemini([call("view_pages", { document_id: meta.id, from_page: 1, to_page: 5 }), call("view_pages", { document_id: meta.id, from_page: 3 }), say("Two pages seen.")]);
     await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], messages: question("?") });
@@ -200,7 +200,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
   });
 
   it("ends with a request without tools when the model keeps looking, with the pages still in it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const gemini = fakeGemini([(body) => (body.tools ? call("view_pages", { document_id: meta.id, from_page: body.contents.length }) : say("Best effort."))]);
     const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], maxToolTurns: 3, messages: question("?") });
@@ -216,7 +216,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
   });
 
   it("closes with the wording of 0.2.0 when a file is also searched", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { inlineTokens: 20 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { inlineTokens: 20 } });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const gemini = fakeGemini([(body) => (body.tools ? call("view_pages", { document_id: meta.id, from_page: 1 }) : say("Best effort."))]);
     await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], maxToolTurns: 2, wholeDocumentAnalysis: false, messages: question("?") });
@@ -224,7 +224,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
   });
 
   it("can send the pages in a user turn of their own, after the function responses", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const gemini = fakeGemini([call("view_pages", { document_id: meta.id, from_page: 2, to_page: 3 }), say("ok")]);
     await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], toolFilePlacement: "beside", messages: question("?") });
@@ -242,7 +242,7 @@ describe("askGemini with PDFs whose pages can be shown", () => {
   });
 
   it("keeps each turn of pages after its function responses over several looks, and before the closing request", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { inlineTokens: 20 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { inlineTokens: 20 } });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     // A look, then a search (which returns no file), then a look the model would go on from.
     const gemini = fakeGemini([
@@ -269,7 +269,7 @@ describe("askGemini without pages to show", () => {
 
   /** The requests one question produces, with document IDs and the marks made from them replaced by their order of appearance. */
   async function requestsFor(options: { keepOriginals: boolean; viewPages?: boolean }): Promise<Body[]> {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 }, ...(options.keepOriginals ? { keepOriginals: ["pdf" as const] } : {}) });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 }, ...(options.keepOriginals ? { keepOriginals: ["pdf" as const] } : {}) });
     const pdf = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const large = await files.ingest({ name: "app.log", bytes: log });
     const gemini = fakeGemini([
@@ -314,7 +314,7 @@ describe("askGemini without pages to show", () => {
   });
 
   it("makes one request without tools for a PDF that fits and has no original", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(2) });
     const gemini = fakeGemini([say("Two pages.")]);
     const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], messages: question("How long is it?") });
@@ -330,7 +330,7 @@ describe("askGemini without pages to show", () => {
 
 describe("prepare with viewPages", () => {
   it("lists the PDFs whose pages can be shown only when asked to", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf", "markdown"], budget: { inlineTokens: 2_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf", "markdown"], budget: { inlineTokens: 2_000 } });
     const small = await files.ingest({ name: "small.pdf", bytes: numberedPdf(2), owner: "alice" });
     // Its file is kept too, but only a PDF has pages to show.
     const notes = await files.ingest({ name: "notes.md", bytes: utf8("# Notes"), owner: "alice" });

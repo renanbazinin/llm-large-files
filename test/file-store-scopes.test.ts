@@ -144,7 +144,7 @@ describe("FileDocumentStore with scopes: the layout", () => {
   it("keeps the files of the flat layout, and its names, when there are no scopes; a scope is then only an access rule", async () => {
     const root = await folder();
     const store = new FileDocumentStore(root);
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha\n"), scope: ["U1", "Chat 7"] });
     expect(await tree(root)).toEqual([`${meta.id}.idx`, `${meta.id}.json`, `${meta.id}.txt`]);
     expect(await files.getMeta(meta.id, { scope: ["U1", "Chat 7"] })).toBeDefined();
@@ -206,7 +206,7 @@ describe("FileDocumentStore with scopes: what it refuses", () => {
     const root = await folder();
     await mkdir(path.join(root, "u1", "s1"), { recursive: true });
     const store = new FileDocumentStore(root, { scopes: { depth: 2 } });
-    const files = createLargeFiles({ store, keepOriginals: ["text"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"] });
     const scope = ["u1", "s1"];
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha\n"), scope, id: "upload-1" });
 
@@ -245,7 +245,7 @@ describe("FileDocumentStore with scopes: what it refuses", () => {
         return inner.delete(id);
       }
     }
-    const files = createLargeFiles({ store: new ForwardsTheIdOnly() });
+    const files = createLargeFiles({ requireOwner: false, store: new ForwardsTheIdOnly() });
     await expect(files.ingest({ name: "a.txt", bytes: utf8("alpha\n"), scope: ["u1", "s1"] })).rejects.toMatchObject({ name: "DocumentScopeError", code: "scope_required" });
     await expect(files.getMeta("upload-1", { scope: ["u1", "s1"] })).rejects.toMatchObject({ code: "scope_required" });
   });
@@ -282,7 +282,7 @@ describe("isSafeScopeSegment and hashedScopeSegment", () => {
 describe("FileDocumentStore and the application's IDs", () => {
   it("names files after an application's ID in the flat layout too, and leaves made IDs as they were", async () => {
     const root = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(root) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(root) });
     const chosen = await files.ingest({ name: "a.txt", bytes: utf8("alpha\n"), id: "upload-3f9a" });
     const made = await files.ingest({ name: "b.txt", bytes: utf8("bravo\n") });
     expect(chosen.id).toBe("upload-3f9a");

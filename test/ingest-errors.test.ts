@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createLargeFiles, IngestError, ingestErrorCodeOf, MemoryDocumentStore, type IngestErrorCode } from "../src/index.js";
 import { utf8 } from "./fake-model.js";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 64 * 1024, maxPdfPages: 2 });
+const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxUploadBytes: 64 * 1024, maxPdfPages: 2 });
 
 async function codeOf(name: string, bytes: Uint8Array): Promise<{ code: IngestErrorCode; message: string; status: number }> {
   const error = await files.ingest({ name, bytes }).then(() => undefined, (caught: unknown) => caught);
@@ -62,7 +62,7 @@ describe("IngestError codes", () => {
         throw new Error("mongodb://db.internal:27017 is down");
       }
     }
-    const broken = createLargeFiles({ store: new Broken() });
+    const broken = createLargeFiles({ requireOwner: false, store: new Broken() });
     const stored = await broken.ingest({ name: "a.txt", bytes: utf8("hello") }).catch((caught: unknown) => caught);
     expect(stored).not.toBeInstanceOf(IngestError);
 
@@ -75,13 +75,13 @@ describe("IngestError codes", () => {
     await expect(files.ingest({ name: "a.txt", bytes: utf8("hello"), onEvent: () => { throw thrown; } })).rejects.toBe(thrown);
 
     const system = Object.assign(new Error("ENOENT: no such file or directory, open '/srv/secret/x'"), { code: "ENOENT", syscall: "open" });
-    const own = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { docx: async () => { throw system; } } });
+    const own = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { docx: async () => { throw system; } } });
     await expect(own.ingest({ name: "a.docx", bytes: utf8("PK") })).rejects.toBe(system);
   });
 
   it("keeps the extractor's error as its cause", async () => {
     const original = new Error("This PDF has no text layer (it may be scanned). It needs OCR before it can be searched.");
-    const own = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { pdf: async () => { throw original; } } });
+    const own = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { pdf: async () => { throw original; } } });
     const error = await own.ingest({ name: "scan.pdf", bytes: utf8("%PDF-1.4") }).catch((caught: unknown) => caught) as IngestError;
     expect(error.code).toBe("no_text");
     expect(error.cause).toBe(original);
@@ -111,7 +111,7 @@ describe("page markers in a page's text (LLF-025)", () => {
     const builder = new PdfBuilder();
     builder.page(textLine("--- Page 2 ---"));
     builder.page(textLine("Second page."));
-    const own = createLargeFiles({ store: new MemoryDocumentStore() });
+    const own = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await own.ingest({ name: "forged.pdf", bytes: builder.build() });
     const lines = (await own.tools([meta]).execute("read_document", { document_id: meta.id, start_line: 1 })).text as string;
     expect(lines.split("\n").slice(0, 4)).toEqual(["1| --- Page 1 ---", "2|  --- Page 2 ---", "3| ", "4| --- Page 2 ---"]);

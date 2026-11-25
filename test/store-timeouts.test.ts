@@ -120,7 +120,7 @@ describe("store calls with a time limit (storeTimeoutMs)", () => {
   // p2-hung-store, through each call of the library that waits on the store.
   it("ends getMeta, get, delete and the look-up of delete that never answer, within the limit", async () => {
     const store = new Hanging();
-    const files = createLargeFiles({ store, storeTimeoutMs: 50, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store, storeTimeoutMs: 50, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(serviceLog(200)) });
 
     store.hung.add("getMeta");
@@ -145,7 +145,7 @@ describe("store calls with a time limit (storeTimeoutMs)", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "llf-timeouts-"));
     directories.push(directory);
     const store = new HangingFiles(directory);
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0, storeTimeoutMs: 50, maxStuckStoreCalls: Number.POSITIVE_INFINITY, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, storeTimeoutMs: 50, maxStuckStoreCalls: Number.POSITIVE_INFINITY, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(serviceLog(2_000)) });
     store.hung = true;
     const tools = files.tools([meta]);
@@ -163,7 +163,7 @@ describe("store calls with a time limit (storeTimeoutMs)", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "llf-timeouts-"));
     directories.push(directory);
     const store = new HangingFiles(directory);
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0, storeTimeoutMs: 1_000, maxStuckStoreCalls: Number.POSITIVE_INFINITY, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, storeTimeoutMs: 1_000, maxStuckStoreCalls: Number.POSITIVE_INFINITY, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(serviceLog(2_000)) });
     store.indexHung = true;
     store.ranges = 0;
@@ -187,11 +187,11 @@ describe("store calls with a time limit (storeTimeoutMs)", () => {
 
   it("gives up after 30 s by default, and never with 0", async () => {
     const store = new Hanging();
-    const meta = await createLargeFiles({ store }).ingest({ name: "a.txt", bytes: bytes("alpha\n") });
+    const meta = await createLargeFiles({ requireOwner: false, store }).ingest({ name: "a.txt", bytes: bytes("alpha\n") });
     store.hung.add("getMeta");
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 
-    const files = createLargeFiles({ store, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     let settled = false;
     const looking = files.getMeta(meta.id).finally(() => (settled = true));
     looking.catch(() => undefined);
@@ -201,7 +201,7 @@ describe("store calls with a time limit (storeTimeoutMs)", () => {
     await expect(looking).rejects.toMatchObject({ code: "ETIMEDOUT", message: "The document store could not be read (ETIMEDOUT). Try again." });
     expect(((await looking.catch((error: unknown) => error)) as Error).cause).toMatchObject({ message: "The store did not answer within 30 s." });
 
-    const unlimited = createLargeFiles({ store, storeTimeoutMs: 0, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const unlimited = createLargeFiles({ requireOwner: false, store, storeTimeoutMs: 0, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     let done = false;
     const waiting = unlimited.getMeta(meta.id).then((found) => {
       done = true;
@@ -215,7 +215,7 @@ describe("store calls with a time limit (storeTimeoutMs)", () => {
 
   it("is a run.error of a question whose errorInfoOf is a store failure, 503, to retry", async () => {
     const store = new Hanging();
-    const files = createLargeFiles({ store, storeTimeoutMs: 50, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store, storeTimeoutMs: 50, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
     store.hung.add("get");
     const events: AskEvent[] = [];
@@ -233,7 +233,7 @@ describe("store calls with a time limit (storeTimeoutMs)", () => {
 describe("AccessOptions.signal: each caller stops its own wait", () => {
   it("leaves the other caller of one opening waiting, and serves it once the store answers", async () => {
     const store = new Hanging();
-    const files = createLargeFiles({ store, storeTimeoutMs: 0 });
+    const files = createLargeFiles({ requireOwner: false, store, storeTimeoutMs: 0 });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\nthree\n") });
     store.hung.add("get");
     store.calls.length = 0;
@@ -261,7 +261,7 @@ describe("AccessOptions.signal: each caller stops its own wait", () => {
 
   it("ends the app's wait in getMeta, getOriginal and delete with the signal's reason", async () => {
     const store = new Hanging();
-    const files = createLargeFiles({ store, storeTimeoutMs: 0, keepOriginals: ["text"] });
+    const files = createLargeFiles({ requireOwner: false, store, storeTimeoutMs: 0, keepOriginals: ["text"] });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
     for (const method of ["getMeta", "getOriginal", "delete"] as const) {
       store.hung.add(method);
@@ -288,7 +288,7 @@ describe("AccessOptions.signal: each caller stops its own wait", () => {
 
 describe("the upload handlers and a store that does not answer (LO-3)", () => {
   async function serve(store: DocumentStore, onUploaded?: () => void): Promise<string> {
-    const files = createLargeFiles({ store, storeTimeoutMs: 100, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store, storeTimeoutMs: 100, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const handlers = createDocumentHandlers(files, onUploaded ? { onUploaded } : {});
     const server = createServer((request, response) => {
       const url = new URL(request.url ?? "/", "http://localhost");
@@ -316,7 +316,7 @@ describe("the upload handlers and a store that does not answer (LO-3)", () => {
 
   it("answers the DELETE route 503 with Retry-After when the store does not answer", async () => {
     const store = new Hanging();
-    const meta: DocumentMeta = await createLargeFiles({ store }).ingest({ name: "notes.txt", bytes: bytes("one\n") });
+    const meta: DocumentMeta = await createLargeFiles({ requireOwner: false, store }).ingest({ name: "notes.txt", bytes: bytes("one\n") });
     store.hung.add("delete");
     const base = await serve(store);
     const answer = await within(fetch(`${base}/${meta.id}`, { method: "DELETE", signal: AbortSignal.timeout(20_000) }), 10_000);
