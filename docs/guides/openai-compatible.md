@@ -74,6 +74,8 @@ the server says so with an error.
 | `answerWithoutTools` | `"tool_choice"` | How the request that must be answered in text says so. `"omit"` for a server that refuses `tool_choice`. |
 | `stream` | `true` | `false` for a server that cannot stream. |
 | `pdfInput` | `false` | `true` for a model that reads PDF input: `view_pages` is then offered ([Pages of PDFs](#pages-of-pdfs)). |
+| `imageInput` | `false` | `true` for a model that reads images and no PDF: `view_pages` sends each page as a JPEG ([Pages for vLLM, DeepSeek and other servers without PDF input](#pages-for-vllm-deepseek-and-other-servers-without-pdf-input)). New in 0.99.9. |
+| `documents` | none | `{ formats: ["pdf"] }` for a model that reads PDF input: a small visual PDF sent whole goes to it as a `file` part too ([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)). New in 0.99.9. |
 
 The waits are [below](#waits); `maxRequestBytes`, `tokenScale`, `pageTokens`, `id` and `fetch`
 (a proxy, or a test double: [Testing](./testing.md)) are in the
@@ -488,7 +490,7 @@ of a tool call again with each piece of it is read right: the name is not double
 - It counts no tokens with the model's tokenizer. The library estimates them, scaled by
   `tokenScale`, and a question corrects the estimate by the counts the server reports.
 - It cannot tell that a server cut a prompt down without an error.
-- It sends no pages of PDFs unless `pdfInput` is on.
+- It sends no pages of PDFs unless `pdfInput` or `imageInput` is on.
 
 ## OpenAI's Responses API
 
@@ -593,6 +595,61 @@ Turn it on only for a model that reads PDF input. It has not worked on any serve
 OpenAI layer refuses the `file` part (HTTP 400), and it has not been run against OpenAI or any
 other server that reads PDF input. Keeping originals, the optional
 dependencies and the costs of pages are in [PDFs](./pdfs.md).
+
+A model that reads PDF input can also be sent a small visual PDF sent whole as the file itself,
+before its text, with `documents: { formats: ["pdf"] }`: Chat Completions reads no other format
+([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)).
+
+## Pages for vLLM, DeepSeek and other servers without PDF input
+
+Most servers behind this API read images and no PDF: vLLM and Ollama with a vision model, DeepSeek
+V4. Since 0.99.9, `imageInput: true` sends them the pages of `view_pages` as images: each page a
+JPEG of 1,568 pixels on its longest side, in an `image_url` part, in a user message after the tool
+messages, with a line that names it. It needs Node 24 or later and two optional dependencies:
+
+```bash
+npm install unpdf@2 @napi-rs/canvas
+```
+
+```ts
+import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
+import { openAiCompatible } from "llm-large-files/openai";
+
+const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+
+const deepseek = openAiCompatible({
+  baseUrl: "https://api.deepseek.com/v1",
+  apiKey: process.env.DEEPSEEK_API_KEY!,
+  model: "deepseek-v4-flash",
+  imageInput: true,  // view_pages is offered, and its pages go to the model as JPEG images
+  pageTokens: 1_000, // the default; DeepSeek bills up to 384 tokens an image
+});
+
+const vllm = openAiCompatible({
+  baseUrl: "http://localhost:8000/v1",
+  model: "Qwen/Qwen3-VL-32B-Instruct",
+  contextTokens: 32_768,
+  imageInput: true,
+});
+```
+
+- **What a page costs.** Each image counts `pageTokens`, 1,000 by default. DeepSeek bills at most
+  384 tokens an image: 1,000 counts high and only lets a question show fewer pages. Lower it to
+  about 400 for DeepSeek to show more.
+- **vLLM's limit of images.** vLLM refuses a request with more images than `--limit-mm-per-prompt`
+  allows (HTTP 400). The pages of a question stay in its later requests: start the server with a
+  limit of at least the pages a question may show, half of `budget.reservedTokens` divided by
+  `pageTokens` (32 with the defaults).
+- **No `detail` field** is sent with the image, which some servers refuse.
+- **With `pdfInput` too**, PDF comes first: the pages go as one PDF.
+- **With an explorer**, both models must take images: next to `gemini()` or `anthropic()`, which
+  take PDF, no kind of file is shared, and `view_pages` is not offered.
+- **On Node 22**, `unpdf` 2 is not supported (it declares Node 24), and with unpdf 1 each look
+  answers the model that pages cannot be drawn: it answers from the text. The error table is in
+  [Pages as images](./pdfs.md#pages-as-images).
+
+It has not been run live: it follows the documented `image_url` part, and its tests use fake
+servers and a fake renderer, and the real renderer on Node 24.
 
 ## Conversations kept as Chat Completions messages
 
@@ -717,7 +774,8 @@ included.
 The live checks on record for this adapter ran on Gemini's OpenAI layer, in 0.5.0: a streamed
 question about a 5.2 MB log, an explorer behind the layer with a thinking Gemini model answering,
 and a part read. In each, the usage the library returned was what the provider reported. `pdfInput`
-has not worked on any server yet: Gemini's OpenAI layer refuses its `file` part. `openAiResponses()`
+has not worked on any server yet: Gemini's OpenAI layer refuses its `file` part. `imageInput` and
+`documents` (0.99.9) have not been run live. `openAiResponses()`
 has not been run live: no OpenAI or Azure key was at hand, and its tests in
 `test/openai-responses.test.ts` replay the shapes of OpenAI's and Azure's documentation. The handling for the other servers in this guide is covered
 by the tests in `test/openai.test.ts` and `test/loop-robustness.test.ts`, which replay the shapes

@@ -41,10 +41,10 @@ rely on a number, check it on your own files ([Measuring your own setup](#measur
 
 | Provider | Live runs on record | Not run live |
 |---|---|---|
-| Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions. 0.10.0: the eval's cases at pass^3, and two probes: the prompt cache, and thought signatures sent back with earlier questions, which 0.10.0 does not send ([below](#0100-live-on-the-gemini-api)) | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
+| Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions. 0.10.0: the eval's cases at pass^3, and two probes: the prompt cache, and thought signatures sent back with earlier questions, which 0.10.0 does not send ([below](#0100-live-on-the-gemini-api)) | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API. `documents` (0.99.9): not run live when it was built |
 | Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | Everything of 0.10.0, among it Model Armor, `LANGUAGE` and labels |
-| OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only. 0.10.0: a streamed tool call on Gemini's OpenAI layer | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
-| Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation |
+| OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only. 0.10.0: a streamed tool call on Gemini's OpenAI layer | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested. `imageInput` and `documents` (0.99.9): not run live when they were built; they follow the documented `image_url` and `file` parts |
+| Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation, the `image` blocks and `documents` of 0.99.9 included |
 | OpenAI Responses API: `openAiResponses()` | None | The whole adapter (new in 0.99.9), against OpenAI and Azure OpenAI: no key was at hand. It is tested against fake servers that replay the shapes of OpenAI's API reference and guides, Azure OpenAI's Responses page and the types of the `openai` SDK 7.64.0 |
 
 Also live on Gemini, with the record not saying whether on the Gemini API or on Vertex AI: Gemini
@@ -292,6 +292,42 @@ from those tools. Encrypted PDFs were tested with files encrypted by the library
 confirmed as encrypted by pdf.js.
 
 The [PDFs guide](./guides/pdfs.md) covers the marks, `view_pages` and its limits.
+
+## Pages drawn as images (0.99.9)
+
+`view_pages` draws each page as an image for a model without PDF input
+([Pages as images](./guides/pdfs.md#pages-as-images)). Measured on 2026-11-25 on Node 24.22.3,
+Linux x64, 8 CPUs shared with other builds (load average about 3), with unpdf 2.1.0 and
+@napi-rs/canvas 1.1.0, as the library draws: 1,568 pixels on the longest side, `maxImageSize` of
+40 million pixels. Each file in a process of its own. "Draw" is the time of one page, "stall" the
+longest time the event loop went without a turn meanwhile (a 1 ms timer).
+
+| File | Pages | Draw, page 1 | Stall, page 1 | Later pages | JPEG (q 0.85), page 1 | PNG, page 1 |
+|---|---|---|---|---|---|---|
+| chrome-hebrew-statement.pdf | 1 | 248 ms | 66 ms | | 44 KB | 51 KB |
+| chrome-justified.pdf | 1 | 337 ms | 126 ms | | 117 KB | 179 KB |
+| chrome-pictures.pdf | 4 | 242 ms | 76 ms | 86 to 146 ms, stall up to 72 ms | 50 KB | 64 KB |
+| chrome-two-column.pdf | 1 | 338 ms | 145 ms | | 228 KB | 342 KB |
+| powerpoint-pictures.pdf | 3 | 212 ms | 55 ms | 98 to 132 ms, stall up to 64 ms | 32 KB | 29 KB |
+| word-dense.pdf | 2 | 473 ms | 370 ms | 86 ms, stall 32 ms | 191 KB | 233 KB |
+| word-grouped.pdf | 1 | 249 ms | 151 ms | | 74 KB | 82 KB |
+| word-hebrew.pdf | 1 | 309 ms | 108 ms | | 39 KB | 44 KB |
+| word-pictures.pdf | 3 | 298 ms | 69 ms | 108 to 161 ms, stall up to 69 ms | 53 KB | 70 KB |
+| word-sideways.pdf | 1 | 221 ms | 127 ms | | 60 KB | 66 KB |
+| word-simple.pdf | 1 | 259 ms | 158 ms | | 107 KB | 122 KB |
+| word-wrapped.pdf | 1 | 254 ms | 158 ms | | 101 KB | 108 KB |
+
+- **Loading.** Before the first page of a process, loading pdf.js and the canvas took 536 to 614
+  ms. The library does it on the first look, not when the server starts.
+- **A second run** of four of the files gave the same within 10% (word-pictures 321, 177, 116 ms;
+  word-dense 441 and 95 ms).
+- **Sizes.** Later pages are 33 to 84 KB as JPEG. JPEG is smaller than PNG on every file but one
+  slide of few colours (29 KB as PNG, 32 KB as JPEG). Five pages of a call fit in well under 1 MB.
+- **Node 22.23.5**, which unpdf 2 does not support, drew the same pages with the same sizes, 5 to
+  30% slower (word-pictures 353, 216, 123 ms).
+- **Between pages** a 1 ms timer ran on every 3-page draw of `test/timing/page-images.timing.test.ts`.
+  With the fair pause alone between pages, which runs at the end of the turn it is asked in, it did
+  not run between the first two pages: the library waits for a timer first.
 
 ## PDF tables (0.2.0)
 

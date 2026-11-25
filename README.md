@@ -11,7 +11,8 @@ and 1M tokens of context. This package bridges the gap:
 - **Files that don't** become a short summary card, and the model gets tools to **search**,
   **read line ranges**, or **read the whole file in parts** (map-reduce). Answers cite line numbers.
 - **Pictures in a PDF** are not in its text. The model can **look at the real pages** when it
-  needs to: a chart, a photo, a scan.
+  needs to: a chart, a photo, a scan. A model without PDF input sees them as images, and a small
+  PDF or deck with pictures can go to the model as the file itself (both opt-in).
 
 It's a small library, not a framework: no model SDK, no server, and no UI are required. One tool
 loop, `askWithFiles`, works with any model through an adapter. Adapters for **Gemini and Vertex
@@ -229,7 +230,9 @@ setInterval(() => files.sweep().catch(console.error), 60 * 60 * 1000).unref(); /
 `unpdf` reads the text of a PDF, and `@cantoo/pdf-lib` cuts its pages. With `askWithFiles`,
 `view_pages` is offered only when every model of the question can be sent a file: `gemini()` and
 `anthropic()` can by default, `openAiCompatible()` only with `pdfInput: true`. So the question
-above, with DeepSeek exploring, is not offered `view_pages` at all.
+above, with DeepSeek exploring, is not offered `view_pages` at all. A model that reads images and
+no PDF gets each page as an image with `openAiCompatible({ imageInput: true })`, on Node 24 with
+`unpdf` 2 and `@napi-rs/canvas` ([Pages as images](docs/guides/pdfs.md#pages-as-images)).
 
 Asked which bar of a chart is tallest, `gemini-3.5-flash-lite` said from the text that it could
 not see the chart; with `view_pages` it looked at the page and answered correctly. It did not look
@@ -341,7 +344,9 @@ npm install jszip unpdf@1 @cantoo/pdf-lib      # Node 22
 
 On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24. On Node 22, the
 pdf.js of unpdf 1.5.0 to 1.6.0 would stop the whole process. Such an unpdf is refused at the first
-PDF, with a message that says what to install.
+PDF, with a message that says what to install. To show pages as images to a model without PDF
+input, install `unpdf` 2 and `@napi-rs/canvas` too, on Node 24 or later (`npm install unpdf@2
+@napi-rs/canvas`): the canvas is optional as well.
 
 ## License
 

@@ -93,7 +93,10 @@ What the parts do:
   PDFs whose original is kept (see [PDFs](./pdfs.md)), and `pageTokens: 500`. `toolFiles: "none"`
   makes a model that takes no files, `contextTokens` and `maxRequestBytes` make the budget of a
   question fit a model, and `appendOnly: true` makes the loop treat it as Claude (a conversation
-  that may only grow).
+  that may only grow). Since 0.99.9, `toolFileTypes: ["image/jpeg"]` makes a model that is shown
+  pages as images (the loop then needs a renderer: test that path with a model that takes PDF, or
+  with unpdf 2 and `@napi-rs/canvas` installed), and `documents: { formats: ["pdf"] }` one that is
+  sent small visual files as they are: `request.messages[0].files` holds them.
 - **The replies.** `says(text, more?)` is a reply of text, and `calls(list, more?)` a reply that
   calls tools. `more` adds fields, such as `usage`. The `raw` of a `calls` reply is
   `{ own: [the tool names] }`, a stand-in for the provider's own form of the turn.

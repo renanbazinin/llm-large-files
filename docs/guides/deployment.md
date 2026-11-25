@@ -692,6 +692,13 @@ you fork, with its own heap and memory limits. What the model is told when pages
 and the rest of `view_pages`, are in [PDFs and other formats](./pdfs.md); without `keepOriginals`
 nothing is kept and nothing is cut.
 
+Pages drawn as images, for a model without PDF input (0.99.9), also run on the chat server, in the
+same turns: pdf.js reads the original, and each page is drawn on a canvas of `@napi-rs/canvas`,
+0.1 to 0.5 s a page on Node 24, with timers and other requests run between two pages. The first
+look of a process also loads pdf.js and the canvas, about 0.6 s. Drawing decodes the images of a
+page: up to 160 MB for an image of 40 million pixels, the largest pdf.js draws
+([Security](../security.md#pages-drawn-as-images), [measured](../measurements.md#pages-drawn-as-images-0999)).
+
 ## Sweeping expired documents
 
 A document expires `ttlMs` after its upload (72 hours by default; `Infinity` never). The library
@@ -1016,8 +1023,8 @@ same conversations.
 
 ## Optional dependencies in production images
 
-Three formats and features need packages that npm does not install with this one: they are
-optional peer dependencies. Add the ones you need to the `dependencies` of your application, not
+Three formats and features need packages that npm does not install with this one, and pages drawn
+as images a fourth (0.99.9): they are optional peer dependencies. Add the ones you need to the `dependencies` of your application, not
 `devDependencies`, which `npm ci --omit=dev` leaves out of a production image.
 
 | Package | Version | Needed for | Without it |
@@ -1025,12 +1032,18 @@ optional peer dependencies. Add the ones you need to the `dependencies` of your 
 | `unpdf` | `^1.4.0 \|\| ^2.0.0`, in a version that runs on your Node: a 1.x from 1.6.1 on Node 22, any on Node 24 and later ([PDFs](./pdfs.md#formats)) | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`). A version that would stop the server on your Node is refused too, with a message that says what to install: `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
 | `jszip` | `^3.10.0` | DOCX, PPTX and XLSX | The upload is refused: `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | `@cantoo/pdf-lib` | `^2.11.1` | `view_pages`, the check of PDF pages that would hold the server, and the marks on PDF pages that show a picture | `view_pages` answers the model `report.pdf: Showing PDF pages needs the optional dependency "@cantoo/pdf-lib".` (with the file's name), and PDFs are ingested without the check and without the marks, with no error |
+| `@napi-rs/canvas` | `^0.1.69 \|\| ^1.0.0`, with `unpdf` 2 on Node 24 or later | `view_pages` for a model that takes images and no PDF (`imageInput`, [Pages as images](./pdfs.md#pages-as-images)) | Each such look answers the model `report.pdf: Showing pages as images needs the optional dependency "@napi-rs/canvas".`, and the model answers from the text |
 
-The last one fails quietly at ingest, so an image without it ingests PDFs differently from your
-machine, and lets through the pages the check would refuse. On Node 24 and later,
-`npm install unpdf` installs unpdf 2, which asks for Node 24: for an image on Node 22, name the
-version in your `dependencies`. Check at startup that the image has what your application
-uses:
+`@cantoo/pdf-lib` fails quietly at ingest, so an image without it ingests PDFs differently from
+your machine, and lets through the pages the check would refuse. `@napi-rs/canvas` is a native
+binary: npm installs the package of the platform it runs on (`@napi-rs/canvas-linux-x64-gnu`, or
+`-musl` on Alpine), about 35 MB. Install it in the image on the platform the image runs on, not on
+your machine, and do not copy a `node_modules` from another platform: a binary of another platform
+answers `The optional dependency "@napi-rs/canvas" is installed but could not be loaded (…).`
+
+On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24: for an image on
+Node 22, name the version in your `dependencies`. Pages drawn as images need unpdf 2, so Node 24.
+Check at startup that the image has what your application uses:
 
 ```ts
 // check-dependencies.ts: run at startup, before the server listens.

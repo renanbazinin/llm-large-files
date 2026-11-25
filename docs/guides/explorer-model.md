@@ -321,9 +321,15 @@ what both can take. What a pair changes:
   count each provider reports is read by the scale of the model that reported it, and a whole-file
   read is priced, against `limits.inputTokens`, in the explorer's tokens.
 - **Pages only when both can take them.** `view_pages` is offered only when both adapters can be
-  sent a file (`openAiCompatible()` only with `pdfInput: true`, `openAiResponses()` only with
-  `toolFilePlacement`). Pages stay in the request until
+  sent a file (`openAiCompatible()` only with `pdfInput: true` or `imageInput: true`,
+  `openAiResponses()` only with `toolFilePlacement`), and of one kind both take
+  (`toolFileTypes`, since 0.99.9): a PDF when both take one, else an image of each page. `gemini()`
+  or `anthropic()` next to `openAiCompatible({ imageInput: true })` share no kind, and get no
+  `view_pages` ([Pages as images](./pdfs.md#pages-as-images)). Pages stay in the request until
   the answer, so a page is counted with the larger `pageTokens` of the two.
+- **Files as they are only when both read them.** A small visual file goes as the file itself only
+  when both adapters declare `documents` (0.99.9): the formats both list, with the smaller limits
+  ([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)).
 - **No stand-ins with Claude on either side.** When room runs short, older tool results are
   replaced by short stand-ins only when neither model declares `appendOnly`. With Claude exploring
   or answering, nothing is replaced, for either model: when the room runs out, the question is

@@ -29,6 +29,7 @@ import {
   type UsageTotals,
 } from "./model.js";
 import { DocumentStoreError } from "./errors.js";
+import { nativeFile, nativeFilesLine, sharedDocuments } from "./native.js";
 import { canBeReadWhole, estimateParts, inlineInstruction, questionTools, REQUEST_BYTES_MARGIN } from "./plan.js";
 import { preparedHere } from "./prepare.js";
 import { checkQuestionId, validQuestionId } from "./question-id.js";
@@ -47,7 +48,7 @@ import {
   toolResultSummary,
   unknownToolName,
 } from "./tools.js";
-import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PreparedContext, ToolCallHooks, ToolCallLimits, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
+import type { Budget, DocumentFormat, DocumentMeta, DocumentPlan, DocumentScope, GenerateText, PageImageOptions, PreparedContext, ToolCallHooks, ToolCallLimits, ToolFile, ToolFileType, ToolOutput, ToolRequestEnd, ToolRequestHandle, ToolRequestStart, ToolResult } from "./types.js";
 import { wholeReadCost } from "./whole-cost.js";
 
 /** Sent (invisibly to the user) when the model must stop using tools and answer. */
@@ -216,9 +217,19 @@ export type AskOptions = {
   /**
    * Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`), so the model can
    * look at pictures, charts and layout. Defaults to true. It is offered only when every model of
-   * the question can be sent a file, and changes nothing for a library that keeps no originals.
+   * the question can be sent a file of the same kind (`capabilities.toolFileTypes`): one small PDF,
+   * or, since 0.99.9, each page drawn as an image. It changes nothing for a library that keeps no
+   * originals.
    */
   viewPages?: boolean;
+  /**
+   * Send small visual files sent whole (a PDF with a picture or a scanned page, a slide deck) as the
+   * files themselves too, before their text, when every model of the question declares
+   * `capabilities.documents` and their original is kept (`keepOriginals`). Defaults to true; it
+   * changes nothing unless an adapter declares `documents`. False sends text only. A value that is
+   * not true or false is a `TypeError` before any request. New in 0.99.9.
+   */
+  nativeDocuments?: boolean;
   /** Answer text as it arrives. The adapter streams when this is set and it can (see `streamText`). */
   onText?: (delta: string) => void;
   /**
@@ -290,8 +301,10 @@ export type AskResult = {
   steps: string[];
   /**
    * What the model was shown: first each file sent whole, in the order of its block (`tool`
-   * "inline", every line, `whole: true`, no `callId`; since 0.10.0), then what each tool call
-   * showed, the document and the lines or pages, in call order.
+   * "inline", every line, `whole: true`, no `callId`; since 0.10.0), and, right after the entry of
+   * a file whose uploaded file was sent too, one with `tool` "original" and every page in `pages`
+   * (no `lines`, no `whole`; since 0.99.9); then what each tool call showed, the document and the
+   * lines or pages, in call order.
    */
   evidence: Evidence[];
   /**
@@ -390,6 +403,12 @@ function checkStoreRounds(given: unknown): void {
   throw new TypeError(`storeRounds must be "full" or "compact", and is ${shownValue(given)}.`);
 }
 
+/** `nativeDocuments` checked: true, false or nothing (0.99.9). */
+function checkNativeDocuments(given: unknown): void {
+  if (given === undefined || typeof given === "boolean") return;
+  throw new TypeError(`nativeDocuments must be true or false, and is ${shownValue(given)}.`);
+}
+
 /**
  * Stored tool rounds (`AskResult.toolTurns`) made small: each result that is large is replaced by
  * the stand-in the loop sends when it drops a result to make room (`stubResult`): the document, the
@@ -422,6 +441,18 @@ function checkRemovedOptions(options: object): void {
   if (inlineTables !== undefined && inlineTables !== "tools") throw new TypeError(`inlineTables was removed in 0.99.9, and is ${removedValue(inlineTables)}: a table sent whole always gets the tools that count it, as "tools" did. Leave it out.`);
   if (numberInline !== undefined && numberInline !== true) throw new TypeError(`numberInline was removed in 0.99.9, and is ${removedValue(numberInline)}: the lines of files sent whole are always numbered, as true did. Leave it out.`);
 }
+
+/**
+ * The evidence of a document whose uploaded file was sent before its text (since 0.99.9): every
+ * page of it. No lines and no `whole`: `checkCitations` reads an entry with `whole` and no lines as
+ * every line shown, and the lines are the text's, shown by the entry before it.
+ */
+const sentAsFile = (meta: DocumentMeta): Evidence => ({
+  tool: "original",
+  documentId: meta.id,
+  document: meta.name,
+  ...(typeof meta.pages === "number" && Number.isFinite(meta.pages) && meta.pages >= 1 ? { pages: [[1, Math.trunc(meta.pages)]] } : {}),
+});
 
 /**
  * The evidence of a document sent whole (since 0.10.0): every line of it was shown. It comes from
@@ -599,6 +630,21 @@ const pageTokensOf = (adapter: ModelAdapter): number => {
   return typeof declared === "number" && Number.isFinite(declared) && declared >= 0 ? declared : DEFAULT_PAGE_TOKENS;
 };
 const isRound = (message: ModelMessage): message is ModelToolRound => message.role === "tools";
+/** The kinds of file the loop knows a tool may hand a model (`ModelCapabilities.toolFileTypes`). */
+const TOOL_FILE_TYPES: readonly ToolFileType[] = ["application/pdf", "image/png", "image/jpeg"];
+/**
+ * The kinds of file a model takes from a tool: none without `toolFiles` "inside" or "beside"
+ * (a value the type does not have counts as "none"); ["application/pdf"] when it says no more, as
+ * before 0.99.9.
+ */
+const toolFileTypesOf = (adapter: ModelAdapter): ToolFileType[] => {
+  const { toolFiles, toolFileTypes } = adapter.capabilities as { toolFiles?: unknown; toolFileTypes?: unknown };
+  if (toolFiles !== "inside" && toolFiles !== "beside") return [];
+  if (!Array.isArray(toolFileTypes)) return ["application/pdf"];
+  return toolFileTypes.filter((type): type is ToolFileType => TOOL_FILE_TYPES.includes(type as ToolFileType));
+};
+/** The bytes a file takes in a request: base64, and what frames it. */
+const fileBytes = (file: ToolFile): number => Math.ceil(file.bytes.length / 3) * 4 + 512;
 
 /** How many pages a `view_pages` result showed: its `pages` is "12" or "12-14". */
 function pagesShown(result: ToolResult): number {
@@ -625,7 +671,9 @@ function toMessages(given: ChatMessage[]): ModelMessage[] {
       return { role: "tools", calls: answers.map((answer) => answer.call), answers };
     }
     const role = message.role === "user" ? "user" : "assistant";
-    return "parts" in message ? { role, parts: [...message.parts] } : { role, parts: [{ text: message.text }] };
+    if (!("parts" in message)) return { role, parts: [{ text: message.text }] };
+    // Files the application put in a turn go on as they are (0.99.9); a turn without has no key.
+    return { role, parts: [...message.parts], ...(message.files?.length ? { files: [...message.files] } : {}) };
   });
   if (messages.at(-1)?.role !== "user") throw new Error("The last message must be the user's.");
   return messages;
@@ -649,6 +697,12 @@ function textSize(messages: ModelMessage[], system: string | undefined): Size {
         // Media: about 258 tokens per image or PDF page; ~4 tokens/KB is a cautious stand-in.
         tokens += Math.ceil(size / 256);
       }
+    }
+    // Files of the turn (0.99.9): their base64, and the same stand-in for their tokens.
+    for (const file of message.files ?? []) {
+      const size = Math.ceil(file.bytes.length / 3) * 4;
+      bytes += size + 512;
+      tokens += Math.ceil(size / 256);
     }
   }
   return { tokens, bytes };
@@ -1019,6 +1073,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   checkFilteredAnswer(options.filteredAnswer);
   checkStoreRounds(options.storeRounds);
   checkRemovedOptions(options);
+  checkNativeDocuments(options.nativeDocuments);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -1039,8 +1094,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   });
   // What a page costs, in the same terms. Pages are shown to every model of the question.
   const pageTokens = Math.max(1, ...models.map(pageTokensOf)) / scale;
-  // A value the type does not have (left out by an adapter in JavaScript) counts as "none".
-  const canShowFiles = models.every((adapter) => adapter.capabilities.toolFiles === "inside" || adapter.capabilities.toolFiles === "beside");
+  // The kind of file every model takes from a tool (`toolFileTypes`, since 0.99.9): one small PDF;
+  // else each page drawn as an image, a JPEG (smaller), else a PNG; else none, and no `view_pages`.
+  const takes = (type: ToolFileType) => models.every((adapter) => toolFileTypesOf(adapter).includes(type));
+  const pageFormat = takes("application/pdf") ? "pdf" : takes("image/jpeg") ? "jpeg" : takes("image/png") ? "png" : undefined;
+  const canShowFiles = pageFormat !== undefined;
+  const pageImages: PageImageOptions | undefined = pageFormat === "jpeg" || pageFormat === "png" ? { format: pageFormat } : undefined;
+  // The uploaded files every model reads as they are (`documents`, since 0.99.9): none unless all declare it.
+  const sharedNative = options.nativeDocuments !== false ? sharedDocuments(models) : undefined;
   // Every model must be able to take a conversation whose earlier turns were made shorter.
   const canShrink = models.every((adapter) => !adapter.capabilities.appendOnly);
   // A call made again is answered with a pointer to its earlier result only while that result stays
@@ -1073,6 +1134,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // `prepare` of your own may leave the options aside, as 0.9's did.
     numberInline: true,
     inlineTables: "tools",
+    // Only when every model reads files as they are: otherwise the options of 0.10.2, as they were.
+    ...(sharedNative ? { nativeDocuments: { ...sharedNative, pageTokens } } : {}),
   }), signal));
   const { prepared, documentIds } = planned;
   /** The documents left out of the question ("drop"), by this try and by the first. */
@@ -1095,12 +1158,34 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   // are, with no citation line.
   const numbered = preparedHere(prepared);
 
+  // The small visual files that go as they are (0.99.9), in plan order: each one whose original is
+  // still the file that was ingested. One that is gone or changed is sent as text only, as
+  // `view_pages` would fail on it too. A store that fails fails the question, as it does elsewhere.
+  const sentFiles: Array<{ meta: DocumentMeta; file: ToolFile }> = [];
+  if (sharedNative && typeof files.getOriginal === "function") {
+    const asked = new Set(documentIds);
+    const inline = new Set(prepared.plan.inline.map((meta) => meta.id));
+    for (const meta of prepared.native ?? []) {
+      // A `prepare` of your own may list what is not sent whole: only a file whose text is here goes.
+      if (!asked.has(meta.id) || !inline.has(meta.id) || !prepared.blocks.has(meta.id) || sentFiles.some((sent) => sent.meta.id === meta.id)) continue;
+      const bytes = await until(files.getOriginal(meta.id, access), signal);
+      if (bytes) sentFiles.push({ meta, file: nativeFile(meta, bytes, sentFiles.length + 1) });
+    }
+  }
+  const filesLine = sentFiles.length > 0 ? nativeFilesLine(sentFiles.map((sent) => sent.meta.name)) : "";
+
   const blocks = [...new Set(documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
   if (blocks.length) {
     const block = { text: blocks.join("\n\n") };
-    if (options.documentPlacement === "last") (messages.at(-1) as ModelTextMessage).parts.push(block);
     // The last turn is the user's, so there is always a first user turn.
-    else (messages.find((message) => message.role === "user") as ModelTextMessage).parts.unshift(block);
+    const turn = (options.documentPlacement === "last" ? messages.at(-1) : messages.find((message) => message.role === "user")) as ModelTextMessage;
+    if (options.documentPlacement === "last") turn.parts.push(block);
+    else turn.parts.unshift(block);
+    // The files themselves come first in that turn, and the line that names them just before the text.
+    if (filesLine) {
+      turn.parts.splice(turn.parts.indexOf(block), 0, { text: filesLine });
+      turn.files = [...sentFiles.map((sent) => sent.file), ...turn.files ?? []];
+    }
   }
   // A question without some of its files says so to the model, in one line of its own.
   const missingLine = missing.length > 0 ? missingFilesLine(missing.length) : "";
@@ -1120,6 +1205,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     meter.fixed.tokens += estimateTokens(block);
     meter.fixed.bytes += jsonBytes(block);
   }
+  // The files sent as they are: each of their pages, as a page of `view_pages` is counted, and their base64.
+  if (filesLine) {
+    meter.fixed.tokens += sentFiles.reduce((sum, sent) => sum + (sent.meta.pages ?? 0) * pageTokens, 0) + estimateTokens(filesLine);
+    meter.fixed.bytes += sentFiles.reduce((sum, sent) => sum + fileBytes(sent.file), 0) + jsonBytes(filesLine);
+  }
 
   let text = "";
   let turns = carried?.turns ?? 0;
@@ -1133,9 +1223,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   // The files sent whole come first, in the order of their blocks: the model was shown every line
   // of them before any tool ran (since 0.10.0).
   const inlineById = new Map(prepared.plan.inline.map((meta) => [meta.id, meta]));
+  const sentById = new Set(sentFiles.map((sent) => sent.meta.id));
   const evidence: Evidence[] = [...new Set(documentIds)].flatMap((id) => {
     const meta = inlineById.get(id);
-    return meta ? [sentWhole(meta)] : [];
+    return meta ? [sentWhole(meta), ...(sentById.has(id) ? [sentAsFile(meta)] : [])] : [];
   });
   const emit = (delta: string, requestId: string) => {
     text += delta;
@@ -1581,7 +1672,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   /** The conversation with a note at its end: in the last user turn, or in one of its own after a tool round. */
   const withNote = (list: ModelMessage[], note: string): ModelMessage[] => {
     const last = list.at(-1);
-    if (last && !isRound(last) && last.role === "user") return [...list.slice(0, -1), { role: "user", parts: [...last.parts, { text: note }] }];
+    // The turn's files (0.99.9) stay with it.
+    if (last && !isRound(last) && last.role === "user") return [...list.slice(0, -1), { ...last, parts: [...last.parts, { text: note }] }];
     return [...list, { role: "user", parts: [{ text: note }] }];
   };
   /**
@@ -1594,7 +1686,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     if (!toolModel.capabilities.appendOnly) return () => withNote(viewFor(toolModel), note);
     const last = messages.at(-1);
     if (last && !isRound(last) && last.role === "user") {
-      const noted: ModelMessage = { role: "user", parts: [...last.parts, { text: note }] };
+      const noted: ModelMessage = { ...last, parts: [...last.parts, { text: note }] };
       notes.set(noted, notes.has(last) ? notes.get(last) : last);
       messages[messages.length - 1] = noted;
     } else {
@@ -1653,7 +1745,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       ...(generate ? { generate } : {}),
       onProgress: (event) => options.onActivity?.(`${event.message}…`),
       signal: halt.signal,
-      ...(viewable.length > 0 ? { viewPages: viewable } : {}),
+      ...(viewable.length > 0 ? { viewPages: viewable, ...(pageImages ? { pageImages } : {}) } : {}),
       maxWholeDocumentReads: limits.wholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS,
       ...(options.retry ? { retry: options.retry } : {}),
       budget,

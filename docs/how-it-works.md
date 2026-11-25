@@ -562,12 +562,16 @@ Text cannot show a chart. `view_pages(document_id, from_page, to_page)` gives th
 themselves: up to five a call (`MAX_VIEW_PAGES`), cut out of the kept original into one PDF of their
 own. The adapter hands that PDF to the model: inside the function response for Gemini, as a
 document block for Claude, as a `file` part after the tool results for an OpenAI-compatible model
-with `pdfInput: true` ([the table below](#what-differs-between-providers)).
+with `pdfInput: true` ([the table below](#what-differs-between-providers)). For a model that takes
+images and no PDF (`imageInput: true`, 0.99.9), the pages are drawn as images instead, one JPEG a
+page ([Pages as images](./guides/pdfs.md#pages-as-images)).
 
 It is offered for a PDF whose original is kept (`keepOriginals: ["pdf"]`, and a store with
 `putOriginal` and `getOriginal`), unless `viewPages` is `false`, and only when every model of the
-question can be sent a file. An OpenAI-compatible model without `pdfInput`, or Claude with
-`toolFilePlacement: "none"`, rules it out. A PDF whose text fits in the prompt gets `view_pages`
+question can be sent a file of one kind they all take. An OpenAI-compatible model without
+`pdfInput` or `imageInput`, or Claude with `toolFilePlacement: "none"`, rules it out. So does a
+small visual PDF sent to the model as the file itself (`documents`, 0.99.9), whose pages the model
+already has ([The file itself](./guides/pdfs.md#the-file-itself-for-small-visual-files)). A PDF whose text fits in the prompt gets `view_pages`
 too, and only that: such a file is often a slide deck, with little text and a picture on every
 page. Page numbers are the N of the `--- Page N ---` lines.
 
@@ -1123,7 +1127,8 @@ What differs is in the adapters:
 |---|---|---|---|
 | The model's turn goes back | unchanged: thought signatures | unchanged (`reasoning_content`, OpenRouter's `reasoning_details`), but arguments that are not a JSON object, or are empty, go back as JSON (`"{}"`) | unchanged (thinking blocks), but an empty text block after the last thinking block is left out |
 | The request for the answer | no tools declared | `tool_choice: "none"`, tools kept; `answerWithoutTools: "omit"` leaves them out | `tool_choice: { type: "none" }`, tools kept |
-| Pages of `view_pages` | inside the function response, or in a user turn of their own with `toolFilePlacement: "beside"` | a `file` part in a user message after the results, only with `pdfInput: true`; otherwise not offered | a document block in the tool result; after the results with `toolFilePlacement: "beside"`; not offered with `"none"` |
+| Pages of `view_pages` | inside the function response, or in a user turn of their own with `toolFilePlacement: "beside"` | a `file` part in a user message after the results, only with `pdfInput: true`; a JPEG `image_url` part a page with `imageInput: true` (0.99.9); otherwise not offered | a document block in the tool result; after the results with `toolFilePlacement: "beside"`; not offered with `"none"` |
+| Small visual files as they are (`documents`, 0.99.9) | `inlineData` before the text: PDF, and PPTX on the Gemini API | a `file` part before the text: PDF | a `document` block before the text: PDF |
 | A page costs (`pageTokens`) | 530 by default | 1,000 by default | 3,500 by default |
 | `tokenScale` | 1 | 1 by default (`tokenScale`) | 1.35 by default (`tokenScale`) |
 | Kept free in the window for the reply | nothing | nothing | `maxTokens`, 64,000 by default |

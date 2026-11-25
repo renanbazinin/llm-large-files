@@ -25,7 +25,12 @@ kept for one version in 0.10.0 are removed. Everything else is new and optional.
 ## Requirements
 
 <!-- skeleton: Node and @types/node unchanged (22.12); the optional peers and their ranges (jszip,
-unpdf, @cantoo/pdf-lib unchanged; new: @napi-rs/canvas for page images); six entry points. -->
+unpdf, @cantoo/pdf-lib unchanged); six entry points. -->
+
+- **A new optional peer, `@napi-rs/canvas`** (`^0.1.69 || ^1.0.0`), for pages drawn as images only.
+  With unpdf 2 it needs Node 24 or later: unpdf 2 declares it, and npm installs it on Node 22 only
+  with an `EBADENGINE` warning, unsupported. Nothing else needs it, and nothing installs it for you
+  ([Page images and the files themselves](#page-images-and-the-files-themselves)).
 
 - **What a store holds is unchanged.** `DocumentMeta` keeps `metaVersion: 1`, `ToolTurn` keeps
   `version: 1`, and the files of `FileDocumentStore` keep their names and format. Servers of 0.10.x
@@ -252,6 +257,16 @@ Nothing to change. CI now holds ingest and search to bars of time and memory on 
 the requests it sends are not changed by it: `npm run perf` is a script of the repository, not of
 the package.
 
+### Image files from a tool set of your own
+
+`anthropic()` sends a file that a tool returns as an `image` block when its `mimeType` is an image
+type; it sent every file as a `document` block, which the Messages API takes for PDF only.
+`openAiCompatible({ pdfInput: true })` sends one as an `image_url` part, not a `file` part. The
+library's own tools returned no image before 0.99.9.
+
+**Who:** apps whose own tools return images through `executeWithFiles`-style answers to these
+adapters. **What to do:** nothing; the new blocks are the ones the providers document for images.
+
 ### Readers of stored rounds refuse a newer round
 
 `geminiToolTurns`, `openAiToolTurns`, `anthropicToolTurns` and `compactToolTurns` throw the
@@ -290,7 +305,48 @@ and apps whose database gives `version` back as text.
   ([Upload handlers](#upload-handlers)).
 - **`openAiResponses()`**: OpenAI's Responses API, for reasoning models that call the document
   tools ([The OpenAI Responses API](#the-openai-responses-api)).
-<!-- visual: page images for models without PDF input; small visual files sent as themselves. -->
+- **Page images** for models without PDF input, and **small visual files sent as themselves**
+  ([Page images and the files themselves](#page-images-and-the-files-themselves)).
+
+### Page images and the files themselves
+
+Nothing to change. Both are off until an adapter declares them, and the requests of a question
+without them are byte for byte those of 0.10.2: the same tool declarations, system text and
+capabilities. Only a tool set of your own that returns images sees a change
+([Image files from a tool set of your own](#image-files-from-a-tool-set-of-your-own)).
+
+- **A model without PDF input** (vLLM, DeepSeek, most servers behind Chat Completions) can now look
+  at pages as images. It needs Node 24, `npm install unpdf@2 @napi-rs/canvas`, and:
+
+  ```ts
+  import { openAiCompatible } from "llm-large-files/openai";
+
+  const model = openAiCompatible({ baseUrl: "https://api.deepseek.com/v1", model: "deepseek-v4-flash", apiKey: process.env.DEEPSEEK_API_KEY!, imageInput: true });
+  ```
+
+  With unpdf 1, which Node 22 runs, each look answers "Showing pages as images needs unpdf 2 or
+  later, which runs on Node 24 or later." and the model answers from the text. On Node 22, unpdf 2
+  installs with an `EBADENGINE` warning; it drew pages in our test on Node 22.23.5, but neither
+  unpdf nor CI supports it.
+- **Small visual files as the files themselves**: keep their originals (`keepOriginals: ["pdf"]`,
+  and `"pptx"` for decks), then declare what the model reads:
+
+  ```ts
+  import { gemini, geminiApi } from "llm-large-files/gemini";
+
+  // On the Gemini API, formats: ["pdf", "pptx"]. On Vertex AI, ["pdf"] only.
+  const model = gemini(geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.5-flash-lite" }), { documents: { formats: ["pdf"] } });
+  ```
+
+  On Vertex AI list `"pdf"` only: Vertex refused an Office file with HTTP 400 on Gemini 3 models.
+  Each such file costs its pages again on every question (about 530 tokens a page on Gemini,
+  3,500 on Claude). With an explorer, both models must declare it.
+- **An adapter of your own** compiles as it is. Declare `toolFileTypes` or `documents` only once it
+  places image tool files and `ModelTextMessage.files` (first in the turn); until then the loop
+  sends it neither.
+- **A loop of your own**: `ToolOptions.pageImages` gives one image file per page
+  (`result.images` names them), and `prepare({ nativeDocuments })` lists in `native` the files to
+  send before the text ([Your own tool loop](./guides/pdfs.md#your-own-tool-loop)).
 
 ### Question IDs
 

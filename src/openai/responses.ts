@@ -3,9 +3,10 @@
 // items of the question included.
 import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, until, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import type { ModelAdapter, ModelMessage, ModelReply, ModelRequest, ModelTextMessage, ModelToolRound, SendHooks, ToolCall } from "../model.js";
+import { documentsOption, messageFileKind } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
-import type { GenerateText, GenerateUsage, ToolFile } from "../types.js";
+import type { DocumentsCapability, GenerateText, GenerateUsage, ToolFile } from "../types.js";
 import { failure, newCallId, OpenAiRequestError, silent, streamErrorStatus, streamFailure, textOf, tooSlow, unreachable } from "./adapter.js";
 
 /** The options of `openAiResponses()`. New in 0.99.9. */
@@ -43,9 +44,17 @@ export type OpenAiResponsesOptions = {
   /**
    * Where the files a tool returned (the pages of `view_pages`) go: "inside" the
    * `function_call_output`, as content parts after its JSON; "beside" it, in a user message after
-   * the outputs of the round; or "none" (the default), which turns `view_pages` off.
+   * the outputs of the round; or "none" (the default), which turns `view_pages` off. A PDF goes as
+   * `input_file`, a page drawn as an image as `input_image`: with "inside" or "beside" it takes both
+   * (`toolFileTypes`, PDF first, since 0.99.9).
    */
   toolFilePlacement?: "inside" | "beside" | "none" | undefined;
+  /**
+   * The files this model reads natively: `{ formats: ["pdf"] }` sends a small visual PDF sent whole
+   * as an `input_file` part before its text. Only "pdf". Off by default. A value that is not valid
+   * is a TypeError when the adapter is made. New in 0.99.9.
+   */
+  documents?: DocumentsCapability | undefined;
   /** Stream the answer when the caller listens for text. Defaults to true. False for a server without streaming. */
   stream?: boolean | undefined;
   /** The model's context window in tokens, when the budget of a question should follow it. */
@@ -163,12 +172,20 @@ function fileContent(file: ToolFile): Json {
 /**
  * A turn of text. One with nothing but text has a string as its content, which every server takes.
  * Native parts make it a list, where text is `input_text` in a user turn and `output_text` in an
- * assistant turn: the Responses API refuses `input_text` from the assistant.
+ * assistant turn: the Responses API refuses `input_text` from the assistant. Its files
+ * (`ModelTextMessage.files`, since 0.99.9) come first: a PDF as `input_file`, an image as
+ * `input_image`; a file of another type is a TypeError.
  */
 function textItem(message: ModelTextMessage): Json {
-  if (message.parts.every((part) => part.native === undefined)) return { role: message.role, content: textOf(message) };
+  const files = message.files ?? [];
+  for (const file of files) messageFileKind("openAiResponses()", file);
+  const plain = message.parts.every((part) => part.native === undefined);
+  if (files.length === 0 && plain) return { role: message.role, content: textOf(message) };
   const type = message.role === "assistant" ? "output_text" : "input_text";
-  return { role: message.role, content: message.parts.map((part) => (part.native !== undefined ? part.native : { type, text: part.text })) };
+  // With files, text alone is the one part the string would have been.
+  const text = textOf(message);
+  const parts = plain ? (text ? [{ type, text }] : []) : message.parts.map((part) => (part.native !== undefined ? part.native : { type, text: part.text }));
+  return { role: message.role, content: [...files.map(fileContent), ...parts] };
 }
 
 /** A user turn of the input: an item with no `type` of its own. */
@@ -237,6 +254,7 @@ export function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter {
   const fetchImpl = options.fetch ?? fetch;
   const url = options.url ?? `${(options.baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, "")}/responses`;
   const placement = options.toolFilePlacement ?? "none";
+  const documents = documentsOption("openAiResponses()", options.documents, ["pdf"]);
   /** Whether chat requests ask for the encrypted content of reasoning: turned off once a server refuses it, unless the option was set. */
   let includeNow = options.encryptedReasoning !== false;
 
@@ -349,6 +367,9 @@ export function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter {
       toolFiles: placement,
       pageTokens: options.pageTokens ?? 1_000,
       ...(options.tokenScale ? { tokenScale: options.tokenScale } : {}),
+      // Since 0.99.9: a PDF, or pages drawn as images when a model of the question takes no PDF.
+      ...(placement !== "none" ? { toolFileTypes: ["application/pdf", "image/png", "image/jpeg"] as const } : {}),
+      ...(documents ? { documents } : {}),
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request, false, includeNow))),
     generateText,

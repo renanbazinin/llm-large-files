@@ -377,12 +377,34 @@ export type ToolDeclaration = {
 
 export type ToolResult = Record<string, unknown>;
 
-/** A file a tool hands back next to its JSON result, for example pages cut out of a PDF. */
+/**
+ * A file a tool hands back next to its JSON result, for example pages cut out of a PDF. Since
+ * 0.99.9 also an uploaded file a turn of the conversation carries (`ModelTextMessage.files`).
+ */
 export type ToolFile = {
   /** A short ASCII name, unique among the files of one result: "pages-12-14.pdf". */
   name: string;
+  /**
+   * "application/pdf" for the pages of `view_pages` as a PDF, "image/jpeg" or "image/png" for a
+   * page drawn as an image (since 0.99.9), and the format's type for a file of
+   * `ModelTextMessage.files`.
+   */
   mimeType: string;
   bytes: Uint8Array;
+};
+
+/**
+ * A kind of file a tool may hand a model (`ModelCapabilities.toolFileTypes`): a PDF, or a page drawn
+ * as an image. New in 0.99.9.
+ */
+export type ToolFileType = "application/pdf" | "image/png" | "image/jpeg";
+
+/**
+ * How `view_pages` draws pages when they go as images (`ToolOptions.pageImages`): "jpeg" (quality
+ * 0.85) or "png", at `PAGE_IMAGE_SIDE` (1,568) pixels on the longest side. New in 0.99.9.
+ */
+export type PageImageOptions = {
+  format: "png" | "jpeg";
 };
 
 /** A tool's JSON result, and the files that belong to it. Most tools return no files. */
@@ -422,6 +444,34 @@ export type ToolCallLimits = {
    * came back busy, so that a wait that ends busy comes once in a turn. New in 0.9.0.
    */
   maxWaitMs?: number;
+};
+
+/** A format whose uploaded file a model may be sent as it is (`DocumentsCapability`). New in 0.99.9. */
+export type NativeDocumentFormat = "pdf" | "pptx";
+
+/**
+ * The uploaded files a model reads natively when they are in a user turn (`ModelCapabilities.documents`).
+ * New in 0.99.9.
+ */
+export type DocumentsCapability = {
+  /** The formats it reads: "pdf"; "pptx" too on the Gemini API. */
+  formats: readonly NativeDocumentFormat[];
+  /** The most bytes of one file. Defaults to `DEFAULT_NATIVE_FILE_BYTES` (4,194,304). */
+  maxFileBytes?: number;
+  /** The most pages (slides, for a deck) of one file. Defaults to `DEFAULT_NATIVE_PAGES` (10). */
+  maxPages?: number;
+};
+
+/**
+ * What `prepare` is told of the files a question may send as they are (`PrepareOptions.nativeDocuments`):
+ * the capability every model shares, with its defaults filled in, and what a page costs in the
+ * library's estimate of tokens. New in 0.99.9.
+ */
+export type NativeDocumentsPlan = {
+  formats: readonly NativeDocumentFormat[];
+  maxFileBytes: number;
+  maxPages: number;
+  pageTokens: number;
 };
 /**
  * Listeners for one tool call, next to its limits. New in 0.7.0: with them, the progress of two
@@ -578,4 +628,10 @@ export type PreparedContext = {
    * absent. `askWithFiles` makes the tools for them with the searched documents. New in 0.10.0.
    */
   toolable?: DocumentMeta[];
+  /**
+   * Documents sent whole whose uploaded file goes to the model too, before their text: small visual
+   * files (`PrepareOptions.nativeDocuments`), in the order of `plan.inline`. They are left out of
+   * `viewable`. Absent unless `prepare` was called with `nativeDocuments`. New in 0.99.9.
+   */
+  native?: DocumentMeta[];
 };

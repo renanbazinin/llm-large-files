@@ -31,6 +31,8 @@ import type {
   Extractor,
   GenerateText,
   MetaPatch,
+  NativeDocumentsPlan,
+  PageImageOptions,
   PreparedContext,
   ProgressListener,
   ToolName,
@@ -374,6 +376,17 @@ export type PrepareOptions = AccessOptions & {
    * in 0.10.0.
    */
   inlineTables?: "tools" | "text";
+  /**
+   * Plan the small visual files sent whole that go to the model as their uploaded file too, and list
+   * them in `native` (left out of `viewable`): the formats and limits the models share, and what a
+   * page costs in the library's estimate of tokens. A file is listed when it is sent whole, its
+   * format is listed, its original is kept and readable, it is visual (a PDF with a picture or a
+   * page without text, or a deck), it has no table the tools count, it is within `maxFileBytes`
+   * and `maxPages`, and it fits in the room the plan leaves. `askWithFiles` passes what every model
+   * declares (`ModelCapabilities.documents`). Left out: none, and the result is that of 0.10. A
+   * value that is not well formed is a TypeError. New in 0.99.9.
+   */
+  nativeDocuments?: NativeDocumentsPlan;
 };
 
 export type ToolOptions = {
@@ -416,6 +429,16 @@ export type ToolOptions = {
    * PDFs that are not searched because their text is already in the prompt.
    */
   viewPages?: boolean | DocumentMeta[];
+  /**
+   * Draw the pages of `view_pages` as images, one file per page (`result.images` names them), in
+   * place of one small PDF: for a loop whose model takes images and no PDF. Each page is
+   * `PAGE_IMAGE_SIDE` (1,568) pixels on its longest side, a JPEG (quality 0.85) or a PNG. Needs the
+   * optional dependencies "unpdf" 2 or later (Node 24 or later) and "@napi-rs/canvas": without them
+   * each call answers with what to install. `askWithFiles` sets it from the models'
+   * `toolFileTypes`. A format that is not "png" or "jpeg" is a TypeError when the tools are made.
+   * New in 0.99.9.
+   */
+  pageImages?: PageImageOptions;
   /**
    * Declare exactly these tools, in the order the tool set declares them (search, read, overview,
    * aggregate, analyze, view), in place of those the documents call for. A call of a tool that is
@@ -1014,7 +1037,11 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
   }
 
   /** What planning a request (`prepareDocuments`, src/prepare.ts) needs of this library. */
-  const planning: PrepareContext = { callerOf: (access) => callerOf(access, rules), metaFor, load, stillOpened, budgetFor, viewableMeta, rules };
+  const planning: PrepareContext = {
+    callerOf: (access) => callerOf(access, rules), metaFor, load, stillOpened, budgetFor, viewableMeta,
+    originalReadable: (meta) => meta.originalKept === true && readable(meta),
+    rules,
+  };
 
   /** `files.tools`: the tools for `documents`. */
   function tools(documents: DocumentMeta[], toolOptions: ToolOptions = {}): ToolSet {

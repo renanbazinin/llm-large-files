@@ -672,9 +672,10 @@ explorer model, which makes these requests at its own price.
 
 - **One `view_pages` call shows up to five pages** (`MAX_VIEW_PAGES`). A page costs about 530
   tokens on Gemini, 1,000 on an OpenAI-compatible model and 3,500 on Claude by default (the
-  adapter's `pageTokens`). An OpenAI-compatible model is shown pages only with `pdfInput: true`.
-  Without it, `openAiCompatible()` declares `toolFiles: "none"`, and `view_pages` is offered to no
-  model of the question.
+  adapter's `pageTokens`). An OpenAI-compatible model is shown pages only with `pdfInput: true`,
+  or, as images, with `imageInput: true` (0.99.9). Without either, `openAiCompatible()` declares
+  `toolFiles: "none"`, and `view_pages` is offered to no model of the question. A page drawn as an
+  image counts as one page.
 - **Pages stay in every later request of the question**, so a page shown early is paid for again
   by each request after it. They are not kept in `toolTurns`, so a later question does not pay for
   them again.
@@ -686,6 +687,22 @@ explorer model, which makes these requests at its own price.
 What bounds it: `viewPages: false`; `keepOriginals` only for the formats that need it (no kept
 original, no pages); a smaller `reservedTokens`, which also keeps less of the window free for the
 answer (text tool results may then grow the request further). See [PDFs](./pdfs.md).
+
+### Files sent as they are
+
+With `documents` on the adapters (0.99.9), a small visual file sent whole goes to the model as the
+file itself too, next to its text ([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)):
+
+- **It is paid for on every question** that names it, as its text is: its pages times `pageTokens`
+  (a PDF of 10 pages: about 5,300 tokens on Gemini, 35,000 on Claude), and its bytes as base64 in
+  every request of the question.
+- **It takes only the room the plan leaves.** The files are chosen after the text of the files sent
+  whole and the cards, in the order of the plan; one that does not fit is sent as text only.
+- **It can save requests.** The model has every page, so a question over such files is answered
+  in one request, without a look at its pages.
+
+What bounds it: `documents.maxPages` (10) and `maxFileBytes` (4 MiB) on the adapter;
+`nativeDocuments: false` on a question; or no `documents` at all, the default.
 
 ### Documents sent whole
 

@@ -3,6 +3,7 @@ import { until } from "./http.js";
 import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
 import { analyzeWholeDocument, listWholeDocumentItems, MAX_ITEM_LABELS, MAX_LABEL_CHARACTERS, NothingReadError, storeGaveUp, type WholeItemsResult } from "./map-reduce.js";
+import { loadRenderBackend, PAGE_IMAGE_SIDE, renderPdfPages, type PageImages, type RenderBackend } from "./pdf-images.js";
 import { cutPdfPages, type PageCut } from "./pdf-pages.js";
 import type { Limiter } from "./limiter.js";
 import { DocumentGoneError } from "./ranged.js";
@@ -10,7 +11,7 @@ import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type Document
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
 import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
-import type { Budget, GenerateText, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolName, ToolOutput, ToolResult, ToolSet } from "./types.js";
+import type { Budget, GenerateText, PageImageOptions, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolName, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
 /** Matching lines an exact or regex search shows: the default, and the most a call may ask for. */
@@ -822,6 +823,17 @@ export type PageLookTurns = {
   holdMs?: number;
 };
 
+/** A value in an error of `pageImages`: a string quoted, a number as it is, else its type. */
+const shownOption = (value: unknown): string => (typeof value === "string" ? JSON.stringify(value) : typeof value === "number" ? String(value) : value === null ? "null" : typeof value);
+
+/** `pageImages` checked when the tools are made: undefined, or a format of "png" or "jpeg". */
+function checkedPageImages(given: unknown): PageImageOptions | undefined {
+  if (given === undefined) return undefined;
+  const format: unknown = (given as { format?: unknown } | null)?.format;
+  if (format !== "png" && format !== "jpeg") throw new TypeError(`pageImages.format must be "png" or "jpeg", and is ${shownOption(format)}.`);
+  return { format };
+}
+
 export function createDocumentTools(options: {
   /** Loads a document the tools may access. Return undefined for anything out of scope. */
   load(documentId: string): Promise<DocumentSource | undefined>;
@@ -857,6 +869,13 @@ export function createDocumentTools(options: {
   viewableIds?: string[];
   /** Loads the uploaded file of a document, for `view_pages`. */
   loadOriginal?(documentId: string): Promise<Uint8Array | undefined>;
+  /**
+   * Draw the pages of `view_pages` as images, one file per page, in place of one small PDF
+   * (`ToolOptions.pageImages`). Checked when the tools are made. New in 0.99.9.
+   */
+  pageImages?: PageImageOptions | undefined;
+  /** What draws pages as images; for the tests. Defaults to unpdf 2 with @napi-rs/canvas. */
+  pageRenderer?: RenderBackend | undefined;
   /**
    * The turns of the looks at pages, shared by the tool sets of one library: a look waits for its
    * turn before the original file is loaded. Without it, looks do not wait.
@@ -934,6 +953,7 @@ export function createDocumentTools(options: {
     throw new (typeof givenReads === "number" ? RangeError : TypeError)(`maxWholeDocumentReads must be a number, and is ${shown}.`);
   }
   const maxWholeReads = Math.max(0, Math.trunc(options.maxWholeDocumentReads ?? MAX_WHOLE_DOCUMENT_READS));
+  const pageImages = checkedPageImages(options.pageImages);
   /** Whole-document reads started, by document. */
   const wholeReads = new Map<string, number>();
   /** Why the last whole-document read of a document failed, when no part of it could be read. */
@@ -1331,7 +1351,10 @@ export function createDocumentTools(options: {
     },
   };
 
-  /** `view_pages`: the pages as one small PDF, next to a short JSON result. */
+  /**
+   * `view_pages`: the pages as one small PDF, or, with `pageImages`, each page drawn as an image
+   * (since 0.99.9), next to a short JSON result.
+   */
   async function viewPages(args: Record<string, unknown>, limits: ToolCallLimits, signal: AbortSignal | undefined): Promise<ToolOutput> {
     const reason = cannotRun(TOOL_NAMES.view);
     if (reason) throw new Error(reason);
@@ -1364,12 +1387,25 @@ export function createDocumentTools(options: {
     // read that takes longer than the library allows its store calls (`holdMs`).
     const release = await pageLookTurn(id, file, limits, signal);
     let cut: PageCut | undefined;
+    let drawn: PageImages | undefined;
     try {
       signal?.throwIfAborted();
       const original = await originalOf(id, file, signal);
       // Stopped while the original was read: no pages are cut for a question that has left.
       signal?.throwIfAborted();
-      if (original) {
+      if (original && pageImages) {
+        // Drawn as images (since 0.99.9), within the same turn, pages and bytes as a cut.
+        try {
+          const backend = options.pageRenderer ?? await loadRenderBackend();
+          drawn = await renderPdfPages(original, from, Math.min(asked, from + mostPages - 1), {
+            format: pageImages.format, longestSide: PAGE_IMAGE_SIDE, maxBytes, expectedPages: total, signal,
+          }, backend);
+        } catch (error) {
+          // Stopped between two pages: the reason it was stopped for, as the other tools throw it.
+          if (signal?.aborted) throw error;
+          throw new Error(`${file}: ${safeErrorMessage(error)}`);
+        }
+      } else if (original) {
         try {
           cut = await cutPdfPages(original, from, Math.min(asked, from + mostPages - 1), maxBytes, total);
         } catch (error) {
@@ -1379,25 +1415,36 @@ export function createDocumentTools(options: {
     } finally {
       release();
     }
-    if (!cut) {
+    const shownPages = cut ?? drawn;
+    if (!shownPages) {
       // The document may have gone while the look waited for its turn: that is told as such.
       if (!await until(options.load(id), signal)) throw gone(id);
       throw new Error(`The original file of ${file} is no longer on the server, so its pages cannot be shown. Answer from the text.`);
     }
-    const pages = pageRange(cut.from, cut.to);
-    const shown = cut.to - cut.from + 1;
+    const pages = pageRange(shownPages.from, shownPages.to);
+    const shown = shownPages.to - shownPages.from + 1;
     // What was asked for, as far as the file goes.
-    const wanted = Math.min(asked, cut.pageCount);
-    const showing = `Showing ${shown} of the ${wanted - cut.from + 1} pages asked for`;
-    const again = `Call view_pages from page ${cut.to + 1} if you need them.`;
-    const rest: ToolResult = cut.to >= wanted ? {}
-      : shown < mostPages ? { next_page: cut.to + 1, note: `${showing}: the others did not fit in this request. ${again}` }
-        : mostPages < MAX_VIEW_PAGES ? { note: `${showing}: no more pages can be looked at for this question.` }
-          : { next_page: cut.to + 1, note: `${showing}: one call shows at most ${MAX_VIEW_PAGES}. ${again}` };
+    const wanted = Math.min(asked, shownPages.pageCount);
+    const showing = `Showing ${shown} of the ${wanted - shownPages.from + 1} pages asked for`;
+    const again = `Call view_pages from page ${shownPages.to + 1} if you need them.`;
+    const rest: ToolResult = shownPages.to >= wanted ? {}
+      : drawn?.stoppedBy === "time" ? { next_page: shownPages.to + 1, note: `${showing}: the others took too long to draw. ${again}` }
+        : shown < mostPages ? { next_page: shownPages.to + 1, note: `${showing}: the others did not fit in this request. ${again}` }
+          : mostPages < MAX_VIEW_PAGES ? { note: `${showing}: no more pages can be looked at for this question.` }
+            : { next_page: shownPages.to + 1, note: `${showing}: one call shows at most ${MAX_VIEW_PAGES}. ${again}` };
+    if (drawn) {
+      // One file per page, named in `images`: a list, which Gemini's $ref of a file name does not match.
+      const jpeg = pageImages?.format === "jpeg";
+      const names = drawn.images.map((image) => `page-${image.page}.${jpeg ? "jpg" : "png"}`);
+      return {
+        result: { document: file, pages, total_pages: drawn.pageCount, images: names, ...rest },
+        files: drawn.images.map((image, index) => ({ name: names[index]!, mimeType: jpeg ? "image/jpeg" : "image/png", bytes: image.bytes })),
+      };
+    }
     const name = `pages-${pages}.pdf`;
     return {
-      result: { document: file, pages, total_pages: cut.pageCount, file: name, ...rest },
-      files: [{ name, mimeType: "application/pdf", bytes: cut.bytes }],
+      result: { document: file, pages, total_pages: cut!.pageCount, file: name, ...rest },
+      files: [{ name, mimeType: "application/pdf", bytes: cut!.bytes }],
     };
   }
 

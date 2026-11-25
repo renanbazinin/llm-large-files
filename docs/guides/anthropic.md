@@ -412,6 +412,23 @@ const files = createLargeFiles({
 const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", toolFilePlacement: "inside" });
 ```
 
+Since 0.99.9 a small visual PDF sent whole can also go to Claude as the file itself, a `document`
+block before its text, so Claude sees its pictures without a look
+([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)):
+
+```ts
+import { anthropic } from "llm-large-files/anthropic";
+
+// The Messages API reads PDF, not Office files: "pdf" is the only format.
+const withFiles = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", documents: { formats: ["pdf"] } });
+```
+
+Each such page costs `pageTokens` (3,500) again on every question that names the file, and stays in
+the conversation, which only grows. With a window of 200,000 tokens, keep `maxPages` low or leave
+it off. A tool file that is an image (a page drawn as an image, when another model of the question
+takes no PDF) goes as an `image` block. Neither has been run against Claude: they follow the
+Messages API documentation.
+
 ## Errors: `AnthropicRequestError`
 
 A request Claude did not answer throws `AnthropicRequestError`, a `ModelRequestError` with the

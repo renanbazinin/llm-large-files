@@ -3,10 +3,11 @@
 import { randomUUID } from "node:crypto";
 import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { documentsOption, messageFileKind } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
-import type { GenerateText, GenerateUsage, ToolDeclaration, ToolResult } from "../types.js";
+import type { DocumentsCapability, GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
 
 /** The endpoint answered with an HTTP error, or could not be reached (`status` 0). */
 export class OpenAiRequestError extends ModelRequestError {
@@ -65,13 +66,28 @@ export type OpenAiCompatibleOptions = {
    * take no PDF at all. Turn it on for a model that reads PDF input.
    */
   pdfInput?: boolean | undefined;
+  /**
+   * Send the pages of `view_pages` as images: each page a JPEG of 1,568 pixels on its longest side,
+   * in an `image_url` part, in a user message after the tool results. For a model that reads images
+   * and no PDF (vLLM, DeepSeek, most servers behind this API). It makes `toolFiles` "beside" and
+   * lists "image/png" and "image/jpeg" in `toolFileTypes`; with `pdfInput` too, PDF comes first and
+   * is used. Drawing pages needs "unpdf" 2 (Node 24 or later) and "@napi-rs/canvas". Off by
+   * default. New in 0.99.9.
+   */
+  imageInput?: boolean | undefined;
+  /**
+   * The files this model reads natively: `{ formats: ["pdf"] }` sends a small visual PDF sent whole
+   * as a `file` part before its text. Only "pdf": Chat Completions reads no other file. Off by
+   * default. A value that is not valid is a TypeError when the adapter is made. New in 0.99.9.
+   */
+  documents?: DocumentsCapability | undefined;
   /** Stream the answer when the caller listens for text. Defaults to true. False for a server without streaming. */
   stream?: boolean | undefined;
   /** The model's context window in tokens, when the budget of a question should follow it. */
   contextTokens?: number | undefined;
   /** The largest request body the endpoint takes, in bytes. */
   maxRequestBytes?: number | undefined;
-  /** Tokens billed for one PDF page, when `pdfInput` is on. Defaults to 1,000. */
+  /** Tokens billed for one page, as a PDF page or an image, when `pdfInput` or `imageInput` is on. Defaults to 1,000. */
   pageTokens?: number | undefined;
   /** This model's tokens for one token of the library's estimate. Defaults to 1. */
   tokenScale?: number | undefined;
@@ -234,10 +250,26 @@ export function streamFailure(failed: unknown, status: number = streamErrorStatu
 /** The text parts of a turn, the empty ones left out, joined by a blank line. */
 export const textOf = (message: ModelTextMessage): string => message.parts.map((part) => part.text ?? "").filter(Boolean).join("\n\n");
 
-/** A turn of text. One with nothing but text is a string, which every server takes; native parts make it a list. */
+/** A file as a content part: an image as `image_url` (with no `detail`), any other file as a `file` part. */
+function filePart(file: ToolFile): Record<string, unknown> {
+  const data = `data:${file.mimeType};base64,${base64(file.bytes)}`;
+  return file.mimeType.startsWith("image/") ? { type: "image_url", image_url: { url: data } } : { type: "file", file: { filename: file.name, file_data: data } };
+}
+
+/**
+ * A turn of text. One with nothing but text is a string, which every server takes; native parts make
+ * it a list. Its files (`ModelTextMessage.files`, since 0.99.9) come first: a PDF as a `file` part,
+ * an image as `image_url`; a file of another type is a TypeError.
+ */
 function textMessage(message: ModelTextMessage): OpenAiMessage {
-  if (message.parts.every((part) => part.native === undefined)) return { role: message.role, content: textOf(message) };
-  return { role: message.role, content: message.parts.map((part) => (part.native !== undefined ? part.native : { type: "text", text: part.text })) };
+  const files = message.files ?? [];
+  for (const file of files) messageFileKind("openAiCompatible()", file);
+  const plain = message.parts.every((part) => part.native === undefined);
+  if (files.length === 0 && plain) return { role: message.role, content: textOf(message) };
+  // With files, text alone is the one part the string would have been.
+  const text = textOf(message);
+  const parts = plain ? (text ? [{ type: "text", text }] : []) : message.parts.map((part) => (part.native !== undefined ? part.native : { type: "text", text: part.text }));
+  return { role: message.role, content: [...files.map(filePart), ...parts] };
 }
 
 /**
@@ -264,8 +296,11 @@ function joinUserTurns(messages: OpenAiMessage[]): OpenAiMessage[] {
   return out;
 }
 
-/** The messages of one tool round. `number` makes the IDs of calls that came without one. */
-function roundMessages(round: ModelToolRound, number: number, pdfInput: boolean): OpenAiMessage[] {
+/**
+ * The messages of one tool round. `number` makes the IDs of calls that came without one. `files`:
+ * whether the files of tools are sent (`pdfInput` or `imageInput`).
+ */
+function roundMessages(round: ModelToolRound, number: number, files: boolean): OpenAiMessage[] {
   const idOf = (call: ToolCall, index: number) => call.id ?? `call_${number}_${index + 1}`;
   // Its own turn goes back as it came: a server may want what it put there (reasoning, signatures).
   const asked: OpenAiMessage = round.raw !== undefined ? round.raw as OpenAiMessage : {
@@ -274,12 +309,13 @@ function roundMessages(round: ModelToolRound, number: number, pdfInput: boolean)
     tool_calls: round.calls.map((call, index) => ({ id: idOf(call, index), type: "function", function: { name: call.name, arguments: JSON.stringify(call.args) } })),
   };
   const results = round.answers.map((answer, index): OpenAiMessage => ({ role: "tool", tool_call_id: idOf(answer.call, index), content: JSON.stringify(answer.result) }));
-  // A tool message holds text. Files follow in a user turn, each after a line that names it.
-  const files = pdfInput ? round.answers.flatMap((answer) => (answer.files ?? []).flatMap((file) => [
+  // A tool message holds text. Files follow in a user turn, each after a line that names it: a PDF
+  // as a `file` part, a page drawn as an image as `image_url` (since 0.99.9).
+  const beside = files ? round.answers.flatMap((answer) => (answer.files ?? []).flatMap((file) => [
     { type: "text", text: `${file.name} (returned by ${answer.call.name}):` },
-    { type: "file", file: { filename: file.name, file_data: `data:${file.mimeType};base64,${base64(file.bytes)}` } },
+    filePart(file),
   ])) : [];
-  return [asked, ...results, ...(files.length > 0 ? [{ role: "user", content: files }] : [])];
+  return [asked, ...results, ...(beside.length > 0 ? [{ role: "user", content: beside }] : [])];
 }
 
 /**
@@ -356,6 +392,8 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
   let maxTokensField = options.maxTokensField ?? (official ? "max_completion_tokens" : "max_tokens");
   const systemRole = options.systemRole ?? "system";
   const pdfInput = options.pdfInput === true;
+  const imageInput = options.imageInput === true;
+  const documents = documentsOption("openAiCompatible()", options.documents, ["pdf"]);
 
   const headersNow = async (): Promise<Record<string, string>> => {
     const key = await resolveSecret(options.apiKey);
@@ -370,7 +408,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       const number = ++rounds;
       let known = built.get(message);
       if (!known || known.number !== number) {
-        known = { number, messages: roundMessages(message, number, pdfInput) };
+        known = { number, messages: roundMessages(message, number, pdfInput || imageInput) };
         built.set(message, known);
       }
       return known.messages;
@@ -463,9 +501,12 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
     capabilities: {
       ...(options.contextTokens ? { contextTokens: options.contextTokens } : {}),
       ...(options.maxRequestBytes ? { maxRequestBytes: options.maxRequestBytes } : {}),
-      toolFiles: pdfInput ? "beside" : "none",
+      toolFiles: pdfInput || imageInput ? "beside" : "none",
       pageTokens: options.pageTokens ?? 1_000,
       ...(options.tokenScale ? { tokenScale: options.tokenScale } : {}),
+      // Since 0.99.9, only with the options: without them the object of 0.10.
+      ...(imageInput ? { toolFileTypes: pdfInput ? ["application/pdf", "image/png", "image/jpeg"] as const : ["image/png", "image/jpeg"] as const } : {}),
+      ...(documents ? { documents } : {}),
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request, false))),
     generateText,

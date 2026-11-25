@@ -44,7 +44,8 @@ jobs:
     # The tests above run with the unpdf that package-lock.json pins (1.4.0). Other versions in the
     # peer range behave otherwise on some versions of Node: unpdf 1.5.0 to 1.6.0 stopped the whole
     # process at the first PDF on Node 22, which has no Promise.try. Each version must read PDFs
-    # where it can, and be refused with a message where it cannot.
+    # where it can, and be refused with a message where it cannot. The rows of unpdf 2 also install
+    # @napi-rs/canvas, so that the tests of pages drawn as images run (test/page-images-render.test.ts).
     name: unpdf ${{ matrix.unpdf }} on Node ${{ matrix.node }}
     runs-on: ubuntu-latest
     strategy:
@@ -53,8 +54,8 @@ jobs:
         include:
           - { node: 22, unpdf: "^1" }
           - { node: 24, unpdf: "^1" }
-          - { node: 24, unpdf: "^2" } # unpdf 2 needs Node 24
-          - { node: 26, unpdf: "^2" }
+          - { node: 24, unpdf: "^2", canvas: true } # unpdf 2 needs Node 24
+          - { node: 26, unpdf: "^2", canvas: true }
           - { node: 22, unpdf: "1.6.0", refused: true }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -64,6 +65,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm install --no-save "unpdf@${{ matrix.unpdf }}"
+        if: ${{ !matrix.canvas }}
+      # @napi-rs/canvas is an optional peer of the package itself, and npm install --no-save does not
+      # install a package the root lists only as an optional peer: these rows add both to the
+      # devDependencies of their checkout, which is not committed. 1.1.0: published 2026-10-30.
+      - run: npm install --save-dev --save-exact "unpdf@${{ matrix.unpdf }}" "@napi-rs/canvas@1.1.0"
+        if: ${{ matrix.canvas }}
       - name: Every test, with this unpdf
         if: ${{ !matrix.refused }}
         run: npm test

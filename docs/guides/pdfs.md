@@ -14,10 +14,12 @@ on every server that ingests files:
 npm install jszip              # DOCX, PPTX and XLSX
 npm install unpdf              # PDF text (on Node 22, name a version: see below)
 npm install @cantoo/pdf-lib    # PDF picture marks, page check, and view_pages
+npm install unpdf@2 @napi-rs/canvas  # view_pages as images, for a model without PDF input (Node 24)
 ```
 
-They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.4.0 || ^2.0.0
-and `@cantoo/pdf-lib` ^2.11.1.
+They are optional peer dependencies of the package: `jszip` ^3.10.0, `unpdf` ^1.4.0 || ^2.0.0,
+`@cantoo/pdf-lib` ^2.11.1, and, since 0.99.9, `@napi-rs/canvas` ^0.1.69 || ^1.0.0
+([Pages as images](#pages-as-images)).
 
 Not every `unpdf` runs on every Node. unpdf 2 asks for Node 24, and on Node 24 and later
 `npm install unpdf` installs it. On Node 22, install a version that runs there:
@@ -590,11 +592,16 @@ The options of this page, and where each is explained:
 | `toolFilePlacement` (`gemini()`, `askGemini`, `anthropic()`) | `"inside"` | Where the pages go in the request ([Where the pages go](#where-the-pages-go-toolfileplacement)). |
 | `toolFilePlacement` (`openAiResponses()`) | `"none"` | Where the pages go, or nowhere, which turns `view_pages` off ([Which models can see pages](#which-models-can-see-pages)). New in 0.99.9. |
 | `pdfInput` (`openAiCompatible()`) | `false` | Send the pages as a `file` part; without it, no `view_pages` ([Which models can see pages](#which-models-can-see-pages)). |
+| `imageInput` (`openAiCompatible()`) | `false` | Send each page as a JPEG in an `image_url` part, for a model that reads images and no PDF ([Pages as images](#pages-as-images)). New in 0.99.9. |
+| `documents` (`gemini()`, `askGemini`, `openAiCompatible()`, `openAiResponses()`, `anthropic()`) | none | The files the model reads as they are: a small visual file sent whole goes to it as the file too ([The file itself](#the-file-itself-for-small-visual-files)). New in 0.99.9. |
+| `nativeDocuments` (`askGemini`, `askWithFiles`) | `true` | `false` sends text only for one question, though the models declare `documents` ([The file itself](#the-file-itself-for-small-visual-files)). New in 0.99.9. |
 | `pageTokens` (`gemini()`, `openAiCompatible()`, `openAiResponses()`, `anthropic()`) | 530, 1,000, 1,000, 3,500 | What a page costs in input tokens ([Limits and cost](#limits-and-cost)). |
 
 A PDF small enough to send whole can also go to the model as a file in your own message, in the
 provider's own form ([Conversations](./conversations.md)). The model then sees every page.
-`view_pages` is for the PDFs that are too large for that.
+`view_pages` is for the PDFs that are too large for that. Since 0.99.9 the library sends small
+visual files that way itself, when the model declares `documents`
+([The file itself](#the-file-itself-for-small-visual-files)).
 
 ### The line that marks a page
 
@@ -854,16 +861,17 @@ one question with `viewPages: false` on `askGemini` or `askWithFiles`.
 ### Which models can see pages
 
 The pages are a file. A model that cannot be sent one in a tool result does not get `view_pages`,
-and with an [explorer model](./explorer-model.md), both models must be able to take it: the
-answering model reads the same pages.
+and with an [explorer model](./explorer-model.md), both models must be able to take the same kind
+of file: the answering model reads the same pages. The kind is one small PDF, or, since 0.99.9,
+each page drawn as an image ([Pages as images](#pages-as-images)).
 
 | Adapter | How the pages are sent | Setting | `pageTokens` |
 |---|---|---|---|
 | `gemini()`, `askGemini` | Inside the function response (default), or in a user turn after it | `toolFilePlacement`: `"inside"` or `"beside"` | 530 |
 | `anthropic()` | A `document` block inside the `tool_result` (default), or after the tool results in the same user turn, or not at all | `toolFilePlacement`: `"inside"`, `"beside"` or `"none"` | 3,500 |
-| `openAiCompatible()` | Not at all (default), or a `file` part in a user message after the tool messages | `pdfInput: true` | 1,000 |
-| `openAiResponses()` | Not at all (default), as an `input_file` part inside the `function_call_output`, or in a user message after the outputs | `toolFilePlacement`: `"inside"`, `"beside"` or `"none"` | 1,000 |
-| An adapter of your own | As its `capabilities.toolFiles` says | `"inside"`, `"beside"` or `"none"` | `capabilities.pageTokens` |
+| `openAiCompatible()` | Not at all (default); a `file` part in a user message after the tool messages; or each page as a JPEG `image_url` part there | `pdfInput: true`; `imageInput: true` (0.99.9) | 1,000 |
+| `openAiResponses()` | Not at all (default), as an `input_file` part (a page drawn as an image: `input_image`) inside the `function_call_output`, or in a user message after the outputs | `toolFilePlacement`: `"inside"`, `"beside"` or `"none"` | 1,000 |
+| An adapter of your own | As its `capabilities.toolFiles` says, of the kinds `capabilities.toolFileTypes` lists (left out: PDF) | `"inside"`, `"beside"` or `"none"` | `capabilities.pageTokens` |
 
 ```ts
 import { askWithFiles } from "llm-large-files";
@@ -949,7 +957,94 @@ const result25 = await askGemini({
 
 On Claude, `"inside"` puts a `document` block in the `tool_result` itself, and `"beside"` puts the
 blocks after all the tool results of the turn, each after a line that names it: the Messages API
-refuses text before a tool result.
+refuses text before a tool result. A tool file that is an image goes as an `image` block (since
+0.99.9).
+
+### Pages as images
+
+Most servers behind the Chat Completions API (vLLM, DeepSeek, Ollama) read images and no PDF. Since
+0.99.9, `view_pages` can draw each page as an image for them. The loop picks one kind of page for a
+question, from what every model takes (`capabilities.toolFileTypes`):
+
+1. One small PDF, when every model takes `"application/pdf"`. A model that does not say takes only
+   that, as before 0.99.9.
+2. Else a JPEG of each page, when every model takes `"image/jpeg"`. JPEG came out 6 to 35% smaller
+   than PNG on 11 of the 12 test PDFs (a slide of few colours was 10% larger), so more pages fit.
+3. Else a PNG of each page, when every model takes `"image/png"`.
+4. Else no `view_pages`.
+
+`openAiCompatible({ imageInput: true })` takes PNG and JPEG; with `pdfInput` too, PDF comes first.
+`openAiResponses()` with a `toolFilePlacement` takes all three. `gemini()` and `anthropic()` declare
+no list, so they take PDF, which they read.
+
+```ts
+import { openAiCompatible } from "llm-large-files/openai";
+
+// A vision model behind vLLM: pages go as JPEG images after the tool messages.
+const model = openAiCompatible({
+  baseUrl: "http://vllm.internal:8000/v1",
+  model: "Qwen/Qwen3-VL-32B-Instruct",
+  imageInput: true,
+});
+```
+
+Drawing pages needs two optional dependencies, which run on Node 24 or later:
+
+```bash
+npm install unpdf@2 @napi-rs/canvas
+```
+
+`unpdf` 2 declares Node 24 or later. On Node 22, npm installs it with an `EBADENGINE` warning (an
+error with `engine-strict`). It drew pages on Node 22.23.5 in our test, but unpdf does not support
+that Node and CI does not run it there: on Node 22, use a model that takes PDF. With unpdf 1, which
+Node 22 runs, each look answers the model with the error below, and the model answers from the text.
+`@napi-rs/canvas` is a native binary for each platform: npm installs the one of the machine it runs
+on ([Deployment](./deployment.md)).
+
+The result names one file per page in `images`, in place of `file`:
+
+```json
+{ "document": "report.pdf", "pages": "2-3", "total_pages": 6, "images": ["page-2.jpg", "page-3.jpg"] }
+```
+
+Each page is drawn at 1,568 pixels on its longest side (`PAGE_IMAGE_SIDE`), Claude's standard
+size, which the other providers take too. A JPEG has quality 0.85. Each image is one page: it costs
+`pageTokens`, as a page of a PDF does. The limits of a look are those of a PDF cut
+([Limits and cost](#limits-and-cost)): five pages a call, the bytes the request has room for, the
+pages the question may show, and one look at a time in the library. Two more:
+
+- **5 seconds a call.** A page is not started when the time so far and the slowest page so far would
+  pass it. The result has `next_page` and the note `…: the others took too long to draw. Call
+  view_pages from page N if you need them.`
+- **40 million pixels an image.** pdf.js leaves an image of a page that has more blank: a scan of an
+  A4 page at 600 dpi has 35 million.
+
+Drawing holds the server's thread. On Node 24, with unpdf 2.1.0 and @napi-rs/canvas 1.1.0, the first
+page of the process took 0.2 to 0.5 s after 0.55 to 0.6 s of loading, and later pages 0.09 to 0.18
+s; the longest the event loop went without a turn was 0.37 s
+([measurements](../measurements.md#pages-drawn-as-images-0999)). Timers and requests of other users
+run between two pages. Turn `view_pages` off for files of users you do not trust
+([Security](../security.md#reading-pdfs-for-pages-and-pictures)).
+
+What a look at images answers when it cannot draw:
+
+| Error | Why |
+|---|---|
+| `Showing pages as images needs the optional dependency "unpdf".` | unpdf is not installed |
+| `Showing pages as images needs unpdf 2 or later, which runs on Node 24 or later.` | unpdf 1 is installed |
+| `Showing pages as images needs the optional dependency "@napi-rs/canvas".` | The canvas is not installed |
+| `The optional dependency "@napi-rs/canvas" is installed but could not be loaded (…). Reinstall it, or install a version this Node can run.` | A binary of another platform, or a broken install |
+| `This PDF could not be read to draw its pages. It may be damaged.` | pdf.js cannot open the file |
+| `Page N could not be drawn. It may be damaged.` | One page of the call failed |
+| `Page N is 3 MB as an image, more than the 2 MB that fit in this request.` | The first page asked for does not fit |
+
+Each starts with the file's name, and the others are those of a PDF cut. A missing dependency does
+not take the tool away, as a missing `@cantoo/pdf-lib` does not: install it.
+
+vLLM refuses a request with more images than `--limit-mm-per-prompt` allows (HTTP 400). A question
+may hold its pages from several looks: start the server with a limit of at least the pages a
+question may show (32 with the default budget and `pageTokens` of 1,000), or lower that number with
+`budget.reservedTokens`.
 
 ### When `view_pages` is missing
 
@@ -959,13 +1054,18 @@ The model gets `view_pages` for a PDF only when all of these hold:
   the document was ingested with `original` and the library has `originals`.
   `FileDocumentStore` and `MemoryDocumentStore` have both. Documents ingested before you turned it
   on have no file kept: upload them again. `meta.originalKept` says whether a document has one.
-- Every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput`, not
-  `openAiResponses()` without `toolFilePlacement`, not `anthropic({ toolFilePlacement: "none" })`.
+- Every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput` or
+  `imageInput`, not `openAiResponses()` without `toolFilePlacement`, not
+  `anthropic({ toolFilePlacement: "none" })`. And all of them take one kind of file: with an
+  explorer, `gemini()` (PDF) and `openAiCompatible({ imageInput: true })` (images) share none
+  ([Pages as images](#pages-as-images)).
+- The PDF is not sent to the model as the file itself: then it has every page already
+  ([The file itself](#the-file-itself-for-small-visual-files)).
 - The question does not set `viewPages: false`.
 - In a loop of your own, you asked for it ([Your own tool loop](#your-own-tool-loop)).
 
 The tool is offered without `@cantoo/pdf-lib` too, and then every call answers with the error above:
-install it. If the tool is offered and the model never calls it, the text may be enough. In a live
+install it. The same holds for pages as images without unpdf 2 and `@napi-rs/canvas`. If the tool is offered and the model never calls it, the text may be enough. In a live
 test, ten questions that the text answers led to no look at all ([measurements](../measurements.md)).
 [Troubleshooting](../troubleshooting.md) has more symptoms.
 
@@ -1006,7 +1106,78 @@ have no text, and with the file kept the model can look at them.
 Raising `scannedPdfPages` lets longer scans in, but the model still reads them five pages a call,
 within the pages a question may show ([Limits and cost](#limits-and-cost)) and its tool turns, and
 nothing in them can be searched. A long scan needs text: OCR it, at ingest or before
-([OCR](#ocr)).
+([OCR](#ocr)). A short scan can also go to the model as the file itself
+([below](#the-file-itself-for-small-visual-files)).
+
+## The file itself, for small visual files
+
+Gemini, Claude and OpenAI's models read a PDF sent in a user turn: its text, pictures and layout.
+Since 0.99.9, a small visual file sent whole can go to the model that way too, so the model sees its
+pictures in the first request, without a look. It is off until the model declares it, with the
+`documents` option of its adapter:
+
+```ts
+import { askGemini, geminiApi } from "llm-large-files/gemini";
+
+// files, reportId and userId as above; the library keeps PDFs and decks (keepOriginals).
+const result = await askGemini({
+  files,
+  endpoint: geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.5-flash-lite" }),
+  // On the Gemini API, decks too. On Vertex AI, list "pdf" only.
+  documents: { formats: ["pdf", "pptx"] },
+  owner: userId,
+  documentIds: [reportId],
+  messages: [{ role: "user", text: "What does the chart on page 2 show?" }],
+});
+```
+
+| Adapter | Formats | Sent as |
+|---|---|---|
+| `gemini()`, `askGemini` | `"pdf"`; `"pptx"` on the Gemini API | `inlineData` of the file's type |
+| `anthropic()` | `"pdf"` | A `document` block |
+| `openAiCompatible()` | `"pdf"` | A `file` part |
+| `openAiResponses()` | `"pdf"` | An `input_file` part |
+
+`documents` takes `formats`, and two limits: `maxFileBytes` (default 4 MiB,
+`DEFAULT_NATIVE_FILE_BYTES`) and `maxPages` (default 10, `DEFAULT_NATIVE_PAGES`; slides, for a
+deck). With an explorer, both models must declare it: the formats they share and the smaller limits
+are used. `nativeDocuments: false` on one question sends text only.
+
+A file goes as itself when all of these hold:
+
+- it is sent whole, not searched;
+- its format is listed in `documents.formats`;
+- its file is kept (`keepOriginals` lists its format) and can be read;
+- it is visual: a PDF with a picture line or a page without text, or any deck;
+- its text has no table the tools count (`aggregate_table`): a table is counted from its text;
+- it is within `maxFileBytes` and `maxPages`;
+- it fits in the room the plan leaves, after the text of the files sent whole and the cards, in the
+  order of the plan.
+
+So a log, a CSV, a text, Markdown, JSON, HTML, XLSX or DOCX file never goes, nor a PDF with no
+picture. DOCX is left out: the library cannot tell a document with pictures from one without, the
+Messages API and Chat Completions do not read it, and Vertex AI refused one with HTTP 400 on Gemini
+3.1 and 3.5 Flash-Lite. An extractor of your own (OCR) that writes no picture line and no page
+count sends no file.
+
+The file never replaces the text. Line citations, counts and the tools work from the text, as
+before. The file goes first in the turn that holds the documents' text, with this line right before
+the text:
+
+```text
+The file attached above is "report.pdf", as it was uploaded. Look at it for its pictures, charts and layout. Cite and count from its text below.
+```
+
+Such a PDF gets no `view_pages`: the model has every page. A question over only such files is
+answered in one request, without tools. Its evidence has an entry with `tool: "original"` and every
+page, right after the entry of its text.
+
+What it costs: each page again on every question of the chat, at `pageTokens` (about 530 tokens a
+page on Gemini, 3,500 on Claude), and its bytes as base64. The files stay at the start of the
+documents' turn, so a provider's prompt cache can reuse them. Vertex AI: list `"pdf"` only. It
+refused an inline DOCX with HTTP 400 on Gemini 3.1 and 3.5 Flash-Lite, and Google documents Office
+files on Vertex AI for Gemini 4 models only. The library does not ask again without the files: the
+error is raised as it is ([Troubleshooting](../troubleshooting.md)).
 
 ## Custom extractors
 
@@ -1206,5 +1377,8 @@ pass `viewPages: true` to `files.prepare()`, pass `prepared.viewable` as `viewPa
 result, in your provider's form. `execute("view_pages", …)` answers with an error instead:
 `The pages could not be shown: this application does not pass files from tools to the model. Answer from the text.`
 Without limits, one call may use 3/8 of what is left of `maxRequestBytes` after 256 KB (3,651,696
-bytes with the default of 10,000,000), and five pages.
+bytes with the default of 10,000,000), and five pages. For a model without PDF input, pass
+`pageImages: { format: "jpeg" }` to `files.tools()`: each page comes back as an image
+([Pages as images](#pages-as-images)). `files.prepare({ nativeDocuments })` lists in `native` the
+small visual files to send before their text ([The file itself](#the-file-itself-for-small-visual-files)).
 [Your own adapter and loop](./own-adapter-and-loop.md) walks through it.

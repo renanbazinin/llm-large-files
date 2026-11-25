@@ -246,8 +246,8 @@ One task each, with samples:
 - [Costs and limits](./guides/costs-and-limits.md): `AskLimits`, the budget for each model, usage
   totals, cost per user or session, what costs most.
 - [PDFs and other formats](./guides/pdfs.md): formats and their optional dependencies, PDF tables,
-  pictures, the page marker, `view_pages`, scanned PDFs, `toolFilePlacement`, your own extractors
-  and OCR.
+  pictures, the page marker, `view_pages`, pages as images, scanned PDFs, small visual files sent
+  as themselves, `toolFilePlacement`, your own extractors and OCR.
 - [Your own adapter and loop](./guides/own-adapter-and-loop.md): writing or wrapping a
   `ModelAdapter`, your own loop with `prepare()` and `tools()`, `parseSseJson`, `withRetry`.
 - [Testing an integration](./guides/testing.md): tests without a real model: a scripted model and
