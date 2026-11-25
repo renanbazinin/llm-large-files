@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.10.2 — not released yet
+## 0.10.2 — 2026-11-25
 
 Storage for a chatbot that keeps its files in the library: the files of a chat in one call, an
 expiry counted from the last use, the application's own data on a document, and one document for a
