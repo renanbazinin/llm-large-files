@@ -11,10 +11,12 @@ import {
   askWithFiles, askStream, partialResultOf, DocumentsNotFoundError, UsageMeter, TOOL_TURN_VERSION,
   evidenceOf, mergeRanges, stubResult, compactToolTurns, DEFAULT_INPUT_TOKENS, answerInfoOf, checkCitations,
   EXPLORER_INSTRUCTION, FINAL_ANSWER_REQUEST, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_WITHOUT_TOOLS,
+  createQuestionRegistry, QUESTION_ID_PATTERN, QuestionConflictError,
 } from "llm-large-files";
 import type {
   AskOptions, AskLimits, AskResult, MissingDocumentsAction, MissingDocumentsContext,
   ToolResultContext, ToolResultVerdict, CitationCheck, AnswerInfo,
+  QuestionAskOptions, QuestionRegistry, QuestionRegistryOptions, QuestionRegistryStats,
   ChatMessage, ChatTurn, ToolTurn,
   ModelAdapter, ModelCapabilities, ModelRequest, ModelMessage, ModelTextMessage, ModelToolRound,
   ModelPart, ToolCall, ToolAnswer, SendHooks, ModelReply, GenerateText, GenerateUsage,
@@ -36,7 +38,9 @@ Contents:
   [`MissingDocumentsContext`](#missingdocumentscontext),
   [`DEFAULT_INPUT_TOKENS`](#default_input_tokens),
   [`ToolResultContext` and `ToolResultVerdict`](#toolresultcontext-and-toolresultverdict),
-  [`CitationCheck`](#citationcheck), [`AnswerInfo`](#answerinfo)
+  [`CitationCheck`](#citationcheck), [`AnswerInfo`](#answerinfo),
+  [question IDs](#question-ids) (`QUESTION_ID_PATTERN`, `createQuestionRegistry`,
+  `QuestionConflictError`)
 - **What the loop adds to its requests:** [`EXPLORER_INSTRUCTION`](#explorer_instruction),
   [`FINAL_ANSWER_REQUEST`](#final_answer_request),
   [`FINAL_ANSWER_AFTER_PAGES`](#final_answer_after_pages),
@@ -165,6 +169,7 @@ planned again shortens them again without saying so twice.
 | [`DocumentsNotFoundError`](#documentsnotfounderror) | A document of `documentIds` was never stored, has expired or been deleted, or belongs to another `owner` or `scope`, and `onMissingDocuments` is `"throw"` (the default) or returned it; or a retry or replace of `onMissingDocuments` did not bring it back. Before any request. | undefined |
 | `TypeError`: "onMissingDocuments must be "throw", "drop" or a function, and is …", or "onMissingDocuments returned …: it must return …" | `onMissingDocuments` is something else, or its function returned something else. New in 0.9.0. | undefined |
 | What the function of `onMissingDocuments` threw | It threw, or its promise rejected. Before any request. New in 0.9.0. | undefined |
+| `TypeError`: "questionId must be a string of 1 to 128 characters: …" | `questionId` is given and is not a question ID ([question IDs](#question-ids)). Before any request, after `run.start`, which then has no `questionId`. New in 0.99.9. | undefined |
 | `TypeError("owner is required: requireOwner is on")`, `TypeError("scope is required: requireScope is on")` | The library requires an owner or a scope ([`LargeFilesOptions`](./library.md#largefilesoptions)), and the question has none. Before any request. New in 0.9.0. | undefined |
 | [`DocumentScopeError`](./library.md#documentscopeerror) | `scope` is not a valid scope, or the store threw one. Before any request when the scope is not valid. New in 0.9.0. | undefined |
 | [`ModelRequestError`](./errors-and-retries.md#modelrequesterror), or the adapter's subclass (`GeminiRequestError`, `OpenAiRequestError`, `AnthropicRequestError`) | A chat request failed, and was not worth another try, still failed after `retry.retries` more, asked for a longer wait than `retry.maxDelayMs`, or had already shown text. A `context_overflow` that the recovery above did not mend. | What the question had done |
@@ -300,6 +305,7 @@ The options of `askWithFiles`.
 | `onStep` | `(text: string) => void` | none | Each finished step, the same lines as `result.steps`, as they happen. |
 | `onEvent` | `(event: AskEvent) => void` | none | Everything the question does, as typed events in order: `run.start`, the `plan`, each model request (`request.start`, `retry`, `request.end`), each tool call (`tool.start`, `tool.progress`, `tool.end`), the text, the notices, and last `run.finish` or `run.error`. See [events](./events.md). `onText`, `onActivity` and `onStep` still get the same strings, at the same moments. A model error in an event is told by its kind and status, never in the provider's words ([`EventError`](./errors-and-retries.md#errors-in-events-eventerror)). Tool results are left out unless `eventResults` is set. A throw from it ends the question with that error ([a listener that throws](./events.md#a-listener-that-throws)). New in 0.7.0. |
 | `runId` | `string` | `"run_"` and 16 hex digits | The `runId` of every event of the question. Pass your own to find the events in your logs. New in 0.7.0. |
+| `questionId` | `string` | none | A stable ID of this question, made by the client for the turn, such as a UUID, and the same when the request is sent again: 1 to 128 letters, digits, `.`, `_`, `:` or `-`, starting with a letter or a digit ([`QUESTION_ID_PATTERN`](#question-ids)). Every event of the question (`EventBase.questionId`) and its result carry it. On its own it only labels the question: [`createQuestionRegistry()`](#question-ids) runs questions by it. It is never sent to the model: the requests are the same with and without it. Another value is a `TypeError` before any request. New in 0.99.9. |
 | `eventResults` | `boolean` | `false` | Put each tool result in its `tool.end` event (`result`), and `toolTurns` in the result that `run.finish` and `run.error` carry. Off by default: results hold the text of the documents, and events are often sent on to a browser. The result `askWithFiles` returns always has `toolTurns`. New in 0.7.0. |
 | `storeRounds` | `"full" \| "compact"` | `"full"` | How `result.toolTurns` holds the results of the question's calls. `"full"`: as the model had them. `"compact"`: each large result replaced by its stand-in ([`stubResult`](#stubresultcall-result-hadfiles)), as [`compactToolTurns`](#compacttoolturnsturns) makes it, so a stored question takes a few hundred bytes for most calls instead of up to 24,000 characters (the stand-in of a whole-file read keeps its notes, up to 6,000 characters). A later question sends the stand-ins, and the model reads again what it needs, at the price of a tool call. The requests of this question are the same either way. Another value is a `TypeError`. New in 0.10.2. |
 | `filteredAnswer` | `"keep" \| "drop"` | `"keep"` | What to do with an answer that a filter of the provider stopped (`result.finish` `"filtered"`). `"keep"` keeps its text, as in 0.9, with `answered: true` when it has some. `"drop"` gives `answered: false` and `text: ""`. Text that was already sent (`onText`, `text` events) cannot be taken back: the `answer_filtered` notice then has `discardText: true`, before `run.finish`, and the page takes the text away. Text of a reply that was not streamed is not sent at all. Any other value (`"Drop"`, `true`) is a `TypeError` before any request: it would keep an answer that was meant to be dropped. See [filtered and cut answers](../guides/errors-and-reliability.md#filtered-and-cut-answers). New in 0.10.0. |
@@ -362,6 +368,7 @@ question that failed.
 | `lastUsage` | `Record<string, unknown>`, optional | The provider's own usage object of the last chat reply that had one, as it came. |
 | `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call" \| "other"`, optional | How the reply whose text is the answer ended (`ModelReply.finish`), or the last reply of the chat when none answered. Absent when the adapter does not say. `"filtered"` and `"cut"` come with an `answer_filtered` or `answer_cut` notice. New in 0.10.0. |
 | `citations` | [`CitationCheck`](#citationcheck), optional | The line citations of `text`, checked against the evidence of the question: a document sent whole, or read whole for an answer, counts as shown, every line it has; a read of items, the lines of its items. Set when the question had documents. New in 0.10.0. |
+| `questionId` | `string`, optional | `AskOptions.questionId`, when the question had one. Also in the result of `run.finish`, in the `partial` of `run.error`, and in what `partialResultOf` gives. New in 0.99.9. |
 
 Guides: [conversations](../guides/conversations.md) (`toolTurns`),
 [costs and limits](../guides/costs-and-limits.md) (`usage`),
@@ -686,6 +693,151 @@ English: [errors and reliability](../guides/errors-and-reliability.md#filtered-a
 | `reason` | `"filtered" \| "cut" \| "blocked" \| "language" \| "no_answer" \| "other"`, optional | Why it is not complete. `"language"`: Gemini's `LANGUAGE`, a language the model does not take. |
 | `finish` | `AskResult["finish"]`, optional | `AskResult.finish`. |
 | `finishReason` | `string`, optional | The provider's own word (`AskResult.finishReason`). |
+
+### Question IDs
+
+```ts
+const QUESTION_ID_PATTERN: RegExp; // /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+
+declare function createQuestionRegistry(options?: QuestionRegistryOptions): QuestionRegistry;
+
+type QuestionAskOptions = AskOptions & { questionId: string };
+
+interface QuestionRegistry {
+  ask(options: QuestionAskOptions): Promise<AskResult>;
+  askStream(options: QuestionAskOptions): EventStream<AskEvent, AskResult>;
+  stop(questionId: string, access?: Pick<AccessOptions, "owner" | "scope">, reason?: unknown): boolean;
+  stats(): QuestionRegistryStats;
+}
+
+type QuestionRegistryStats = { running: number; kept: number; keptBytes: number };
+
+declare class QuestionConflictError extends Error {
+  constructor(questionId: string);
+  readonly code: "question_conflict";
+  readonly questionId: string;
+  static is(value: unknown): value is QuestionConflictError;
+}
+```
+
+New in 0.99.9. A stream to the browser can break: a proxy closes it, or a phone changes networks.
+The page then sends the request again, and the question is asked again and paid for twice. A
+question ID lets the server tell a request sent again from a new question:
+
+- The client makes the ID, one per question (`crypto.randomUUID()`), and sends it again with the
+  same question when it retries.
+- [`AskOptions.questionId`](#askoptions) labels the question: every event and the result carry
+  it. The model never sees it.
+- `createQuestionRegistry()` runs questions by it. A request sent again joins the question that is
+  still running, or gets its answer, instead of asking the model again.
+
+**`QUESTION_ID_PATTERN`.** A question ID is 1 to 128 characters: letters, digits, `.`, `_`, `:` and
+`-`, starting with a letter or a digit. A UUID fits. `askWithFiles` and the registry refuse any
+other value with a `TypeError`: "questionId must be a string of 1 to 128 characters: letters,
+digits, ".", "_", ":" or "-", starting with a letter or a digit, such as a UUID the client made for
+this question."
+
+**`createQuestionRegistry(options?)`** makes a registry. Create it once per process, at startup,
+next to `createLargeFiles`: a registry made for each request holds nothing.
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `keepMs` | `number` | 600,000 (10 minutes) | How long a finished answer is kept for a request sent again, from when it finished. 0 keeps none. `Infinity` keeps each until `maxQuestions` or `maxBytes` pushes it out. |
+| `detachedMs` | `number` | 30,000 | How long a running question goes on while no request waits for it, before it is stopped. 0 stops it as soon as its last request leaves. `Infinity` (or more than 2,147,483,647) runs it to its end, and keeps its answer. |
+| `maxQuestions` | `number` | 1,000 | The most questions held, running and kept. At least 1. |
+| `maxBytes` | `number` | 33,554,432 (32 MiB) | The most bytes of kept answers: the UTF-8 JSON of each result and its `run.finish` event. An answer larger than this is not kept. |
+| `now` | `() => number` | `Date.now` | The clock of `keepMs`, for tests. `detachedMs` runs on timers. |
+
+A value that is not a number is a `TypeError` ("keepMs must be a number, and is "600000"."). NaN
+is a `RangeError` ("… Leave it out for the default."), and so is a negative value ("maxBytes must
+be 0 or more, and is -1.") and a `maxQuestions` below 1.
+
+**`registry.ask(options)`** takes the options of `askWithFiles`, with `questionId` required
+("registry.ask needs options.questionId: the client's ID for this question, such as a UUID."). A
+signal that already aborted rejects with its reason, and nothing starts. Then:
+
+1. **Which question it is.** Its key is `owner`, `scope` and `questionId`: the same ID from another
+   user, or in another scope, is another question. What it asks is a hash of `messages`,
+   `documentIds`, `system` and the ids of `model` and `explorer`. Limits, budget, callbacks and the
+   other options are not part of it. Messages that JSON cannot hold are a `TypeError` ("questionId
+   needs messages, documentIds and system that JSON can hold: …").
+2. **Another question under the ID** (other messages, documents, system text or models) is a
+   `QuestionConflictError`, while the first one runs and while its answer is kept. Nothing is
+   asked. Once the answer has expired, the ID may name a new question.
+3. **The same question, running:** the request joins it. It gets the events from the moment it
+   joined: no `run.start`, a `seq` above 1, and `run.finish` or `run.error` last. It gets the text
+   from then on (`onText`), and the same result. Its other options are not used: the running
+   question's apply, its `streamText` among them.
+4. **The same question, answered** within `keepMs`: the request gets a copy of the kept result at
+   once. Its `onEvent` gets the run's `run.finish` event alone, with the same `seq`, `runId` and
+   `questionId`; a throw from it rejects the request. No model request is made.
+5. **Otherwise** the question starts: `askWithFiles` with these options, under a signal of the
+   registry's. `streamText` is what `askWithFiles` makes of this request's options, so the
+   requests are those `askWithFiles` would send.
+
+How a question ends, and what each request gets:
+
+- **With an answer:** each request that waits gets a copy of the result. The answer is kept for
+  `keepMs`, unless it is larger than `maxBytes`. The oldest kept answers go first when the registry
+  holds more than `maxQuestions` questions or `maxBytes` of answers.
+- **With an error,** a stop included: every request that waits rejects with the same error, so
+  [`partialResultOf(error)`](#partialresultoferror) works for each. Nothing is kept: a request sent
+  again runs the question again.
+- **A request whose signal aborts** (the browser went away, `writeSseEvents` stopped reading)
+  leaves the question and rejects with the signal's reason. The question goes on while another
+  request waits. When none is left, it goes on for `detachedMs`, so that a request sent again can
+  join it, then stops with an `AbortError`: "Nobody waited for the answer to this question.".
+- **A listener that throws** (`onEvent`, `onText`, `onActivity` or `onStep` of one request) takes
+  that request off the question, and the request rejects with what it threw. The question goes on
+  for the others.
+- **When every place is taken by a running question** (`maxQuestions` running, none kept), a new
+  one runs as `askWithFiles` runs it, and is not kept.
+
+**`registry.askStream(options)`** is the same as a stream of events, as
+[`askStream`](#askstreamoptions) gives it: `streamText` defaults to true. A `TypeError` or a
+`QuestionConflictError` is thrown at once, before any event, so a route can still answer with a
+status. Leaving the loop early takes only this request off the question.
+
+**`registry.stop(questionId, access?, reason?)`** stops the running question of that owner and
+scope for every request that waits: each rejects with `reason`, or with an `AbortError` "The
+question was stopped.". It returns true when one was running. A kept answer stays. A request sent
+again after it runs the question again.
+
+**`registry.stats()`** gives `{ running, kept, keptBytes }`, after dropping the answers that
+expired. Expiry needs no timer: it is checked by `ask`, `askStream` and `stats`.
+
+What to know:
+
+- **Memory.** A kept answer holds `toolTurns`, the text the tools read. `maxBytes` and
+  `maxQuestions` bound them; a question that runs is never kept past `maxQuestions`.
+- **One process.** The registry is in memory. A request sent again that reaches another process
+  runs the question again ([Deployment](../guides/deployment.md#streamed-answers-behind-proxies)).
+- **Owners.** With owners, an ID of one user never reaches another user's question. Without an
+  owner or a scope, every caller shares one space of IDs: make them unguessable
+  (`crypto.randomUUID()`), as the question asked must match too.
+
+**`QuestionConflictError`** is what `registry.ask` rejects with, and `registry.askStream` throws,
+for an ID that names another question: "This questionId was already used for another question:
+other messages, documents or models. Use a new questionId for a new question." `name` is
+`"QuestionConflictError"`, `code` is `"question_conflict"`, and `questionId` is the ID.
+`QuestionConflictError.is(error)` tells one apart also when another copy of the package made it.
+[`errorInfoOf`](./errors-and-retries.md#errorinfooferror) gives category `"input"`, code
+`"question_conflict"`, status 409 and `retryable: false`. It has no `status` field.
+
+```ts
+import { createQuestionRegistry, type AskResult, type ChatMessage, type LargeFiles, type ModelAdapter } from "llm-large-files";
+
+// Once per process, next to createLargeFiles.
+const questions = createQuestionRegistry();
+
+// questionId comes from the client: the same on every retry of this question.
+export function answerOnce(files: LargeFiles, model: ModelAdapter, userId: string, documentIds: string[], messages: ChatMessage[], questionId: string, signal: AbortSignal): Promise<AskResult> {
+  return questions.ask({ files, model, owner: userId, documentIds, messages, questionId, signal });
+}
+```
+
+Guide: [web app](../guides/web-app.md#when-the-stream-breaks-a-question-id) (a route, and a page
+that sends a question again).
 
 ## What the loop adds to its requests
 

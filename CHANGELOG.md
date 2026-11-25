@@ -51,11 +51,29 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
 
 ### New: what you can add
 
-<!-- owner (upload handlers), responses, visual, questions, aisdk, MCP (removable) -->
+<!-- owner (upload handlers), responses, visual -->
+
+- **A question ID that survives a retry (H14).** `AskOptions.questionId` names one question of a
+  chat, as the client made it (a UUID). Every event of the question and its result carry it; the
+  model never sees it, and the requests are the same with and without it
+  ([`AskOptions`](docs/reference/ask.md#askoptions)).
+- **`createQuestionRegistry()`** runs questions by owner, scope and question ID. A request sent
+  again after its stream broke joins the question still running, or gets its answer for 10 minutes
+  after it ended, instead of asking the model again. A question nobody waits for goes on for 30
+  seconds, then stops. Another question under the same ID is a `QuestionConflictError` (409). In
+  memory, one registry per process ([Question IDs](docs/reference/ask.md#question-ids),
+  [When the stream breaks](docs/guides/web-app.md#when-the-stream-breaks-a-question-id)).
+
+<!-- aisdk, MCP (removable) -->
 
 ### Changed: what works differently
 
 <!-- every package -->
+
+- `errorInfoOf` reads `QuestionConflictError`: category `"input"`, code `"question_conflict"`,
+  status 409.
+- `sseMessageOf` and `writeSseEvents` keep `questionId` in `run.finish` and `run.error`, and in the
+  result of `run.finish`, for a question that has one.
 
 ### Fixed
 

@@ -69,6 +69,25 @@ caller that still passes them gets. -->
 
 <!-- responses: openAiResponses() (#the-openai-responses-api), not run live. -->
 <!-- visual: page images for models without PDF input; small visual files sent as themselves. -->
-<!-- questions: question IDs (AskOptions.questionId, createQuestionRegistry). -->
+
+### Question IDs
+
+Nothing to change: question IDs are new and optional, and the requests are the same with and
+without them.
+
+- **`AskOptions.questionId`** labels a question for its retries. Every event
+  (`EventBase.questionId`) and the result (`AskResult.questionId`) carry it, and nothing of it
+  reaches the model.
+- **`createQuestionRegistry()`** keeps a request sent again from paying twice: run the question
+  through its `ask()` or `askStream()`, with the same `owner`, `scope` and `questionId` on the
+  retry. Create one registry per process, at startup
+  ([Question IDs](./reference/ask.md#question-ids),
+  [When the stream breaks](./guides/web-app.md#when-the-stream-breaks-a-question-id)).
+- **A request that joins a running question** gets its events from then on: no `run.start`, and a
+  first `seq` above 1. A page that reads such a stream shows `result.text` of `run.finish` in place
+  of the text it got.
+- **Does my code compile?** Yes. Only a type built from `keyof EventBase` or `keyof AskResult` sees
+  a new optional key, `questionId`.
+
 <!-- aisdk: llm-large-files/ai-sdk; examples for LangChain.js/LangGraph, the OpenAI Agents SDK, Google ADK. -->
 <!-- MCP (removable): llm-large-files/mcp, one entry. -->

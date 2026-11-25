@@ -322,6 +322,7 @@ The adapters' errors are `ModelRequestError`s, so `instanceof ModelRequestError`
 | `DocumentStoreError` | `llm-large-files` | `Error` | `code`, `syscall`, and the caught error as `cause`; `operation` (`"read"`, `"write"`, `"delete"`, `"sweep"`) and `status` 503, new in 0.9.0 | [library.md](./library.md#documentstoreerror) |
 | `DocumentScopeError` | `llm-large-files` | `TypeError` | `code` (`"scope_required"`, `"scope_invalid"`, `"scope_missing"`). New in 0.9.0. The upload handlers answer `"scope_missing"` `404` "This chat no longer exists.", and the other two `500` | [library.md](./library.md#documentscopeerror) |
 | `IngestError` | `llm-large-files` | `Error` | `code`, `status`, `retryAfterMs`, and the extractor's error as `cause`. New in 0.8.0. Code `"exists"` (status 409) is new in 0.9.0 | [library.md](./library.md#ingesterror) |
+| `QuestionConflictError` | `llm-large-files` | `Error` | `code` `"question_conflict"`, `questionId`; no `status`. A question ID used again for another question in a `QuestionRegistry`. New in 0.99.9 | [ask.md](./ask.md#question-ids) |
 
 `DocumentStoreError` is the store failing: retry the call. `DocumentScopeError` is a scope the call
 should not have given, or should have: the same call fails again. The message of
@@ -346,7 +347,8 @@ because `maxStuckStoreCalls` calls of the process are stuck is one of code `"STO
 #### Telling errors apart across copies of the package
 
 New in 0.9.0. Each of `ModelRequestError`, `DocumentsNotFoundError`, `DocumentStoreError`,
-`DocumentScopeError` and `IngestError` has a static `is(value)`. It is `true` for an error of that
+`DocumentScopeError` and `IngestError` has a static `is(value)`, and so does
+`QuestionConflictError` (new in 0.99.9). It is `true` for an error of that
 class, or of a class that extends it (`GeminiRequestError` for `ModelRequestError.is`), also when
 another copy of the package made it: two versions installed side by side, or one bundled into a
 dependency. `instanceof` is `false` then. `is` reads a mark that every copy puts on its errors
@@ -411,6 +413,7 @@ provider's words.
 | An `AbortError` (a signal that aborted: the user left, the server stopped the question) | `"aborted"` | `"aborted"` | 503 | `true` | "It was stopped before it finished." |
 | A `TimeoutError` (`AbortSignal.timeout`, a deadline) | `"aborted"` | `"timeout"` | 504 | `true` | "It took too long, and was stopped. Try again." |
 | `DocumentScopeError` `"scope_invalid"` or `"scope_required"`, a `TypeError`, a `RangeError`, and their `EventError` | `"input"` | the scope error's code | 500 | `false` | "Something went wrong." It is a bug of the server, not something the user did. |
+| [`QuestionConflictError`](./ask.md#question-ids): a question ID used again for another question. New in 0.99.9 | `"input"` | `"question_conflict"` | 409 | `false` | its message: "This questionId was already used for another question: other messages, documents or models. Use a new questionId for a new question." |
 | A Node system error (a `code` and a `syscall`), such as a path `ingest` does not read (`ELOOP`, `EISDIR`, `EINVAL`, `ENOENT`), and its `EventError` | `"unknown"` | its code: `"EACCES"`, when it reads as one (capitals, digits and `_`). A code that does not, such as a host, is left out | 500 | `false` | "Something went wrong (EACCES).", or "Something went wrong." without a code |
 | A Node system error whose code says the server, or a service it needs, could not answer just now ([transient](#transient-system-errors)), and its `EventError`. New in 0.10.0 | `"unknown"` | its code: `"ETIMEDOUT"`, `"ECONNRESET"`… | 503 | `true`, `retryAfterMs` 5,000; for a full disk (`ENOSPC`, `EDQUOT`) 30,000 | "The server could not do this just now (ETIMEDOUT). Try again in a moment."; for a full disk "The server has no room right now (ENOSPC). Try again later." |
 | Plain data (an `EventError`) without a `kind`, and without a `code` or `name` of the rows above | `"unknown"` | none | its `status` when it is 400 to 599, else 500 | `true` for 429, 502, 503 and 504 | "Something went wrong." |
@@ -487,7 +490,7 @@ New in 0.9.0. What [`errorInfoOf()`](#errorinfooferror) returns.
 | Field | Type | What it holds |
 |---|---|---|
 | `category` | `ErrorCategory` | What kind of failure: a refused file, the store, documents or a chat that are gone, a model request, a stop, a mistake in the call, or anything else. A switch over every category must handle those a later version adds. |
-| `code` | `string`, optional | More precise than the category: an `IngestErrorCode`, a `ModelErrorKind`, `"documents_missing"`, a `DocumentScopeErrorCode`, `"aborted"` or `"timeout"`, or a system error's code. |
+| `code` | `string`, optional | More precise than the category: an `IngestErrorCode`, a `ModelErrorKind`, `"documents_missing"`, a `DocumentScopeErrorCode`, `"aborted"` or `"timeout"`, `"question_conflict"` (new in 0.99.9), or a system error's code. |
 | `status` | `number` | The HTTP status to answer with: 400 to 599. |
 | `retryable` | `boolean` | Whether the same call may work when it is made again, later. |
 | `retryAfterMs` | `number`, optional | How long to wait first, in milliseconds, when that is known. |
