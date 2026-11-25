@@ -67,7 +67,7 @@ async function folder(): Promise<string> {
 describe("a store that could not be read", () => {
   it("is not taken for an unreadable document by sweep, however old the document is", async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir) });
     const meta = await files.ingest({ name: "contract.txt", bytes: bytes("clause 1\nclause 2\n"), owner: "alice" });
     // Two hours old, with seventy hours left to live.
     const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
@@ -85,7 +85,7 @@ describe("a store that could not be read", () => {
 
   it("is an error to retry, not a missing document", async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir) });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
 
     restore = failNext("readFile", (target) => target.endsWith(`${meta.id}.json`), "EIO");
@@ -105,7 +105,7 @@ describe("a store that could not be read", () => {
   it("tells a model the code of the error, never the path", async () => {
     const dir = await folder();
     // Read by range, so that the tool call opens the text file.
-    const files = createLargeFiles({ store: new FileDocumentStore(dir), wholeDocumentBytes: 0, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir), wholeDocumentBytes: 0, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(log(500)) });
     const tools = files.tools([meta]);
     expect((await tools.execute("read_document", { document_id: meta.id, start_line: 1, end_line: 2 })).lines).toBe("1-2");
@@ -125,7 +125,7 @@ describe("a store that could not be read", () => {
       }
     }
     const store = new Remote();
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(log(400)) });
     const tools = files.tools([meta]);
     store.down = true;
@@ -136,7 +136,7 @@ describe("a store that could not be read", () => {
 
   it("keeps a document whole when its metadata cannot be removed", async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir), keepOriginals: ["text"] });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir), keepOriginals: ["text"] });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
     const before = (await readdir(dir)).sort();
     expect(before).toHaveLength(4);
@@ -165,7 +165,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
         throw Object.assign(new Error(`EIO: i/o error, open '${path.join(dir, document.meta.id)}.txt'`), { code: "EIO", syscall: "open" });
       }
     }
-    const failing = createLargeFiles({ store: new Failing(dir) });
+    const failing = createLargeFiles({ requireOwner: false, store: new Failing(dir) });
     const events: IngestEvent[] = [];
     const thrown = await failing.ingest({ name: "notes.txt", bytes: bytes("one\n"), onEvent: (event) => events.push(event) }).catch((error: unknown) => error);
     expect(DocumentStoreError.is(thrown)).toBe(true);
@@ -190,7 +190,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
         }
       }
       const store = new Failing();
-      const files = createLargeFiles({ store, keepOriginals: ["text"] });
+      const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"] });
       const thrown = await files.ingest({ name: "a.txt", bytes: bytes("a\n") }).catch((error: unknown) => error);
       expect(thrown, method).toMatchObject({ name: "DocumentStoreError", operation: "write", message: "The document could not be stored. Try again.", cause: new Error("bucket llf-prod-7 refused") });
       expect(await store.sweep(new Date(8.64e15))).toBe(0);
@@ -203,7 +203,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
         return hold();
       }
     }
-    const files = createLargeFiles({ store: new Hanging(), ingestTimeoutMs: 100 });
+    const files = createLargeFiles({ requireOwner: false, store: new Hanging(), ingestTimeoutMs: 100 });
     const thrown = await files.ingest({ name: "a.txt", bytes: bytes("a\n") }).catch((error: unknown) => error);
     expect(thrown).toMatchObject({ name: "DocumentStoreError", operation: "write", code: "ETIMEDOUT", message: "The document could not be stored (ETIMEDOUT). Try again." });
     expect(((thrown as Error).cause as Error).message).toBe("The store did not finish writing a.txt within 100 ms.");
@@ -218,7 +218,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
       }
     }
     const store = new Hanging();
-    const files = createLargeFiles({ store, ingestTimeoutMs: 100 });
+    const files = createLargeFiles({ requireOwner: false, store, ingestTimeoutMs: 100 });
     const thrown = await files.ingest({ name: "a.txt", bytes: bytes("a\n"), id: "upload-1" }).catch((error: unknown) => error);
     expect(thrown).toMatchObject({ name: "DocumentStoreError", operation: "read", code: "ETIMEDOUT" });
     expect(((thrown as Error).cause as Error).message).toBe("The store did not answer about a.txt within 100 ms.");
@@ -227,7 +227,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
 
   it("is a DocumentStoreError of operation 'delete' from files.delete, with no path in the message", async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir) });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\n") });
     // EROFS (a volume mounted read-only) is not tried again: EPERM, EACCES and EBUSY are, since 0.9.0.
     restore = failBoth((target) => target.endsWith(`${meta.id}.json`), "EROFS");
@@ -244,7 +244,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
         throw Object.assign(new Error("EACCES: permission denied, scandir '/srv/volume/u1'"), { code: "EACCES", syscall: "scandir" });
       }
     }
-    const thrown = await createLargeFiles({ store: new Failing() }).sweep().catch((error: unknown) => error);
+    const thrown = await createLargeFiles({ requireOwner: false, store: new Failing() }).sweep().catch((error: unknown) => error);
     expect(thrown).toMatchObject({ name: "DocumentStoreError", operation: "sweep", code: "EACCES", message: "The document store could not be cleaned up (EACCES). Try again." });
     expect((thrown as Error).message).not.toContain("/srv");
   });
@@ -262,7 +262,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
         throw gone;
       }
     }
-    const files = createLargeFiles({ store: new NoFolder() });
+    const files = createLargeFiles({ requireOwner: false, store: new NoFolder() });
     const events: IngestEvent[] = [];
     await expect(files.ingest({ name: "a.txt", bytes: bytes("a\n"), scope: ["u1", "s1"], onEvent: (event) => events.push(event) })).rejects.toBe(gone);
     expect(events.at(-1)).toMatchObject({ type: "ingest.error", error: { message: "The scope no longer exists.", name: "DocumentScopeError" } });
@@ -274,7 +274,7 @@ describe("a store that could not write, delete or sweep (0.9.0)", () => {
         return super.getMeta(id, context);
       }
     }
-    const strict = createLargeFiles({ store: new Unscoped() });
+    const strict = createLargeFiles({ requireOwner: false, store: new Unscoped() });
     await expect(strict.getMeta("doc_0123456789abcdef0123456789abcdef")).rejects.toMatchObject({ name: "DocumentScopeError", code: "scope_required" });
   });
 });
@@ -313,7 +313,7 @@ describe("FileDocumentStore removing a document (0.9.0)", () => {
     const dir = await folder();
     let clock = new Date("2026-06-01T00:00:00Z");
     const store = new FileDocumentStore(dir, { now: () => clock });
-    const files = createLargeFiles({ store, now: () => clock, ttlMs: 60_000 });
+    const files = createLargeFiles({ requireOwner: false, store, now: () => clock, ttlMs: 60_000 });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
     clock = new Date("2026-06-01T00:02:00Z");
 
@@ -333,7 +333,7 @@ describe("FileDocumentStore removing a document (0.9.0)", () => {
   it("is deleted once its metadata is gone, and leaves a part that cannot be removed to the sweep (S9)", async () => {
     const dir = await folder();
     const store = new FileDocumentStore(dir);
-    const files = createLargeFiles({ store, keepOriginals: ["text"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"] });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
 
     failRemoval((target) => target.endsWith(`${meta.id}.txt`), "EIO");
@@ -352,7 +352,7 @@ describe("FileDocumentStore removing a document (0.9.0)", () => {
 
   it("tries a removal again while Windows holds the file open for a moment (LLF-027)", async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir), keepOriginals: ["text"] });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir), keepOriginals: ["text"] });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
 
     const metadata = failRemoval((target) => target.endsWith(`${meta.id}.json`), "EBUSY", 2);
@@ -368,7 +368,7 @@ describe("FileDocumentStore removing a document (0.9.0)", () => {
 
   it("gives up after ten more tries, about 2.6 seconds, and throws with the document whole", async () => {
     const dir = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(dir) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir) });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("one\ntwo\n") });
     const before = (await readdir(dir)).sort();
     const store = new FileDocumentStore(dir);
@@ -397,7 +397,7 @@ describe("documents that never expire", () => {
     const dir = await folder();
     let clock = new Date("2026-06-01T00:00:00Z");
     const store = new FileDocumentStore(dir, { now: () => clock });
-    const files = createLargeFiles({ store, ttlMs: Number.POSITIVE_INFINITY, now: () => clock });
+    const files = createLargeFiles({ requireOwner: false, store, ttlMs: Number.POSITIVE_INFINITY, now: () => clock });
     const meta = await files.ingest({ name: "policy.md", bytes: bytes("# Policy\n\nKeep this.") });
     expect(meta.expiresAt).toBe(NEVER_EXPIRES);
 
@@ -408,7 +408,7 @@ describe("documents that never expire", () => {
   });
 
   it("still dates a time to live that has an end", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), ttlMs: 60_000, now: () => new Date("2026-06-01T00:00:00Z") });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ttlMs: 60_000, now: () => new Date("2026-06-01T00:00:00Z") });
     const meta = await files.ingest({ name: "a.txt", bytes: bytes("x") });
     expect(meta.expiresAt).toBe("2026-06-01T00:01:00.000Z");
   });

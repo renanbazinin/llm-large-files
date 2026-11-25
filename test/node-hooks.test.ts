@@ -87,7 +87,7 @@ const aborted = (signal: AbortSignal | undefined) => new Promise<void>((resolve)
 
 describe("onUploaded", () => {
   it("runs once the document is stored, before the 201, and its answer joins the 201", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const seen: Array<{ document: DocumentMeta; context: UploadedContext; stored: boolean }> = [];
     let entered!: () => void;
     const inHook = new Promise<void>((resolve) => (entered = resolve));
@@ -129,7 +129,7 @@ describe("onUploaded", () => {
   });
 
   it("runs before ingest.finish on the event stream, and its answer is ingest.finish.app", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const called: string[] = [];
     let answer: Record<string, unknown> | undefined = { chatFileId: "f-2" };
     const base = await serve(files, {
@@ -154,7 +154,7 @@ describe("onUploaded", () => {
   });
 
   it("deletes the document when it throws, and answers with the error's status and message", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const stored: string[] = [];
     let thrown: unknown = Object.assign(new Error("This chat has too many files."), { status: 409 });
     const base = await serve(files, {
@@ -187,7 +187,7 @@ describe("onUploaded", () => {
   });
 
   it("answers the hook's error even when the delete after it throws at once", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const own: LargeFiles = {
       ...files,
       delete: () => {
@@ -205,7 +205,7 @@ describe("onUploaded", () => {
   });
 
   it("fails the upload, and deletes the document, for an answer that is not a plain object JSON can hold", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const stored: string[] = [];
     const answers: unknown[] = [["a"], "text", new Date(), { big: 1n }];
     const base = await serve(files, {
@@ -227,7 +227,7 @@ describe("onUploaded", () => {
 
   // A client that left after its file was stored: the document is there, and the app must know.
   async function leaveOnceStored(events: boolean): Promise<{ context: UploadedContext; files: LargeFiles; id: string }> {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     let isStored!: () => void;
     const storedNow = new Promise<void>((resolve) => (isStored = resolve));
     // An ingest that stores the file, then answers only once the client is gone.
@@ -269,7 +269,7 @@ describe("onUploaded", () => {
 
   it("is not called for an upload that failed", async () => {
     const onUploaded = vi.fn();
-    const base = await serve(createLargeFiles({ store: new MemoryDocumentStore() }), { onUploaded });
+    const base = await serve(createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }), { onUploaded });
     expect((await upload(base, {}, "   \n")).status).toBe(422);
     expect((await upload(base, {}, "   \n", true)).status).toBe(200);
     expect(onUploaded).not.toHaveBeenCalled();
@@ -279,7 +279,7 @@ describe("onUploaded", () => {
   // upload was refused 503 meanwhile. The room is the body's, and the body is no longer needed.
   for (const events of [false, true]) {
     it(`gives back the upload's room once it is stored, while the hook still runs (${events ? "event stream" : "JSON"})`, async () => {
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 1_000 });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxUploadBytes: 1_000 });
       let entered!: () => void;
       const inHook = new Promise<void>((resolve) => (entered = resolve));
       let release!: () => void;
@@ -306,7 +306,7 @@ describe("onUploaded", () => {
     it(`frees the upload's body once it is stored, while the hook still runs (${events ? "event stream" : "JSON"})`, async () => {
       setFlagsFromString("--expose-gc");
       const gc = runInNewContext("gc") as () => void;
-      const files = createLargeFiles({ store: new MemoryDocumentStore() });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
       let body: WeakRef<Uint8Array> | undefined;
       let held: boolean | undefined;
       const own: LargeFiles = {
@@ -335,7 +335,7 @@ describe("onUploaded", () => {
 
 describe("onRemoved", () => {
   it("runs after a delete that removed the document, with the owner and the scope", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const removed: Array<{ id: string; owner?: string; scope?: DocumentScope; gone: boolean }> = [];
     const base = await serve(files, {
       getOwner: userOf,
@@ -356,7 +356,7 @@ describe("onRemoved", () => {
   });
 
   it("answers what it throws, the document deleted all the same", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const base = await serve(files, {
       onRemoved: () => {
         throw Object.assign(new Error("The chat record could not be updated."), { status: 502 });
@@ -371,20 +371,24 @@ describe("onRemoved", () => {
 });
 
 describe("requireOwner and requireScope in the handlers", () => {
-  it("cannot be made without getOwner or getScope when the library requires them", () => {
+  it("cannot be made without getOwner unless the library has requireOwner: false, nor without getScope when it requires one", () => {
     const store = new MemoryDocumentStore();
     const owned = createLargeFiles({ store, requireOwner: true });
     expect(() => createDocumentHandlers(owned)).toThrow(TypeError);
-    expect(() => createDocumentHandlers(owned, { getScope: scopeOf })).toThrow("createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner).");
+    expect(() => createDocumentHandlers(owned, { getScope: scopeOf })).toThrow("createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner, on by default). Give getOwner, or create the library with requireOwner: false.");
     expect(() => createDocumentHandlers(owned, { getOwner: userOf })).not.toThrow();
-    const scoped = createLargeFiles({ store, requireScope: true });
+    const scoped = createLargeFiles({ requireOwner: false, store, requireScope: true });
     expect(() => createDocumentHandlers(scoped, { getOwner: userOf })).toThrow("createDocumentHandlers needs getScope: the library requires a scope on every call (requireScope).");
     expect(() => createDocumentHandlers(scoped, { getScope: scopeOf })).not.toThrow();
-    // Without the rules (a LargeFiles of your own without `access`), both stay optional.
+    // A LargeFiles of your own without `access` counts as requiring an owner (0.99.9), the default
+    // of the library it wraps: it fails closed. With `access` that says no owner is required, or
+    // with getOwner, it is made; getScope stays optional.
     const { access: _access, ...own } = owned;
-    expect(() => createDocumentHandlers(own)).not.toThrow();
+    expect(() => createDocumentHandlers(own)).toThrow("createDocumentHandlers needs getOwner");
+    expect(() => createDocumentHandlers({ ...own, access: { requireOwner: false, requireScope: false } })).not.toThrow();
+    expect(() => createDocumentHandlers(own, { getOwner: userOf })).not.toThrow();
     // A hook that is not a function is refused at once.
-    expect(() => createDocumentHandlers(createLargeFiles({ store }), { onUploaded: "record" as never })).toThrow("onUploaded must be a function, and is string.");
+    expect(() => createDocumentHandlers(createLargeFiles({ requireOwner: false, store }), { onUploaded: "record" as never })).toThrow("onUploaded must be a function, and is string.");
   });
 
   it("answers an upload without an owner 401 before its body is read", async () => {
@@ -475,7 +479,7 @@ describe("requireOwner and requireScope in the handlers", () => {
     expect(reached).toEqual([]);
     // Without requireOwner, GET and DELETE still pass "" on, so that documents of 0.5.0 stored with
     // the owner "" stay readable.
-    const before = await serve(createLargeFiles({ store: new MemoryDocumentStore() }), { getOwner: () => "" });
+    const before = await serve(createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }), { getOwner: () => "" });
     expect((await fetch(`${before}/doc_0123456789abcdef0123456789abcdef`)).status).toBe(404);
     expect(await (await fetch(`${before}/doc_0123456789abcdef0123456789abcdef`, { method: "DELETE" })).json()).toEqual({ deleted: false });
   });
@@ -483,7 +487,7 @@ describe("requireOwner and requireScope in the handlers", () => {
 
 describe("getScope", () => {
   it("scopes the upload, and is passed to getMeta and delete", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const calls: Array<[string, unknown]> = [];
     const own: LargeFiles = {
       ...files,
@@ -519,7 +523,7 @@ describe("getScope", () => {
   });
 
   it("answers a scope that is not valid, or none under requireScope, with a 500 before the body is read", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), requireScope: true });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), requireScope: true });
     const ingest = vi.fn((input: IngestInput) => files.ingest(input));
     let scope: unknown = ["alice", "a/b"];
     const base = await serve({ ...files, ingest }, { getScope: () => scope as DocumentScope });
@@ -540,7 +544,7 @@ describe("getScope", () => {
   it("answers an upload into a chat whose folder is gone 404 'This chat no longer exists.'", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "llf-hooks-"));
     try {
-      const files = createLargeFiles({ store: new FileDocumentStore(root, { scopes: { depth: 2 } }) });
+      const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(root, { scopes: { depth: 2 } }) });
       const base = await serve(files, { getOwner: userOf, getScope: scopeOf });
       const gone = await upload(base, asUser("alice", "c1"));
       expect(gone.status).toBe(404);
@@ -559,7 +563,7 @@ describe("getScope", () => {
 
 describe("errors as the upload answers them (S12)", () => {
   it("answers a plain Error of a LargeFiles of your own 500 'Upload failed.', without its host", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const failing: LargeFiles = {
       ...files,
       ingest: async () => {
@@ -585,7 +589,7 @@ describe("errors as the upload answers them (S12)", () => {
         throw new Error("MongoServerSelectionError: connect ECONNREFUSED mongo-prod.internal.corp:27017");
       }
     }
-    const base = await serve(createLargeFiles({ store: new DownStore() }));
+    const base = await serve(createLargeFiles({ requireOwner: false, store: new DownStore() }));
     const answers = [
       await upload(base, {}),
       await fetch(`${base}/doc_0123456789abcdef0123456789abcdef`),
@@ -602,7 +606,7 @@ describe("errors as the upload answers them (S12)", () => {
     vi.resetModules();
     const other = await import("../src/errors.js");
     expect(other.IngestError).not.toBe(IngestError);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     let thrown: unknown = new IngestError("encrypted", "report.docx is protected by a password.");
     const base = await serve({ ...files, ingest: async () => { throw thrown; } });
     const answer = async () => {
@@ -617,7 +621,7 @@ describe("errors as the upload answers them (S12)", () => {
   // An "unreadable" file has the words of a parser, or of an extractor of your own, which may name
   // a host: they were the 422's. errorInfoOf already gave fixed words for it.
   it("answers an unreadable file 422 with fixed words, never those of an extractor of your own", async () => {
-    const files = createLargeFiles({
+    const files = createLargeFiles({ requireOwner: false,
       store: new MemoryDocumentStore(),
       extractors: { pdf: async () => { throw new Error("OCR service at ocr-prod.internal.corp:8443 refused"); } },
     });
@@ -637,7 +641,7 @@ describe("errors as the upload answers them (S12)", () => {
   // gives a known code is. An IngestError of the extractor's own chooses the code, and its words.
   it("answers an extractor's Error with its message only when the message gives a known code", async () => {
     let thrown: unknown = new Error("scan.pdf is protected by a password.");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { pdf: async () => { throw thrown; } } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { pdf: async () => { throw thrown; } } });
     const base = await serve(files);
     const answer = async () => {
       const response = await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf" }, body: "%PDF-1.4 hello" });
@@ -728,11 +732,11 @@ describe("errorInfoOf on the upload's ingest.error", () => {
         throw Object.assign(new Error("EIO: i/o error, write '/srv/large-files/doc_1.json'"), { code: "EIO", syscall: "write" });
       }
     }
-    const down = await eventError(await serve(createLargeFiles({ store: new DownStore() })));
+    const down = await eventError(await serve(createLargeFiles({ requireOwner: false, store: new DownStore() })));
     expect(down).toEqual({ message: "The document could not be stored (EIO). Try again.", status: 503, name: "DocumentStoreError" });
     expect(errorInfoOf(down)).toEqual({ category: "store", status: 503, retryable: true, retryAfterMs: 5_000, message: "The document could not be stored (EIO). Try again." });
 
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     let thrown: unknown = new DocumentScopeError("scope_missing");
     const base = await serve(files, { onUploaded: () => { throw thrown; } });
     const gone = await eventError(base);
@@ -760,7 +764,7 @@ describe("errorInfoOf on the upload's ingest.error", () => {
   // The handler's ingest.error of a model's error had no kind: errorInfoOf read a hook's
   // ModelRequestError as "unknown", "Something went wrong.".
   it("reads a model's error as the JSON answer does, by its kind", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     let thrown: unknown;
     const base = await serve(files, { onUploaded: () => { throw thrown; } });
     const cases: Array<[unknown, Record<string, unknown>]> = [
@@ -804,7 +808,7 @@ describe("errorInfoOf on the upload's ingest.error", () => {
   it("reads a chat whose folder is gone, from the store itself", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "llf-hooks-"));
     try {
-      const files = createLargeFiles({ store: new FileDocumentStore(root, { scopes: { depth: 2 } }) });
+      const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(root, { scopes: { depth: 2 } }) });
       const base = await serve(files, { getOwner: userOf, getScope: scopeOf });
       expect(errorInfoOf(await eventError(base, asUser("alice", "c1")))).toEqual({ category: "missing", code: "scope_missing", status: 404, retryable: false, message: "This chat no longer exists." });
     } finally {
@@ -815,7 +819,7 @@ describe("errorInfoOf on the upload's ingest.error", () => {
 
 describe("the MIME type of an upload (S11)", () => {
   it("takes Content-Type as it came, and decodes only X-File-Type", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const types: Array<string | undefined> = [];
     const base = await serve({
       ...files,
@@ -835,7 +839,7 @@ describe("the MIME type of an upload (S11)", () => {
   // type/subtype) together: a line break, a direction override or 8 KB of a header never reach the
   // metadata or the answer.
   it("keeps a clean type/subtype in the metadata and the answer, and application/octet-stream for anything else", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const base = await serve(files);
     const long = `text/${"a".repeat(8_000)}`;
     const cases: Array<[Record<string, string>, string]> = [
@@ -867,7 +871,7 @@ describe("the MIME type of an upload (S11)", () => {
 
 describe("what reaches the model", () => {
   it("never holds the owner, the scope, the MIME type or the hook's answer of an upload", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 } });
     const base = await serve(files, {
       getOwner: () => "owner-7f3a",
       getScope: () => ["owner-7f3a", "chat-91c2"],

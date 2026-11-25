@@ -46,7 +46,7 @@ function outlineOf(meta: DocumentMeta, text: string): Array<[number, number, str
 
 async function ingested(bytes: Uint8Array, options: Parameters<typeof createLargeFiles>[0] = { store: new MemoryDocumentStore() }) {
   const store = options.store as MemoryDocumentStore;
-  const files = createLargeFiles(options);
+  const files = createLargeFiles({ requireOwner: false, ...options });
   const meta = await files.ingest({ name: "file.pdf", bytes });
   return { files, meta, text: (await store.get(meta.id))!.text };
 }
@@ -280,7 +280,7 @@ describe("the outline of a PDF from the size of its type", () => {
     const own = (headings: unknown, written: string): Extractor => async () => ({ text: written, pages: 2, headings } as Awaited<ReturnType<Extractor>>);
     const withHeadings = (headings: unknown, format: "pdf" | "text" = "pdf", written = text) => {
       const store = new MemoryDocumentStore();
-      return createLargeFiles({ store, extractors: { [format]: own(headings, written) } }).ingest({ name: format === "pdf" ? "own.pdf" : "own.txt", bytes: new Uint8Array([1]) });
+      return createLargeFiles({ requireOwner: false, store, extractors: { [format]: own(headings, written) } }).ingest({ name: format === "pdf" ? "own.pdf" : "own.txt", bytes: new Uint8Array([1]) });
     };
     const good = [{ page: 1, level: 1, title: "Title of the file" }, { page: 2, level: 2, title: "A second heading" }, { page: 2, level: 2, title: "Third part" }];
     expect((await withHeadings(good)).outline).toEqual([{ line: 2, level: 1, title: "Title of the file" }, { line: 6, level: 2, title: "A  second   heading" }, { line: 9, level: 2, title: "Third part" }]);

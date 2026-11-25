@@ -61,7 +61,7 @@ describe("Gemini errors inside a reply of HTTP 200, since 0.10.0", () => {
   });
 
   it("sends a question again after an unnamed error in its stream, while no text was shown", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("The code word is heron.\n") });
     const api = fakeFetch([
       sse([{ error: { message: "The service is currently unavailable.", status: "UNAVAILABLE" } }]),

@@ -46,7 +46,7 @@ describe("files.list", () => {
   it("lists the documents of a scope the caller may use, the oldest first, without expired ones", async () => {
     const time = clock();
     for (const [kind, store] of await stores(time.now)) {
-      const files = createLargeFiles({ store, now: time.now, ttlMs: 2 * HOUR });
+      const files = createLargeFiles({ requireOwner: false, store, now: time.now, ttlMs: 2 * HOUR });
       const chat = ["u1", "c1"];
       const first = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), owner: "u1", scope: chat });
       time.advance(1_000);
@@ -68,7 +68,7 @@ describe("files.list", () => {
   it("leaves out metadata it cannot read, of a newer version, or that names another file", async () => {
     const time = clock();
     const [, store] = (await stores(time.now))[1]!;
-    const files = createLargeFiles({ store, now: time.now });
+    const files = createLargeFiles({ requireOwner: false, store, now: time.now });
     const kept = await files.ingest({ name: "kept.txt", bytes: utf8("x") });
     const newer = await files.ingest({ name: "newer.txt", bytes: utf8("y") });
     const folder = directory!;
@@ -84,9 +84,9 @@ describe("files.list", () => {
   it("is a TypeError over a store without list, and follows requireOwner and requireScope", async () => {
     const memory = new MemoryDocumentStore();
     const bare: DocumentStore = { put: (d, c) => memory.put(d, c), get: (id, c) => memory.get(id, c), getMeta: (id, c) => memory.getMeta(id, c), delete: (id, c) => memory.delete(id, c) };
-    await expect(createLargeFiles({ store: bare }).list!()).rejects.toThrow(TypeError);
+    await expect(createLargeFiles({ requireOwner: false, store: bare }).list!()).rejects.toThrow(TypeError);
     await expect(createLargeFiles({ store: memory, requireOwner: true }).list!()).rejects.toThrow("owner is required");
-    await expect(createLargeFiles({ store: memory, requireScope: true }).list!({ owner: "u" })).rejects.toThrow("scope is required");
+    await expect(createLargeFiles({ requireOwner: false, store: memory, requireScope: true }).list!({ owner: "u" })).rejects.toThrow("scope is required");
   });
 });
 
@@ -94,7 +94,7 @@ describe("files.touch", () => {
   it("counts the expiry again from now, never earlier, and only for the caller who may use the document", async () => {
     const time = clock();
     for (const [kind, store] of await stores(time.now)) {
-      const files = createLargeFiles({ store, now: time.now, ttlMs: 2 * HOUR });
+      const files = createLargeFiles({ requireOwner: false, store, now: time.now, ttlMs: 2 * HOUR });
       const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), owner: "u1", scope: ["u1", "c1"] });
       const access = { owner: "u1", scope: ["u1", "c1"] };
       time.advance(HOUR + 30 * 60 * 1000);
@@ -111,7 +111,7 @@ describe("files.touch", () => {
       expect(await files.touch!(meta.id, { owner: "u1", scope: ["u1", "c2"] }), kind).toBeUndefined();
       expect(await files.touch!("doc_00000000000000000000000000000000", access), kind).toBeUndefined();
       // A library with a shorter time to live does not shorten it.
-      const shorter = createLargeFiles({ store, now: time.now, ttlMs: 60_000 });
+      const shorter = createLargeFiles({ requireOwner: false, store, now: time.now, ttlMs: 60_000 });
       expect((await shorter.touch!(meta.id, access))?.expiresAt, kind).toBe(touched!.expiresAt);
       // Past its expiry, it is gone.
       time.advance(2 * HOUR);
@@ -122,7 +122,7 @@ describe("files.touch", () => {
   it("is a TypeError over a store without patchMeta", async () => {
     const memory = new MemoryDocumentStore();
     const bare: DocumentStore = { put: (d, c) => memory.put(d, c), get: (id, c) => memory.get(id, c), getMeta: (id, c) => memory.getMeta(id, c), delete: (id, c) => memory.delete(id, c) };
-    const files = createLargeFiles({ store: bare });
+    const files = createLargeFiles({ requireOwner: false, store: bare });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
     await expect(files.touch!(meta.id)).rejects.toThrow("files.touch needs a store with patchMeta()");
     await expect(files.update!(meta.id, { appData: { a: 1 } })).rejects.toThrow("files.update needs a store with patchMeta()");
@@ -133,7 +133,7 @@ describe("appData", () => {
   it("is kept from the ingest, changed and removed by update, and never sent to the model nor in a summary", async () => {
     const time = clock();
     for (const [kind, store] of await stores(time.now)) {
-      const files = createLargeFiles({ store, now: time.now });
+      const files = createLargeFiles({ requireOwner: false, store, now: time.now });
       const access = { owner: "u1", scope: ["u1", "c1"] };
       const meta = await files.ingest({ name: "orders.csv", bytes: utf8("id,amount\n1,10\n2,20\n"), ...access, appData: { rowId: "mongo-42", tags: ["finance"] } });
       expect(meta.appData, kind).toEqual({ rowId: "mongo-42", tags: ["finance"] });
@@ -156,7 +156,7 @@ describe("appData", () => {
   });
 
   it("is a JSON object of at most MAX_APP_DATA_BYTES, at ingest and in update", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const big = { text: "x".repeat(MAX_APP_DATA_BYTES) };
     await expect(files.ingest({ name: "a.txt", bytes: utf8("a"), appData: big })).rejects.toThrow(RangeError);
     for (const bad of [[1, 2], "label", 42, { n: 10n }]) {
@@ -179,7 +179,7 @@ describe("FileDocumentStore.patchMeta", () => {
   it("changes the metadata of a document that is there, and nothing for one that is gone", async () => {
     const time = clock();
     const [, store] = (await stores(time.now))[1]!;
-    const files = createLargeFiles({ store, now: time.now });
+    const files = createLargeFiles({ requireOwner: false, store, now: time.now });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), scope: ["u1", "c1"] });
     const context = { scope: ["u1", "c1"] };
     expect(await store.patchMeta!(meta.id, { createdAt: meta.createdAt, scope: ["u1", "c1"], appData: { a: 1 } }, context)).toEqual({ ...meta, appData: { a: 1 } });
@@ -199,7 +199,7 @@ describe("the review of 0.10.2", () => {
   it("lists without removing anything: the application's own expired JSON in a folder it shares stays", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
     const store = new FileDocumentStore(directory);
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const kept = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
     await writeFile(path.join(directory, "notes.json"), JSON.stringify({ title: "mine", expiresAt: "2020-01-01T00:00:00Z" }));
     await writeFile(path.join(directory, "notes.txt"), "my notes");
@@ -210,7 +210,7 @@ describe("the review of 0.10.2", () => {
   });
 
   it("lists a document without an owner only to a caller without one, and none of another scope", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const open = await files.ingest({ name: "open.txt", bytes: utf8("open") });
     const mine = await files.ingest({ name: "mine.txt", bytes: utf8("mine"), owner: "u1" });
     await files.ingest({ name: "scoped.txt", bytes: utf8("scoped"), owner: "u1", scope: ["u1", "c1"] });
@@ -235,7 +235,7 @@ describe("the review of 0.10.2", () => {
       },
     };
     const time = clock();
-    const files = createLargeFiles({ store, now: time.now });
+    const files = createLargeFiles({ requireOwner: false, store, now: time.now });
     const first = await files.ingest({ name: "report.txt", bytes: utf8("AAAA of A"), id: "report-1", owner: "a" });
     swap = async () => {
       swap = undefined;
@@ -255,7 +255,7 @@ describe("the review of 0.10.2", () => {
   it("keeps both a touch and an update made at once", async () => {
     const time = clock();
     for (const [kind, store] of await stores(time.now)) {
-      const files = createLargeFiles({ store, now: time.now, ttlMs: 2 * HOUR });
+      const files = createLargeFiles({ requireOwner: false, store, now: time.now, ttlMs: 2 * HOUR });
       const access = { owner: "u1", scope: ["u1", "c1"] };
       const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), ...access });
       time.advance(HOUR);
@@ -277,7 +277,7 @@ describe("the review of 0.10.2", () => {
         return memory.patchMeta(id, patch, c);
       },
     };
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const bytes = utf8("alpha beta");
     const first = await files.ingest({ name: "a.txt", bytes, dedupe: true });
     deleteFirst = true;
@@ -290,7 +290,7 @@ describe("the review of 0.10.2", () => {
     // The real time: the age of a file is from its time on the disk.
     const time = clock(Date.now());
     const [, store] = (await stores(time.now))[1]!;
-    const files = createLargeFiles({ store, now: time.now });
+    const files = createLargeFiles({ requireOwner: false, store, now: time.now });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
     await rm(path.join(directory!, `${meta.id}.txt`));
     // Young: left, as an upload of an older version may be writing it.
@@ -311,7 +311,7 @@ describe("the second review of 0.10.2", () => {
         return meta && { ...meta, name: `[x] ${meta.name}` };
       }
     }
-    const files = createLargeFiles({ store: new Labelled() });
+    const files = createLargeFiles({ requireOwner: false, store: new Labelled() });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
     await expect(files.list!()).rejects.toThrow("files.list needs a store with list()");
     await expect(files.touch!(meta.id)).rejects.toThrow("needs a store with patchMeta()");
@@ -322,11 +322,11 @@ describe("the second review of 0.10.2", () => {
         return (await super.list(context)).map((item) => ({ ...item, name: `[x] ${item.name}` }));
       }
     }
-    const listing = createLargeFiles({ store: new Listing() });
+    const listing = createLargeFiles({ requireOwner: false, store: new Listing() });
     await listing.ingest({ name: "b.txt", bytes: utf8("beta") });
     expect((await listing.list!()).map((item) => item.name)).toEqual(["[x] b.txt"]);
     class Plain extends MemoryDocumentStore {}
-    const plain = createLargeFiles({ store: new Plain() });
+    const plain = createLargeFiles({ requireOwner: false, store: new Plain() });
     await plain.ingest({ name: "c.txt", bytes: utf8("gamma") });
     expect((await plain.list!()).map((item) => item.name)).toEqual(["c.txt"]);
   });
@@ -338,11 +338,11 @@ describe("the second review of 0.10.2", () => {
       put: (d, c) => memory.put(d, c), get: (id, c) => memory.get(id, c), getMeta: (id, c) => memory.getMeta(id, c), delete: (id, c) => memory.delete(id, c),
       list: () => hung,
     };
-    const files = createLargeFiles({ store, ingestTimeoutMs: 200, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store, ingestTimeoutMs: 200, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const timedOut = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), dedupe: true }).catch((error: unknown) => error);
     expect(timedOut).toMatchObject({ name: "DocumentStoreError", code: "ETIMEDOUT" });
     const left = new AbortController();
-    const slow = createLargeFiles({ store, ingestTimeoutMs: 60_000, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const slow = createLargeFiles({ requireOwner: false, store, ingestTimeoutMs: 60_000, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const ingest = slow.ingest({ name: "a.txt", bytes: utf8("alpha"), dedupe: true, signal: left.signal });
     setTimeout(() => left.abort(new Error("Left.")), 50);
     await expect(ingest).rejects.toThrow("Left.");
@@ -353,7 +353,7 @@ describe("the second review of 0.10.2", () => {
     const outside = await mkdtemp(path.join(tmpdir(), "llf-0102-outside-"));
     try {
       const store = new FileDocumentStore(directory, { scopes: { depth: 1, createScopeFolders: true } });
-      const files = createLargeFiles({ store });
+      const files = createLargeFiles({ requireOwner: false, store });
       const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), scope: ["u1"] });
       // Within the second a read keeps its check, the folder becomes a link to a folder outside.
       const folder = path.join(directory, "u1", ".llm-large-files");
@@ -386,7 +386,7 @@ describe("the second review of 0.10.2", () => {
 
   it.skipIf(process.platform === "win32")("lists past an application's file it cannot read, in a folder it shares", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
-    const files = createLargeFiles({ store: new FileDocumentStore(directory) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory) });
     const kept = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
     const secret = path.join(directory, "secret.json");
     await writeFile(secret, "{}");
@@ -403,7 +403,7 @@ describe("the third review of 0.10.2", () => {
   // About 1.5 s alone on Linux; given room for a busy machine and Windows.
   it("never leaves the metadata of a document over the text of the one that replaced it, in one process", { timeout: 60_000 }, async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), ttlMs: 60 * 60 * 1000 });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), ttlMs: 60 * 60 * 1000 });
     for (let round = 0; round < 80; round++) {
       await files.ingest({ name: "a.txt", bytes: utf8(`alpha ${round}`), id: "race-1", ifExists: "replace" });
       await Promise.all([
@@ -431,7 +431,7 @@ describe("the third review of 0.10.2", () => {
       },
     };
     // One clock that does not move: both documents have the same createdAt.
-    const files = createLargeFiles({ store, now: () => new Date("2026-11-25T08:00:00Z") });
+    const files = createLargeFiles({ requireOwner: false, store, now: () => new Date("2026-11-25T08:00:00Z") });
     const first = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), id: "same-ms", owner: "alice" });
     swap = async () => {
       swap = undefined;
@@ -482,7 +482,7 @@ describe("the third review of 0.10.2", () => {
         return memory.patchMeta(id, patch, c);
       },
     };
-    const files = createLargeFiles({ store, ttlMs: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store, ttlMs: Number.POSITIVE_INFINITY });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
     expect((await files.touch!(meta.id))?.expiresAt).toBe(meta.expiresAt);
     expect(patches).toBe(0);
@@ -493,7 +493,7 @@ describe("storeRounds and compactToolTurns", () => {
   const log = Array.from({ length: 3_000 }, (_, i) => `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z ${i % 7 === 0 ? "ERROR payment failed" : "INFO ok"} request ${i} ${"x".repeat(40)}`).join("\n");
 
   it("stores the stand-ins of large results with storeRounds \"compact\", and compactToolTurns makes the same of full rounds", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 100 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 100 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(log) });
     const script = () => fakeModel([
       calls([{ id: "c1", name: "read_document", args: { document_id: meta.id, start_line: 1, end_line: 300 } }, { id: "c2", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } }]),
@@ -522,7 +522,7 @@ describe("dedupe", () => {
   it("gives back the document of the same owner and scope with the same file, and stores another for anyone else", async () => {
     const time = clock();
     for (const [kind, store] of await stores(time.now)) {
-      const files = createLargeFiles({ store, now: time.now, ttlMs: 2 * HOUR });
+      const files = createLargeFiles({ requireOwner: false, store, now: time.now, ttlMs: 2 * HOUR });
       const chat = { owner: "u1", scope: ["u1", "c1"] };
       const bytes = utf8("id,amount\n1,10\n2,20\n");
       const first = await files.ingest({ name: "orders.csv", bytes, ...chat, dedupe: true, appData: { row: 1 } });
@@ -547,7 +547,7 @@ describe("dedupe", () => {
   it("stores the file again when the text of the document found is gone", async () => {
     const time = clock();
     const [, store] = (await stores(time.now))[1]!;
-    const files = createLargeFiles({ store, now: time.now });
+    const files = createLargeFiles({ requireOwner: false, store, now: time.now });
     const bytes = utf8("alpha beta");
     const first = await files.ingest({ name: "a.txt", bytes, dedupe: true });
     await rm(path.join(directory!, `${first.id}.txt`));
@@ -557,7 +557,7 @@ describe("dedupe", () => {
   });
 
   it("never removes the document it found, even when the listener of ingest.finish throws", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const bytes = utf8("alpha beta");
     const first = await files.ingest({ name: "a.txt", bytes, dedupe: true });
     const failing = files.ingest({ name: "a.txt", bytes, dedupe: true, onEvent: (event) => { if (event.type === "ingest.finish") throw new Error("listener"); } });
@@ -568,15 +568,15 @@ describe("dedupe", () => {
   it("is a TypeError with id, over a store without list, or when it is not a boolean", async () => {
     const memory = new MemoryDocumentStore();
     const bare: DocumentStore = { put: (d, c) => memory.put(d, c), get: (id, c) => memory.get(id, c), getMeta: (id, c) => memory.getMeta(id, c), delete: (id, c) => memory.delete(id, c) };
-    await expect(createLargeFiles({ store: memory }).ingest({ name: "a.txt", bytes: utf8("a"), id: "upload-1", dedupe: true })).rejects.toThrow("dedupe and id cannot be given together");
-    await expect(createLargeFiles({ store: bare }).ingest({ name: "a.txt", bytes: utf8("a"), dedupe: true })).rejects.toThrow("dedupe needs a store with list()");
-    await expect(createLargeFiles({ store: memory }).ingest({ name: "a.txt", bytes: utf8("a"), dedupe: "yes" as never })).rejects.toThrow("dedupe must be true or false");
+    await expect(createLargeFiles({ requireOwner: false, store: memory }).ingest({ name: "a.txt", bytes: utf8("a"), id: "upload-1", dedupe: true })).rejects.toThrow("dedupe and id cannot be given together");
+    await expect(createLargeFiles({ requireOwner: false, store: bare }).ingest({ name: "a.txt", bytes: utf8("a"), dedupe: true })).rejects.toThrow("dedupe needs a store with list()");
+    await expect(createLargeFiles({ requireOwner: false, store: memory }).ingest({ name: "a.txt", bytes: utf8("a"), dedupe: "yes" as never })).rejects.toThrow("dedupe must be true or false");
   });
 
   it("works for a file ingested from a path", async () => {
     const time = clock();
     const [, store] = (await stores(time.now))[1]!;
-    const files = createLargeFiles({ store, now: time.now });
+    const files = createLargeFiles({ requireOwner: false, store, now: time.now });
     const source = path.join(directory!, "upload.txt");
     await writeFile(source, "gamma delta");
     const first = await files.ingest({ name: "upload.txt", source: { path: source }, dedupe: true });

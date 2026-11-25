@@ -47,13 +47,44 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
 
 ### Upgrading: what you need to change
 
-<!-- owner, shapes -->
+- **Owner checks are on by default.** `requireOwner` defaults to `true`. Every call (`ingest`,
+  `getMeta`, `getOriginal`, `delete`, `list`, `touch`, `update`, `prepare`, `tools`, `toolsFor`,
+  `askWithFiles`, `askStream`, `askGemini`) must name its owner. A call without one throws a
+  `TypeError` that says how to turn the checks off. Documents stored without an owner, by any
+  earlier version, read as missing until you pass `requireOwner: false` or store them again with an
+  owner. Nothing is deleted. `sweep` takes no owner. Only `false` turns the checks off: any other
+  value leaves them on. Both paths are in
+  [Upgrading to 0.99](docs/upgrading-0.99.md#owner-checks-are-on-by-default).
+- `createDocumentHandlers` needs `getOwner` unless the library has `requireOwner: false`. A request
+  without an owner is answered `401` "Sign in first.". A `LargeFiles` of your own without `access`
+  counts as requiring an owner.
+- `CreatedLargeFiles` has `list`, `touch` and `update` as required members, and `DocumentHandlers`
+  a required `list`. A mock of either type needs them (TS2739, TS2741). Type a mock of the library
+  as `LargeFiles`.
+
+<!-- shapes -->
 
 ### New: what you can add
 
-<!-- owner (upload handlers), responses, visual, questions, aisdk, MCP (removable) -->
+- **`handlers.list(request, response)`**: a `GET` route for `files.list`. It answers
+  `{ "documents": [summary, …] }` for the request's owner and scope, the oldest first. A request
+  with neither an owner nor a scope is answered `401`
+  ([`list`](docs/reference/node.md#listrequest-response)).
+- **`prepareUpload` can return `dedupe` and `appData`**, passed to `ingest`. A file uploaded again
+  gives back the document stored before (`UploadedContext.reused`), and the file saved for that
+  upload is removed. The application's data comes from the server, never from the client as sent,
+  and is checked before the body is read. A failing `onUploaded` never deletes a document stored
+  before ([Web app](docs/guides/web-app.md#the-same-file-twice-and-your-own-data-dedupe-and-appdata)).
+
+<!-- responses, visual, questions, aisdk, MCP (removable) -->
 
 ### Changed: what works differently
+
+- The `TypeError` of a call without an owner reads "owner is required: requireOwner is on (the
+  default). Pass the user's ID as owner, or create the library with requireOwner: false to allow
+  calls without one.". It starts as before, for code that looks for that start.
+- `files.list(…)`, `files.touch(…)` and `files.update(…)` need no `!` on what `createLargeFiles`
+  returns.
 
 <!-- every package -->
 

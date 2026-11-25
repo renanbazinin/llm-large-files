@@ -15,7 +15,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 describe("an ingest aborted while the store writes", () => {
   it("throws the signal's reason and leaves the store empty: every part, under ttlMs Infinity", async () => {
     const store = new RangedStoreOf08();
-    const files = createLargeFiles({ store, ttlMs: Infinity, keepOriginals: ["log"] });
+    const files = createLargeFiles({ requireOwner: false, store, ttlMs: Infinity, keepOriginals: ["log"] });
     const put = store.holds.hold("put");
     const controller = new AbortController();
     const reason = new Error("The uploader left.");
@@ -44,7 +44,7 @@ describe("an ingest aborted while the store writes", () => {
           return super.put(document, context);
         }
       }
-      const files = createLargeFiles({ store: new SlowStore(directory), ttlMs: Infinity });
+      const files = createLargeFiles({ requireOwner: false, store: new SlowStore(directory), ttlMs: Infinity });
       const controller = new AbortController();
       let writing!: () => void;
       const written = new Promise<void>((resolve) => (writing = resolve));
@@ -69,7 +69,7 @@ describe("an ingest aborted while the store writes", () => {
 
   it("frees the application's ID once the removal is done, and leaves another's document", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, ttlMs: Infinity });
+    const files = createLargeFiles({ requireOwner: false, store, ttlMs: Infinity });
     const controller = new AbortController();
     const reason = new Error("Left.");
     // The listener of the last store progress leaves: the writes have all ended by then.
@@ -90,7 +90,7 @@ describe("an ingest aborted while the store writes", () => {
 
   it("stores the document when the caller stays", async () => {
     const store = new RangedStoreOf08();
-    const files = createLargeFiles({ store, ttlMs: Infinity });
+    const files = createLargeFiles({ requireOwner: false, store, ttlMs: Infinity });
     const controller = new AbortController();
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(30)), signal: controller.signal });
     controller.abort();

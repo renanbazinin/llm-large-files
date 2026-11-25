@@ -1134,7 +1134,7 @@ import { readFile } from "node:fs/promises";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, vertexAi } from "llm-large-files/gemini";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false }); // one user: no owner checks
 const meta = await files.ingest({ name: "app.log", bytes: await readFile("./app.log") });
 
 const started = Date.now();

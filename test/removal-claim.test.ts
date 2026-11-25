@@ -115,7 +115,7 @@ describe("FileDocumentStore claims a removal before it counts it", () => {
   it("counts a removal whose own name cannot be removed now: the document is gone, and the sweep removes the name once it is old", async () => {
     const directory = await folder();
     const store = new FileDocumentStore(directory);
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "notes.txt", bytes: utf8("one\ntwo\n") });
     replace("unlink", (real) => function (this: unknown, ...args: unknown[]) {
       if (/\.json\.[a-f0-9]{8}\.tmp$/.test(String(args[0]))) return Promise.reject(Object.assign(new Error("EIO: i/o error"), { code: "EIO", syscall: "unlink" }));

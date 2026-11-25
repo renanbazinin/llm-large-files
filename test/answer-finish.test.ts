@@ -12,7 +12,7 @@ const notices = (events: AskEvent[]) => events.filter((event): event is Notice =
 
 /** A library with a short note sent whole, and a log searched with the tools. */
 async function library() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
   const note = await files.ingest({ name: "leave.md", bytes: utf8("# Leave\n\nThe employee's medical leave was approved for two weeks.\n") });
   const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
   return { files, note, log };

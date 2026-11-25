@@ -207,7 +207,7 @@ describe("record and replay of a stream (evals/lib/record.ts)", () => {
       Response.json({ candidates: [{ content: { role: "model", parts: [{ text: "Ready." }] }, finishReason: "STOP" }] }),
     ]);
     const quick = { retry: { sleep: async () => {} } };
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const ask = (fetch: typeof globalThis.fetch) => askWithFiles({ files, model: gemini(geminiApi({ apiKey: "test-key", model: "gemini-test" }), { fetch }), documentIds: [], messages: [{ role: "user", text: "Ready?" }], ...quick });
     const first = await ask(recordingFetch(dir, { fetch: upstream.fetch }));
     const replay = replayFetch(dir);
@@ -222,7 +222,7 @@ describe("record and replay of a stream (evals/lib/record.ts)", () => {
 /** A library: a note sent whole and a log searched with the tools, under fixed IDs, or IDs made at ingest. */
 async function library(withIds = true): Promise<{ files: LargeFiles; ids: string[] }> {
   const now = () => new Date("2026-11-20T08:00:00.000Z");
-  const files = createLargeFiles({ store: new MemoryDocumentStore({ now }), now, budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore({ now }), now, budget: { inlineTokens: 1_000 } });
   const notes = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.\n"), ...(withIds ? { id: "notes-1" } : {}) });
   const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)), ...(withIds ? { id: "log-1" } : {}) });
   return { files, ids: [notes.id, log.id] };

@@ -104,7 +104,10 @@ point for one of your own: see [Your own adapter and loop](./own-adapter-and-loo
 
 ## A first test
 
-Two tests: a short document that goes in whole, and a log that the model must search.
+Two tests: a short document that goes in whole, and a log that the model must search. Owner
+checks are on by default (since 0.99.9): a test that is not about owners makes its library with
+`requireOwner: false`, as a script with one user would; a test of what users see passes the owner,
+as your server does ([Expiry, owners and the clock](#expiry-owners-and-the-clock)).
 
 ```ts
 // test/ask.test.ts
@@ -117,7 +120,8 @@ const question = (text: string) => [{ role: "user" as const, text }];
 
 describe("questions about documents", () => {
   it("sends a short document whole, in one request without tools", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    // One user: no owner checks.
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     const model = fakeModel([says("Heron.", { usage: { inputTokens: 40, outputTokens: 3 } })]);
 
@@ -132,7 +136,7 @@ describe("questions about documents", () => {
   it("searches a log too large to send whole, then answers", async () => {
     // Any document over about 1,000 tokens becomes a card with tools: a small test file takes
     // the path that a real 50 MB log takes.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 }, requireOwner: false });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
     const search = { id: "call_1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
     const model = fakeModel([calls([search]), says("8 payments failed, the first on line 50 (app.log L50).")]);
@@ -185,7 +189,7 @@ import { appLog } from "./documents.js";
 const question = (text: string) => [{ role: "user" as const, text }];
 
 async function largeLog() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 }, requireOwner: false });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
   return { files, meta };
 }
@@ -324,7 +328,7 @@ import { calls, fakeModel, says, utf8 } from "llm-large-files/testing";
 import { appLog } from "./documents.js";
 
 it("shows the search, then the answer, in order", async () => {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 }, requireOwner: false });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
   const search = { id: "s1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
   const model = fakeModel([calls([search]), says("8 payments failed.")]);
@@ -644,7 +648,7 @@ const endpoint = vertexAi({ project: "test-project", location: "europe-west4", m
 const question = [{ role: "user" as const, text: "How many payments failed?" }];
 
 async function largeLog() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 }, requireOwner: false });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
   return { files, meta };
 }
@@ -668,7 +672,7 @@ describe("Gemini on Vertex AI, without the network", () => {
   });
 
   it("streams the answer through askGemini", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     // A streamed Gemini reply ends with a chunk that says why it ended.
     const api = fakeFetch([sse([
@@ -735,7 +739,7 @@ import { appLog } from "./documents.js";
 const question = [{ role: "user" as const, text: "How many payments failed?" }];
 
 async function largeLog() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 }, requireOwner: false });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
   const args = { document_id: meta.id, query: "ERROR", mode: "exact" };
   return { files, meta, args };
@@ -989,7 +993,9 @@ describe("documents that expire", () => {
   it removed.
 - Owners need no clock: ingest with `owner`, then ask with another one, as in
   [Errors](#errors). The question fails with `DocumentsNotFoundError` before any model request, the
-  same error as for a document that expired.
+  same error as for a document that expired. This test keeps the default, owner checks on (since
+  0.99.9), and passes the owner on every call, as your server does: `files.sweep()` takes none. A
+  call without an owner would throw a `TypeError` that says how to turn the checks off.
 - `files.delete(id, { owner })` returns `false`, and deletes nothing, for a document of another
   owner; for the document's own owner it returns `true`.
 
@@ -1001,7 +1007,7 @@ To test your own `DocumentStore`, run the same tests against it. The contract is
 The handlers of `llm-large-files/node` take Node's own request and response, so a test can run them
 on a real HTTP server, on a free port, and call them with `fetch`. Mount them as your server does;
 this one routes `POST /api/documents` to `upload`, and `GET` and `DELETE /api/documents/:id` to
-`get` and `remove`:
+`get` and `remove` (`GET /api/documents` goes to `list`, new in 0.99.9, the same way):
 
 ```ts
 // test/routes.test.ts
@@ -1059,12 +1065,12 @@ describe("the upload routes", () => {
 The other statuses (400 for a file without a name, 413 for one over `maxUploadBytes`, 422 for one
 that cannot be read) are in the [`llm-large-files/node` reference](../reference/node.md).
 
-The `|| undefined` in `getOwner` matters. With it, a header that arrives empty (`"X-User": ""`)
-makes the upload anonymous: it is answered `201`, and anyone who has its ID can read it. With
-`?? ""` in its place, the same upload is answered 500
-`{ "error": "Upload failed (empty owner)." }` before its body is read. Test what your sign-in
-hands `getOwner` when there is no user, and throw an error with `status: 401` there if every
-upload needs a user ([A web app](./web-app.md#who-owns-an-upload-getowner)).
+The `|| undefined` in `getOwner` matters. With it, a header that arrives empty (`"X-User": ""`) is
+a request without a user: owner checks are on by default (since 0.99.9), so it is answered `401`
+`{ "error": "Sign in first." }` before its body is read (with `requireOwner: false` it would make
+the upload anonymous, open to anyone who has its ID). With `?? ""` in its place, the same upload is
+answered 500 `{ "error": "Upload failed (empty owner)." }`. Test what your sign-in hands
+`getOwner` when there is no user ([A web app](./web-app.md#who-owns-an-upload-getowner)).
 
 An answer route is tested the same way: give it `fakeModel()` where it would take the real model,
 and read what it sends back with `fetch`. How such a route streams the answer is in
@@ -1110,7 +1116,7 @@ describe.skipIf(process.env.LIVE_TESTS !== "1")("live: Gemini on Vertex AI", () 
         return token;
       },
     }));
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 }, requireOwner: false });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(appLog(400)) });
 
     const result = await askWithFiles({

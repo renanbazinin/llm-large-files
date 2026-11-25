@@ -27,14 +27,14 @@ function quickRetry(more: RetryOptions = {}): { retry: RetryOptions; waits: numb
 }
 
 async function largeLog(lines = 5_000, budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(lines)) });
   return { files, meta };
 }
 
 describe("askWithFiles", () => {
   it("sends a document that fits in full, in one request without tools", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     const model = fakeModel([says("Heron.", { finishReason: "stop", usage: { inputTokens: 40, outputTokens: 3 }, providerUsage: { prompt: 40 } })]);
     const deltas: string[] = [];
@@ -75,7 +75,7 @@ describe("askWithFiles", () => {
   });
 
   it("refuses documents of another owner before any request", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("secret"), owner: "alice" });
     const model = fakeModel([says("no")]);
     await expect(askWithFiles({ files, model, documentIds: [meta.id], owner: "bob", messages: question("?") })).rejects.toBeInstanceOf(DocumentsNotFoundError);
@@ -138,7 +138,7 @@ describe("a model request that fails", () => {
   });
 
   it("is not sent again once text of it was shown, or after the question was stopped", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
     const broken = fakeModel([(_request, _call, hooks) => {
       hooks.onText?.("The answer is ");
@@ -221,7 +221,7 @@ describe("usage of a question", () => {
 
 describe("the tool calls of one turn", () => {
   it("run together, and are answered in the order they were made", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
     const first = await files.ingest({ name: "first.log", bytes: utf8(serviceLog(3_000)) });
     const second = await files.ingest({ name: "second.log", bytes: utf8(serviceLog(3_000)) });
     let reading = 0;
@@ -309,7 +309,7 @@ describe("the room a request has for tool results", () => {
   }));
 
   it("is counted: results are cut to what is left, old ones are shortened, and the answer is asked for when nothing fits", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 128_000, reservedTokens: 16_000, inlineTokens: 100_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 128_000, reservedTokens: 16_000, inlineTokens: 100_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(60_000)) });
     let next = 1;
     const model = fakeModel([(request) => {
@@ -343,7 +343,7 @@ describe("the room a request has for tool results", () => {
   });
 
   it("gives a call the room that is left, and answers the rest with a reason, for a model whose conversation may only grow", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 64_000, reservedTokens: 8_000, inlineTokens: 30_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 64_000, reservedTokens: 8_000, inlineTokens: 30_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(60_000)) });
     let next = 1;
     const model = fakeModel([(request) => {
@@ -386,7 +386,7 @@ describe("the room a request has for tool results", () => {
   });
 
   it("does not end a question for small searches that came after large reads, on a model whose conversation may only grow", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
     const read = (from: number) => ({ name: "read_document", args: { document_id: meta.id, start_line: from, end_line: from + 599 } });
     const search = (query: string) => ({ name: "search_document", args: { document_id: meta.id, query, mode: "exact", max_results: 2 } });
@@ -408,7 +408,7 @@ describe("the room a request has for tool results", () => {
   });
 
   it("follows the window and the reply size a model declares, and the scale of its tokens", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const small = await files.ingest({ name: "note.txt", bytes: utf8("The meeting moved to Tuesday.\n") });
     const large = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(4_000)) });
     // About 230,000 tokens by the estimate: whole for a 1M model, a card for a 200K one.
@@ -528,7 +528,7 @@ describe("the edges of the loop", () => {
 
   it("shortens the rounds of earlier questions before those of this one", async () => {
     // A result may be 24,000 characters here, as for a large model: for a window of 64,000 the default is a third of that.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 64_000, reservedTokens: 8_000, inlineTokens: 20_000, toolResultCharacters: 24_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 64_000, reservedTokens: 8_000, inlineTokens: 20_000, toolResultCharacters: 24_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
     const tools = files.tools([meta]);
     const read = async (from: number) => {
@@ -656,7 +656,7 @@ describe("what a question read", () => {
 
 describe("the ceilings of a question, for the calls of one turn together", () => {
   const twoLogs = async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
     const first = await files.ingest({ name: "first.log", bytes: utf8(serviceLog(3_000)) });
     const second = await files.ingest({ name: "second.log", bytes: utf8(serviceLog(3_000)) });
     return { files, first, second };
@@ -714,7 +714,7 @@ describe("the count a provider gives of a request", () => {
   const sizeOf = (request: { system: string; messages: unknown; tools?: unknown }) => estimateTokens(request.system) + estimateTokens(JSON.stringify(request.messages)) + estimateTokens(JSON.stringify(request.tools ?? []));
 
   it("is read by the scale of the model that gave it, so the answering model's window holds", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
     let next = 1;
     const reads = () => Array.from({ length: 3 }, () => {
@@ -733,7 +733,7 @@ describe("the count a provider gives of a request", () => {
 
 describe("the answer of a whole-file read in a turn with other calls", () => {
   it("gets the room the other results leave once they are in, not an even share of it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const big = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
     const small = await files.ingest({ name: "jobs.log", bytes: utf8(serviceLog(3_000)) });
     const answer = `The jobs failed at (L97), (L194) and (L291).${" Each failure followed a timeout of the worker.".repeat(160)}`;
@@ -760,7 +760,7 @@ describe("the answer of a whole-file read in a turn with other calls", () => {
 
 describe("a second whole-file read of a document in one turn", () => {
   it("takes nothing from the ceiling for the reads of other documents: the tool refuses it at no cost", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
     const first = await files.ingest({ name: "first.log", bytes: utf8(serviceLog(3_000)) });
     const second = await files.ingest({ name: "second.log", bytes: utf8(serviceLog(3_000)) });
     const generateText: GenerateText = async ({ onUsage }) => {
@@ -782,7 +782,7 @@ describe("a second whole-file read of a document in one turn", () => {
 describe("the lines a search shows of a long line", () => {
   it("are never cut in half of a character outside the basic plane", async () => {
     for (const pad of ["", "x"]) {
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
       // Three characters between the emoji and the match: the window around it starts in the middle of one.
       const line = `${pad}${"😀".repeat(300)}ab NEEDLE${"😀".repeat(300)}`;
       const meta = await files.ingest({ name: "chat.log", bytes: utf8(`${line}\n${"filler line\n".repeat(50)}`) });

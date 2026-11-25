@@ -11,7 +11,7 @@ type Json = Record<string, any>;
 
 describe("an OpenAI-compatible adapter's own turns within a question", () => {
   it("does not send an adapter's own turn to another model of the question", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
     const call = { id: "call_9", type: "function", function: { name: "search_document", arguments: JSON.stringify({ document_id: meta.id, query: "ERROR", mode: "exact" }) } };
     const deepseek = fakeFetch([(sent) => {

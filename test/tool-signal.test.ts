@@ -46,7 +46,7 @@ class Holding implements DocumentStore {
 /** Two logs read by range (none is loaded whole), and their store. */
 async function library() {
   const store = new Holding();
-  const files = createLargeFiles({ store, budget: { inlineTokens: 10, mapChunkTokens: 2_000 }, wholeDocumentBytes: 0, cacheBytes: 0, scanChunkBytes: 4_096 });
+  const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10, mapChunkTokens: 2_000 }, wholeDocumentBytes: 0, cacheBytes: 0, scanChunkBytes: 4_096 });
   const slow = await files.ingest({ name: "slow.log", bytes: utf8(serviceLog(800)) });
   const quick = await files.ingest({ name: "quick.log", bytes: utf8(serviceLog(800)) });
   return { files, store, slow, quick };
@@ -78,7 +78,7 @@ describe("ToolCallHooks.signal", () => {
 
   it("ends a call whose check of the store after its read hangs", async () => {
     const store = new Holding();
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10, mapChunkTokens: 2_000 }, wholeDocumentBytes: 0, cacheBytes: 0, scanChunkBytes: 4_096, storeTimeoutMs: 0 });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10, mapChunkTokens: 2_000 }, wholeDocumentBytes: 0, cacheBytes: 0, scanChunkBytes: 4_096, storeTimeoutMs: 0 });
     const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(800)) });
     const tools = files.tools([log]);
     // The metadata answers when the call loads the document, and hangs once its lines are read:

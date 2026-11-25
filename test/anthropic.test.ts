@@ -62,7 +62,7 @@ function fakeApi(replies: Array<object | Response | ((sent: Sent) => object | Re
 }
 
 async function largeLog(budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
   const meta = await files.ingest({ name: "prod.log", bytes: utf8(serviceLog(5_000)) });
   return { files, meta };
 }
@@ -154,7 +154,7 @@ describe("Claude through the Messages API", () => {
   });
 
   it("never rewrites a conversation: old results stay as they were, and the room that runs out ends the tools", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { reservedTokens: 8_000, inlineTokens: 30_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { reservedTokens: 8_000, inlineTokens: 30_000 } });
     const meta = await files.ingest({ name: "prod.log", bytes: utf8(serviceLog(60_000)) });
     let next = 1;
     let id = 0;
@@ -184,7 +184,7 @@ describe("Claude through the Messages API", () => {
   });
 
   it("puts the pages of a PDF in the tool result, as a document, or after the results", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const script = () => fakeApi([message([toolUse("toolu_1", "view_pages", { document_id: meta.id, from_page: 2, to_page: 3 })], "tool_use"), message([text("Page 2 shows a bar chart.")])]);
     const inside = script();
@@ -356,7 +356,7 @@ describe("Claude through the Messages API", () => {
 describe("Claude through the Messages API, since the review of 0.5.0", () => {
   const quick = { random: () => 1, sleep: async () => undefined };
   const smallNote = async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "note.txt", bytes: utf8("The total is 42.\n") });
     return { files, meta };
   };

@@ -198,7 +198,7 @@ timeout, "The model returned no text (refusal)." for a reply with no text
 import { askWithFiles } from "llm-large-files";
 import { anthropic } from "llm-large-files/anthropic";
 
-// files, documentIds and messages come from your application.
+// files, documentIds, messages and userId (their owner) come from your application.
 const model = anthropic({
   model: "claude-opus-5-5",
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -209,6 +209,7 @@ const model = anthropic({
 const result = await askWithFiles({
   files,
   model,
+  owner: userId,
   documentIds,
   messages,
   onText: (delta) => process.stdout.write(delta),
@@ -339,9 +340,9 @@ message say. You build one yourself only in a test or in a wrapper around the ad
 import { askWithFiles } from "llm-large-files";
 import { AnthropicRequestError } from "llm-large-files/anthropic";
 
-// files, model, documentIds and messages as above.
+// files, model, documentIds, messages and userId as above.
 try {
-  await askWithFiles({ files, model, documentIds, messages });
+  await askWithFiles({ files, model, owner: userId, documentIds, messages });
 } catch (error) {
   if (error instanceof AnthropicRequestError && error.type === "overloaded_error") {
     console.error(`Claude is overloaded (HTTP ${error.status}); retries ran out.`);
@@ -417,10 +418,10 @@ already used earlier in the returned list gets `_2`, `_3` and so on.
 import { askWithFiles } from "llm-large-files";
 import { anthropicToolTurns, fromAnthropicMessages, type AnthropicMessage } from "llm-large-files/anthropic";
 
-// files, model and documentIds as above; system is your system prompt. history is the chat so
+// files, model, documentIds and userId as above; system is your system prompt. history is the chat so
 // far, kept by your application as Messages API messages, ending with the user's question.
 async function answer(history: AnthropicMessage[]): Promise<string> {
-  const result = await askWithFiles({ files, model, system, documentIds, messages: fromAnthropicMessages(history) });
+  const result = await askWithFiles({ files, model, owner: userId, system, documentIds, messages: fromAnthropicMessages(history) });
   // Keep what the tools returned between the question and the answer: a follow-up question
   // then finds it without searching again.
   history.push(...anthropicToolTurns(result.toolTurns), { role: "assistant", content: result.text });

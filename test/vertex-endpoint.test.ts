@@ -140,7 +140,7 @@ describe("a Vertex AI token refused with HTTP 401, since 0.10.0", () => {
     expect(await read({ system: "s", prompt: "p", maxOutputTokens: 100 })).toBe("Notes (L1).");
     expect(source.asked).toEqual([false, true]);
 
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
     // The token in the cache has just expired: the first request gets a 401, and the next token is good.
     const explorerTokens = tokens();

@@ -6,7 +6,7 @@ describe("a budget", () => {
   it("is the one the library always had when nothing is given", () => {
     expect(resolveBudget()).toEqual(DEFAULT_BUDGET);
     expect(resolveBudget({})).toEqual(DEFAULT_BUDGET);
-    expect(createLargeFiles({ store: new MemoryDocumentStore() }).budget).toEqual(DEFAULT_BUDGET);
+    expect(createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).budget).toEqual(DEFAULT_BUDGET);
     // A field set to undefined, as an unset setting gives, is a field that was not given.
     expect(resolveBudget({ contextTokens: undefined, inlineTokens: undefined } as never)).toEqual(DEFAULT_BUDGET);
   });
@@ -22,7 +22,7 @@ describe("a budget", () => {
 
   it("sends a small note whole for a model of any size, with only the window set", async () => {
     for (const contextTokens of [1_000_000, 200_000, 128_000, 64_000, 32_000]) {
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens } });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens } });
       const note = await files.ingest({ name: "note.txt", bytes: utf8("The meeting moved to Tuesday.\n") });
       const prepared = await files.prepare([note.id], { tokens: 3_000, bytes: 12_000 });
       expect(prepared.plan.inline.map((meta) => meta.name), `window ${contextTokens}`).toEqual(["note.txt"]);
@@ -31,7 +31,7 @@ describe("a budget", () => {
   });
 
   it("refuses values that cannot work together, and values that are no sizes", () => {
-    expect(() => createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 64_000, reservedTokens: 64_000 } }))
+    expect(() => createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 64_000, reservedTokens: 64_000 } }))
       .toThrow("budget.reservedTokens (64,000) must be smaller than budget.contextTokens (64,000): nothing would be left for the conversation.");
     expect(() => resolveBudget({ contextTokens: 64_000, mapChunkTokens: 100_000 }))
       .toThrow("budget.mapChunkTokens (100,000) must be smaller than budget.contextTokens (64,000): a part of a whole-file read would not fit the model.");
@@ -48,7 +48,7 @@ describe("a budget", () => {
   });
 
   it("can be another one for a single request, and the library's own stays as it was", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 150_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 150_000 } });
     const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(1_000)) });
     const base = { tokens: 0, bytes: 0 };
     expect((await files.prepare([log.id], base)).plan.inline).toHaveLength(1);
@@ -66,7 +66,7 @@ describe("a budget", () => {
 
 describe("the tools of one question", () => {
   it("cut a result to the room a caller names, and say where to go on", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(3_000)) });
     const tools = files.tools([log]);
     const read = { document_id: log.id, start_line: 1, end_line: 600 };
@@ -94,7 +94,7 @@ describe("the tools of one question", () => {
   });
 
   it("read a document whole once, and count a read that was refused for its size as none", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 40_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 40_000 } });
     const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(3_000)) });
     const other = await files.ingest({ name: "other.log", bytes: utf8(serviceLog(3_000)) });
     let requests = 0;
@@ -116,7 +116,7 @@ describe("the tools of one question", () => {
     expect([typeof first!.answer, typeof second!.error]).toEqual(["string", "string"]);
     expect(files.tools([log], { generate, maxWholeDocumentReads: 0 }).declarations.map((tool) => tool.name)).toContain("analyze_whole_document");
 
-    const tight = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 1_000, maxMapChunks: 3 } });
+    const tight = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 1_000, maxMapChunks: 3 } });
     const large = await tight.ingest({ name: "large.log", bytes: utf8(serviceLog(3_000)) });
     const refusing = tight.tools([large], { generate });
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -125,7 +125,7 @@ describe("the tools of one question", () => {
   });
 
   it("keep the time for regex searches when several of them are asked for at once", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     // One line that the pattern cannot get past, in a log of ordinary ones.
     const line = (i: number) => `2026-01-01T00:00:${String(i % 60).padStart(2, "0")}Z INFO request ${i} took ${i % 900}ms`;
     const trapped = [...Array.from({ length: 300 }, (_, i) => line(i)), `checksum ${"a".repeat(48)}!`, ...Array.from({ length: 300 }, (_, i) => line(300 + i))].join("\n");
@@ -262,7 +262,7 @@ describe("withRetry", () => {
 
 describe("a whole-file read on a model that is busy", () => {
   it("waits before it asks again, and does not ask again for a request the model refused", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 900_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 900_000 } });
     const log = await files.ingest({ name: "small.log", bytes: utf8(serviceLog(300)) });
     const waits: number[] = [];
     const retry = { random: () => 1, sleep: async (ms: number) => { waits.push(ms); } };

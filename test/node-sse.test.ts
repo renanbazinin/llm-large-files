@@ -317,7 +317,7 @@ describe("writeSseEvents", () => {
 
 describe("writeSseEvents with askStream", () => {
   it("streams a question from run.start to run.finish, the result without toolTurns", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const doc = await files.ingest({ name: "notes.txt", bytes: new TextEncoder().encode("The meeting is on Tuesday.") });
     const url = await serve((_request, response) => {
       const stream = askStream({ files, model: fakeModel([says("On Tuesday.")]), documentIds: [doc.id], messages: [{ role: "user", text: "When?" }] });
@@ -339,7 +339,7 @@ describe("writeSseEvents with askStream", () => {
   });
 
   it("stops the question when the client goes away", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const doc = await files.ingest({ name: "notes.txt", bytes: new TextEncoder().encode("The meeting is on Tuesday.") });
     let modelSignal: AbortSignal | undefined;
     let result: Promise<AskResult> | undefined;
@@ -448,7 +448,7 @@ describe("sseMessageOf", () => {
   });
 
   it("reaches the browser from a question that dropped a missing document", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const doc = await files.ingest({ name: "notes.txt", bytes: new TextEncoder().encode("The meeting is on Tuesday.") });
     const gone = "doc_0123456789abcdef0123456789abcdef";
     const url = await serve((_request, response) => {
@@ -463,7 +463,7 @@ describe("sseMessageOf", () => {
 
 describe("createDocumentHandlers().upload with Accept: text/event-stream", () => {
   async function start(options: Partial<LargeFilesOptions> = {}): Promise<string> {
-    const documents = createDocumentHandlers(createLargeFiles({ store: new MemoryDocumentStore(), ...options }));
+    const documents = createDocumentHandlers(createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ...options }));
     return serve((request, response) => void documents.upload(request, response));
   }
   const upload = (url: string, name: string, body: string | Uint8Array<ArrayBuffer>, events = true) => fetch(url, {
@@ -518,7 +518,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
   });
 
   it("still ends with ingest.finish or ingest.error when the ingest sent no event", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     // A library whose ingest says nothing: the answer must still end with its outcome.
     const quiet: LargeFiles = { ...files, ingest: (input) => files.ingest({ ...input, onEvent: undefined }) };
     const documents = createDocumentHandlers(quiet);
@@ -552,7 +552,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     expect(unnamed.status).toBe(400);
     expect(((await unnamed.json()) as { error: string }).error).toMatch(/X-File-Name/);
 
-    const documents = createDocumentHandlers(createLargeFiles({ store: new MemoryDocumentStore() }), {
+    const documents = createDocumentHandlers(createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }), {
       getOwner: () => {
         throw Object.assign(new Error("Sign in again."), { status: 401 });
       },

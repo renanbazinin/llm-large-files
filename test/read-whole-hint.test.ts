@@ -13,7 +13,7 @@ const notes: GenerateText = async () => "The worker answered in time (L1).";
 
 /** A library whose tool results have 2,000 characters, and a log of 400 lines, about 100 characters each. */
 async function library(budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 4_000, toolResultCharacters: 2_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 4_000, toolResultCharacters: 2_000, ...budget } });
   const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(400)) });
   return { files, log };
 }

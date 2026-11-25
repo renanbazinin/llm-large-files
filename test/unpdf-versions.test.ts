@@ -41,7 +41,7 @@ function addPromiseTry(): void {
 
 describe("the unpdf installed", () => {
   it("reads PDFs on this Node, or is refused with a message that says what to install", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const reading = files.ingest({ name: "book.pdf", bytes: numberedPdf(2) });
     if (process.env.UNPDF_EXPECT === "refused") {
       await expect(reading).rejects.toThrow(REFUSED);
@@ -88,7 +88,7 @@ describe("checkUnpdf", () => {
   it("keeps the PDF extractor from stopping the process where pdf.js would need Promise.try", async () => {
     // pdf.js is loaded, and with it the Promise.try that unpdf adds. Without it, as with unpdf 1.5.0
     // on Node 22, reading a PDF threw where nothing could catch it, and the test process stopped.
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await withoutPromiseTry(async () => {
       const reading = files.ingest({ name: "book.pdf", bytes: numberedPdf(2) });
       if (process.env.UNPDF_EXPECT === "refused") await expect(reading).rejects.toThrow(REFUSED);

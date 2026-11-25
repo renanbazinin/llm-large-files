@@ -44,7 +44,7 @@ function estimates() {
 
 describe("the room for tool results, in tokens", () => {
   it("keeps 8 reads of a numeric CSV on a 128K window within the limit of the request", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "numbers.csv", bytes: utf8(numbers(8_000)) });
     expect(meta.characters / meta.estimatedTokens).toBeLessThan(1);
     const model = fakeModel([calls(reads(meta.id, 8, 400)), calls(reads(meta.id, 8, 400, 3_201)), says("Done.")], { contextTokens: 128_000 });
@@ -61,7 +61,7 @@ describe("the room for tool results, in tokens", () => {
   });
 
   it("gives a call the characters its document takes a token: a Hebrew text more than a table of numbers", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, toolResultCharacters: 24_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, toolResultCharacters: 24_000 } });
     const table = await files.ingest({ name: "numbers.csv", bytes: utf8(numbers(4_000)) });
     const prose = await files.ingest({ name: "חוזה.txt", bytes: utf8(hebrew(3_000)) });
     // The limits each call was given, as the tool set saw them.
@@ -88,7 +88,7 @@ describe("the room for tool results, in tokens", () => {
   });
 
   it("changes nothing on a 1M window: a Hebrew turn sends the results as the tools give them", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "חוזה.txt", bytes: utf8(hebrew(4_000)) });
     const turn = reads(meta.id, 4, 300);
     const model = fakeModel([calls(turn), says("סיכום.")], { contextTokens: 1_048_576 });
@@ -100,7 +100,7 @@ describe("the room for tool results, in tokens", () => {
   });
 
   it("cuts results that would pass the room, from a tool set that does not keep to maxResultCharacters", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "numbers.csv", bytes: utf8(numbers(8_000)) });
     const digits = numbers(2_000).slice(0, 40_000);
     const own: LargeFiles = {

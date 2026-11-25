@@ -42,7 +42,7 @@ function watched<T extends DocumentStore>(store: T): { store: T; calls: string[]
 describe("files.stats()", () => {
   it("gives plain numbers, without a store call", () => {
     const { store, calls } = watched(new MemoryDocumentStore());
-    const files: CreatedLargeFiles = createLargeFiles({ store, cacheBytes: 1_000_000, maxStuckStoreCalls: 3 });
+    const files: CreatedLargeFiles = createLargeFiles({ requireOwner: false, store, cacheBytes: 1_000_000, maxStuckStoreCalls: 3 });
     const stats: LargeFilesStats = files.stats();
     expect(stats).toEqual({
       ingests: { active: 0, waiting: 0 },
@@ -60,7 +60,7 @@ describe("files.stats()", () => {
 
   it("moves with an ingest that is held, and one that waits its turn", async () => {
     const held = heldExtractor();
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: held.extract }, maxConcurrentIngests: 1 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: held.extract }, maxConcurrentIngests: 1 });
     const first = files.ingest({ name: "a.txt", bytes: utf8("alpha\n") });
     const second = files.ingest({ name: "b.txt", bytes: utf8("beta\n") });
     await until(() => held.state.running === 1);
@@ -102,7 +102,7 @@ describe("files.stats()", () => {
         return super.readTextRange(id, start, end, context);
       }
     }
-    const files = createLargeFiles({ store: new Slow(directory), wholeDocumentBytes: 0, maxConcurrentScans: 1, cacheBytes: 50_000_000 });
+    const files = createLargeFiles({ requireOwner: false, store: new Slow(directory), wholeDocumentBytes: 0, maxConcurrentScans: 1, cacheBytes: 50_000_000 });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(3_000)) });
     const tools = files.tools([meta]);
     expect(await tools.execute("read_document", { document_id: meta.id, start_line: 1, end_line: 2 })).toMatchObject({ lines: "1-2" });
@@ -127,7 +127,7 @@ describe("files.stats()", () => {
 describe("handlers.stats()", () => {
   async function serve(options: Parameters<typeof createDocumentHandlers>[1]) {
     const held = heldExtractor();
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: held.extract }, maxConcurrentIngests: 10 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: held.extract }, maxConcurrentIngests: 10 });
     const handlers = createDocumentHandlers(files, options);
     const server = createServer((request, response) => void handlers.upload(request, response));
     servers.push(server);

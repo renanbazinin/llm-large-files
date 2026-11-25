@@ -12,7 +12,7 @@ type ToolEnd = Extract<AskEvent, { type: "tool.end" }>;
 
 /** A log of payments with Israeli ID numbers and card numbers in it, searched with the tools. */
 async function payments() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
   const lines = Array.from({ length: 400 }, (_, index) => `2026-11-12 payment ${index + 1} by ת.ז. 0${String(12_345_678 + index)} card 4580-1234-5678-${String(1_000 + index)} ok`);
   const meta = await files.ingest({ name: "payments.log", bytes: utf8(lines.join("\n")) });
   return { files, meta };
@@ -169,7 +169,7 @@ describe("onToolResult", () => {
   });
 
   it("fits a replacement to the room in the request, as it does the tool's own result", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, contextTokens: 128_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, contextTokens: 128_000 } });
     const lines = Array.from({ length: 5_000 }, (_, index) => `2026-11-12 08:00:00 INFO request ${index + 1} ok`);
     const meta = await files.ingest({ name: "app.log", bytes: utf8(lines.join("\n")) });
     const events: AskEvent[] = [];

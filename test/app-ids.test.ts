@@ -41,7 +41,7 @@ class StoreOf08 implements DocumentStore {
 
 describe("the shape of an application's ID", () => {
   it("takes lowercase letters, digits, '_' and '-', up to 64, from a letter or a digit", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     for (const id of ["a", "0", "upload-1", "u_1-x", "x".repeat(64), "doc_0123456789abcdef0123456789abcdef"]) {
       expect((await files.ingest({ name: "a.txt", bytes: utf8("a\n"), id })).id).toBe(id);
       expect(isDocumentId(id)).toBe(true);
@@ -57,12 +57,12 @@ describe("the shape of an application's ID", () => {
   it("keeps the shapes of both patterns, and still makes an ID when none is given", async () => {
     expect(DOCUMENT_ID_PATTERN.test("upload-1")).toBe(false);
     expect(APP_DOCUMENT_ID_PATTERN.test("upload-1")).toBe(true);
-    const meta = await createLargeFiles({ store: new MemoryDocumentStore() }).ingest({ name: "a.txt", bytes: utf8("a\n") });
+    const meta = await createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).ingest({ name: "a.txt", bytes: utf8("a\n") });
     expect(meta.id).toMatch(DOCUMENT_ID_PATTERN);
   });
 
   it("is used everywhere an ID is: getMeta, prepare, tools, delete", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(Array.from({ length: 300 }, (_, i) => `INFO request ${i}`).join("\n")), id: "upload-7" });
     expect((await files.getMeta("upload-7"))?.name).toBe("app.log");
     expect(await textOf(files, "upload-7")).toContain("document_id: upload-7");
@@ -72,7 +72,7 @@ describe("the shape of an application's ID", () => {
   });
 
   it("refuses an ifExists it does not know", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await expect(files.ingest({ name: "a.txt", bytes: utf8("a\n"), id: "x", ifExists: "skip" as "fail" })).rejects.toThrow(new TypeError('ifExists must be "fail" or "replace".'));
   });
 });
@@ -84,7 +84,7 @@ describe('ifExists: "fail", the default', () => {
       reads++;
       return { text: new TextDecoder().decode(bytes) };
     };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: counting } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: counting } });
     const scope = ["u1", "s1"];
     await files.ingest({ name: "first.txt", bytes: utf8("first\n"), id: "upload-1", scope });
     const events: IngestEvent[] = [];
@@ -97,7 +97,7 @@ describe('ifExists: "fail", the default', () => {
   });
 
   it("refuses a document of that ID in another scope, over a store that keeps no scopes apart", async () => {
-    const files = createLargeFiles({ store: new StoreOf08() });
+    const files = createLargeFiles({ requireOwner: false, store: new StoreOf08() });
     await files.ingest({ name: "a.txt", bytes: utf8("chat one\n"), id: "upload-1", scope: ["u1", "s1"], owner: "u1" });
     await expect(files.ingest({ name: "b.txt", bytes: utf8("chat two\n"), id: "upload-1", scope: ["u2", "s9"], owner: "u2" }))
       .rejects.toMatchObject({ code: "exists", status: 409 });
@@ -105,7 +105,7 @@ describe('ifExists: "fail", the default', () => {
   });
 
   it("takes the same ID in another scope of a store that keeps scopes apart", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await files.ingest({ name: "a.txt", bytes: utf8("chat one\n"), id: "upload-1", scope: ["u1", "s1"] });
     await files.ingest({ name: "b.txt", bytes: utf8("chat two\n"), id: "upload-1", scope: ["u1", "s2"] });
     expect(await textOf(files, "upload-1", { scope: ["u1", "s1"] })).toContain("chat one");
@@ -115,7 +115,7 @@ describe('ifExists: "fail", the default', () => {
   it("writes over a document of that ID that has expired", async () => {
     let clock = new Date("2026-01-01T00:00:00Z");
     const store = new StoreOf08();
-    const files = createLargeFiles({ store, ttlMs: 60_000, now: () => clock });
+    const files = createLargeFiles({ requireOwner: false, store, ttlMs: 60_000, now: () => clock });
     await files.ingest({ name: "a.txt", bytes: utf8("old\n"), id: "upload-1" });
     clock = new Date("2026-01-01T00:02:00Z");
     await files.ingest({ name: "a.txt", bytes: utf8("new\n"), id: "upload-1" });
@@ -137,8 +137,8 @@ describe('ifExists: "fail", the default', () => {
     // Two libraries over one store, as two servers: in one library, the second ingest of an ID is
     // refused at once, while the first is under way (test/app-id-ingests.test.ts).
     const store = new MemoryDocumentStore();
-    const one = createLargeFiles({ store, extractors: { text: slow } });
-    const two = createLargeFiles({ store });
+    const one = createLargeFiles({ requireOwner: false, store, extractors: { text: slow } });
+    const two = createLargeFiles({ requireOwner: false, store });
     const first = one.ingest({ name: "slow.txt", bytes: utf8("slow\n"), id: "upload-1" }).catch((error: unknown) => error);
     await started;
     await two.ingest({ name: "fast.txt", bytes: utf8("fast\n"), id: "upload-1" });
@@ -150,7 +150,7 @@ describe('ifExists: "fail", the default', () => {
 
 describe('ifExists: "replace"', () => {
   it("replaces a document of the same owner and scope", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["text"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["text"] });
     const who = { owner: "u1", scope: ["u1", "s1"] };
     await files.ingest({ name: "a.txt", bytes: utf8("old text\n"), id: "upload-1", ...who });
     expect(await textOf(files, "upload-1", who)).toContain("old text");
@@ -162,7 +162,7 @@ describe('ifExists: "replace"', () => {
 
   it("refuses one of another owner or scope", async () => {
     const store = new StoreOf08();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     await files.ingest({ name: "a.txt", bytes: utf8("alice's\n"), id: "upload-1", owner: "alice", scope: ["alice", "s1"] });
     for (const other of [{ owner: "bob", scope: ["alice", "s1"] }, { owner: "alice", scope: ["alice", "s2"] }, { owner: "alice" }, { scope: ["alice", "s1"] }]) {
       await expect(files.ingest({ name: "b.txt", bytes: utf8("other\n"), id: "upload-1", ifExists: "replace", ...other }), JSON.stringify(other))
@@ -184,7 +184,7 @@ describe('ifExists: "replace"', () => {
       }
     }
     const store = new Lossy();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     // Missing: written.
     expect((await files.ingest({ name: "a.txt", bytes: utf8("first\n"), id: "upload-1", ifExists: "replace", owner: "alice" })).id).toBe("upload-1");
     // Its text lost: missing for its owner, and replaced by its owner.
@@ -208,7 +208,7 @@ describe('ifExists: "replace"', () => {
       }
     }
     const store = new Ranged();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     await files.ingest({ name: "a.txt", bytes: utf8("alice's\n"), id: "upload-1", owner: "alice" });
     await expect(files.ingest({ name: "b.txt", bytes: utf8("bob's\n"), id: "upload-1", owner: "bob", ifExists: "replace" }))
       .rejects.toMatchObject({ code: "exists", status: 409 });
@@ -218,7 +218,7 @@ describe('ifExists: "replace"', () => {
 
   it("never replaces a document written by a newer version", async () => {
     const store = new StoreOf08();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     await files.ingest({ name: "a.txt", bytes: utf8("newer\n"), id: "upload-1" });
     store.documents.get("upload-1")!.meta.metaVersion = 2;
     const refused = await files.ingest({ name: "a.txt", bytes: utf8("older\n"), id: "upload-1", ifExists: "replace" }).catch((error: unknown) => error);

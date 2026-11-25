@@ -162,8 +162,8 @@ import { readFile } from "node:fs/promises";
 import { createLargeFiles, FileDocumentStore, type ChatTurn } from "llm-large-files";
 import { askGemini } from "llm-large-files/gemini";
 
-// endpoint as in Access tokens for Vertex AI.
-const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
+// endpoint as in Access tokens for Vertex AI. One user: no owner checks (a server names the owner of every call).
+const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files"), requireOwner: false });
 const meta = await files.ingest({ name: "import.log", bytes: await readFile("./import.log") });
 
 const documentIds = [meta.id];
@@ -414,6 +414,7 @@ const small = gemini(endpoint, { contextTokens: 128_000, maxRequestBytes: 4_000_
 const files = createLargeFiles({
   store: new FileDocumentStore("./data/large-files"),
   budget: { contextTokens: 128_000, maxRequestBytes: 4_000_000 },
+  requireOwner: false, // one user, as in the askGemini sample above
 });
 // ...or in the budget of one question.
 await askGemini({ files, endpoint, documentIds, messages, budget: { contextTokens: 128_000 } });

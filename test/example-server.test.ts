@@ -91,4 +91,28 @@ describe("examples/server.ts", () => {
     expect(JSON.stringify(model.requests[1])).not.toContain("When is the meeting?");
     expect(await (await alice.request(`/api/documents/${id}`, { method: "DELETE" })).json()).toEqual({ deleted: true });
   });
+
+  it("lists the browser's uploads at GET /api/documents", async () => {
+    const { files, isolated } = demoLibrary(new MemoryDocumentStore());
+    close = () => isolated.close();
+    server = createDemoServer({ files, model: fakeModel([says("Hi.")]) });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    // Without the cookie of the page: nobody's list.
+    const stranger = await fetch(`${base}/api/documents`);
+    expect(stranger.status).toBe(401);
+    expect(await stranger.json()).toEqual({ error: "Sign in first." });
+
+    const alice = browser(base);
+    const bob = browser(base);
+    await alice.request("/");
+    await bob.request("/");
+    const uploaded = await alice.request("/api/documents", { method: "POST", headers: { "X-File-Name": "notes.txt" }, body: "The meeting is on Tuesday." });
+    const summary = (await uploaded.json()) as { id: string };
+    const listed = await alice.request("/api/documents");
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual({ documents: [summary] });
+    expect(await (await bob.request("/api/documents")).json()).toEqual({ documents: [] });
+  });
 });

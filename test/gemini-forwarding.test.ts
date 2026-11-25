@@ -34,7 +34,7 @@ vi.mock("../src/gemini/generate.js", async (importOriginal) => {
 const say = (text: string) => Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text }] } }] });
 
 async function notes() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
   const meta = await files.ingest({ name: "notes.md", bytes: utf8("The code word is heron.\n") });
   return { files, meta };
 }

@@ -40,7 +40,7 @@ describe("llm-large-files/testing", () => {
   });
 
   it("runs the tool loop with a scripted model", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(400)) });
     const search = { id: "c1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
     const model = fakeModel([calls([search]), says("4 errors.")]);

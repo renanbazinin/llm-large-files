@@ -29,7 +29,8 @@ question ─► plan the documents for the room left in the request, smallest fi
 
 `files.ingest({ name, bytes, mimeType?, owner?, signal? })` does five things, in order.
 
-1. **Check.** An owner that is empty, spaces only or `null` is refused
+1. **Check.** A call without an owner is refused unless the library has `requireOwner: false`
+   (since 0.99.9), and an owner that is empty, spaces only or `null` is refused
    ([Security](./security.md#ownership)). The name is cleaned to one printable line: the last path
    segment, without control characters, line breaks, text-direction controls or most other
    characters that show nothing (variation selectors, joiners and Hangul fillers are kept), 255
@@ -365,7 +366,7 @@ size and 200 more. Otherwise it becomes searchable. The 256 KB are kept for the 
 declarations and the JSON around them.
 
 - An ID given twice counts once. A document that was never there, was deleted, has expired or
-  belongs to another owner is in `missing`, and `askWithFiles` throws `DocumentsNotFoundError` for
+  belongs to another owner (or to none, under `requireOwner`, the default) is in `missing`, and `askWithFiles` throws `DocumentsNotFoundError` for
   it. One that disappears while its text or card is read is moved to `missing`, and the plan is
   made again.
 - With `viewPages`, `viewable` lists the PDFs whose original is kept (and a store that can give it
@@ -391,7 +392,7 @@ To see a plan and a budget without asking a model:
 import { readFile } from "node:fs/promises";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false }); // one user: no owner checks
 const meta = await files.ingest({ name: "app.log", bytes: await readFile("app.log") });
 
 // The budget of a question on a model with a window of 128,000 tokens:

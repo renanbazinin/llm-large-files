@@ -37,8 +37,8 @@ afterEach(async () => {
 describe("documents kept in memory are checked against the store on every use", () => {
   it("does not serve a document that another server deleted from a shared volume", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-cache-"));
-    const podA = createLargeFiles({ store: new FileDocumentStore(directory), budget: { inlineTokens: 10 } });
-    const podB = createLargeFiles({ store: new FileDocumentStore(directory), budget: { inlineTokens: 10 } });
+    const podA = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), budget: { inlineTokens: 10 } });
+    const podB = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), budget: { inlineTokens: 10 } });
     const meta = await podA.ingest({ name: "customers.log", bytes: bytes(logText(400, "card 4111 ")), owner: "u1" });
 
     // Pod B reads it, so it is in pod B's memory.
@@ -60,7 +60,7 @@ describe("documents kept in memory are checked against the store on every use", 
 
   it("does not serve a document deleted from a shared store behind its back", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(logText(300)) });
     const tools = files.tools([meta]);
     expect((await tools.execute("read_document", { document_id: meta.id, start_line: 1, end_line: 2 })).lines).toBe("1-2");
@@ -70,7 +70,7 @@ describe("documents kept in memory are checked against the store on every use", 
 
   it("drops a document at its expiry by the library's clock", async () => {
     let clock = new Date("2026-01-01T00:00:00Z");
-    const files = createLargeFiles({ store: new MemoryDocumentStore({ now: () => new Date("2026-01-01T00:00:00Z") }), ttlMs: 60_000, now: () => clock, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore({ now: () => new Date("2026-01-01T00:00:00Z") }), ttlMs: 60_000, now: () => clock, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(logText(300)) });
     expect((await files.prepare([meta.id], { tokens: 0, bytes: 0 })).missing).toEqual([]);
     clock = new Date("2026-01-01T00:01:00Z");
@@ -79,7 +79,7 @@ describe("documents kept in memory are checked against the store on every use", 
 
   it("reads a document again when the store describes another text under the same ID", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(logText(300, "old ")) });
     const tools = files.tools([meta]);
     expect((await tools.execute("search_document", { document_id: meta.id, query: "old request", mode: "exact" })).total_matching_lines).toBe(300);
@@ -92,7 +92,7 @@ describe("documents kept in memory are checked against the store on every use", 
 
   it("does not read a document of another owner at all", async () => {
     const store = new CountingStore();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "a.txt", bytes: bytes("secret"), owner: "u1" });
     const prepared = await files.prepare([meta.id], { tokens: 0, bytes: 0 }, { owner: "u2" });
     expect(prepared.missing).toEqual([meta.id]);
@@ -103,7 +103,7 @@ describe("documents kept in memory are checked against the store on every use", 
 describe("the memory documents may take", () => {
   it("reads a document once for many tool calls, and once for calls that arrive together", async () => {
     const store = new CountingStore();
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(logText(2_000)) });
     const tools = files.tools([meta]);
     await Promise.all(Array.from({ length: 25 }, (_, i) => tools.execute("read_document", { document_id: meta.id, start_line: i * 10 + 1, end_line: i * 10 + 5 })));
@@ -115,7 +115,7 @@ describe("the memory documents may take", () => {
 
   it("keeps nothing with cacheBytes 0, and still answers", async () => {
     const store = new CountingStore();
-    const files = createLargeFiles({ store, cacheBytes: 0, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, cacheBytes: 0, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(logText(500)) });
     const tools = files.tools([meta]);
     for (let i = 0; i < 5; i++) expect((await tools.execute("read_document", { document_id: meta.id, start_line: 1, end_line: 1 })).lines).toBe("1-1");
@@ -125,7 +125,7 @@ describe("the memory documents may take", () => {
   it("drops the least recently used document when the next one does not fit, and keeps the last one larger than the limit apart", async () => {
     const store = new CountingStore();
     // Each log of 1,000 lines takes about 100 KB here (ASCII, kept with its lowercased copy).
-    const files = createLargeFiles({ store, cacheBytes: 250_000, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, cacheBytes: 250_000, budget: { inlineTokens: 10 } });
     const a = await files.ingest({ name: "a.log", bytes: bytes(logText(1_000, "a ")) });
     const b = await files.ingest({ name: "b.log", bytes: bytes(logText(1_000, "b ")) });
     const c = await files.ingest({ name: "c.log", bytes: bytes(logText(1_000, "c ")) });
@@ -163,7 +163,7 @@ describe("the memory documents may take", () => {
 
   it("still honours cacheSize as a cap on the number of documents", async () => {
     const store = new CountingStore();
-    const files = createLargeFiles({ store, cacheSize: 1, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, cacheSize: 1, budget: { inlineTokens: 10 } });
     const a = await files.ingest({ name: "a.log", bytes: bytes(logText(100)) });
     const b = await files.ingest({ name: "b.log", bytes: bytes(logText(100)) });
     const tools = files.tools([a, b]);
@@ -249,7 +249,7 @@ describe("copies kept for each scope (0.9.0)", () => {
     // A store that keeps no scopes apart: one document of no scope, which callers of every scope may use.
     const store = new CountingStore();
     const clock = new Date("2026-02-01T00:00:00Z");
-    const files = createLargeFiles({ store, now: () => clock, ttlMs: Number.POSITIVE_INFINITY, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, now: () => clock, ttlMs: Number.POSITIVE_INFINITY, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(logText(300, "alpha ")), id: "shared" });
     const scopes = [undefined, ["u1", "s1"], ["u1", "s2"]];
     const found = async (scope: string[] | undefined, word: string) => {

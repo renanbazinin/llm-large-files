@@ -9,7 +9,7 @@ import { calls, fakeModel, says, serviceLog, utf8 } from "./fake-model.js";
 const csv = () => ["Region,Amount", ...Array.from({ length: 300 }, (_, index) => `${["North", "South"][index % 2]},${index}`)].join("\n");
 
 async function library() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 4_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 4_000 } });
   const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(400)) });
   const sales = await files.ingest({ name: "sales.csv", bytes: utf8(csv()) });
   return { files, log, sales };
@@ -147,7 +147,7 @@ describe("ToolSet.wholeReadsLeft", () => {
   });
 
   it("lets askWithFiles refuse a read that failed with its own reason, not its price (probe3, LLF-058)", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 50_000, inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 50_000, inlineTokens: 10 } });
     const meta = await files.ingest({ name: "big.log", bytes: utf8(serviceLog(6_000)) });
     const generateText: GenerateText = async () => {
       throw Object.assign(new Error("boom"), { status: 400 });

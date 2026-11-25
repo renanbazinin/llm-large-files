@@ -658,7 +658,8 @@ export type EvalLibrary = {
 export async function evalLibrary(): Promise<EvalLibrary> {
   const { fixtures, facts } = await buildFixtures();
   const store = new MemoryDocumentStore({ now: CLOCK });
-  const files = createLargeFiles({ store, now: CLOCK, keepOriginals: ["pdf"] });
+  // One user, the evals: no owner checks (the requests are the same with owners).
+  const files = createLargeFiles({ store, now: CLOCK, keepOriginals: ["pdf"], requireOwner: false });
   const names: Record<string, string> = {};
   const formats: Record<string, DocumentFormat> = {};
   const texts = new Map<string, string[]>();

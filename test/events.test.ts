@@ -23,7 +23,7 @@ function quickRetry(more: RetryOptions = {}): { retry: RetryOptions; waits: numb
 }
 
 async function largeLog(lines = 5_000, budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(lines)) });
   return { files, meta };
 }
@@ -213,7 +213,7 @@ describe("the events of a question", () => {
   });
 
   it("tells a retry with its wait, its error and the words onActivity gets", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     const model = fakeModel([httpError(503), says("Heron.")]);
     const events: AskEvent[] = [];
@@ -321,7 +321,7 @@ describe("the events of a question", () => {
   });
 
   it("plans again within one run: one run.start, two plans, a replanned notice between them", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
     const model = fakeModel([(request) => {
       const text = request.messages[0]!.role === "tools" ? "" : request.messages[0]!.parts.map((part) => part.text ?? "").join("\n");
@@ -345,7 +345,7 @@ describe("the events of a question", () => {
   });
 
   it("reports the requests of whole-file reads with their call, and the progress of each read apart", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
     const first = await files.ingest({ name: "first.log", bytes: utf8(serviceLog(5_000)) });
     const second = await files.ingest({ name: "second.log", bytes: utf8(serviceLog(4_000)) });
     const generateText: GenerateText = async ({ onUsage }) => {
@@ -467,7 +467,7 @@ describe("the events of a question", () => {
 
 describe("notices that earlier versions did not show", () => {
   it("says when the provider refused the prompt", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     const model = fakeModel([says("I started to", { blockReason: "refusal: cyber", finishReason: "refusal" })]);
     const events: AskEvent[] = [];
@@ -501,7 +501,7 @@ describe("notices that earlier versions did not show", () => {
   });
 
   it("says once that there is no room left for another tool result", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 64_000, reservedTokens: 8_000, inlineTokens: 30_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 64_000, reservedTokens: 8_000, inlineTokens: 30_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(60_000)) });
     let next = 1;
     const model = fakeModel([(request) => {
@@ -570,7 +570,7 @@ describe("what events tell of errors", () => {
   });
 
   it("tells a thrown value that is not an Error plainly, and throws it as it came", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     // It cannot be made a string: String() of it throws.
     const odd = Object.create(null) as object;
@@ -608,7 +608,7 @@ describe("the result in run.finish and run.error", () => {
   it("names the documents of its plan only: no owner, outline or lines of a log unless eventResults is set", async () => {
     // A log the plan searches (its card holds its commonest lines) and a short page it sends whole
     // (its meta holds the outline), both of one owner.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const owner = "user-4711-secret";
     const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)), owner });
     const page = await files.ingest({ name: "notes.md", bytes: utf8("# Quarterly Heron Plan\n\nShort notes."), owner });
@@ -648,7 +648,7 @@ describe("streamText", () => {
     return { model, streamed };
   }
   const notes = async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     return { files, documentIds: [meta.id], messages: question("?") };
   };
@@ -756,7 +756,7 @@ describe("a listener that throws", () => {
   });
 
   it("on the start of a chat request, still ends it, before run.error", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.") });
     const model = fakeModel([says("Heron.")]);
     const { events, thrown, onEvent } = throwing((event) => event.type === "request.start");
@@ -816,7 +816,7 @@ describe("a listener that throws", () => {
 
 describe("the order of the events", () => {
   it("starts with run.start even when the options do not work", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const events: AskEvent[] = [];
     await expect(askWithFiles({ files, model: undefined as never, documentIds: "doc_1" as never, messages: question("?"), onEvent: (event) => events.push(event) })).rejects.toThrow();
     checkRun(events);

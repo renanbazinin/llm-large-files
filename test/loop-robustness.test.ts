@@ -31,7 +31,7 @@ const textOf = (message: ModelMessage | undefined) => (message && message.role !
 const quick = (): RetryOptions => ({ random: () => 1, sleep: async () => undefined });
 
 async function largeLog(lines = 5_000, budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(lines)) });
   return { files, meta };
 }
@@ -283,7 +283,7 @@ describe("a request larger than the model takes", () => {
 
   it("plans the documents again for a smaller window when the very first request is too large", async () => {
     // 600 lines fit the budget whole, but not the model's real window.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
     const steps: string[] = [];
     const model = fakeModel([(request) => {
@@ -331,7 +331,7 @@ describe("a request larger than the model takes", () => {
       ["429 TPM", () => httpError(429, tpm), "The first request was larger than the 30,000 tokens a minute that the provider allows: the files were planned again to fit it"],
     ];
     for (const [label, refusal, step] of refusals) {
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
       const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
       let refused = 0;
       const model = fakeModel([() => (refused++ === 0 ? refusal() : says("Answered."))]);
@@ -350,7 +350,7 @@ describe("a request larger than the model takes", () => {
       readonly status = 429;
       readonly message = "Request too large for gpt-4o in organization org-1 on tokens per min (TPM): Limit 30000, Requested 50000.";
     }
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 200_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
     let refused = 0;
     // Thrown, not returned: fakeModel takes only an Error it is given for a refusal.
@@ -376,7 +376,7 @@ describe("a request larger than the model takes", () => {
     // the model's error, so the first try's overflow is still the one reported, with its partial result.
     for (const failure of ["deleted", "store"] as const) {
       const store = new MemoryDocumentStore();
-      const files = createLargeFiles({ store, budget: { contextTokens: 200_000 } });
+      const files = createLargeFiles({ requireOwner: false, store, budget: { contextTokens: 200_000 } });
       const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
       const overflow = new ModelRequestError("This model's maximum context length is 8192 tokens. However, your messages resulted in 21000 tokens.", 400);
       const model = fakeModel([async () => {
@@ -777,7 +777,7 @@ describe("since the review of these changes", () => {
   });
 
   it("fits the application's budget to the smaller window when it plans again, as for a window the model declares", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { contextTokens: 128_000, reservedTokens: 24_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { contextTokens: 128_000, reservedTokens: 24_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(600)) });
     const model = fakeModel([(request) => (/^--- Attached file \[mark [0-9a-f]{8}\]: "app\.log"/.test(textOf(request.messages[0]))
       ? new ModelRequestError("This model's maximum context length is 32768 tokens. However, your messages resulted in 61000 tokens.", 400)
@@ -935,7 +935,7 @@ describe("since the second review of these changes", () => {
   });
 
   it("shares what limits.requests leaves among the whole-file reads of one turn: together they never pass it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
     const first = await files.ingest({ name: "a.log", bytes: utf8(serviceLog(5_000)) });
     const second = await files.ingest({ name: "b.log", bytes: utf8(serviceLog(3_000)) });
     const given: number[] = [];

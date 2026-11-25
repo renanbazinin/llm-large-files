@@ -6,8 +6,12 @@ import { checkScope, sameScope, scopeKey } from "./scope.js";
 import { DOCUMENT_META_VERSION } from "./stores.js";
 import type { DocumentContext, DocumentMeta, DocumentScope } from "./types.js";
 
-/** The TypeError of a call without an owner, when the library requires one (`requireOwner`). */
-export const OWNER_REQUIRED = "owner is required: requireOwner is on";
+/**
+ * The TypeError of a call without an owner, when the library requires one (`requireOwner`, on by
+ * default since 0.99.9). It says how to turn the checks off. Its start, "owner is required:
+ * requireOwner is on", is that of 0.9.0 to 0.10.x.
+ */
+export const OWNER_REQUIRED = "owner is required: requireOwner is on (the default). Pass the user's ID as owner, or create the library with requireOwner: false to allow calls without one.";
 /** The TypeError of a call without a scope, when the library requires one (`requireScope`). */
 export const SCOPE_REQUIRED = "scope is required: requireScope is on";
 
@@ -73,7 +77,8 @@ export function callerOf(access: { readonly owner?: unknown; readonly scope?: un
 /**
  * Whether `caller` may use the document `meta` describes. A document with an owner serves only that
  * owner, and one with a scope only a caller of the same scope, segment by segment. A document
- * without an owner serves any caller, unless the library requires owners; the same for scopes.
+ * without an owner serves any caller, unless the library requires owners (the default since
+ * 0.99.9); the same for scopes.
  * Null is no owner and no scope, as a database gives a field that was left out. A refusal is never
  * told: the document reads as missing.
  */

@@ -107,7 +107,7 @@ describe("errors of OpenAI-compatible servers, since the 0.6 review", () => {
     expect(alone.sent).toBe(1);
 
     // In a question: the log was put in the prompt whole, which is more than the minute allows.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 400_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 400_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(3_000)) });
     const server = counting((_sent, sent) => (JSON.stringify(sent).length > 200_000 ? json(tooLarge, 429) : json(reply("Answered from the card."))));
     const result = await askWithFiles({ files, model: openAi(server.fetch), documentIds: [meta.id], messages: question("?"), retry: quick });
@@ -123,7 +123,7 @@ describe("errors of OpenAI-compatible servers, since the 0.6 review", () => {
   });
 
   it("says that a request was larger than the provider allows in a minute when it shortens older tool results for it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
     const read = (from: number) => ({ name: "read_document", args: { document_id: meta.id, start_line: from, end_line: from + 199 } });
     const tooLarge = "Request too large for gpt-4o in organization org-abc on tokens per min (TPM): Limit 30000, Requested 45237.";
@@ -303,7 +303,7 @@ describe("streams that end or hang, since the 0.6 review", () => {
   });
 
   it("says that a reply was cut off on its way, not that the model could not be reached, when it is sent again", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "note.txt", bytes: utf8("The meeting moved to Tuesday.\n") });
     const stream = (events: string[]) => new Response(body(events), { headers: { "Content-Type": "text/event-stream" } });
     const geminiChunk = (parts: Json[], finishReason?: string) => ({ candidates: [{ content: { role: "model", parts }, ...(finishReason ? { finishReason } : {}) }] });
@@ -331,7 +331,7 @@ describe("streams that end or hang, since the 0.6 review", () => {
   });
 
   it("says so too when the body broke on its way, streamed or not, or came empty", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "note.txt", bytes: utf8("The meeting moved to Tuesday.\n") });
     /** A body that sends its first piece, then breaks; or, with no piece, one that ends empty. */
     const broken = (first: string | undefined, type: string) => new Response(new ReadableStream<Uint8Array>({
@@ -514,7 +514,7 @@ describe("bodies that are not what was asked for, since the 0.6 review", () => {
 
 describe("part reads, since the 0.6 review", () => {
   it("does not tell the model the provider's words when a part read fails: only its kind and status", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(300)) });
     const failures: Array<[Error, string]> = [
       [new ModelRequestError("Incorrect API key provided: sk-proj-****wxyz.", 401), "The model refused the key or token it was sent (HTTP 401)."],
@@ -560,7 +560,7 @@ describe("part reads, since the 0.6 review", () => {
   });
 
   it("tells the errors of other HTTP clients, and errors with no status at all, without their words", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(300)) });
     const secret = "llm-gw.acme-prod-4471.corp.internal/v1?key=AIzaSECRET";
     const failures: Array<[unknown, string]> = [
@@ -604,7 +604,7 @@ describe("part reads, since the 0.6 review", () => {
 
   it("still tells a store that could not be read in the store's own words, among parts that were read", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(300)) });
     const document = new SearchableDocument((await store.get(meta.id))!);
     const readLines = document.readLines.bind(document);
@@ -633,7 +633,7 @@ describe("part reads, since the 0.6 review", () => {
   });
 
   it("still tells a reply with no text to a part reader of the package's in the package's words", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(300)) });
     const empty = (finish: string) => json({ choices: [{ index: 0, finish_reason: finish, message: { role: "assistant", content: "" } }] });
     const cases: Array<[GenerateText, string]> = [
@@ -658,7 +658,7 @@ describe("part reads, since the 0.6 review", () => {
   });
 
   it("tells a timeout as one, takes no other code or number for a connection or a status, and tells an error that throws when read", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(300)) });
     const secret = "llm-gw.acme-prod-4471.corp.internal";
     const failures: Array<[unknown, string]> = [
@@ -683,7 +683,7 @@ describe("part reads, since the 0.6 review", () => {
   });
 
   it("keeps the words of a provider's refusal out of the steps of a question too", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
     let turn = 0;
     const server = counting((_sent, sent) => {

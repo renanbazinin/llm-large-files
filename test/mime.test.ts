@@ -45,7 +45,7 @@ describe("cleanMimeType", () => {
 
 describe("the MIME type of an ingest", () => {
   it("is cleaned before it is stored, told in events and summaries, or used to pick the format", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const events: IngestEvent[] = [];
     const bad = await files.ingest({ name: "notes", mimeType: "text/plain\r\nX-Injected: yes", bytes: utf8("one\ntwo\n"), onEvent: (event) => events.push(event) });
     expect(bad.mimeType).toBe(OCTET);

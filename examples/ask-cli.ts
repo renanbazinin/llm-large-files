@@ -28,7 +28,8 @@ const used = (usage: UsageTotals) =>
 
 try {
   // keepOriginals: for a PDF, the model can then look at the pages themselves (a chart, a photo, a scan).
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+  // One user, on this machine: no owner checks.
+  const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], requireOwner: false });
   const meta = await files.ingest({ name: basename(file), bytes: await readFile(file) });
   console.error(`${meta.name}: ${meta.format}, ${meta.lines.toLocaleString()} lines, ~${meta.estimatedTokens.toLocaleString()} tokens\n`);
 

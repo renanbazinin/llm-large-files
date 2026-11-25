@@ -30,7 +30,7 @@ async function sinceAbort(asking: Promise<unknown>, abortedAt: () => number | un
 describe("the question's abort over a store that hangs", () => {
   it("ends the question within 50 ms while it plans (a 300 ms signal)", async () => {
     const { store, hang } = hungStore(["getMeta", "get", "delete"]);
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
     hang.on = true;
     const stop = new AbortController();
@@ -45,7 +45,7 @@ describe("the question's abort over a store that hangs", () => {
 
   it("ends the question within 50 ms while a search waits for the store (aborted at 500 ms)", async () => {
     const { store, hang } = hungStore(["getMeta", "get", "readTextRange", "getIndex"]);
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
     const stop = new AbortController();
     let abortedAt: number | undefined;

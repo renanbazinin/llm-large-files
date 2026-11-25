@@ -27,7 +27,7 @@ afterEach(removeFileStores);
 describe("ingest events", () => {
   it("reports a PDF page by page: the check, the text, the pictures, then the writes", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
     const record = recorder();
     const bytes = numberedPdf(30);
     const meta = await files.ingest({ name: "report.pdf", bytes, onEvent: record.onEvent });
@@ -49,7 +49,7 @@ describe("ingest events", () => {
   });
 
   it("reports the parts of a DOCX and of a PPTX", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const docx = new JSZip();
     docx.file("word/document.xml", "<w:document><w:body><w:p><w:r><w:t>Body text</w:t></w:r></w:p></w:body></w:document>");
     docx.file("word/header1.xml", "<w:hdr><w:p><w:r><w:t>Header</w:t></w:r></w:p></w:hdr>");
@@ -69,7 +69,7 @@ describe("ingest events", () => {
   });
 
   it("reports the preparing, indexing and storing of a log, under the run id given", async () => {
-    const files = createLargeFiles({ store: await fileStore() });
+    const files = createLargeFiles({ requireOwner: false, store: await fileStore() });
     const record = recorder();
     const meta = await files.ingest({ name: "app.log", bytes: encoder.encode(logText(20_000)), runId: "upload_7", onEvent: record.onEvent });
     const { events } = record;
@@ -85,7 +85,7 @@ describe("ingest events", () => {
   });
 
   it("reports the decoding of a file that is not UTF-8 when it ends", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     // "café crème" in windows-1252, many times over.
     const line = [0x63, 0x61, 0x66, 0xe9, 0x20, 0x63, 0x72, 0xe8, 0x6d, 0x65, 0x0a];
     const bytes = new Uint8Array(Array.from({ length: 200 }, () => line).flat());
@@ -96,7 +96,7 @@ describe("ingest events", () => {
   });
 
   it("ends a refused file with ingest.error, and nothing after it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const record = recorder();
     await expect(files.ingest({ name: "app.log.gz", bytes: gzipSync(encoder.encode("hello")), onEvent: record.onEvent })).rejects.toThrow(/gzip/);
     expectWellFormed(record.events);
@@ -117,7 +117,7 @@ describe("ingest events", () => {
       input.onProgress?.({ done: 3, total: 3, unit: "parts" });
       return { text: "too late" };
     };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: slow } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: slow } });
     const record = recorder();
     const controller = new AbortController();
     const ingest = files.ingest({ name: "notes.txt", bytes: encoder.encode("text"), signal: controller.signal, onEvent: record.onEvent });
@@ -135,7 +135,7 @@ describe("ingest events", () => {
 
   it("reports no extract progress for an extractor of your own that never calls onProgress", async () => {
     const quiet: Extractor = async () => ({ text: "line one\nline two\n" });
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: quiet } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: quiet } });
     const record = recorder();
     await files.ingest({ name: "notes.txt", bytes: encoder.encode("ignored"), onEvent: record.onEvent });
     expectWellFormed(record.events);
@@ -145,7 +145,7 @@ describe("ingest events", () => {
 
   it("passes on an error of the listener, and stores nothing", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
     const thrown = new Error("The listener failed.");
     const onEvent = (event: IngestEvent) => {
       if (event.type === "ingest.progress" && event.stage === "store") throw thrown;
@@ -178,7 +178,7 @@ describe("ingest events", () => {
         await super.put(document);
       }
     }
-    const files = createLargeFiles({ store: new LateStore(), extractors: { text: lingering } });
+    const files = createLargeFiles({ requireOwner: false, store: new LateStore(), extractors: { text: lingering } });
     const record = recorder();
     await files.ingest({ name: "notes.txt", bytes: encoder.encode("ignored"), onEvent: record.onEvent });
     expectWellFormed(record.events);
@@ -189,7 +189,7 @@ describe("ingest events", () => {
 
   it("removes the document when the listener throws on ingest.finish", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
     const thrown = new Error("The listener failed.");
     const types: string[] = [];
     const onEvent = (event: IngestEvent) => {
@@ -219,7 +219,7 @@ describe("ingest events", () => {
           throw failure;
         }
       }
-      const files = createLargeFiles({ store: new FailingStore() });
+      const files = createLargeFiles({ requireOwner: false, store: new FailingStore() });
       const record = recorder();
       // Thrown as the cause of a DocumentStoreError since 0.9.0, as it was.
       const thrown = await files.ingest({ name: "notes.txt", bytes: encoder.encode("text"), onEvent: record.onEvent }).catch((error: unknown) => error);
@@ -247,7 +247,7 @@ describe("ingest events", () => {
       const failing: Extractor = async () => {
         throw thrown;
       };
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: failing } });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: failing } });
       const record = recorder();
       await expect(files.ingest({ name: "notes.txt", bytes: encoder.encode("text"), onEvent: record.onEvent })).rejects.toBe(thrown);
       expectWellFormed(record.events);
@@ -256,7 +256,7 @@ describe("ingest events", () => {
   });
 
   it("sends ingest.start first and ends with ingest.error even when what it was given is refused, or the listener throws on the start", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const bad = { name: "notes.txt", bytes: encoder.encode("text"), owner: "  " };
     const plain = await files.ingest(bad).catch((caught: unknown) => caught);
     expect(plain).toBeInstanceOf(TypeError);

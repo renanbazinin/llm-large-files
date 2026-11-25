@@ -62,7 +62,7 @@ function fakeGemini(replies: Array<object | ((sent: Sent) => object | Response)>
 }
 
 async function largeLog(budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
   const meta = await files.ingest({ name: "app.log", bytes: encoder.encode(log(5_000)) });
   return { files, meta };
 }
@@ -183,7 +183,7 @@ describe("askGemini with an explorer model", () => {
   });
 
   it("does not call the explorer for a document that is sent whole", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: encoder.encode("# Notes\n\nThe code word is heron.") });
     const gemini = fakeGemini([say("Heron.")]);
     const result = await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [meta.id], system: "Be brief.", explorerGenerationConfig: { temperature: 0 }, messages: question("What is the code word?") });
@@ -298,7 +298,7 @@ describe("askGemini with an explorer model", () => {
   });
 
   it.each(["inside", "beside"] as const)("hands the pages the explorer looked at to the answering model (pages %s)", async (toolFilePlacement) => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const look = { name: "view_pages", args: { document_id: meta.id, from_page: 2, to_page: 3 } };
     const gemini = fakeGemini([

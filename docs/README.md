@@ -66,7 +66,8 @@ import { askWithFiles, createLargeFiles, FileDocumentStore } from "llm-large-fil
 import { askGemini, gemini, vertexAi } from "llm-large-files/gemini";
 
 // Assumed: getAccessToken() returns an OAuth access token for Vertex AI (see the Vertex guide),
-// and documentId is the `id` that files.ingest() returned for an upload.
+// documentId is the `id` that files.ingest() returned for an upload, and userId is the signed-in
+// user, its owner: every call names it (owner checks are on by default).
 const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
 const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
@@ -78,21 +79,21 @@ const documentIds = [documentId];
 const messages = [{ role: "user" as const, text: "What caused the outage, and when? Cite lines." }];
 
 // 1. askGemini: the endpoint says where the model is.
-const first = await askGemini({ files, endpoint, documentIds, messages });
+const first = await askGemini({ files, endpoint, documentIds, messages, owner: userId });
 
 // 2. askWithFiles: the same loop, with the model as an adapter you can swap or wrap.
 const model = gemini(endpoint);
-const second = await askWithFiles({ files, model, documentIds, messages });
+const second = await askWithFiles({ files, model, documentIds, messages, owner: userId });
 console.log(first.text, second.steps, second.usage);
 
 // 3. Your own loop: the plan, the cards and the tools, for a loop you already have.
 // The second argument is the size of the rest of your request: system prompt and messages.
-const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 });
+const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 }, { owner: userId });
 // By default, the instruction and the cards offer analyze_whole_document for a file that can be
 // read whole. The tool exists only when you pass `generate` (here the Gemini adapter's own).
-// Without it, pass { wholeDocumentAnalysis: false } as prepare's third argument, so that the
+// Without it, add wholeDocumentAnalysis: false to prepare's third argument, so that the
 // instruction and the cards do not offer the tool.
-const tools = files.tools(context.plan.searchable, { generate: model.generateText });
+const tools = files.tools(context.plan.searchable, { generate: model.generateText, access: { owner: userId } });
 // Put context.instruction in your system prompt and context.blocks (a text for each document) in
 // the user turn, offer tools.declarations to your model, and run each call with tools.execute().
 ```
@@ -151,8 +152,9 @@ Each term links to the page that explains it. The defaults and limits are on tho
 - **Owner**: a string you set at ingest, usually the ID of the user or tenant. It must not be
   empty: `ingest` refuses `""`, a string of spaces and `null`. Every later call for the document
   must pass the same string; with another one, the document is treated as missing and
-  `askWithFiles` throws `DocumentsNotFoundError`. A document without an owner can be used by anyone
-  who has its ID. The library only compares the strings: chat sessions, and which documents
+  `askWithFiles` throws `DocumentsNotFoundError`. Since 0.99.9 every call must name an owner
+  (`requireOwner`, on by default), and a document without one reads as missing. With
+  `requireOwner: false`, a document without an owner can be used by anyone who has its ID. The library only compares the strings: chat sessions, and which documents
   belong to one, are your application's to keep. See [storage](./guides/storage.md) and
   [security](./security.md).
 - **Plan**: the split of a question's documents into inline and searchable (`DocumentPlan`, also in

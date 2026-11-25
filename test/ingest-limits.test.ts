@@ -96,7 +96,7 @@ describe("ingest work in slices gives the results of 0.5.0", () => {
 
 describe("limits on what one file may cost", () => {
   it("refuses a PDF with more pages than maxPdfPages, before reading them", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxPdfPages: 3 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxPdfPages: 3 });
     await expect(files.ingest({ name: "long.pdf", bytes: numberedPdf(5) })).rejects.toThrow("This PDF has 5 pages, more than the 3 read from one file.");
     expect((await files.ingest({ name: "short.pdf", bytes: numberedPdf(3) })).pages).toBe(3);
   });
@@ -109,7 +109,7 @@ describe("limits on what one file may cost", () => {
       "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >> >>",
       pdfStream("", textLine("The same page, listed three times.")),
     ]);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await expect(files.ingest({ name: "repeat.pdf", bytes: pdf })).rejects.toThrow("This PDF lists the same page more than once.");
   });
 
@@ -120,7 +120,7 @@ describe("limits on what one file may cost", () => {
     zip.file("word/document.xml", `<w:document><w:body>${paragraph.repeat(30_000)}</w:body></w:document>`);
     const docx = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
     expect(docx.length).toBeLessThan(200_000);
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 200_000 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxUploadBytes: 200_000 });
     // 30,000 lines of 40 characters: about 1.2 MB of text, six times the upload limit.
     const meta = await files.ingest({ name: "long.docx", bytes: docx });
     expect(meta.lines).toBe(30_000);
@@ -129,11 +129,11 @@ describe("limits on what one file may cost", () => {
   });
 
   it("refuses a PDF, a DOCX and the result of an extractor of your own past maxTextBytes", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxTextBytes: 600 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxTextBytes: 600 });
     await expect(files.ingest({ name: "many.pdf", bytes: numberedPdf(40) })).rejects.toThrow("This PDF holds more than 600 B of text");
     const docx = await docxOf(`<w:document><w:body>${"<w:p><w:r><w:t>Forty characters of text in a paragraph.</w:t></w:r></w:p>".repeat(30)}</w:body></w:document>`);
     await expect(files.ingest({ name: "long.docx", bytes: docx })).rejects.toThrow("This DOCX holds more than 600 B of text");
-    const own = createLargeFiles({ store: new MemoryDocumentStore(), maxTextBytes: 600, extractors: { text: async () => ({ text: "x".repeat(700) }) } });
+    const own = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxTextBytes: 600, extractors: { text: async () => ({ text: "x".repeat(700) }) } });
     await expect(own.ingest({ name: "notes.txt", bytes: encoder.encode("short") })).rejects.toThrow("notes.txt holds more than 600 B of text");
     // Within the limit, nothing changes.
     expect((await files.ingest({ name: "short.pdf", bytes: numberedPdf(2) })).pages).toBe(2);
@@ -142,13 +142,13 @@ describe("limits on what one file may cost", () => {
   it("counts the text of a Word paragraph as it reads, not as the XML writes it", async () => {
     // 1,000 characters of XML, 200 of text: under a limit of 600 bytes.
     const docx = await docxOf(`<w:document><w:body><w:p><w:r><w:t>${"&amp;".repeat(200)}</w:t></w:r></w:p></w:body></w:document>`);
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxTextBytes: 600 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxTextBytes: 600 });
     expect((await files.ingest({ name: "ampersands.docx", bytes: docx })).characters).toBe(200);
   });
 
   it("drops empty Word paragraphs as it reads, and keeps the text", async () => {
     const docx = await docxOf(`<w:document><w:body>${"<w:p></w:p>".repeat(300_000)}<w:p><w:r><w:t>The one line of text.</w:t></w:r></w:p>${"<w:p><w:r><w:t> </w:t></w:r></w:p>".repeat(1_000)}</w:body></w:document>`);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "padded.docx", bytes: docx });
     expect(meta.lines).toBe(1);
     expect(await files.tools([meta]).execute("read_document", { document_id: meta.id })).toMatchObject({ text: "1| The one line of text." });
@@ -156,7 +156,7 @@ describe("limits on what one file may cost", () => {
 
   it("refuses paragraphs nested without end", async () => {
     const docx = await docxOf(`<w:document><w:body>${"<w:p><w:r><w:t>x".repeat(100_000)}</w:body></w:document>`);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await expect(files.ingest({ name: "deep.docx", bytes: docx })).rejects.toThrow("This DOCX nests paragraphs more than 32 deep");
   });
 });
@@ -252,7 +252,7 @@ function asZip64(bytes: Uint8Array, count: number): Uint8Array {
 }
 
 describe("the parts of a DOCX or PPTX are counted as JSZip reads them, before it does", () => {
-  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
 
   it("counts the parts JSZip reads, whatever the end record says", async () => {
     const zip = new JSZip();
@@ -410,7 +410,7 @@ function packedText(megabytes: number): Uint8Array {
 }
 
 describe("a PDF page that would hold the server is refused before pdf.js reads it", () => {
-  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
   const heavy = "Page 1 of this PDF draws far more than its file holds, and reading it would hold the server for a long time.";
 
   it("refuses a page whose content is packed hundreds of times", async () => {
@@ -464,7 +464,7 @@ describe("a PDF page that would hold the server is refused before pdf.js reads i
     // 14,400 paints of a form with text: past the limit, and about 1.1 s of pdf.js.
     const bomb = formsInForms(2, 120);
     await expect(files.ingest({ name: "forms.pdf", bytes: bomb })).rejects.toThrow(heavy);
-    const unchecked = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { pdf: createPdfExtractor({ checkPages: false }) } });
+    const unchecked = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { pdf: createPdfExtractor({ checkPages: false }) } });
     expect((await unchecked.ingest({ name: "forms.pdf", bytes: bomb })).pages).toBe(1);
   });
 
@@ -493,14 +493,14 @@ describe("time limit and abort", () => {
   const never = async () => new Promise<{ text: string }>(() => undefined);
 
   it("gives up on an ingest that takes longer than ingestTimeoutMs", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 50, extractors: { text: never } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ingestTimeoutMs: 50, extractors: { text: never } });
     const started = performance.now();
     await expect(files.ingest({ name: "stuck.txt", bytes: encoder.encode("text") })).rejects.toThrow("stuck.txt took too long to read (more than 50 ms)");
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
   it("stops when the caller's signal is aborted", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: never } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: never } });
     const controller = new AbortController();
     setTimeout(() => controller.abort(new Error("The uploader went away.")), 20);
     await expect(files.ingest({ name: "gone.txt", bytes: encoder.encode("text"), signal: controller.signal })).rejects.toThrow("The uploader went away.");
@@ -510,7 +510,7 @@ describe("time limit and abort", () => {
   });
 
   it("stops a PDF between its pages", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const controller = new AbortController();
     const ingest = files.ingest({ name: "book.pdf", bytes: numberedPdf(2_000), signal: controller.signal });
     setTimeout(() => controller.abort(new Error("Stop reading.")), 30);
@@ -519,17 +519,17 @@ describe("time limit and abort", () => {
 
   it("sets no limit with 0", async () => {
     const slow = async () => new Promise<{ text: string }>((resolve) => setTimeout(() => resolve({ text: "done" }), 60));
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 0, extractors: { text: slow } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ingestTimeoutMs: 0, extractors: { text: slow } });
     expect((await files.ingest({ name: "slow.txt", bytes: encoder.encode("x") })).lines).toBe(1);
     // A limit longer than a timer can wait (24.8 days) is none either, not one that fires at once.
-    const long = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 2 ** 31, extractors: { text: slow } });
+    const long = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ingestTimeoutMs: 2 ** 31, extractors: { text: slow } });
     expect((await long.ingest({ name: "slow.txt", bytes: encoder.encode("x") })).lines).toBe(1);
   });
 });
 
 describe("files.tools() checks the owner of each document", () => {
   it("reads a document only for the owner it was handed in with", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const alice = await files.ingest({ name: "salaries.txt", bytes: encoder.encode("Alice salary 250000\nBob salary 90000"), owner: "alice" });
     const open = await files.ingest({ name: "open.txt", bytes: encoder.encode("Anyone may read this.") });
     const read = (meta: typeof alice) => files.tools([meta]).execute("read_document", { document_id: meta.id });
@@ -544,7 +544,7 @@ describe("files.tools() checks the owner of each document", () => {
   });
 
   it("shows the pages of a PDF only for its owner", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const pdf = await files.ingest({ name: "report.pdf", bytes: numberedPdf(2), owner: "alice" });
     const look = (meta: typeof pdf) => files.tools([], { viewPages: [meta] }).executeWithFiles("view_pages", { document_id: meta.id, from_page: 1 });
     expect((await look(pdf)).files).toHaveLength(1);

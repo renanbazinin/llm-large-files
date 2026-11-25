@@ -18,7 +18,7 @@ const NEWER = "The document was stored by a newer version of llm-large-files. Tr
 /** A library over a memory store, with a log searched through tools and a short note sent whole. */
 async function library() {
   const store = new MemoryDocumentStore();
-  const files = createLargeFiles({ store, budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 1_000 } });
   const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(400)) });
   const note = await files.ingest({ name: "note.txt", bytes: utf8("Deploy on Friday.\n") });
   /** Writes the stored metadata again, changed by `change`, as an older or a newer version would have. */

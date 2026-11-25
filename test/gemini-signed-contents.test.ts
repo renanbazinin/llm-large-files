@@ -13,7 +13,7 @@ describe("signed rounds in askGemini's contents", () => {
     ["Vertex AI", vertexAi({ project: "p", model: "gemini-test", accessToken: "t" })],
   ] as const) {
     it(`sends the thought signature of an earlier question's round again (${label})`, async () => {
-      const files = createLargeFiles({ store: new MemoryDocumentStore() });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
       const meta = await files.ingest({ name: "notes.md", bytes: utf8("The code word is heron.\n") });
       const signed: GeminiContent = {
         role: "model",

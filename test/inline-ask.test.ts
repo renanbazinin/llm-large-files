@@ -40,7 +40,7 @@ const textOf = (request: ModelRequest) => request.messages.flatMap((message) => 
 const resultsOf = (request: ModelRequest): ToolResult[] => request.messages.filter((message): message is ModelToolRound => message.role === "tools").flatMap((round) => round.answers.map((answer) => answer.result));
 
 async function library(budget: Record<string, number> = {}): Promise<LargeFiles> {
-  return createLargeFiles({ store: new MemoryDocumentStore(), budget });
+  return createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget });
 }
 
 const cell = (text: string) => `<w:tc>${p(text)}</w:tc>`;
@@ -221,7 +221,7 @@ describe("tables sent whole get the tools that count them (inlineTables)", () =>
 
   it("gives the document_id of each table that gets the tools in its frame line: a model that reads only the request counts with it", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const csv = await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices()) });
     const note = await files.ingest({ name: "notes.md", bytes: utf8(NOTE) });
     // The model knows no ID but what the request says: it takes the CSV's from its frame line.
@@ -277,7 +277,7 @@ describe("tables sent whole get the tools that count them (inlineTables)", () =>
     expect(after.kinds).toEqual(["tools turn", "tools turn"]);
     expect(after.notices).toEqual(["answer_filtered"]);
     // A file searched keeps the request for the answer after such a reply.
-    const searched = await createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 } });
+    const searched = await createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 } });
     const log = await searched.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
     const events: AskEvent[] = [];
     await askWithFiles({ files: searched, model: fakeModel([ended.filtered]), documentIds: [log.id], messages: [question("Errors?")], onEvent: (event) => events.push(event) });
@@ -368,7 +368,7 @@ describe("tables sent whole get the tools that count them (inlineTables)", () =>
 describe("files sent whole are numbered (numberInline)", () => {
   it("numbers the block as read_document numbers lines, asks for citations, and supports a citation of it", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8(NOTE) });
     const model = fakeModel([says("The code word is heron (notes.md L3). The import runs at 02:00 (notes.md L9).")]);
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: [question("What is the code word?")] });
@@ -397,7 +397,7 @@ describe("files sent whole are numbered (numberInline)", () => {
 
   it("sends the block of 0.9 with numberInline false, and no citation line", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8(NOTE) });
     const model = fakeModel([says("Heron.")]);
     await askWithFiles({ files, model, documentIds: [meta.id], messages: [question("What is the code word?")], numberInline: false });

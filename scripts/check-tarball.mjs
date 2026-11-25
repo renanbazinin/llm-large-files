@@ -272,7 +272,7 @@ step("A PDF without unpdf is refused with a message that names it", () => {
     "no-peers.mjs": `
 import { readFileSync } from "node:fs";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false });
 try {
   await files.ingest({ name: "report.pdf", bytes: readFileSync(process.argv[2]) });
 } catch (error) {
@@ -298,7 +298,7 @@ if (fileURLToPath(childScript) !== required) throw new Error("import and require
 const isolated = createIsolatedExtractors({ formats: ["text"], childScript, concurrency: 1, maxHeapMb: 128 });
 const store = new MemoryDocumentStore();
 try {
-  const files = createLargeFiles({ store, extractors: isolated.extractors });
+  const files = createLargeFiles({ store, extractors: isolated.extractors, requireOwner: false });
   const meta = await files.ingest({ name: "notes.txt", bytes: new TextEncoder().encode("first line\\nשורה שנייה\\nthird line\\n") });
   const children = isolated.stats().children;
   if (children < 1) throw new Error("No child process read the file");
@@ -402,7 +402,7 @@ const expected = {
 
 async function readBoth(how, extractors) {
   const store = new MemoryDocumentStore();
-  const files = createLargeFiles({ store, ...(extractors ? { extractors } : {}) });
+  const files = createLargeFiles({ store, ...(extractors ? { extractors } : {}), requireOwner: false });
   const read = [];
   for (const [name, bytes] of [["report.pdf", pdf], ["notes.docx", docx]]) {
     const meta = await files.ingest({ name, bytes });

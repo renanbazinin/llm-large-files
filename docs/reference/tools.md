@@ -123,12 +123,14 @@ value that is not one of its five is refused.
 
 **Scope.** A call reaches only the documents its tool set was made for. A `document_id` outside
 them is refused with the IDs the model may use, so that the next call is right (`view_pages`
-refuses it with the reason instead, see [its errors](#view_pages)). The tool set does not know who
-asks: it compares the owner stored with each document with the `owner` of the metadata it was
-given, and answers a document whose stored owner is set and differs as one that is gone. A
-document stored without an owner is read whatever the metadata holds: as everywhere, it is open to
-anyone who has its ID. Make it from documents you looked up with the user's `owner`, as `prepare`
-and `askWithFiles` do (see [Security](../security.md#tool-scoping)).
+refuses it with the reason instead, see [its errors](#view_pages)). With `access` (required under
+`requireOwner`, the default since 0.99.9), each call reads the document for that owner and scope,
+as `getMeta` does. Without it (under `requireOwner: false`), the tool set does not know who asks:
+it compares the owner stored with each document with the `owner` of the metadata it was given, and
+answers a document whose stored owner is set and differs as one that is gone, and a document stored
+without an owner is read whatever the metadata holds: it is open to anyone who has its ID. Make it
+from documents you looked up with the user's `owner`, as `prepare` and `askWithFiles` do (see
+[Security](../security.md#tool-scoping)).
 
 **Errors.** A call that fails returns `{ "error": "..." }` for the model to read, and the loop goes
 on. It never names a server path: a Node system error becomes "The file could not be read from
@@ -1194,7 +1196,7 @@ const prepared = await files.prepare(documentIds, base, {
 });
 // A document that is gone (expired, or another owner's) is left out of the plan: say so, as askWithFiles does.
 if (prepared.missing.length > 0) throw new DocumentsNotFoundError(prepared.missing);
-const tools = files.tools(prepared.plan.searchable, { viewPages: prepared.viewable });
+const tools = files.tools(prepared.plan.searchable, { viewPages: prepared.viewable, access: { owner: "user-42" } });
 // Send prepared.instruction with your system prompt, and tools.declarations as the tools.
 
 async function runCalls(calls: ToolCall[], roomCharacters: number, roomBytes: number): Promise<ToolAnswer[]> {

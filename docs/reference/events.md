@@ -66,9 +66,9 @@ import { gemini, geminiApi } from "llm-large-files/gemini";
 
 const model = gemini(geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.8-flash" }));
 
-export async function answer(files: LargeFiles, documentIds: string[], question: string) {
+export async function answer(files: LargeFiles, owner: string, documentIds: string[], question: string) {
   return askWithFiles({
-    files, model, documentIds,
+    files, model, owner, documentIds,
     messages: [{ role: "user", text: question }],
     onText: (delta) => process.stdout.write(delta),
     onEvent: (event: AskEvent) => {
@@ -582,8 +582,8 @@ declare function askStream(options: AskOptions): EventStream<AskEvent, AskResult
 ```ts
 import { askStream } from "llm-large-files";
 
-// Assumed: files, model and documentIds are those of the chat being answered.
-const stream = askStream({ files, model, documentIds, messages: [{ role: "user", text: "What failed first?" }] });
+// Assumed: files, model, documentIds and userId (their owner) are those of the chat being answered.
+const stream = askStream({ files, model, documentIds, owner: userId, messages: [{ role: "user", text: "What failed first?" }] });
 for await (const event of stream) {
   if (event.type === "tool.start") console.error(`${event.label}…`);
   if (event.type === "text") process.stdout.write(event.delta);
@@ -738,11 +738,12 @@ import { writeSseEvents } from "llm-large-files/node";
 const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
 const model = gemini(geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.8-flash" }));
 
-// Assumed: readQuestion() reads and checks the JSON body, and saveToolTurns() keeps the tool
-// rounds with the chat (see the conversations guide).
+// Assumed: userIdOf() is your sign-in, readQuestion() reads and checks the JSON body, and
+// saveToolTurns() keeps the tool rounds with the chat (see the conversations guide).
 createServer(async (request, response) => {
+  const owner = userIdOf(request);
   const { chatId, question, documentIds } = await readQuestion(request);
-  const stream = askStream({ files, model, documentIds, messages: [{ role: "user", text: question }] });
+  const stream = askStream({ files, model, documentIds, owner, messages: [{ role: "user", text: question }] });
   // Every event goes to the page. If the page goes away, the question stops.
   await writeSseEvents(response, stream);
   try {
@@ -1014,9 +1015,10 @@ The `error` given to `end` is the provider's own: do not send it to a browser as
 ```ts
 import type { ToolCallHooks } from "llm-large-files";
 
-// Assumed: files, model and documentIds as in your loop, and call is one ToolCall of the model's reply.
-const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 });
-const tools = files.tools(context.plan.searchable, { generate: model.generateText });
+// Assumed: files, model, documentIds and userId (their owner) as in your loop, and call is one
+// ToolCall of the model's reply.
+const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 }, { owner: userId });
+const tools = files.tools(context.plan.searchable, { generate: model.generateText, access: { owner: userId } });
 
 // The listeners of one call: two whole-file reads that run at once report apart.
 const hooks: ToolCallHooks = {

@@ -11,7 +11,7 @@ vi.mock("@cantoo/pdf-lib", () => {
 
 describe("view_pages without the PDF library", () => {
   it("says which dependency is missing, and everything else keeps working", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     // Ingest and keeping the original need only the PDF reader.
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(2) });
     expect(meta.originalKept).toBe(true);

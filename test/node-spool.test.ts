@@ -200,7 +200,7 @@ function recording(files: LargeFiles) {
 
 describe("uploadSpool", () => {
   it("writes bodies over minBytes, and those without a Content-Length, to a 0600 file it ingests from, then removes", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const { own, seen } = recording(files);
     const base = await serve(own, { uploadSpool: { directory: spool, minBytes: 100 } });
     // At minBytes or under: in memory, as without a spool.
@@ -232,7 +232,7 @@ describe("uploadSpool", () => {
   });
 
   it("removes the file when the upload fails: refused, too large, stopped, or onUploaded throws", { timeout: 30_000 }, async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 1_000 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxUploadBytes: 1_000 });
     const stored: string[] = [];
     const contexts: UploadedContext[] = [];
     const base = await serve(files, {
@@ -272,7 +272,7 @@ describe("uploadSpool", () => {
 
   it("removes the file when the client leaves, while its body arrives or while it is ingested", async () => {
     const { state, extract } = heldText();
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extract } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: extract } });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 } });
     // While the body arrives.
     let leave!: () => void;
@@ -291,7 +291,7 @@ describe("uploadSpool", () => {
   });
 
   it("answers 503 with Retry-After when the disk is full (ENOSPC), and leaves no file", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 } });
     disk.fullUnder = spool;
     const full = await upload(base, "notes.txt", "x".repeat(500));
@@ -309,7 +309,7 @@ describe("uploadSpool", () => {
     // The held call counts as stuck until it is let go, and so does an upload's call that a slow
     // disk ran past IDLE_MS (tried again by uploadAfterHold): this test is about the answer and the
     // room, not the stuck limit (stuck-calls.test.ts).
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     for (const call of ["open", "write", "close"] as const) {
       for (const send of [(name: string) => upload(base, name, "x".repeat(800), false, AbortSignal.timeout(10_000)), (name: string) => chunked(base, name, ["x".repeat(400), "x".repeat(400)])]) {
@@ -336,7 +336,7 @@ describe("uploadSpool", () => {
     // The held call counts as stuck until it is let go, and so does an upload's call that a slow
     // disk ran past IDLE_MS (tried again by uploadAfterHold): this test is about the answer and the
     // room, not the stuck limit (stuck-calls.test.ts).
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     for (const hung of ["close", "removal"] as const) {
       let release!: () => void;
@@ -363,7 +363,7 @@ describe("uploadSpool", () => {
   it("answers once the ingest ends when the removal of the file does not end within uploadIdleTimeoutMs, and gives the room back", { timeout: 30_000 }, async () => {
     // Removals stuck past uploadIdleTimeoutMs count as stuck calls: two of them would refuse the
     // third ingest at the default limit (0.10.0). This test is about the answer and the room.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 }, maxSpooledUploadBytes: 1_000, uploadIdleTimeoutMs: IDLE_MS });
     let release!: () => void;
     disk.removalsHeld = { under: spool, gate: new Promise<void>((resolve) => (release = resolve)) };
@@ -384,7 +384,7 @@ describe("uploadSpool", () => {
   // In memory, a body without a Content-Length takes maxUploadBytes of room until it is read: two
   // of them filled the default room (twice maxUploadBytes), and the third got a 503.
   it("takes three chunked uploads at once, where the third got a 503 in memory", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 4_000 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxUploadBytes: 4_000 });
     const threeAtOnce = async (options: DocumentHandlerOptions) => {
       let owners = 0;
       const base = await serve(files, { ...options, getOwner: () => void owners++ });
@@ -407,7 +407,7 @@ describe("uploadSpool", () => {
 
   it("answers 503 with Retry-After once the files held reach maxSpooledUploadBytes, while memory still takes small bodies", async () => {
     const { state, extract } = heldText();
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extract }, maxConcurrentIngests: 10 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: extract }, maxConcurrentIngests: 10 });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 100 }, maxSpooledUploadBytes: 1_000, maxPendingUploadBytes: 1_000 });
     const first = upload(base, "held-1.txt", "x".repeat(600));
     await expect.poll(() => state.running).toBe(1);
@@ -435,7 +435,7 @@ describe("uploadSpool", () => {
   });
 
   it("checks its options when the handlers are made", () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     expect(() => createDocumentHandlers(files, { uploadSpool: "yes" as never })).toThrow("uploadSpool must be true, false, or { directory?, minBytes? }.");
     expect(() => createDocumentHandlers(files, { uploadSpool: { directory: "" } })).toThrow("uploadSpool.directory must be the path of a folder: a string that is not empty.");
     expect(() => createDocumentHandlers(files, { uploadSpool: { minBytes: -1 } })).toThrow("uploadSpool.minBytes must be a number of 0 or more, and is -1. Leave it out for the default.");
@@ -445,7 +445,7 @@ describe("uploadSpool", () => {
   });
 
   it("never sends the spool's path: not in an answer, an event or a model request", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 } });
     const base = await serve(files, { uploadSpool: { directory: spool, minBytes: 0 } });
     const small = (await (await upload(base, "notes.txt", "The meeting is on Tuesday.")).json()) as { id: string };
     const large = await (await upload(base, "app.log", serviceLog(2_000), true)).text();

@@ -8,7 +8,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const REPO = process.env.REPO ?? fileURLToPath(new URL("..", import.meta.url));
 const PDF_FIXTURES = process.env.PDF_FIXTURES ?? path.join(REPO, "test", "fixtures", "pdf");
 const { createLargeFiles, MemoryDocumentStore } = await import(pathToFileURL(path.join(REPO, "dist", "index.js")).href);
-const store = new MemoryDocumentStore(); const files = createLargeFiles({ store });
+// One user: no owner checks.
+const store = new MemoryDocumentStore(); const files = createLargeFiles({ store, requireOwner: false });
 for (const name of ["chrome-hebrew-statement.pdf", "word-hebrew.pdf"]) {
   const bytes = new Uint8Array(await readFile(path.join(PDF_FIXTURES, name)));
   const doc = await files.ingest({ name, bytes });

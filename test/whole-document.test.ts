@@ -155,7 +155,7 @@ describe("the reply of a part that found nothing", () => {
   });
 
   it("does not count as a part with something relevant", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
     const generate: GenerateText = async ({ prompt }) => (prompt.includes("<part>") ? "**NOTHING RELEVANT**" : "An invented summary");
     const result = await files.tools([meta], { generate }).execute("analyze_whole_document", { document_id: meta.id, task: "Find a refund" });
@@ -166,7 +166,7 @@ describe("the reply of a part that found nothing", () => {
 
 describe("a merge of notes that fails", () => {
   it("loses no notes: the answer is written from them as they are", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 1_500 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 1_500 } });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(8)) });
     let merges = 0;
     let finalPrompt = "";
@@ -191,7 +191,7 @@ describe("a merge of notes that fails", () => {
 
 describe("a last step of a whole-document read that fails", () => {
   it("returns the notes of the parts, which were paid for, and says that it is notes only", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
     let parts = 0;
     const generate: GenerateText = async ({ system, prompt }) => {
@@ -210,7 +210,7 @@ describe("a last step of a whole-document read that fails", () => {
 
 describe("a whole-document read that could read no part", () => {
   it("is not tried again for the question, and a later call is told that it failed, not that it has an answer", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
     let requests = 0;
     const generate: GenerateText = async () => {
@@ -238,7 +238,7 @@ describe("a whole-document read that could read no part", () => {
         return stored && new TextEncoder().encode(stored.text).slice(start, end);
       },
     });
-    const files = createLargeFiles({ store, budget: { mapChunkTokens: 3_000 }, wholeDocumentBytes: 0 });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { mapChunkTokens: 3_000 }, wholeDocumentBytes: 0 });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
     let requests = 0;
     const generate: GenerateText = async () => {
@@ -257,7 +257,7 @@ describe("a whole-document read that could read no part", () => {
 
 describe("the answer of a whole-document read in little room", () => {
   it("is cut at its end, and the other fields of the result are kept", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
     const generate: GenerateText = async ({ system }) => (system.startsWith("You write a complete answer") ? `The ledger "moved" (L1).\n${"It was heavy. ".repeat(400)}` : "The ledger moved (L1).");
     const tools = files.tools([meta], { generate });
@@ -273,7 +273,7 @@ describe("a file too large for a whole-document read", () => {
   const generate: GenerateText = async () => "notes";
 
   it("is not offered one: not in its card, not in the guide, not among the tools", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget });
     const large = await files.ingest({ name: "novel.txt", bytes: bytes(book(12)) });
     const prepared = await files.prepare([large.id], { tokens: 0, bytes: 0 });
     expect(prepared.blocks.get(large.id)).toContain("It is too large to be analyzed whole.");
@@ -288,7 +288,7 @@ describe("a file too large for a whole-document read", () => {
   });
 
   it("changes nothing for a file that can be read whole, alone or next to a large one", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget });
     const small = await files.ingest({ name: "story.txt", bytes: bytes(book(2)) });
     const large = await files.ingest({ name: "novel.txt", bytes: bytes(book(12)) });
     const prepared = await files.prepare([small.id, large.id], { tokens: 0, bytes: 0 });
@@ -306,7 +306,7 @@ describe("a tool set without a whole-document read (no generate)", () => {
   const budget = { inlineTokens: 10, mapChunkTokens: 1_000, maxMapChunks: 3 };
 
   it("is not named in the guide or the cards when prepare is told so", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget });
     const small = await files.ingest({ name: "story.txt", bytes: bytes(book(2)) });
     const large = await files.ingest({ name: "novel.txt", bytes: bytes(book(12)) });
     const prepared = await files.prepare([small.id, large.id], { tokens: 0, bytes: 0 }, { wholeDocumentAnalysis: false });
@@ -338,7 +338,7 @@ describe("get_document_overview of a document read by range", () => {
         return range;
       }
     }
-    const files = createLargeFiles({ store: new Counting(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new Counting(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(40)) });
     const tools = files.tools([meta]);
     read = 0;
@@ -353,7 +353,7 @@ describe("the bookkeeping of whole-document reads, since the review of 0.5.0", (
   const eio = () => new DocumentStoreError(Object.assign(new Error("EIO: i/o error, read '/srv/docs/x.txt'"), { code: "EIO", syscall: "read" }));
   async function realSource() {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, budget: { mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
     return { meta, inner: new SearchableDocument((await store.get(meta.id))!) };
   }
@@ -418,7 +418,7 @@ describe("the bookkeeping of whole-document reads, since the review of 0.5.0", (
   });
 
   it("cuts an answer full of quotes and line breaks to the room, keeping as much of it as fits, and never half of a character", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 3_000 } });
     const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(4)) });
     const answers = [`${"\"quoted\" line\n".repeat(4_000)}`, `${"Found 😀 here (L1). ".repeat(3_000)}`];
     for (const answer of answers) {

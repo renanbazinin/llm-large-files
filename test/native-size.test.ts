@@ -15,7 +15,7 @@ const say = (text: string) => Response.json({ candidates: [{ finishReason: "STOP
 
 describe("a function part of Gemini's own form", () => {
   it("is estimated within a tenth of the same round stored as toolTurns", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
     const tools = files.tools([meta]);
     const search = { name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
@@ -50,7 +50,7 @@ describe("a function part of Gemini's own form", () => {
  */
 async function roomForPages(before: ChatMessage[] = []): Promise<number | undefined> {
   const store = new MemoryDocumentStore();
-  const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+  const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
   const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(3) });
   const seen: Array<number | undefined> = [];
   const spy: LargeFiles = {

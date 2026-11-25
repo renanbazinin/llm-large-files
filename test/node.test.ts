@@ -11,7 +11,7 @@ afterEach(() => new Promise<void>((resolve) => (server ? server.close(() => reso
 const UNKNOWN_ID = "doc_0123456789abcdef0123456789abcdef";
 
 async function start(maxUploadBytes = 1024 * 1024, options: { store?: DocumentStore; getOwner?: DocumentHandlerOptions["getOwner"] } = {}): Promise<string> {
-  const files = createLargeFiles({ store: options.store ?? new MemoryDocumentStore(), maxUploadBytes });
+  const files = createLargeFiles({ requireOwner: false, store: options.store ?? new MemoryDocumentStore(), maxUploadBytes });
   const documents = createDocumentHandlers(files, {
     getOwner: options.getOwner ?? ((request) => (request.headers["x-user"] as string | undefined) || undefined),
   });
@@ -231,7 +231,7 @@ describe("createDocumentHandlers", () => {
     const reading = new Promise<void>((resolve) => (started = resolve));
     let stoppedWith: unknown;
     // An extractor that reads until it is told to stop.
-    const files = createLargeFiles({
+    const files = createLargeFiles({ requireOwner: false,
       store: new MemoryDocumentStore(),
       extractors: {
         text: (_bytes, input) => new Promise((_resolve, reject) => {

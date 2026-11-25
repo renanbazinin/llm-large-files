@@ -51,7 +51,7 @@ const row = (...cells: string[]) => `<w:tr>${cells.map(cell).join("")}</w:tr>`;
 
 /** A library with fixed IDs and a fixed clock: a CSV and a Word table sent whole, a note, and a log searched. */
 async function library(): Promise<LargeFiles> {
-  const files = createLargeFiles({ store: new MemoryDocumentStore({ now: CLOCK }), now: CLOCK, budget: { inlineTokens: 3_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore({ now: CLOCK }), now: CLOCK, budget: { inlineTokens: 3_000 } });
   await files.ingest({ name: "חשבוניות.csv", bytes: utf8(invoices(60)), id: "invoices-1" });
   await files.ingest({ name: "נוהל.docx", bytes: await word([p("נוהל החזר הוצאות"), `<w:tbl>${row("סוג", "תקרה")}${row("נסיעות", "500")}${row("ארוחות", "120")}</w:tbl>`].join("")), id: "policy-1" });
   await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe code word is heron.\nThe nightly import runs at 02:00 UTC.\n"), id: "notes-1" });

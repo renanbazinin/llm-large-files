@@ -34,7 +34,7 @@ const ANSWER_AGAIN = "Your last reply had no text. No tool can be called in this
 
 async function largeLog(lines = 5_000) {
   const store = new MemoryDocumentStore();
-  const files = createLargeFiles({ store, budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 1_000 } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(lines)) });
   return { files, meta, store };
 }
@@ -254,7 +254,7 @@ describe("the rounds of an earlier question", () => {
     const kept = (await store.get(meta.id))!;
     const issues = kept.meta.logProfile!.topIssues.map((issue, index) => (index === 0 ? { ...issue, template: `${issue.template.slice(0, 20)}\ud83d` } : issue));
     await store.put({ ...kept, meta: { ...kept.meta, logProfile: { ...kept.meta.logProfile!, topIssues: issues } } });
-    const files = createLargeFiles({ store, budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 1_000 } });
     const stored: ChatMessage[] = [
       { role: "user", text: "Where is the needle?" },
       { role: "tools", calls: [{ name: "search_document", args: { document_id: meta.id, query: "NEEDLE", mode: "exact" }, result: { document: "app.log", mode: "exact", total_matching_lines: 1, matches: [{ line: 1600, text: "…\ude00 NEEDLE \ud83d…" }] } }] },
@@ -295,7 +295,7 @@ describe("the rounds of an earlier question", () => {
       const kept = (await store.get(id))!;
       await store.put({ ...kept, meta: { ...kept.meta, name: half } });
     }
-    const files = createLargeFiles({ store, budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 1_000 } });
     expect((await files.getMeta(meta.id))!.name).toBe(whole);
     const prepared = await files.prepare([meta.id, small.id], { tokens: 0, bytes: 0 });
     expect(prepared.blocks.get(meta.id)!.split("\n")[0]).toBe(`--- Large attached file: ${whole} ---`);
@@ -592,7 +592,7 @@ describe("a step", () => {
 
   it("names a file as its card and frame do, and drops the characters that file text drops", async () => {
     const wales = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0077}\u{E006C}\u{E0073}\u{E007F}";
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: `report ${wales}.log`, bytes: utf8(serviceLog(5_000)) });
     expect(meta.name).toBe(`report ${wales}.log`);
     const model = fakeModel([calls([{ name: "search_document", args: { document_id: meta.id, query: "a\u200fb\u200bc\u202ed\u{E0041}", mode: "exact" } }]), says("Done.")]);

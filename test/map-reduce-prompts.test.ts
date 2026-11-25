@@ -11,7 +11,7 @@ type Sent = { system: string; prompt: string; maxOutputTokens: number };
 
 /** A log of 600 lines, read in parts of about 3,000 tokens. */
 async function readable() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 3_000 } });
   const text = Array.from({ length: 600 }, (_, index) => `2026-03-01T10:${String(index % 60).padStart(2, "0")}:00Z INFO worker-${index % 7} served request ${index} in ${index % 90} ms`).join("\n");
   const meta = await files.ingest({ name: "app.log", bytes: utf8(text) });
   return { files, meta };
@@ -57,7 +57,7 @@ describe("a part read", () => {
 
   it("sends the heading its lines are under first, when it starts in the middle of a section", async () => {
     // A diary of 12 days, a heading for each, read in parts that start inside a day.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 1_500 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 1_500 } });
     const lines = ["# Shift diary"];
     for (let day = 1; day <= 12; day++) {
       lines.push("", `## Day ${day} of March`, "");

@@ -20,7 +20,7 @@ const tool: ToolDeclaration = { name: "search_document", description: "Search.",
 const asking = (more: Partial<ModelRequest> = {}): ModelRequest => ({ system: "Be brief.", messages: [{ role: "user", parts: [{ text: "hi" }] }], ...more });
 
 async function largeLog() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 40_000 } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
   return { files, meta };
 }

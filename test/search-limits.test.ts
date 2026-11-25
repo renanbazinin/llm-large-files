@@ -21,7 +21,7 @@ describe("an exact search past 1,000,000 matching lines", () => {
   }, 30_000);
 
   it("gives the exact count through search_document, with the last match of the file", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "hits.log", bytes: utf8(allHits(1_200_000)) });
     const result = await files.tools([meta]).execute("search_document", { document_id: meta.id, query: "hit", mode: "exact", max_results: 2 });
     expect(result.total_matching_lines).toBe(1_200_000);

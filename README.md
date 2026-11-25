@@ -33,9 +33,10 @@ import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 import { askGemini, vertexAi } from "llm-large-files/gemini";
 
 const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
+const userId = "user-42"; // the signed-in user: every call names its owner
 
 // When a user uploads a file:
-const doc = await files.ingest({ name: "app.log", bytes: await readFile("./app.log") });
+const doc = await files.ingest({ name: "app.log", bytes: await readFile("./app.log"), owner: userId });
 
 // When they ask about it:
 const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
@@ -47,6 +48,7 @@ const endpoint = vertexAi({
 const result = await askGemini({
   files,
   endpoint,
+  owner: userId,
   documentIds: [doc.id],
   messages: [{ role: "user", text: "What caused the outage, and when? Cite lines." }],
   onText: (delta) => process.stdout.write(delta), // optional: the answer as it streams
@@ -88,7 +90,8 @@ const deepseek = openAiCompatible({ baseUrl: "https://api.deepseek.com/v1", apiK
 const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", fallbacks: "default" });
 
 const withClaude = await askWithFiles({
-  files,               // `files` and `doc` are those of the quickstart
+  files,               // `files`, `doc` and `userId` are those of the quickstart
+  owner: userId,
   model: claude,       // writes the answer
   explorer: deepseek,  // optional: a second model, of any provider, that searches and reads
   documentIds: [doc.id],
@@ -138,6 +141,7 @@ const documents = createDocumentHandlers(files, {
   getOwner: (req) => (req as typeof req & { user?: { id: string } }).user?.id,
 });
 app.post("/api/documents", documents.upload); // mount before express.json(): the body is the raw file
+app.get("/api/documents", documents.list); // the user's documents, the oldest first (new in 0.99.9)
 app.get("/api/documents/:id", (req, res) => documents.get(req, res, req.params.id));
 app.delete("/api/documents/:id", (req, res) => documents.remove(req, res, req.params.id));
 ```
@@ -174,9 +178,11 @@ app.post("/api/chat", express.json(), async (req, res) => {
 ```
 
 Pass the upload's `id` in `documentIds` and the same user as `owner`: a document
-that has an owner is missing for anyone else. This `getOwner` returns `undefined` for an anonymous
-upload. Never return an empty string: it would be one owner shared by every caller without a user,
-and the upload is answered 500. Reading the events in the browser, the upload's own progress, and
+that has an owner is missing for anyone else. Owner checks are on by default (since 0.99.9): a
+request whose `getOwner` returns `undefined` is answered 401 "Sign in first.", and a call without an
+owner throws. A library made with `requireOwner: false` takes anonymous uploads. Never return an
+empty string: it would be one owner shared by every caller without a user, and the upload is
+answered 500. Reading the events in the browser, the upload's own progress, and
 cancelling are in the [web app guide](docs/guides/web-app.md); every event is in
 [Events](docs/reference/events.md). There's also a
 [one-file demo server](https://github.com/renanbazinin/llm-large-files/blob/main/examples/server.ts) and a [command-line script](https://github.com/renanbazinin/llm-large-files/blob/main/examples/ask-cli.ts): from a
@@ -266,7 +272,7 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 | **Reliability** | Retries, waits on a silent model, recovery from a request too large, error kinds, answers that say when a filter or the output limit stopped them, and a time limit on every store call, so a network volume that hangs does not hold a server: see [Errors and reliability](docs/guides/errors-and-reliability.md) |
 | **Models** | Gemini and Vertex AI, any OpenAI-compatible endpoint, Claude, or an adapter of your own. Two models of different providers can share a question |
 | **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and input tokens; since 0.10.0 every question has a ceiling on input tokens by default |
-| **Privacy** | Documents can belong to an `owner`; other users can't plan, read, or delete them |
+| **Privacy** | Documents belong to an `owner`, checked on every call by default; other users can't plan, read, or delete them |
 | **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused when the checks recognize them, with a code (`"hostile"`); ingest pauses for other requests between pages and slices. Not every hostile file is refused, and some steps hold the server for a while: read untrusted uploads in child processes with `createIsolatedExtractors`, which refuses a file that runs out of memory or time while the server goes on ([Security](docs/security.md#uploads)) |
 | **Storage** | In memory, on disk with expiry, or your own store (Redis, S3, a database) |
 
