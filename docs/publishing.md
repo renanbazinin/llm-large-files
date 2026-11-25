@@ -438,11 +438,15 @@ Versions follow [semantic versioning](https://semver.org). While the version is 
 (0.7.0), and its **Upgrading** part says what to change. 0.6.0 is a minor: its
 **Upgrading** part says what to change from 0.5.0.
 
+0.99.9 is the candidate for 1.0, without a promise yet that the API stays as it is. Versions 0.99.x
+keep these 0.x rules: a minor (0.99.9 to 0.100.0) may need changes in the user's code, and a patch
+(0.99.10) does not. 1.0.0 comes when the maintainer chooses to keep the API stable.
+
 These are public, and a change to them can need a change in someone's code:
 
-- Everything exported from the six entry points (`llm-large-files`, `llm-large-files/gemini`,
+- Everything exported from the eight entry points (`llm-large-files`, `llm-large-files/gemini`,
   `llm-large-files/openai`, `llm-large-files/anthropic`, `llm-large-files/node`,
-  `llm-large-files/testing`): names,
+  `llm-large-files/testing`, `llm-large-files/ai-sdk`, `llm-large-files/mcp`): names,
   signatures, options and their defaults. That includes the types an app implements:
   `ModelAdapter`, `DocumentStore` and `Extractor`. A new required member or argument breaks every
   adapter, store or extractor written for the previous version, so make new members optional.
@@ -451,7 +455,10 @@ These are public, and a change to them can need a change in someone's code:
   answers: it goes under **Upgrading** (the cache miss) and **Changed** (what models do
   differently).
 - The routes, requests, responses and statuses of the HTTP handlers in `llm-large-files/node`.
-- What a store already holds: a new version reads documents an older one stored. (0.4.0 gave
+- What a store already holds, and the rounds an app stores (`ToolTurn`): 0.99.9 reads every shape
+  stored since 0.2, and from 0.99.9 on each version reads at least the shape of the version before
+  it. A shape newer than the reader knows is refused with an error that says so. (0.4.0 gave
   documents stored by older versions their line index the first time they were used.)
 - The supported Node versions (`engines`: 22.12 or later) and the version ranges of the optional
-  peers `jszip`, `unpdf` and `@cantoo/pdf-lib`.
+  peers `jszip`, `unpdf`, `@cantoo/pdf-lib`, `@napi-rs/canvas`, `ai` and
+  `@modelcontextprotocol/server`.

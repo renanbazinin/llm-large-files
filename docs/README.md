@@ -262,10 +262,12 @@ import from.
 | | [Tools](./reference/tools.md) | each tool the model sees: name, arguments, results, limits; `ToolSet` and its types |
 | | [Events](./reference/events.md) | `askStream`, `eventStream`, the events of a question (`AskEvent`) and of an ingest (`IngestEvent`), `EventError` |
 | `llm-large-files/gemini` | [Gemini](./reference/gemini.md) | `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()` and the other Gemini exports |
-| `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
+| `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()`, `openAiResponses()` (new in 0.99.9) and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
 | `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses, `prepareUpload` and `uploadSpool`; `createIsolatedExtractors`, files read in child processes; `fileOriginals`, the uploads your application keeps, read back by their ref; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
 | `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents; `documentStoreChecks`, the checks of a store of your own |
+| `llm-large-files/ai-sdk` | [AI SDK](./reference/ai-sdk.md) | New in 0.99.9. `aiSdkTools`, the tools of a question for the AI SDK 7; `compactToolResults` for `prepareStep`; `uiMessageStreamOf`, events as the AI SDK UI stream; `aiSdkGenerateText` |
+| `llm-large-files/mcp` | [MCP](./reference/mcp.md) | New in 0.99.9. `registerLargeFilesTools`, the document tools on an MCP server; `mcpProgress`, events as MCP progress |
 
 ## Internals and measurements
 
@@ -291,6 +293,10 @@ headings, each pointing to its new home.
 [CHANGELOG.md](../CHANGELOG.md) says what changed in each version. From 0.6.0 on, each version
 starts with what you must change when you upgrade, then what you can add, what works differently
 and what was fixed.
+
+[Upgrading to 0.99](./upgrading-0.99.md) takes an application from 0.10.x to 0.99.9: owner checks on
+by default, the removed options, stored shapes across versions, the upload handlers, and what is new
+and optional.
 
 [Upgrading to 0.10](./upgrading-0.10.md) takes an application from 0.9.0 to 0.10.0: what no longer
 compiles, the one prompt-cache miss, behavior to check, the worked example of the 0.9 guide carried

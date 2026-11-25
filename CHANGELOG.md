@@ -36,6 +36,31 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.99.9 — not released yet
+
+The candidate for 1.0, without a promise yet that the API stays as it is: versions 0.99.x keep the
+rules of 0.x versions. Every call names its owner by default, the options 0.10.0 kept for one
+version are removed, and the stored shapes are tested across versions. New and optional: the OpenAI
+Responses API, page images for models without PDF input, small visual files sent as themselves,
+question IDs for requests sent again, the AI SDK, and an MCP server helper.
+[Upgrading to 0.99](docs/upgrading-0.99.md) takes an application from 0.10.x step by step.
+
+### Upgrading: what you need to change
+
+<!-- owner, shapes -->
+
+### New: what you can add
+
+<!-- owner (upload handlers), responses, visual, questions, aisdk, MCP (removable) -->
+
+### Changed: what works differently
+
+<!-- every package -->
+
+### Fixed
+
+<!-- shapes (removal claim), others -->
+
 ## 0.10.2 — 2026-11-25
 
 Storage for a chatbot that keeps its files in the library: the files of a chat in one call, an

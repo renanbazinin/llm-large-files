@@ -1,7 +1,7 @@
 # API reference
 
 The API reference is no longer one page. It is split by module of the package: one page for each
-of the four other entry points, and four for the main entry, `llm-large-files`. This page keeps the headings of the old
+of the seven other entry points, and four for the main entry, `llm-large-files`. This page keeps the headings of the old
 page, so that links to them still work, and each one points to its new home. The guides that
 explain each task are listed in the [documentation index](./README.md).
 
@@ -9,9 +9,12 @@ explain each task are listed in the [documentation index](./README.md).
 |---|---|
 | `llm-large-files` | [The library and its documents](./reference/library.md), [the tool loop and the adapter contract](./reference/ask.md), [errors, retries and streams](./reference/errors-and-retries.md), [the tools the model sees](./reference/tools.md) |
 | `llm-large-files/gemini` | [Gemini API and Vertex AI: `gemini()`, `askGemini`, the endpoints](./reference/gemini.md) |
-| `llm-large-files/openai` | [OpenAI-compatible endpoints: `openAiCompatible()`](./reference/openai.md) |
+| `llm-large-files/openai` | [OpenAI-compatible endpoints: `openAiCompatible()`, `openAiResponses()`](./reference/openai.md) |
 | `llm-large-files/anthropic` | [Claude: `anthropic()`](./reference/anthropic.md) |
 | `llm-large-files/node` | [Node HTTP handlers: `createDocumentHandlers`](./reference/node.md) |
+| `llm-large-files/testing` | [Testing: `fakeModel`, `fakeFetch`, `documentStoreChecks`](./reference/testing.md) |
+| `llm-large-files/ai-sdk` | [AI SDK: `aiSdkTools`, `compactToolResults`, `uiMessageStreamOf`](./reference/ai-sdk.md) |
+| `llm-large-files/mcp` | [MCP: `registerLargeFilesTools`, `mcpProgress`](./reference/mcp.md) |
 
 ## `llm-large-files`
 
