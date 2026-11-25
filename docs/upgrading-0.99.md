@@ -24,14 +24,13 @@ kept for one version in 0.10.0 are removed. Everything else is new and optional.
 
 ## Requirements
 
-<!-- skeleton: Node and @types/node unchanged (22.12); the optional peers and their ranges (jszip,
-unpdf, @cantoo/pdf-lib unchanged); six entry points. -->
-
+- **Node 22.12 or later, as before**, and the same ranges of the optional peers `jszip`, `unpdf`
+  and `@cantoo/pdf-lib`. The package keeps its six entry points: there is nothing to install for
+  0.99.9 unless you draw pages as images.
 - **A new optional peer, `@napi-rs/canvas`** (`^0.1.69 || ^1.0.0`), for pages drawn as images only.
   With unpdf 2 it needs Node 24 or later: unpdf 2 declares it, and npm installs it on Node 22 only
   with an `EBADENGINE` warning, unsupported. Nothing else needs it, and nothing installs it for you
   ([Page images and the files themselves](#page-images-and-the-files-themselves)).
-
 - **What a store holds is unchanged.** `DocumentMeta` keeps `metaVersion: 1`, `ToolTurn` keeps
   `version: 1`, and the files of `FileDocumentStore` keep their names and format. Servers of 0.10.x
   and 0.99.9 read what the other stores. Documents and rounds stored before 0.9.0, without a
@@ -242,13 +241,11 @@ Owner checks change who may call them (above). The rest is new and optional:
   document stored before, and `onUploaded` is told `reused: true`: do not record it twice. Such a
   document is never deleted by the handlers, even when `onUploaded` throws, and the file saved to
   `path` for that upload is removed. An upload given a document whose own upload is still in its
-  `onUploaded` waits for it, and is answered `409` when that hook failed and deleted it. `appData` is checked before the body is read, kept in the
-  metadata, and never answered. Build both on the server, not from what the client sent
+  `onUploaded` waits for it, and is answered `409` when that hook failed and deleted it. `appData`
+  is checked before the body is read, kept in the metadata, and never answered. Build both on the server, not from what the client sent
   ([Web app](./guides/web-app.md#the-same-file-twice-and-your-own-data-dedupe-and-appdata)).
 
 ## Behavior to check
-
-<!-- every package: behavior that changed without a compile error. -->
 
 ### Performance budgets in CI
 

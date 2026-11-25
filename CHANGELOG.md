@@ -47,6 +47,12 @@ and question IDs for requests sent again.
 
 ### Upgrading: what you need to change
 
+Most code compiles as it is, and a question asked without the new options sends what 0.10.2 sent,
+byte for byte. Three changes reach applications: every call names its owner unless the library is
+created with `requireOwner: false`, the two options 0.10.0 kept for one version are removed, and a
+mock of the library or of the upload handlers needs the members that are now required.
+[Does my code compile?](docs/upgrading-0.99.md#does-my-code-compile) lists what does not compile.
+
 - **Owner checks are on by default.** `requireOwner` defaults to `true`. Every call (`ingest`,
   `getMeta`, `getOriginal`, `delete`, `list`, `touch`, `update`, `prepare`, `tools`, `toolsFor`,
   `askWithFiles`, `askStream`, `askGemini`) must name its owner. A call without one throws a
@@ -173,8 +179,6 @@ and question IDs for requests sent again.
   every file as a `document` block. `openAiCompatible()` with `pdfInput` sends one as an
   `image_url` part. Only a tool set of your own returned images before 0.99.9.
 
-<!-- every package -->
-
 **Release**
 
 - CI checks performance budgets in a job of its own (`perf`, Node 22 on Ubuntu): the time and
@@ -186,8 +190,6 @@ and question IDs for requests sent again.
   on your machine.
 
 ### Fixed
-
-<!-- others -->
 
 - **Two sweeps at once on Windows** could count one document twice (26 for 25). When the losing
   call could not remove its own claim for another reason than "not found", `FileDocumentStore`
