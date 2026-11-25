@@ -143,6 +143,20 @@ describe("small visual files sent as they are", () => {
     await expect(refused).rejects.toMatchObject({ operation: "read", cause: { message: "disk read failed" } });
   });
 
+  it("keeps the files in a request asked again with a note, and in the conversation of a model that only grows", async () => {
+    // A table sent whole gives the question tools, so an empty first reply is asked for again.
+    const { files, meta } = await withPictures();
+    const table = await files.ingest({ name: "sales.csv", bytes: new TextEncoder().encode("region,total\nEast,10\nWest,12\n") });
+    for (const appendOnly of [false, true]) {
+      const model = fakeModel([says(""), says("A chart of sales.")], { documents: PDF_ONLY, appendOnly });
+      const result = await askWithFiles({ files, model, documentIds: [meta.id, table.id], messages: ask("What does the chart show?") });
+      expect(result.steps).toContain("The model's first reply was empty: it was asked again");
+      expect(model.requests).toHaveLength(2);
+      for (const request of model.requests) expect(turn(request).files?.map((file) => file.name)).toEqual(["attached-1.pdf"]);
+      expect(turn(model.requests[1]!).parts.at(-1)!.text).not.toBe("What does the chart show?");
+    }
+  });
+
   it("keeps files the application put in messages, and counts them", async () => {
     const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const photo = { name: "photo.png", mimeType: "image/png", bytes: new Uint8Array(30_000).fill(7) };

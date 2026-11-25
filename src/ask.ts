@@ -1672,7 +1672,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   /** The conversation with a note at its end: in the last user turn, or in one of its own after a tool round. */
   const withNote = (list: ModelMessage[], note: string): ModelMessage[] => {
     const last = list.at(-1);
-    if (last && !isRound(last) && last.role === "user") return [...list.slice(0, -1), { role: "user", parts: [...last.parts, { text: note }] }];
+    // The turn's files (0.99.9) stay with it.
+    if (last && !isRound(last) && last.role === "user") return [...list.slice(0, -1), { ...last, parts: [...last.parts, { text: note }] }];
     return [...list, { role: "user", parts: [{ text: note }] }];
   };
   /**
@@ -1685,7 +1686,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     if (!toolModel.capabilities.appendOnly) return () => withNote(viewFor(toolModel), note);
     const last = messages.at(-1);
     if (last && !isRound(last) && last.role === "user") {
-      const noted: ModelMessage = { role: "user", parts: [...last.parts, { text: note }] };
+      const noted: ModelMessage = { ...last, parts: [...last.parts, { text: note }] };
       notes.set(noted, notes.has(last) ? notes.get(last) : last);
       messages[messages.length - 1] = noted;
     } else {
