@@ -968,8 +968,8 @@ question, from what every model takes (`capabilities.toolFileTypes`):
 
 1. One small PDF, when every model takes `"application/pdf"`. A model that does not say takes only
    that, as before 0.99.9.
-2. Else a JPEG of each page, when every model takes `"image/jpeg"`. JPEG came out 14 to 34% smaller
-   than PNG on the test PDFs, so more pages fit.
+2. Else a JPEG of each page, when every model takes `"image/jpeg"`. JPEG came out 6 to 35% smaller
+   than PNG on 11 of the 12 test PDFs (a slide of few colours was 10% larger), so more pages fit.
 3. Else a PNG of each page, when every model takes `"image/png"`.
 4. Else no `view_pages`.
 
