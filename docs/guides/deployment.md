@@ -199,7 +199,9 @@ Measured peaks are in [Measurements](../measurements.md#the-server): an ingest o
 over a `FileDocumentStore` takes about three and a half to five and a half times the log above the
 uploaded bytes (135 MB for a log of 25 MB, 345 MB for one of 95 MB, measured on 0.9.0 with Node 22),
 and eight searches at once take little more than one. (Before 0.6.0 an ingest took five to seven
-times the log.)
+times the log.) Since 0.99.9, CI checks on every pull request that an ingest of a 100 MB log stays
+within 5.5 times the log, with the other bars of
+[Performance budgets](../measurements.md#performance-budgets-0999).
 
 Other formats were not measured for memory. PDF text is extracted by pdf.js, which reads the whole
 file, and with `@cantoo/pdf-lib` installed the file is parsed a second time, before pdf.js reads a

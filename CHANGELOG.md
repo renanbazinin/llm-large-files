@@ -57,6 +57,16 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
 
 <!-- every package -->
 
+**Release**
+
+- CI checks performance budgets in a job of its own (`perf`, Node 22 on Ubuntu): the time and
+  memory of 100 uploads of 2 MB ingested at once, the time, memory and longest stall of a 100 MB log
+  ingested, and the time and memory of one search of it and of eight at once. Each bar is three
+  times the slowest time, or twice the most memory, recorded for the same work, and an ingest may
+  take at most 5.5 times the log, as Deployment says to size for
+  ([Performance budgets](docs/measurements.md#performance-budgets-0999)). `npm run perf` runs them
+  on your machine.
+
 ### Fixed
 
 <!-- shapes (removal claim), others -->

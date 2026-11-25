@@ -61,6 +61,13 @@ caller that still passes them gets. -->
 
 <!-- every package: behavior that changed without a compile error. -->
 
+### Performance budgets in CI
+
+Nothing to change. CI now holds ingest and search to bars of time and memory on every pull request
+([Performance budgets](./measurements.md#performance-budgets-0999)). The package, its defaults and
+the requests it sends are not changed by it: `npm run perf` is a script of the repository, not of
+the package.
+
 ## Rolling deploys
 
 <!-- owner and shapes: servers of 0.10 and 0.99.9 on one store; owner checks during a rollout. -->

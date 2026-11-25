@@ -144,3 +144,30 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run eval:replay
+
+  perf:
+    # Performance budgets (npm run perf, scripts/perf.ts): the time and memory of 100 uploads of 2 MB
+    # ingested at once, of a log of 100 MB ingested, and of one and eight searches of it, against
+    # bars taken from the records of docs/measurements.md, which says how they were chosen. A job of
+    # its own, on one Node, each measure alone in a fresh process: work beside it slows it (the timing
+    # tests flaked so). A measure over a bar runs again, up to three runs; a bar that no run met fails
+    # the job. The report is in the summary of the job, every number in the artifact "perf".
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # The Node of the records the bars come from. Node 24's young generation is four times
+          # Node 22's, so its peaks would need bars of their own.
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run perf -- --summary "$GITHUB_STEP_SUMMARY" --results perf-results.json
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perf
+          path: perf-results.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -277,7 +277,8 @@ import from.
 - [Security](./security.md): owners and scoping, prompt injection (the frame around a file,
   characters that show nothing, hidden text, older encodings), retention, original files, PDFs,
   uploads, regular expressions, cost, storage errors, what the library logs.
-- [Measurements](./measurements.md): every live result and measurement, with its date.
+- [Measurements](./measurements.md): every live result and measurement, with its date, and the
+  performance budgets CI checks.
 - [Troubleshooting](./troubleshooting.md): symptom, cause, fix.
 
 Older links: [api.md](./api.md) and [configuration.md](./configuration.md) keep their old
