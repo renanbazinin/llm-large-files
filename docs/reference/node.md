@@ -998,6 +998,10 @@ its `cause` only. The upload handler answers the error itself, so to log the cau
 extractors before you hand them to `createLargeFiles`:
 
 ```ts
+import { createLargeFiles, type ExtractInput } from "llm-large-files";
+import { createIsolatedExtractors } from "llm-large-files/node";
+
+// Assumed: store is your DocumentStore.
 const isolated = createIsolatedExtractors();
 const extractors = Object.fromEntries(Object.entries(isolated.extractors).map(([format, extract]) => [
   format,

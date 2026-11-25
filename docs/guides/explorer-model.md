@@ -291,7 +291,9 @@ the [ask reference](../reference/ask.md); what each costs is in
 part reads of a whole-file read are counted under the explorer.
 
 ```ts
-// `result` is what askWithFiles or askGemini returned.
+import type { AskResult } from "llm-large-files";
+
+declare const result: AskResult; // what askWithFiles or askGemini returned
 for (const [id, used] of Object.entries(result.usage.byModel)) {
   console.log(`${id}: ${used.requests} requests, ${used.inputTokens} input tokens (${used.cachedInputTokens} cached), ${used.outputTokens} output tokens`);
 }

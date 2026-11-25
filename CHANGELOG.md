@@ -36,6 +36,40 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.99.11 — not released yet
+
+The docs, checked. Every TypeScript sample of the README and the docs is now compiled against the
+source in CI, which found one sample that did not compile. A new page has the whole integration of
+a chatbot in one place. No code of the package changed.
+
+### Upgrading: what you need to change
+
+Nothing. The code of the package is that of 0.99.10.
+
+### New: what you can add
+
+- **[A chatbot in one page](docs/guides/chatbot.md).** The whole integration for a chatbot on
+  Vertex AI, in about 120 lines: what to decide before you start, the library and the model, chats
+  and their history in MongoDB, uploads into a folder per user and chat (`scope`), questions
+  streamed over Server-Sent Events, and deleting a chat. Each part links to the guide that
+  explains it.
+- **Where tools of your own go.** `askGemini` and `askWithFiles` offer the model only the
+  library's tools. The docs now say so where you choose an entry point, and where to go when your
+  model also calls tools of your application
+  ([Which entry point](docs/README.md#which-entry-point)).
+
+### Fixed
+
+- **The browser page of the web app guide did not compile.** Its `MARKS` had no entry for the
+  outcome `"redacted"` (new in 0.10.0), so `Record<ToolOutcome, string>` refused it
+  ([Reading the events in the browser](docs/guides/web-app.md#reading-the-events-in-the-browser)).
+  The table of `tool.end` in that guide, and the page of `examples/server.ts`, which showed
+  `undefined` as the mark of such a call, name the outcome too.
+- **Six samples that were not code, or that leaned on a name they did not import**, now compile on
+  their own: the `retry` event and `QUESTION_ID_PATTERN` in the reference, the signature of
+  `executeWithFiles`, the `map` of `writeSseEvents`, the wrapped extractors of
+  `createIsolatedExtractors`, and the usage of each model in the explorer guide.
+
 ## 0.99.10 — 2026-11-25
 
 A patch from an outside review of the code. Each finding was checked against 0.99.9, and each one

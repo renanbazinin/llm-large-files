@@ -200,6 +200,12 @@ the options these samples use are the same, with `model` in place of `endpoint`.
 that `askGemini` takes (`generationConfig`, `toolFilePlacement`, the waits) are options of the
 adapter there.
 
+The steps below keep the files of a user together. To keep those of each chat apart, every call
+takes a `scope` as well, such as `[userId, chatId]`:
+[A chatbot in one page](./guides/chatbot.md) has these steps with a scope, a folder for each chat
+and the history in a database. If the model of your chatbot also calls tools of your application,
+read [Tools of your own](./guides/chatbot.md#when-the-model-has-tools-of-your-own) first.
+
 ### 1. Create the library once
 
 Create the library and the endpoint when the server starts, and share them between requests.
@@ -480,6 +486,8 @@ with `$env:GEMINI_API_KEY = "..."` and then run `node examples/server.ts`.
 
 ## Next steps
 
+- [A chatbot in one page](./guides/chatbot.md): the steps above for a real chatbot, with a folder
+  for each user and chat and the history in a database.
 - [Gemini and Vertex AI](./guides/vertex-and-gemini.md): endpoints, access tokens, thinking,
   gateways, Vertex quotas and errors.
 - [OpenAI-compatible endpoints](./guides/openai-compatible.md) and [Claude](./guides/anthropic.md):

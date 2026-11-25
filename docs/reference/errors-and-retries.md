@@ -689,9 +689,11 @@ New in 0.7.0. With `onEvent` (or [`askStream`](./ask.md#askstreamoptions)), each
 is a `retry` event, between the `request.start` and the `request.end` of its request:
 
 ```ts
-{ type: "retry", requestId: "req_3", attempt: 1, delayMs: 2000,
+import type { AskEvent } from "llm-large-files";
+
+const event: AskEvent = { type: "retry", requestId: "req_3", attempt: 1, delayMs: 2000,
   error: { message: "The model failed on its side (HTTP 503).", kind: "server", status: 503, name: "GeminiRequestError" },
-  message: "The model did not answer (HTTP 503). Trying again in 2 s…", seq: 9, runId: "run_…", time: 1795000000000 }
+  message: "The model did not answer (HTTP 503). Trying again in 2 s…", seq: 9, runId: "run_…", time: 1795000000000 };
 ```
 
 - **Structured, and safe to show.** `attempt` and `delayMs` are those of the

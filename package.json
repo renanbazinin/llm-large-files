@@ -94,10 +94,11 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
+    "typecheck:docs": "node scripts/check-doc-samples.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage --project unit --testTimeout=60000",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "npm run typecheck && npm run typecheck:docs && npm test && npm run build",
     "eval:replay": "node evals/cli.mjs replay",
     "eval:record": "node evals/cli.mjs record",
     "eval:live": "node evals/cli.mjs live",

@@ -297,6 +297,7 @@ Claude adapter: [Measurements](docs/measurements.md).
 
 Guides, one task each:
 
+- [A chatbot in one page](docs/guides/chatbot.md): the whole integration in about 120 lines: Vertex AI, a folder per user and chat, the history in a database.
 - [Gemini and Vertex AI](docs/guides/vertex-and-gemini.md): endpoints, access tokens, thinking, whole-file reads, pages, gateways, Vertex quotas and errors.
 - [OpenAI-compatible endpoints](docs/guides/openai-compatible.md): OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp.
 - [Claude](docs/guides/anthropic.md): setup, thinking, streaming, conversations that may only grow, gateways.
