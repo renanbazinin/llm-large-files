@@ -302,6 +302,10 @@ describe("ingest from a path", () => {
     const thrown = await files.ingest({ name: "stuck.log", source: { path: at } }).catch((error: unknown) => error);
     expect(thrown).not.toBeInstanceOf(IngestError);
     expect(thrown).toMatchObject({ code: "ETIMEDOUT", syscall: "read", message: "The file to ingest did not answer within 100 ms." });
+    // The read counts as a stuck call until it ends, as a store call does (0.10.2). Its timer and
+    // the ingest's both run 100 ms: the count may come a moment after the error.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(files.stats!().stuckStoreCalls).toBe(1);
     // The read still holds the turn: the next ingest waits for it, at most ingestTimeoutMs more.
     let done = false;
     const next = files.ingest({ name: "next.md", bytes: utf8("# Next") }).then((meta) => {
@@ -312,6 +316,7 @@ describe("ingest from a path", () => {
     expect(done).toBe(false);
     unstick();
     expect((await next).name).toBe("next.md");
+    expect(files.stats!().stuckStoreCalls).toBe(0);
   });
 
   it("gives up the parts read for the format, with the caller's reason, when the caller leaves", async () => {
@@ -349,6 +354,9 @@ describe("ingest from a path", () => {
     const stat = await Promise.race([files.ingest({ name: "a.txt", source: { path: at } }).catch((error: unknown) => error), new Promise((resolve) => setTimeout(() => resolve("still waiting"), 2_000))]);
     expect(stat).not.toBeInstanceOf(IngestError);
     expect(stat).toMatchObject({ code: "ETIMEDOUT", syscall: "lstat", message: "The file to ingest did not answer within 100 ms." });
+    // Counted as stuck until it ends (0.10.2), a moment after the error at most.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(files.stats!().stuckStoreCalls).toBe(1);
     // The parts read for the format of a file whose name says nothing.
     const noname = await file("noname", "%PDF-1.4");
     reads.stuck = noname;

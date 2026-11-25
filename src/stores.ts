@@ -4,8 +4,8 @@ import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, unli
 import path from "node:path";
 import { DocumentScopeError } from "./errors.js";
 import { Limiter } from "./limiter.js";
-import { checkScope, MAX_SCOPE_SEGMENTS, scopeKey } from "./scope.js";
-import type { DocumentContext, DocumentMeta, DocumentScope, DocumentStore, StoredDocument } from "./types.js";
+import { checkScope, MAX_SCOPE_SEGMENTS, sameScope, scopeKey } from "./scope.js";
+import type { DocumentContext, DocumentMeta, DocumentScope, DocumentStore, MetaPatch, StoredDocument } from "./types.js";
 
 /** The shape of the document IDs the library makes: "doc_" and 32 hex digits. */
 export const DOCUMENT_ID_PATTERN = /^doc_[a-f0-9]{32}$/;
@@ -26,6 +26,29 @@ export const DOCUMENT_META_VERSION = 1;
 
 function expired(meta: DocumentMeta, now = new Date()): boolean {
   return Date.parse(meta.expiresAt) <= now.getTime();
+}
+
+/**
+ * Whether `meta` is the document `patch` names: its `createdAt`, owner and scope (null and absent
+ * are none). A document stored again under the ID since, or by another owner, is not.
+ */
+function patchedOne(meta: DocumentMeta, patch: MetaPatch): boolean {
+  if (meta.createdAt !== patch.createdAt || (meta.owner ?? undefined) !== (patch.owner ?? undefined)) return false;
+  const theirs: unknown = meta.scope ?? undefined;
+  const mine = patch.scope ?? undefined;
+  return theirs === undefined ? mine === undefined : Array.isArray(theirs) && sameScope(theirs as string[], mine);
+}
+
+/**
+ * The metadata with the fields of `patch` applied (`DocumentStore.patchMeta`): the later expiry,
+ * and `appData` replaced or removed. A copy.
+ */
+function patched(meta: DocumentMeta, patch: MetaPatch): DocumentMeta {
+  const next = structuredClone(meta);
+  if (patch.expiresAt !== undefined && Date.parse(patch.expiresAt) > Date.parse(next.expiresAt)) next.expiresAt = patch.expiresAt;
+  if (patch.appData === null) delete next.appData;
+  else if (patch.appData !== undefined) next.appData = structuredClone(patch.appData);
+  return next;
 }
 
 /** The documents of one scope in a `MemoryDocumentStore`, and the scope as it was given. */
@@ -110,6 +133,22 @@ export class MemoryDocumentStore implements DocumentStore {
       }
     }
     return removed;
+  }
+
+  /** The metadata of the documents of the scope of `context`, or of no scope when it has none, expired ones left out. New in 0.10.2. */
+  async list(context?: DocumentContext): Promise<DocumentMeta[]> {
+    const shelf = this.#shelf(context);
+    if (!shelf) return [];
+    const now = this.now();
+    return [...shelf.documents.values()].filter((document) => !expired(document.meta, now)).map((document) => structuredClone(document.meta));
+  }
+
+  /** Changes the fields of `patch` in the metadata of the document of that `createdAt`, and keeps its text. New in 0.10.2. */
+  async patchMeta(id: string, patch: MetaPatch, context?: DocumentContext): Promise<DocumentMeta | undefined> {
+    const document = this.#shelf(context)?.documents.get(id);
+    if (!document || expired(document.meta, this.now()) || !patchedOne(document.meta, patch)) return undefined;
+    document.meta = patched(document.meta, patch);
+    return structuredClone(document.meta);
   }
 
   async putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void> {
@@ -582,9 +621,13 @@ export class FileDocumentStore implements DocumentStore {
     if (!fileId(document.meta.id)) throw new Error("Invalid document ID.");
     const place = await this.#make(context);
     const files = filesOf(place.folder, document.meta.id);
-    await this.#write(place, files.text, document.text);
-    // Write metadata last: a document without metadata is treated as absent.
-    await this.#write(place, files.meta, JSON.stringify(document.meta));
+    // In the turn of the document's changes (since 0.10.2): a patchMeta of this store never writes
+    // the metadata of the document it read over this one.
+    await this.#inTurn(files.meta, async () => {
+      await this.#write(place, files.text, document.text);
+      // Write metadata last: a document without metadata is treated as absent.
+      await this.#write(place, files.meta, JSON.stringify(document.meta));
+    });
   }
 
   /** The metadata of a document in `place`, or undefined. An expired one is removed, as far as that works. */
@@ -716,7 +759,105 @@ export class FileDocumentStore implements DocumentStore {
   async delete(id: string, context?: DocumentContext): Promise<boolean> {
     if (!fileId(id)) return false;
     const place = await this.#find(context, true);
-    return place ? this.#remove(place, id) : false;
+    // In the turn of the document's changes, as put (0.10.2).
+    return place ? this.#inTurn(filesOf(place.folder, id).meta, () => this.#remove(place, id)) : false;
+  }
+
+  /**
+   * The metadata of the documents in the folder of the scope of `context` (in the directory, without
+   * `scopes`), without the expired ones. It reads every metadata file of the folder,
+   * `sweepConcurrency` at a time: a folder of one chat holds few, but the directory of a store
+   * without scopes may hold many. Only metadata that names its own file counts (the application's
+   * `notes.json` in a folder it shares is not a document), and nothing is removed: that is
+   * `sweep`'s. A folder that is not there gives none. New in 0.10.2.
+   */
+  async list(context?: DocumentContext): Promise<DocumentMeta[]> {
+    const place = await this.#find(context);
+    if (!place) return [];
+    let entries: Dirent[];
+    try {
+      entries = await readdir(place.folder, { withFileTypes: true });
+    } catch (error) {
+      if (this.#unreadable(place, error)) return [];
+      throw error;
+    }
+    const ids = entries.flatMap((entry) => {
+      const match = entry.isFile() ? FILE_NAME.exec(entry.name) : null;
+      return match && match[2] === "json" && match[3] === undefined && fileId(match[1]!) ? [match[1]!] : [];
+    });
+    const now = this.now();
+    const slots = new Limiter(this.#sweepConcurrency);
+    const metas = await Promise.all(ids.map(async (id) => {
+      const release = await slots.acquire();
+      try {
+        const raw = await readFile(filesOf(place.folder, id).meta, { encoding: "utf8", flag: READ_FLAGS });
+        const meta = parseMeta(raw);
+        return meta && meta.id === id && !expired(meta, now) ? meta : undefined;
+      } catch (error) {
+        // Gone since the listing, or a link: not listed. In a folder the application shares, a
+        // file of a name the library does not make that it may not read is the application's, and
+        // is skipped, as sweep leaves it. Any other failure is the volume's.
+        if (this.#unreadable(place, error) || (place.shared && !DOCUMENT_ID_PATTERN.test(id) && (code(error) === "EACCES" || code(error) === "EPERM"))) return undefined;
+        throw error;
+      } finally {
+        release();
+      }
+    }));
+    return metas.filter((meta): meta is DocumentMeta => meta !== undefined);
+  }
+
+  /**
+   * Changes the fields of `patch` in the metadata of the document `id` whose `createdAt` is
+   * `patch.createdAt` (`DocumentStore.patchMeta`): the metadata is read, changed and written whole
+   * under a temporary name and then renamed, as `put` writes it, and no other file is touched.
+   * Changes of one document by this store take turns with each other and with its `put` and
+   * `delete`, so two at once both stay, and a document deleted and stored again meanwhile is never
+   * written over. Across servers sharing the folder nothing makes them take turns: a change on one
+   * server at the moment of a delete and a new `put` on another can still write the old metadata
+   * over the new document, or leave metadata without text (reads take it as missing, `getMeta` and
+   * `list` still show it until `sweep` removes it). The later write wins. Undefined when the document is not there, has expired, or is another one
+   * stored under the ID since, and nothing is written. A delete that ends between the read and the
+   * write would leave metadata without text: the text is looked for after the write, and without it
+   * the metadata is removed again and the answer is undefined (a delete on another server at the
+   * same moment can still leave it, which reads take as missing and `sweep` removes). New in 0.10.2.
+   */
+  async patchMeta(id: string, patch: MetaPatch, context?: DocumentContext): Promise<DocumentMeta | undefined> {
+    if (!fileId(id)) return undefined;
+    // A write, and maybe a removal: the folder of the scope is checked again, as for delete.
+    const place = await this.#find(context, true);
+    if (!place) return undefined;
+    const files = filesOf(place.folder, id);
+    return this.#inTurn(files.meta, async () => {
+      const meta = await this.#meta(place, id);
+      if (!meta || !patchedOne(meta, patch)) return undefined;
+      const next = patched(meta, patch);
+      const written = JSON.stringify(next);
+      await this.#write(place, files.meta, written);
+      const text = await lstat(files.text).catch((error: unknown) => (absent(error) ? undefined : null));
+      if (text === undefined) {
+        // A delete on another server ended meanwhile: the metadata just written is removed again,
+        // only while it is still what this call wrote (a document stored since is left alone).
+        const now = await readFile(files.meta, { encoding: "utf8", flag: READ_FLAGS }).catch(() => undefined);
+        if (now === written) await this.#remove(place, id).catch(() => undefined);
+        return undefined;
+      }
+      return next;
+    });
+  }
+
+  /** The changes of one file of this store, one at a time (`patchMeta`). */
+  readonly #turns = new Map<string, Promise<unknown>>();
+
+  async #inTurn<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const before = this.#turns.get(key) ?? Promise.resolve();
+    const mine = before.catch(() => undefined).then(work);
+    const settled = mine.catch(() => undefined);
+    this.#turns.set(key, settled);
+    try {
+      return await mine;
+    } finally {
+      if (this.#turns.get(key) === settled) this.#turns.delete(key);
+    }
   }
 
   async putOriginal(id: string, bytes: Uint8Array, context?: DocumentContext): Promise<void> {
@@ -866,7 +1007,10 @@ export class FileDocumentStore implements DocumentStore {
       if (raw !== undefined) {
         const meta = parseMeta(raw);
         const known = meta !== undefined && (ours || meta.id === id);
-        if (known ? expired(meta!, now) : ours && await old(metaFile)) {
+        // Since 0.10.2, metadata whose text is gone is removed too, once it is old: a document
+        // changed on one server while another deleted it can be left so, and reads take it as missing.
+        const textless = known && ours && !names.includes(`${id}.txt`) && await old(metaFile);
+        if (known ? expired(meta!, now) || textless : ours && await old(metaFile)) {
           // 1 only when this sweep removed the metadata: another sweep at the same time may have.
           return await pool(() => this.#remove(place, id)).then((existed) => (existed ? 1 : 0), () => 0);
         }
@@ -880,4 +1024,27 @@ export class FileDocumentStore implements DocumentStore {
     }
     return 0;
   }
+}
+
+/** The methods of a store that tell how it reads and writes a document: a subclass that changes one changes them all. */
+const CORE_METHODS = ["put", "get", "getMeta", "delete"] as const;
+
+/**
+ * The store's `list` or `patchMeta`, when the library may use it (0.10.2). A subclass of
+ * `MemoryDocumentStore` or `FileDocumentStore` written for 0.10.1 that changes how documents are
+ * read or written (its own `put`, `get`, `getMeta` or `delete`: a key prefix, encryption) inherits
+ * the built-in `list` and `patchMeta`, which would go past those changes: they are not used for it,
+ * as if it had none, until it has its own. Any other store's method is used as it is.
+ */
+export function usableStoreMethod<K extends "list" | "patchMeta">(store: DocumentStore, name: K): DocumentStore[K] | undefined {
+  const method = store[name];
+  if (typeof method !== "function") return undefined;
+  for (const Base of [MemoryDocumentStore, FileDocumentStore] as const) {
+    if (!(store instanceof Base)) continue;
+    const own = Base.prototype as unknown as DocumentStore;
+    // The subclass's own: used.
+    if (method !== own[name]) return method;
+    return CORE_METHODS.some((core) => store[core] !== own[core]) ? undefined : method;
+  }
+  return method;
 }

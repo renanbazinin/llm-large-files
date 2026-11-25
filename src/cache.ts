@@ -36,10 +36,18 @@ export function documentVersion(meta: DocumentMeta): string {
  * not served from here.
  */
 export class DocumentCache<T extends Sized> {
-  private readonly entries = new Map<string, { version: string; value: T; bytes: number; owner?: string }>();
+  private readonly entries = new Map<string, { version: string; value: T; bytes: number; owner?: string; used: number }>();
+  /** A count of uses, to tell which of the documents and the one kept apart was used longest ago. */
+  private uses = 0;
   /** Entries that belong to no other: the documents. */
   private documents = 0;
   private total = 0;
+  /**
+   * The last document larger than the whole cache, kept apart for `OVERSIZE_KEEP_MS` after its
+   * last use (P4, 0.10.2): the tool calls of one question that read it again do not each load and
+   * index it again, as they did over a store without `readTextRange`. One at most.
+   */
+  private oversize: { id: string; version: string; value: T; bytes: number; timer: ReturnType<typeof setTimeout>; used: number } | undefined;
 
   constructor(
     private readonly maxBytes: number,
@@ -47,9 +55,9 @@ export class DocumentCache<T extends Sized> {
     private readonly maxEntries = Number.POSITIVE_INFINITY,
   ) {}
 
-  /** Memory taken by the cached documents, by their own estimate. */
+  /** Memory taken by the cached documents, by their own estimate: the last oversize document too. */
   get bytes(): number {
-    return this.total;
+    return this.total + (this.oversize?.bytes ?? 0);
   }
 
   get size(): number {
@@ -58,13 +66,14 @@ export class DocumentCache<T extends Sized> {
 
   get(id: string, version: string): T | undefined {
     const entry = this.entries.get(id);
-    if (!entry) return undefined;
+    if (!entry) return this.lastOversize(id, version);
     if (entry.version !== version) {
       this.delete(id);
       return undefined;
     }
     // Most recently used last.
     this.entries.delete(id);
+    entry.used = ++this.uses;
     this.entries.set(id, entry);
     return entry.value;
   }
@@ -78,23 +87,19 @@ export class DocumentCache<T extends Sized> {
     if (existing?.value === value && existing.version === version) return;
     this.delete(id);
     const bytes = Math.max(0, value.memoryBytes);
-    if (bytes > this.maxBytes || this.maxEntries < 1) return;
-    this.entries.set(id, { version, value, bytes, ...(owner !== undefined ? { owner } : {}) });
+    if (this.maxEntries < 1) return;
+    if (bytes > this.maxBytes) {
+      // A document (not a piece), with a cache that keeps any: the last one is kept apart.
+      if (owner === undefined && this.maxBytes > 0) {
+        this.keepOversize(id, version, value, bytes);
+        this.withinEntries();
+      }
+      return;
+    }
+    this.entries.set(id, { version, value, bytes, ...(owner !== undefined ? { owner } : {}), used: ++this.uses });
     this.total += bytes;
     if (owner === undefined) this.documents++;
-    // One document too many: the one used longest ago goes, with what belongs to it.
-    while (this.documents > this.maxEntries) {
-      let oldest: string | undefined;
-      for (const [key, entry] of this.entries) {
-        if (entry.owner === undefined) {
-          oldest = key;
-          break;
-        }
-      }
-      if (oldest === undefined) break;
-      this.delete(oldest);
-      for (const [key, entry] of [...this.entries]) if (entry.owner === oldest) this.delete(key);
-    }
+    this.withinEntries();
     // Too much memory: the entries used longest ago go, whatever they are.
     for (const [oldest] of this.entries) {
       if (this.total <= this.maxBytes) break;
@@ -103,6 +108,7 @@ export class DocumentCache<T extends Sized> {
   }
 
   delete(id: string): void {
+    if (this.oversize?.id === id) this.dropOversize();
     const entry = this.entries.get(id);
     if (!entry) return;
     this.entries.delete(id);
@@ -117,6 +123,76 @@ export class DocumentCache<T extends Sized> {
 
   /** Drops every entry whose key passes `test`: one document in every scope, with its pieces. */
   deleteWhere(test: (key: string) => boolean): void {
+    if (this.oversize && test(this.oversize.id)) this.dropOversize();
     for (const key of [...this.entries.keys()]) if (test(key)) this.delete(key);
   }
+
+  /**
+   * Within `maxEntries` documents, the one kept apart counted (`cacheSize`): one too many, the
+   * document used longest ago goes, with what belongs to it, whether it is one of the others or the
+   * one kept apart.
+   */
+  private withinEntries(): void {
+    while (this.documents + (this.oversize ? 1 : 0) > this.maxEntries) {
+      let oldest: string | undefined;
+      for (const [key, entry] of this.entries) {
+        if (entry.owner === undefined) {
+          oldest = key;
+          break;
+        }
+      }
+      const apart = this.oversize;
+      if (oldest === undefined || (apart && apart.used < this.entries.get(oldest)!.used)) {
+        this.dropOversize();
+        if (oldest === undefined) break;
+        continue;
+      }
+      this.delete(oldest);
+      for (const [key, entry] of [...this.entries]) if (entry.owner === oldest) this.delete(key);
+    }
+  }
+
+  /** The last oversize document, when it is this one: its time is counted again from now. */
+  private lastOversize(id: string, version: string): T | undefined {
+    const kept = this.oversize;
+    if (kept?.id !== id) return undefined;
+    if (kept.version !== version) {
+      this.dropOversize();
+      return undefined;
+    }
+    kept.timer = this.oversizeTimer(kept.timer);
+    kept.used = ++this.uses;
+    return kept.value;
+  }
+
+  private keepOversize(id: string, version: string, value: T, bytes: number): void {
+    this.dropOversize();
+    this.oversize = { id, version, value, bytes, timer: this.oversizeTimer(), used: ++this.uses };
+  }
+
+  /**
+   * The timer that lets the document kept apart go: `timer` counted again from now, or a new one.
+   * It does not keep the process alive, and it holds the cache weakly: a library let go of with a
+   * document kept apart is collected at once, not a minute later with everything it kept.
+   */
+  private oversizeTimer(timer?: ReturnType<typeof setTimeout>): ReturnType<typeof setTimeout> {
+    if (timer && typeof timer.refresh === "function") {
+      timer.refresh();
+      return timer;
+    }
+    if (timer) clearTimeout(timer);
+    const cache = new WeakRef(this);
+    const next = setTimeout(() => cache.deref()?.dropOversize(), OVERSIZE_KEEP_MS);
+    next.unref?.();
+    return next;
+  }
+
+  private dropOversize(): void {
+    if (!this.oversize) return;
+    clearTimeout(this.oversize.timer);
+    this.oversize = undefined;
+  }
 }
+
+/** How long the last document larger than the whole cache is kept after its last use (P4). New in 0.10.2. */
+export const OVERSIZE_KEEP_MS = 60_000;

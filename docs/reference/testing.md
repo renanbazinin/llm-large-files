@@ -228,6 +228,10 @@ What the checks cover:
   left shows when a document is put again under the ID. With `isolatesScopes`, a sweep with a scope
   removes only that scope's.
 - The IDs an application may choose ([`APP_DOCUMENT_ID_PATTERN`](./library.md#app_document_id_pattern)).
+- Since 0.10.2, when the store has them: `list` gives the documents of a scope, not the deleted
+  ones, as copies ("list"); `patchMeta` changes its fields alone, only for the document of that
+  `createdAt`, owner and scope, keeps the later expiry, and keeps both of two changes made at once
+  ("meta").
 - Every method takes a context. Without `requiresScope`, also no context, `{}`, and an owner alone.
 - With `requiresScope`: a call without a scope throws a
   [`DocumentScopeError`](./library.md#documentscopeerror) of code `"scope_required"`, and `sweep`
@@ -245,13 +249,15 @@ What the checks cover:
 
 Each check makes its own store with `create`, over storage of its own (`environment.storage`), and
 gives every store it made to `dispose` at the end. The checks pass a scope (and an owner) on most
-calls. New checks are added only in minor versions, so a patch release never fails a store that
-passed.
+calls. A check a patch release adds runs only for a method the store did not have before (0.10.2:
+`list` and `patchMeta`, checked only when the store has them, and for a subclass of a built-in store
+with its own `put`, `get`, `getMeta` or `delete` only when it has its own), so a patch release never
+fails a store that passed.
 
 ### `DocumentStoreChecksOptions`
 
 ```ts
-type StoreCheckPart = "originals" | "ranges" | "index" | "sweep" | "shared";
+type StoreCheckPart = "originals" | "ranges" | "index" | "sweep" | "shared" | "list" | "meta"; // "list", "meta": new in 0.10.2
 
 type DocumentStoreChecksOptions = {
   create(environment: StoreCheckEnvironment): DocumentStore | Promise<DocumentStore>;
@@ -270,7 +276,7 @@ type DocumentStoreChecksOptions = {
 | `isolatesScopes` | `false` | The store keeps the documents of each scope apart, as `MemoryDocumentStore` and a scoped `FileDocumentStore` do. Adds the checks of scopes. Leave it false for a store that ignores the context: the library then keeps scopes apart by `meta.scope`. |
 | `requiresScope` | `false` | The store refuses a call without a scope, as a `FileDocumentStore` with `scopes` does. The checks then always pass one, and one more checks the refusal. |
 | `scopeDepth` | `2` | How many segments the scopes of the checks have, from 1 to 8: `["user-1", "chat-a"]` with 2. |
-| `skip` | `[]` | The parts the store does not have: `"originals"` (`putOriginal` and `getOriginal`), `"ranges"` (`readTextRange`), `"index"` (`putIndex` and `getIndex`), `"sweep"`, and `"shared"` for storage two stores cannot share (`MemoryDocumentStore`). A check of a part the store lacks, not skipped, fails and says to skip it. |
+| `skip` | `[]` | The parts the store does not have: `"originals"` (`putOriginal` and `getOriginal`), `"ranges"` (`readTextRange`), `"index"` (`putIndex` and `getIndex`), `"sweep"`, and `"shared"` for storage two stores cannot share (`MemoryDocumentStore`). A check of a part the store lacks, not skipped, fails and says to skip it. Since 0.10.2, `"list"` (`list`) and `"meta"` (`patchMeta`): those are checked only when the store has them, so a store written for 0.10.1 passes as before; `skip` leaves them out for a store that has them. |
 
 `documentStoreChecks` throws a `TypeError` without `create`, or for a `scopeDepth` outside 1 to 8.
 

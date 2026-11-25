@@ -97,8 +97,15 @@ With `scopes` (new in 0.9.0), the files of each scope are in a folder of their o
 - `put` writes the text first and the metadata last. `delete` removes the metadata first, and
   nothing else when that fails: it throws, and the document stays whole. Once the metadata is
   gone, the document is gone: `delete` returns true, and a text, index or original it could not
-  remove is left for `sweep` (new in 0.9.0: it threw). A document never appears without its text,
-  and is never listed once its text is gone.
+  remove is left for `sweep` (new in 0.9.0: it threw). A document never appears without its text.
+  Once its text is gone, a question takes it as missing; `getMeta` and `list` still give its
+  metadata until `sweep` removes it (since 0.10.2, once that metadata is older than `orphanAgeMs`).
+- `patchMeta` (`files.touch`, `files.update`, `dedupe`, 0.10.2) reads the metadata, changes it and
+  writes it whole. On one server its changes take turns with `put` and `delete` of the same document,
+  so a document deleted and stored again meanwhile is never written over. Across servers that share
+  the folder nothing makes them take turns: a change on one server at the moment of a delete and a
+  new `put` of the same ID on another can write the old metadata over the new document (with
+  `scopes`, both are in one chat's folder, so of one user), or leave metadata without text.
 - File names are document IDs: the library's (`doc_` and 32 hex digits), or, since 0.9.0, an
   application's ([Application IDs](#application-ids)). `APP_DOCUMENT_ID_PATTERN` leaves out the
   names Windows keeps for devices (`con`, `nul`, `com1` and the like), since `con.json` is not a
@@ -565,8 +572,10 @@ setInterval(() => {
 }, 60 * 60 * 1000).unref();
 ```
 
-- At ingest, `expiresAt` is set to `createdAt` plus `ttlMs`. It never changes: the library has no
-  call to extend it.
+- At ingest, `expiresAt` is set to `createdAt` plus `ttlMs`. Since 0.10.2,
+  [`files.touch(id, access)`](../reference/library.md#filestouchid-access) counts it again from now,
+  so that a file a chat still uses stays (see [Expiry from the last use](#expiry-from-the-last-use)),
+  and so does `ingest({ dedupe: true })` for the document it gives back. Nothing else changes it.
 - From that instant the document counts as missing everywhere: `getMeta` and `getOriginal` give
   undefined, `prepare` lists it in `missing`, and a question throws `DocumentsNotFoundError`. The
   library checks `expiresAt` with its own clock before every use, whether or not the store has
@@ -602,6 +611,46 @@ answers without them, and a function can ingest them again from the uploads you 
   is in use. The library reads the date from `getMeta` before every use. Keep the format of
   `toISOString()`. In the example store below, change `meta.expiresAt` and the record's own
   `expiresAt` together: `sweep` and a TTL index read the second.
+
+### Expiry from the last use
+
+New in 0.10.2. With a store that has `patchMeta` (both built-in stores do), `files.touch` counts a
+document's expiry again from the time of the call, so `ttlMs` becomes the time a file is kept after
+its last use rather than after its upload. It writes the metadata alone, never the text, and an
+expiry already later stays. Call it for the documents of each question:
+
+```ts
+const result = await askGemini({ files, endpoint, documentIds, owner: userId, scope: [userId, chatId], messages });
+// The chat used these files: they stay ttlMs from now.
+await Promise.all(documentIds.map((id) => files.touch!(id, { owner: userId, scope: [userId, chatId] })));
+```
+
+### A chat's files, its own data and the same file twice
+
+New in 0.10.2. Three calls for a chat that keeps its files in the library, with no second list of
+them in your database:
+
+- **`files.list({ owner, scope })`** gives the documents stored with exactly that owner and scope,
+  the oldest first, for the chat's file panel (a document without an owner is listed only to a
+  caller without one: its ID alone opens it). It needs a store with `list`; the built-in stores read the
+  chat's folder (a `FileDocumentStore` without `scopes` reads its whole directory: give it `scopes`,
+  or keep your own list, when it holds many files).
+- **`appData`** is your own data about a document, kept with its metadata and never sent to the
+  model: the ID of its row in your database, who uploaded it, a label. Set it at ingest
+  (`ingest({ appData })`), change it with `files.update(id, { appData }, access)`, remove it with
+  `appData: null`. A JSON object of at most 16 KB.
+- **`ingest({ dedupe: true })`** gives back the chat's document of the same file (same owner, scope
+  and SHA-256) when a user uploads it again, instead of a second copy. The file is read once to
+  hash it, not extracted; the document keeps its own name, `createdAt` and `appData`, and its expiry
+  is counted again. Its `createdAt` is before the upload: if your app deletes an upload's document
+  when a later step fails, do not delete this one. Dedupe looks at what is stored: two uploads of
+  the same file at the same moment may both be stored. The upload handlers of `llm-large-files/node`
+  do not pass `dedupe` or `appData`.
+
+```ts
+const meta = await files.ingest({ name, bytes, owner: userId, scope: [userId, chatId], dedupe: true, appData: { uploadedBy: userId } });
+const panel = (await files.list!({ owner: userId, scope: [userId, chatId] })).map((doc) => ({ ...toDocumentSummary(doc), by: doc.appData?.uploadedBy }));
+```
 
 ## Keeping the uploaded files
 
@@ -729,9 +778,10 @@ export function ingestSaved(userId: string, chatId: string, uploadId: string, na
   byte past it. What it throws becomes a `DocumentStoreError` (operation `"read"`) with its error as
   `cause` ([`OriginalsReader`](../reference/library.md#originalsreader)).
 - **The same file twice.** Every document of 0.9.0 has `meta.sha256`, the SHA-256 of the upload,
-  for bytes and for paths. The library does not look for another document of the same file: to
-  give a user the document of a file already in the chat, compare it with the `sha256` your
-  session record keeps for the chat's documents. Never across owners.
+  for bytes and for paths. Since 0.10.2, `ingest({ dedupe: true })` gives back the document of the
+  same owner and scope with the same SHA-256 ([below](#a-chats-files-its-own-data-and-the-same-file-twice)).
+  Or compare it yourself with the `sha256` your session record keeps for the chat's documents. Never
+  across owners.
 
 ## Writing a store of your own
 
@@ -800,6 +850,8 @@ Which context a call carries:
 | `readTextRange(id, start, end)` | No | To read a document larger than `wholeDocumentBytes`, and to build its index. Only after `getMeta` found the document. | Return the bytes of the text from `start` (inclusive) to `end` (exclusive). See [Reading by range](#reading-by-range). |
 | `putIndex(id, index)` | No | `ingest`, after `putOriginal` and before `put`, for every document. Again when a document read by range has no index, or one that does not match its text. | Keep the bytes. |
 | `getIndex(id)` | No | When a document read by range is opened. | Return the bytes `putIndex` kept, or undefined. A damaged index is noticed and built again. |
+| `list()` | No | `files.list`, and `ingest({ dedupe: true })`. New in 0.10.2. | Return the metadata of the documents of `context.scope` (of no scope without one). Expired ones may be left out or given: the library leaves them out. A query on the scope, not a read of each document: index the field you keep the scope in. |
+| `patchMeta(id, patch)` | No | `files.touch`, `files.update`, and `ingest({ dedupe: true })` for the document it gives back. New in 0.10.2. | Change only the fields of `patch` (the later `expiresAt`; `appData` set, or removed when `null`), only in the document of that `id` whose `createdAt`, owner and scope are `patch`'s (absent is none), applied to what is stored at the time of the write; return the metadata after the change, or undefined, writing nothing, when there is no such document. In MongoDB: `findOneAndUpdate({ _id: id, "meta.createdAt": patch.createdAt, "meta.owner": patch.owner ?? null, "meta.scope": patch.scope ?? null }, { $max: { "meta.expiresAt": patch.expiresAt }, $set: { "meta.appData": … } }, { returnDocument: "after" })` (`null` matches a field left out), and `$unset` for `null`. In a store that keeps `expiresAt` in a field of its own for a TTL index, change that field too. |
 
 The library checks `expiresAt` itself, with its own clock, before every use. Your `getMeta` and
 `get` may return a document that has expired; your `sweep` must remove it. If they remove an expired
@@ -828,6 +880,8 @@ What a missing optional method changes:
 | `getOriginal` | `files.getOriginal` returns undefined, and `view_pages` is never offered. |
 | `readTextRange` | Every document is loaded whole with `get`, whatever its size, so memory grows with the size of the files in use and the number of users. `wholeDocumentBytes`, `scanChunkBytes` and `maxConcurrentScans` change nothing. |
 | `putIndex` and `getIndex` | With `readTextRange` only: the index of a large document is built by reading its whole text once, 4 MB at a time, each time the document is opened, that is, each time it is not in the cache. |
+| `list` | `files.list` and `ingest({ dedupe: true })` are a `TypeError` (0.10.2). |
+| `patchMeta` | `files.touch` and `files.update` are a `TypeError`, and `dedupe` counts no expiry again (0.10.2). |
 
 ### Reading by range
 
@@ -1217,7 +1271,7 @@ just those lines.
 
 | Option | Default | What it does |
 |---|---|---|
-| `cacheBytes` | `DEFAULT_CACHE_BYTES`: 256 MB | The most memory the kept documents may take, decoded pieces of large documents included. The least recently used go first. A document larger than this is read again for each call. `0` keeps none. |
+| `cacheBytes` | `DEFAULT_CACHE_BYTES`: 256 MB | The most memory the kept documents may take, decoded pieces of large documents included. The least recently used go first. A document larger than this is not kept with them: since 0.10.2 the last one is kept apart, on top of this, for a minute after its last use (before, it was read again for each call). `0` keeps none. |
 | `cacheSize` | No cap | Also caps the number of documents kept. The pieces of a document read by range do not count. |
 | `wholeDocumentBytes` | `DEFAULT_WHOLE_DOCUMENT_BYTES`: 2 MB | A document whose text is at most this many bytes is loaded whole. A larger one is read by range, when the store has `readTextRange`. `Infinity` loads every document whole; `0` reads every one by range. |
 | `scanChunkBytes` | 1 MB | Reading by range: about this many bytes of text are read and searched at a time. |

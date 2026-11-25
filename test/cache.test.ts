@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { DocumentCache } from "../src/cache.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DocumentCache, OVERSIZE_KEEP_MS } from "../src/cache.js";
 import { createLargeFiles, FileDocumentStore, MemoryDocumentStore, type DocumentMeta, type DocumentStore, type StoredDocument } from "../src/index.js";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -122,7 +122,7 @@ describe("the memory documents may take", () => {
     expect(store.calls.get).toBe(5);
   });
 
-  it("drops the least recently used document when the next one does not fit, and never keeps one larger than the limit", async () => {
+  it("drops the least recently used document when the next one does not fit, and keeps the last one larger than the limit apart", async () => {
     const store = new CountingStore();
     // Each log of 1,000 lines takes about 100 KB here (ASCII, kept with its lowercased copy).
     const files = createLargeFiles({ store, cacheBytes: 250_000, budget: { inlineTokens: 10 } });
@@ -144,13 +144,21 @@ describe("the memory documents may take", () => {
     await read(b.id);
     expect(store.calls.get).toBe(4);
 
-    // Larger than the whole cache: read for each call, and it does not push out the others.
+    // Larger than the whole cache: it does not push out the others. Since 0.10.2 the last such
+    // document is kept apart (P4): before, each call loaded it again (6 gets here, then 7).
     await read(huge.id);
     await read(huge.id);
-    expect(store.calls.get).toBe(6);
+    expect(store.calls.get).toBe(5);
     await read(b.id);
-    expect(store.calls.get).toBe(6);
+    expect(store.calls.get).toBe(5);
     expect((await read(huge.id)).total_lines).toBe(5_000);
+    expect(store.calls.get).toBe(5);
+    // A second one takes its place.
+    const huger = await files.ingest({ name: "huger.log", bytes: bytes(logText(6_000, "j ")) });
+    const more = files.tools([huge, huger]);
+    await more.execute("read_document", { document_id: huger.id, start_line: 1, end_line: 1 });
+    await more.execute("read_document", { document_id: huge.id, start_line: 1, end_line: 1 });
+    expect(store.calls.get).toBe(7);
   });
 
   it("still honours cacheSize as a cap on the number of documents", async () => {
@@ -186,7 +194,42 @@ describe("DocumentCache", () => {
     cache.set("big", "v", item(101));
     expect(cache.size).toBe(1);
     cache.delete("3");
+    // The last entry larger than the cache is kept apart, and counted (0.10.2).
+    expect(cache.bytes).toBe(101);
+    cache.delete("big");
     expect(cache.bytes).toBe(0);
+  });
+
+  it("keeps the last document larger than the cache for a minute after its last use, and never a piece (P4)", () => {
+    vi.useFakeTimers();
+    try {
+      const cache = new DocumentCache<ReturnType<typeof item>>(100);
+      const big = item(500);
+      cache.set("big", "v1", big);
+      expect(cache.get("big", "v1")).toBe(big);
+      vi.advanceTimersByTime(OVERSIZE_KEEP_MS - 1_000);
+      expect(cache.get("big", "v1")).toBe(big); // used again: a minute from now
+      vi.advanceTimersByTime(OVERSIZE_KEEP_MS - 1_000);
+      expect(cache.get("big", "v1")).toBe(big);
+      vi.advanceTimersByTime(OVERSIZE_KEEP_MS + 1);
+      expect(cache.get("big", "v1")).toBeUndefined();
+      // Another version is not it, and drops it.
+      cache.set("big", "v1", big);
+      expect(cache.get("big", "v2")).toBeUndefined();
+      expect(cache.get("big", "v1")).toBeUndefined();
+      // A piece of a document is never kept apart, and a cache of 0 bytes keeps nothing.
+      cache.set("big#0", "v1", item(500), "big");
+      expect(cache.get("big#0", "v1")).toBeUndefined();
+      const none = new DocumentCache<ReturnType<typeof item>>(0);
+      none.set("big", "v1", big);
+      expect(none.get("big", "v1")).toBeUndefined();
+      // deleteWhere drops it too.
+      cache.set("scope\u0000big", "v1", big);
+      cache.deleteWhere((key) => key.endsWith("big"));
+      expect(cache.get("scope\u0000big", "v1")).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -1131,7 +1131,8 @@ What does hold per library (per `createLargeFiles` call, so per process when you
 per process, as [Deployment](./guides/deployment.md#what-lives-where) advises): scans of documents
 read by range (searches, counting the parts of a file) run at most `maxConcurrentScans` (4) at a
 time, and the others wait their turn; the documents kept ready in memory between tool calls take at
-most `cacheBytes` (256 MB).
+most `cacheBytes` (256 MB), and since 0.10.2 one more, the last larger than that, for a minute after
+its last use.
 
 ## What a question can cost
 

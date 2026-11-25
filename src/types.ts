@@ -130,6 +130,42 @@ export type DocumentMeta = {
   scripts?: Array<{ script: string; percent: number }>;
   createdAt: string;
   expiresAt: string;
+  /**
+   * The application's own data about the document (`IngestInput.appData`, `files.update`): a JSON
+   * object of at most `MAX_APP_DATA_BYTES` (16 KB) as JSON, such as the ID of its row in your
+   * database or a label. The library keeps it with the metadata and does nothing else with it: it
+   * is never sent to the model, nor in a summary. An event holds it only with
+   * `AskOptions.eventResults: true`, in the full plan of `run.finish` and `run.error`. New in 0.10.2.
+   */
+  appData?: AppData;
+};
+
+/** A value JSON can hold: what `DocumentMeta.appData` is made of. New in 0.10.2. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+/** The application's own data about a document (`DocumentMeta.appData`): a JSON object. New in 0.10.2. */
+export type AppData = { [key: string]: JsonValue };
+
+/**
+ * What `DocumentStore.patchMeta` changes in the metadata of one document. New in 0.10.2.
+ */
+export type MetaPatch = {
+  /**
+   * The `createdAt` of the document to change. A document stored again under the same ID since
+   * (deleted, then ingested again) has another, and is not changed.
+   */
+  createdAt: string;
+  /**
+   * The owner of the document to change, absent for none: a document of another owner, even of the
+   * same `createdAt`, is not changed. Compare as `owner ?? undefined` (null is none).
+   */
+  owner?: string;
+  /** The scope of the document to change, absent for none, compared segment by segment, as `owner` is. */
+  scope?: DocumentScope;
+  /** A later expiry: the stored `expiresAt` becomes the later of the two, as ISO 8601 dates compare. */
+  expiresAt?: string;
+  /** The application's own data: replaces `appData` whole, or removes it when null. */
+  appData?: AppData | null;
 };
 
 export type StoredDocument = { meta: DocumentMeta; text: string };
@@ -192,6 +228,25 @@ export interface DocumentStore {
   putIndex?(id: string, index: Uint8Array, context?: DocumentContext): Promise<void>;
   /** The index kept by `putIndex`, or undefined. A damaged one is noticed and built again. */
   getIndex?(id: string, context?: DocumentContext): Promise<Uint8Array | undefined>;
+  /**
+   * The metadata of the documents of the scope of `context`, in any order: those stored without a
+   * scope when it has none. A store that keeps no scopes apart gives every document it has. It may
+   * leave out the expired ones, or give them: the library leaves them out. Optional:
+   * `files.list()` and `ingest({ dedupe })` need it. A store of many documents should answer
+   * from an index (a database query on the scope), not by reading each one. New in 0.10.2.
+   */
+  list?(context?: DocumentContext): Promise<DocumentMeta[]>;
+  /**
+   * Changes the fields of `patch` in the metadata of the document `id` whose `createdAt`, owner and
+   * scope are `patch`'s, and nothing else: its other fields, its text, line index and original stay
+   * as they are. Returns the metadata as it is after the change, or undefined when no such document
+   * is there (unknown, deleted, expired, or another one stored under the ID since), and nothing was
+   * written. Apply the fields to what is stored at the time of the write, not to a copy read
+   * before: two changes at once (a `touch` and an `update`) must both stay. A database does it in
+   * one conditional update (`$max` on the expiry, `$set`/`$unset` on `appData`). Optional:
+   * `files.touch()`, `files.update()` and `ingest({ dedupe })` use it. New in 0.10.2.
+   */
+  patchMeta?(id: string, patch: MetaPatch, context?: DocumentContext): Promise<DocumentMeta | undefined>;
 }
 
 export type ExtractedText = {

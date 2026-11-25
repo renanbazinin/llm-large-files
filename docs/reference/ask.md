@@ -9,7 +9,7 @@ task, where there is one.
 ```ts
 import {
   askWithFiles, askStream, partialResultOf, DocumentsNotFoundError, UsageMeter, TOOL_TURN_VERSION,
-  evidenceOf, mergeRanges, stubResult, DEFAULT_INPUT_TOKENS, answerInfoOf, checkCitations,
+  evidenceOf, mergeRanges, stubResult, compactToolTurns, DEFAULT_INPUT_TOKENS, answerInfoOf, checkCitations,
   EXPLORER_INSTRUCTION, FINAL_ANSWER_REQUEST, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_WITHOUT_TOOLS,
 } from "llm-large-files";
 import type {
@@ -53,7 +53,8 @@ Contents:
   [`UsageMeter`](#usagemeter)
 - **Evidence and ranges:** [`Evidence`](#evidence), [`NumberRange`](#numberrange),
   [`evidenceOf(call, result)`](#evidenceofcall-result), [`mergeRanges(ranges)`](#mergerangesranges),
-  [`stubResult(call, result, hadFiles?)`](#stubresultcall-result-hadfiles)
+  [`stubResult(call, result, hadFiles?)`](#stubresultcall-result-hadfiles),
+  [`compactToolTurns(turns)`](#compacttoolturnsturns)
 
 The rest of the main entry is on three other pages: [library and documents](./library.md)
 (`createLargeFiles`, the budget, stores, extractors, document types), [errors and
@@ -300,6 +301,7 @@ The options of `askWithFiles`.
 | `onEvent` | `(event: AskEvent) => void` | none | Everything the question does, as typed events in order: `run.start`, the `plan`, each model request (`request.start`, `retry`, `request.end`), each tool call (`tool.start`, `tool.progress`, `tool.end`), the text, the notices, and last `run.finish` or `run.error`. See [events](./events.md). `onText`, `onActivity` and `onStep` still get the same strings, at the same moments. A model error in an event is told by its kind and status, never in the provider's words ([`EventError`](./errors-and-retries.md#errors-in-events-eventerror)). Tool results are left out unless `eventResults` is set. A throw from it ends the question with that error ([a listener that throws](./events.md#a-listener-that-throws)). New in 0.7.0. |
 | `runId` | `string` | `"run_"` and 16 hex digits | The `runId` of every event of the question. Pass your own to find the events in your logs. New in 0.7.0. |
 | `eventResults` | `boolean` | `false` | Put each tool result in its `tool.end` event (`result`), and `toolTurns` in the result that `run.finish` and `run.error` carry. Off by default: results hold the text of the documents, and events are often sent on to a browser. The result `askWithFiles` returns always has `toolTurns`. New in 0.7.0. |
+| `storeRounds` | `"full" \| "compact"` | `"full"` | How `result.toolTurns` holds the results of the question's calls. `"full"`: as the model had them. `"compact"`: each large result replaced by its stand-in ([`stubResult`](#stubresultcall-result-hadfiles)), as [`compactToolTurns`](#compacttoolturnsturns) makes it, so a stored question takes a few hundred bytes for most calls instead of up to 24,000 characters (the stand-in of a whole-file read keeps its notes, up to 6,000 characters). A later question sends the stand-ins, and the model reads again what it needs, at the price of a tool call. The requests of this question are the same either way. Another value is a `TypeError`. New in 0.10.2. |
 | `filteredAnswer` | `"keep" \| "drop"` | `"keep"` | What to do with an answer that a filter of the provider stopped (`result.finish` `"filtered"`). `"keep"` keeps its text, as in 0.9, with `answered: true` when it has some. `"drop"` gives `answered: false` and `text: ""`. Text that was already sent (`onText`, `text` events) cannot be taken back: the `answer_filtered` notice then has `discardText: true`, before `run.finish`, and the page takes the text away. Text of a reply that was not streamed is not sent at all. Any other value (`"Drop"`, `true`) is a `TypeError` before any request: it would keep an answer that was meant to be dropped. See [filtered and cut answers](../guides/errors-and-reliability.md#filtered-and-cut-answers). New in 0.10.0. |
 | `onToolResult` | `(context: ToolResultContext) => ToolResultVerdict \| undefined \| Promise<ToolResultVerdict \| undefined>` | none | Called with the result of every tool call that ran, as soon as it is in (the hooks of one turn may run at the same time), before the model, the evidence, the steps and the events get it ([`ToolResultContext` and `ToolResultVerdict`](#toolresultcontext-and-toolresultverdict)). A call that was refused, not run, or answered with a pointer is not passed to it. What it throws, or a value of another shape, ends the question. For data loss prevention: [security](../security.md#tool-results-ontoolresult). New in 0.10.0. |
 | `signal` | `AbortSignal` | none | Stops the question: the request under way is aborted through the adapter, tool calls stop, and nothing is sent again. `askWithFiles` then throws the signal's reason, at once: the loop does not wait for an adapter, or a part reader, that does not look at the signal. A request left running that way may be billed by the provider, and is not counted in the usage. Since 0.10.0 the loop does not wait either for `files.prepare`, a tool call or `onToolResult` once it aborts, and it passes the signal on with the access of the question (`PrepareOptions.signal`, `ToolOptions.access.signal`), for a library that ends its own waits for the store with it. |
@@ -350,7 +352,7 @@ question that failed.
 | `blockReason` | `string`, optional | Why the provider refused the prompt, in the adapter's words. Set only then. Nothing more is asked after a refusal. |
 | `steps` | `string[]` | Each finished step, in order: a line for each tool call, run or refused ("Search app.log (exact) for “timeout” — 12 matching lines", or "… — already shown above"), one for the calls of a turn over `callsPerTurn`, and one when the loop shortened older results, asked again after an empty or broken reply, or planned the documents again. The second try of the answer says "The model's answer was empty: it was asked again" or "The model called a tool instead of answering: it was asked again for the answer". The lines `onStep` got. Each is one line of plain text: a line break, a tab or another control character in what the model sent becomes one space with the blanks around it; the invisible characters that file text loses are dropped (text-direction overrides and isolates, zero-width spaces, word joiners, soft hyphens, tag characters); `](` becomes `] (`, so that a markdown link or picture stays text. A query is cut at 80 characters and a task at 100, never in the middle of a character. Steps still quote the model's words, HTML tags and web addresses included: show them as plain text, never as markdown or HTML. |
 | `evidence` | [`Evidence[]`](#evidence) | What the model was shown. First each file sent whole, in the order of its block: `{ tool: "inline", documentId, document, lines: [[1, lines]], whole: true }`, with no `callId` (new in 0.10.0). Then what each tool call showed: the document, and the lines or pages, in call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. Each of those has the `callId` of its call's events (new in 0.7.0). |
-| `toolTurns` | [`ToolTurn[]`](#toolturn) | The tool rounds of this question, as plain JSON, as the model last had them. Pass them back in `messages`, between this question and its answer, and a later question sees what was found here. Each result of a call made in this question has `tool_turns_left`, except a stand-in (`dropped: true`, see [`stubResult`](#stubresultcall-result-hadfiles)): a result shortened to make room, a pointer whose result was shortened, and the result of a call that showed pages. The pages are not kept: their stand-in says which pages were shown. A call's `problem` is left out. |
+| `toolTurns` | [`ToolTurn[]`](#toolturn) | The tool rounds of this question, as plain JSON, as the model last had them. Pass them back in `messages`, between this question and its answer, and a later question sees what was found here. Each result of a call made in this question has `tool_turns_left`, except a stand-in (`dropped: true`, see [`stubResult`](#stubresultcall-result-hadfiles)): a result shortened to make room, a pointer whose result was shortened, and the result of a call that showed pages. The pages are not kept: their stand-in says which pages were shown. A call's `problem` is left out. With `storeRounds: "compact"` (0.10.2), each large result is its stand-in ([`compactToolTurns`](#compacttoolturnsturns)). |
 | `plan` | [`DocumentPlan`](./library.md#documentplan) | Which documents went in whole (`inline`) and which were reached through tools (`searchable`). |
 | `missing` | `string[]`, optional | The documents of `documentIds` that were missing, and that the question was answered without (`onMissingDocuments` `"drop"`). Absent when none was. New in 0.9.0. |
 | `budget` | [`Budget`](./library.md#budget) | The budget the question ran with: the library's (with `options.budget`), fitted to the models. |
@@ -1249,6 +1251,26 @@ declare function mergeRanges(ranges: NumberRange[]): NumberRange[];
 
 The ranges in order, with those that overlap or touch made one: `[1, 30]` and `[31, 35]` become
 `[1, 35]`. It returns a new array and leaves `ranges` as it was. The sample above shows it.
+
+### compactToolTurns(turns)
+
+```ts
+declare function compactToolTurns(turns: readonly ToolTurn[]): ToolTurn[];
+```
+
+New in 0.10.2. Stored tool rounds made small, for a database that keeps every question: each call's
+result is replaced by its [`stubResult`](#stubresultcall-result-hadfiles) stand-in when that is
+smaller, and errors and small results stay as they are. It returns copies, and makes the same
+rounds that `storeRounds: "compact"` gives, from rounds stored in full (by 0.10.1 and earlier, or
+by `"full"`). A later question takes them as any stored round: the model sees that the results were
+dropped to make room, and reads again what it needs.
+
+```ts
+// Shrink the stored questions of a chat once it is older than a day.
+for (const turn of await turns.find({ sessionId, createdAt: { $lt: dayAgo } }).toArray()) {
+  await turns.updateOne({ _id: turn._id }, { $set: { toolTurns: compactToolTurns(turn.toolTurns) } });
+}
+```
 
 ### stubResult(call, result, hadFiles?)
 

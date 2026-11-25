@@ -1,7 +1,7 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
-import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
+import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, isTimeLimit, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
@@ -14,10 +14,10 @@ import { formatBytes } from "./plan.js";
 import { measureQuality, type TextQuality } from "./quality.js";
 import { checkScope } from "./scope.js";
 import { absolutePath, isSha256, readRanges, readSource, sha256InSlices, statSource, type SourceRead } from "./source.js";
-import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION } from "./stores.js";
+import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION, usableStoreMethod } from "./stores.js";
 import { buildTextIndexInSlices, canSerialize, serializeTextIndex } from "./text-index.js";
 import { measureText, prepareText, removeInvisible, sliceWhole } from "./text.js";
-import type { DocumentContext, DocumentFormat, DocumentMeta, DocumentScope, DocumentStore, DocumentSummary, ExtractedText, ExtractProgress, Extractor } from "./types.js";
+import type { AppData, DocumentContext, DocumentFormat, DocumentMeta, DocumentScope, DocumentStore, DocumentSummary, ExtractedText, ExtractProgress, Extractor } from "./types.js";
 
 export { checkOwner } from "./access.js";
 
@@ -77,6 +77,10 @@ type Target = {
   readonly scope: DocumentScope | undefined;
   /** The context of every store call of the ingest. */
   readonly context: DocumentContext;
+  /** `IngestInput.appData`, checked and copied (0.10.2). */
+  readonly appData?: AppData;
+  /** `IngestInput.dedupe` (0.10.2). */
+  readonly dedupe: boolean;
 };
 
 /** The TypeError of an `IngestInput.id` of another shape. It does not repeat the ID, which may hold what it must not. */
@@ -91,7 +95,13 @@ function targetOf(input: IngestInput | IngestFromSource, rules: AccessRules): Ta
   const { id, ifExists = "fail" } = input;
   if (id !== undefined && (typeof id !== "string" || !APP_DOCUMENT_ID_PATTERN.test(id))) throw new TypeError(ID_SHAPE);
   if (ifExists !== "fail" && ifExists !== "replace") throw new TypeError('ifExists must be "fail" or "replace".');
-  return { id, ifExists, owner: input.owner, scope, context: storeContext(scope, input.owner) };
+  // Null is none, as a database gives a field that was left out.
+  const given: unknown = input.appData ?? undefined;
+  const appData = given === undefined ? undefined : checkAppData(given, "appData");
+  const dedupe: unknown = input.dedupe ?? false;
+  if (typeof dedupe !== "boolean") throw new TypeError("dedupe must be true or false.");
+  if (dedupe && id !== undefined) throw new TypeError("dedupe and id cannot be given together: an application's ID names its own document.");
+  return { id, ifExists, owner: input.owner, scope, context: storeContext(scope, input.owner), ...(appData !== undefined ? { appData } : {}), dedupe };
 }
 
 /** The refusal of an application's ID that is taken (`ifExists`). It says nothing of the document that has it. */
@@ -119,6 +129,47 @@ async function claim(context: IngestContext, target: Target & { id: string }, na
   checkMetaVersion(found);
   if (heldBy(found, target.owner, target.scope)) return true;
   throw exists(name);
+}
+
+/**
+ * The document of the same owner and scope whose file has this SHA-256 (`IngestInput.dedupe`), as
+ * the store lists them (`list`), when its text is still there: the latest stored, when several
+ * are. Expired documents (as `getMeta` reads the date), and those of a newer version, are not it.
+ * Its expiry is counted again from now when the store can change metadata alone (`patchMeta`), as
+ * `files.touch` does; a document the store then says is gone (deleted meanwhile) is not it either,
+ * and the next one is tried. Undefined when there is none. Each store call is refused at once while too many calls are stuck, and
+ * counts as stuck past `slotCapMs`, as the look-up of an application's ID does. New in 0.10.2.
+ */
+async function sameDocument(context: IngestContext, target: Target, sha256: string): Promise<DocumentMeta | undefined> {
+  const { store, now, ttlMs, maxStuck, slotCapMs } = context;
+  const call = <T>(operation: "read" | "write", run: () => Promise<T>) => watchStuck(storeCall(operation, run, { maxStuck }), slotCapMs);
+  const list = usableStoreMethod(store, "list")!;
+  const listed: unknown = await call("read", () => list.call(store, target.context));
+  const at = now().getTime();
+  const candidates: DocumentMeta[] = [];
+  for (const item of Array.isArray(listed) ? listed : []) {
+    const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
+    if (!meta || typeof meta.id !== "string" || !APP_DOCUMENT_ID_PATTERN.test(meta.id) || meta.sha256 !== sha256 || Date.parse(meta.expiresAt) <= at || !heldBy(meta, target.owner, target.scope)) continue;
+    const version: unknown = meta.metaVersion ?? 0;
+    if (typeof version === "number" && version <= DOCUMENT_META_VERSION) candidates.push(meta);
+  }
+  // The latest first: an older copy may be on its way out.
+  candidates.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
+  for (const meta of candidates) {
+    // Metadata whose text is gone is not a document: a byte of the text, or the whole text from a
+    // store that cannot read a range.
+    const there = typeof store.readTextRange === "function"
+      ? await call("read", () => store.readTextRange!(meta.id, 0, 1, target.context)) !== undefined
+      : await call("read", () => store.get(meta.id, target.context)) !== undefined;
+    if (!there) continue;
+    const patchMeta = usableStoreMethod(store, "patchMeta");
+    if (!patchMeta) return meta;
+    // The document of that `createdAt` only: one deleted and stored again under the ID is not it.
+    const one = { createdAt: meta.createdAt, ...(meta.owner !== undefined ? { owner: meta.owner } : {}), ...(meta.scope !== undefined ? { scope: meta.scope } : {}) };
+    const touched = metaOf(await call("write", () => patchMeta.call(store, meta.id, { ...one, expiresAt: expiryAfter(now(), ttlMs) }, target.context)), meta.id);
+    if (touched && touched.createdAt === meta.createdAt && heldBy(touched, target.owner, target.scope)) return touched;
+  }
+  return undefined;
 }
 
 /**
@@ -319,6 +370,37 @@ function fileOf(extracted: ExtractedText): { bytes: number; sha256: string } | u
  */
 export const NEVER_EXPIRES = "9999-12-31T23:59:59.999Z";
 
+/** The expiry of a document stored, or used, at `at`: `ttlMs` later, or `NEVER_EXPIRES` past what a date can hold. */
+export function expiryAfter(at: Date, ttlMs: number): string {
+  const expires = at.getTime() + ttlMs;
+  return expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString();
+}
+
+/** The most bytes `DocumentMeta.appData` may take, as JSON in UTF-8: 16 KB. New in 0.10.2. */
+export const MAX_APP_DATA_BYTES = 16_384;
+
+/**
+ * `appData` checked, and copied through JSON, as a store that keeps it as JSON gives it back. A
+ * value that is not an object (an array, a string, null), or that JSON cannot write (a BigInt, a
+ * loop), is a TypeError; one larger than `MAX_APP_DATA_BYTES` as JSON, a RangeError. What JSON
+ * leaves out (a function, undefined) is left out. `where` names the option in the message.
+ */
+export function checkAppData(value: unknown, where: string): AppData {
+  const shape = `${where} must be a JSON object, such as { "rowId": "42" }`;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new TypeError(`${shape}.`);
+  let json: unknown;
+  try {
+    json = JSON.stringify(value);
+  } catch (error) {
+    throw new TypeError(`${shape}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  // A toJSON of its own may turn it into something else.
+  if (typeof json !== "string" || !json.startsWith("{")) throw new TypeError(`${shape}.`);
+  const bytes = Buffer.byteLength(json);
+  if (bytes > MAX_APP_DATA_BYTES) throw new RangeError(`${where} takes ${bytes} bytes as JSON; it may take ${MAX_APP_DATA_BYTES}.`);
+  return JSON.parse(json) as AppData;
+}
+
 /** The refusal of a file whose text is larger than `maxTextBytes`. */
 const tooMuchText = (name: string, maxTextBytes: number) =>
   new Error(`${name} holds more than ${formatBytes(maxTextBytes)} of text, more than is kept from one file. Split it, and attach the part you need.`);
@@ -347,6 +429,9 @@ function settleWithin<T>(work: Promise<T>, ms: number, late: () => Error): Promi
  * itself cannot be stopped; it holds no turn.
  */
 function lookWithin<T>(look: Promise<T>, signal: AbortSignal | undefined, ms: number, syscall: "lstat" | "read"): Promise<T> {
+  // Counted as stuck past `ms`, as a store call is, until it ends (0.10.2): a volume that does not
+  // answer holds a thread of the pool either way.
+  watchStuck(look, ms);
   return settleWithin(signal ? untilAborted(look, signal) : look, ms, () =>
     Object.assign(new Error(`The file to ingest did not answer within ${formatDuration(ms)}.`), { code: "ETIMEDOUT", syscall }));
 }
@@ -530,6 +615,11 @@ type IngestWork = {
    * stays held in `ingesting` until they have ended, since they may still land.
    */
   writes?: Promise<unknown>;
+  /**
+   * The document the ingest gives back was stored before, by another ingest (`IngestInput.dedupe`):
+   * it is never removed for this one, whatever happens to it (0.10.2).
+   */
+  reused?: true;
 };
 
 /**
@@ -592,6 +682,8 @@ async function ingestFile(
   let sha256 = "";
   /** The bytes to keep in the store (`putOriginal`), until they are written. */
   let copy: Uint8Array | undefined;
+  /** The size and SHA-256 of a file at a path that its extractor reads, taken before for `dedupe`. */
+  let early: { bytes: number; sha256: string } | undefined;
   /**
    * A read of the file at `path`, or the signal's reason once it aborts. A volume that does not
    * answer within the ingest's time is the server's trouble, not the file's: a system error
@@ -599,6 +691,9 @@ async function ingestFile(
    * read (422, "split it"), since 0.10.0. The ingest keeps its turn until the read ends (`IngestSlot`).
    */
   const readWithin = async <T>(read: Promise<T>): Promise<T> => {
+    // Counted as stuck past the ingest's time, until it ends (0.10.2): only when the ingest has a
+    // time limit (`ingestTimeoutMs`), since a read without one may go on, and still be reading.
+    if (isTimeLimit(ingestTimeoutMs)) watchStuck(read, slotCapMs);
     work.abandoned = read;
     let got: T;
     try {
@@ -637,6 +732,34 @@ async function ingestFile(
       bytes = got.bytes;
       sha256 = got.sha256;
       got = undefined;
+    }
+    // With `dedupe`, the document of the same owner and scope with the same SHA-256 is the answer,
+    // when there is one: the file is hashed first, and not extracted (0.10.2).
+    if (target.dedupe) {
+      if (path === undefined) sha256 = await sha256InSlices(bytes!, slicer);
+      else if (extractorReads) {
+        const got = await readWithin(readSource(path, maxUploadBytes, { keep: false, slicer, signal }));
+        early = { bytes: checkedSize(name, got.size, maxUploadBytes), sha256: got.sha256 };
+        sha256 = got.sha256;
+      }
+      // Within the time the ingest gives its store calls, and the caller's signal: a store that does
+      // not answer fails the ingest, which keeps its turn until the calls end (`IngestWork`).
+      const looking = sameDocument(context, target, sha256);
+      work.abandoned = looking;
+      let same: DocumentMeta | undefined;
+      try {
+        same = await settleWithin(untilAborted(looking, signal), slotCapMs, () => storeTimeout(name, slotCapMs, "read"));
+      } catch (error) {
+        // The ingest's time ran out while the store did not answer: the store's trouble (503), not
+        // a file that takes too long to read (422).
+        if (timedOut(error)) throw storeTimeout(name, ingestTimeoutMs, "read");
+        throw error;
+      }
+      work.abandoned = undefined;
+      if (same) {
+        work.reused = true;
+        return jsonCopy(same);
+      }
     }
     // In a function of its own, so that the text as extracted is let go once it is prepared:
     // the steps after it hold only the prepared text.
@@ -683,11 +806,11 @@ async function ingestFile(
     // Bytes given are hashed once the extractor is done with them, a slice at a time: the extractor
     // is called at once at the ingest's turn, as before 0.9.0, so the ingests of one turn reach it
     // in the order they came, and the SHA-256 is that of the bytes a kept copy holds.
-    if (path === undefined) sha256 = await sha256InSlices(bytes!, slicer);
+    if (path === undefined && !target.dedupe) sha256 = await sha256InSlices(bytes!, slicer);
     if (path !== undefined && extractorReads) {
       // What the extractor read of the file: its size and SHA-256. One that did not say is hashed
       // here, a slice at a time, and nothing of it is kept.
-      let hashed = done.file;
+      let hashed = done.file ?? early;
       if (!hashed) {
         const got = await readWithin(readSource(path, maxUploadBytes, { keep: false, slicer, signal }));
         hashed = { bytes: got.size, sha256: got.sha256 };
@@ -719,7 +842,6 @@ async function ingestFile(
     dispose();
   }
   const created = now();
-  const expires = created.getTime() + ttlMs;
   // Kept by its ref, or as a copy in the store, which has the bytes to write.
   const keepOriginal = byRef ? keeps(format, true) : copy !== undefined;
   // A copy: the outline's headings and the log's timestamps are pieces of the text, and a piece
@@ -754,7 +876,9 @@ async function ingestFile(
     ...quality,
     createdAt: created.toISOString(),
     // Never, for a time to live without end (or one that runs past what a date can hold).
-    expiresAt: expires >= Date.parse(NEVER_EXPIRES) ? NEVER_EXPIRES : new Date(expires).toISOString(),
+    expiresAt: expiryAfter(created, ttlMs),
+    // The application's own, checked when the ingest began. Never sent to the model.
+    ...(target.appData !== undefined ? { appData: target.appData } : {}),
   });
   const savedIndex = index && canSerialize(index) && index.lineCount === meta.lines && index.characters === meta.characters && index.textBytes === meta.textBytes
     ? serializeTextIndex(index)
@@ -880,6 +1004,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
     if (events.active) events.emit({ type: "ingest.start", ...startOf(input, stated?.size) });
     checkOwner(input.owner);
     const target = targetOf(input, context.rules);
+    if (target.dedupe && !usableStoreMethod(context.store, "list")) throw new TypeError("dedupe needs a store with list(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one, or one whose put, get, getMeta or delete was replaced, needs its own list).");
     // The path looked at, as it was made absolute then (the working directory may have changed
     // since); checked again for an input it was not taken from, which throws here.
     const path = quietPath ?? sourcePathOf(input);
@@ -931,14 +1056,21 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
       throw toIngestError(error);
     }
     // Once more, before the document is told stored: a caller that has left by now gets its reason.
-    if (input.signal?.aborted) await removeAbandoned(context, target, meta, work, input.signal.reason);
+    // A document stored before (`dedupe`) is not this ingest's to remove.
+    if (input.signal?.aborted) {
+      if (work.reused) throw input.signal.reason;
+      await removeAbandoned(context, target, meta, work, input.signal.reason);
+    }
     try {
       events.emit({ type: "ingest.finish", document: toDocumentSummary(meta) });
     } catch (error) {
       // The caller never gets the id: the document goes, as on a throw of the listener a moment
-      // earlier, while it is this ingest's own. The listener's error is passed on as it is.
-      await removeOwn(context, target, meta).catch(() => undefined);
-      forget(meta.id);
+      // earlier, while it is this ingest's own (not one stored before, `dedupe`). The listener's
+      // error is passed on as it is.
+      if (!work.reused) {
+        await removeOwn(context, target, meta).catch(() => undefined);
+        forget(meta.id);
+      }
       throw error;
     }
     return meta;
