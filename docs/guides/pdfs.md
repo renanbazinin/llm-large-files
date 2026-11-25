@@ -1016,8 +1016,11 @@ pages the question may show, and one look at a time in the library. Two more:
 - **5 seconds a call.** A page is not started when the time so far and the slowest page so far would
   pass it. The result has `next_page` and the note `…: the others took too long to draw. Call
   view_pages from page N if you need them.`
-- **40 million pixels an image.** pdf.js leaves an image of a page that has more blank: a scan of an
-  A4 page at 600 dpi has 35 million.
+- **40 million pixels an image.** pdf.js leaves blank an image whose own size is more: a scan of an
+  A4 page at 600 dpi has 35 million. The limit does not cover an image's mask, and nothing bounds
+  the memory of one page: about 12 bytes a pixel of its images
+  ([Security](../security.md#pages-drawn-as-images)). For files you do not trust, keep
+  `view_pages` off, or draw in a process of its own with a memory limit.
 
 Drawing holds the server's thread. On Node 24, with unpdf 2.1.0 and @napi-rs/canvas 1.1.0, the first
 page of the process took 0.2 to 0.5 s after 0.55 to 0.6 s of loading, and later pages 0.09 to 0.18

@@ -36,7 +36,8 @@ declare function anthropic(options: AnthropicOptions): ModelAdapter;
 
 A Claude model, as a [`ModelAdapter`](./ask.md#modeladapter) for
 [`askWithFiles`](./ask.md#askwithfilesoptions): the model that answers, or the `explorer`. It makes
-no request when it is created and throws nothing. The options are in
+no request when it is created. It throws only for a `documents` value that is not valid (since
+0.99.9): a `TypeError` (a `RangeError` for a limit out of range). The options are in
 [`AnthropicOptions`](#anthropicoptions-1).
 
 The adapter it returns:

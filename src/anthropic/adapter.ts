@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
-import { documentsOption, messageFileKind } from "../native.js";
+import { documentsOption, messageFiles } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
@@ -366,8 +366,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
     return joined(messages.flatMap((message): AnthropicMessage[] => {
       if (message.role !== "tools") {
         // Its files first (since 0.99.9): a PDF as a document block, an image as an image block.
-        const given = message.files ?? [];
-        for (const file of given) messageFileKind("anthropic()", file);
+        const given = messageFiles("anthropic()", message);
         // The API refuses an empty text block.
         return [{ role: message.role, content: [...given.map(fileBlock), ...message.parts.flatMap((part): Block[] => (part.native !== undefined ? [part.native as Block] : part.text ? [{ type: "text", text: part.text }] : []))] }];
       }

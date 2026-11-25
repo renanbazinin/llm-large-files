@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
-import { documentsOption, messageFileKind } from "../native.js";
+import { documentsOption, messageFiles } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
@@ -262,8 +262,7 @@ function filePart(file: ToolFile): Record<string, unknown> {
  * an image as `image_url`; a file of another type is a TypeError.
  */
 function textMessage(message: ModelTextMessage): OpenAiMessage {
-  const files = message.files ?? [];
-  for (const file of files) messageFileKind("openAiCompatible()", file);
+  const files = messageFiles("openAiCompatible()", message);
   const plain = message.parts.every((part) => part.native === undefined);
   if (files.length === 0 && plain) return { role: message.role, content: textOf(message) };
   // With files, text alone is the one part the string would have been.

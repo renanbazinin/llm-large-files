@@ -201,8 +201,8 @@ export type DocumentHandlerOptions = {
    * the library's `storeTimeoutMs` (since 0.10.0): past it, it goes on alone, and the upload is
    * answered all the same. A document `dedupe` gave back (`reused`) is never deleted (0.99.9): it
    * was stored before, by another upload. An upload given a document whose own upload is still in
-   * this hook waits for it, and is answered 409 without this hook when that hook failed and deleted
-   * the document (within one process). New in 0.9.0.
+   * this hook waits for it (at most 30 s, while its client stays), and is answered 409 without this
+   * hook when that hook failed, or the document is gone (within one process). New in 0.9.0.
    */
   onUploaded?: (document: DocumentMeta, context: UploadedContext) => UploadedResult | Promise<UploadedResult>;
   /**
@@ -351,8 +351,31 @@ function systemErrorCode(error: unknown): string | undefined {
 
 /** What the handlers answer a scope that is gone (`DocumentScopeError` "scope_missing"): the chat was deleted. */
 const CHAT_GONE = "This chat no longer exists.";
-/** The answer of an upload that `dedupe` gave a document whose own upload then failed (0.99.9). */
-const SAME_FILE_FAILED = "The same file was being uploaded at the same time, and that upload failed. Send the file again.";
+/** The answer of an upload that `dedupe` gave a document whose own upload then failed, or removed it (0.99.9). */
+const SAME_FILE_FAILED = "The same file was being uploaded at the same time, and that upload did not keep it. Send the file again.";
+/**
+ * The most an upload that `dedupe` gave a document waits for the `onUploaded` of the upload that
+ * stored it (0.99.9): 30 seconds, the library's default `storeTimeoutMs`. Past it, the document is
+ * given out if it is still there.
+ */
+const REUSED_WAIT_MS = 30_000;
+
+/** What `promise` gives, or undefined past `ms` or once `signal` aborts, whichever comes first. */
+function waitFor<T>(promise: Promise<T>, ms: number, signal: AbortSignal): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    const done = (value: T | undefined) => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", stop);
+      resolve(value);
+    };
+    const stop = () => done(undefined);
+    const timer = setTimeout(stop, ms);
+    timer.unref?.();
+    if (signal.aborted) return stop();
+    signal.addEventListener("abort", stop, { once: true });
+    promise.then(done, stop);
+  });
+}
 
 /**
  * An error as the handlers answer it, `failed` saying what failed ("Upload failed"). See
@@ -1003,9 +1026,11 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           // deletes the document when it fails. A document gone by then is not given out.
           if (reusedHere(meta)) {
             const first = firstUploads.get(meta.id);
-            const lost = first !== undefined
-              ? !(await first)
-              : options.onUploaded !== undefined && await Promise.resolve().then(() => files.getMeta(meta.id, caller)).then((found) => found === undefined, () => false);
+            // Waited for at most REUSED_WAIT_MS, and no longer than this upload's client stays.
+            const kept = first === undefined ? undefined : await waitFor(first, REUSED_WAIT_MS, gone.signal);
+            // A hook that returned may have removed the document itself: it is looked for too.
+            const lost = kept === false || (options.onUploaded !== undefined
+              && await Promise.resolve().then(() => files.getMeta(meta.id, caller)).then((found) => found === undefined, () => false));
             if (lost) return { failure: new HttpError(409, SAME_FILE_FAILED) };
             return uploaded(meta, request, caller, gone.signal.aborted, saved, true);
           }

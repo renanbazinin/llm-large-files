@@ -2,7 +2,7 @@
 // adapter is given and declares, checked; what every model of a question shares; which documents
 // are visual; and the file and the line the loop sends before the text of the documents. The text
 // always goes too: citations, counts and the tools work from it.
-import type { ModelAdapter } from "./model.js";
+import type { ModelAdapter, ModelTextMessage } from "./model.js";
 import type { DocumentMeta, NativeDocumentFormat, ToolFile } from "./types.js";
 
 /** The most bytes of one file sent as it is, unless the capability says otherwise: 4 MiB. New in 0.99.9. */
@@ -115,6 +115,20 @@ export function nativeFilesLine(names: readonly string[]): string {
 
 /** The image types a turn of a message may carry to OpenAI and Claude. */
 const MESSAGE_IMAGE_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/**
+ * The files of a turn (`ModelTextMessage.files`) for an adapter of OpenAI or Claude, each checked
+ * with `messageFileKind`. Files go only in a turn of the user: these APIs take none from the
+ * assistant, so a turn of the assistant with files is a TypeError, before anything is sent.
+ */
+export function messageFiles(adapter: string, message: ModelTextMessage): ToolFile[] {
+  const files = message.files ?? [];
+  if (files.length > 0 && message.role !== "user") {
+    throw new TypeError(`${adapter}: files go only in a turn of the user, and a turn of the assistant has ${files.length === 1 ? "one" : files.length}.`);
+  }
+  for (const file of files) messageFileKind(adapter, file);
+  return files;
+}
 
 /**
  * How an adapter of OpenAI or Claude sends a file of a message (`ModelTextMessage.files`): "pdf"

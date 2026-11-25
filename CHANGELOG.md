@@ -96,8 +96,8 @@ mock of the library or of the upload handlers needs the members that are now req
   gives back the document stored before (`UploadedContext.reused`), and the file saved for that
   upload is removed. The application's data comes from the server, never from the client as sent,
   and is checked before the body is read. The `onUploaded` of a reused upload never deletes the
-  document. An upload given a document whose own `onUploaded` is still running waits for it, and
-  is answered `409` when that hook failed and deleted it
+  document. An upload given a document whose own `onUploaded` is still running waits for it (at
+  most 30 seconds), and is answered `409` when that hook failed or the document is gone
   ([Web app](docs/guides/web-app.md#the-same-file-twice-and-your-own-data-dedupe-and-appdata)).
 - **`openAiResponses()`** in `llm-large-files/openai` (A1): a model behind OpenAI's Responses API,
   for OpenAI's reasoning models with tools, which reason while they call the document tools.
@@ -135,7 +135,8 @@ mock of the library or of the upload handlers needs the members that are now req
   vLLM, DeepSeek and other servers that read images. `view_pages` then sends each page as a JPEG
   of 1,568 pixels on its longest side (`PAGE_IMAGE_SIDE`), drawn with unpdf 2 and the optional
   `@napi-rs/canvas`, which need Node 24. A look draws at most 5 pages, within the bytes left and 5
-  seconds, and timers and other requests run between two pages. An adapter of your own says what
+  seconds (a page under way is not cut short), and timers and other requests run between two pages.
+  Nothing bounds the memory of one page: keep `view_pages` off for files you do not trust. An adapter of your own says what
   it takes with `capabilities.toolFileTypes`: the loop sends a PDF when every model takes one,
   else a JPEG, else a PNG. `openAiResponses()` with a `toolFilePlacement` takes both
   ([Pages as images](docs/guides/pdfs.md#pages-as-images)).
@@ -152,7 +153,9 @@ mock of the library or of the upload handlers needs the members that are now req
   `DEFAULT_NATIVE_PAGES`, for loops and adapters of your own. Evidence has an entry with
   `tool: "original"` for a file sent as it is. Files an application puts in `ModelTextMessage.files`
   go first in their turn: each built-in adapter sends a PDF or an image, and throws a `TypeError`
-  for a type it cannot send (`gemini()` sends any type as `inlineData`).
+  for a type it cannot send (`gemini()` sends any type as `inlineData`). Files belong in a turn of
+  the user: `openAiCompatible()`, `openAiResponses()` and `anthropic()` throw a `TypeError` for
+  files in a turn of the assistant.
 - `@napi-rs/canvas` (`^0.1.69 || ^1.0.0`) is a new optional peer dependency, needed only for page
   images.
 

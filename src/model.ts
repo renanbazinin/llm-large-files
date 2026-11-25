@@ -27,7 +27,9 @@ export type ModelPart = { text: string; native?: undefined } | { native: unknown
  * visual files, `ModelCapabilities.documents`) only when every model of the question declares
  * `documents`; files you put in a message are passed on as they are. Every built-in adapter sends
  * the files it can take (a PDF or an image; `gemini()` any type, as `inlineData`) and throws a
- * `TypeError` for one it cannot. An adapter of your own that does not read `files` drops them.
+ * `TypeError` for one it cannot. Files belong in a turn of the user: `openAiCompatible()`,
+ * `openAiResponses()` and `anthropic()` throw a `TypeError` for files in a turn of the assistant.
+ * An adapter of your own that does not read `files` drops them.
  */
 export type ModelTextMessage = { role: "user" | "assistant"; parts: ModelPart[]; files?: ToolFile[] };
 

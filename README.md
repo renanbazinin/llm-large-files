@@ -228,11 +228,13 @@ setInterval(() => files.sweep().catch(console.error), 60 * 60 * 1000).unref(); /
 ```
 
 `unpdf` reads the text of a PDF, and `@cantoo/pdf-lib` cuts its pages. With `askWithFiles`,
-`view_pages` is offered only when every model of the question can be sent a file: `gemini()` and
-`anthropic()` can by default, `openAiCompatible()` only with `pdfInput: true`. So the question
-above, with DeepSeek exploring, is not offered `view_pages` at all. A model that reads images and
-no PDF gets each page as an image with `openAiCompatible({ imageInput: true })`, on Node 24 with
-`unpdf` 2 and `@napi-rs/canvas` ([Pages as images](docs/guides/pdfs.md#pages-as-images)).
+`view_pages` is offered only when every model of the question can be sent the same kind of file:
+`gemini()` and `anthropic()` take PDF by default, `openAiCompatible()` only with `pdfInput: true`.
+So the question above, with DeepSeek exploring, is not offered `view_pages` at all. When every
+model of the question reads images and no PDF, each page goes as an image with
+`openAiCompatible({ imageInput: true })`, on Node 24 with `unpdf` 2 and `@napi-rs/canvas`
+([Pages as images](docs/guides/pdfs.md#pages-as-images)). Next to `gemini()` or `anthropic()`,
+which take PDF, no kind of file is shared, and `view_pages` is still not offered.
 
 Asked which bar of a chart is tallest, `gemini-3.5-flash-lite` said from the text that it could
 not see the chart; with `view_pages` it looked at the page and answered correctly. It did not look

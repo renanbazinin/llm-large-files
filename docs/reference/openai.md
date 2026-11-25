@@ -38,7 +38,8 @@ declare function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapte
 
 A model behind a Chat Completions endpoint, as a [`ModelAdapter`](./ask.md#modeladapter) for
 [`askWithFiles`](./ask.md#askwithfilesoptions): the model that answers, or the `explorer`. It makes
-no request when it is created and throws nothing. The options are in
+no request when it is created. It throws only for a `documents` value that is not valid (since
+0.99.9): a `TypeError` (a `RangeError` for a limit out of range). The options are in
 [`OpenAiCompatibleOptions`](#openaicompatibleoptions-1).
 
 The adapter it returns:
@@ -288,8 +289,9 @@ as a [`ModelAdapter`](./ask.md#modeladapter) for [`askWithFiles`](./ask.md#askwi
 the model that answers, or the `explorer`. Use it for OpenAI's reasoning models with tools, which
 reason while they call the document tools: OpenAI points to this API for reasoning, tool calls and
 conversations of several turns, and its reasoning guide says that Chat Completions does not support
-function calling with some of its newer models. It makes no request when it is created and throws
-nothing. The options are in [`OpenAiResponsesOptions`](#openairesponsesoptions-1).
+function calling with some of its newer models. It makes no request when it is created. It throws
+only for a `documents` value that is not valid: a `TypeError` (a `RangeError` for a limit out of
+range). The options are in [`OpenAiResponsesOptions`](#openairesponsesoptions-1).
 
 It was built from OpenAI's API reference and guides and Azure OpenAI's Responses page (read November
 2026), and tested against fake servers. It has not been run against OpenAI or Azure.

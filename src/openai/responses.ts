@@ -3,7 +3,7 @@
 // items of the question included.
 import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, until, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import type { ModelAdapter, ModelMessage, ModelReply, ModelRequest, ModelTextMessage, ModelToolRound, SendHooks, ToolCall } from "../model.js";
-import { documentsOption, messageFileKind } from "../native.js";
+import { documentsOption, messageFiles } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import type { DocumentsCapability, GenerateText, GenerateUsage, ToolFile } from "../types.js";
@@ -177,8 +177,7 @@ function fileContent(file: ToolFile): Json {
  * `input_image`; a file of another type is a TypeError.
  */
 function textItem(message: ModelTextMessage): Json {
-  const files = message.files ?? [];
-  for (const file of files) messageFileKind("openAiResponses()", file);
+  const files = messageFiles("openAiResponses()", message);
   const plain = message.parts.every((part) => part.native === undefined);
   if (files.length === 0 && plain) return { role: message.role, content: textOf(message) };
   const type = message.role === "assistant" ? "output_text" : "input_text";
@@ -248,7 +247,8 @@ function finishOfResponses(status: unknown, reason: unknown): ModelReply["finish
  * A model behind OpenAI's Responses API, or Azure OpenAI's, for `askWithFiles`: the model that
  * answers, or the explorer. Its requests are stateless: each sends `store: false` and the whole
  * conversation, and the reasoning items of the question go back with their encrypted content. It
- * makes no request when it is created, and throws nothing. New in 0.99.9.
+ * makes no request when it is created, and throws only for a `documents` value that is not valid.
+ * New in 0.99.9.
  */
 export function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter {
   const fetchImpl = options.fetch ?? fetch;

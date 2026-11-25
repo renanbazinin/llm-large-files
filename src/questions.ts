@@ -389,11 +389,15 @@ export function createQuestionRegistry(options: QuestionRegistryOptions = {}): Q
 
 /**
  * The bytes of a file in the messages (`ModelTextMessage.files`), as their SHA-256 in the
- * fingerprint: JSON would write each byte as a key of its own, many times the file's size.
+ * fingerprint: JSON would write each byte as a key of its own, many times the file's size. The
+ * value is read from its holder, as it was before its `toJSON`: a Buffer's writes every byte, and
+ * the same bytes in a Buffer and in a Uint8Array are the same question.
  */
-function bytesHashed(_key: string, value: unknown): unknown {
-  if (!ArrayBuffer.isView(value)) return value;
-  const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+function bytesHashed(this: unknown, key: string, value: unknown): unknown {
+  const own = (this as Record<string, unknown>)[key];
+  const view = ArrayBuffer.isView(own) ? own : value;
+  if (!ArrayBuffer.isView(view)) return value;
+  const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
   return { sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.byteLength };
 }
 

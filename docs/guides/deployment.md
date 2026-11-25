@@ -696,7 +696,9 @@ Pages drawn as images, for a model without PDF input (0.99.9), also run on the c
 same turns: pdf.js reads the original, and each page is drawn on a canvas of `@napi-rs/canvas`,
 0.1 to 0.5 s a page on Node 24, with timers and other requests run between two pages. The first
 look of a process also loads pdf.js and the canvas, about 0.6 s. Drawing decodes the images of a
-page: up to 160 MB for an image of 40 million pixels, the largest pdf.js draws
+page, about 12 bytes a pixel: some 480 MB for an image of 40 million pixels, and more for a page
+of several images or an image with a large mask, which no limit bounds. Size the memory of a
+server that draws pages of untrusted files for that, or keep `view_pages` off for them
 ([Security](../security.md#pages-drawn-as-images), [measured](../measurements.md#pages-drawn-as-images-0999)).
 
 ## Sweeping expired documents

@@ -13,8 +13,9 @@ export const PAGE_IMAGE_SIDE = 1_568;
 /** The JPEG quality of a page image. */
 export const PAGE_IMAGE_QUALITY = 0.85;
 /**
- * pdf.js draws no image of a page that has more pixels than this (`maxImageSize`): it leaves it
- * blank. A 600 dpi scan of an A4 page has 35 million.
+ * pdf.js leaves blank an image whose own width times height is more than this (`maxImageSize`). A
+ * 600 dpi scan of an A4 page has 35 million. It does not look at the image's mask, which pdf.js
+ * decodes whole: this bounds no page.
  */
 export const MAX_SOURCE_IMAGE_PIXELS = 40_000_000;
 /**
@@ -100,7 +101,7 @@ async function backendOf(importers: RenderImporters): Promise<RenderBackend> {
             return drawn instanceof Uint8Array ? drawn : new Uint8Array(drawn);
           } finally {
             // pdf.js keeps the decoded images of a page it drew until the page is cleaned up: without
-            // this, a call held those of every page it drew (up to 160 MB an image) until the file
+            // this, a call held those of every page it drew (about 12 bytes a pixel) until the file
             // was closed, not those of one page at a time.
             await proxy.getPage(page).then((drawnPage) => drawnPage.cleanup?.()).catch(() => undefined);
           }

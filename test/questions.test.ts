@@ -237,8 +237,10 @@ describe("createQuestionRegistry", () => {
     });
     const started = performance.now();
     const first = await registry.ask(withFile(big));
-    // The same bytes in another array: the same question, answered from what was kept.
+    // The same bytes in another array, or in a Buffer (as readFile gives them): the same
+    // question, answered from what was kept.
     expect(await registry.ask(withFile(big.slice()))).toEqual(first);
+    expect(await registry.ask(withFile(Buffer.from(big)))).toEqual(first);
     expect(model.requests).toHaveLength(1);
     // Other bytes under the same ID: another question.
     const other = big.slice();

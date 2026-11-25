@@ -844,14 +844,19 @@ call, and it decodes every image of a page to draw it. What bounds it:
 - **Objects.** A file that declares more than 1,000,000 objects, or more than 60% of the free heap
   holds, is refused before pdf.js reads it, as for a cut.
 - **Pixels.** Each page is drawn on a canvas of at most 1,568 pixels a side, about 10 MB. pdf.js
-  draws no image of a page that has more than 40 million pixels (`maxImageSize`): it leaves it
-  blank. A smaller one is decoded whole, up to 160 MB for 40 million pixels in RGBA.
+  leaves blank an image whose own width times height is over 40 million pixels (`maxImageSize`).
+  That limit does not look at the image's soft mask or mask: pdf.js decodes a mask whole and draws
+  the image at the mask's size, so a small image with a large mask is decoded at any size (a page
+  of 62 KB took 0.9 GB and held the thread 5 s). Decoding takes about 12 bytes a pixel: 435 MB for
+  an image of 36 million pixels, measured. The images of one page are held together until it is
+  drawn (ten of 36 million pixels: 1.9 GB, 15 s). Nothing bounds the memory or the time of one
+  page.
 - **Time.** A call starts no page once the time so far and its slowest page would pass 5 seconds.
   On Node 24, a page of the test PDFs took 0.09 to 0.5 s to draw, and the event loop went without a
   turn for 0.37 s at most ([measured](./measurements.md#pages-drawn-as-images-0999)). Timers and
-  other requests run between two pages. A page that paints many large images holds the thread for as long as decoding them
-  takes: the 5 seconds do not cut a page short, and the question's `signal` stops a look only
-  between two pages.
+  other requests run between two pages. A page that paints large images holds the thread for as
+  long as decoding them takes: the 5 seconds do not cut a page short, the first page of a call is
+  always drawn, and the question's `signal` stops a look only between two pages.
 - **Errors** are caught: the model is told why the pages cannot be shown, and answers from the text.
 
 For the files of users you do not trust, do not offer `view_pages` (`viewPages: false`), or answer

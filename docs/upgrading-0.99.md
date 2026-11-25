@@ -241,7 +241,8 @@ Owner checks change who may call them (above). The rest is new and optional:
   document stored before, and `onUploaded` is told `reused: true`: do not record it twice. Such a
   document is never deleted by the handlers, even when `onUploaded` throws, and the file saved to
   `path` for that upload is removed. An upload given a document whose own upload is still in its
-  `onUploaded` waits for it, and is answered `409` when that hook failed and deleted it. `appData`
+  `onUploaded` waits for it (at most 30 seconds), and is answered `409` when that hook failed or
+  the document is gone. `appData`
   is checked before the body is read, kept in the metadata, and never answered. Build both on the server, not from what the client sent
   ([Web app](./guides/web-app.md#the-same-file-twice-and-your-own-data-dedupe-and-appdata)).
 

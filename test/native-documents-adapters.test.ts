@@ -120,6 +120,32 @@ describe("openAiResponses()", () => {
   });
 });
 
+describe("files in a turn of the assistant", () => {
+  it("are a TypeError in the adapters of OpenAI and Claude, before any request; gemini() sends them", async () => {
+    const request: ModelRequest = {
+      system: "",
+      messages: [
+        { role: "user", parts: [{ text: "Draw it." }] },
+        { role: "assistant", parts: [{ text: "Here." }], files: [PHOTO] },
+        { role: "user", parts: [{ text: "Thanks." }] },
+      ],
+    };
+    const cases = [
+      ["openAiCompatible()", (fetch: typeof globalThis.fetch) => openAiCompatible({ model: "m", fetch, imageInput: true })],
+      ["openAiResponses()", (fetch: typeof globalThis.fetch) => openAiResponses({ model: "m", fetch })],
+      ["anthropic()", (fetch: typeof globalThis.fetch) => anthropic({ apiKey: "k", model: "claude-opus-5-5", fetch })],
+    ] as const;
+    for (const [name, make] of cases) {
+      const server = fakeFetch([openAiReply()]);
+      await expect(make(server.fetch).send(request)).rejects.toThrow(new TypeError(`${name}: files go only in a turn of the user, and a turn of the assistant has one.`));
+      expect(server.sent, name).toHaveLength(0);
+    }
+    const server = fakeFetch([geminiReply()]);
+    await gemini(geminiApi({ apiKey: "k", model: "gemini-3.8-flash" }), { fetch: server.fetch }).send(request);
+    expect(server.sent).toHaveLength(1);
+  });
+});
+
 describe("the documents option", () => {
   it("is checked when the adapter is made, with messages that say what is wrong", () => {
     const endpoint = geminiApi({ apiKey: "k", model: "gemini-3.8-flash" });

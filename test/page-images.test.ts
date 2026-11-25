@@ -234,6 +234,13 @@ describe("loadRenderBackend", () => {
     await expect(loadRenderBackend({ unpdf: async () => module, canvas: () => Promise.reject(notFound("@napi-rs/canvas")) })).rejects.toThrow('Showing pages as images needs the optional dependency "@napi-rs/canvas".');
     await expect(loadRenderBackend({ unpdf: async () => module, canvas: () => Promise.reject(new Error("libstdc++.so.6: cannot open shared object file\nmore")) }))
       .rejects.toThrow('The optional dependency "@napi-rs/canvas" is installed but could not be loaded (libstdc++.so.6: cannot open shared object file). Reinstall it, or install a version this Node can run.');
+    // The canvas is there, but not its binary for this platform (a node_modules copied from
+    // another one): its loader names its own packages and its folder, never "@napi-rs/canvas".
+    const binary = Object.assign(new Error("Cannot find module './skia.linux-x64-gnu.node'\nRequire stack:\n- /app/node_modules/@napi-rs/canvas/js-binding.js"), { code: "MODULE_NOT_FOUND" });
+    const platform = Object.assign(new Error("Cannot find module '@napi-rs/canvas-linux-x64-gnu'"), { code: "MODULE_NOT_FOUND", cause: binary });
+    const native = new Error("Cannot find native binding. npm has a bug related to optional dependencies.", { cause: platform });
+    await expect(loadRenderBackend({ unpdf: async () => module, canvas: () => Promise.reject(native) }))
+      .rejects.toThrow('The optional dependency "@napi-rs/canvas" is installed but could not be loaded (Cannot find native binding. npm has a bug related to optional dependencies.).');
   });
 
   it("draws with unpdf 2 and the canvas it was given, and closes the file through its loading task", async () => {

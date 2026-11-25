@@ -206,7 +206,7 @@ describe("prepareUpload's dedupe", () => {
       open();
       expect((await first).status).toBe(409);
       const answer = await again;
-      const failed = "The same file was being uploaded at the same time, and that upload failed. Send the file again.";
+      const failed = "The same file was being uploaded at the same time, and that upload did not keep it. Send the file again.";
       if (events) {
         const streamed = await answer.text();
         expect(streamed).toContain('"type":"ingest.error"');
@@ -219,6 +219,66 @@ describe("prepareUpload's dedupe", () => {
       expect(contexts).toHaveLength(1);
       expect(await files.list({ owner: "alice" })).toEqual([]);
     }
+  });
+
+  it("answers 409 to an upload that waited when the first upload's onUploaded removed the document and returned", async () => {
+    const { files, served } = spied();
+    const contexts: UploadedContext[] = [];
+    let open: () => void = () => undefined;
+    const base = await serve(served, {
+      getOwner: userOf,
+      prepareUpload: () => ({ dedupe: true }),
+      onUploaded: async (document, context) => {
+        contexts.push(context);
+        if (context.reused) return;
+        await new Promise<void>((resolve) => {
+          open = resolve;
+        });
+        // "Record it, or remove it, as your app needs": this one removes it.
+        await files.delete(document.id, { owner: context.owner });
+      },
+    });
+    const first = upload(base, "The meeting is on Tuesday.");
+    await vi.waitFor(() => expect(contexts).toHaveLength(1));
+    const again = upload(base, "The meeting is on Tuesday.", "copy.txt");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    open();
+    expect((await first).status).toBe(201);
+    const answer = await again;
+    expect(answer.status).toBe(409);
+    expect(contexts).toHaveLength(1);
+  });
+
+  it("stops waiting for the first upload's onUploaded when the waiting upload's client leaves", async () => {
+    const { served } = spied();
+    const contexts: UploadedContext[] = [];
+    let open: () => void = () => undefined;
+    const documents = createDocumentHandlers(served, {
+      getOwner: userOf,
+      prepareUpload: () => ({ dedupe: true }),
+      onUploaded: async (_document, context) => {
+        contexts.push(context);
+        if (context.reused) return;
+        await new Promise<void>((resolve) => {
+          open = resolve;
+        });
+      },
+    });
+    server = createServer((request, response) => void documents.upload(request, response));
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(server!.address() as AddressInfo).port}/api/documents`;
+    const first = upload(base, "The meeting is on Tuesday.");
+    await vi.waitFor(() => expect(contexts).toHaveLength(1));
+    const leaving = new AbortController();
+    const again = fetch(base, { method: "POST", headers: { "X-File-Name": "copy.txt", ...ALICE }, body: "The meeting is on Tuesday.", signal: leaving.signal }).catch(() => undefined);
+    await vi.waitFor(() => expect(documents.stats().uploadsInFlight).toBe(2));
+    leaving.abort();
+    await again;
+    // The upload that left ends without waiting for the first hook: its own hook runs, told so.
+    await vi.waitFor(() => expect(documents.stats().uploadsInFlight).toBe(1));
+    expect(contexts.map((context) => [context.reused, context.clientGone])).toEqual([[undefined, false], [true, true]]);
+    open();
+    expect((await first).status).toBe(201);
   });
 
   it("gives the document to an upload that waited, once its own upload's onUploaded kept it", async () => {

@@ -413,11 +413,12 @@ const documents = createDocumentHandlers(files, {
 - **A reused document is never deleted by the handlers**, even when `onUploaded` throws: it was
   stored before, by another upload. The upload is answered with the hook's error all the same.
 - **The same file twice at once:** an upload given a document whose own upload is still in its
-  `onUploaded` waits for that hook. When the hook fails, it deletes its document, and the upload
-  that waited is answered `409` "The same file was being uploaded at the same time, and that upload
-  failed. Send the file again.", without its own `onUploaded`. The wait is within one process:
-  with several servers, an upload on another one can still be given a document that is deleted
-  right after.
+  `onUploaded` waits for that hook, for at most 30 seconds and while its client stays. When the
+  hook failed, it deleted its document; a hook may also remove it and return. Either way the
+  upload that waited is answered `409` "The same file was being uploaded at the same time, and that
+  upload did not keep it. Send the file again.", without its own `onUploaded`. Past the 30 seconds
+  the document is given out if it is still there. The wait is within one process: with several
+  servers, an upload on another one can still be given a document that is deleted right after.
 - **The file saved to `path`** for an upload that gave back a document stored before is removed
   before `onUploaded`, and its `path` is not told: no document refers to it.
 - **`appData`**: a JSON object of at most 16 KB (`MAX_APP_DATA_BYTES`), checked before the body is
