@@ -271,7 +271,6 @@ import from.
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
 | `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses, `prepareUpload` and `uploadSpool`; `createIsolatedExtractors`, files read in child processes; `fileOriginals`, the uploads your application keeps, read back by their ref; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
 | `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents; `documentStoreChecks`, the checks of a store of your own |
-| `llm-large-files/ai-sdk` | [AI SDK](./reference/ai-sdk.md) | New in 0.99.9. `aiSdkTools`, the tools of a question for the AI SDK 7; `compactToolResults` for `prepareStep`; `uiMessageStreamOf`, events as the AI SDK UI stream; `aiSdkGenerateText` |
 | `llm-large-files/mcp` | [MCP](./reference/mcp.md) | New in 0.99.9. `registerLargeFilesTools`, the document tools on an MCP server; `mcpProgress`, events as MCP progress |
 
 ## Internals and measurements

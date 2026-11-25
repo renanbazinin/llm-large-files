@@ -318,7 +318,6 @@ Reference, one page per module:
 - [`llm-large-files/anthropic`](docs/reference/anthropic.md): `anthropic()` and its options.
 - [`llm-large-files/node`](docs/reference/node.md): `createDocumentHandlers`, its routes and responses, `createIsolatedExtractors`.
 - [`llm-large-files/testing`](docs/reference/testing.md): `fakeModel` and `fakeFetch`, for your tests (new in 0.9.0).
-- [`llm-large-files/ai-sdk`](docs/reference/ai-sdk.md): the tools for the AI SDK 7, and its UI stream (new in 0.99.9).
 - [`llm-large-files/mcp`](docs/reference/mcp.md): the document tools on an MCP server (new in 0.99.9).
 
 [Changelog](CHANGELOG.md): what each version changed, and what to change in your code when you upgrade.

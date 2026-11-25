@@ -1,7 +1,7 @@
 # API reference
 
 The API reference is no longer one page. It is split by module of the package: one page for each
-of the seven other entry points, and four for the main entry, `llm-large-files`. This page keeps the headings of the old
+of the six other entry points, and four for the main entry, `llm-large-files`. This page keeps the headings of the old
 page, so that links to them still work, and each one points to its new home. The guides that
 explain each task are listed in the [documentation index](./README.md).
 
@@ -13,7 +13,6 @@ explain each task are listed in the [documentation index](./README.md).
 | `llm-large-files/anthropic` | [Claude: `anthropic()`](./reference/anthropic.md) |
 | `llm-large-files/node` | [Node HTTP handlers: `createDocumentHandlers`](./reference/node.md) |
 | `llm-large-files/testing` | [Testing: `fakeModel`, `fakeFetch`, `documentStoreChecks`](./reference/testing.md) |
-| `llm-large-files/ai-sdk` | [AI SDK: `aiSdkTools`, `compactToolResults`, `uiMessageStreamOf`](./reference/ai-sdk.md) |
 | `llm-large-files/mcp` | [MCP: `registerLargeFilesTools`, `mcpProgress`](./reference/mcp.md) |
 
 ## `llm-large-files`

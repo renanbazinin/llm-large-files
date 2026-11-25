@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest";
 const ALLOWED_PACKAGES = new Set(["@cantoo/pdf-lib", "jszip", "unpdf"]);
 // Optional peers that only one folder under src/ may import: each entry point owns its peer.
 const FOLDER_PACKAGES = new Map<string, string>([
-  ["ai", "ai-sdk/"],
   ["@modelcontextprotocol/server", "mcp/"],
 ]);
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");

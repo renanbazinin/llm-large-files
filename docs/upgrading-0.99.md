@@ -25,8 +25,8 @@ kept for one version in 0.10.0 are removed. Everything else is new and optional.
 ## Requirements
 
 <!-- skeleton: Node and @types/node unchanged (22.12); the optional peers and their ranges (jszip,
-unpdf, @cantoo/pdf-lib unchanged; new: ai for llm-large-files/ai-sdk, @modelcontextprotocol/server
-for llm-large-files/mcp, @napi-rs/canvas for page images); eight entry points. -->
+unpdf, @cantoo/pdf-lib unchanged; new: @modelcontextprotocol/server for llm-large-files/mcp,
+@napi-rs/canvas for page images); seven entry points. -->
 
 - **What a store holds is unchanged.** `DocumentMeta` keeps `metaVersion: 1`, `ToolTurn` keeps
   `version: 1`, and the files of `FileDocumentStore` keep their names and format. Servers of 0.10.x
@@ -307,7 +307,6 @@ without them.
 - **Does my code compile?** Yes. Only a type built from `keyof EventBase` or `keyof AskResult` sees
   a new optional key, `questionId`.
 
-<!-- aisdk: llm-large-files/ai-sdk; examples for LangChain.js/LangGraph, the OpenAI Agents SDK, Google ADK. -->
 <!-- MCP (removable): llm-large-files/mcp, one entry. -->
 
 ### The OpenAI Responses API

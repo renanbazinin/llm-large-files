@@ -42,7 +42,7 @@ The candidate for 1.0, without a promise yet that the API stays as it is: versio
 rules of 0.x versions. Every call names its owner by default, the options 0.10.0 kept for one
 version are removed, and the stored shapes are tested across versions. New and optional: the OpenAI
 Responses API, page images for models without PDF input, small visual files sent as themselves,
-question IDs for requests sent again, the AI SDK, and an MCP server helper.
+question IDs for requests sent again, and an MCP server helper.
 [Upgrading to 0.99](docs/upgrading-0.99.md) takes an application from 0.10.x step by step.
 
 ### Upgrading: what you need to change
@@ -124,7 +124,7 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
   memory, one registry per process ([Question IDs](docs/reference/ask.md#question-ids),
   [When the stream breaks](docs/guides/web-app.md#when-the-stream-breaks-a-question-id)).
 
-<!-- visual, aisdk, MCP (removable) -->
+<!-- visual, MCP (removable) -->
 
 ### Changed: what works differently
 
